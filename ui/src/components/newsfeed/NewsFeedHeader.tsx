@@ -13,6 +13,7 @@ import {
   Building2,
   Tag,
   Clock,
+  Settings,
 } from 'lucide-react';
 import { type NewsFeedConfig, type Topic, type OrganizationalProfile, type AIModel } from '../../hooks/useNewsFeed';
 import { type NarrativeExplorerConfig } from '../../hooks/useNarrativeExplorer';
@@ -37,6 +38,7 @@ interface NewsFeedHeaderProps {
   onNarrativeConfigChange: (updates: Partial<NarrativeExplorerConfig>) => void;
   onRefresh: () => void;
   onScheduleClick?: () => void;
+  onConfigureProfile?: () => void;
 }
 
 const dateRangeOptions: { value: DateRange; label: string }[] = [
@@ -60,6 +62,7 @@ export function NewsFeedHeader({
   onNarrativeConfigChange,
   onRefresh,
   onScheduleClick,
+  onConfigureProfile,
 }: NewsFeedHeaderProps) {
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -306,6 +309,21 @@ export function NewsFeedHeader({
                       )}
                     </button>
                   ))}
+                  {onConfigureProfile && (
+                    <>
+                      <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
+                      <button
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          onConfigureProfile();
+                        }}
+                        className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2 text-gray-600"
+                      >
+                        <Settings className="w-4 h-4" />
+                        Configure Profiles
+                      </button>
+                    </>
+                  )}
                 </div>
               </DropdownMenu>
             )}

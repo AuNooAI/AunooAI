@@ -68,6 +68,8 @@ import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal'
 import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleModal';
+import { OrganizationalProfileModal } from '../components/OrganizationalProfileModal';
+import { getOrganizationalProfiles, createOrganizationalProfile, updateOrganizationalProfile } from '../services/api';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb, getSavedIncidents, deleteSavedIncident } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
@@ -209,6 +211,7 @@ export function NewsFeedPage() {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isModuleConfigOpen, setIsModuleConfigOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -479,8 +482,10 @@ export function NewsFeedPage() {
   }, []);
 
   // Use narrative explorer data for topics/profiles/models (they have the same data)
+  // refreshedProfiles overrides hook data after profile modal save
+  const [refreshedProfiles, setRefreshedProfiles] = useState<typeof narrativeProfiles | null>(null);
   const topics = narrativeTopics.length > 0 ? narrativeTopics : newsFeedTopics;
-  const profiles = narrativeProfiles.length > 0 ? narrativeProfiles : newsFeedProfiles;
+  const profiles = refreshedProfiles || (narrativeProfiles.length > 0 ? narrativeProfiles : newsFeedProfiles);
   const models = narrativeModels.length > 0 ? narrativeModels : newsFeedModels;
 
   // Combined loading state for analyses
@@ -832,6 +837,7 @@ export function NewsFeedPage() {
           onNarrativeConfigChange={updateNarrativeConfig}
           onRefresh={handleRefresh}
           onScheduleClick={() => setIsScheduleModalOpen(true)}
+          onConfigureProfile={() => setIsProfileModalOpen(true)}
         />
 
         {/* Tab Navigation */}
@@ -1331,6 +1337,23 @@ export function NewsFeedPage() {
       <NarrativesConfigModal
         open={isNarrativesConfigOpen}
         onClose={() => setIsNarrativesConfigOpen(false)}
+      />
+
+      {/* Organizational Profile Modal */}
+      <OrganizationalProfileModal
+        open={isProfileModalOpen}
+        onOpenChange={setIsProfileModalOpen}
+        profiles={profiles}
+        onSave={async (profile) => {
+          if (profile.id) {
+            await updateOrganizationalProfile(Number(profile.id), profile);
+          } else {
+            await createOrganizationalProfile(profile as any);
+          }
+          // Refresh profiles list
+          const fresh = await getOrganizationalProfiles();
+          setRefreshedProfiles(fresh);
+        }}
       />
 
       {/* Module Config Modal */}
