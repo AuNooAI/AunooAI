@@ -583,7 +583,11 @@ async def generate_trend_convergence(
 
         # cache_only mode: return any cached result regardless of age, never generate
         if cache_only:
-            result = (DatabaseQueryFacade(db, logger)).get_cached_trend_analysis(cache_key)
+            facade = DatabaseQueryFacade(db, logger)
+            # Try exact cache key first, then fall back to any recent analysis for this topic
+            result = facade.get_cached_trend_analysis(cache_key)
+            if not result:
+                result = facade.get_latest_cached_trend_analysis_for_topic(topic)
             if result:
                 analysis_data = json.loads(result['version_data'])
                 created_at = datetime.fromisoformat(result['created_at'])

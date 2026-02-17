@@ -6811,6 +6811,24 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting cached trend analysis: {e}")
             return None
 
+    def get_latest_cached_trend_analysis_for_topic(self, topic: str):
+        """Get the most recent cached trend analysis for a topic, regardless of cache key."""
+        try:
+            statement = select(
+                analysis_versions_v2.c.version_data,
+                analysis_versions_v2.c.created_at
+            ).where(
+                analysis_versions_v2.c.topic == topic
+            ).order_by(
+                analysis_versions_v2.c.created_at.desc()
+            ).limit(1)
+
+            result = self._execute_with_rollback(statement).mappings().fetchone()
+            return result
+        except Exception as e:
+            self.logger.error(f"Error getting latest cached trend analysis for topic: {e}")
+            return None
+
     def save_cached_trend_analysis(self, cache_key: str, topic: str, version_data: str, cache_metadata: str, created_at: str):
         """Save cached trend analysis with PostgreSQL UPSERT."""
         try:
