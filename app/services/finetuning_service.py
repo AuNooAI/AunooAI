@@ -514,23 +514,26 @@ class FinetuningService:
             run_id: Training run ID to deploy
 
         Returns:
-            True if successful, False otherwise
+            True if successful
+
+        Raises:
+            ValueError: If run not found, wrong status, or model path missing
         """
         db = self._get_db()
 
+        # Get run details
+        status = await self.get_run_status(run_id)
+        if not status:
+            raise ValueError(f"Run {run_id} not found")
+
+        if status["status"] not in ("completed", "deployed"):
+            raise ValueError(f"Run {run_id} is not completed (status: {status['status']})")
+
+        model_path = status.get("model_path")
+        if not model_path or not Path(model_path).exists():
+            raise ValueError(f"Model path not found: {model_path}")
+
         try:
-            # Get run details
-            status = await self.get_run_status(run_id)
-            if not status:
-                raise ValueError(f"Run {run_id} not found")
-
-            if status["status"] != "completed":
-                raise ValueError(f"Run {run_id} is not completed (status: {status['status']})")
-
-            model_path = status.get("model_path")
-            if not model_path or not Path(model_path).exists():
-                raise ValueError(f"Model path not found: {model_path}")
-
             # Backup current model
             import shutil
             if CURRENT_MODEL_PATH.exists():
@@ -544,13 +547,14 @@ class FinetuningService:
             logger.info(f"Deployed new model from {model_path}")
 
             # Update run status
+            from sqlalchemy import text as sa_text
             with db.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(sa_text("""
                     UPDATE training_runs
                     SET status = 'deployed'
                     WHERE run_id = :run_id
-                """, {'run_id': run_id})
+                """), {'run_id': run_id})
                 conn.commit()
 
             # Reload enrichment service
@@ -563,7 +567,7 @@ class FinetuningService:
 
         except Exception as e:
             logger.error(f"Hot swap failed: {e}")
-            return False
+            raise
 
     async def rollback_model(self) -> bool:
         """
