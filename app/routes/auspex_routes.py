@@ -503,7 +503,7 @@ CONVERSATION:
         from app.ai_models import get_ai_model
         model = get_ai_model("gpt-4o-mini")
 
-        response = model.generate_response([
+        response = await model.agenerate_response([
             {"role": "system", "content": "You summarize conversations by extracting the most INTERESTING and SPECIFIC datapoints. Find surprising numbers, notable quotes, and key facts. NEVER use generic phrases like 'analysis was conducted'. DO NOT add recommendations. Just summarize what was discussed. Respond only with valid JSON."},
             {"role": "user", "content": summary_prompt}
         ])

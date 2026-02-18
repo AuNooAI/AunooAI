@@ -2833,7 +2833,7 @@ Analyze this content and provide your assessment."""
         
         # Get response from AI model
         try:
-            response_text = ai_model.generate_response(messages)
+            response_text = await ai_model.agenerate_response(messages)
             logger.debug(f"LLM response received: {response_text[:200]}...")
         except Exception as e:
             logger.error(f"Error getting response from AI model: {str(e)}")

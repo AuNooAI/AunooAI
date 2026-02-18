@@ -1033,7 +1033,7 @@ Respond ONLY with valid JSON, no markdown formatting."""
 
     try:
         model = LiteLLMModel.get_instance("gpt-4.1-mini")
-        response = model.generate_response([
+        response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
         ])
@@ -1438,7 +1438,7 @@ async def _llm_categorize_article(title: str, summary: str, brand: dict) -> Dict
         )
 
         model = LiteLLMModel.get_instance("gpt-4.1-mini")
-        response = model.generate_response([
+        response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
         ])
@@ -2273,7 +2273,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         )
 
         model = LiteLLMModel.get_instance(request.model)
-        narrative = model.generate_response([
+        narrative = await model.agenerate_response([
             {"role": "system", "content": "You are a senior brand intelligence analyst writing reports for C-suite executives."},
             {"role": "user", "content": prompt}
         ])
@@ -2437,7 +2437,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
         )
 
         model = LiteLLMModel.get_instance(request.model)
-        insight = model.generate_response([
+        insight = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Be specific and analytical."},
             {"role": "user", "content": prompt}
         ])

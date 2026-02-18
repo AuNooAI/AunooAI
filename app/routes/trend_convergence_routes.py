@@ -590,7 +590,8 @@ async def generate_trend_convergence(
                 result = facade.get_latest_cached_trend_analysis_for_topic(topic)
             if result:
                 analysis_data = json.loads(result['version_data'])
-                created_at = datetime.fromisoformat(result['created_at'])
+                raw_created = result['created_at']
+                created_at = raw_created if isinstance(raw_created, datetime) else datetime.fromisoformat(raw_created)
                 age_hours = (datetime.now() - created_at).total_seconds() / 3600
                 analysis_data['_cache_info'] = {
                     'cached': True,

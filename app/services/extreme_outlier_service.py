@@ -771,10 +771,21 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
 
             yield {"status": "merging", "progress": 0.7}
 
+            # Build pathway lookup for amplification_path
+            pathway_lookup = {p.get("pathway_id", ""): p for p in state.amplified_pathways}
+
             # Merge into final scenarios
             for raw in state.raw_scenarios:
                 scenario_id = raw.get("scenario_id", "")
                 enhancement = enhancements.get(scenario_id, {})
+
+                # Find amplification path from source pathways
+                amplification_path = ""
+                for pid in raw.get("source_pathways", []):
+                    pathway = pathway_lookup.get(pid)
+                    if pathway and pathway.get("cascade_chain"):
+                        amplification_path = pathway["cascade_chain"]
+                        break
 
                 scenario = OutlierScenario(
                     id=scenario_id,
@@ -786,6 +797,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
                     impact_rating=raw.get("impact_rating", 5),
                     time_horizon=raw.get("time_horizon", ""),
                     weak_signals=raw.get("weak_signals", []),
+                    amplification_path=amplification_path,
                     trigger_events=raw.get("trigger_events", []),
                     early_warning_signs=enhancement.get("early_warning_signs", []),
                     strategic_implications=enhancement.get("strategic_implications", ""),

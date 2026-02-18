@@ -467,7 +467,7 @@ async def generate_podcast_script(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": combined_articles}
         ]
-        response = model.generate_response(messages)
+        response = await model.agenerate_response(messages)
         if not response:
             logger.error("Model returned empty response")
             raise HTTPException(

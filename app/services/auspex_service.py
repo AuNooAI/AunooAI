@@ -1671,8 +1671,11 @@ class AuspexService:
             )
 
             # URL Detection and Lookup
+            # Skip URL detection when tools are disabled (e.g. trend convergence analysis prompts)
+            # These prompts contain article data with many embedded URLs that are not user queries
             url_context = None
-            url_query_detected, urls_found = is_url_query(message)
+            skip_url_detection = tools_config and tools_config.get("search_articles") is False
+            url_query_detected, urls_found = (False, []) if skip_url_detection else is_url_query(message)
             if url_query_detected and urls_found:
                 logger.info(f"URL query detected with {len(urls_found)} URL(s): {urls_found}")
                 try:

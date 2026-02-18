@@ -566,13 +566,11 @@ class EmergingTopicsService:
             True if historical coverage exists (topic is ongoing, not new)
         """
         try:
-            from app.vector_store import VectorStore
+            from app.vector_store import search_articles
 
             # Search for articles older than the analysis window
             # Using the theme's search query or label as the search term
             search_text = theme.search_query or theme.theme_label
-
-            vector_store = VectorStore()
 
             # Search for matching articles with date filter for historical period
             # Articles from (history_window_days ago) to (days_back ago)
@@ -597,24 +595,16 @@ class EmergingTopicsService:
                 return False
 
             # Do a semantic search with the theme
-            search_results = vector_store.search(
-                query_text=search_text,
-                k=50,  # Get more results to find historical matches
-                filter_dict=None  # No filter, we'll filter by URIs manually
+            search_results = search_articles(
+                query=search_text,
+                top_k=50,
             )
 
             # Count how many results are from the historical window
             historical_matches = 0
             for result in search_results:
-                # Results are (uri, distance, metadata) tuples or dicts
-                if isinstance(result, dict):
-                    uri = result.get('uri') or result.get('id')
-                elif isinstance(result, (list, tuple)):
-                    uri = result[0]
-                else:
-                    continue
-
-                if uri in historical_uris:
+                uri = result.get('id') if isinstance(result, dict) else None
+                if uri and uri in historical_uris:
                     historical_matches += 1
 
             if historical_matches >= min_historical_articles:

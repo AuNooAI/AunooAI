@@ -2424,7 +2424,7 @@ async def llm_categorize_article(
         )
 
         model = LiteLLMModel.get_instance(model_name)
-        response = model.generate_response([
+        response = await model.agenerate_response([
             {"role": "system", "content": "You are a science policy analysis expert. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
         ])
@@ -2850,7 +2850,7 @@ async def generate_narrative_analysis(
 
         # Generate narrative with LLM
         model = LiteLLMModel.get_instance(request.model)
-        narrative = model.generate_response([
+        narrative = await model.agenerate_response([
             {"role": "system", "content": """You are a senior science policy analyst specializing in research funding, academic institutions, and the innovation economy. You write critical analytical reports for decision-makers monitoring the health of America's research enterprise.
 
 Your role is to:
@@ -3006,7 +3006,7 @@ async def generate_category_insight(
         )
 
         model = LiteLLMModel.get_instance(request.model)
-        insight = model.generate_response([
+        insight = await model.agenerate_response([
             {"role": "system", "content": "You are a science policy analyst providing concise, insightful analysis."},
             {"role": "user", "content": prompt}
         ])
@@ -3543,7 +3543,7 @@ async def save_narrative_to_db(topic: str, days_back: int, conn=None) -> int:
         )
 
         model = LiteLLMModel.get_instance("gpt-4.1-mini")
-        narrative = model.generate_response([
+        narrative = await model.agenerate_response([
             {"role": "system", "content": """You are a senior science policy analyst specializing in research funding, academic institutions, and the innovation economy. You write critical analytical reports for decision-makers monitoring the health of America's research enterprise.
 
 Your role is to:

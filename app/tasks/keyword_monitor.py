@@ -431,42 +431,45 @@ class KeywordMonitor:
                         logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
 
                     # FIRST: Process each article and save to database
-                    for article in articles:
-                        try:
-                            article_url = article['url'].strip()
+                    # Run in thread to avoid blocking the event loop during sync DB calls
+                    def _save_articles_batch(articles_to_save, save_topic, save_keyword_id):
+                        """Save articles to DB in a thread (sync DB calls)."""
+                        saved_count = 0
+                        for article in articles_to_save:
+                            try:
+                                article_url = article['url'].strip()
+                                logger.debug(
+                                    f"Processing article: url={article_url}, "
+                                    f"title={article.get('title', '')}, "
+                                    f"source={article.get('source', '')}, "
+                                    f"published={article.get('published_date', '')}"
+                                )
+                                article_exists = self.db.facade.article_exists((article_url,))
+                                if article_exists:
+                                    logger.debug(f"Article already exists: {article_url}")
+                                (inserted_new_article, alert_inserted, match_updated) = self.db.facade.create_article(article_exists, article_url, article, save_topic, save_keyword_id)
+                                if inserted_new_article or alert_inserted or match_updated:
+                                    saved_count += 1
+                                    logger.info(f"Added/updated article: {article_url}")
+                            except Exception as e:
+                                logger.error(f"Error processing article {article.get('url', 'unknown')}: {str(e)}")
+                                continue
+                        return saved_count
 
-                            # Log article details for debugging
-                            logger.debug(
-                                f"Processing article: url={article_url}, "
-                                f"title={article.get('title', '')}, "
-                                f"source={article.get('source', '')}, "
-                                f"published={article.get('published_date', '')}"
-                            )
-
-                            # First check if article exists outside transaction
-                            article_exists = self.db.facade.article_exists((article_url,))
-
-                            if article_exists:
-                                logger.debug(f"Article already exists: {article_url}")
-
-                            # Use shorter transaction by processing article individually
-                            (inserted_new_article, alert_inserted, match_updated) = self.db.facade.create_article(article_exists, article_url,article, topic, keyword_id)
-                            # Only count as new if we actually inserted or updated something
-                            if inserted_new_article or alert_inserted or match_updated:
-                                new_articles_count += 1
-                                logger.info(f"Added/updated article: {article_url}")
-
-                        except Exception as e:
-                            logger.error(f"Error processing article {article_url}: {str(e)}")
-                            continue
+                    loop = asyncio.get_event_loop()
+                    new_articles_count += await loop.run_in_executor(
+                        None, _save_articles_batch, articles, topic, keyword_id
+                    )
 
                     # SECOND: Now run auto-ingest pipeline on the saved articles
-                    should_auto_ingest = self.should_auto_ingest()
+                    should_auto_ingest = await loop.run_in_executor(None, self.should_auto_ingest)
                     logger.info(f"Auto-ingest check: enabled={should_auto_ingest}, articles_count={len(articles)}")
 
                     if should_auto_ingest:
                         try:
-                            topic_keywords = self.db.facade.get_monitored_keywords_for_topic((topic,))
+                            topic_keywords = await loop.run_in_executor(
+                                None, self.db.facade.get_monitored_keywords_for_topic, (topic,)
+                            )
                             logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles with {len(topic_keywords)} keywords")
 
                             # Pass suppress_notifications=True to prevent per-keyword notifications

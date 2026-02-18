@@ -71,6 +71,7 @@ class AutomatedIngestService:
         self.category_service = None  # Lazy-loaded SLM-based category classification
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
+        self._research_cache = {}  # Cached Research instances keyed by model_name
 
         # Dedicated executor for blocking I/O operations (e.g., Firecrawl scraping)
         # Using 3 workers allows parallel scraping of multiple keyword groups
@@ -82,6 +83,18 @@ class AutomatedIngestService:
         # Configure logging
         self.logger = logger
         self.logger.info("AutomatedIngestService initialized with async capabilities and dedicated blocking I/O executor (3 workers)")
+
+    def _get_research(self, model_name: str = None) -> 'Research':
+        """Get a cached Research instance, creating one only on first call per model_name.
+
+        Avoids re-initializing Firecrawl (which does an HTTP test scrape) and
+        reloading topic configs for every article processed.
+        """
+        from app.research import Research
+        cache_key = model_name or '_default'
+        if cache_key not in self._research_cache:
+            self._research_cache[cache_key] = Research(self.db, model_name=model_name)
+        return self._research_cache[cache_key]
 
     def get_inference_mode(self) -> str:
         """
@@ -322,10 +335,9 @@ class AutomatedIngestService:
                 ai_model = LiteLLMModel.get_instance(model_name)
                 self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
 
-            # Get topic-specific ontology
-            from app.research import Research
+            # Get topic-specific ontology (cached Research instance avoids re-init overhead)
             model_name = self.get_llm_client()
-            research = Research(self.db, model_name=model_name)
+            research = self._get_research(model_name)
             self.logger.info(f"    🤖 Using LLM ({model_name}) for summary & explanations")
 
             research.set_topic(topic)
@@ -606,9 +618,8 @@ class AutomatedIngestService:
                 self.logger.debug(f"Found existing raw content ({len(existing_raw['raw_markdown'])} chars)")
                 return existing_raw['raw_markdown']
             
-            # Initialize Research class for scraping (reuse existing infrastructure)
-            from app.research import Research
-            research = Research(self.db)
+            # Use cached Research instance for scraping (avoids re-init overhead)
+            research = self._get_research()
             
             # Scrape the article
             scrape_result = await research.scrape_article(uri)
@@ -722,7 +733,8 @@ class AutomatedIngestService:
                             
                             results["processed"] += 1
                             results["enriched"] += 1
-                            if result.get("relevance_score", 0) >= self.get_relevance_threshold():
+                            _threshold = await asyncio.get_event_loop().run_in_executor(None, self.get_relevance_threshold)
+                            if result.get("relevance_score", 0) >= _threshold:
                                 results["relevant"] += 1
                     
                     processed_count += len(batch)
@@ -864,7 +876,11 @@ class AutomatedIngestService:
                     )
                     quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
                     # Use override if provided, otherwise use global setting
-                    relevance_threshold = relevance_threshold_override if relevance_threshold_override is not None else self.get_relevance_threshold()
+                    if relevance_threshold_override is not None:
+                        relevance_threshold = relevance_threshold_override
+                    else:
+                        loop = asyncio.get_event_loop()
+                        relevance_threshold = await loop.run_in_executor(None, self.get_relevance_threshold)
 
                     self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
 
@@ -884,7 +900,7 @@ class AutomatedIngestService:
                                 "overall_match_explanation": quick_relevance_result.get("overall_match_explanation", "")
                             })
                             await self.async_db.save_below_threshold_article(article)
-                            self.db.facade.mark_article_as_below_threshold(article_uri)
+                            await loop.run_in_executor(None, self.db.facade.mark_article_as_below_threshold, article_uri)
                         except Exception as e:
                             self.logger.warning(f"Failed to save below-threshold article: {e}")
 
@@ -1025,7 +1041,8 @@ class AutomatedIngestService:
                 else:
                     relevance_threshold = relevance_threshold_override
             else:
-                relevance_threshold = self.get_relevance_threshold()
+                loop = asyncio.get_event_loop()
+                relevance_threshold = await loop.run_in_executor(None, self.get_relevance_threshold)
 
             if relevance_score >= relevance_threshold:
                 # Step 5: Quality check (simplified for async)
@@ -1116,7 +1133,8 @@ class AutomatedIngestService:
                     self.logger.debug(f"Saved below-threshold article {article_uri} with relevance scores")
 
                     # Mark as below threshold in keyword_article_matches
-                    self.db.facade.mark_article_as_below_threshold(article_uri)
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self.db.facade.mark_article_as_below_threshold, article_uri)
                     self.logger.debug(f"Marked article {article_uri} as below threshold in keyword_article_matches")
                 except Exception as e:
                     self.logger.warning(f"Failed to save below-threshold article: {e}")
@@ -1138,10 +1156,9 @@ class AutomatedIngestService:
             }
 
     async def _enrich_article_with_bias_async(self, article_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Async version of bias enrichment"""
-        # For now, this is just a wrapper around the sync version
-        # Could be optimized further with async bias lookups
-        return self.enrich_article_with_bias(article_data)
+        """Async version of bias enrichment — runs sync lookups in thread pool."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.enrich_article_with_bias, article_data)
 
     def _check_slm_services_available(self) -> bool:
         """Check if all SLM services are available for full SLM mode."""
@@ -1279,10 +1296,9 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.warning(f"Local summarization failed, falling back to LLM: {e}")
 
-            # Step 2: Get ontology data for classification (needed for SLM category service)
-            from app.research import Research
+            # Step 2: Get ontology data for classification (cached Research instance)
             model_name = self.get_llm_client()
-            research = Research(self.db, model_name=model_name)
+            research = self._get_research(model_name)
             research.set_topic(topic)
 
             # Get ontology data asynchronously
@@ -1885,15 +1901,14 @@ class AutomatedIngestService:
         
         try:
             # Get articles for the topic through keyword matches
-            # Check which table structure to use
-            use_new_table = self.db.facade.check_if_keyword_article_matches_table_exists()
+            # Check which table structure to use (run sync DB calls in thread)
+            loop = asyncio.get_event_loop()
+            use_new_table = await loop.run_in_executor(None, self.db.facade.check_if_keyword_article_matches_table_exists)
 
             if use_new_table:
-                # Use new table structure
-                rows = self.db.facade.get_topic_articles_to_ingest_using_new_table_structure(topic_id)
+                rows = await loop.run_in_executor(None, self.db.facade.get_topic_articles_to_ingest_using_new_table_structure, topic_id)
             else:
-                # Use old table structure
-                rows = self.db.facade.get_topic_articles_to_ingest_using_old_table_structure(topic_id)
+                rows = await loop.run_in_executor(None, self.db.facade.get_topic_articles_to_ingest_using_old_table_structure, topic_id)
 
             all_articles = []
             for row in rows:
@@ -1907,9 +1922,9 @@ class AutomatedIngestService:
 
             # For processing, filter to only unprocessed AND unread articles
             if use_new_table:
-                rows = self.db.facade.get_topic_unprocessed_and_unread_articles_using_new_table_structure(topic_id)
+                rows = await loop.run_in_executor(None, self.db.facade.get_topic_unprocessed_and_unread_articles_using_new_table_structure, topic_id)
             else:
-                rows = self.db.facade.get_topic_unprocessed_and_unread_articles_using_old_table_structure(topic_id)
+                rows = await loop.run_in_executor(None, self.db.facade.get_topic_unprocessed_and_unread_articles_using_old_table_structure, topic_id)
 
             unprocessed_unread_articles = []
             for row in rows:
@@ -1922,7 +1937,7 @@ class AutomatedIngestService:
                 })
 
             # Get keywords for the topic
-            keywords = self.db.facade.get_topic_keywords(topic_id)
+            keywords = await loop.run_in_executor(None, self.db.facade.get_topic_keywords, topic_id)
             
             if not all_articles:
                 return {
@@ -2026,9 +2041,8 @@ class AutomatedIngestService:
                 self.logger.info("All articles already scraped, returning existing content")
                 return existing_articles
             
-            # Initialize Research class for Firecrawl access
-            from app.research import Research
-            research = Research(self.db)
+            # Use cached Research instance for Firecrawl access
+            research = self._get_research()
             
             if not research.firecrawl_app:
                 self.logger.warning("Firecrawl not available, falling back to individual scraping")

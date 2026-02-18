@@ -179,7 +179,7 @@ Return your search strategy in this format:
             ]
 
             # Get search parameters from LLM
-            search_response = ai_model.generate_response(search_intent_messages)
+            search_response = await ai_model.agenerate_response(search_intent_messages)
             logger.debug(f"LLM search response: {search_response}")
             try:
                 json_str = extract_json_from_response(search_response)
@@ -367,7 +367,7 @@ If the user asked for specific articles, summarize the search results first."""
         })
 
         logger.debug(f"Sending {len(articles)} articles to LLM for analysis using {search_method}")
-        response = ai_model.generate_response(messages)
+        response = await ai_model.agenerate_response(messages)
         return {
             "response": response,
             "search_method": search_method,

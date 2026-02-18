@@ -1842,7 +1842,7 @@ Return JSON with this structure:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
 
-        response = ai_model.generate_response(messages)
+        response = await ai_model.agenerate_response(messages)
 
         # 7. Parse response
         try:

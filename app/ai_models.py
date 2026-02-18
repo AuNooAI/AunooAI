@@ -1,6 +1,7 @@
 import os
 import yaml
 import time
+import asyncio
 from datetime import datetime
 from litellm import Router
 import logging
@@ -194,8 +195,8 @@ class AIModel:
             raise
 
     async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
-        """Async wrapper - delegates to sync implementation."""
-        return self.generate_sync(prompt, max_tokens=max_tokens, temperature=temperature)
+        """Async wrapper - runs sync LLM call in thread pool to avoid blocking the event loop."""
+        return await asyncio.to_thread(self.generate_sync, prompt, max_tokens=max_tokens, temperature=temperature)
 
     def generate_response(self, messages):
         """Generate a response from a list of chat *messages*.
@@ -247,6 +248,10 @@ class AIModel:
             # Propagate so higher-level error handling (fallbacks, HTTP 500 etc.)
             # works.
             raise
+
+    async def agenerate_response(self, messages, **kwargs):
+        """Async wrapper for generate_response - runs in thread pool to avoid blocking the event loop."""
+        return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 
 def load_model_config() -> Dict[str, Dict[str, Any]]:
     """Load model configuration from *litellm_config.yaml*.

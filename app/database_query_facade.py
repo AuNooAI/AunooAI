@@ -571,6 +571,7 @@ class DatabaseQueryFacade:
             articles.c.publication_date <= end_date.strftime('%Y-%m-%d %H:%M:%S'),
             articles.c.summary != '',
             articles.c.summary != None,
+            articles.c.analyzed == True,  # Only include analyzed/relevant articles
         ]
 
         # Only filter by topic if one is specified (not None, empty, or "__all__")
@@ -2178,7 +2179,8 @@ class DatabaseQueryFacade:
         # Build base query with date filters
         statement = select(articles).where(
             articles.c.publication_date >= start_str,
-            articles.c.publication_date <= end_str
+            articles.c.publication_date <= end_str,
+            articles.c.analyzed == True,  # Only include analyzed/relevant articles
         )
 
         # Only filter by topic if one is specified (not None, empty, or "__all__")

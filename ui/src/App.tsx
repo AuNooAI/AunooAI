@@ -728,6 +728,16 @@ function App() {
     setIsConfigOpen(false);
   };
 
+  const handleConfigSave = () => {
+    setIsConfigOpen(false);
+    // Clear localStorage for current tab so loadCached re-checks backend with new config
+    if (config.tab) {
+      localStorage.removeItem(`trendConvergence_data_${config.tab}`);
+    }
+    // Trigger cache load for the (possibly new) config
+    loadCached();
+  };
+
   const handleViewRaw = async () => {
     // Handle focus-group tab separately - uses focusGroup.result not data
     if (activeTab === 'focus-group') {
@@ -1169,6 +1179,13 @@ function App() {
                 {/* Action Buttons */}
                 <div className="flex justify-end gap-3 mt-8">
                   <Button
+                    variant="outline"
+                    onClick={handleConfigSave}
+                    className="px-6"
+                  >
+                    Save
+                  </Button>
+                  <Button
                     onClick={handleGenerate}
                     disabled={loading || !config.topic}
                     className="px-6 bg-pink-500 hover:bg-pink-600"
@@ -1176,11 +1193,11 @@ function App() {
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Loading...
+                        Generating...
                       </>
                     ) : (
                       <>
-                        Load analysis
+                        Generate Analysis
                         <span className="ml-2">▶</span>
                       </>
                     )}

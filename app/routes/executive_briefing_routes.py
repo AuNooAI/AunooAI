@@ -1263,7 +1263,7 @@ Generate a polished podcast script that an executive would want to listen to dur
             ]
 
         logger.info(f"Generating EB podcast script for topic: {request.topic}, duration: {request.duration}, model: {model_name}")
-        script = model.generate_response(messages)
+        script = await model.agenerate_response(messages)
 
         if not script:
             raise HTTPException(500, "Model returned empty response")
