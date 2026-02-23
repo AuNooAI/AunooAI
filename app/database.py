@@ -2753,7 +2753,6 @@ Remember to cite your sources and provide actionable insights where possible."""
         """Delete multiple articles using PostgreSQL-compatible SQLAlchemy Core."""
         if not uris:
             logger.warning("No URIs provided for bulk delete")
-            conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
         logger.info(f"Attempting to bulk delete {len(uris)} articles")

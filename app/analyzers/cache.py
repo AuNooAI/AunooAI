@@ -119,9 +119,10 @@ class AnalysisCache:
 
     def clear(self) -> None:
         try:
-            for filename in os.listdir(self.cache_dir):
-                if filename.endswith('.json'):
-                    os.remove(os.path.join(self.cache_dir, filename))
+            for root, dirs, files in os.walk(self.cache_dir):
+                for filename in files:
+                    if filename.endswith('.json'):
+                        os.remove(os.path.join(root, filename))
             logger.info("Cache cleared")
         except Exception as e:
             logger.error(f"Error clearing cache: {str(e)}")
@@ -134,20 +135,21 @@ class AnalysisCache:
             oldest_cache = None
             newest_cache = None
 
-            for filename in os.listdir(self.cache_dir):
-                if filename.endswith('.json'):
-                    file_path = os.path.join(self.cache_dir, filename)
-                    total_files += 1
-                    total_size += os.path.getsize(file_path)
+            for root, dirs, files in os.walk(self.cache_dir):
+                for filename in files:
+                    if filename.endswith('.json'):
+                        file_path = os.path.join(root, filename)
+                        total_files += 1
+                        total_size += os.path.getsize(file_path)
 
-                    with open(file_path, 'r') as f:
-                        cache_data = json.load(f)
-                        cached_at = datetime.fromisoformat(cache_data['cached_at'])
-                        
-                        if oldest_cache is None or cached_at < oldest_cache:
-                            oldest_cache = cached_at
-                        if newest_cache is None or cached_at > newest_cache:
-                            newest_cache = cached_at
+                        with open(file_path, 'r') as f:
+                            cache_data = json.load(f)
+                            cached_at = datetime.fromisoformat(cache_data['cached_at'])
+                            
+                            if oldest_cache is None or cached_at < oldest_cache:
+                                oldest_cache = cached_at
+                            if newest_cache is None or cached_at > newest_cache:
+                                newest_cache = cached_at
 
             return {
                 'total_files': total_files,
@@ -162,14 +164,17 @@ class AnalysisCache:
     def cleanup_expired(self) -> int:
         try:
             cleaned = 0
-            for filename in os.listdir(self.cache_dir):
-                if filename.endswith('.json'):
-                    file_path = os.path.join(self.cache_dir, filename)
-                    with open(file_path, 'r') as f:
-                        cache_data = json.load(f)
-                        cached_at = datetime.fromisoformat(cache_data['cached_at'])
-                        
-                        if datetime.now() - cached_at > self.ttl:
+            for root, dirs, files in os.walk(self.cache_dir):
+                for filename in files:
+                    if filename.endswith('.json'):
+                        file_path = os.path.join(root, filename)
+                        is_expired = False
+                        with open(file_path, 'r') as f:
+                            cache_data = json.load(f)
+                            cached_at = datetime.fromisoformat(cache_data['cached_at'])
+                            if datetime.now() - cached_at > self.ttl:
+                                is_expired = True
+                        if is_expired:
                             os.remove(file_path)
                             cleaned += 1
 

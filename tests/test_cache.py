@@ -1,6 +1,7 @@
 import pytest
 import os
 import json
+from unittest.mock import patch
 from datetime import datetime, timedelta
 from app.analyzers.cache import AnalysisCache, CacheError
 
@@ -142,18 +143,23 @@ def test_cache_cleanup_expired(cache_dir, sample_analysis):
         assert cache.get(uri, content_hash) is None
 
 def test_cache_error_handling(cache_dir):
-    # Test invalid cache directory
-    with pytest.raises(CacheError):
-        AnalysisCache("/nonexistent/path")
+    # Test invalid cache directory by mocking os.makedirs to raise an OSError
+    with patch("os.makedirs", side_effect=OSError("Permission denied")):
+        with pytest.raises(CacheError):
+            AnalysisCache("/nonexistent/path")
 
     cache = AnalysisCache(cache_dir)
 
     # Test invalid JSON in cache file
     uri = "http://test.com"
     content_hash = "test_hash"
-    cache_path = os.path.join(cache_dir, f"{uri}_{content_hash}.json")
+    # Build cache path using the same logic as _get_cache_path
+    safe_uri = uri.replace('://', '_').replace('/', '_')
+    subdir = content_hash[:2]
+    subdir_path = os.path.join(cache_dir, subdir)
+    os.makedirs(subdir_path, exist_ok=True)
+    cache_path = os.path.join(subdir_path, f"{safe_uri}_{content_hash}.json")
     
-    os.makedirs(cache_dir, exist_ok=True)
     with open(cache_path, 'w') as f:
         f.write("invalid json")
 
