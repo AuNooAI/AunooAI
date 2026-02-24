@@ -1032,7 +1032,7 @@ class EmergingTopicsService:
             conn = self._get_connection()
 
             # Build filter clause
-            filter_clause = "WHERE status = 'active' OR status IS NULL"
+            filter_clause = "WHERE (status = 'active' OR status IS NULL)"
             params = {"threshold": consecutive_miss_threshold, "min_days": min_inactive_days}
 
             if topic_filter:
