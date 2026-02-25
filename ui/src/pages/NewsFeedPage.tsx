@@ -26,6 +26,7 @@ import {
   Globe,
   Microscope,
   Target,
+  Shield,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -56,6 +57,8 @@ const ScienceFundingTab = React.lazy(() =>
   import('../components/newsfeed/ScienceFundingTab').then(m => ({ default: m.ScienceFundingTab })));
 const BrandWatcherTab = React.lazy(() =>
   import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
+const ThreatIntelligenceTab = React.lazy(() =>
+  import('../components/newsfeed/ThreatIntelligenceTab').then(m => ({ default: m.ThreatIntelligenceTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -203,7 +206,7 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -799,7 +802,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch' }[currentTab] ?? 'News Feed'}
+              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', threat_intel: 'Threat Intelligence' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -883,6 +886,15 @@ export function NewsFeedPage() {
           >
             <Target className="w-4 h-4" />
             Brand Watcher
+          </button>
+          )}
+          {isModuleEnabled('threat_intel') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'threat_intel' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('threat_intel')}
+          >
+            <Shield className="w-4 h-4" />
+            Threat Intelligence
           </button>
           )}
           <button
@@ -1232,6 +1244,13 @@ export function NewsFeedPage() {
                 <BrandWatcherTab
                   onArticleClick={handleArticleClick}
                 />
+              </Suspense>
+            )}
+
+            {/* Threat Intelligence Tab Content */}
+            {currentTab === 'threat_intel' && isModuleEnabled('threat_intel') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
+                <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
               </Suspense>
             )}
 

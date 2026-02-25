@@ -204,7 +204,7 @@ def get_environment_info() -> Dict[str, Any]:
             "environment": os.getenv("ENVIRONMENT", "production"),
             "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
             "instance": os.getenv("INSTANCE_NAME", "wip"),
-            "port": int(os.getenv("PORT", 5005))
+            "port": int(os.getenv("PORT", 10001))
         }
     except Exception as e:
         return {"error": str(e)}

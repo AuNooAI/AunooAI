@@ -536,8 +536,10 @@ class FinetuningService:
         try:
             # Backup current model
             import shutil
-            if CURRENT_MODEL_PATH.exists():
-                if BACKUP_MODEL_PATH.exists():
+            if CURRENT_MODEL_PATH.exists() or CURRENT_MODEL_PATH.is_symlink():
+                if BACKUP_MODEL_PATH.is_symlink():
+                    BACKUP_MODEL_PATH.unlink()
+                elif BACKUP_MODEL_PATH.exists():
                     shutil.rmtree(BACKUP_MODEL_PATH)
                 shutil.move(str(CURRENT_MODEL_PATH), str(BACKUP_MODEL_PATH))
                 logger.info(f"Backed up current model to {BACKUP_MODEL_PATH}")
@@ -579,11 +581,13 @@ class FinetuningService:
         try:
             import shutil
 
-            if not BACKUP_MODEL_PATH.exists():
+            if not BACKUP_MODEL_PATH.exists() and not BACKUP_MODEL_PATH.is_symlink():
                 raise ValueError("No backup model available for rollback")
 
             # Remove current and restore backup
-            if CURRENT_MODEL_PATH.exists():
+            if CURRENT_MODEL_PATH.is_symlink():
+                CURRENT_MODEL_PATH.unlink()
+            elif CURRENT_MODEL_PATH.exists():
                 shutil.rmtree(CURRENT_MODEL_PATH)
 
             shutil.move(str(BACKUP_MODEL_PATH), str(CURRENT_MODEL_PATH))

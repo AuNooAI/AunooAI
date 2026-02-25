@@ -109,6 +109,14 @@ DOCKER_HUB_DEPLOYMENT.md
 .gitlab-ci.yml
 .travis.yml
 
+# ML model weights (not included in community Docker image)
+models/
+local-models-package.tar.gz
+
+# Virtual envs inside subdirectories
+scripts/.venv/
+**/.venv/
+
 # Misc
 *.bak
 *.tmp

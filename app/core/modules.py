@@ -119,6 +119,22 @@ _register(AnalysisModule(
     frontend_tab_icon="Target",
 ))
 
+# --- Threat Intelligence ----------------------------------------------------
+_register(AnalysisModule(
+    id="threat_intel",
+    name="Threat Intelligence",
+    description="Cyber threat monitoring with actor tracking, IOC management, and campaign analysis.",
+    route_module="app.routes.threat_intelligence_routes",
+    route_prefix="/api/threat-intelligence",
+    task_module="app.tasks.threat_intelligence_monitor",
+    task_function="run_threat_intelligence_monitor",
+    task_delay=55,
+    migration_prefix="ti_",
+    frontend_tab_id="threat_intel",
+    frontend_tab_label="Threat Intelligence",
+    frontend_tab_icon="Shield",
+))
+
 
 # ---------------------------------------------------------------------------
 # DB helpers — module_config table
