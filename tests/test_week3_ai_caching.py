@@ -8,6 +8,7 @@ Date: 2025-10-13
 import os
 import logging
 import json
+import pytest
 from app.database import Database
 from datetime import datetime, timedelta
 
@@ -17,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 # Get database type
 DB_TYPE = os.getenv('DB_TYPE', 'sqlite').lower()
+
+
+@pytest.fixture(scope='module')
+def db():
+    return Database()
 
 
 class TestAICaching:
