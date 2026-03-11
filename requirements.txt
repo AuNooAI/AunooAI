@@ -57,3 +57,5 @@ mcp
 reportlab>=3.6.0
 # Tool definition loading (YAML frontmatter in markdown)
 python-frontmatter>=1.0.0
+cachetools
+scikit-learn
