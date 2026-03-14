@@ -6,10 +6,10 @@
 import { useMemo } from 'react';
 import { type ResearchAgent } from '../../services/researchAgentsApi';
 
-// System scheduled task (Emerging Topics, Newsfeed, Autoprocessing)
+// System scheduled task (Emerging Topics, Newsfeed, Autoprocessing, Geopolitical)
 export interface SystemSchedule {
   name: string;
-  type: 'emerging_topics' | 'newsfeed' | 'autoprocessing';
+  type: 'emerging_topics' | 'newsfeed' | 'autoprocessing' | 'geopolitical';
   enabled: boolean;
   next_run_at: string | null;
   last_run_at?: string | null;
@@ -106,6 +106,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
       case 'emerging_topics': return '#f59e0b'; // amber
       case 'newsfeed': return '#3b82f6'; // blue
       case 'autoprocessing': return '#8b5cf6'; // purple
+      case 'geopolitical': return '#ec4899'; // pink
       default: return '#6b7280'; // gray
     }
   };
@@ -115,6 +116,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
       case 'emerging_topics': return 'ET';
       case 'newsfeed': return 'NF';
       case 'autoprocessing': return 'AP';
+      case 'geopolitical': return 'GH';
       default: return '?';
     }
   };
@@ -124,6 +126,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
       case 'emerging_topics': return 'Emerging Topics';
       case 'newsfeed': return 'Newsfeed Dashboard';
       case 'autoprocessing': return 'Autoprocessing';
+      case 'geopolitical': return 'Geopolitical Hotspots';
       default: return type;
     }
   };
@@ -132,7 +135,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
 
   if (!hasAnySchedules) {
     return (
-      <div className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 text-center py-4">
+      <div className="text-sm text-gray-600 dark:text-gray-300 text-center py-4">
         No scheduled tasks. Enable scheduling in settings.
       </div>
     );
@@ -321,7 +324,7 @@ Next run: {time.toLocaleString()}
       </svg>
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 flex-wrap">
+      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-300 flex-wrap">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 bg-green-500 rounded-full" />
           <span>Active Agent</span>
@@ -346,6 +349,12 @@ Next run: {time.toLocaleString()}
           <div className="flex items-center gap-1">
             <div className="w-3 h-2 bg-purple-500 rounded-sm" />
             <span>Autoprocessing</span>
+          </div>
+        )}
+        {activeSystemSchedules.some(s => s.type === 'geopolitical') && (
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-2 bg-pink-500 rounded-sm" />
+            <span>Geopolitical</span>
           </div>
         )}
         <div className="flex items-center gap-1">

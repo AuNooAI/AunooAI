@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile
       args:
         APP_VERSION: ${APP_VERSION:-local}
-        APP_GIT_BRANCH: ${GIT_BRANCH:-emergencybugfix2}
+        APP_GIT_BRANCH: ${GIT_BRANCH:-main}
         APP_BUILD_DATE: ${BUILD_DATE:-unknown}
     image: aunooai/aunoo-community:latest
     ports:

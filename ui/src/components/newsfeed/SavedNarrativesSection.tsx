@@ -16,10 +16,12 @@ import {
   FileText,
   Table,
   Loader2,
+  FolderPlus,
 } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { ShareModal, type ShareNarrativeData } from '../ShareModal';
 import { ExportService } from '../../services/exportService';
+import { AddToBriefingModal } from './AddToBriefingModal';
 import {
   getSavedNarratives as fetchSavedNarratives,
   deleteSavedNarrative,
@@ -54,6 +56,8 @@ export function SavedNarrativesSection({
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareNarrativeData | null>(null);
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [selectedNarrativeForBriefing, setSelectedNarrativeForBriefing] = useState<SavedNarrative | null>(null);
 
   // Load saved narratives from database API
   useEffect(() => {
@@ -146,7 +150,7 @@ export function SavedNarrativesSection({
           <Brain className="w-5 h-5 text-indigo-500" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Saved Narratives</h3>
         </div>
-        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300">
           No saved narratives yet. Use the menu on narrative cards to save them.
         </p>
       </section>
@@ -160,7 +164,7 @@ export function SavedNarrativesSection({
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-indigo-500" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Saved Narratives</h3>
-          <span className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <span className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300">
             ({savedNarratives.length})
           </span>
         </div>
@@ -179,7 +183,7 @@ export function SavedNarrativesSection({
       {/* Loading state */}
       {loading && (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+          <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-300" />
         </div>
       )}
 
@@ -201,7 +205,7 @@ export function SavedNarrativesSection({
                       Saved
                     </span>
                     {narrative.topic && (
-                      <span className="text-[10px] text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                      <span className="text-[10px] text-gray-700 dark:text-gray-300 dark:text-gray-300">
                         {narrative.topic}
                       </span>
                     )}
@@ -234,7 +238,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <BookmarkX className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                            <BookmarkX className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                             Unsave
                           </button>
                           <button
@@ -244,8 +248,20 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                             Share
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenId(null);
+                              setSelectedNarrativeForBriefing(narrative);
+                              setShowAddToBriefingModal(true);
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                          >
+                            <FolderPlus className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                            Add to Briefing
                           </button>
                           <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
                           <button
@@ -255,7 +271,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <FileText className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                            <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                             Export Markdown
                           </button>
                           <button
@@ -265,7 +281,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <Table className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                            <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                             Export CSV
                           </button>
                         </div>
@@ -281,13 +297,13 @@ export function SavedNarrativesSection({
 
                 {/* Description */}
                 {narrative.description && (
-                  <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400 line-clamp-3 mb-2">
+                  <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-3 mb-2">
                     {narrative.description}
                   </p>
                 )}
 
                 {/* Stats */}
-                <div className="flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                <div className="flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
                   {narrative.article_count && (
                     <span>{narrative.article_count} articles</span>
                   )}
@@ -305,13 +321,13 @@ export function SavedNarrativesSection({
                     {narrative.key_entities.slice(0, 3).map((entity, i) => (
                       <span
                         key={i}
-                        className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded"
+                        className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded"
                       >
                         {entity}
                       </span>
                     ))}
                     {narrative.key_entities.length > 3 && (
-                      <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                      <span className="text-[10px] text-gray-600 dark:text-gray-300">
                         +{narrative.key_entities.length - 3} more
                       </span>
                     )}
@@ -329,6 +345,26 @@ export function SavedNarrativesSection({
           open={showShareModal}
           onOpenChange={setShowShareModal}
           data={shareData}
+        />
+      )}
+
+      {/* Add to Briefing Modal */}
+      {selectedNarrativeForBriefing && (
+        <AddToBriefingModal
+          isOpen={showAddToBriefingModal}
+          onClose={() => {
+            setShowAddToBriefingModal(false);
+            setSelectedNarrativeForBriefing(null);
+          }}
+          itemType="emerging_topic"
+          emergingTopic={{
+            name: selectedNarrativeForBriefing.name,
+            summary: selectedNarrativeForBriefing.description,
+            description: selectedNarrativeForBriefing.description,
+            article_count: selectedNarrativeForBriefing.article_count,
+            key_entities: selectedNarrativeForBriefing.key_entities,
+            topic: selectedNarrativeForBriefing.topic,
+          }}
         />
       )}
     </section>

@@ -124,7 +124,8 @@ async def stream_eos_progress(
         async for update in service.run_generation(
             topic=topic,
             source_analysis=source_analysis,
-            config=config
+            config=config,
+            raw_articles=articles
         ):
             # If complete, inject the articles into the response
             if update.get("stage") == "complete":
@@ -204,7 +205,8 @@ async def start_eos_generation(
         async for update in service.run_generation(
             topic=request.topic,
             source_analysis=source_analysis,
-            config=config
+            config=config,
+            raw_articles=articles
         ):
             result = update
             if update.get("stage") in ["complete", "error"]:

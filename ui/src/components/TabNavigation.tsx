@@ -271,7 +271,7 @@ export function TabSettingsDropdown({ hiddenTabs, onToggleTabVisibility, tabOrde
                       : 'hover:bg-gray-50'
                   } ${draggedIndex === index ? 'opacity-50' : ''}`}
                 >
-                  <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
+                  <GripVertical className="w-4 h-4 text-gray-500 shrink-0" />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -298,7 +298,7 @@ export function TabSettingsDropdown({ hiddenTabs, onToggleTabVisibility, tabOrde
               );
             })}
             <div className="px-3 py-2 border-t border-gray-100">
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-500">
                 {tabs.length - hiddenTabs.size} of {tabs.length} tabs visible
               </p>
             </div>

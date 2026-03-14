@@ -166,17 +166,18 @@ class DatabaseQueryFacade:
     def get_keyword_monitoring_provider(self):
         """Get single provider (legacy method - use get_keyword_monitoring_providers for multi-collector)"""
         row = self.get_keyword_monitor_settings_by_id(1)
-        provider = row['provider'] if row else None
+        # TODO: Make this default configurable?
+        provider = row['provider'] if row else 'newsapi'
         return provider
 
     def get_keyword_monitoring_providers(self):
         """Get selected providers as JSON array string"""
-        import json
         row = self.get_keyword_monitor_settings_by_id(1)
-        if row and row.get('providers') and json.loads(row['providers']) != []:
+        if row and row.get('providers'):
             return row['providers']
         # Fallback to single provider for backward compatibility
         elif row and row.get('provider'):
+            import json
             return json.dumps([row['provider']])
         # Ultimate fallback
         return '["newsapi"]'
@@ -491,7 +492,7 @@ class DatabaseQueryFacade:
                 uri=alert['url'],
                 title=alert['title'],
                 summary=alert['summary'],
-                news_source=alert['source'],
+                source=alert['source'],
                 topic=alert['topic'],
                 analyzed=False
             )
@@ -570,6 +571,7 @@ class DatabaseQueryFacade:
             articles.c.publication_date <= end_date.strftime('%Y-%m-%d %H:%M:%S'),
             articles.c.summary != '',
             articles.c.summary != None,
+            articles.c.analyzed == True,  # Only include analyzed/relevant articles
         ]
 
         # Only filter by topic if one is specified (not None, empty, or "__all__")
@@ -854,15 +856,15 @@ class DatabaseQueryFacade:
 
     def get_auto_ingest_settings(self):
         statement = select(
-            keyword_monitor_settings.c.auto_ingest_enabled,
-            keyword_monitor_settings.c.min_relevance_threshold,
-            keyword_monitor_settings.c.quality_control_enabled,
-            keyword_monitor_settings.c.auto_save_approved_only,
-            keyword_monitor_settings.c.default_llm_model,
-            keyword_monitor_settings.c.llm_temperature,
-            keyword_monitor_settings.c.llm_max_tokens
+            keyword_article_matches.c.auto_ingest_enabled,
+            keyword_article_matches.c.min_relevance_threshold,
+            keyword_article_matches.c.quality_control_enabled,
+            keyword_article_matches.c.auto_save_approved_only,
+            keyword_article_matches.c.default_llm_model,
+            keyword_article_matches.c.llm_temperature,
+            keyword_article_matches.c.llm_max_tokens
         ).where(
-            keyword_monitor_settings.c.id == 1
+            keyword_article_matches.c.id == 1
         )
         return self._execute_with_rollback(statement).fetchone()
 
@@ -933,8 +935,8 @@ class DatabaseQueryFacade:
                 keyword_groups.c.topic == topic_id,
                 keyword_article_matches.c.is_read == 0,
                 or_(
-                    articles.c.auto_ingested.is_(False),
-                    articles.c.auto_ingested == None
+                    keyword_article_matches.c.auto_ingested == 0,
+                    keyword_article_matches.c.auto_ingested == None
                 )
             )
         ).distinct().order_by(
@@ -959,8 +961,8 @@ class DatabaseQueryFacade:
                 keyword_groups.c.topic == topic_id,
                 keyword_alerts.c.is_read == 0,
                 or_(
-                    articles.c.auto_ingested.is_(False),
-                    articles.c.auto_ingested == None
+                    keyword_alerts.c.auto_ingested == 0,
+                    keyword_alerts.c.auto_ingested == None
                 )
             )
         ).distinct().order_by(
@@ -1840,7 +1842,7 @@ class DatabaseQueryFacade:
 
     def get_article_id_by_url(self, url):
         statement = select(
-            articles.c.uri
+            articles.c.id
         ).where(
             articles.c.uri == url
         )
@@ -1850,7 +1852,7 @@ class DatabaseQueryFacade:
 
     def check_if_article_exists_with_enrichment(self, url):
         statement = select(
-            articles.c.uri
+            articles.c.id
         ).where(
             articles.c.uri == url,
             articles.c.analyzed == True
@@ -1895,7 +1897,8 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == params[1]
         ).values(
-            tags = params[0]
+            tags = params[0],
+            updated_at = func.now()
         )
         self._execute_with_rollback(statement)
         self.connection.commit() 
@@ -1976,8 +1979,8 @@ class DatabaseQueryFacade:
             keyword_alerts.c.matched_keyword,
             articles.c.uri,
             articles.c.title,
-            articles.c.uri.label('url'),
-            articles.c.news_source.label('source'),
+            articles.c.url,
+            articles.c.source,
             articles.c.publication_date,
             articles.c.summary,
             articles.c.category,
@@ -2176,7 +2179,8 @@ class DatabaseQueryFacade:
         # Build base query with date filters
         statement = select(articles).where(
             articles.c.publication_date >= start_str,
-            articles.c.publication_date <= end_str
+            articles.c.publication_date <= end_str,
+            articles.c.analyzed == True,  # Only include analyzed/relevant articles
         )
 
         # Only filter by topic if one is specified (not None, empty, or "__all__")
@@ -2688,7 +2692,9 @@ class DatabaseQueryFacade:
             id=params[0],
             title=params[1],
             created_at=func.current_timestamp(),
-            status= 'processing'
+            status= 'processing',
+            config=params[2],
+            article_uris=params[3]
         )
         self._execute_with_rollback(statement)
         self.connection.commit()
@@ -3006,7 +3012,7 @@ class DatabaseQueryFacade:
             cursor.execute("""
                            WITH alert_counts AS (SELECT kg.id                                                      as group_id,
                                                         COUNT(DISTINCT CASE
-                                                                           WHEN ka.is_read = 0 AND a.uri IS NOT NULL
+                                                                           WHEN ka.read = 0 AND a.uri IS NOT NULL
                                                                                THEN ka.id END)                     as unread_count,
                                                         COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
                                                  FROM keyword_groups kg
@@ -3568,6 +3574,251 @@ class DatabaseQueryFacade:
             'last_run_saved': row['saved_count'] if row else 0,
             'last_run_not_saved': row['not_saved_count'] if row else 0,
         }
+
+    # =========================================================================
+    # Per-Group Collection Settings Methods
+    # =========================================================================
+
+    def get_keyword_group_with_settings(self, group_id: int):
+        """Get keyword group with all collection settings columns.
+
+        Returns dict with all group fields including per-group settings.
+        """
+        query = text("""
+            SELECT
+                id, name, topic, created_at, provider, source,
+                is_active, check_interval, interval_unit, search_date_range,
+                providers, auto_ingest_enabled, min_relevance_threshold,
+                quality_control_enabled, auto_save_approved_only,
+                default_llm_model, llm_temperature, llm_max_tokens,
+                last_checked_at, next_check_at, last_error, updated_at
+            FROM keyword_groups
+            WHERE id = :group_id
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id})
+        row = result.mappings().fetchone()
+        return dict(row) if row else None
+
+    def get_effective_group_settings(self, group_id: int):
+        """Get effective settings for a group, merging with global defaults.
+
+        Returns dict with effective settings where NULL values are replaced
+        with global defaults. Also indicates which settings are custom vs inherited.
+        """
+        # Get group settings
+        group = self.get_keyword_group_with_settings(group_id)
+        if not group:
+            return None
+
+        # Get global settings
+        global_settings = self.get_or_create_keyword_monitor_settings()
+
+        # Define which settings to merge and their global key mappings
+        setting_keys = {
+            'check_interval': 'check_interval',
+            'interval_unit': 'interval_unit',
+            'search_date_range': 'search_date_range',
+            'providers': 'providers',
+            'auto_ingest_enabled': 'auto_ingest_enabled',
+            'min_relevance_threshold': 'min_relevance_threshold',
+            'quality_control_enabled': 'quality_control_enabled',
+            'auto_save_approved_only': 'auto_save_approved_only',
+            'default_llm_model': 'default_llm_model',
+            'llm_temperature': 'llm_temperature',
+            'llm_max_tokens': 'llm_max_tokens',
+        }
+
+        # Build effective settings
+        effective = {
+            'id': group['id'],
+            'name': group['name'],
+            'topic': group['topic'],
+            'is_active': group.get('is_active', True),
+            'last_checked_at': group.get('last_checked_at'),
+            'next_check_at': group.get('next_check_at'),
+            'last_error': group.get('last_error'),
+            'updated_at': group.get('updated_at'),
+            'settings': {},
+            'custom_fields': [],  # List of fields with custom (non-null) values
+        }
+
+        for group_key, global_key in setting_keys.items():
+            group_value = group.get(group_key)
+            global_value = global_settings.get(global_key) if global_settings else None
+
+            # Use group value if set, otherwise fall back to global
+            if group_value is not None:
+                effective['settings'][group_key] = group_value
+                effective['custom_fields'].append(group_key)
+            else:
+                effective['settings'][group_key] = global_value
+
+        # Determine if group has custom schedule or providers
+        effective['has_custom_schedule'] = any(
+            group.get(k) is not None for k in ['check_interval', 'interval_unit']
+        )
+        effective['has_custom_providers'] = group.get('providers') is not None
+
+        return effective
+
+    def update_keyword_group_settings(self, group_id: int, settings: dict):
+        """Update per-group collection settings.
+
+        Args:
+            group_id: The keyword group ID
+            settings: Dict of settings to update. Set values to None to use global defaults.
+                      Supports 'use_global_settings': True to reset all to NULL.
+
+        Returns:
+            True if update succeeded, False otherwise.
+        """
+        # If resetting to global defaults
+        if settings.get('use_global_settings'):
+            query = text("""
+                UPDATE keyword_groups
+                SET check_interval = NULL,
+                    interval_unit = NULL,
+                    search_date_range = NULL,
+                    providers = NULL,
+                    auto_ingest_enabled = NULL,
+                    min_relevance_threshold = NULL,
+                    quality_control_enabled = NULL,
+                    auto_save_approved_only = NULL,
+                    default_llm_model = NULL,
+                    llm_temperature = NULL,
+                    llm_max_tokens = NULL,
+                    updated_at = NOW()
+                WHERE id = :group_id
+            """)
+            self._execute_with_rollback(query, {'group_id': group_id})
+            return True
+
+        # Build dynamic update
+        allowed_fields = [
+            'is_active', 'check_interval', 'interval_unit', 'search_date_range',
+            'providers', 'auto_ingest_enabled', 'min_relevance_threshold',
+            'quality_control_enabled', 'auto_save_approved_only',
+            'default_llm_model', 'llm_temperature', 'llm_max_tokens',
+        ]
+
+        update_parts = []
+        params = {'group_id': group_id}
+
+        for field in allowed_fields:
+            if field in settings:
+                update_parts.append(f"{field} = :{field}")
+                params[field] = settings[field]
+
+        if not update_parts:
+            return False
+
+        update_parts.append("updated_at = NOW()")
+        query = text(f"""
+            UPDATE keyword_groups
+            SET {', '.join(update_parts)}
+            WHERE id = :group_id
+        """)
+        self._execute_with_rollback(query, params)
+        return True
+
+    def get_due_keyword_groups(self):
+        """Get keyword groups that are due for checking based on their schedules.
+
+        Returns list of groups where now >= next_check_at or where next_check_at is NULL
+        and enough time has passed since last_checked_at (or never checked).
+        Groups must be active.
+        """
+        query = text("""
+            SELECT
+                kg.id, kg.name, kg.topic, kg.is_active,
+                kg.check_interval, kg.interval_unit, kg.search_date_range,
+                kg.providers, kg.auto_ingest_enabled, kg.min_relevance_threshold,
+                kg.quality_control_enabled, kg.auto_save_approved_only,
+                kg.default_llm_model, kg.llm_temperature, kg.llm_max_tokens,
+                kg.last_checked_at, kg.next_check_at, kg.last_error,
+                -- Get global defaults for fallback
+                kms.check_interval as global_check_interval,
+                kms.interval_unit as global_interval_unit
+            FROM keyword_groups kg
+            CROSS JOIN (SELECT * FROM keyword_monitor_settings WHERE id = 1) kms
+            WHERE kg.is_active = TRUE
+              AND (
+                  -- Group has custom schedule and is due
+                  (kg.next_check_at IS NOT NULL AND kg.next_check_at <= NOW())
+                  OR
+                  -- Group has never been checked
+                  (kg.last_checked_at IS NULL)
+                  OR
+                  -- Group was checked but next_check_at not set - calculate from interval
+                  (kg.next_check_at IS NULL AND kg.last_checked_at IS NOT NULL
+                   AND kg.last_checked_at + (
+                       COALESCE(kg.check_interval, kms.check_interval) *
+                       COALESCE(kg.interval_unit, kms.interval_unit) * INTERVAL '1 second'
+                   ) <= NOW())
+              )
+            ORDER BY kg.last_checked_at NULLS FIRST
+        """)
+        result = self._execute_with_rollback(query)
+        return [dict(row) for row in result.mappings().fetchall()]
+
+    def update_keyword_group_check_status(self, group_id: int, error: str = None, next_check_seconds: int = None):
+        """Update group's check status after a collection run.
+
+        Args:
+            group_id: The keyword group ID
+            error: Error message if the check failed, None if successful
+            next_check_seconds: Seconds until next check (calculated from group/global interval)
+
+        Updates last_checked_at, next_check_at, and last_error.
+        """
+        if next_check_seconds is not None:
+            query = text("""
+                UPDATE keyword_groups
+                SET last_checked_at = NOW(),
+                    next_check_at = NOW() + (:next_seconds * INTERVAL '1 second'),
+                    last_error = :error,
+                    updated_at = NOW()
+                WHERE id = :group_id
+            """)
+            params = {
+                'group_id': group_id,
+                'error': error,
+                'next_seconds': next_check_seconds,
+            }
+        else:
+            # Calculate next check from group or global settings
+            query = text("""
+                UPDATE keyword_groups
+                SET last_checked_at = NOW(),
+                    next_check_at = NOW() + (
+                        COALESCE(check_interval, (SELECT check_interval FROM keyword_monitor_settings WHERE id = 1)) *
+                        COALESCE(interval_unit, (SELECT interval_unit FROM keyword_monitor_settings WHERE id = 1)) *
+                        INTERVAL '1 second'
+                    ),
+                    last_error = :error,
+                    updated_at = NOW()
+                WHERE id = :group_id
+            """)
+            params = {'group_id': group_id, 'error': error}
+
+        self._execute_with_rollback(query, params)
+
+    def get_all_keyword_groups_with_schedule_info(self):
+        """Get all keyword groups with schedule info for API listing.
+
+        Returns groups with has_custom_schedule, has_custom_providers, last_checked_at, next_check_at.
+        """
+        query = text("""
+            SELECT
+                kg.id, kg.name, kg.topic, kg.created_at, kg.provider, kg.source,
+                kg.is_active, kg.last_checked_at, kg.next_check_at, kg.last_error,
+                kg.check_interval IS NOT NULL OR kg.interval_unit IS NOT NULL as has_custom_schedule,
+                kg.providers IS NOT NULL as has_custom_providers
+            FROM keyword_groups kg
+            ORDER BY kg.name
+        """)
+        result = self._execute_with_rollback(query)
+        return [dict(row) for row in result.mappings().fetchall()]
 
     def toggle_polling(self, toggle):
         statement = select(
@@ -4548,7 +4799,7 @@ class DatabaseQueryFacade:
                 'topic_alignment_score', 'keyword_relevance_score',
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
-                'ingest_status', 'auto_ingested'
+                'ingest_status', 'auto_ingested', 'article_origin'
             ]
 
             # Filter to only include fields that exist in article_data
@@ -4680,7 +4931,7 @@ class DatabaseQueryFacade:
             return result.inserted_primary_key[0]
 
     def update_media_bias_source(self, params):
-        statement = update(mediabias).where(mediabias.c.source == params[0]).values(
+        statement = update(mediabias).where(mediabias.c.id == params[9]).values(
             source = params[0],
             country = params[1],
             bias = params[2],
@@ -4734,13 +4985,13 @@ class DatabaseQueryFacade:
 
     def get_media_bias_source(self, source_id):
         statement = select(
-            mediabias.c.source
-        ).where(mediabias.c.source == source_id)
+            mediabias.c.id
+        ).where(mediabias.c.id == source_id)
 
         return self._execute_with_rollback(statement).fetchone()
 
     def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.source == source_id)
+        statement = delete(mediabias).where(mediabias.c.id == source_id)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
@@ -4819,12 +5070,13 @@ class DatabaseQueryFacade:
         return total_count, self._execute_with_rollback(paginated_stmt).mappings().fetchall()
 
     def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.source == source_id)
+        statement = delete(mediabias).where(mediabias.c.id == source_id)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_media_bias_source_by_id(self, source_id):
         statement = select(
+            mediabias.c.id,
             mediabias.c.source,
             mediabias.c.country,
             mediabias.c.bias,
@@ -4833,7 +5085,7 @@ class DatabaseQueryFacade:
             mediabias.c.media_type,
             mediabias.c.popularity,
             mediabias.c.mbfc_credibility_rating
-        ).where(mediabias.c.source == source_id)
+        ).where(mediabias.c.id == source_id)
 
         return self._execute_with_rollback(statement).mappings().fetchone()
 
@@ -5311,9 +5563,11 @@ class DatabaseQueryFacade:
         ).where(
             and_(*where_conditions)
         ).order_by(
+            # Sort by date first (newest day first), then by quality within each day
+            # This ensures today's articles always appear before yesterday's
+            articles.c.publication_date.desc(),
             factual_reporting_order.desc(),
-            news_source_order.desc(),
-            articles.c.publication_date.desc()
+            news_source_order.desc()
         )
 
         # Apply pagination (use limit parameter if provided, otherwise max_articles)
@@ -5548,7 +5802,8 @@ class DatabaseQueryFacade:
             articles.c.bias,
             articles.c.factual_reporting,
             articles.c.mbfc_credibility_rating,
-            articles.c.bias_country
+            articles.c.bias_country,
+            articles.c.user_preference,
         ).where(
             and_(*where_conditions)
         ).order_by(
@@ -6556,6 +6811,24 @@ class DatabaseQueryFacade:
             return result
         except Exception as e:
             self.logger.error(f"Error getting cached trend analysis: {e}")
+            return None
+
+    def get_latest_cached_trend_analysis_for_topic(self, topic: str):
+        """Get the most recent cached trend analysis for a topic, regardless of cache key."""
+        try:
+            statement = select(
+                analysis_versions_v2.c.version_data,
+                analysis_versions_v2.c.created_at
+            ).where(
+                analysis_versions_v2.c.topic == topic
+            ).order_by(
+                analysis_versions_v2.c.created_at.desc()
+            ).limit(1)
+
+            result = self._execute_with_rollback(statement).mappings().fetchone()
+            return result
+        except Exception as e:
+            self.logger.error(f"Error getting latest cached trend analysis for topic: {e}")
             return None
 
     def save_cached_trend_analysis(self, cache_key: str, topic: str, version_data: str, cache_metadata: str, created_at: str):
@@ -7631,6 +7904,87 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error getting recent future horizons analyses: {e}")
             return []
+
+    # Future Horizons Executive Summary Storage Methods
+    def save_horizons_executive_summary(
+        self,
+        analysis_id: str,
+        topic: str,
+        summary_data: dict
+    ) -> bool:
+        """Save an executive summary for a Future Horizons analysis.
+
+        Uses the analysis_versions_v2 cache table with a specific key format.
+        """
+        try:
+            import json
+            from datetime import datetime
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            cache_key = f"horizons_exec_summary_{analysis_id}"
+
+            statement = pg_insert(analysis_versions_v2).values(
+                cache_key=cache_key,
+                topic=topic,
+                version_data=json.dumps(summary_data),
+                cache_metadata=json.dumps({
+                    "analysis_id": analysis_id,
+                    "type": "executive_summary"
+                }),
+                created_at=datetime.now().isoformat()
+            ).on_conflict_do_update(
+                index_elements=['cache_key'],
+                set_={
+                    'topic': topic,
+                    'version_data': json.dumps(summary_data),
+                    'cache_metadata': json.dumps({
+                        "analysis_id": analysis_id,
+                        "type": "executive_summary"
+                    }),
+                    'created_at': datetime.now().isoformat()
+                }
+            )
+
+            self._execute_with_rollback(statement)
+            self.connection.commit()
+            self.logger.info(f"Saved executive summary for horizons analysis {analysis_id}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving horizons executive summary: {e}")
+            self.connection.rollback()
+            return False
+
+    def get_horizons_executive_summary(self, analysis_id: str) -> dict:
+        """Retrieve an executive summary for a Future Horizons analysis.
+
+        Returns None if no summary exists.
+        """
+        try:
+            import json
+
+            cache_key = f"horizons_exec_summary_{analysis_id}"
+
+            statement = select(
+                analysis_versions_v2.c.version_data,
+                analysis_versions_v2.c.created_at
+            ).where(
+                analysis_versions_v2.c.cache_key == cache_key
+            ).order_by(
+                analysis_versions_v2.c.created_at.desc()
+            ).limit(1)
+
+            result = self._execute_with_rollback(statement).mappings().fetchone()
+
+            if result and result.get('version_data'):
+                data = result['version_data']
+                return json.loads(data) if isinstance(data, str) else data
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving horizons executive summary for {analysis_id}: {e}")
+            return None
 
     # ==================== Notifications ====================
 
@@ -10909,3 +11263,784 @@ class DatabaseQueryFacade:
             "factuality": factuality,
             "bias": bias
         }
+
+    # ========================================================================
+    # DESK BRIEFINGS CRUD (Briefing Desk Feature)
+    # ========================================================================
+
+    def create_desk_briefing(
+        self,
+        name: str,
+        username: str,
+        description: str = None,
+        topic: str = None
+    ) -> int:
+        """Create a new desk briefing.
+
+        Args:
+            name: Briefing name (required)
+            username: Username (required)
+            description: Optional description
+            topic: Optional topic (briefings can be cross-topic)
+
+        Returns:
+            ID of the created briefing
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import insert
+
+            statement = insert(t_desk_briefings).values(
+                name=name,
+                username=username,
+                description=description,
+                topic=topic,
+                status='draft',
+                articles_count=0,
+                incidents_count=0
+            ).returning(t_desk_briefings.c.id)
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+            self.logger.info(f"Created desk briefing '{name}' for user '{username}' (ID: {row[0]})")
+            return row[0]
+        except Exception as e:
+            self.logger.error(f"Error creating desk briefing: {e}")
+            raise
+
+    def get_desk_briefings_for_user(self, username: str) -> list:
+        """Get all desk briefings for a user.
+
+        Returns list of briefing summaries sorted by update date desc.
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select
+
+            statement = select(
+                t_desk_briefings.c.id,
+                t_desk_briefings.c.name,
+                t_desk_briefings.c.description,
+                t_desk_briefings.c.topic,
+                t_desk_briefings.c.status,
+                t_desk_briefings.c.articles_count,
+                t_desk_briefings.c.incidents_count,
+                t_desk_briefings.c.model_used,
+                t_desk_briefings.c.created_at,
+                t_desk_briefings.c.updated_at,
+                t_desk_briefings.c.finalized_at
+            ).where(
+                t_desk_briefings.c.username == username
+            ).order_by(
+                t_desk_briefings.c.updated_at.desc()
+            )
+
+            results = self._execute_with_rollback(statement).fetchall()
+            return [dict(r._mapping) for r in results]
+        except Exception as e:
+            self.logger.error(f"Error getting desk briefings for user {username}: {e}")
+            return []
+
+    def get_desk_briefing_by_id(self, briefing_id: int, username: str) -> dict:
+        """Get a specific desk briefing by ID (user-scoped).
+
+        Returns full briefing data or None if not found.
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select
+
+            statement = select(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving desk briefing {briefing_id}: {e}")
+            return None
+
+    def update_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        name: str = None,
+        description: str = None
+    ) -> bool:
+        """Update desk briefing name/description.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            name: New name (optional)
+            description: New description (optional)
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            updates = {'updated_at': datetime.utcnow()}
+            if name is not None:
+                updates['name'] = name
+            if description is not None:
+                updates['description'] = description
+
+            statement = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(**updates)
+
+            result = self._execute_with_rollback(statement)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating desk briefing {briefing_id}: {e}")
+            return False
+
+    def delete_desk_briefing(self, briefing_id: int, username: str) -> bool:
+        """Delete a desk briefing (user-scoped)."""
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import delete
+
+            statement = delete(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted desk briefing {briefing_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting desk briefing {briefing_id}: {e}")
+            return False
+
+    def add_article_to_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        article_data: dict
+    ) -> bool:
+        """Add an article to a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            article_data: Article data dict (must include 'uri')
+
+        Returns:
+            True if added, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.articles,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow adding to finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot add article to finalized briefing {briefing_id}")
+                return False
+
+            articles = result[0] if result[0] else []
+
+            # Check for duplicate URI
+            article_uri = article_data.get('uri') or article_data.get('url')
+            if any(a.get('uri') == article_uri for a in articles):
+                self.logger.info(f"Article {article_uri} already in briefing {briefing_id}")
+                return True  # Already exists, consider success
+
+            # Add the article
+            articles.append(article_data)
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                articles=json.loads(json.dumps(articles, default=str)),
+                articles_count=len(articles),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Added article to briefing {briefing_id}, total: {len(articles)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding article to briefing {briefing_id}: {e}")
+            return False
+
+    def remove_article_from_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        article_uri: str
+    ) -> bool:
+        """Remove an article from a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            article_uri: URI of the article to remove
+
+        Returns:
+            True if removed, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.articles,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow modifying finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot remove article from finalized briefing {briefing_id}")
+                return False
+
+            articles = result[0] if result[0] else []
+
+            # Remove the article
+            original_count = len(articles)
+            articles = [a for a in articles if a.get('uri') != article_uri]
+
+            if len(articles) == original_count:
+                self.logger.warning(f"Article {article_uri} not found in briefing {briefing_id}")
+                return False
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                articles=json.loads(json.dumps(articles, default=str)),
+                articles_count=len(articles),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Removed article from briefing {briefing_id}, remaining: {len(articles)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error removing article from briefing {briefing_id}: {e}")
+            return False
+
+    def add_incident_to_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        incident_data: dict
+    ) -> bool:
+        """Add an incident to a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            incident_data: Incident data dict (must include 'name')
+
+        Returns:
+            True if added, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.incidents,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow adding to finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot add incident to finalized briefing {briefing_id}")
+                return False
+
+            incidents = result[0] if result[0] else []
+
+            # Check for duplicate name
+            incident_name = incident_data.get('name')
+            if any(i.get('name') == incident_name for i in incidents):
+                self.logger.info(f"Incident {incident_name} already in briefing {briefing_id}")
+                return True  # Already exists, consider success
+
+            # Add the incident
+            incidents.append(incident_data)
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                incidents=json.loads(json.dumps(incidents, default=str)),
+                incidents_count=len(incidents),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Added incident to briefing {briefing_id}, total: {len(incidents)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding incident to briefing {briefing_id}: {e}")
+            return False
+
+    def remove_incident_from_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        incident_name: str
+    ) -> bool:
+        """Remove an incident from a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            incident_name: Name of the incident to remove
+
+        Returns:
+            True if removed, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.incidents,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow modifying finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot remove incident from finalized briefing {briefing_id}")
+                return False
+
+            incidents = result[0] if result[0] else []
+
+            # Remove the incident
+            original_count = len(incidents)
+            incidents = [i for i in incidents if i.get('name') != incident_name]
+
+            if len(incidents) == original_count:
+                self.logger.warning(f"Incident {incident_name} not found in briefing {briefing_id}")
+                return False
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                incidents=json.loads(json.dumps(incidents, default=str)),
+                incidents_count=len(incidents),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Removed incident from briefing {briefing_id}, remaining: {len(incidents)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error removing incident from briefing {briefing_id}: {e}")
+            return False
+
+    def add_emerging_topic_to_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        topic_data: dict
+    ) -> bool:
+        """Add an emerging topic to a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            topic_data: Emerging topic data dict (must include 'name')
+
+        Returns:
+            True if added, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.emerging_topics,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow adding to finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot add emerging topic to finalized briefing {briefing_id}")
+                return False
+
+            emerging_topics = result[0] if result[0] else []
+
+            # Check for duplicate name
+            topic_name = topic_data.get('name')
+            if any(t.get('name') == topic_name for t in emerging_topics):
+                self.logger.info(f"Emerging topic {topic_name} already in briefing {briefing_id}")
+                return True  # Already exists, consider success
+
+            # Add the emerging topic
+            emerging_topics.append(topic_data)
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                emerging_topics=json.loads(json.dumps(emerging_topics, default=str)),
+                emerging_topics_count=len(emerging_topics),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Added emerging topic to briefing {briefing_id}, total: {len(emerging_topics)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding emerging topic to briefing {briefing_id}: {e}")
+            return False
+
+    def remove_emerging_topic_from_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        topic_name: str
+    ) -> bool:
+        """Remove an emerging topic from a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            topic_name: Name of the emerging topic to remove
+
+        Returns:
+            True if removed, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.emerging_topics,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow modifying finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot remove emerging topic from finalized briefing {briefing_id}")
+                return False
+
+            emerging_topics = result[0] if result[0] else []
+
+            # Remove the emerging topic
+            original_count = len(emerging_topics)
+            emerging_topics = [t for t in emerging_topics if t.get('name') != topic_name]
+
+            if len(emerging_topics) == original_count:
+                self.logger.warning(f"Emerging topic {topic_name} not found in briefing {briefing_id}")
+                return False
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                emerging_topics=json.loads(json.dumps(emerging_topics, default=str)),
+                emerging_topics_count=len(emerging_topics),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Removed emerging topic from briefing {briefing_id}, remaining: {len(emerging_topics)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error removing emerging topic from briefing {briefing_id}: {e}")
+            return False
+
+    def finalize_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        synthesis: str,
+        themes: list,
+        priority_actions: list,
+        metadata: dict,
+        model_used: str
+    ) -> bool:
+        """Finalize a desk briefing with AI-generated synthesis.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            synthesis: AI-generated synthesis text
+            themes: List of theme dicts
+            priority_actions: List of action dicts
+            metadata: Generation metadata
+            model_used: AI model used
+
+        Returns:
+            True if finalized, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+            import json
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                synthesis=synthesis,
+                themes=json.loads(json.dumps(themes, default=str)) if themes else None,
+                priority_actions=json.loads(json.dumps(priority_actions, default=str)) if priority_actions else None,
+                metadata=json.loads(json.dumps(metadata, default=str)) if metadata else None,
+                model_used=model_used,
+                status='finalized',
+                finalized_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            finalized = result.rowcount > 0
+            if finalized:
+                self.logger.info(f"Finalized desk briefing {briefing_id}")
+            return finalized
+        except Exception as e:
+            self.logger.error(f"Error finalizing desk briefing {briefing_id}: {e}")
+            return False
+
+    def update_desk_briefing_synthesis(
+        self,
+        briefing_id: int,
+        username: str,
+        synthesis: str
+    ) -> bool:
+        """Update just the synthesis text of a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            synthesis: Updated synthesis text (markdown supported)
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                synthesis=synthesis,
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated synthesis for desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating synthesis for desk briefing {briefing_id}: {e}")
+            return False
+
+    def reopen_desk_briefing(self, briefing_id: int, username: str) -> bool:
+        """Reopen a finalized desk briefing to allow adding more content.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+
+        Returns:
+            True if reopened, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username) &
+                (t_desk_briefings.c.status == 'finalized')
+            ).values(
+                status='draft',
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            reopened = result.rowcount > 0
+            if reopened:
+                self.logger.info(f"Reopened desk briefing {briefing_id}")
+            return reopened
+        except Exception as e:
+            self.logger.error(f"Error reopening desk briefing {briefing_id}: {e}")
+            return False
+
+    def update_desk_briefing_priority_actions(
+        self,
+        briefing_id: int,
+        username: str,
+        priority_actions: list
+    ) -> bool:
+        """Update just the priority actions of a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            priority_actions: Updated list of priority actions
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                priority_actions=json.dumps(priority_actions) if priority_actions else '[]',
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated priority actions for desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating priority actions for desk briefing {briefing_id}: {e}")
+            return False
+
+    def update_desk_briefing_themes(
+        self,
+        briefing_id: int,
+        username: str,
+        themes: list
+    ) -> bool:
+        """Update just the themes of a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            themes: Updated list of themes
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                themes=json.dumps(themes) if themes else '[]',
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated themes for desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating themes for desk briefing {briefing_id}: {e}")
+            return False
+
+    def get_draft_desk_briefings_count(self, username: str) -> int:
+        """Get count of draft desk briefings for a user.
+
+        Returns count of briefings with status='draft'.
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, func
+
+            statement = select(func.count()).where(
+                (t_desk_briefings.c.username == username) &
+                (t_desk_briefings.c.status == 'draft')
+            )
+
+            result = self._execute_with_rollback(statement).scalar()
+            return result or 0
+        except Exception as e:
+            self.logger.error(f"Error getting draft briefings count for {username}: {e}")
+            return 0

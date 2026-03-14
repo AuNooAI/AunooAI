@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Set up templates
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 @router.get("/keyword-alerts-old", response_class=HTMLResponse)
 async def keyword_alerts_page_old(

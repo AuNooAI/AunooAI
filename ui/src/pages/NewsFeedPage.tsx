@@ -4,7 +4,7 @@
  * Section order: Highlights → Narratives → Your Topics
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import {
   Loader2,
   AlertCircle,
@@ -22,6 +22,11 @@ import {
   List,
   ChevronLeft,
   ChevronRight,
+  Scale,
+  Globe,
+  Microscope,
+  Target,
+  Shield,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -31,13 +36,31 @@ import { NewsFeedHeader } from '../components/newsfeed/NewsFeedHeader';
 import { BriefingSection } from '../components/newsfeed/BriefingSection';
 import { HighlightsSection } from '../components/newsfeed/HighlightsSection';
 import { SavedIncidentsSection } from '../components/newsfeed/SavedIncidentsSection';
+import { SavedArticlesSection } from '../components/newsfeed/SavedArticlesSection';
 import { SavedPodcastsSection } from '../components/newsfeed/SavedPodcastsSection';
 import { SavedEmergingTopicsSection } from '../components/newsfeed/SavedEmergingTopicsSection';
 import { SavedNarrativesSection, saveNarrative, unsaveNarrative, getSavedNarrativeNames } from '../components/newsfeed/SavedNarrativesSection';
+import { savedToIncident } from '../components/newsfeed/SavedIncidentsSection';
+import { mergeIncidentWithSavedData } from '../components/newsfeed/incidentUtils';
 import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsightsSection';
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
+import { useModules } from '../hooks/useModules';
+import { ModuleConfigModal } from '../components/newsfeed/ModuleConfigModal';
+
+const PolicyTrackerTab = React.lazy(() =>
+  import('../components/newsfeed/PolicyTrackerTab').then(m => ({ default: m.PolicyTrackerTab })));
+const GeopoliticalHotspotsTab = React.lazy(() =>
+  import('../components/newsfeed/GeopoliticalHotspotsTab').then(m => ({ default: m.GeopoliticalHotspotsTab })));
+const ScienceFundingTab = React.lazy(() =>
+  import('../components/newsfeed/ScienceFundingTab').then(m => ({ default: m.ScienceFundingTab })));
+const BrandWatcherTab = React.lazy(() =>
+  import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
+const ThreatIntelligenceTab = React.lazy(() =>
+  import('../components/newsfeed/ThreatIntelligenceTab').then(m => ({ default: m.ThreatIntelligenceTab })));
+import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
+import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { ArticleListView } from '../components/newsfeed/ArticleListView';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
@@ -48,10 +71,12 @@ import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal'
 import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleModal';
-import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb } from '../services/newsFeedApi';
+import { OrganizationalProfileModal } from '../components/OrganizationalProfileModal';
+import { getOrganizationalProfiles, createOrganizationalProfile, updateOrganizationalProfile } from '../services/api';
+import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb, getSavedIncidents, deleteSavedIncident } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
-import { getSavedIncidents, saveIncident as apiSaveIncident, unsaveIncident as apiUnsaveIncident } from '../services/narrativeExplorerApi';
+// Note: Incidents are now saved only to saved_incidents table, not incident_status
 import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
@@ -177,13 +202,19 @@ export function NewsFeedPage() {
     setDismissedPodcasts(prev => new Set(prev).add(index));
   };
 
+  // Analysis modules
+  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
+
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
+  const [draftBriefingsCount, setDraftBriefingsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isModuleConfigOpen, setIsModuleConfigOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -195,17 +226,55 @@ export function NewsFeedPage() {
   const [selectedCategory, setSelectedCategory] = useState<{ name: string; topic?: string } | null>(null);
   const [loadingArticleDetail, setLoadingArticleDetail] = useState(false);
 
-  // Saved incidents state
+  // Saved incidents refresh trigger - increment to refresh SavedIncidentsSection
+  const [savedIncidentsRefresh, setSavedIncidentsRefresh] = useState(0);
+
+  // Saved incident names - for showing save/unsave status in HighlightsSection
   const [savedIncidentNames, setSavedIncidentNames] = useState<string[]>([]);
 
-  // Load saved incidents when topic changes
+  // Promoted incidents - incidents created from articles that aren't in AI-generated list
+  const [promotedIncidents, setPromotedIncidents] = useState<typeof incidents>([]);
+
+  // Map of saved incidents by name for quick lookup (includes analyst_notes)
+  const [savedIncidentsMap, setSavedIncidentsMap] = useState<Map<string, typeof incidents[0]>>(new Map());
+
+  // Load saved incident names and promoted incidents when refresh is triggered
   useEffect(() => {
-    if (config.topic) {
-      getSavedIncidents(config.topic)
-        .then(names => setSavedIncidentNames(names))
-        .catch(err => console.error('Failed to load saved incidents:', err));
-    }
-  }, [config.topic]);
+    // Fetch ALL saved incidents (no topic filter) so promoted incidents appear regardless of current topic
+    // Topic filtering happens in the display layer via filteredIncidents = applyFilters(allIncidents, filters)
+    console.log('[NewsFeedPage] Fetching all saved incidents, refresh:', savedIncidentsRefresh);
+
+    getSavedIncidents(undefined)
+      .then(savedIncidents => {
+        console.log('[NewsFeedPage] Got saved incidents:', savedIncidents.length, savedIncidents.map(i => i.name));
+
+        // Update saved incident names list
+        setSavedIncidentNames(savedIncidents.map(i => i.name));
+
+        // Create map of saved incidents for merging notes into AI-generated incidents
+        const savedMap = new Map<string, typeof incidents[0]>();
+        savedIncidents.forEach(saved => {
+          savedMap.set(saved.name, savedToIncident(saved));
+        });
+        setSavedIncidentsMap(savedMap);
+
+        // Identify promoted incidents: those in saved_incidents but NOT in AI-generated incidents
+        // These are articles that were promoted to incidents by the user
+        const aiIncidentNames = new Set(incidents.map(i => i.name || i.title));
+        console.log('[NewsFeedPage] AI incident names:', [...aiIncidentNames]);
+
+        const promoted = savedIncidents
+          .filter(saved => !aiIncidentNames.has(saved.name))
+          .map(saved => ({
+            ...savedToIncident(saved),
+            isPromoted: true,  // Mark as promoted for visual distinction
+          }));
+
+        console.log('[NewsFeedPage] Promoted incidents (not in AI):', promoted.length, promoted.map(i => i.name));
+        setPromotedIncidents(promoted);
+      })
+      .catch(err => console.error('Failed to load saved incidents:', err));
+  }, [config.topic, narrativeConfig.selectedTopics, savedIncidentsRefresh, incidents]);
 
   // Save incident handler - saves both status and full incident data
   const handleSaveIncident = useCallback(async (incidentName: string) => {
@@ -214,10 +283,7 @@ export function NewsFeedPage() {
       // Find the full incident data from the incidents array
       const incident = incidents.find(i => (i.name || i.title) === incidentName);
 
-      // Save the incident status (legacy API)
-      await apiSaveIncident(incidentName, config.topic);
-
-      // Also save the full incident data for persistence
+      // Save the full incident data to saved_incidents table
       if (incident) {
         await saveIncidentToDb({
           name: incidentName,
@@ -241,7 +307,9 @@ export function NewsFeedPage() {
         });
       }
 
+      // Update local state and trigger refresh
       setSavedIncidentNames(prev => [...prev, incidentName]);
+      setSavedIncidentsRefresh(prev => prev + 1);
     } catch (err) {
       console.error('Failed to save incident:', err);
     }
@@ -249,14 +317,30 @@ export function NewsFeedPage() {
 
   // Unsave incident handler
   const handleUnsaveIncident = useCallback(async (incidentName: string) => {
-    if (!config.topic) return;
-    try {
-      await apiUnsaveIncident(incidentName, config.topic);
-      setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
-    } catch (err) {
-      console.error('Failed to unsave incident:', err);
+    // Find the incident to get its topic - check AI incidents, promoted incidents, and saved map
+    const aiIncident = incidents.find(i => (i.name || i.title) === incidentName);
+    const promotedIncident = promotedIncidents.find(i => (i.name || i.title) === incidentName);
+    const savedIncident = savedIncidentsMap.get(incidentName);
+
+    const topic = aiIncident?.topic || promotedIncident?.topic || savedIncident?.topic || config.topic;
+
+    console.log('[NewsFeedPage] Unsaving incident:', incidentName, 'topic:', topic);
+
+    if (!topic) {
+      console.error('[NewsFeedPage] Cannot unsave - no topic found for incident:', incidentName);
+      return;
     }
-  }, [config.topic]);
+
+    // Call the delete API
+    const success = await deleteSavedIncident(incidentName, topic);
+    if (success) {
+      // Update local state and trigger refresh
+      setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
+      setSavedIncidentsRefresh(prev => prev + 1);
+    } else {
+      console.error('[NewsFeedPage] Failed to unsave incident:', incidentName);
+    }
+  }, [incidents, promotedIncidents, savedIncidentsMap, config.topic]);
 
   // Saved narratives state
   const [savedNarrativeNames, setSavedNarrativeNames] = useState<string[]>([]);
@@ -360,18 +444,21 @@ export function NewsFeedPage() {
     console.log(`[NewsFeedPage] handleArticleClick - related articles:`, relatedArticles?.length || 0, relatedArticles);
     setSelectedArticleRelated(relatedArticles || []);
 
-    // If it's already a full NewsArticle with summary, use it directly
-    if ('summary' in article && article.summary && article.summary !== '') {
+    const hasBWData = Array.isArray((article as any).categories);
+
+    // If it's already a full NewsArticle with summary and not from BW, use directly
+    if (!hasBWData && 'summary' in article && article.summary && article.summary !== '') {
       setSelectedArticle(article as NewsArticle);
       return;
     }
 
-    // Otherwise, fetch full article data by URI
+    // Fetch full article data by URI to get all enrichment fields
+    // For BW articles, merge BW-specific fields (categories, brand_name, matched_keywords) on top
     setLoadingArticleDetail(true);
     try {
       const fullArticle = await getArticleByUri(article.uri);
       if (fullArticle) {
-        setSelectedArticle(fullArticle);
+        setSelectedArticle(hasBWData ? { ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } : fullArticle);
       } else {
         // Fallback to partial data if fetch fails
         setSelectedArticle({
@@ -398,15 +485,21 @@ export function NewsFeedPage() {
   }, []);
 
   // Use narrative explorer data for topics/profiles/models (they have the same data)
+  // refreshedProfiles overrides hook data after profile modal save
+  const [refreshedProfiles, setRefreshedProfiles] = useState<typeof narrativeProfiles | null>(null);
   const topics = narrativeTopics.length > 0 ? narrativeTopics : newsFeedTopics;
-  const profiles = narrativeProfiles.length > 0 ? narrativeProfiles : newsFeedProfiles;
+  const profiles = refreshedProfiles || (narrativeProfiles.length > 0 ? narrativeProfiles : newsFeedProfiles);
   const models = narrativeModels.length > 0 ? narrativeModels : newsFeedModels;
 
   // Combined loading state for analyses
   const isGeneratingAnalyses = loadingHighlights || loadingNarratives;
 
-  // Filter and sort incidents
-  const filteredIncidents = applyFilters(incidents, filters);
+  // Merge AI-generated incidents with promoted incidents, then filter
+  // Promoted incidents appear first since they were explicitly created by the user
+  // For AI incidents that are also saved, merge in saved data (including analyst_notes)
+  const mergedAiIncidents = incidents.map(incident => mergeIncidentWithSavedData(incident, savedIncidentsMap));
+  const allIncidents = [...promotedIncidents, ...mergedAiIncidents];
+  const filteredIncidents = applyFilters(allIncidents, filters);
 
   // Sync topic selection from newsFeed config to narrative config
   useEffect(() => {
@@ -476,6 +569,19 @@ export function NewsFeedPage() {
     };
     fetchEmergingTopicsCount();
   }, [config.topic]);
+
+  // Fetch draft briefings count for tab badge
+  useEffect(() => {
+    const loadDraftCount = async () => {
+      try {
+        const count = await fetchDraftBriefingsCount();
+        setDraftBriefingsCount(count);
+      } catch (err) {
+        console.error('Failed to fetch draft briefings count:', err);
+      }
+    };
+    loadDraftCount();
+  }, []);
 
   // Fetch clusters when categories change
   useEffect(() => {
@@ -696,7 +802,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : 'News Feed'}
+              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', threat_intel: 'Threat Intelligence' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -734,6 +840,7 @@ export function NewsFeedPage() {
           onNarrativeConfigChange={updateNarrativeConfig}
           onRefresh={handleRefresh}
           onScheduleClick={() => setIsScheduleModalOpen(true)}
+          onConfigureProfile={() => setIsProfileModalOpen(true)}
         />
 
         {/* Tab Navigation */}
@@ -745,6 +852,51 @@ export function NewsFeedPage() {
             <Rss className="w-4 h-4" />
             News Feed
           </button>
+          {isModuleEnabled('geopolitical') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'geopolitical' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('geopolitical')}
+          >
+            <Globe className="w-4 h-4" />
+            GeoHotSpots
+          </button>
+          )}
+          {isModuleEnabled('policy') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('policy')}
+          >
+            <Scale className="w-4 h-4" />
+            US Crisis Tracker
+          </button>
+          )}
+          {isModuleEnabled('science') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'science' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('science')}
+          >
+            <Microscope className="w-4 h-4" />
+            ScienceWatch
+          </button>
+          )}
+          {isModuleEnabled('brand_watcher') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'brand_watcher' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('brand_watcher')}
+          >
+            <Target className="w-4 h-4" />
+            Brand Watcher
+          </button>
+          )}
+          {isModuleEnabled('threat_intel') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'threat_intel' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('threat_intel')}
+          >
+            <Shield className="w-4 h-4" />
+            Threat Intelligence
+          </button>
+          )}
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -771,10 +923,31 @@ export function NewsFeedPage() {
           >
             <Bookmark className="w-4 h-4" />
             Saved
-            {savedIncidentNames.length > 0 && (
-              <span className="explore-tab-badge">{savedIncidentNames.length}</span>
+            {starredArticles.length > 0 && (
+              <span className="explore-tab-badge">{starredArticles.length}</span>
             )}
           </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'briefing-desk' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('briefing-desk')}
+          >
+            <Newspaper className="w-4 h-4" />
+            Briefing Desk
+            {draftBriefingsCount > 0 && (
+              <span className="explore-tab-badge">{draftBriefingsCount}</span>
+            )}
+          </button>
+
+          {/* Module config gear */}
+          <div className="ml-auto">
+            <button
+              className="explore-tab-btn"
+              onClick={() => setIsModuleConfigOpen(true)}
+              title="Configure analysis modules"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Error Alerts */}
@@ -830,7 +1003,7 @@ export function NewsFeedPage() {
                   <div className="flex items-center justify-center h-64">
                     <div className="flex flex-col items-center gap-4">
                       <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
-                      <p className="text-gray-500 dark:text-gray-400">Loading articles...</p>
+                      <p className="text-gray-500 dark:text-gray-300">Loading articles...</p>
                     </div>
                   </div>
                 ) : (
@@ -902,7 +1075,7 @@ export function NewsFeedPage() {
                           className={`p-1.5 rounded-md transition-colors ${
                             viewMode === 'clustered'
                               ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                              : 'text-gray-500 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                           }`}
                           title="Clustered View"
                         >
@@ -913,7 +1086,7 @@ export function NewsFeedPage() {
                           className={`p-1.5 rounded-md transition-colors ${
                             viewMode === 'list'
                               ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                              : 'text-gray-500 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                           }`}
                           title="List View"
                         >
@@ -965,7 +1138,7 @@ export function NewsFeedPage() {
                         {/* Show remaining categories as clickable chips */}
                         {sortedCategories.length > 9 && (
                           <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">More topics</h3>
+                            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">More topics</h3>
                             <div className="flex flex-wrap gap-2">
                               {sortedCategories.slice(9).map((category) => {
                                 const catArticles = groupedArticles[category] || [];
@@ -975,10 +1148,10 @@ export function NewsFeedPage() {
                                   <button
                                     key={category}
                                     onClick={() => setSelectedCategory({ name: category, topic: catTopic })}
-                                    className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300 transition-colors"
+                                    className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-700 dark:text-gray-400 transition-colors"
                                   >
                                     {category}
-                                    <span className="ml-1 text-gray-500 dark:text-gray-400">({displayCount})</span>
+                                    <span className="ml-1 text-gray-500 dark:text-gray-300">({displayCount})</span>
                                   </button>
                                 );
                               })}
@@ -991,9 +1164,9 @@ export function NewsFeedPage() {
                     {/* Empty state for clustered view */}
                     {viewMode === 'clustered' && sortedCategories.length === 0 && !loading && (
                       <div className="flex flex-col items-center justify-center h-64 text-center">
-                        <Newspaper className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+                        <Newspaper className="w-12 h-12 text-gray-400 dark:text-gray-600 mb-4" />
                         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No articles found</h3>
-                        <p className="text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-gray-500 dark:text-gray-300 mt-1">
                           Try adjusting your date range or topic filters
                         </p>
                       </div>
@@ -1037,17 +1210,72 @@ export function NewsFeedPage() {
               />
             )}
 
-            {/* Saved Tab Content - Incidents, Emerging Topics, and Podcasts */}
+            {/* Policy Tracker Tab Content */}
+            {currentTab === 'policy' && isModuleEnabled('policy') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
+                <PolicyTrackerTab
+                  onArticleClick={handleArticleClick}
+                />
+              </Suspense>
+            )}
+
+            {/* Geopolitical Hotspots Tab Content */}
+            {currentTab === 'geopolitical' && isModuleEnabled('geopolitical') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
+                <GeopoliticalHotspotsTab
+                  onArticleClick={handleArticleClick}
+                  model={config.model}
+                />
+              </Suspense>
+            )}
+
+            {/* ScienceWatch Tab Content */}
+            {currentTab === 'science' && isModuleEnabled('science') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
+                <ScienceFundingTab
+                  onArticleClick={handleArticleClick}
+                />
+              </Suspense>
+            )}
+
+            {/* Brand Watcher Tab Content */}
+            {currentTab === 'brand_watcher' && isModuleEnabled('brand_watcher') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}>
+                <BrandWatcherTab
+                  onArticleClick={handleArticleClick}
+                />
+              </Suspense>
+            )}
+
+            {/* Threat Intelligence Tab Content */}
+            {currentTab === 'threat_intel' && isModuleEnabled('threat_intel') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
+                <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
+              </Suspense>
+            )}
+
+            {/* Saved Tab Content - Articles, Incidents, Emerging Topics, and Podcasts */}
             {currentTab === 'saved' && (
               <div className="space-y-6">
-                {/* Saved Incidents Section */}
+                {/* Starred Articles Section */}
+                <div className="px-6">
+                  <SavedArticlesSection
+                    starredArticles={starredArticles}
+                    onUnstar={unstarArticle}
+                    onArticleClick={handleArticleClick}
+                  />
+                </div>
+
+                {/* Divider */}
+                <hr className="border-gray-200 dark:border-gray-700 mx-6" />
+
+                {/* Saved Incidents Section - fetches from saved_incidents table */}
                 <SavedIncidentsSection
-                  incidents={filteredIncidents}
-                  savedIncidentNames={savedIncidentNames}
-                  loading={loadingHighlights}
-                  onUnsaveIncident={handleUnsaveIncident}
+                  topic={config.topic}
                   onArticleClick={handleArticleClick}
                   isFullTab={true}
+                  refreshTrigger={savedIncidentsRefresh}
+                  onUnsave={() => setSavedIncidentsRefresh(prev => prev + 1)}
                 />
 
                 {/* Divider */}
@@ -1092,6 +1320,22 @@ export function NewsFeedPage() {
                 </div>
               </div>
             )}
+
+            {/* Briefing Desk Tab */}
+            {currentTab === 'briefing-desk' && (
+              <div className="px-6 py-4">
+                <BriefingDeskSection
+                  isFullTab={true}
+                  model={config.model}
+                  organizationalProfile={profiles.find(p => p.id === config.profileId)?.name}
+                  persona={config.persona}
+                  onRefreshNeeded={() => {
+                    // Refresh draft count when briefings are created/deleted
+                    fetchDraftBriefingsCount().then(setDraftBriefingsCount).catch(console.error);
+                  }}
+                />
+              </div>
+            )}
           </div>
         </main>
       </div>
@@ -1112,6 +1356,31 @@ export function NewsFeedPage() {
       <NarrativesConfigModal
         open={isNarrativesConfigOpen}
         onClose={() => setIsNarrativesConfigOpen(false)}
+      />
+
+      {/* Organizational Profile Modal */}
+      <OrganizationalProfileModal
+        open={isProfileModalOpen}
+        onOpenChange={setIsProfileModalOpen}
+        profiles={profiles}
+        onSave={async (profile) => {
+          if (profile.id) {
+            await updateOrganizationalProfile(Number(profile.id), profile);
+          } else {
+            await createOrganizationalProfile(profile as any);
+          }
+          // Refresh profiles list
+          const fresh = await getOrganizationalProfiles();
+          setRefreshedProfiles(fresh);
+        }}
+      />
+
+      {/* Module Config Modal */}
+      <ModuleConfigModal
+        open={isModuleConfigOpen}
+        onOpenChange={setIsModuleConfigOpen}
+        modules={allModules || []}
+        onToggle={toggleModule}
       />
 
       {/* Six Articles / Briefing Config Modal */}
@@ -1142,6 +1411,11 @@ export function NewsFeedPage() {
         onRelatedArticleClick={(uri) => {
           // Fetch and display the related article
           handleArticleClick({ uri });
+        }}
+        topic={config.topic}
+        onIncidentSaved={() => {
+          // Trigger refresh of SavedIncidentsSection
+          setSavedIncidentsRefresh(prev => prev + 1);
         }}
       />
 
@@ -1261,7 +1535,7 @@ function SectionSettingsDropdown({
                 className={`flex-1 px-4 py-2 text-sm font-medium ${
                   activeTab === 'sections'
                     ? 'text-pink-600 border-b-2 border-pink-500'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-400'
                 }`}
                 onClick={() => setActiveTab('sections')}
               >
@@ -1271,7 +1545,7 @@ function SectionSettingsDropdown({
                 className={`flex-1 px-4 py-2 text-sm font-medium ${
                   activeTab === 'categories'
                     ? 'text-pink-600 border-b-2 border-pink-500'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-400'
                 }`}
                 onClick={() => setActiveTab('categories')}
               >
@@ -1282,7 +1556,7 @@ function SectionSettingsDropdown({
             {/* Sections tab content */}
             {activeTab === 'sections' && (
               <div className="p-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+                <p className="text-xs text-gray-500 dark:text-gray-300 px-2 py-1 mb-1">
                   Show or hide page sections
                 </p>
                 {sections.map((section) => (
@@ -1291,7 +1565,7 @@ function SectionSettingsDropdown({
                     onClick={() => onToggleSection(section.id)}
                     className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{section.label}</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-400">{section.label}</span>
                     {visibleSections[section.id] ? (
                       <Check className="w-4 h-4 text-pink-500" />
                     ) : (
@@ -1305,7 +1579,7 @@ function SectionSettingsDropdown({
             {/* Categories tab content */}
             {activeTab === 'categories' && (
               <div className="p-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+                <p className="text-xs text-gray-500 dark:text-gray-300 px-2 py-1 mb-1">
                   Drag to reorder, click to show/hide
                 </p>
                 <div className="max-h-64 overflow-y-auto">
@@ -1323,7 +1597,7 @@ function SectionSettingsDropdown({
                           : 'hover:bg-gray-50 dark:hover:bg-gray-700'
                       } ${draggedIndex === index ? 'opacity-50' : ''}`}
                     >
-                      <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
+                      <GripVertical className="w-4 h-4 text-gray-500 shrink-0" />
                       <input
                         type="checkbox"
                         checked={!hiddenCategories.has(category)}
@@ -1331,7 +1605,7 @@ function SectionSettingsDropdown({
                         onClick={(e) => e.stopPropagation()}
                         className="rounded border-gray-300 dark:border-gray-600 text-pink-500 focus:ring-pink-500 shrink-0"
                       />
-                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{category}</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-400 flex-1 truncate">{category}</span>
                     </div>
                   ))}
                 </div>

@@ -13,6 +13,7 @@ import {
   Building2,
   Tag,
   Clock,
+  Settings,
 } from 'lucide-react';
 import { type NewsFeedConfig, type Topic, type OrganizationalProfile, type AIModel } from '../../hooks/useNewsFeed';
 import { type NarrativeExplorerConfig } from '../../hooks/useNarrativeExplorer';
@@ -37,6 +38,7 @@ interface NewsFeedHeaderProps {
   onNarrativeConfigChange: (updates: Partial<NarrativeExplorerConfig>) => void;
   onRefresh: () => void;
   onScheduleClick?: () => void;
+  onConfigureProfile?: () => void;
 }
 
 const dateRangeOptions: { value: DateRange; label: string }[] = [
@@ -60,6 +62,7 @@ export function NewsFeedHeader({
   onNarrativeConfigChange,
   onRefresh,
   onScheduleClick,
+  onConfigureProfile,
 }: NewsFeedHeaderProps) {
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -100,6 +103,7 @@ export function NewsFeedHeader({
   const selectAllTopics = () => {
     const allTopicNames = topics.map((t) => t.name);
     onNarrativeConfigChange({ selectedTopics: allTopicNames });
+    onConfigChange({ topic: undefined }); // Clear single-topic filter when multiple selected
   };
 
   // Clear all topics
@@ -154,7 +158,7 @@ export function NewsFeedHeader({
                   {selectedTopics.length}
                 </span>
               )}
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400 shrink-0" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300 shrink-0" />
             </button>
 
             {topicDropdownOpen && (
@@ -164,14 +168,14 @@ export function NewsFeedHeader({
                     onClick={selectAllTopics}
                     className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
                   >
-                    <Check className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <Check className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                     Select All
                   </button>
                   <button
                     onClick={clearAllTopics}
                     className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
                   >
-                    <X className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <X className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                     Clear All
                   </button>
                   <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
@@ -209,7 +213,7 @@ export function NewsFeedHeader({
                     'Date Range'}
                 </span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300" />
             </button>
 
             {dateDropdownOpen && (
@@ -269,7 +273,7 @@ export function NewsFeedHeader({
                 <Building2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                 <span className="truncate">{getProfileLabel()}</span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300" />
             </button>
 
             {profileDropdownOpen && (
@@ -301,10 +305,25 @@ export function NewsFeedHeader({
                       />
                       {profile.name}
                       {profile.is_default && (
-                        <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">(Default)</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-300">(Default)</span>
                       )}
                     </button>
                   ))}
+                  {onConfigureProfile && (
+                    <>
+                      <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
+                      <button
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          onConfigureProfile();
+                        }}
+                        className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2 text-gray-600"
+                      >
+                        <Settings className="w-4 h-4" />
+                        Configure Profiles
+                      </button>
+                    </>
+                  )}
                 </div>
               </DropdownMenu>
             )}

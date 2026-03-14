@@ -1,6 +1,7 @@
 import os
 import yaml
 import time
+import asyncio
 from datetime import datetime
 from litellm import Router
 import logging
@@ -24,6 +25,27 @@ from litellm import (
 from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
 from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
+
+
+def extract_content(response) -> str:
+    """Extract text content from LLM response.
+
+    Handles various response formats from litellm/OpenAI API.
+
+    Args:
+        response: LLM response object (Choice, Message, or string)
+
+    Returns:
+        Extracted text content as string
+    """
+    # Handle Choice object (from response.choices[0])
+    if hasattr(response, 'message') and hasattr(response.message, 'content'):
+        return response.message.content
+    # Handle Message object directly
+    if hasattr(response, 'content'):
+        return response.content
+    # Fallback to string conversion
+    return str(response)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
@@ -147,21 +169,23 @@ class AIModel:
         # ``LiteLLMModel`` uses ``model_name`` so we mirror that here.
         self.model_name = self.model  # type: ignore[attr-defined]
 
-    async def generate(self, prompt: str, max_tokens: int = None) -> Any:
+    def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
+        """Synchronous version of generate() for use in sync contexts."""
         try:
             # Set API key if provided
             if self.api_key:
                 os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
 
-            # Use provided max_tokens or fall back to instance default
+            # Use provided values or fall back to instance defaults
             tokens = max_tokens if max_tokens is not None else self.max_tokens
+            temp = temperature if temperature is not None else self.temperature
 
             # Generate completion
             response = completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=tokens,
-                temperature=self.temperature
+                temperature=temp
             )
 
             return response.choices[0]
@@ -169,6 +193,10 @@ class AIModel:
         except Exception as e:
             logger.error(f"Error generating with model {self.model}: {str(e)}")
             raise
+
+    async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
+        """Async wrapper - runs sync LLM call in thread pool to avoid blocking the event loop."""
+        return await asyncio.to_thread(self.generate_sync, prompt, max_tokens=max_tokens, temperature=temperature)
 
     def generate_response(self, messages):
         """Generate a response from a list of chat *messages*.
@@ -220,6 +248,10 @@ class AIModel:
             # Propagate so higher-level error handling (fallbacks, HTTP 500 etc.)
             # works.
             raise
+
+    async def agenerate_response(self, messages, **kwargs):
+        """Async wrapper for generate_response - runs in thread pool to avoid blocking the event loop."""
+        return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 
 def load_model_config() -> Dict[str, Dict[str, Any]]:
     """Load model configuration from *litellm_config.yaml*.
@@ -862,6 +894,25 @@ class LiteLLMModel(AIModel):
 
             return f"⚠️ An error occurred while using {self.model_name}. Please try again or select a different model. Error: {error_message}"
 
+    def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """
+        Synchronous generation using the router with full error handling.
+
+        This overrides the base AIModel.generate_sync to use the LiteLLM router
+        with circuit breaker, retry logic, and fallback handling.
+
+        Args:
+            prompt: The prompt to send to the model
+            max_tokens: Maximum tokens to generate (currently ignored, uses router defaults)
+            temperature: Temperature for generation (currently ignored, uses router defaults)
+
+        Returns:
+            Generated text content as string
+        """
+        # Wrap prompt in messages format for generate_response
+        messages = [{"role": "user", "content": prompt}]
+        return self.generate_response(messages)
+
     def _extract_user_friendly_error(self, error_message, model_name):
         """Extract user-friendly error messages from common errors."""
         logger.debug(f"🔍 Extracting user-friendly error from: {error_message[:200]}...")
@@ -1042,3 +1093,31 @@ def ai_get_available_models():
     except Exception as e:
         logger.error(f"Error reading config file: {str(e)}")
         return []
+
+
+class AIModelFactory:
+    """Factory class for getting AI model instances.
+
+    Provides compatibility layer for services expecting AIModelFactory.get_model().
+    """
+
+    _default_model = "gpt-4o-mini"
+
+    @classmethod
+    def get_model(cls, model_name: str = None) -> LiteLLMModel:
+        """Get a LiteLLM model instance.
+
+        Args:
+            model_name: Optional model name. Defaults to gpt-4o-mini.
+
+        Returns:
+            LiteLLMModel instance for the specified model.
+        """
+        if model_name is None:
+            model_name = cls._default_model
+        return LiteLLMModel.get_instance(model_name)
+
+    @classmethod
+    def set_default_model(cls, model_name: str):
+        """Set the default model name."""
+        cls._default_model = model_name

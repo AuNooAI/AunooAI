@@ -32,6 +32,7 @@ export interface NewsArticle {
   time_to_impact?: string;
   future_signal?: string;
   tags: string[];
+  user_preference?: 'more' | 'less' | null;
 }
 
 export interface RelatedArticle {
@@ -103,6 +104,7 @@ export interface TopStory {
   category?: string;
   date?: string;
   url?: string;
+  uri?: string;  // Article URL (may be returned as uri from API)
   source?: string;
   scores?: {
     overall?: number;
@@ -148,6 +150,7 @@ interface BackendArticle {
   factual_reporting?: string;
   mbfc_credibility_rating?: string;
   bias_country?: string;
+  user_preference?: string;
 }
 
 // Backend returns: { "articles": { "items": [...], "total_items": N, ... } }
@@ -196,6 +199,7 @@ function transformArticle(backendArticle: BackendArticle): NewsArticle {
     time_to_impact: backendArticle.time_to_impact,
     future_signal: backendArticle.future_signal,
     tags,
+    user_preference: (backendArticle.user_preference === 'more' || backendArticle.user_preference === 'less') ? backendArticle.user_preference : null,
   };
 }
 
@@ -240,6 +244,31 @@ export interface SixArticlesParams {
   forceRegenerate?: boolean;
   starredArticles?: string[];
   model?: string;
+}
+
+// Utility Functions
+
+/**
+ * Extract URL from article data, checking multiple possible field names
+ * API may return url or uri depending on the endpoint
+ */
+export function extractArticleUrl(data: Record<string, unknown> | null | undefined): string {
+  if (!data) return '';
+  return (
+    (data.url as string) ||
+    (data.uri as string) ||
+    ((data.primary_article as Record<string, unknown>)?.url as string) ||
+    ((data.primary_article as Record<string, unknown>)?.uri as string) ||
+    ''
+  );
+}
+
+/**
+ * Convert a value to an array, handling undefined/null and single values
+ */
+export function toArray<T>(value: T | T[] | undefined | null): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 // API Functions
@@ -782,6 +811,13 @@ export async function recordArticlePreference(
 // Saved Incidents and Narratives API
 // ============================================================================
 
+export interface AnalystNote {
+  id: string;           // Unique ID (timestamp-based)
+  timestamp: string;    // ISO 8601 datetime (auto-generated)
+  analyst: string;      // Analyst name/username
+  comment: string;      // Note content
+}
+
 export interface SavedIncident {
   name: string;
   title?: string;
@@ -801,6 +837,7 @@ export interface SavedIncident {
   investigation_leads?: string[];
   credibility_summary?: string;
   misinfo_flags?: string[];
+  analyst_notes?: AnalystNote[];
   _saved_id?: number;
   _saved_at?: string;
 }
@@ -874,22 +911,27 @@ export async function saveIncident(incident: SavedIncident): Promise<boolean> {
 export async function deleteSavedIncident(incidentName: string, topic: string): Promise<boolean> {
   try {
     const params = new URLSearchParams({ topic });
-    const response = await fetch(
-      `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}?${params}`,
-      {
-        method: 'DELETE',
-        credentials: 'include',
-      }
-    );
+    const url = `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}?${params}`;
+    console.log('[deleteSavedIncident] Calling DELETE:', url);
+
+    const response = await fetch(url, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    console.log('[deleteSavedIncident] Response status:', response.status, response.statusText);
 
     if (!response.ok) {
-      console.warn(`Failed to delete incident: ${response.status}`);
+      const text = await response.text();
+      console.warn(`[deleteSavedIncident] Failed: ${response.status} - ${text}`);
       return false;
     }
 
+    const data = await response.json();
+    console.log('[deleteSavedIncident] Success response:', data);
     return true;
   } catch (error) {
-    console.error('Error deleting incident:', error);
+    console.error('[deleteSavedIncident] Error:', error);
     return false;
   }
 }
@@ -1076,6 +1118,137 @@ export async function getTopicCategories(topicName: string): Promise<{
 
   if (!response.ok) {
     throw new Error(`Failed to fetch topic categories: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// Promote Article to Incident API
+// ============================================================================
+
+export interface SuggestedIncident {
+  name: string;
+  type?: string;
+  subtype?: string;
+  significance?: string;
+  description?: string;
+  entities?: string[];
+  timeline?: string;
+  plausibility?: string;
+  source_quality?: string;
+  investigation_leads?: string[];
+  organizational_relevance?: string;
+  article_uris?: string[];
+  article_metadata?: any[];
+  topic?: string;
+}
+
+export interface AnalyzeArticleForIncidentResponse {
+  success: boolean;
+  suggested_incident: SuggestedIncident;
+  article_metadata: {
+    uri: string;
+    title: string;
+    summary: string;
+    source: string;
+    publication_date?: string;
+    category?: string;
+    sentiment?: string;
+    topic?: string;
+    bias?: string;
+    factual_reporting?: string;
+    mbfc_credibility_rating?: string;
+  };
+}
+
+/**
+ * Analyze a single article for incident classification
+ * Returns AI-suggested incident data that can be edited before saving
+ */
+export async function analyzeArticleForIncident(
+  articleUri: string,
+  topic?: string,
+  profileId?: number
+): Promise<AnalyzeArticleForIncidentResponse> {
+  const response = await fetch('/api/analyze-article-for-incident', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      article_uri: articleUri,
+      topic: topic || undefined,
+      profile_id: profileId || undefined,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to analyze article: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Add an article to an existing saved incident
+ */
+export async function addArticleToIncident(
+  incidentName: string,
+  topic: string,
+  articleUri: string,
+  articleMetadata?: any
+): Promise<{ success: boolean; message: string; updated_incident: SavedIncident }> {
+  const response = await fetch(
+    `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}/articles`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        topic,
+        article_uri: articleUri,
+        article_metadata: articleMetadata,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to add article to incident: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Add an analyst note to a saved incident
+ */
+export async function addNoteToIncident(
+  incidentName: string,
+  topic: string,
+  analyst: string,
+  comment: string,
+  savedId?: number  // Unique database ID for precise targeting
+): Promise<{ success: boolean; note: AnalystNote; updated_incident: SavedIncident }> {
+  const response = await fetch(
+    `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}/notes`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        topic,
+        analyst,
+        comment,
+        saved_id: savedId,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to add note to incident: ${response.status}`));
   }
 
   return response.json();

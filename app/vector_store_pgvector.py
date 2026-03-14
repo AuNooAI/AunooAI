@@ -358,7 +358,8 @@ def search_articles(
                     topic,
                     publication_date,
                     tags,
-                    summary
+                    summary,
+                    user_preference
                 FROM articles
                 WHERE {where_clause}
                 ORDER BY publication_date DESC NULLS LAST
@@ -384,7 +385,8 @@ def search_articles(
                     topic,
                     publication_date,
                     tags,
-                    summary
+                    summary,
+                    user_preference
                 FROM articles
                 WHERE {where_clause}
                 ORDER BY embedding <=> CAST(:query_embedding AS vector)
@@ -410,6 +412,7 @@ def search_articles(
                     "tags": row.get("tags"),
                     "summary": row.get("summary"),
                     "uri": row["id"],
+                    "user_preference": row.get("user_preference"),
                 }
             })
 

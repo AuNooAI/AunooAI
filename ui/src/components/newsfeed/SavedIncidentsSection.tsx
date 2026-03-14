@@ -1,5 +1,6 @@
 /**
  * Saved Incidents Section - Display saved incidents
+ * Fetches incidents directly from saved_incidents table
  * Can be used as a small section (horizontal scroll) or as a full tab (grid layout)
  */
 
@@ -24,6 +25,11 @@ import {
   Download,
   FileText,
   Table,
+  Loader2,
+  MessageSquare,
+  Send,
+  User,
+  Newspaper,
 } from 'lucide-react';
 import {
   type Incident,
@@ -38,49 +44,75 @@ import {
   getBiasClass,
   prettifyMisinfoFlag,
 } from '../../services/narrativeExplorerApi';
+import { getSavedIncidents, deleteSavedIncident, addNoteToIncident, type SavedIncident, type AnalystNote } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { Card, CardContent } from '../ui/card';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { ShareModal, type ShareIncidentData } from '../ShareModal';
 import { ExportService } from '../../services/exportService';
-
-// Helper to extract all signal tags from an incident's article metadata
-function getIncidentSignalTags(incident: Incident): string[] {
-  const allTags: string[] = [];
-  if (incident.article_metadata) {
-    for (const meta of incident.article_metadata) {
-      if (meta.tags) {
-        allTags.push(...meta.tags);
-      }
-    }
-  }
-  return extractSignalTags(allTags);
-}
+import {
+  getIncidentSignalTags,
+  formatDisplayDate,
+  formatNoteDate,
+  NotesBadge,
+  TimelineRuler,
+  ArticleLink,
+  getStoredAnalystName,
+  setStoredAnalystName,
+} from './incidentUtils';
+import { AddToBriefingModal } from './AddToBriefingModal';
 
 interface SavedIncidentsSectionProps {
-  incidents: Incident[];
-  savedIncidentNames: string[];
-  loading?: boolean;
-  onUnsaveIncident?: (incidentName: string) => void;
+  topic?: string;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   isFullTab?: boolean;
+  refreshTrigger?: number; // Increment to trigger refresh
+  onUnsave?: () => void; // Callback when an incident is unsaved
+}
+
+// Convert SavedIncident to Incident format for display
+// Exported for reuse in NewsFeedPage to merge promoted incidents
+export function savedToIncident(saved: SavedIncident): Incident {
+  return {
+    name: saved.name,
+    title: saved.name,
+    type: saved.type || 'event',
+    significance: saved.significance || 'medium',
+    description: saved.description,
+    summary: saved.description,
+    topic: saved.topic,
+    entities: saved.entities,
+    timeline: saved.timeline,
+    organizational_relevance: saved.organizational_relevance,
+    plausibility: saved.plausibility,
+    source_quality: saved.source_quality,
+    article_uris: saved.article_uris,
+    article_metadata: saved.article_metadata,
+    investigation_leads: saved.investigation_leads,
+    analyst_notes: saved.analyst_notes,
+  } as Incident;
 }
 
 export function SavedIncidentsSection({
-  incidents,
-  savedIncidentNames,
-  loading,
-  onUnsaveIncident,
+  topic,
   onArticleClick,
   isFullTab = false,
+  refreshTrigger,
+  onUnsave,
 }: SavedIncidentsSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [savedIncidents, setSavedIncidents] = useState<Incident[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareIncidentData | null>(null);
+
+  // Add to Briefing modal state
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [selectedIncidentForBriefing, setSelectedIncidentForBriefing] = useState<Incident | null>(null);
 
   // Download dropdown state
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
@@ -90,11 +122,41 @@ export function SavedIncidentsSection({
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
 
-  // Filter incidents to only show saved ones
-  const savedIncidents = incidents.filter((incident) => {
-    const name = incident.name || incident.title || '';
-    return savedIncidentNames.includes(name);
-  });
+  // Fetch saved incidents from saved_incidents table
+  useEffect(() => {
+    console.log('[SavedIncidentsSection] Fetching incidents for topic:', topic, 'refreshTrigger:', refreshTrigger);
+    // Fetch all incidents when no topic filter, or filter by topic when specified
+    setLoading(true);
+    getSavedIncidents(topic || undefined)
+      .then(incidents => {
+        console.log('[SavedIncidentsSection] Received incidents:', incidents);
+        setSavedIncidents(incidents.map(savedToIncident));
+      })
+      .catch(err => {
+        console.error('Failed to load saved incidents:', err);
+        setSavedIncidents([]);
+      })
+      .finally(() => setLoading(false));
+  }, [topic, refreshTrigger]);
+
+  // Handle unsave/delete incident
+  const handleUnsaveIncident = async (incidentName: string) => {
+    if (!topic) return;
+    try {
+      console.log('[SavedIncidentsSection] Attempting to unsave incident:', incidentName, 'topic:', topic);
+      const success = await deleteSavedIncident(incidentName, topic);
+      console.log('[SavedIncidentsSection] Delete result:', success);
+      if (success) {
+        setSavedIncidents(prev => prev.filter(i => (i.name || i.title) !== incidentName));
+        // Notify parent to refresh promoted incidents
+        onUnsave?.();
+      } else {
+        console.error('[SavedIncidentsSection] Failed to delete incident - API returned false');
+      }
+    } catch (err) {
+      console.error('Failed to unsave incident:', err);
+    }
+  };
 
   // Find selected incident for expansion
   const selectedIncident = selectedIncidentId
@@ -106,8 +168,28 @@ export function SavedIncidentsSection({
   };
 
   // Share handler - opens modal with incident data
+  // Handle Add to Briefing action
+  const handleAddToBriefing = (incident: Incident) => {
+    setSelectedIncidentForBriefing(incident);
+    setShowAddToBriefingModal(true);
+  };
+
   const handleShare = (incident: Incident) => {
     const name = incident.name || incident.title || 'Unnamed Incident';
+
+    // Map articles with proper field names for email API
+    const articles = incident.articles || [];
+    const articleMetadata = incident.article_metadata || [];
+    const mappedArticles = articles.map((article, i) => {
+      const metadata = articleMetadata[i];
+      return {
+        title: article.title || metadata?.title || 'Untitled',
+        source: article.news_source || metadata?.news_source || article.source || '',
+        url: article.uri || '',
+        summary: article.summary || '',
+      };
+    });
+
     setShareData({
       type: 'incident',
       incident_name: name,
@@ -119,6 +201,8 @@ export function SavedIncidentsSection({
       strategic_relevance: incident.organizational_relevance,
       plausibility: incident.plausibility,
       source_quality: incident.source_quality,
+      analyst_notes: incident.analyst_notes,
+      articles: mappedArticles.length > 0 ? mappedArticles : undefined,
     });
     setShowShareModal(true);
   };
@@ -181,26 +265,51 @@ export function SavedIncidentsSection({
                     onClick={() => setShowDownloadDropdown(false)}
                   />
                   {/* Dropdown */}
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#232326] border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 py-1">
                     <button
+                      type="button"
                       onClick={() => {
-                        ExportService.exportIncidentsMarkdown(savedIncidents);
+                        ExportService.exportIncidentsPDF(savedIncidents, topic);
                         setShowDownloadDropdown(false);
                       }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                      <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                      <span>Export as Markdown</span>
+                      <FileText className="w-4 h-4 text-pink-500" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as PDF (Styled)</span>
                     </button>
                     <button
+                      type="button"
+                      onClick={() => {
+                        ExportService.exportIncidentsStyledMarkdown(savedIncidents, topic);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as Markdown (Styled)</span>
+                    </button>
+                    <div className="border-t border-gray-200 dark:border-gray-600 my-1"></div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        ExportService.exportIncidentsMarkdown(savedIncidents, topic);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as Markdown (Plain)</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         ExportService.exportIncidentsCSV(savedIncidents);
                         setShowDownloadDropdown(false);
                       }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                      <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                      <span>Export as CSV</span>
+                      <Table className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as CSV</span>
                     </button>
                   </div>
                 </>
@@ -219,11 +328,11 @@ export function SavedIncidentsSection({
         ) : savedIncidents.length === 0 ? (
           /* Empty State */
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <BookmarkX className="w-16 h-16 text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-4" />
-            <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2">
+            <BookmarkX className="w-16 h-16 text-gray-600 dark:text-gray-300 dark:text-gray-600 mb-4" />
+            <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
               No Saved Incidents
             </h2>
-            <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 max-w-md">
+            <p className="text-gray-700 dark:text-gray-300 dark:text-gray-300 max-w-md">
               Save incidents from the News Feed tab by clicking the menu (⋮) on any incident card
               and selecting "Save". Your saved incidents will appear here.
             </p>
@@ -238,9 +347,10 @@ export function SavedIncidentsSection({
                   <SavedIncidentCard
                     key={incidentKey}
                     incident={incident}
-                    onUnsave={onUnsaveIncident}
+                    onUnsave={handleUnsaveIncident}
                     onArticleClick={onArticleClick}
                     onShare={handleShare}
+                    onAddToBriefing={handleAddToBriefing}
                     onClick={() => handleCompactCardClick(incidentKey)}
                     isFullWidth={true}
                   />
@@ -254,7 +364,7 @@ export function SavedIncidentsSection({
                 <ExpandedSavedIncidentCard
                   incident={selectedIncident}
                   onClose={() => setSelectedIncidentId(null)}
-                  onUnsave={onUnsaveIncident}
+                  onUnsave={handleUnsaveIncident}
                   onArticleClick={onArticleClick}
                 />
               </div>
@@ -270,13 +380,47 @@ export function SavedIncidentsSection({
             data={shareData}
           />
         )}
+
+        {/* Add to Briefing Modal */}
+        {showAddToBriefingModal && selectedIncidentForBriefing && (
+          <AddToBriefingModal
+            isOpen={showAddToBriefingModal}
+            onClose={() => {
+              setShowAddToBriefingModal(false);
+              setSelectedIncidentForBriefing(null);
+            }}
+            itemType="incident"
+            incident={{
+              name: selectedIncidentForBriefing.name || selectedIncidentForBriefing.title || 'Unnamed Incident',
+              title: selectedIncidentForBriefing.title,
+              type: selectedIncidentForBriefing.type,
+              significance: selectedIncidentForBriefing.significance,
+              description: selectedIncidentForBriefing.description,
+              summary: selectedIncidentForBriefing.summary,
+              topic: selectedIncidentForBriefing.topic || topic,
+              timeline: Array.isArray(selectedIncidentForBriefing.timeline)
+                ? selectedIncidentForBriefing.timeline[0]
+                : selectedIncidentForBriefing.timeline,
+              first_seen: selectedIncidentForBriefing.first_seen,
+              last_seen: selectedIncidentForBriefing.last_seen,
+              entities: selectedIncidentForBriefing.entities,
+              article_uris: selectedIncidentForBriefing.article_uris,
+              organizational_relevance: selectedIncidentForBriefing.organizational_relevance,
+              plausibility: selectedIncidentForBriefing.plausibility,
+              source_quality: selectedIncidentForBriefing.source_quality,
+              credibility_summary: selectedIncidentForBriefing.credibility_summary,
+              investigation_leads: selectedIncidentForBriefing.investigation_leads,
+              analyst_notes: selectedIncidentForBriefing.analyst_notes,
+            }}
+          />
+        )}
       </div>
     );
   }
 
   // Compact Section View (original horizontal scroll)
   // Don't render if no saved incidents
-  if (savedIncidentNames.length === 0 && !loading) {
+  if (savedIncidents.length === 0 && !loading) {
     return null;
   }
 
@@ -352,7 +496,7 @@ export function SavedIncidentsSection({
 
       {/* Collapsed state */}
       {isCollapsed && (
-        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300">
           {savedIncidents.length} incident{savedIncidents.length !== 1 ? 's' : ''} saved
         </p>
       )}
@@ -368,7 +512,7 @@ export function SavedIncidentsSection({
               ))}
             </div>
           ) : savedIncidents.length === 0 ? (
-            <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300">
               No saved incidents yet. Use the menu on any incident card to save it.
             </p>
           ) : (
@@ -380,7 +524,7 @@ export function SavedIncidentsSection({
                   onClick={() => scroll('left')}
                   className="absolute left-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
                 >
-                  <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                  <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                 </button>
               )}
 
@@ -395,9 +539,10 @@ export function SavedIncidentsSection({
                     <SavedIncidentCard
                       key={incidentKey}
                       incident={incident}
-                      onUnsave={onUnsaveIncident}
+                      onUnsave={handleUnsaveIncident}
                       onArticleClick={onArticleClick}
                       onShare={handleShare}
+                      onAddToBriefing={handleAddToBriefing}
                     />
                   );
                 })}
@@ -409,7 +554,7 @@ export function SavedIncidentsSection({
                   onClick={() => scroll('right')}
                   className="absolute right-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
                 >
-                  <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                  <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                 </button>
               )}
             </div>
@@ -425,6 +570,40 @@ export function SavedIncidentsSection({
           data={shareData}
         />
       )}
+
+      {/* Add to Briefing Modal */}
+      {showAddToBriefingModal && selectedIncidentForBriefing && (
+        <AddToBriefingModal
+          isOpen={showAddToBriefingModal}
+          onClose={() => {
+            setShowAddToBriefingModal(false);
+            setSelectedIncidentForBriefing(null);
+          }}
+          itemType="incident"
+          incident={{
+            name: selectedIncidentForBriefing.name || selectedIncidentForBriefing.title || 'Unnamed Incident',
+            title: selectedIncidentForBriefing.title,
+            type: selectedIncidentForBriefing.type,
+            significance: selectedIncidentForBriefing.significance,
+            description: selectedIncidentForBriefing.description,
+            summary: selectedIncidentForBriefing.summary,
+            topic: selectedIncidentForBriefing.topic || topic,
+            timeline: Array.isArray(selectedIncidentForBriefing.timeline)
+              ? selectedIncidentForBriefing.timeline[0]
+              : selectedIncidentForBriefing.timeline,
+            first_seen: selectedIncidentForBriefing.first_seen,
+            last_seen: selectedIncidentForBriefing.last_seen,
+            entities: selectedIncidentForBriefing.entities,
+            article_uris: selectedIncidentForBriefing.article_uris,
+            organizational_relevance: selectedIncidentForBriefing.organizational_relevance,
+            plausibility: selectedIncidentForBriefing.plausibility,
+            source_quality: selectedIncidentForBriefing.source_quality,
+            credibility_summary: selectedIncidentForBriefing.credibility_summary,
+            investigation_leads: selectedIncidentForBriefing.investigation_leads,
+            analyst_notes: selectedIncidentForBriefing.analyst_notes,
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -437,11 +616,12 @@ interface SavedIncidentCardProps {
   onUnsave?: (incidentName: string) => void;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   onShare?: (incident: Incident) => void;
+  onAddToBriefing?: (incident: Incident) => void;
   onClick?: () => void;
   isFullWidth?: boolean;
 }
 
-function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClick, isFullWidth = false }: SavedIncidentCardProps) {
+function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onAddToBriefing, onClick, isFullWidth = false }: SavedIncidentCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -483,6 +663,13 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
     onShare?.(incident);
   };
 
+  // Handle add to briefing action
+  const handleAddToBriefingClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+    onAddToBriefing?.(incident);
+  };
+
   // Format date for display
   const formatDisplayDate = (dateStr?: string | string[]) => {
     const dateVal = Array.isArray(dateStr) ? dateStr[0] : dateStr;
@@ -510,7 +697,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
       <div onClick={handleCardClick} className={cardClasses}>
         {/* Top row: Date + See More + Saved badge + Menu */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
             <Calendar className="w-3 h-3" />
             <span>{formatDisplayDate(incident.timeline)}</span>
           </div>
@@ -532,7 +719,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
                 }}
                 className="p-1 hover:bg-amber-100 dark:hover:bg-amber-800/50 rounded transition-colors"
               >
-                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-300" />
               </button>
               {showMenu && (
                 <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
@@ -540,8 +727,15 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
                     onClick={handleShareClick}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Share
+                  </button>
+                  <button
+                    onClick={handleAddToBriefingClick}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Newspaper className="w-4 h-4 text-pink-500" />
+                    Add to Briefing
                   </button>
                   <button
                     onClick={handleUnsave}
@@ -556,12 +750,15 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
           </div>
         </div>
 
-        {/* Title */}
-        <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-2">{name}</h4>
+        {/* Title with notes badge */}
+        <div className="flex items-start gap-2 mb-2">
+          <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">{name}</h4>
+          <NotesBadge count={incident.analyst_notes?.length ?? 0} />
+        </div>
 
         {/* Summary */}
         {displaySummary && (
-          <p className={`text-[11px] text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2 ${isFullWidth ? 'line-clamp-4' : 'line-clamp-3'}`}>
+          <p className={`text-[11px] text-gray-700 dark:text-gray-300 mb-2 ${isFullWidth ? 'line-clamp-4' : 'line-clamp-3'}`}>
             {displaySummary}
           </p>
         )}
@@ -630,12 +827,23 @@ interface ExpandedSavedIncidentCardProps {
 }
 
 function ExpandedSavedIncidentCard({ incident, onClose, onUnsave, onArticleClick }: ExpandedSavedIncidentCardProps) {
+  // State for analyst notes - initialized from incident data
+  const [analystNotes, setAnalystNotes] = useState<AnalystNote[]>(
+    (incident as any).analyst_notes || []
+  );
+
   // Get display values with fallbacks
   const name = incident.name || incident.title || 'Unnamed Incident';
   const description = incident.description || incident.summary || '';
   const type = incident.type || 'event';
   const significance = incident.significance || 'medium';
   const signalTags = getIncidentSignalTags(incident);
+  const topic = incident.topic || '';
+
+  // Handle new note added
+  const handleNoteAdded = (note: AnalystNote) => {
+    setAnalystNotes(prev => [note, ...prev]);
+  };
 
   // Check for low quality indicators
   const isLowQuality =
@@ -750,7 +958,7 @@ Provide comprehensive analysis with citations to the source articles.`;
         <div className="p-4">
           {/* Top row: Date + Close button */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
               <Calendar className="w-3.5 h-3.5" />
               <span>{formatDisplayDate(incident.timeline)}</span>
               <span className="flex items-center gap-1 ml-2 text-[10px] bg-amber-100 dark:bg-amber-800/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
@@ -810,17 +1018,17 @@ Provide comprehensive analysis with citations to the source articles.`;
           )}
 
           {/* Description */}
-          <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-3">
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
             {description}
           </p>
 
           {/* Strategic Relevance / Why This Matters */}
           {incident.organizational_relevance && (
             <div className="bg-white dark:bg-gray-800 rounded-lg p-3 mb-3 border-l-4 border-blue-500">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-1">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
                 Strategic Relevance
               </h4>
-              <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 {incident.organizational_relevance}
               </p>
             </div>
@@ -829,10 +1037,10 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Credibility Assessment */}
           {incident.credibility_summary && (
             <div className="mb-3">
-              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">
+              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 uppercase tracking-wide mb-1">
                 Credibility Assessment
               </h4>
-              <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 {incident.credibility_summary}
               </p>
             </div>
@@ -887,7 +1095,7 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Source Articles */}
           {articleUris.length > 0 && (
             <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
-              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
+              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 uppercase tracking-wide mb-2">
                 Source Articles ({articleUris.length})
               </h4>
               <div className="space-y-2">
@@ -905,7 +1113,7 @@ Provide comprehensive analysis with citations to the source articles.`;
                   );
                 })}
                 {articleUris.length > 5 && (
-                  <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">+{articleUris.length - 5} more articles</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-300">+{articleUris.length - 5} more articles</p>
                 )}
               </div>
             </div>
@@ -914,7 +1122,7 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Investigation Leads */}
           {investigationLeads.length > 0 && (
             <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
-              <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 font-medium mb-2">Investigation Leads:</p>
+              <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 font-medium mb-2">Investigation Leads:</p>
               <div className="flex flex-wrap gap-1">
                 {investigationLeads.map((lead, i) => (
                   <button
@@ -933,7 +1141,7 @@ Provide comprehensive analysis with citations to the source articles.`;
 
           {/* Analysis buttons */}
           <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
-            <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 font-medium mb-2">Analysis</p>
+            <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 font-medium mb-2">Analysis</p>
             <div className="flex flex-wrap items-center gap-4">
               <button
                 onClick={() => launchResearch(name)}
@@ -987,6 +1195,15 @@ Provide balanced analysis of how this story is being covered across sources, cit
             </div>
           </div>
 
+          {/* Analyst Notes Section */}
+          <AnalystNotesSection
+            notes={analystNotes}
+            incidentName={name}
+            topic={topic}
+            savedId={(incident as any)._saved_id}
+            onNoteAdded={handleNoteAdded}
+          />
+
           {/* Collapse button */}
           <button
             onClick={onClose}
@@ -998,6 +1215,174 @@ Provide balanced analysis of how this story is being covered across sources, cit
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Analyst Notes Section - display and add analyst notes
+ * Exported for reuse in HighlightsSection
+ */
+export interface AnalystNotesSectionProps {
+  notes: AnalystNote[];
+  incidentName: string;
+  topic: string;
+  savedId?: number;  // Unique database ID for the saved incident
+  onNoteAdded: (note: AnalystNote) => void;
+}
+
+export function AnalystNotesSection({ notes, incidentName, topic, savedId, onNoteAdded }: AnalystNotesSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [analystName, setAnalystName] = useState(getStoredAnalystName);
+  const [comment, setComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!analystName.trim() || !comment.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      // Save analyst name for future use
+      setStoredAnalystName(analystName.trim());
+
+      const result = await addNoteToIncident(
+        incidentName,
+        topic,
+        analystName.trim(),
+        comment.trim(),
+        savedId  // Pass unique ID for proper targeting
+      );
+
+      if (result.success && result.note) {
+        onNoteAdded(result.note);
+        setComment(''); // Clear comment but keep analyst name
+      }
+    } catch (err) {
+      console.error('Failed to add note:', err);
+      setError(err instanceof Error ? err.message : 'Failed to add note');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Collapsed view - just a small button
+  if (!isExpanded) {
+    return (
+      <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
+        <button
+          onClick={() => setIsExpanded(true)}
+          className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 font-medium transition-colors"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          Analyst Notes {notes.length > 0 && `(${notes.length})`}
+          <ChevronDown className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
+
+  // Expanded view
+  return (
+    <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+            Analyst Notes ({notes.length})
+          </h4>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(false);
+          }}
+          className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-amber-100 dark:hover:bg-amber-800 rounded transition-colors"
+          title="Collapse"
+        >
+          <ChevronUp className="w-3.5 h-3.5" />
+          Hide
+        </button>
+      </div>
+
+      {/* Add Note Form */}
+      <form onSubmit={handleSubmit} className="mb-3 bg-white dark:bg-gray-800 rounded-lg p-3 border border-amber-100 dark:border-amber-800">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <input
+              type="text"
+              value={analystName}
+              onChange={(e) => setAnalystName(e.target.value)}
+              placeholder="Your name"
+              className="flex-1 text-sm px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-500"
+            />
+          </div>
+          <div className="flex items-start gap-2">
+            <MessageSquare className="w-4 h-4 text-gray-400 dark:text-gray-500 mt-2" />
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Add a note..."
+              rows={2}
+              className="flex-1 text-sm px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-500 resize-none"
+            />
+            <button
+              type="submit"
+              disabled={!analystName.trim() || !comment.trim() || isSubmitting}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white rounded text-sm font-medium transition-colors flex items-center gap-1"
+            >
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  Add
+                </>
+              )}
+            </button>
+          </div>
+          {error && (
+            <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+          )}
+        </div>
+      </form>
+
+      {/* Notes Timeline */}
+      {notes.length > 0 && (
+        <div className="space-y-3">
+          {notes.map((note) => (
+            <div key={note.id} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div className="w-2 h-2 bg-amber-400 dark:bg-amber-500 rounded-full" />
+                <div className="w-0.5 flex-1 bg-amber-200 dark:bg-amber-700" />
+              </div>
+              <div className="flex-1 pb-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {note.analyst}
+                  </span>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                    {formatNoteDate(note.timestamp)}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                  {note.comment}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {notes.length === 0 && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+          No notes yet. Add the first note above.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1026,10 +1411,10 @@ function TimelineRuler({ dates }: { dates: number[] }) {
         })}
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <span className="text-[10px] text-gray-600 dark:text-gray-300">
           {new Date(dates[0]).toLocaleDateString()}
         </span>
-        <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <span className="text-[10px] text-gray-600 dark:text-gray-300">
           {new Date(dates[dates.length - 1]).toLocaleDateString()}
         </span>
       </div>
@@ -1079,7 +1464,7 @@ function ArticleLink({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-gray-900 dark:text-gray-100 line-clamp-1">{title}</p>
-          <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 mt-0.5">{source}</p>
+          <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 mt-0.5">{source}</p>
           {hasMBFC ? (
             <div className="flex flex-wrap gap-1 mt-1">
               {factual && (
@@ -1112,7 +1497,7 @@ function ArticleLink({
             </div>
           )}
         </div>
-        <ExternalLink className="w-3 h-3 text-gray-600 dark:text-gray-400 shrink-0" />
+        <ExternalLink className="w-3 h-3 text-gray-600 dark:text-gray-300 shrink-0" />
       </div>
     </a>
   );

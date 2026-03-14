@@ -1,0 +1,217 @@
+/**
+ * Executive Summary CSS
+ * IBM Plex Sans typography for professional C-Level Strategic Brief styling
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+/* ============================================
+   Executive Summary Section
+   ============================================ */
+
+.executive-summary-section {
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.executive-summary-section h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ============================================
+   Executive Summary Card
+   ============================================ */
+
+.executive-summary-card {
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.executive-summary-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Title styling - uppercase with tight tracking */
+.executive-summary-title {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+/* Primary signal styling */
+.primary-signal p {
+  font-weight: 400;
+  line-height: 1.65;
+}
+
+/* Counter-signals styling */
+.counter-signals p {
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.counter-signals span.font-medium {
+  font-weight: 500;
+}
+
+/* Decision Fork Section */
+.decision-fork-section h4 {
+  font-family: 'IBM Plex Sans', sans-serif;
+  letter-spacing: 0.08em;
+}
+
+/* Action Window Badge */
+.action-window .font-medium {
+  font-weight: 600;
+}
+
+/* Source Scenarios */
+.source-scenarios summary {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 500;
+}
+
+/* ============================================
+   Decision Fork Visual
+   ============================================ */
+
+.decision-fork-visual {
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.decision-fork-visual .branch-content {
+  transition: background-color 0.15s ease;
+}
+
+.decision-fork-visual .branch-content:hover {
+  filter: brightness(0.98);
+}
+
+/* Dark mode adjustments for branch content */
+:root[class~="dark"] .decision-fork-visual .branch-content:hover {
+  filter: brightness(1.05);
+}
+
+/* ============================================
+   Grid Layout
+   ============================================ */
+
+.executive-summary-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .executive-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Ensure cards in grid have equal height */
+.executive-summary-grid .executive-summary-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.executive-summary-grid .executive-summary-card > div:last-child {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================
+   Horizon Color Accents
+   ============================================ */
+
+/* H1 - Blue (Declining System) */
+.border-l-blue-600 {
+  border-left-color: #2563eb;
+}
+
+/* H2 - Purple (Transition/Innovation) */
+.border-l-purple-600 {
+  border-left-color: #9333ea;
+}
+
+/* H3 - Green (Future Vision) */
+.border-l-green-600 {
+  border-left-color: #16a34a;
+}
+
+/* ============================================
+   Print / Export Styles
+   ============================================ */
+
+@media print {
+  .executive-summary-section {
+    page-break-inside: avoid;
+  }
+
+  .executive-summary-card {
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  .executive-summary-grid {
+    display: block;
+  }
+
+  .executive-summary-grid .executive-summary-card {
+    margin-bottom: 1.5rem;
+  }
+
+  /* Hide interactive elements in print */
+  .executive-summary-section button {
+    display: none !important;
+  }
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.executive-summary-card {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.executive-summary-grid .executive-summary-card:nth-child(1) { animation-delay: 0ms; }
+.executive-summary-grid .executive-summary-card:nth-child(2) { animation-delay: 50ms; }
+.executive-summary-grid .executive-summary-card:nth-child(3) { animation-delay: 100ms; }
+.executive-summary-grid .executive-summary-card:nth-child(4) { animation-delay: 150ms; }
+.executive-summary-grid .executive-summary-card:nth-child(5) { animation-delay: 200ms; }
+.executive-summary-grid .executive-summary-card:nth-child(6) { animation-delay: 250ms; }
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+
+@media (max-width: 640px) {
+  .executive-summary-title {
+    font-size: 1rem;
+  }
+
+  .decision-fork-visual {
+    flex-direction: column;
+  }
+
+  .decision-fork-visual svg {
+    transform: rotate(90deg);
+    width: 120px;
+    height: 40px;
+    align-self: flex-start;
+    margin-left: 1rem;
+  }
+}

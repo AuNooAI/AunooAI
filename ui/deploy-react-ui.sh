@@ -330,6 +330,61 @@ else
     echo "⚠️  index-operations.html not found in build output"
 fi
 
+# ================================
+# SUBMIT ARTICLES PAGE DEPLOYMENT
+# ================================
+echo "================================"
+echo "  Deploying Submit Articles Page"
+echo "================================"
+echo ""
+
+SUBMIT_ARTICLES_TEMPLATE="$PROJECT_ROOT/templates/submit_articles_react.html"
+
+# Extract the hash from submit-articles assets
+if [ -f "$STATIC_DIR/index-submit-articles.html" ]; then
+    SUBMIT_ARTICLES_JS=$(grep -oP 'submitArticles-[^.]+\.js' "$STATIC_DIR/index-submit-articles.html" | head -1)
+
+    echo "  📄 Submit Articles JS: $SUBMIT_ARTICLES_JS"
+
+    if [ -f "$SUBMIT_ARTICLES_TEMPLATE" ]; then
+        # Backup the template
+        cp "$SUBMIT_ARTICLES_TEMPLATE" "$SUBMIT_ARTICLES_TEMPLATE.backup"
+
+        # Update JS file
+        if [ -n "$SUBMIT_ARTICLES_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/submitArticles-[^.]*\.js|/static/trend-convergence/assets/$SUBMIT_ARTICLES_JS|" "$SUBMIT_ARTICLES_TEMPLATE"
+            # Also replace PLACEHOLDER if this is first deployment
+            sed -i "s|/static/trend-convergence/assets/submitArticles-PLACEHOLDER\.js|/static/trend-convergence/assets/$SUBMIT_ARTICLES_JS|" "$SUBMIT_ARTICLES_TEMPLATE"
+        fi
+
+        # Also update shared CSS (index.css)
+        if [ -n "$INDEX_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$SUBMIT_ARTICLES_TEMPLATE"
+        fi
+
+        # Also update NotificationBell CSS
+        if [ -n "$NOTIFICATIONBELL_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$SUBMIT_ARTICLES_TEMPLATE"
+        fi
+
+        # Update gather CSS (submit articles uses similar layout)
+        if [ -n "$GATHER_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/gather-[^.]*\.css|/static/trend-convergence/assets/$GATHER_CSS|" "$SUBMIT_ARTICLES_TEMPLATE"
+        fi
+
+        # Also update shared JS (index.js) for modulepreload
+        if [ -n "$INDEX_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-convergence/assets/$INDEX_JS|" "$SUBMIT_ARTICLES_TEMPLATE"
+        fi
+
+        echo "✅ Submit Articles template updated successfully!"
+    else
+        echo "⚠️  Submit Articles template not found: $SUBMIT_ARTICLES_TEMPLATE"
+    fi
+else
+    echo "⚠️  index-submit-articles.html not found in build output"
+fi
+
 echo ""
 echo "✅ Deployment complete!"
 echo ""
@@ -341,11 +396,13 @@ echo "🌐 React UI is now available at: /trend-convergence"
 echo "🌐 Gather is now available at: /gather"
 echo "🌐 Explore is now available at: /explore"
 echo "🌐 PAM is now available at: /pam"
+echo "🌐 Submit Articles is now available at: /submit-articles"
 echo "📝 Templates updated:"
 echo "   - $OPERATIONS_TEMPLATE"
 echo "   - $TEMPLATE_FILE"
 echo "   - $GATHER_TEMPLATE"
 echo "   - $EXPLORE_TEMPLATE"
 echo "   - $PAM_TEMPLATE"
+echo "   - $SUBMIT_ARTICLES_TEMPLATE"
 echo ""
 echo "================================"

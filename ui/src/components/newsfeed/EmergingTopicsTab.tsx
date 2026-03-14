@@ -46,6 +46,7 @@ import {
   Archive,
   RotateCcw,
   Compass,
+  Newspaper,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -75,6 +76,7 @@ import {
   loadEmergingTopicsConfig,
 } from './EmergingTopicsConfigModal';
 import { EmergingTopicsScheduleModal } from './EmergingTopicsScheduleModal';
+import { AddToBriefingModal } from './AddToBriefingModal';
 import { ShareModal, type ShareEmergingTopicData, type ShareData } from '../ShareModal';
 import { getAvailableModels } from '../../services/newsFeedApi';
 import { ExportService } from '../../services/exportService';
@@ -234,7 +236,7 @@ function getVelocityStyle(velocity: string) {
     default: // stable
       return {
         label: 'Stable',
-        className: 'text-gray-600 dark:text-gray-600 dark:text-gray-400',
+        className: 'text-gray-600 dark:text-gray-300',
         icon: <Circle className="w-3 h-3" />,
       };
   }
@@ -251,7 +253,7 @@ const urgencyStyles: Record<string, { label: string; className: string }> = {
 function getScoreColor(score: number): string {
   if (score >= 70) return 'text-green-600 dark:text-green-400';
   if (score >= 40) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-gray-600 dark:text-gray-600 dark:text-gray-400';
+  return 'text-gray-600 dark:text-gray-300';
 }
 
 export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabProps) {
@@ -328,6 +330,10 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareData | null>(null);
+
+  // Add to Briefing modal state
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [topicForBriefing, setTopicForBriefing] = useState<EmergingTopicV2 | null>(null);
 
   // Topic history for sparklines
   const [topicHistories, setTopicHistories] = useState<Record<number, Array<{ run_date: string; composite_score: number }>>>({});
@@ -970,7 +976,7 @@ Please provide:
               </div>
               <div className="flex-1 pb-2">
                 <div className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Trigger</div>
-                <p className="text-sm text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mt-1">{events.trigger_event}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{events.trigger_event}</p>
               </div>
             </div>
           )}
@@ -988,7 +994,7 @@ Please provide:
                 {item.date && (
                   <div className="text-xs font-medium text-blue-600 dark:text-blue-400">{item.date}</div>
                 )}
-                <p className="text-sm text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{item.event}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{item.event}</p>
               </div>
             </div>
           ))}
@@ -1001,7 +1007,7 @@ Please provide:
               </div>
               <div className="flex-1">
                 <div className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide">Current Status</div>
-                <p className="text-sm text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mt-1">{events.current_status}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{events.current_status}</p>
               </div>
             </div>
           )}
@@ -1043,7 +1049,7 @@ Please provide:
               <div className="font-medium text-green-600 mb-1 flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" /> Growth
               </div>
-              <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-400 space-y-0.5">
+              <ul className="text-gray-600 dark:text-gray-300 space-y-0.5">
                 {growthIndicators.slice(0, 2).map((g, i) => (
                   <li key={i}>• {g}</li>
                 ))}
@@ -1055,7 +1061,7 @@ Please provide:
               <div className="font-medium text-orange-600 mb-1 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Risks
               </div>
-              <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-400 space-y-0.5">
+              <ul className="text-gray-600 dark:text-gray-300 space-y-0.5">
                 {riskFactors.slice(0, 2).map((r, i) => (
                   <li key={i}>• {r}</li>
                 ))}
@@ -1067,7 +1073,7 @@ Please provide:
               <div className="font-medium text-blue-600 mb-1 flex items-center gap-1">
                 <Target className="w-3 h-3" /> Watch
               </div>
-              <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-400 space-y-0.5">
+              <ul className="text-gray-600 dark:text-gray-300 space-y-0.5">
                 {watchFor.slice(0, 2).map((w, i) => (
                   <li key={i}>• {w}</li>
                 ))}
@@ -1116,49 +1122,44 @@ Please provide:
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-500" />
             Emerging Themes
           </h2>
-          <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
             Emerging developments from your article corpus
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={() => setIsScheduleOpen(true)}
             title="Schedule automatic detection"
             disabled={detecting}
+            className="p-2 text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
           >
             <Clock className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
+          </button>
+          <button
             onClick={() => setIsConfigOpen(true)}
             title="Configure detection settings"
             disabled={detecting}
+            className="p-2 text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
           >
             <Settings2 className="w-4 h-4" />
-          </Button>
+          </button>
           {/* Export dropdown */}
           {emergingTopics.length > 0 && (
             <div className="relative" ref={exportMenuRef}>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
                 onClick={() => setExportMenuOpen(!exportMenuOpen)}
                 disabled={detecting}
                 title="Export all trending themes"
+                className="p-2 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 disabled:opacity-50"
               >
-                <Download className="w-4 h-4 mr-1" />
-                Export
-                <ChevronDown className="w-3 h-3 ml-1" />
-              </Button>
+                <Download className="w-4 h-4" />
+              </button>
               {exportMenuOpen && (
                 <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
                   <button
@@ -1196,35 +1197,27 @@ Please provide:
             </div>
           )}
           {(emergingTopics.length > 0 || highNoveltyArticles.length > 0) && (
-            <Button
-              variant="outline"
-              size="sm"
+            <button
               onClick={() => setShowClearConfirm(true)}
               disabled={detecting}
-              title="Clear all detected topics from database"
+              title="Clear all detected topics"
+              className="p-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 disabled:opacity-50"
             >
-              <Trash2 className="w-4 h-4 mr-1" />
-              Clear
-            </Button>
+              <Trash2 className="w-4 h-4" />
+            </button>
           )}
-          <Button
+          <button
             onClick={runDetection}
             disabled={detecting}
-            className="bg-pink-500 hover:bg-pink-600 text-white"
             title={topic ? `Scan ${topic}` : 'Scan all configured topics'}
+            className="p-2 text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 rounded-lg hover:bg-teal-100 disabled:opacity-50"
           >
             {detecting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Scanning...
-              </>
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <>
-                <Play className="w-4 h-4 mr-2" />
-                Scan
-              </>
+              <Play className="w-4 h-4" />
             )}
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -1385,7 +1378,7 @@ Please provide:
                 className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
                   urgencyFilters.has('high')
                     ? 'bg-red-100 border-red-300 text-red-700 dark:bg-red-900/50 dark:border-red-700 dark:text-red-300'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-600 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
               >
                 High Urgency
@@ -1395,7 +1388,7 @@ Please provide:
                 className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
                   urgencyFilters.has('medium')
                     ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-600 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
               >
                 Medium
@@ -1405,19 +1398,19 @@ Please provide:
                 className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
                   urgencyFilters.has('low')
                     ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-600 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
               >
                 Low
               </button>
-              <span className="text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600">|</span>
+              <span className="text-gray-600 dark:text-gray-300 dark:text-gray-600">|</span>
               {/* Velocity filters (multiselect) */}
               <button
                 onClick={() => toggleVelocityFilter('accelerating')}
                 className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
                   velocityFilters.has('accelerating')
                     ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-600 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
               >
                 <TrendingUp className="w-3 h-3" /> Accelerating
@@ -1427,7 +1420,7 @@ Please provide:
                 className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
                   velocityFilters.has('stable')
                     ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/50 dark:border-blue-700 dark:text-blue-300'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-600 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
               >
                 <Minus className="w-3 h-3" /> Stable
@@ -1437,7 +1430,7 @@ Please provide:
                 className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
                   velocityFilters.has('decelerating')
                     ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-600 dark:text-gray-400 dark:hover:bg-gray-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
               >
                 <TrendingDown className="w-3 h-3" /> Slowing
@@ -1445,7 +1438,7 @@ Please provide:
               {(urgencyFilters.size > 0 || velocityFilters.size > 0) && (
                 <button
                   onClick={() => { setUrgencyFilters(new Set()); setVelocityFilters(new Set()); }}
-                  className="px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400"
+                  className="px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-600 dark:text-gray-300"
                 >
                   Clear
                 </button>
@@ -1456,12 +1449,12 @@ Please provide:
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+            <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-300" />
           </div>
         ) : emergingTopics.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
-              <Sparkles className="w-12 h-12 mx-auto text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-4" />
+              <Sparkles className="w-12 h-12 mx-auto text-gray-600 dark:text-gray-300 dark:text-gray-600 mb-4" />
               <h4 className="font-medium text-gray-900 dark:text-gray-100">No trending themes detected</h4>
               <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
                 Run detection to identify new and growing developments
@@ -1500,16 +1493,16 @@ Please provide:
                 <table className="w-full text-sm border-collapse">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr className="border-b border-gray-200 dark:border-gray-700">
-                      <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '200px'}}>Theme</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '50px'}}>Score</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '40px'}}>Vol</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '40px'}}>Div</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '40px'}}>Nov</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '50px'}}>Signals</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '80px'}}>Urgency</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '80px'}}>Velocity</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '70px'}}>Type</th>
-                      <th className="px-2 py-2 text-right font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" style={{minWidth: '80px'}}>Actions</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '200px'}}>Theme</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '50px'}}>Score</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '40px'}}>Vol</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '40px'}}>Div</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '40px'}}>Nov</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '50px'}}>Signals</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '80px'}}>Urgency</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '80px'}}>Velocity</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '70px'}}>Type</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '80px'}}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1547,17 +1540,17 @@ Please provide:
                             </span>
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <span className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                            <span className="text-sm text-gray-600 dark:text-gray-300">
                               {topicItem.trend_score?.volume != null ? Math.round(topicItem.trend_score.volume) : '-'}
                             </span>
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <span className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                            <span className="text-sm text-gray-600 dark:text-gray-300">
                               {topicItem.trend_score?.diversity != null ? Math.round(topicItem.trend_score.diversity) : '-'}
                             </span>
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <span className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                            <span className="text-sm text-gray-600 dark:text-gray-300">
                               {topicItem.trend_score?.novelty != null ? Math.round(topicItem.trend_score.novelty) : '-'}
                             </span>
                           </td>
@@ -1572,7 +1565,7 @@ Please provide:
                           <td className="px-2 py-2 text-center">
                             <div className="flex items-center justify-center gap-1">
                               {topicItem.velocity === 'accelerating' && <TrendingUp className="w-3.5 h-3.5 text-green-500" />}
-                              {topicItem.velocity === 'stable' && <Minus className="w-3.5 h-3.5 text-gray-600 dark:text-gray-600 dark:text-gray-400" />}
+                              {topicItem.velocity === 'stable' && <Minus className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />}
                               {topicItem.velocity === 'decelerating' && <TrendingDown className="w-3.5 h-3.5 text-amber-500" />}
                               <span className="text-xs capitalize">{topicItem.velocity}</span>
                             </div>
@@ -1609,7 +1602,7 @@ Please provide:
                                   e.stopPropagation();
                                   handleRetireTopic(topicItem.id);
                                 }}
-                                className="p-1 text-gray-600 dark:text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded"
+                                className="p-1 text-gray-600 dark:text-gray-300 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded"
                                 title="Retire (archive)"
                               >
                                 <Archive className="w-4 h-4" />
@@ -1619,7 +1612,7 @@ Please provide:
                                   e.stopPropagation();
                                   setTopicToDelete(topicItem);
                                 }}
-                                className="p-1 text-gray-600 dark:text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                className="p-1 text-gray-600 dark:text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
                                 title="Delete permanently"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1676,7 +1669,7 @@ Please provide:
                               <Badge variant="outline" className={`text-xs ${
                                 topicItem.trajectory === 'rising' ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
                                 topicItem.trajectory === 'declining' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                                'bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-600 dark:text-gray-400'
+                                'bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
                               }`}>
                                 {topicItem.trajectory === 'rising' && <TrendingUp className="w-3 h-3 mr-1" />}
                                 {topicItem.trajectory === 'declining' && <TrendingDown className="w-3 h-3 mr-1" />}
@@ -1684,7 +1677,7 @@ Please provide:
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                          <p className="text-sm text-gray-600 dark:text-gray-300">
                             {topicItem.topic_description}
                           </p>
                           {/* Trajectory Timeline - visual detection history */}
@@ -1721,7 +1714,7 @@ Please provide:
                             className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/30 rounded opacity-60 hover:opacity-100"
                             title="Retire (archive this theme)"
                           >
-                            <Archive className="w-4 h-4 text-gray-600 dark:text-gray-400 hover:text-amber-500" />
+                            <Archive className="w-4 h-4 text-gray-600 dark:text-gray-300 hover:text-amber-500" />
                           </button>
 
                           {/* Delete X Button */}
@@ -1733,7 +1726,7 @@ Please provide:
                             className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded opacity-60 hover:opacity-100"
                             title="Delete topic"
                           >
-                            <X className="w-4 h-4 text-gray-600 dark:text-gray-400 hover:text-red-500" />
+                            <X className="w-4 h-4 text-gray-600 dark:text-gray-300 hover:text-red-500" />
                           </button>
 
                           {/* Menu Button */}
@@ -1749,11 +1742,11 @@ Please provide:
                               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                               title="More options"
                             >
-                              <MoreVertical className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                              <MoreVertical className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                             </button>
 
                             {menuOpenId === topicItem.id && (
-                              <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1763,6 +1756,28 @@ Please provide:
                                 >
                                   <Bookmark className={`w-4 h-4 ${trackedTopicIds.has(topicItem.id) ? 'fill-current text-amber-500' : ''}`} />
                                   {trackedTopicIds.has(topicItem.id) ? 'Saved' : 'Save'}
+                                </button>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    // Fetch articles if not already loaded
+                                    let articles = topicDetails[topicItem.id]?.articles || [];
+                                    if (articles.length === 0) {
+                                      try {
+                                        const data = await fetchTopicArticles(topicItem.id);
+                                        articles = data.articles || [];
+                                      } catch (err) {
+                                        console.error('Failed to fetch topic articles for briefing:', err);
+                                      }
+                                    }
+                                    // Store articles with the topic for briefing
+                                    setTopicForBriefing({ ...topicItem, _articles: articles });
+                                    setShowAddToBriefingModal(true);
+                                    setMenuOpenId(null);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                                >
+                                  <Newspaper className="w-4 h-4 text-pink-500" /> Add to Briefing
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -1804,9 +1819,9 @@ Please provide:
                               />
                             )}
                             {isExpanded ? (
-                              <ChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-400 mt-1" />
+                              <ChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-300 mt-1" />
                             ) : (
-                              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400 mt-1" />
+                              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300 mt-1" />
                             )}
                           </div>
                         </div>
@@ -1861,24 +1876,24 @@ Please provide:
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                                 {topicItem.implications.industry_impact && typeof topicItem.implications.industry_impact === 'string' && (
                                   <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
-                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">Industry</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-300">Industry</div>
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.implications.industry_impact}
                                     </p>
                                   </div>
                                 )}
                                 {topicItem.implications.regulatory && typeof topicItem.implications.regulatory === 'string' && (
                                   <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
-                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">Regulatory</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-300">Regulatory</div>
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.implications.regulatory}
                                     </p>
                                   </div>
                                 )}
                                 {topicItem.implications.market && typeof topicItem.implications.market === 'string' && (
                                   <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
-                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">Market</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-300">Market</div>
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.implications.market}
                                     </p>
                                   </div>
@@ -1897,7 +1912,7 @@ Please provide:
                                 {topicItem.organization_implications.strategic_relevance && typeof topicItem.organization_implications.strategic_relevance === 'string' && (
                                   <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
                                     <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Strategic Relevance</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.organization_implications.strategic_relevance}
                                     </p>
                                   </div>
@@ -1905,7 +1920,7 @@ Please provide:
                                 {topicItem.organization_implications.stakeholder_impact && typeof topicItem.organization_implications.stakeholder_impact === 'string' && (
                                   <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
                                     <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Stakeholder Impact</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.organization_implications.stakeholder_impact}
                                     </p>
                                   </div>
@@ -1913,7 +1928,7 @@ Please provide:
                                 {topicItem.organization_implications.risk_assessment && typeof topicItem.organization_implications.risk_assessment === 'string' && (
                                   <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
                                     <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Risk Assessment</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.organization_implications.risk_assessment}
                                     </p>
                                   </div>
@@ -1921,7 +1936,7 @@ Please provide:
                                 {topicItem.organization_implications.recommended_response && typeof topicItem.organization_implications.recommended_response === 'string' && (
                                   <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
                                     <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Recommended Response</div>
-                                    <p className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                    <p className="text-gray-600 dark:text-gray-300">
                                       {topicItem.organization_implications.recommended_response}
                                     </p>
                                   </div>
@@ -2006,7 +2021,7 @@ Please provide:
                                   Sample Articles
                                 </h5>
                                 {details.model_used && (
-                                  <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                  <span className="text-xs text-gray-600 dark:text-gray-300">
                                     Model: {details.model_used}
                                   </span>
                                 )}
@@ -2021,7 +2036,7 @@ Please provide:
                                       onArticleClick?.({ uri: article.uri });
                                     }}
                                   >
-                                    <ExternalLink className="w-4 h-4 text-gray-600 dark:text-gray-400 mt-0.5 flex-shrink-0" />
+                                    <ExternalLink className="w-4 h-4 text-gray-600 dark:text-gray-300 mt-0.5 flex-shrink-0" />
                                     <div className="min-w-0 flex-1">
                                       <div className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-1">
                                         {article.title}
@@ -2049,7 +2064,7 @@ Please provide:
                           {/* Loading indicator for details */}
                           {!details && !topicItem.actors && (
                             <div className="flex items-center justify-center py-4">
-                              <Loader2 className="w-5 h-5 animate-spin text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                              <Loader2 className="w-5 h-5 animate-spin text-gray-600 dark:text-gray-300" />
                             </div>
                           )}
                         </div>
@@ -2072,7 +2087,7 @@ Please provide:
             }
             setShowRetired(!showRetired);
           }}
-          className="flex items-center gap-2 text-gray-600 dark:text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+          className="flex items-center gap-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
         >
           {showRetired ? (
             <ChevronDown className="w-4 h-4" />
@@ -2092,13 +2107,13 @@ Please provide:
           <div className="mt-4 space-y-3">
             {loadingRetired ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-300" />
               </div>
             ) : retiredTopics.length === 0 ? (
               <div className="text-center py-8 text-gray-700 dark:text-gray-300">
-                <Archive className="w-10 h-10 mx-auto text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-3" />
+                <Archive className="w-10 h-10 mx-auto text-gray-600 dark:text-gray-300 dark:text-gray-600 mb-3" />
                 <p className="text-sm">No retired themes</p>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
                   Themes you retire will appear here
                 </p>
               </div>
@@ -2118,7 +2133,7 @@ Please provide:
                         </div>
                         <button
                           onClick={() => handleRestoreTopic(topic.id)}
-                          className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                          className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
                           title="Restore theme"
                         >
                           <RotateCcw className="w-4 h-4" />
@@ -2126,7 +2141,7 @@ Please provide:
                       </div>
                     </CardHeader>
                     <CardContent className="pt-0">
-                      <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 line-clamp-2">
+                      <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
                         {typeof topic.synthesis?.key_takeaway === 'string'
                           ? topic.synthesis.key_takeaway
                           : topic.topic_description || 'No summary available'}
@@ -2164,9 +2179,9 @@ Please provide:
         {highNoveltyArticles.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center">
-              <Zap className="w-10 h-10 mx-auto text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-3" />
+              <Zap className="w-10 h-10 mx-auto text-gray-600 dark:text-gray-300 dark:text-gray-600 mb-3" />
               <p className="text-sm text-gray-700 dark:text-gray-300">No high novelty articles found</p>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
                 Run a scan to calculate novelty scores for recent articles
               </p>
             </CardContent>
@@ -2305,6 +2320,46 @@ Please provide:
         />
       )}
 
+      {/* Add to Briefing Modal */}
+      {topicForBriefing && (
+        <AddToBriefingModal
+          isOpen={showAddToBriefingModal}
+          onClose={() => {
+            setShowAddToBriefingModal(false);
+            setTopicForBriefing(null);
+          }}
+          itemType="emerging_topic"
+          emergingTopic={{
+            name: topicForBriefing.topic_label || topicForBriefing.topic_name,
+            summary: topicForBriefing.synthesis?.narrative || topicForBriefing.why_emerging || topicForBriefing.summary,
+            description: topicForBriefing.topic_description,
+            why_emerging: topicForBriefing.why_emerging,
+            key_takeaway: topicForBriefing.synthesis?.key_takeaway,
+            article_count: topicForBriefing.article_count,
+            velocity: topicForBriefing.velocity,
+            trend_score: topicForBriefing.trend_score,
+            key_entities: topicForBriefing.key_entities,
+            representative_keywords: topicForBriefing.representative_keywords,
+            key_themes: topicForBriefing.key_themes,
+            topic: topic,
+            // Rich analysis fields
+            implications: topicForBriefing.implications,
+            organization_implications: topicForBriefing.organization_implications,
+            signals: topicForBriefing.signals,
+            actors: topicForBriefing.actors,
+            events: topicForBriefing.events,
+            // Source articles with links
+            source_articles: (topicForBriefing as any)._articles?.slice(0, 10).map((a: any) => ({
+              title: a.title,
+              url: a.uri || a.url,
+              source: a.news_source || a.source,
+              date: a.publication_date,
+              summary: a.summary,
+            })),
+          }}
+        />
+      )}
+
       {/* Future Horizons Results Modal */}
       <Dialog open={showHorizonsModal} onOpenChange={setShowHorizonsModal}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
@@ -2356,7 +2411,7 @@ Please provide:
                           )}
                         </div>
                         <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{scenario.title}</div>
-                        <div className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400 mt-1">{scenario.description}</div>
+                        <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">{scenario.description}</div>
                       </div>
                     );
                   })}
@@ -2367,7 +2422,7 @@ Please provide:
               {horizonsResult.key_signals && horizonsResult.key_signals.length > 0 && (
                 <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
                   <h4 className="font-medium text-sm text-gray-900 dark:text-gray-100 mb-2">Key Signals to Watch</h4>
-                  <ul className="list-disc list-inside space-y-1 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                  <ul className="list-disc list-inside space-y-1 text-xs text-gray-600 dark:text-gray-300">
                     {horizonsResult.key_signals.map((signal: string, i: number) => (
                       <li key={i}>{signal}</li>
                     ))}
@@ -2377,7 +2432,7 @@ Please provide:
 
               {/* Model Used */}
               {horizonsResult.metadata?.model_used && (
-                <div className="text-xs text-gray-600 dark:text-gray-400 text-right">
+                <div className="text-xs text-gray-600 dark:text-gray-300 text-right">
                   Generated using {horizonsResult.metadata.model_used}
                 </div>
               )}

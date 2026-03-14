@@ -76,44 +76,40 @@ class NewsFeedService:
             end_date = target_date + timedelta(days=1)
             date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # publication_date is stored as ISO format (e.g., '2026-01-28T14:25:03+00:00')
+            # Use end of day for end_date to include all of today's articles
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '72h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=3)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '7d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=7)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '30d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=30)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '3m':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=90)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '1y':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=365)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == 'all':
             date_params = []
             start_date = None
             end_date = now
         else:
-            # Default to last 24 hours - use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # Default to last 24 hours
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
 
         logger.info(f"Getting articles for date range: {start_date.isoformat() if start_date else 'all time'} to {end_date.isoformat()}")
 
@@ -191,42 +187,38 @@ class NewsFeedService:
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
             date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # publication_date is stored as ISO format (e.g., '2026-01-28T14:25:03+00:00')
+            # Use end of day for end_date to include all of today's articles
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '72h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=3)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '7d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=7)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '30d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=30)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '3m':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=90)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '1y':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=365)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == 'all':
             date_params = []
         else:
-            # Default to last 24 hours - use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # Default to last 24 hours
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
 
         try:
             # Use database_query_facade method for PostgreSQL compatibility
@@ -1092,14 +1084,253 @@ Please try again and return ONLY articles with URIs from this list."""}
             if not result_articles:
                 logger.info("No valid articles created from parsed data in cached version, using fallback articles")
                 return await self._create_fallback_six_articles(articles_data, date)
-            
+
+            # Enrich articles with deep analysis (fetch full content + detailed reports)
+            persona = getattr(request, 'persona', 'CEO') or 'CEO'
+            result_articles = await self._enrich_articles_with_deep_analysis(
+                result_articles,
+                org_profile=org_profile,
+                persona=persona
+            )
+
             return result_articles
             
         except Exception as e:
             logger.error(f"Error generating enhanced six articles report: {e}")
             # Fallback to original method
             return await self._generate_six_articles_report(articles_data, date, request)
-    
+
+    async def _fetch_article_content(self, uri: str) -> Optional[str]:
+        """
+        Fetch full article content using existing scraping infrastructure.
+        Reuses the scrape_article_content from AutomatedIngestService.
+
+        Args:
+            uri: Article URI to fetch content for
+
+        Returns:
+            Full article content or None if fetch failed
+        """
+        try:
+            from app.services.automated_ingest_service import AutomatedIngestService
+
+            # Create ingest service instance with database connection
+            ingest_service = AutomatedIngestService(db=self.db)
+
+            # Scrape article content (checks cache first, then fetches if needed)
+            content = await ingest_service.scrape_article_content(uri)
+
+            if content:
+                logger.debug(f"Fetched {len(content)} chars of content for {uri}")
+                return content
+            else:
+                logger.warning(f"No content fetched for {uri}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching article content for {uri}: {e}", exc_info=True)
+            return None
+
+    async def _analyze_article_deeply(
+        self,
+        article: Dict,
+        content: str,
+        org_profile: Optional[Dict] = None,
+        persona: str = "CEO"
+    ) -> Dict:
+        """
+        Generate detailed analysis report for a single article using its full content.
+
+        Args:
+            article: Article metadata (title, summary, etc.)
+            content: Full article content text
+            org_profile: Optional organizational profile for context
+            persona: Target persona (e.g., CEO, CTO)
+
+        Returns:
+            Detailed analysis report dict with key_facts, notable_quotes, etc.
+        """
+        try:
+            import litellm
+
+            # Build organizational context if available
+            org_context = ""
+            if org_profile:
+                org_context = f"""
+Target Audience Context:
+- Organization: {org_profile.get('name', 'Unknown')} ({org_profile.get('organization_type', 'General')})
+- Industry: {org_profile.get('industry', 'General')}
+- Risk Tolerance: {org_profile.get('risk_tolerance', 'medium')}
+- Strategic Priorities: {', '.join(org_profile.get('strategic_priorities', []))}
+"""
+
+            # Truncate content if too long (max ~15K chars for context)
+            max_content_chars = 15000
+            truncated_content = content[:max_content_chars] if len(content) > max_content_chars else content
+            if len(content) > max_content_chars:
+                truncated_content += "\n\n[Content truncated for analysis...]"
+
+            system_prompt = f"""You are a strategic intelligence analyst extracting detailed insights from news articles for a {persona}.
+
+{org_context}
+
+Analyze the article content provided and extract:
+1. key_facts: 3-5 specific facts, figures, data points, or statistics mentioned
+2. notable_quotes: 1-3 direct quotes from sources with attribution
+3. background_context: Historical or industry context that helps understand the significance
+4. implications: What this development means for the sector/industry
+5. talking_points: 3-5 bullet points suitable for executive discussion
+
+Return ONLY valid JSON in this exact format:
+{{
+    "key_facts": ["Fact 1 with specific numbers or details", "Fact 2", ...],
+    "notable_quotes": ["\\"Quote text\\" - Source Name", ...],
+    "background_context": "Paragraph explaining relevant history and context...",
+    "implications": "What this means for businesses and the industry...",
+    "talking_points": ["Point 1", "Point 2", ...]
+}}"""
+
+            user_prompt = f"""Article Title: {article.get('title', 'Untitled')}
+Source: {article.get('source', 'Unknown')}
+
+Executive Takeaway: {article.get('executive_takeaway', 'N/A')}
+Strategic Relevance: {article.get('strategic_relevance', 'N/A')}
+
+FULL ARTICLE CONTENT:
+{truncated_content}
+
+Extract detailed strategic intelligence from this article."""
+
+            response = await litellm.acompletion(
+                model="gpt-4o-mini",  # Use faster model for per-article analysis
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1500
+            )
+
+            response_text = response.choices[0].message.content.strip()
+
+            # Parse JSON response
+            import json
+            # Handle markdown code blocks
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                response_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+            detailed_report = json.loads(response_text)
+
+            # Add excerpt from full content for reference
+            detailed_report['full_content_excerpt'] = content[:2000] if content else ""
+
+            logger.info(f"Generated detailed report for: {article.get('title', 'Untitled')[:50]}")
+            return detailed_report
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse detailed analysis JSON: {e}")
+            return {
+                "key_facts": [],
+                "notable_quotes": [],
+                "background_context": "",
+                "implications": "",
+                "talking_points": [],
+                "full_content_excerpt": content[:2000] if content else "",
+                "error": "Analysis parsing failed"
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing article deeply: {e}")
+            return {
+                "key_facts": [],
+                "notable_quotes": [],
+                "background_context": "",
+                "implications": "",
+                "talking_points": [],
+                "full_content_excerpt": content[:2000] if content else "",
+                "error": str(e)
+            }
+
+    async def _enrich_articles_with_deep_analysis(
+        self,
+        articles: List[Dict],
+        org_profile: Optional[Dict] = None,
+        persona: str = "CEO"
+    ) -> List[Dict]:
+        """
+        Enrich a list of articles with detailed reports by fetching full content
+        and performing deep analysis on each.
+
+        Args:
+            articles: List of article dicts from six articles generation
+            org_profile: Optional organizational profile
+            persona: Target persona
+
+        Returns:
+            Articles enriched with 'detailed_report' field
+        """
+        if not articles:
+            return articles
+
+        logger.info(f"Enriching {len(articles)} articles with deep analysis")
+
+        # Step 1: Fetch content for all articles in parallel
+        content_tasks = []
+        for article in articles:
+            uri = article.get('uri') or article.get('url', '')
+            content_tasks.append(self._fetch_article_content(uri))
+
+        contents = await asyncio.gather(*content_tasks, return_exceptions=True)
+
+        # Step 2: Analyze each article with its content in parallel
+        analysis_tasks = []
+        articles_with_content = []
+
+        for article, content in zip(articles, contents):
+            if isinstance(content, Exception):
+                logger.warning(f"Content fetch failed for {article.get('title', 'Unknown')}: {content}")
+                content = None
+
+            if content:
+                analysis_tasks.append(
+                    self._analyze_article_deeply(article, content, org_profile, persona)
+                )
+                articles_with_content.append(article)
+            else:
+                # No content available - add empty detailed_report
+                article['detailed_report'] = {
+                    "key_facts": [],
+                    "notable_quotes": [],
+                    "background_context": "",
+                    "implications": "",
+                    "talking_points": [],
+                    "full_content_excerpt": "",
+                    "error": "Content fetch failed"
+                }
+
+        # Execute all analyses in parallel
+        if analysis_tasks:
+            detailed_reports = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+            # Merge results back into articles
+            for article, report in zip(articles_with_content, detailed_reports):
+                if isinstance(report, Exception):
+                    logger.warning(f"Analysis failed for {article.get('title', 'Unknown')}: {report}")
+                    article['detailed_report'] = {
+                        "key_facts": [],
+                        "notable_quotes": [],
+                        "background_context": "",
+                        "implications": "",
+                        "talking_points": [],
+                        "full_content_excerpt": "",
+                        "error": str(report)
+                    }
+                else:
+                    article['detailed_report'] = report
+
+        logger.info(f"Completed deep analysis enrichment for {len(articles)} articles")
+        return articles
+
     def _build_overview_prompt(self, articles_data: List[Dict], date: datetime) -> str:
         """Build AI prompt for daily overview generation"""
         

@@ -182,15 +182,11 @@ class RelevanceCalculator:
             if hasattr(self.ai_model, 'generate_response'):
                 response_text = self.ai_model.generate_response(messages)
             else:
-                # Fallback for older model interface
+                # Use sync generation with helper for content extraction
+                from app.ai_models import extract_content
                 combined_prompt = f"{messages[0]['content']}\n\n{messages[1]['content']}"
-                response = self.ai_model.generate(combined_prompt)
-                if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                    response_text = response.message.content
-                elif hasattr(response, 'content'):
-                    response_text = response.content
-                else:
-                    response_text = str(response)
+                response = self.ai_model.generate_sync(combined_prompt)
+                response_text = extract_content(response)
             
             # Parse the JSON response
             try:

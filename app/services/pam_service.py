@@ -199,11 +199,12 @@ class PAMService:
         # Check provider availability and log status
         self._check_provider_availability()
 
-        # Initialize trend calculator
+        # Initialize trend calculator with smoothing for score stability
         self.trend_calculator = TrendCalculator(
             weights=self.config.get("trend_calculator", {}).get("weights"),
             normalization=self.config.get("trend_calculator", {}).get("normalization"),
-            velocity_thresholds=self.config.get("trend_calculator", {}).get("velocity_thresholds")
+            velocity_thresholds=self.config.get("trend_calculator", {}).get("velocity_thresholds"),
+            smoothing_factor=self.config.get("trend_calculator", {}).get("smoothing_factor")
         )
 
         # Agent instances (lazy initialization)
@@ -821,7 +822,16 @@ class PAMService:
             articles_by_trend = self._organize_articles_by_trend(all_articles, trend_focus)
             logger.info(f"PAM v2: Organized {len(all_articles)} articles across {len(articles_by_trend)} trends")
 
-            async for progress in trend_agent.analyze_trends(articles_by_trend, context):
+            # Fetch previous trend scores for EMA smoothing (stabilizes scores between runs)
+            previous_trend_scores = await self._get_previous_trend_scores(topic)
+            if previous_trend_scores:
+                logger.info(f"PAM v2: Using previous scores for EMA smoothing: {list(previous_trend_scores.keys())}")
+
+            async for progress in trend_agent.analyze_trends(
+                articles_by_trend,
+                context,
+                previous_scores=previous_trend_scores
+            ):
                 if progress.get("stage") == "complete" and progress.get("result"):
                     trend_results = progress["result"]
                 elif progress.get("stage") == "error":
@@ -3375,6 +3385,77 @@ JSON array:"""
     # Historical context methods
     # =========================================================================
 
+    async def _get_previous_trend_scores(self, topic: Optional[str] = None, max_age_days: int = 7) -> Dict[str, float]:
+        """
+        Get the most recent trend scores for EMA smoothing.
+
+        Retrieves the latest snapshot within max_age_days to use as the
+        historical baseline for exponential moving average smoothing.
+        This prevents erratic jumps in trend scores between runs.
+
+        Args:
+            topic: Optional topic filter (None = global)
+            max_age_days: Maximum age of snapshot to use (default 7 days)
+
+        Returns:
+            Dict mapping trend_id (T1-T5) to previous score, or empty dict if none
+        """
+        try:
+            db = get_database_instance()
+            min_date = (date.today() - timedelta(days=max_age_days)).isoformat()
+
+            # Normalize topic
+            topic = topic.strip() if topic else None
+            if topic == '':
+                topic = None
+
+            # Get most recent snapshot
+            if topic:
+                snapshot = db.fetch_one(
+                    """SELECT t1_invisible_llm, t2_agentic_ai, t3_seo_geo_decline,
+                              t4_regulatory, t5_consolidation, snapshot_date
+                       FROM pam_trend_snapshots
+                       WHERE snapshot_date >= ? AND topic = ?
+                       ORDER BY snapshot_date DESC LIMIT 1""",
+                    (min_date, topic)
+                )
+            else:
+                snapshot = db.fetch_one(
+                    """SELECT t1_invisible_llm, t2_agentic_ai, t3_seo_geo_decline,
+                              t4_regulatory, t5_consolidation, snapshot_date
+                       FROM pam_trend_snapshots
+                       WHERE snapshot_date >= ? AND topic IS NULL
+                       ORDER BY snapshot_date DESC LIMIT 1""",
+                    (min_date,)
+                )
+
+            if not snapshot:
+                logger.info(f"No previous trend snapshot within {max_age_days} days for topic={topic}")
+                return {}
+
+            # Build dict of previous scores
+            previous_scores = {}
+            if snapshot.get('t1_invisible_llm') is not None:
+                previous_scores['T1'] = float(snapshot['t1_invisible_llm'])
+            if snapshot.get('t2_agentic_ai') is not None:
+                previous_scores['T2'] = float(snapshot['t2_agentic_ai'])
+            if snapshot.get('t3_seo_geo_decline') is not None:
+                previous_scores['T3'] = float(snapshot['t3_seo_geo_decline'])
+            if snapshot.get('t4_regulatory') is not None:
+                previous_scores['T4'] = float(snapshot['t4_regulatory'])
+            if snapshot.get('t5_consolidation') is not None:
+                previous_scores['T5'] = float(snapshot['t5_consolidation'])
+
+            logger.info(
+                f"Found previous trend scores from {snapshot.get('snapshot_date')} "
+                f"for topic={topic}: {previous_scores}"
+            )
+            return previous_scores
+
+        except Exception as e:
+            logger.warning(f"Failed to get previous trend scores: {e}")
+            return {}
+
     async def _get_historical_context(self, topic: Optional[str] = None, days_back: int = 30) -> Dict[str, Any]:
         """
         Get historical context for LLM analysis.
@@ -3573,7 +3654,7 @@ JSON array:"""
 
     async def _fetch_ma_activity_articles(self, limit: int = 50) -> Tuple[List[Dict], List[Dict]]:
         """
-        Search entire database for M&A activity articles.
+        Search entire database for M&A activity articles in AI/publishing/tech sector.
 
         Returns articles about acquisitions, mergers, funding rounds, etc.
         No date limit - searches entire database for T5 (Market Consolidation) trend.
@@ -3582,6 +3663,7 @@ JSON array:"""
             - articles: List of article dicts
             - dataset_records: List of records for pam_article_datasets table
         """
+        # M&A action keywords
         ma_keywords = [
             'acquisition', 'acquires', 'acquired', 'acquire',
             'merger', 'merges', 'merged', 'merge',
@@ -3589,7 +3671,17 @@ JSON array:"""
             'series a', 'series b', 'series c', 'series d',
             'ipo', 'valuation', 'unicorn',
             'buyout', 'takeover', 'consolidation',
-            'deal', 'transaction'
+            'deal'
+        ]
+
+        # Sector keywords to ensure relevance to AI/publishing/tech
+        sector_keywords = [
+            'ai', 'artificial intelligence', 'machine learning', 'llm', 'gpt',
+            'publisher', 'publishing', 'scholarly', 'academic', 'journal',
+            'elsevier', 'springer', 'wiley', 'sage', 'taylor francis', 'pearson',
+            'tech', 'technology', 'software', 'platform', 'startup',
+            'openai', 'anthropic', 'google', 'microsoft', 'meta', 'amazon',
+            'content', 'media', 'news', 'data', 'research'
         ]
 
         try:
@@ -3597,17 +3689,22 @@ JSON array:"""
             db = get_database_instance()
             conn = db._temp_get_connection()
 
-            # Build search query with OR conditions for all keywords
-            # Note: articles table uses 'summary' not 'content', 'news_source' not 'source'
-            keyword_conditions = " OR ".join([
+            # Build search query: Must have M&A keyword AND sector keyword
+            ma_conditions = " OR ".join([
                 f"(LOWER(title) LIKE '%{kw}%' OR LOWER(summary) LIKE '%{kw}%')"
                 for kw in ma_keywords
+            ])
+
+            sector_conditions = " OR ".join([
+                f"(LOWER(title) LIKE '%{kw}%' OR LOWER(summary) LIKE '%{kw}%')"
+                for kw in sector_keywords
             ])
 
             query = f"""
                 SELECT uri, title, summary, news_source, publication_date, analyzed, topic
                 FROM articles
-                WHERE ({keyword_conditions})
+                WHERE ({ma_conditions})
+                AND ({sector_conditions})
                 ORDER BY publication_date DESC NULLS LAST
                 LIMIT :limit
             """

@@ -4,8 +4,11 @@
  */
 
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import '../styles/citations.css';
+import { ExecutiveSummarySection, HorizonsExportModal } from './horizons';
+import { TopicExecutiveSummary, FutureHorizonsExportOptions } from '@/types/horizonsExecutiveSummary';
 
 interface Scenario {
   type: 'h1' | 'h2' | 'h3'; // Three Horizons: H1 (current), H2 (transition), H3 (future)
@@ -30,10 +33,30 @@ interface Article {
 interface FutureHorizonsProps {
   scenarios: Scenario[];
   articleList?: Article[];
+  analysisId?: string;
+  topic?: string;
+  executiveSummary?: TopicExecutiveSummary[] | null;
+  executiveSummaryGeneratedAt?: string | null;
+  isLoadingExecutiveSummary?: boolean;
+  executiveSummaryError?: string | null;
+  onGenerateExecutiveSummary?: () => void;
+  onExport?: (options: FutureHorizonsExportOptions) => Promise<void>;
 }
 
-export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsProps) {
+export function FutureHorizons({
+  scenarios,
+  articleList = [],
+  analysisId,
+  topic = 'Future Horizons Analysis',
+  executiveSummary = null,
+  executiveSummaryGeneratedAt = null,
+  isLoadingExecutiveSummary = false,
+  executiveSummaryError = null,
+  onGenerateExecutiveSummary,
+  onExport,
+}: FutureHorizonsProps) {
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Parse timeframe to get years
   const parseTimeframe = (timeframe: string): { start: number; end: number } => {
@@ -172,7 +195,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
           />
         </div>
         {/* Year labels */}
-        <div className="flex justify-between text-[9px] text-gray-700 dark:text-gray-300 font-medium mt-1">
+        <div className="flex justify-between text-[9px] text-gray-700 dark:text-gray-400 font-medium mt-1">
           <span>2025<br/>Present</span>
           <span>2029<br/>Short</span>
           <span>2033<br/>Mid</span>
@@ -220,10 +243,25 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm" style={{ overflow: 'visible' }}>
         {/* Title and Description */}
         <div className="border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 via-purple-50 to-green-50 dark:from-blue-900/30 dark:via-purple-900/30 dark:to-green-900/30 px-6 py-4">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Three Horizons Model</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-            Visualizing the transition from current systems (H1) through emerging innovations (H2) to future visions (H3)
-          </p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Three Horizons Model</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Visualizing the transition from current systems (H1) through emerging innovations (H2) to future visions (H3)
+              </p>
+            </div>
+            {onExport && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowExportModal(true)}
+                className="gap-2 shrink-0"
+              >
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Waves Container */}
@@ -293,7 +331,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
           </svg>
 
           {/* Horizon labels on left with tooltips - positioned at wave start points */}
-          <div className="absolute left-3 top-0 bottom-0 text-xs font-medium pointer-events-auto z-20">
+          <div className="absolute left-3 top-0 bottom-0 text-xs font-medium pointer-events-auto z-[5]">
             {horizons.map(({ key, label, tooltip, bgClass }) => {
               // Position badges at wave starting points
               const topPosition =
@@ -398,7 +436,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
 
         {/* Timeline at bottom */}
         <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-8 py-3">
-          <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300">
+          <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
             <div><span className="font-semibold">2025</span><br/><span className="text-xs">Present</span></div>
             <div><span className="font-semibold">2029</span><br/><span className="text-xs">Short-term</span></div>
             <div><span className="font-semibold">2033</span><br/><span className="text-xs">Mid-term</span></div>
@@ -407,6 +445,19 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
           </div>
         </div>
       </div>
+
+      {/* Executive Summary Section */}
+      {onGenerateExecutiveSummary && (
+        <ExecutiveSummarySection
+          summaries={executiveSummary}
+          isLoading={isLoadingExecutiveSummary}
+          onGenerate={onGenerateExecutiveSummary}
+          onRegenerate={onGenerateExecutiveSummary}
+          error={executiveSummaryError}
+          generatedAt={executiveSummaryGeneratedAt}
+          researchTopic={topic}
+        />
+      )}
 
       {/* Three Horizons Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -443,7 +494,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
                         <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex-1 leading-tight">
                           {scenario.title}
                         </h4>
-                        <button className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-2 flex-shrink-0">
+                        <button className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 ml-2 flex-shrink-0">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
@@ -461,7 +512,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">No {label.toLowerCase()} scenarios</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-300 text-center py-4">No {label.toLowerCase()} scenarios</p>
                 )}
               </div>
             </div>
@@ -477,7 +528,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">{selectedScenario.title}</h2>
                 <div className="flex items-center gap-3 mt-1">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">{selectedScenario.timeframe}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-300">{selectedScenario.timeframe}</span>
                   <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                     selectedScenario.type === 'h1' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200' :
                     selectedScenario.type === 'h2' ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200' :
@@ -491,31 +542,31 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               </div>
               <button
                 onClick={() => setSelectedScenario(null)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Description</h3>
+                <h3 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Description</h3>
                 <p
-                  className="text-gray-600 dark:text-gray-300 leading-relaxed"
+                  className="text-gray-600 dark:text-gray-400 leading-relaxed"
                   dangerouslySetInnerHTML={{ __html: replaceCitations(selectedScenario.description) }}
                 />
               </div>
               {selectedScenario.sentiment && (
                 <div>
-                  <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Sentiment</h3>
-                  <span className="text-gray-600 dark:text-gray-300">{selectedScenario.sentiment}</span>
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Sentiment</h3>
+                  <span className="text-gray-600 dark:text-gray-400">{selectedScenario.sentiment}</span>
                 </div>
               )}
               {selectedScenario.drivers && selectedScenario.drivers.length > 0 && (
                 <div>
-                  <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Key Drivers</h3>
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Key Drivers</h3>
                   <ul className="space-y-2">
                     {selectedScenario.drivers.map((driver, idx) => (
-                      <li key={idx} className="text-gray-600 dark:text-gray-300">
+                      <li key={idx} className="text-gray-600 dark:text-gray-400">
                         <span className="font-medium">{driver.type}:</span> {driver.description}
                       </li>
                     ))}
@@ -524,10 +575,10 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               )}
               {selectedScenario.signals && selectedScenario.signals.length > 0 && (
                 <div>
-                  <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Signals</h3>
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Signals</h3>
                   <ul className="list-disc list-inside space-y-1">
                     {selectedScenario.signals.map((signal, idx) => (
-                      <li key={idx} className="text-gray-600 dark:text-gray-300">{signal}</li>
+                      <li key={idx} className="text-gray-600 dark:text-gray-400">{signal}</li>
                     ))}
                   </ul>
                 </div>
@@ -535,6 +586,17 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
             </div>
           </div>
         </div>
+      )}
+
+      {/* Export Modal */}
+      {onExport && (
+        <HorizonsExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          onExport={onExport}
+          hasExecutiveSummary={!!executiveSummary && executiveSummary.length > 0}
+          topic={topic}
+        />
       )}
     </div>
   );

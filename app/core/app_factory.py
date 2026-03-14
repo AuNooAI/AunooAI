@@ -141,6 +141,35 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_rss_feed_monitor_start())
         logger.info("Scheduled RSS feed monitor to start in 25 seconds")
 
+        # Dynamically schedule background tasks for enabled analysis modules
+        import importlib
+        from app.core.modules import get_enabled_modules
+
+        def _schedule_module_task(task_module, task_function, delay, label):
+            async def delayed_start():
+                await asyncio.sleep(delay)
+                try:
+                    mod = importlib.import_module(task_module)
+                    func = getattr(mod, task_function)
+                    logger.info(f"Starting {label} background task...")
+                    asyncio.create_task(func())
+                    logger.info(f"{label} background task started successfully")
+                except Exception as e:
+                    logger.error(f"Failed to start {label}: {e}")
+            asyncio.create_task(delayed_start())
+
+        for module in get_enabled_modules():
+            if module.task_module and module.task_function:
+                _schedule_module_task(
+                    module.task_module, module.task_function,
+                    module.task_delay, module.name)
+                logger.info(f"Scheduled {module.name} monitor to start in {module.task_delay}s")
+                for extra in module.extra_tasks:
+                    _schedule_module_task(
+                        extra.module, extra.function,
+                        extra.delay, f"{module.name} ({extra.function})")
+                    logger.info(f"Scheduled {module.name} extra task to start in {extra.delay}s")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise

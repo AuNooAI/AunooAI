@@ -6,6 +6,7 @@
 import { ExternalLink, Star, StarOff, Calendar } from 'lucide-react';
 import { type NewsArticle } from '../../services/newsFeedApi';
 import { getCategoryBadgeColor, getSentimentDotColor, formatDate } from './cardUtils';
+import { RelevanceFeedbackButtons } from './RelevanceFeedbackButtons';
 
 interface CompactArticleCardProps {
   article: NewsArticle;
@@ -14,6 +15,7 @@ interface CompactArticleCardProps {
   onUnstar?: (uri: string) => void;
   showSummary?: boolean;
   showCategory?: boolean;
+  showRelevanceFeedback?: boolean;
   onClick?: (article: NewsArticle) => void;
 }
 
@@ -24,6 +26,7 @@ export function CompactArticleCard({
   onUnstar,
   showSummary = true,
   showCategory = true,
+  showRelevanceFeedback = false,
   onClick
 }: CompactArticleCardProps) {
   const handleStarClick = (e: React.MouseEvent) => {
@@ -85,13 +88,13 @@ export function CompactArticleCard({
 
           {/* Summary (optional) */}
           {showSummary && article.summary && (
-            <p className="mt-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 line-clamp-2">
+            <p className="mt-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 line-clamp-2">
               {article.summary}
             </p>
           )}
 
           {/* Footer: Date + Source */}
-          <div className="mt-2 flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <div className="mt-2 flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
             <div className="flex items-center gap-1">
               <Calendar className="w-3 h-3" />
               <span>{formatDate(article.publication_date)}</span>
@@ -110,20 +113,37 @@ export function CompactArticleCard({
           </div>
         </div>
 
-        {/* Star button */}
-        {(onStar || onUnstar) && (
-          <button
-            onClick={handleStarClick}
-            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors shrink-0"
-            title={isStarred ? 'Remove from briefing' : 'Add to briefing'}
-          >
-            {isStarred ? (
-              <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-            ) : (
-              <StarOff className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300 group-hover:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
-            )}
-          </button>
-        )}
+        {/* Action buttons */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Relevance feedback */}
+          {showRelevanceFeedback && article.topic && (
+            <RelevanceFeedbackButtons
+              articleUri={article.uri}
+              topic={article.topic}
+              articleMetadata={{
+                title: article.title,
+                category: article.category,
+                source: article.source?.name,
+              }}
+              size="sm"
+            />
+          )}
+
+          {/* Star button */}
+          {(onStar || onUnstar) && (
+            <button
+              onClick={handleStarClick}
+              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+              title={isStarred ? 'Remove from briefing' : 'Add to briefing'}
+            >
+              {isStarred ? (
+                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+              ) : (
+                <StarOff className="w-4 h-4 text-gray-600 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 group-hover:text-gray-600 dark:text-gray-300" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

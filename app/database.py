@@ -157,6 +157,63 @@ def get_database_instance():
         _db_instance = Database()
     return _db_instance
 
+
+class AutoClosingConnection:
+    """
+    Wrapper around SQLAlchemy connection that auto-closes when garbage collected.
+
+    This prevents connection pool exhaustion from code that forgets to close connections.
+    The connection is returned to the pool when:
+    - close() is called explicitly
+    - The object is garbage collected (via __del__)
+    - Used as a context manager (with statement)
+    """
+
+    def __init__(self, connection):
+        self._connection = connection
+        self._closed = False
+
+    def __del__(self):
+        """Auto-close on garbage collection."""
+        self._safe_close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._safe_close()
+        return False
+
+    def _safe_close(self):
+        """Safely close the connection, ignoring errors."""
+        if not self._closed and self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._closed = True
+
+    def close(self):
+        """Explicitly close the connection."""
+        self._safe_close()
+
+    def execute(self, *args, **kwargs):
+        return self._connection.execute(*args, **kwargs)
+
+    def commit(self):
+        return self._connection.commit()
+
+    def rollback(self):
+        return self._connection.rollback()
+
+    def begin(self):
+        return self._connection.begin()
+
+    def __getattr__(self, name):
+        """Proxy all other attributes to the underlying connection."""
+        return getattr(self._connection, name)
+
+
 class Database:
     
     # Connection pool settings
@@ -239,9 +296,9 @@ class Database:
                                     pool_timeout=30
                                 )
 
-                    # Get fresh connection from pool each time
-                    connection = Database._pg_engine_instance.connect()
-                    return connection
+                    # Get fresh connection from pool, wrapped for auto-close
+                    raw_connection = Database._pg_engine_instance.connect()
+                    return AutoClosingConnection(raw_connection)
                 except Exception as e:
                     logger.warning(f"PostgreSQL connection attempt {attempt + 1}/{max_retries} failed: {e}")
                     if attempt == max_retries - 1:
@@ -1677,11 +1734,11 @@ Remember to cite your sources and provide actionable insights where possible."""
                 # PostgreSQL upsert syntax
                 cursor.execute("""
                     INSERT INTO incident_status (incident_name, topic, status, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    VALUES (:incident_name, :topic, :status, CURRENT_TIMESTAMP)
                     ON CONFLICT (incident_name, topic) DO UPDATE SET
                         status = EXCLUDED.status,
                         updated_at = CURRENT_TIMESTAMP
-                """, (incident_name, topic, status))
+                """, {"incident_name": incident_name, "topic": topic, "status": status})
 
                 conn.commit()
                 logger.info(f"Updated incident status: {incident_name} -> {status}")
@@ -1701,8 +1758,8 @@ Remember to cite your sources and provide actionable insights where possible."""
 
                 cursor.execute("""
                     SELECT incident_name, status FROM incident_status
-                    WHERE topic = %s AND status != 'deleted'
-                """, (topic,))
+                    WHERE topic = :topic AND status != 'deleted'
+                """, {"topic": topic})
 
                 results = cursor.fetchall()
                 return {row[0]: row[1] for row in results}
@@ -1717,8 +1774,8 @@ Remember to cite your sources and provide actionable insights where possible."""
             try:
                 cursor.execute("""
                     SELECT config_value FROM user_preferences
-                    WHERE username = %s AND preference_key = %s
-                """, (username, preference_key))
+                    WHERE username = :username AND preference_key = :preference_key
+                """, {"username": username, "preference_key": preference_key})
                 result = cursor.fetchone()
                 if result:
                     import json
@@ -1737,11 +1794,11 @@ Remember to cite your sources and provide actionable insights where possible."""
                 json_value = json.dumps(value)
                 cursor.execute("""
                     INSERT INTO user_preferences (username, preference_key, config_value, created_at, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    VALUES (:username, :preference_key, :config_value, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (username, preference_key) DO UPDATE SET
                         config_value = EXCLUDED.config_value,
                         updated_at = CURRENT_TIMESTAMP
-                """, (username, preference_key, json_value))
+                """, {"username": username, "preference_key": preference_key, "config_value": json_value})
                 conn.commit()
                 return True
             except Exception as e:
@@ -3093,8 +3150,8 @@ Remember to cite your sources and provide actionable insights where possible."""
                 if self.db_type == 'postgresql':
                     cursor.execute("""
                         SELECT table_name FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name = %s;
-                    """, (table_name,))
+                        WHERE table_schema = 'public' AND table_name = :table_name;
+                    """, {"table_name": table_name})
                 else:
                     cursor.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",

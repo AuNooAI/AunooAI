@@ -81,3 +81,54 @@ app/server_run.py
 .env.encrypted
 .env.backup.*
 .env.*.broken.*
+
+# =============================================================================
+# ML Models (see docs/MODEL_DEPLOYMENT.md for details)
+# =============================================================================
+
+# User-trainable models (generated per-installation via ACT system)
+models/enrichment_model/
+models/relevance_classifier/
+
+# Experimental/comparison models
+models/comparison_test/
+
+# Large pretrained models (store in HuggingFace Hub or S3, not git)
+models/summarizer/
+models/policy_classifier/
+models/policy_llm/
+models/science_funding_classifier/
+
+# HuggingFace cache (downloaded on-demand)
+.cache/huggingface/
+
+# Model training artifacts
+*.safetensors
+*.pt
+*.bin
+!requirements*.txt
+
+# =============================================================================
+# Data files (evaluation, comparison outputs)
+# =============================================================================
+# Large binary archives
+local-models-package.tar.gz
+*.tar.gz
+
+# Node modules (frontend build deps)
+ui/node_modules/
+
+data/evaluation/
+data/*_comparison.json
+data/training/
+
+# =============================================================================
+# Screenshots and temp files
+# =============================================================================
+*.png
+*.jpg
+*.jpeg
+!static/**/*.png
+!static/**/*.jpg
+!ui/public/**/*.png
+ui/node_modules/

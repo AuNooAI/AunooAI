@@ -28,7 +28,7 @@ import RecommendationCard from './RecommendationCard';
 type QualitativeLevel = 'none' | 'low' | 'medium' | 'high' | 'very_high';
 
 const LEVEL_CONFIG: Record<QualitativeLevel, { label: string; color: string; bgColor: string; numericEquiv: number }> = {
-  none: { label: 'None', color: 'text-gray-500', bgColor: 'bg-gray-100', numericEquiv: 0 },
+  none: { label: 'None', color: 'text-gray-500 dark:text-gray-300', bgColor: 'bg-gray-100', numericEquiv: 0 },
   low: { label: 'Low', color: 'text-green-600', bgColor: 'bg-green-100', numericEquiv: 25 },
   medium: { label: 'Medium', color: 'text-yellow-600', bgColor: 'bg-yellow-100', numericEquiv: 50 },
   high: { label: 'High', color: 'text-orange-600', bgColor: 'bg-orange-100', numericEquiv: 75 },
@@ -138,6 +138,7 @@ interface FinancialEvent {
   headline: string;
   summary: string;
   strategic_significance: string;
+  source_articles?: string[];
 }
 
 interface RegulatoryEvent {
@@ -150,6 +151,7 @@ interface RegulatoryEvent {
   summary: string;
   publisher_implications: string;
   tech_implications: string;
+  source_articles?: string[];
   t4_impact_score: number | null;
 }
 
@@ -207,7 +209,7 @@ function StageIndicator({
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm ${
               status === 'complete' ? 'bg-pink-100 text-pink-700' :
               status === 'active' ? 'bg-pink-500 text-white' :
-              'bg-gray-100 text-gray-500'
+              'bg-gray-100 text-gray-500 dark:text-gray-300'
             }`}>
               <span>{stage.icon}</span>
               <span className="hidden sm:inline">{stage.label}</span>
@@ -228,7 +230,7 @@ function StageIndicator({
 const InfoTooltip: React.FC<{ text: string; className?: string }> = ({ text, className = '' }) => (
   <Tooltip>
     <TooltipTrigger asChild>
-      <button type="button" className={`inline-flex items-center text-gray-400 hover:text-gray-600 ${className}`}>
+      <button type="button" className={`inline-flex items-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:text-gray-300 ${className}`}>
         <HelpCircle className="w-4 h-4" />
       </button>
     </TooltipTrigger>
@@ -266,6 +268,23 @@ const DATA_SOURCE_CONFIG: Record<DataSourceType, { label: string; icon: React.Re
     color: 'bg-amber-100 text-amber-700 border-amber-200',
     description: 'Derived from weighted formula of other metrics'
   }
+};
+
+// Map backend data source strings to frontend types
+const mapBackendSource = (source: string): DataSourceType | null => {
+  const mapping: Record<string, DataSourceType> = {
+    'article_database': 'measured',
+    'evidence_extraction': 'llm_analysis',
+    'llm_analysis': 'llm_analysis',
+    'google_search': 'external_api',
+    'google_search_funding': 'external_api',
+    'google_search_ma': 'external_api',
+    'semantic_scholar': 'external_api',
+    'external_api': 'external_api',
+    'measured': 'measured',
+    'calculated': 'calculated',
+  };
+  return mapping[source] || null;
 };
 
 const DataSourceBadge: React.FC<{ source: DataSourceType; className?: string }> = ({ source, className = '' }) => {
@@ -310,7 +329,7 @@ const ConfigUsedIndicator: React.FC<ConfigUsedProps> = ({ config, architectureVe
   const isV2 = architectureVersion === '2.0';
 
   return (
-    <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+    <div className="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <div className="flex items-center gap-2 mb-2">
         <Badge variant={isV2 ? 'default' : 'outline'} className={isV2 ? 'bg-pink-500' : ''}>
           {isV2 ? 'v2.0 Agent Architecture' : 'v1.0 Legacy'}
@@ -328,18 +347,12 @@ const ConfigUsedIndicator: React.FC<ConfigUsedProps> = ({ config, architectureVe
         )}
       </div>
       {config && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-600">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-700 dark:text-gray-300">
           {config.relevanceThreshold && (
             <span>Relevance: {config.relevanceThreshold}</span>
           )}
           {config.articlesPerTopic && (
             <span>Articles/Topic: {config.articlesPerTopic}</span>
-          )}
-          {config.models?.power && (
-            <span>Power: {config.models.power.split('/').pop()}</span>
-          )}
-          {config.models?.attention && (
-            <span>Attention: {config.models.attention.split('/').pop()}</span>
           )}
         </div>
       )}
@@ -372,7 +385,7 @@ const ScoreCard: React.FC<{
           <div className="text-right">
             <p className={`text-3xl font-bold ${getScoreClass(score)}`}>{score}</p>
             <div className="flex items-center justify-end gap-1">
-              <p className="text-sm text-gray-500">{label}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-300">{label}</p>
               {explanation && <InfoTooltip text={explanation} />}
             </div>
           </div>
@@ -414,7 +427,7 @@ const LevelCard: React.FC<{
           <div className="text-right">
             <p className={`text-2xl font-bold ${config.color}`}>{config.label}</p>
             <div className="flex items-center justify-end gap-1">
-              <p className="text-sm text-gray-500">{label}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-300">{label}</p>
               {explanation && <InfoTooltip text={explanation} />}
             </div>
           </div>
@@ -444,7 +457,7 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
     switch (velocity) {
       case 'accelerating': return <TrendingUp className="w-4 h-4 text-green-500" />;
       case 'decelerating': return <TrendingDown className="w-4 h-4 text-amber-500" />;
-      default: return <Minus className="w-4 h-4 text-gray-400" />;
+      default: return <Minus className="w-4 h-4 text-gray-400 dark:text-gray-400" />;
     }
   };
 
@@ -475,12 +488,12 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
             <Badge variant="outline" className="text-pink-600 border-pink-200">
               {trend.id}
             </Badge>
-            <span className="font-medium text-gray-900">{trend.name}</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{trend.name}</span>
           </div>
           <div className="flex items-center gap-2">
             {getVelocityIcon(trend.velocity)}
             <span className="text-sm font-semibold">{Math.round(trend.score)}%</span>
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400 dark:text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-400" />}
           </div>
         </div>
         <Progress value={trend.score} className="h-2 mb-2" />
@@ -507,10 +520,10 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
           {/* Key Drivers */}
           {trend.keyDrivers && trend.keyDrivers.length > 0 && (
             <div>
-              <h5 className="text-xs font-semibold text-gray-500 uppercase mb-1">Key Drivers</h5>
+              <h5 className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase mb-1">Key Drivers</h5>
               <ul className="space-y-1">
                 {trend.keyDrivers.slice(0, 3).map((driver: string, i: number) => (
-                  <li key={i} className="text-sm text-gray-700 flex items-start gap-1">
+                  <li key={i} className="text-sm text-gray-700 dark:text-gray-200 flex items-start gap-1">
                     <span className="text-pink-500">•</span>
                     <CitationText text={driver} articles={articles} />
                   </li>
@@ -522,10 +535,10 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
           {/* Evidence */}
           {trend.evidence && trend.evidence.length > 0 && (
             <div>
-              <h5 className="text-xs font-semibold text-gray-500 uppercase mb-1">Evidence</h5>
+              <h5 className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase mb-1">Evidence</h5>
               <ul className="space-y-1">
                 {trend.evidence.slice(0, 2).map((ev: any, i: number) => (
-                  <li key={i} className="text-sm text-gray-600 flex items-start gap-1">
+                  <li key={i} className="text-sm text-gray-600 dark:text-gray-300 flex items-start gap-1">
                     <span className="text-blue-500">→</span>
                     <CitationText text={typeof ev === 'string' ? ev : ev.finding} articles={articles} />
                   </li>
@@ -537,8 +550,8 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
           {/* Publisher Implications */}
           {trend.publisherImplications && (
             <div>
-              <h5 className="text-xs font-semibold text-gray-500 uppercase mb-1">Publisher Implications</h5>
-              <p className="text-sm text-gray-700">
+              <h5 className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase mb-1">Publisher Implications</h5>
+              <p className="text-sm text-gray-700 dark:text-gray-200">
                 <CitationText text={trend.publisherImplications} articles={articles} />
               </p>
             </div>
@@ -602,14 +615,14 @@ const ExecutiveOverview: React.FC<{
       <Card className="border-l-4 border-l-pink-500">
         <CardContent className="pt-4 pb-4">
           {data.executiveSummary?.headline && (
-            <p className="text-lg font-medium text-gray-900 mb-2">
+            <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               <CitationText text={data.executiveSummary.headline} articles={articles} />
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3 text-sm">
             {/* Overall Trajectory */}
             {data.trendAnalysis?.overallTrajectory && (
-              <span className="text-gray-600">
+              <span className="text-gray-600 dark:text-gray-300">
                 <strong>Trajectory:</strong> {data.trendAnalysis.overallTrajectory}
               </span>
             )}
@@ -665,7 +678,7 @@ const ExecutiveOverview: React.FC<{
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={handleScenarioClick}>
           <CardContent className="pt-4 pb-4">
             <div className="text-center">
-              <p className="text-xs text-gray-500 uppercase">Most Likely</p>
+              <p className="text-xs text-gray-500 dark:text-gray-300 uppercase">Most Likely</p>
               <p className="text-sm font-bold mt-1 text-pink-600">
                 {data.scenarioAnalysis?.mostLikely?.replace(/_/g, ' ') || 'Unknown'}
               </p>
@@ -736,7 +749,7 @@ const ExecutiveOverview: React.FC<{
           <CardContent>
             <ul className="space-y-1.5">
               {(data.executiveSummary?.keyEvents || []).slice(0, 4).map((event, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
                   <span className="text-pink-500 mt-0.5">•</span>
                   <CitationText text={event} articles={articles} />
                 </li>
@@ -752,7 +765,7 @@ const ExecutiveOverview: React.FC<{
           <CardContent>
             <ul className="space-y-1.5">
               {(data.executiveSummary?.emergingSignals || []).slice(0, 4).map((signal, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
                   <span className="text-blue-500 mt-0.5">→</span>
                   <CitationText text={signal} articles={articles} />
                 </li>
@@ -822,12 +835,12 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
           {power.t2Evidence && (power.t2Evidence.toolsMentioned?.length > 0 || power.t2Evidence.adoptionSignals?.length > 0) && (
             <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-medium flex items-center gap-2">
+                <h4 className="font-medium flex items-center gap-2 text-black">
                   <Bot className="w-4 h-4 text-yellow-600" />
                   T2: Agentic AI Adoption
                 </h4>
                 {power.t2Evidence.trendDirection && (
-                  <Badge variant="outline" className="capitalize">
+                  <Badge variant="outline" className="capitalize text-black">
                     {power.t2Evidence.trendDirection}
                   </Badge>
                 )}
@@ -836,10 +849,10 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
               {/* AI Tools Mentioned */}
               {power.t2Evidence.toolsMentioned && power.t2Evidence.toolsMentioned.length > 0 && (
                 <div className="mb-3">
-                  <p className="text-xs text-gray-500 uppercase mb-1">AI Tools Mentioned in News</p>
+                  <p className="text-xs text-black uppercase mb-1 font-semibold">AI Tools Mentioned in News</p>
                   <div className="flex flex-wrap gap-1">
                     {power.t2Evidence.toolsMentioned.map((tool: string, i: number) => (
-                      <Badge key={i} variant="outline" className="bg-white">
+                      <Badge key={i} variant="outline" className="bg-white text-black">
                         {tool}
                       </Badge>
                     ))}
@@ -850,15 +863,15 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
               {/* Adoption Signals */}
               {power.t2Evidence.adoptionSignals && power.t2Evidence.adoptionSignals.length > 0 && (
                 <div className="mb-3">
-                  <p className="text-xs text-gray-500 uppercase mb-1">Adoption Signals</p>
+                  <p className="text-xs text-black uppercase mb-1 font-semibold">Adoption Signals</p>
                   <ul className="space-y-1">
                     {power.t2Evidence.adoptionSignals.slice(0, 5).map((signal: any, i: number) => (
-                      <li key={i} className="text-sm text-gray-700 flex items-start gap-1">
+                      <li key={i} className="text-sm text-black flex items-start gap-1">
                         <span className="text-yellow-600">→</span>
                         <span>
                           <strong>{signal.entity}</strong>: {signal.toolOrChange}
                           {signal.source && (
-                            <span className="text-gray-400 ml-1">
+                            <span className="text-gray-700 ml-1">
                               <CitationText text={signal.source} articles={articles} />
                             </span>
                           )}
@@ -871,7 +884,7 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
 
               {/* Summary */}
               {power.t2Evidence.summary && power.t2Evidence.summary !== 'No T2 evidence found in articles' && (
-                <p className="text-sm text-gray-600 pt-2 border-t border-yellow-200">
+                <p className="text-sm text-black pt-2 border-t border-yellow-200">
                   <CitationText text={power.t2Evidence.summary} articles={articles} />
                 </p>
               )}
@@ -893,7 +906,7 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
                           className={`ml-2 text-xs ${
                             event.impact === 'high' ? 'border-red-300 text-red-600' :
                             event.impact === 'medium' ? 'border-yellow-300 text-yellow-600' :
-                            'border-gray-300 text-gray-600'
+                            'border-gray-300 text-gray-600 dark:text-gray-300'
                           }`}
                         >
                           {event.impact} impact
@@ -908,7 +921,7 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
           {power.summary && (
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-medium mb-2">Summary</h4>
-              <p className="text-gray-700">
+              <p className="text-gray-700 dark:text-gray-200">
                 <CitationText text={power.summary} articles={articles} />
               </p>
             </div>
@@ -931,20 +944,20 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
           {eventsLoading ? (
             <div className="flex items-center justify-center py-4">
               <Loader2 className="w-5 h-5 animate-spin text-purple-500" />
-              <span className="ml-2 text-sm text-gray-500">Loading events...</span>
+              <span className="ml-2 text-sm text-gray-500 dark:text-gray-300">Loading events...</span>
             </div>
           ) : regulatoryEvents.length === 0 ? (
-            <p className="text-sm text-gray-400 italic py-2">No regulatory events extracted yet. Run event extraction from Tune modal.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic py-2">No regulatory events extracted yet. Run event extraction from Tune modal.</p>
           ) : (
             <div className="space-y-3">
               {regulatoryEvents.slice(0, 8).map((event) => (
                 <div key={event.id} className="p-3 bg-purple-50 rounded-lg border border-purple-100">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <h5 className="font-medium text-sm">{event.headline}</h5>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                        <Badge variant="outline" className="text-xs">{event.jurisdiction}</Badge>
-                        <Badge variant="outline" className="text-xs capitalize">{event.event_type.replace('_', ' ')}</Badge>
+                      <h5 className="font-medium text-sm text-black">{event.headline}</h5>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-black">
+                        <Badge variant="outline" className="text-xs text-black">{event.jurisdiction}</Badge>
+                        <Badge variant="outline" className="text-xs capitalize text-black">{event.event_type.replace('_', ' ')}</Badge>
                         {event.event_date && (
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
@@ -953,18 +966,36 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
                         )}
                       </div>
                       {event.summary && (
-                        <p className="text-xs text-gray-600 mt-2">{event.summary}</p>
+                        <p className="text-xs text-black mt-2">{event.summary}</p>
                       )}
                       {event.publisher_implications && (
-                        <p className="text-xs text-purple-700 mt-1">
+                        <p className="text-xs text-purple-800 mt-1">
                           <strong>Publisher impact:</strong> {event.publisher_implications}
                         </p>
+                      )}
+                      {/* Source article links */}
+                      {event.source_articles && event.source_articles.length > 0 && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-gray-500">Sources:</span>
+                          {event.source_articles.map((uri, idx) => (
+                            <a
+                              key={idx}
+                              href={uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Article {idx + 1}
+                            </a>
+                          ))}
+                        </div>
                       )}
                     </div>
                     {event.t4_impact_score && (
                       <div className="text-right">
-                        <span className="text-lg font-bold text-purple-600">{Math.round(event.t4_impact_score * 100)}</span>
-                        <p className="text-xs text-gray-400">impact</p>
+                        <span className="text-lg font-bold text-purple-700">{Math.round(event.t4_impact_score * 100)}</span>
+                        <p className="text-xs text-black">impact</p>
                       </div>
                     )}
                   </div>
@@ -1022,7 +1053,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1">
-                        <span className="text-gray-500">Training data exposure:</span>
+                        <span className="text-gray-500 dark:text-gray-300">Training data exposure:</span>
                         <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.trainingDataExposure} />
                       </div>
                       <span className="font-medium capitalize">{attention.aiVisibility?.trainingDataExposure || attention.aiVisibility?.training_data_exposure || 'N/A'}</span>
@@ -1030,7 +1061,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   </div>
                   {/* Description with citations */}
                   {(attention.aiVisibility?.trainingDataExposureDescription || attention.aiVisibility?.training_data_exposure_description) && (
-                    <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600">
+                    <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600 dark:text-gray-300">
                       <CitationText text={attention.aiVisibility.trainingDataExposureDescription || attention.aiVisibility.training_data_exposure_description} articles={articles} />
                     </p>
                   )}
@@ -1075,7 +1106,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                     {(attention.synthesisExposure?.zeroClickRisk || attention.synthesisExposure?.zero_click_risk) && (
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1">
-                          <span className="text-gray-500">Zero-click risk:</span>
+                          <span className="text-gray-500 dark:text-gray-300">Zero-click risk:</span>
                           <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.zeroClickRisk} />
                         </div>
                         <Badge variant="outline" className="capitalize">{attention.synthesisExposure.zeroClickRisk || attention.synthesisExposure.zero_click_risk}</Badge>
@@ -1084,7 +1115,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                     {(attention.synthesisExposure?.attributionQuality || attention.synthesisExposure?.attribution_quality) && (
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1">
-                          <span className="text-gray-500">Attribution quality:</span>
+                          <span className="text-gray-500 dark:text-gray-300">Attribution quality:</span>
                           <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.attributionRate} />
                         </div>
                         <span className="font-medium capitalize">{attention.synthesisExposure.attributionQuality || attention.synthesisExposure.attribution_quality}</span>
@@ -1093,7 +1124,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   </div>
                   {/* Description with citations */}
                   {attention.synthesisExposure?.description && (
-                    <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600">
+                    <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600 dark:text-gray-300">
                       <CitationText text={attention.synthesisExposure.description} articles={articles} />
                     </p>
                   )}
@@ -1117,7 +1148,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                           className={`ml-2 text-xs ${
                             event.impact === 'high' ? 'border-red-300 text-red-600' :
                             event.impact === 'medium' ? 'border-yellow-300 text-yellow-600' :
-                            'border-gray-300 text-gray-600'
+                            'border-gray-300 text-gray-600 dark:text-gray-300'
                           }`}
                         >
                           {event.impact} impact
@@ -1130,23 +1161,57 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
             </div>
           )}
           {/* Entity Mentions (from monitored brands) */}
+          {(() => {
+            // Debug logging for entity data
+            console.log('Entity data:', {
+              entitySearchResults: attention.entitySearchResults,
+              entityArticles: attention.entityArticles,
+              entityMentions: attention.entityMentions
+            });
+            return null;
+          })()}
           {(attention.entityMentions && attention.entityMentions.length > 0) || attention.entitySearchResults ? (
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-              <h4 className="font-medium mb-3 flex items-center gap-2">
+              <h4 className="font-medium mb-3 flex items-center gap-2 text-black">
                 <Building2 className="w-4 h-4 text-blue-600" />
-                <span className="text-blue-600">Monitored Entity Tracking</span>
+                <span className="text-blue-700">Monitored Entity Tracking</span>
               </h4>
 
-              {/* Show entity search results (SQL ground truth) */}
+              {/* Show entity search results (SQL ground truth) with expandable article links */}
               {attention.entitySearchResults && Object.keys(attention.entitySearchResults).length > 0 && (
                 <div className="mb-3 p-2 bg-white rounded border border-blue-100">
-                  <p className="text-xs text-gray-500 mb-2">Database Search Results:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(attention.entitySearchResults).map(([entity, count]: [string, any]) => (
-                      <Badge key={entity} variant="outline" className={`text-xs ${count > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
-                        {entity}: {count} article{count !== 1 ? 's' : ''}
-                      </Badge>
-                    ))}
+                  <p className="text-xs text-black mb-2 font-semibold">Database Search Results:</p>
+                  <div className="space-y-2">
+                    {Object.entries(attention.entitySearchResults).map(([entity, count]: [string, any]) => {
+                      const entityArts = attention.entityArticles?.[entity] || [];
+                      return (
+                        <div key={entity}>
+                          <Badge variant="outline" className={`text-xs text-black ${count > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                            {entity}: {count} article{count !== 1 ? 's' : ''}
+                          </Badge>
+                          {entityArts.length > 0 && (
+                            <div className="mt-1 ml-2 space-y-0.5">
+                              {entityArts.slice(0, 5).map((art: any, idx: number) => (
+                                <a
+                                  key={idx}
+                                  href={art.uri}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block text-xs text-blue-600 hover:text-blue-800 hover:underline truncate"
+                                  title={art.title}
+                                >
+                                  <ExternalLink className="w-3 h-3 inline mr-1" />
+                                  {art.title}
+                                </a>
+                              ))}
+                              {entityArts.length > 5 && (
+                                <span className="text-xs text-gray-500">...and {entityArts.length - 5} more</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1158,17 +1223,17 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                     <div key={i} className="flex items-start justify-between p-3 bg-white rounded border border-blue-100">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-gray-900">{mention.entity}</span>
-                          <Badge variant="outline" className="text-xs border-blue-300">
+                          <span className="font-medium text-black">{mention.entity}</span>
+                          <Badge variant="outline" className="text-xs border-blue-300 text-black">
                             {mention.mentionCount || mention.mention_count || 1} mention{(mention.mentionCount || mention.mention_count || 1) !== 1 ? 's' : ''}
                           </Badge>
                           {mention.sentiment && (
                             <Badge
                               variant="outline"
                               className={`text-xs ${
-                                mention.sentiment === 'positive' ? 'border-green-300 bg-green-50 text-green-700' :
-                                mention.sentiment === 'negative' ? 'border-red-300 bg-red-50 text-red-700' :
-                                'border-gray-300 bg-gray-50 text-gray-600'
+                                mention.sentiment === 'positive' ? 'border-green-300 bg-green-50 text-green-800' :
+                                mention.sentiment === 'negative' ? 'border-red-300 bg-red-50 text-red-800' :
+                                'border-gray-300 bg-gray-50 text-black'
                               }`}
                             >
                               {mention.sentiment}
@@ -1176,26 +1241,27 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                           )}
                         </div>
                         {mention.context && (
-                          <p className="text-sm text-gray-600 mt-2">{mention.context}</p>
+                          <p className="text-sm text-black mt-2">{mention.context}</p>
                         )}
                         {mention.articles && mention.articles.length > 0 && (
-                          <p className="text-xs text-gray-400 mt-1">
-                            Found in: {mention.articles.join(', ')}
-                          </p>
+                          <EntityArticleLinks
+                            articleRefs={mention.articles}
+                            entityArticles={attention.entityArticles || {}}
+                          />
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 italic">No specific entity mentions extracted from the analyzed articles.</p>
+                <p className="text-sm text-black italic">No specific entity mentions extracted from the analyzed articles.</p>
               )}
             </div>
           ) : null}
           {attention.summary && (
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-medium mb-2">Summary</h4>
-              <p className="text-gray-700">
+              <p className="text-gray-700 dark:text-gray-200">
                 <CitationText text={attention.summary} articles={articles} />
               </p>
             </div>
@@ -1276,20 +1342,20 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
                 {money.licensingTrends.aiTrainingRightsValue && (
                   <div>
                     <p className="text-lg font-bold text-green-600">{money.licensingTrends.aiTrainingRightsValue}</p>
-                    <p className="text-xs text-gray-500">AI Training Rights Value</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-300">AI Training Rights Value</p>
                   </div>
                 )}
                 {money.licensingTrends.growthRate && (
                   <div>
                     <p className="text-lg font-bold text-blue-600">{money.licensingTrends.growthRate}</p>
-                    <p className="text-xs text-gray-500">Annual Growth Rate</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-300">Annual Growth Rate</p>
                   </div>
                 )}
               </div>
               {money.licensingTrends.keyDeals && money.licensingTrends.keyDeals.length > 0 && (
                 <ul className="space-y-1">
                   {money.licensingTrends.keyDeals.slice(0, 3).map((deal: any, i: number) => (
-                    <li key={i} className="text-sm text-gray-600">
+                    <li key={i} className="text-sm text-gray-600 dark:text-gray-300">
                       • <CitationText text={typeof deal === 'string' ? deal : deal.deal} articles={articles} />
                     </li>
                   ))}
@@ -1319,7 +1385,7 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
                           className={`ml-1 text-xs ${
                             event.impact === 'high' ? 'border-red-300 text-red-600' :
                             event.impact === 'medium' ? 'border-yellow-300 text-yellow-600' :
-                            'border-gray-300 text-gray-600'
+                            'border-gray-300 text-gray-600 dark:text-gray-300'
                           }`}
                         >
                           {event.impact}
@@ -1334,7 +1400,7 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
           {money.summary && (
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-medium mb-2">Summary</h4>
-              <p className="text-gray-700">
+              <p className="text-gray-700 dark:text-gray-200">
                 <CitationText text={money.summary} articles={articles} />
               </p>
             </div>
@@ -1357,26 +1423,26 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
           {eventsLoading ? (
             <div className="flex items-center justify-center py-4">
               <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
-              <span className="ml-2 text-sm text-gray-500">Loading events...</span>
+              <span className="ml-2 text-sm text-gray-500 dark:text-gray-300">Loading events...</span>
             </div>
           ) : financialEvents.length === 0 ? (
-            <p className="text-sm text-gray-400 italic py-2">No financial events extracted yet. Run event extraction from Tune modal.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic py-2">No financial events extracted yet. Run event extraction from Tune modal.</p>
           ) : (
             <div className="space-y-3">
               {financialEvents.slice(0, 10).map((event) => (
                 <div key={event.id} className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <h5 className="font-medium text-sm">{event.headline}</h5>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                      <h5 className="font-medium text-sm text-black">{event.headline}</h5>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-black">
                         <Badge
                           variant="outline"
                           className={`text-xs capitalize ${
-                            event.event_type === 'acquisition' ? 'border-red-200 bg-red-50 text-red-700' :
-                            event.event_type === 'funding_round' ? 'border-blue-200 bg-blue-50 text-blue-700' :
-                            event.event_type === 'partnership' ? 'border-purple-200 bg-purple-50 text-purple-700' :
-                            event.event_type === 'merger' ? 'border-orange-200 bg-orange-50 text-orange-700' :
-                            'border-gray-200'
+                            event.event_type === 'acquisition' ? 'border-red-200 bg-red-50 text-red-800' :
+                            event.event_type === 'funding_round' ? 'border-blue-200 bg-blue-50 text-blue-800' :
+                            event.event_type === 'partnership' ? 'border-purple-200 bg-purple-50 text-purple-800' :
+                            event.event_type === 'merger' ? 'border-orange-200 bg-orange-50 text-orange-800' :
+                            'border-gray-200 text-black'
                           }`}
                         >
                           {event.event_type.replace('_', ' ')}
@@ -1389,24 +1455,42 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
                         )}
                       </div>
                       {(event.acquirer || event.target) && (
-                        <p className="text-xs text-gray-600 mt-1">
+                        <p className="text-xs text-black mt-1">
                           <span className="font-medium">{event.acquirer || 'Unknown'}</span>
-                          <span className="text-gray-400 mx-1">→</span>
+                          <span className="text-gray-700 mx-1">→</span>
                           <span className="font-medium">{event.target || 'Unknown'}</span>
                         </p>
                       )}
                       {event.strategic_significance && (
-                        <p className="text-xs text-emerald-700 mt-1">
+                        <p className="text-xs text-emerald-800 mt-1">
                           <strong>Significance:</strong> {event.strategic_significance}
                         </p>
+                      )}
+                      {/* Source article links */}
+                      {event.source_articles && event.source_articles.length > 0 && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-gray-500">Sources:</span>
+                          {event.source_articles.map((uri, idx) => (
+                            <a
+                              key={idx}
+                              href={uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Article {idx + 1}
+                            </a>
+                          ))}
+                        </div>
                       )}
                     </div>
                     {event.deal_value_usd && (
                       <div className="text-right">
-                        <span className="text-lg font-bold text-emerald-600">
+                        <span className="text-lg font-bold text-emerald-700">
                           {formatCurrency(event.deal_value_usd)}
                         </span>
-                        <p className="text-xs text-gray-400">deal value</p>
+                        <p className="text-xs text-black">deal value</p>
                       </div>
                     )}
                   </div>
@@ -1491,7 +1575,7 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                 <span className="text-lg font-bold">{regulationStrength.toFixed(0)}%</span>
               </div>
               <Progress value={regulationStrength} className="h-3" />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-300 mt-1">
                 <span>Minimal oversight</span>
                 <span>Heavy regulation</span>
               </div>
@@ -1502,7 +1586,7 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                 <span className="text-lg font-bold">{consolidationStrength.toFixed(0)}%</span>
               </div>
               <Progress value={consolidationStrength} className="h-3" />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-300 mt-1">
                 <span>Distributed market</span>
                 <span>Concentrated power</span>
               </div>
@@ -1525,10 +1609,10 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
           <div className="mb-6">
             <div className="relative">
               {/* Axis labels */}
-              <div className="absolute -left-2 top-1/2 -translate-y-1/2 -rotate-90 text-xs text-gray-500 whitespace-nowrap">
+              <div className="absolute -left-2 top-1/2 -translate-y-1/2 -rotate-90 text-xs text-gray-500 dark:text-gray-300 whitespace-nowrap">
                 ← Low Regulation | High Regulation →
               </div>
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-xs text-gray-500">
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-xs text-gray-500 dark:text-gray-300">
                 ← Distributed | Concentrated →
               </div>
 
@@ -1551,21 +1635,21 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                         <div className="flex items-center gap-2">
                           <span className="text-2xl">{s.icon}</span>
                           <div>
-                            <h4 className="font-semibold text-sm">{s.name}</h4>
-                            <p className="text-xs text-gray-500">{s.quadrant}</p>
+                            <h4 className="font-semibold text-sm text-black">{s.name}</h4>
+                            <p className="text-xs text-black">{s.quadrant}</p>
                           </div>
                         </div>
                         {isMostLikely && <Badge className="bg-pink-500 text-xs">Most Likely</Badge>}
                       </div>
-                      <p className="text-xs text-gray-600 mb-3">{s.longDesc}</p>
+                      <p className="text-xs text-black mb-3">{s.longDesc}</p>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1">
-                          <span className="text-2xl font-bold">{probability}%</span>
+                          <span className="text-2xl font-bold text-black">{probability}%</span>
                           <InfoTooltip text={SCENARIO_EXPLANATIONS.probability} />
                         </div>
                         <div className="text-right text-xs">
-                          <p className="text-gray-500">Regulation: <span className="font-medium capitalize">{scenarioData?.regulationLevel || 'N/A'}</span></p>
-                          <p className="text-gray-500">Concentration: <span className="font-medium capitalize">{scenarioData?.concentrationLevel || 'N/A'}</span></p>
+                          <p className="text-black">Regulation: <span className="font-medium capitalize text-black">{scenarioData?.regulationLevel || 'N/A'}</span></p>
+                          <p className="text-black">Concentration: <span className="font-medium capitalize text-black">{scenarioData?.concentrationLevel || 'N/A'}</span></p>
                         </div>
                       </div>
                     </div>
@@ -1588,21 +1672,21 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                         <div className="flex items-center gap-2">
                           <span className="text-2xl">{s.icon}</span>
                           <div>
-                            <h4 className="font-semibold text-sm">{s.name}</h4>
-                            <p className="text-xs text-gray-500">{s.quadrant}</p>
+                            <h4 className="font-semibold text-sm text-black">{s.name}</h4>
+                            <p className="text-xs text-black">{s.quadrant}</p>
                           </div>
                         </div>
                         {isMostLikely && <Badge className="bg-pink-500 text-xs">Most Likely</Badge>}
                       </div>
-                      <p className="text-xs text-gray-600 mb-3">{s.longDesc}</p>
+                      <p className="text-xs text-black mb-3">{s.longDesc}</p>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1">
-                          <span className="text-2xl font-bold">{probability}%</span>
+                          <span className="text-2xl font-bold text-black">{probability}%</span>
                           <InfoTooltip text={SCENARIO_EXPLANATIONS.probability} />
                         </div>
                         <div className="text-right text-xs">
-                          <p className="text-gray-500">Regulation: <span className="font-medium capitalize">{scenarioData?.regulationLevel || 'N/A'}</span></p>
-                          <p className="text-gray-500">Concentration: <span className="font-medium capitalize">{scenarioData?.concentrationLevel || 'N/A'}</span></p>
+                          <p className="text-black">Regulation: <span className="font-medium capitalize text-black">{scenarioData?.regulationLevel || 'N/A'}</span></p>
+                          <p className="text-black">Concentration: <span className="font-medium capitalize text-black">{scenarioData?.concentrationLevel || 'N/A'}</span></p>
                         </div>
                       </div>
                     </div>
@@ -1615,11 +1699,11 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
           {/* Current Trajectory */}
           {scenarios.currentTrajectory && (
             <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <h4 className="font-medium mb-2 flex items-center gap-2">
+              <h4 className="font-medium mb-2 flex items-center gap-2 text-black">
                 <TrendingUp className="w-4 h-4 text-purple-600" />
                 Current Trajectory
               </h4>
-              <p className="text-gray-700">
+              <p className="text-black">
                 <CitationText text={scenarios.currentTrajectory} articles={articles} />
               </p>
             </div>
@@ -1637,16 +1721,16 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
             {scenarioList.map(s => {
               const isMostLikely = mostLikelyNormalized === s.id;
               return (
-                <div key={s.id} className={`p-3 rounded-lg border ${isMostLikely ? 'border-pink-300 bg-pink-50' : 'border-gray-200'}`}>
+                <div key={s.id} className={`p-3 rounded-lg border-2 ${s.color} ${isMostLikely ? 'ring-2 ring-pink-500' : ''}`}>
                   <div className="flex items-center gap-2 mb-2">
                     <span>{s.icon}</span>
-                    <h5 className="font-medium">{s.name}</h5>
+                    <h5 className="font-medium text-black">{s.name}</h5>
                     {isMostLikely && <Badge className="bg-pink-500 text-xs">Focus Here</Badge>}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                     <div>
-                      <p className="text-gray-500 text-xs uppercase mb-1">Key Actions</p>
-                      <p className="text-gray-700">
+                      <p className="text-black text-xs uppercase mb-1 font-semibold">Key Actions</p>
+                      <p className="text-black">
                         {s.id === 'trustedEcosystem' && 'Invest in provenance tech, build trust signals, diversify partnerships'}
                         {s.id === 'fragmentedCompliance' && 'Build compliance infrastructure, seek regional partnerships, automate reporting'}
                         {s.id === 'openChaos' && 'Focus on speed and reach, build direct audience relationships, embrace remix culture'}
@@ -1654,8 +1738,8 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                       </p>
                     </div>
                     <div>
-                      <p className="text-gray-500 text-xs uppercase mb-1">Risks</p>
-                      <p className="text-gray-700">
+                      <p className="text-black text-xs uppercase mb-1 font-semibold">Risks</p>
+                      <p className="text-black">
                         {s.id === 'trustedEcosystem' && 'Compliance costs, slower innovation, regulatory capture'}
                         {s.id === 'fragmentedCompliance' && 'Market fragmentation, high overhead, regional lock-in'}
                         {s.id === 'openChaos' && 'Revenue erosion, attribution loss, quality degradation'}
@@ -1663,8 +1747,8 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                       </p>
                     </div>
                     <div>
-                      <p className="text-gray-500 text-xs uppercase mb-1">Opportunities</p>
-                      <p className="text-gray-700">
+                      <p className="text-black text-xs uppercase mb-1 font-semibold">Opportunities</p>
+                      <p className="text-black">
                         {s.id === 'trustedEcosystem' && 'Premium positioning, licensing revenue, validator role'}
                         {s.id === 'fragmentedCompliance' && 'Compliance-as-service, regional expertise, B2B tools'}
                         {s.id === 'openChaos' && 'Viral reach, community building, new formats'}
@@ -1702,18 +1786,22 @@ const CitationText: React.FC<{
 const AnalysisSection: React.FC<{
   title: string;
   score?: number;
-  level?: string;  // New: qualitative level (none, low, medium, high, very_high)
+  level?: string | null;  // New: qualitative level (none, low, medium, high, very_high) - null means no data
   items?: string[];
   description?: string;
-  badge?: string;
+  badge?: string | null;
   articles?: Article[];
 }> = ({ title, score, level, items, description, badge, articles = [] }) => {
   const hasContent = description || (items && items.length > 0);
 
+  // Only show level/badge if we have actual evidence (hasContent) AND a non-null level
+  // This prevents showing "High" assessments with "No specific data found"
+  const shouldShowAssessment = hasContent && level != null;
+
   // Prefer qualitative level if provided, otherwise fall back to numeric
-  const effectiveLevel: QualitativeLevel | null = level
+  const effectiveLevel: QualitativeLevel | null = shouldShowAssessment && level
     ? (level as QualitativeLevel)
-    : (score != null ? numericToLevel(score) : null);
+    : (score != null && hasContent ? numericToLevel(score) : null);
 
   const levelConfig = effectiveLevel ? LEVEL_CONFIG[effectiveLevel] : null;
 
@@ -1742,36 +1830,112 @@ const AnalysisSection: React.FC<{
           })}
         </div>
       )}
-      {badge && (
+      {/* Only show badge if we have content to support it */}
+      {badge && hasContent && (
         <Badge variant="outline" className="mb-2 capitalize">{badge}</Badge>
       )}
       {description && (
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-gray-600 dark:text-gray-300">
           <CitationText text={description} articles={articles} />
         </p>
       )}
       {items && items.length > 0 && (
         <ul className="mt-2 space-y-1">
           {items.slice(0, 5).map((item, i) => (
-            <li key={i} className="text-sm text-gray-600">
+            <li key={i} className="text-sm text-gray-600 dark:text-gray-300">
               • <CitationText text={item} articles={articles} />
             </li>
           ))}
         </ul>
       )}
       {!hasContent && (
-        <p className="text-sm text-gray-400 italic mt-2">No specific data found in analyzed articles</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 italic mt-2">No specific data found in analyzed articles</p>
       )}
     </div>
   );
 };
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="text-center py-12 text-gray-500">
+  <div className="text-center py-12 text-gray-500 dark:text-gray-300">
     <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
     <p>{message}</p>
   </div>
 );
+
+// Helper component to render entity article links
+// Parses references like "Wiley-1", "Reuters-3" and maps to actual URIs
+const EntityArticleLinks: React.FC<{
+  articleRefs: string[];
+  entityArticles: Record<string, Array<{ uri: string; title: string; source: string }>>;
+}> = ({ articleRefs, entityArticles }) => {
+  if (!articleRefs || articleRefs.length === 0 || !entityArticles) {
+    return null;
+  }
+
+  // Helper: Find entity articles with fuzzy name matching
+  // Handles cases where LLM abbreviates entity names (e.g., "Springer" instead of "Springer Nature")
+  const findEntityArticles = (entityName: string): Array<{ uri: string; title: string; source: string }> | null => {
+    // 1. Exact match
+    if (entityArticles[entityName]) {
+      return entityArticles[entityName];
+    }
+
+    // 2. Case-insensitive match
+    const lowerName = entityName.toLowerCase();
+    for (const key of Object.keys(entityArticles)) {
+      if (key.toLowerCase() === lowerName) {
+        return entityArticles[key];
+      }
+    }
+
+    // 3. Partial match - entity name is prefix or contained in key
+    for (const key of Object.keys(entityArticles)) {
+      if (key.toLowerCase().startsWith(lowerName) ||
+          key.toLowerCase().includes(lowerName) ||
+          lowerName.includes(key.toLowerCase())) {
+        return entityArticles[key];
+      }
+    }
+
+    return null;
+  };
+
+  // Parse each reference (e.g., "Wiley-1") and look up the URI
+  const links = articleRefs.map((ref, idx) => {
+    // Parse "EntityName-Number" format
+    const match = ref.match(/^(.+)-(\d+)$/);
+    if (match) {
+      const [, entityName, numStr] = match;
+      const articleIndex = parseInt(numStr, 10) - 1; // Convert to 0-based index
+      const entityArts = findEntityArticles(entityName); // Use fuzzy matching
+      if (entityArts && entityArts[articleIndex]) {
+        const article = entityArts[articleIndex];
+        return (
+          <a
+            key={idx}
+            href={article.uri}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 hover:underline"
+            title={article.title}
+          >
+            {ref}
+          </a>
+        );
+      }
+    }
+    // Fallback: just display as text if can't parse or find
+    return <span key={idx}>{ref}</span>;
+  });
+
+  return (
+    <p className="text-xs text-gray-700 mt-1">
+      Found in: {links.reduce((prev, curr, i) => (
+        i === 0 ? [curr] : [...prev, ', ', curr]
+      ), [] as React.ReactNode[])}
+    </p>
+  );
+};
 
 // References Section component - collapsed shows just title, expanded shows all articles
 const ReferencesSection: React.FC<{ articles: ReferenceArticle[] }> = ({ articles }) => {
@@ -1812,23 +1976,23 @@ const ReferencesSection: React.FC<{ articles: ReferenceArticle[] }> = ({ article
           <div className="space-y-3">
             {articles.map((article, idx) => (
               <div key={article.uri || idx} className="flex items-start gap-3 p-2 rounded hover:bg-gray-50">
-                <span className="text-xs text-gray-400 mt-1 w-6">{idx + 1}.</span>
+                <span className="text-xs text-gray-400 dark:text-gray-400 mt-1 w-6">{idx + 1}.</span>
                 <div className="flex-1 min-w-0">
                   <a
                     href={article.uri}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm font-medium text-gray-900 hover:text-pink-600 flex items-center gap-1"
+                    className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-pink-600 flex items-center gap-1"
                   >
                     <span className="truncate">{article.title}</span>
                     <ExternalLink className="w-3 h-3 flex-shrink-0" />
                   </a>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-gray-500">{article.source}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-300">{article.source}</span>
                     {article.publicationDate && (
                       <>
                         <span className="text-gray-300">•</span>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-gray-500 dark:text-gray-300">
                           {new Date(article.publicationDate).toLocaleDateString()}
                         </span>
                       </>
@@ -1897,7 +2061,7 @@ const ViewTabs: React.FC<{
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
               activeView === view.id
                 ? 'bg-pink-500 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-gray-100 text-gray-700 dark:text-gray-200 hover:bg-gray-200'
             }`}
           >
             <Icon className="w-4 h-4" />
@@ -1994,7 +2158,7 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
             />
             <div className="text-center py-8">
               <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-pink-500" />
-              <p className="text-gray-600">
+              <p className="text-gray-600 dark:text-gray-300">
                 Analyzing power, attention, and money flows across all topics...
               </p>
               <Progress value={stageProgress} className="mt-4 max-w-md mx-auto" />
@@ -2012,31 +2176,31 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
         <Card>
           <CardContent className="pt-6 text-center py-12">
             <BarChart3 className="w-16 h-16 mx-auto mb-4 text-pink-300" />
-            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
               Power, Attention & Money Dashboard
             </h2>
-            <p className="text-gray-600 mb-6 max-w-lg mx-auto">
+            <p className="text-gray-600 dark:text-gray-300 mb-6 max-w-lg mx-auto">
               Strategic intelligence tracking the three fundamental flows reshaping the knowledge economy.
               Analyzes articles across <strong>all topics</strong> using trend-specific semantic queries.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto text-left mb-6">
               <div className="p-4 bg-yellow-50 rounded-lg">
                 <Zap className="w-6 h-6 text-yellow-600 mb-2" />
-                <h3 className="font-medium">Power</h3>
-                <p className="text-sm text-gray-600">Infrastructure control, regulatory influence, network centrality</p>
+                <h3 className="font-medium text-black">Power</h3>
+                <p className="text-sm text-black">Infrastructure control, regulatory influence, network centrality</p>
               </div>
               <div className="p-4 bg-blue-50 rounded-lg">
                 <Eye className="w-6 h-6 text-blue-600 mb-2" />
-                <h3 className="font-medium">Attention</h3>
-                <p className="text-sm text-gray-600">AI visibility, brand recognition, citation exposure</p>
+                <h3 className="font-medium text-black">Attention</h3>
+                <p className="text-sm text-black">AI visibility, brand recognition, citation exposure</p>
               </div>
               <div className="p-4 bg-green-50 rounded-lg">
                 <DollarSign className="w-6 h-6 text-green-600 mb-2" />
-                <h3 className="font-medium">Money</h3>
-                <p className="text-sm text-gray-600">Funding flows, M&A activity, market consolidation</p>
+                <h3 className="font-medium text-black">Money</h3>
+                <p className="text-sm text-black">Funding flows, M&A activity, market consolidation</p>
               </div>
             </div>
-            <p className="text-gray-500 text-sm">
+            <p className="text-gray-500 dark:text-gray-300 text-sm">
               Click <strong>Refresh</strong> above to run cross-topic PAM analysis. Use <strong>Tune</strong> to configure trends and time horizon.
             </p>
           </CardContent>
@@ -2057,7 +2221,7 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
       {activeView === 'scenarios' && <ScenariosView data={data} articles={citationArticles} />}
 
       {/* Footer with metadata */}
-      <div className="mt-6 pt-4 border-t flex items-center justify-between text-sm text-gray-500">
+      <div className="mt-6 pt-4 border-t flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
         <span>Analyzed {data.articlesAnalyzed} articles</span>
         <span>Model: {data.modelUsed}</span>
         <span>Generated: {new Date(data.createdAt).toLocaleString()}</span>
@@ -2069,59 +2233,74 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
         architectureVersion={data.architectureVersion}
       />
 
-      {/* Data Sources Summary for v2 */}
-      {data.scores?.dataSources && (
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-            <Database className="w-4 h-4 text-gray-500" />
-            Data Sources Used
-          </h4>
-          <div className="grid grid-cols-3 gap-4 text-xs">
-            <div>
-              <span className="text-gray-500 flex items-center gap-1">
-                <Zap className="w-3 h-3" /> Power:
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.scores.dataSources.power && data.scores.dataSources.power.length > 0 ? (
-                  data.scores.dataSources.power.map((s: string, i: number) => (
-                    <DataSourceBadge key={i} source={s as DataSourceType} />
-                  ))
-                ) : (
-                  <span className="text-gray-400 italic">Article database</span>
-                )}
-              </div>
+      {/* Data Sources Summary for v2 - always show with fallbacks */}
+      {(() => {
+        // Debug logging for data sources
+        console.log('PAM dataSources:', data.scores?.dataSources);
+        return null;
+      })()}
+      <div className="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-medium mb-2 flex items-center gap-2 text-gray-900 dark:text-gray-100">
+          <Database className="w-4 h-4" />
+          Data Sources Used
+        </h4>
+        <div className="grid grid-cols-3 gap-4 text-xs">
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 flex items-center gap-1 font-medium">
+              <Zap className="w-3 h-3" /> Power:
+            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {(() => {
+                const sources = data.scores?.dataSources?.power;
+                if (!sources || sources.length === 0) {
+                  return <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+                }
+                const badges = sources.map((s: string, i: number) => {
+                  const mappedSource = mapBackendSource(s);
+                  return mappedSource ? <DataSourceBadge key={i} source={mappedSource} /> : null;
+                }).filter(Boolean);
+                return badges.length > 0 ? badges : <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+              })()}
             </div>
-            <div>
-              <span className="text-gray-500 flex items-center gap-1">
-                <Eye className="w-3 h-3" /> Attention:
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.scores.dataSources.attention && data.scores.dataSources.attention.length > 0 ? (
-                  data.scores.dataSources.attention.map((s: string, i: number) => (
-                    <DataSourceBadge key={i} source={s as DataSourceType} />
-                  ))
-                ) : (
-                  <span className="text-gray-400 italic">Article database</span>
-                )}
-              </div>
+          </div>
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 flex items-center gap-1 font-medium">
+              <Eye className="w-3 h-3" /> Attention:
+            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {(() => {
+                const sources = data.scores?.dataSources?.attention;
+                if (!sources || sources.length === 0) {
+                  return <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+                }
+                const badges = sources.map((s: string, i: number) => {
+                  const mappedSource = mapBackendSource(s);
+                  return mappedSource ? <DataSourceBadge key={i} source={mappedSource} /> : null;
+                }).filter(Boolean);
+                return badges.length > 0 ? badges : <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+              })()}
             </div>
-            <div>
-              <span className="text-gray-500 flex items-center gap-1">
-                <DollarSign className="w-3 h-3" /> Money:
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.scores.dataSources.money && data.scores.dataSources.money.length > 0 ? (
-                  data.scores.dataSources.money.map((s: string, i: number) => (
-                    <DataSourceBadge key={i} source={s as DataSourceType} />
-                  ))
-                ) : (
-                  <span className="text-gray-400 italic">Article database</span>
-                )}
-              </div>
+          </div>
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 flex items-center gap-1 font-medium">
+              <DollarSign className="w-3 h-3" /> Money:
+            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {(() => {
+                const sources = data.scores?.dataSources?.money;
+                if (!sources || sources.length === 0) {
+                  return <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+                }
+                const badges = sources.map((s: string, i: number) => {
+                  const mappedSource = mapBackendSource(s);
+                  return mappedSource ? <DataSourceBadge key={i} source={mappedSource} /> : null;
+                }).filter(Boolean);
+                return badges.length > 0 ? badges : <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+              })()}
             </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* AI Disclaimer */}
       <AIDisclaimer modelUsed={data.modelUsed} />

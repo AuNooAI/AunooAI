@@ -52,9 +52,9 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
   };
 
   return (
-    <div className="w-64 shrink-0 bg-white dark:bg-gray-900 shadow-lg flex flex-col border-r border-gray-200 dark:border-gray-700 overflow-y-auto">
+    <div className="w-64 shrink-0 bg-white dark:bg-[#232326] shadow-lg flex flex-col border-r border-gray-200 dark:border-[#35353a] overflow-y-auto">
       {/* Logo/Brand */}
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="p-6 border-b border-gray-200 dark:border-[#35353a]">
         <h2 className="text-lg font-semibold text-pink-500 tracking-wide">AUNOOAI</h2>
       </div>
 
@@ -62,7 +62,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
       <nav className="flex-1 px-3 py-4">
         {/* General Section */}
         <div className="mb-4">
-          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 mb-2">
+          <div className="text-xs font-semibold text-gray-500 dark:text-[#a09fa6] uppercase tracking-wider px-3 mb-2">
             General
           </div>
           <ul className="space-y-0.5">
@@ -73,7 +73,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
                   currentPage === 'health'
                     ? 'bg-pink-50 dark:bg-pink-900/30 text-pink-600'
-                    : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
+                    : 'text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
                 }`}
               >
                 <Home className="w-4.5 h-4.5" />
@@ -88,7 +88,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
                   currentPage === 'anticipate'
                     ? 'bg-pink-50 dark:bg-pink-900/30 text-pink-600'
-                    : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
+                    : 'text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
                 }`}
               >
                 <TrendingUp className="w-4.5 h-4.5" />
@@ -103,7 +103,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
                   currentPage === 'investigate'
                     ? 'bg-pink-50 dark:bg-pink-900/30 text-pink-600'
-                    : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
+                    : 'text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
                 }`}
               >
                 <Search className="w-4.5 h-4.5" />
@@ -118,7 +118,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
                   currentPage === 'gather'
                     ? 'bg-pink-50 dark:bg-pink-900/30 text-pink-600'
-                    : 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
+                    : 'text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600'
                 }`}
               >
                 <Download className="w-4.5 h-4.5" />
@@ -130,7 +130,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
 
         {/* Support Section */}
         <div>
-          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 mb-2 mt-2">
+          <div className="text-xs font-semibold text-gray-500 dark:text-[#a09fa6] uppercase tracking-wider px-3 mb-2 mt-2">
             Support
           </div>
           <ul className="space-y-0.5">
@@ -138,7 +138,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
             <li>
               <button
                 onClick={() => toggleSection('settings')}
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm transition-all text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600"
+                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm transition-all text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600"
               >
                 <div className="flex items-center gap-3">
                   <Settings className="w-4.5 h-4.5" />
@@ -149,13 +149,13 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
               {expandedSections.settings && (
                 <ul className="mt-1 space-y-0.5">
                   <li>
-                    <a href="/config" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/config" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Sliders className="w-3.5 h-3.5" />
                       <span className="text-xs">App Configuration</span>
                     </a>
                   </li>
                   <li>
-                    <a href="/trend-convergence?onboarding=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/trend-convergence?onboarding=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Sparkles className="w-3.5 h-3.5" />
                       <span className="text-xs">AI-guided Topic Setup</span>
                     </a>
@@ -164,44 +164,44 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                     {onTopicEditorClick ? (
                       <button
                         onClick={onTopicEditorClick}
-                        className="w-full flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all"
+                        className="w-full flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all"
                       >
                         <FolderPlus className="w-3.5 h-3.5" />
                         <span className="text-xs">Topic Editor</span>
                       </button>
                     ) : (
-                      <a href="/create_topic" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                      <a href="/create_topic" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                         <FolderPlus className="w-3.5 h-3.5" />
                         <span className="text-xs">Topic Editor</span>
                       </a>
                     )}
                   </li>
                   <li>
-                    <a href="/promptmanager" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/promptmanager" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Brain className="w-3.5 h-3.5" />
                       <span className="text-xs">Prompt Engineering</span>
                     </a>
                   </li>
                   <li>
-                    <a href="/model-bias-arena" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/model-bias-arena" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Scale className="w-3.5 h-3.5" />
                       <span className="text-xs">Model Bias Arena</span>
                     </a>
                   </li>
                   <li>
-                    <a href="/vector-analysis-improved" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/vector-analysis-improved" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <BarChart className="w-3.5 h-3.5" />
                       <span className="text-xs">Exploratory Analysis</span>
                     </a>
                   </li>
                   <li>
-                    <a href="/database-editor" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/database-editor" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Edit className="w-3.5 h-3.5" />
                       <span className="text-xs">Database Editor</span>
                     </a>
                   </li>
                   <li>
-                    <a href="/analytics" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="/analytics" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <DatabaseIcon className="w-3.5 h-3.5" />
                       <span className="text-xs">Analytics</span>
                     </a>
@@ -214,7 +214,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
             <li>
               <button
                 onClick={() => toggleSection('appInfo')}
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm transition-all text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600"
+                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm transition-all text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600"
               >
                 <div className="flex items-center gap-3">
                   <Info className="w-4.5 h-4.5" />
@@ -225,19 +225,19 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
               {expandedSections.appInfo && (
                 <ul className="mt-1 space-y-0.5">
                   <li>
-                    <a href="https://aunoo-ai.gitbook.io/aunoo-ai-kb" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="https://aunoo-ai.gitbook.io/aunoo-ai-kb" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Book className="w-3.5 h-3.5" />
                       <span className="text-xs">Knowledge Base</span>
                     </a>
                   </li>
                   <li>
-                    <a href="https://discord.gg/hEUNYDm5KH" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="https://discord.gg/hEUNYDm5KH" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <MessageSquare className="w-3.5 h-3.5" />
                       <span className="text-xs">Discord Community</span>
                     </a>
                   </li>
                   <li>
-                    <a href="https://chromewebstore.google.com/detail/aunoo-ai-chrome-browser-e/fjgiomiceklnoaefnhliablhgoodceji" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                    <a href="https://chromewebstore.google.com/detail/aunoo-ai-chrome-browser-e/fjgiomiceklnoaefnhliablhgoodceji" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Chrome className="w-3.5 h-3.5" />
                       <span className="text-xs">Chrome Extension</span>
                     </a>
@@ -249,7 +249,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
             {/* Dark Mode */}
             <li>
               <button
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm transition-all text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600"
+                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm transition-all text-gray-800 dark:text-[#ededef] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
               >
                 <div className="flex items-center gap-3">
@@ -266,15 +266,15 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
       </nav>
 
       {/* User Profile Footer */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center gap-3">
+      <div className="p-4 border-t border-gray-200 dark:border-[#35353a] bg-gray-50 dark:bg-[#28282c] flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-pink-500 flex items-center justify-center text-white text-sm">
           <User className="w-4 h-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{userInfo.username}</div>
-          <div className="text-xs text-gray-600 dark:text-gray-400 truncate">{userInfo.email}</div>
+          <div className="text-sm font-medium text-gray-800 dark:text-[#ededef] truncate">{userInfo.username}</div>
+          <div className="text-xs text-gray-600 dark:text-[#a09fa6] truncate">{userInfo.email}</div>
         </div>
-        <a href="/logout" className="w-8 h-8 rounded-md flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 transition-all">
+        <a href="/logout" className="w-8 h-8 rounded-md flex items-center justify-center text-gray-700 dark:text-[#a09fa6] hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 transition-all">
           <LogOut className="w-4 h-4" />
         </a>
       </div>

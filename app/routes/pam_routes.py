@@ -14,10 +14,12 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
 import asyncio
+import os
 from datetime import datetime
 
 from app.services.pam_service import get_pam_service, TREND_DEFINITIONS, SCENARIOS_2030
 from app.security.session import verify_session
+from app.config.settings import AUSPEX_DIR, AUSPEX_AGENTS_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pam", tags=["Power Attention Money"])
@@ -1316,16 +1318,14 @@ async def list_pam_prompts(
     """
     List all PAM agent prompts.
     """
-    import os
     import yaml
 
-    agents_dir = "/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/agents"
     prompts = []
 
     try:
-        for filename in os.listdir(agents_dir):
+        for filename in os.listdir(AUSPEX_AGENTS_DIR):
             if filename.startswith("pam_") and filename.endswith(".md"):
-                filepath = os.path.join(agents_dir, filename)
+                filepath = os.path.join(AUSPEX_AGENTS_DIR, filename)
                 with open(filepath, 'r') as f:
                     content = f.read()
 
@@ -1364,7 +1364,7 @@ async def get_pam_prompt(
     import os
     import yaml
 
-    filepath = f"/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/agents/{prompt_id}.md"
+    filepath = os.path.join(AUSPEX_AGENTS_DIR, f"{prompt_id}.md")
 
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail=f"Prompt {prompt_id} not found")
@@ -1416,7 +1416,7 @@ async def update_pam_prompt(
     import os
     import yaml
 
-    filepath = f"/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/agents/{prompt_id}.md"
+    filepath = os.path.join(AUSPEX_AGENTS_DIR, f"{prompt_id}.md")
 
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail=f"Prompt {prompt_id} not found")
@@ -1473,7 +1473,7 @@ async def get_pam_config(
     """
     import json
 
-    config_path = "/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/pam_config.json"
+    config_path = os.path.join(AUSPEX_DIR, "pam_config.json")
 
     try:
         with open(config_path, 'r') as f:
@@ -1514,7 +1514,7 @@ async def update_pam_config(
     """
     import json
 
-    config_path = "/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/pam_config.json"
+    config_path = os.path.join(AUSPEX_DIR, "pam_config.json")
 
     try:
         # Read existing config
@@ -1580,7 +1580,7 @@ async def get_keyword_presets(user: dict = Depends(verify_session)):
     """
     import json
 
-    config_path = "/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/pam_config.json"
+    config_path = os.path.join(AUSPEX_DIR, "pam_config.json")
 
     try:
         with open(config_path, 'r') as f:
@@ -1630,7 +1630,7 @@ async def set_keyword_preset(
     """
     import json
 
-    config_path = "/home/orochford/tenants/bugfixing.aunoo.ai/data/auspex/pam_config.json"
+    config_path = os.path.join(AUSPEX_DIR, "pam_config.json")
 
     try:
         # Read current config

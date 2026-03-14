@@ -195,6 +195,35 @@ t_saved_executive_briefings = Table(
     Index('idx_saved_exec_briefings_created', 'created_at')
 )
 
+# Desk briefings - user-curated briefings with articles and incidents
+t_desk_briefings = Table(
+    'desk_briefings', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('topic', String(255)),  # Optional - briefings can be cross-topic
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('articles', JSONB, nullable=False, server_default=text("'[]'")),  # Array of curated articles
+    Column('incidents', JSONB, nullable=False, server_default=text("'[]'")),  # Array of curated incidents
+    Column('emerging_topics', JSONB, nullable=False, server_default=text("'[]'")),  # Array of emerging topics
+    Column('synthesis', Text),  # AI-generated synthesis narrative
+    Column('themes', JSONB),  # AI-generated themes
+    Column('priority_actions', JSONB),  # AI-generated actions
+    Column('metadata', JSONB),  # Generation metadata
+    Column('status', String(50), nullable=False, server_default=text("'draft'")),  # draft, finalized
+    Column('model_used', String(100)),
+    Column('articles_count', Integer, server_default=text('0'), nullable=False),
+    Column('incidents_count', Integer, server_default=text('0'), nullable=False),
+    Column('emerging_topics_count', Integer, server_default=text('0'), nullable=False),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('finalized_at', DateTime(timezone=True)),
+    UniqueConstraint('name', 'username', name='uq_desk_briefings_name_user'),
+    Index('idx_desk_briefings_username', 'username'),
+    Index('idx_desk_briefings_status', 'status'),
+    Index('idx_desk_briefings_created_at', 'created_at')
+)
+
 # Newsfeed dashboard snapshots - stores auto-generated dashboard state
 t_newsfeed_dashboard_snapshots = Table(
     'newsfeed_dashboard_snapshots', metadata,
@@ -366,7 +395,9 @@ t_articles = Table(
     Column('auto_ingested', Boolean, default=text('FALSE')),
     Column('user_preference', Text),  # 'more', 'less', or null
     Column('preference_date', DateTime),  # when preference was set
+    Column('article_origin', Text, server_default=text("'unknown'")),  # 'aunoo', 'external', 'unknown'
     Index('idx_articles_auto_ingested', 'auto_ingested'),
+    Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),
     Index('idx_articles_factual_reporting', 'factual_reporting'),
     Index('idx_articles_ingest_status', 'ingest_status'),
@@ -420,7 +451,29 @@ t_keyword_groups = Table(
     Column('topic', Text, nullable=False),
     Column('created_at', Text, default=text('CURRENT_TIMESTAMP')),
     Column('provider', Text, default=text("'news'")),
-    Column('source', Text, nullable=False, default=text("'news'"))
+    Column('source', Text, nullable=False, default=text("'news'")),
+    # Per-group collection settings (NULL = use global)
+    Column('is_active', Boolean, default=True),
+    Column('check_interval', Integer, nullable=True),
+    Column('interval_unit', Integer, nullable=True),  # 60=minutes, 3600=hours, 86400=days
+    Column('search_date_range', Integer, nullable=True),
+    Column('providers', Text, nullable=True),  # JSON array e.g., '["thenewsapi", "arxiv"]'
+    # Processing settings
+    Column('auto_ingest_enabled', Boolean, nullable=True),
+    Column('min_relevance_threshold', REAL, nullable=True),
+    Column('quality_control_enabled', Boolean, nullable=True),
+    Column('auto_save_approved_only', Boolean, nullable=True),
+    # AI settings
+    Column('default_llm_model', Text, nullable=True),
+    Column('llm_temperature', REAL, nullable=True),
+    Column('llm_max_tokens', Integer, nullable=True),
+    # Scheduling state
+    Column('last_checked_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('next_check_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('last_error', Text, nullable=True),
+    Column('updated_at', TIMESTAMP(timezone=True), default=text('NOW()')),
+    # Index for efficient due-group queries
+    Index('idx_keyword_groups_next_check', 'is_active', 'next_check_at')
 )
 
 t_keyword_monitor_settings = Table(
@@ -435,8 +488,8 @@ t_keyword_monitor_settings = Table(
     Column('is_enabled', Boolean, nullable=False, default=True),
     Column('daily_request_limit', Integer, nullable=False, default=text('100')),
     Column('search_date_range', Integer, nullable=False, default=text('7')),
-    Column('provider', Text, nullable=True),
-    Column('providers', Text, nullable=True),  # JSON array for multi-collector support
+    Column('provider', Text, nullable=False, default=text("'thenewsapi'")),
+    Column('providers', Text, nullable=True, default=text("'[\"thenewsapi\"]'")),  # JSON array for multi-collector support
     Column('auto_ingest_enabled', Boolean, nullable=False, default=text('TRUE')),  # Auto-processing ON by default
     Column('min_relevance_threshold', REAL, nullable=False, default=text('0.0')),
     Column('quality_control_enabled', Boolean, nullable=False, default=text('TRUE')),
@@ -444,7 +497,8 @@ t_keyword_monitor_settings = Table(
     Column('default_llm_model', Text, nullable=True, default=None),  # NULL = use first available model
     Column('llm_temperature', REAL, nullable=False, default=text('0.2')),  # Temperature 0.2 default
     Column('llm_max_tokens', Integer, nullable=False, default=text('1000')),
-    Column('auto_regenerate_reports', Boolean, nullable=True, default=True)  # Auto-regenerate ON by default
+    Column('auto_regenerate_reports', Boolean, nullable=True, default=True),  # Auto-regenerate ON by default
+    Column('inference_mode', Text, nullable=False, default=text("'hybrid'")),  # 'local', 'hybrid', or 'external'
 )
 
 t_keyword_monitor_status = Table(
@@ -1206,6 +1260,9 @@ t_rss_feeds = Table(
     # Relevance filtering (0 = skip filtering, 1-100 = threshold percentage)
     Column('relevance_threshold', Integer, server_default=text('0'), nullable=False),
 
+    # Source credibility - factual reporting level to set on enriched articles
+    Column('default_factual_reporting', String(50)),
+
     # Tracking
     Column('last_checked_at', DateTime(timezone=True)),
     Column('last_article_date', DateTime(timezone=True)),
@@ -1234,4 +1291,146 @@ t_rss_feed_monitor_status = Table(
     Column('last_run_duration_seconds', Float),
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()')),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'))
+)
+
+
+# Geopolitical Hotspots Tables
+t_geopolitical_hotspots = Table(
+    'geopolitical_hotspots', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('location_name', Text, nullable=False),
+    Column('location_type', Text, nullable=False),  # city, region, country
+    Column('country_code', String(2), nullable=True),  # ISO 3166-1 alpha-2
+    Column('country_name', Text, nullable=True),
+    Column('latitude', Float, nullable=False),
+    Column('longitude', Float, nullable=False),
+    Column('intensity_score', Float, nullable=False, server_default=text('0')),  # 0-100
+    Column('risk_level', Text, nullable=False, server_default=text("'low'")),  # critical, high, medium, low, info
+    Column('trend', Text, server_default=text("'stable'")),  # escalating, stable, de-escalating
+    Column('article_count', Integer, nullable=False, server_default=text('0')),
+    Column('recent_article_count', Integer, nullable=False, server_default=text('0')),  # 7 days
+    Column('primary_category', Text, nullable=True),
+    Column('tags', JSONB, nullable=True),
+    Column('topic', Text, nullable=True),
+    Column('last_article_date', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_geopolitical_hotspots_location', 'location_name'),
+    Index('idx_geopolitical_hotspots_country', 'country_code'),
+    Index('idx_geopolitical_hotspots_risk', 'risk_level'),
+    Index('idx_geopolitical_hotspots_intensity', 'intensity_score'),
+    Index('idx_geopolitical_hotspots_category', 'primary_category'),
+    Index('idx_geopolitical_hotspots_topic', 'topic'),
+    Index('idx_geopolitical_hotspots_coords', 'latitude', 'longitude'),
+)
+
+t_hotspot_articles = Table(
+    'hotspot_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('hotspot_id', Integer, ForeignKey('geopolitical_hotspots.id', ondelete='CASCADE'), nullable=False),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('relevance_score', Float, nullable=True),  # 0-1
+    Column('mention_type', Text, nullable=True),  # primary, secondary, background
+    Column('extracted_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('hotspot_id', 'article_uri', name='uq_hotspot_article'),
+    Index('idx_hotspot_articles_hotspot', 'hotspot_id'),
+    Index('idx_hotspot_articles_article', 'article_uri'),
+)
+
+t_hotspot_daily_stats = Table(
+    'hotspot_daily_stats', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('date', DateTime, nullable=False),
+    Column('hotspot_id', Integer, ForeignKey('geopolitical_hotspots.id', ondelete='CASCADE'), nullable=False),
+    Column('article_count', Integer, nullable=False, server_default=text('0')),
+    Column('intensity_score', Float, nullable=True),
+    Column('trend', Text, nullable=True),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('date', 'hotspot_id', name='uq_hotspot_daily_stats'),
+    Index('idx_hotspot_daily_stats_date', 'date'),
+    Index('idx_hotspot_daily_stats_hotspot', 'hotspot_id'),
+)
+
+t_country_hotspot_stats = Table(
+    'country_hotspot_stats', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('country_code', String(2), nullable=False, unique=True),
+    Column('country_name', Text, nullable=False),
+    Column('total_hotspots', Integer, nullable=False, server_default=text('0')),
+    Column('total_articles', Integer, nullable=False, server_default=text('0')),
+    Column('heat_value', Float, nullable=False, server_default=text('0')),  # 0-100
+    Column('max_risk_level', Text, nullable=True),
+    Column('primary_category', Text, nullable=True),
+    Column('topic', Text, nullable=True),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_country_hotspot_stats_code', 'country_code'),
+    Index('idx_country_hotspot_stats_heat', 'heat_value'),
+    Index('idx_country_hotspot_stats_topic', 'topic'),
+)
+
+t_geopolitical_insights = Table(
+    'geopolitical_insights', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', Text, nullable=True),
+    Column('insight_type', Text, nullable=False),  # overview, regional, category, trend
+    Column('content', Text, nullable=False),
+    Column('metadata', JSONB, nullable=True),
+    Column('model_used', Text, nullable=True),
+    Column('hotspot_ids', ARRAY(Integer), nullable=True),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=True),
+    Index('idx_geopolitical_insights_type', 'insight_type'),
+    Index('idx_geopolitical_insights_topic', 'topic'),
+    Index('idx_geopolitical_insights_created', 'created_at'),
+)
+
+# Adaptive Classification Training Tables
+t_enrichment_training_samples = Table(
+    'enrichment_training_samples', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('topic', Text, nullable=False),
+    Column('field_name', Text, nullable=False),  # 'sentiment', 'time_to_impact', etc.
+    Column('field_value', Text, nullable=False),
+    Column('source', Text, nullable=False),  # 'llm_bootstrap', 'human_verified'
+    Column('model_used', Text),  # 'gpt-4o-mini'
+    Column('confidence', Float),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('article_uri', 'field_name', name='uq_training_sample_article_field'),
+    Index('idx_training_samples_topic', 'topic'),
+    Index('idx_training_samples_field', 'field_name'),
+    Index('idx_training_samples_source', 'source'),
+    Index('idx_training_samples_topic_field', 'topic', 'field_name'),
+)
+
+t_training_sample_counts = Table(
+    'training_sample_counts', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', Text, nullable=False),
+    Column('field_name', Text, nullable=False),
+    Column('field_value', Text, nullable=False),
+    Column('sample_count', Integer, nullable=False, server_default=text('0')),
+    Column('last_updated', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'field_name', 'field_value', name='uq_sample_counts_topic_field_value'),
+    Index('idx_sample_counts_topic', 'topic'),
+    Index('idx_sample_counts_field', 'field_name'),
+    Index('idx_sample_counts_topic_field', 'topic', 'field_name'),
+)
+
+t_training_runs = Table(
+    'training_runs', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('run_id', Text, nullable=False, unique=True),
+    Column('status', Text, nullable=False, server_default=text("'pending'")),  # pending, running, completed, failed, deployed
+    Column('topics_included', JSONB),
+    Column('fields_included', JSONB),
+    Column('sample_count', Integer),
+    Column('metrics', JSONB),  # accuracy, f1, etc.
+    Column('started_at', DateTime(timezone=True)),
+    Column('completed_at', DateTime(timezone=True)),
+    Column('model_path', Text),
+    Column('error_message', Text),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_training_runs_status', 'status'),
+    Index('idx_training_runs_created', 'created_at'),
 )

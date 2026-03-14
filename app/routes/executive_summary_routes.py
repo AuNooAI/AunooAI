@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/executive-summary", tags=["executive-summary"])
 # Add a separate router for the web page (without API prefix)
 web_router = APIRouter(tags=["executive-summary-web"])
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 # Pydantic Models
 class MarketSignal(BaseModel):

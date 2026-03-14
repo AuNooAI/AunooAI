@@ -69,12 +69,17 @@ def markdown_to_html(text: str) -> str:
     text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
     text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
 
-    # Bullet points
-    text = re.sub(r'^[\-\*] (.+)$', r'<li style="margin: 4px 0;">\1</li>', text, flags=re.MULTILINE)
-    text = re.sub(r'(<li[^>]*>.*</li>\n?)+', r'<ul style="margin: 10px 0; padding-left: 20px;">\g<0></ul>', text)
+    # Bullet points - convert to <uli> first
+    text = re.sub(r'^[\-\*] (.+)$', r'<uli>\1</uli>', text, flags=re.MULTILINE)
 
-    # Numbered lists
-    text = re.sub(r'^\d+\. (.+)$', r'<li style="margin: 4px 0;">\1</li>', text, flags=re.MULTILINE)
+    # Numbered lists - convert to <oli> first
+    text = re.sub(r'^\d+\. (.+)$', r'<oli>\1</oli>', text, flags=re.MULTILINE)
+
+    # Wrap consecutive <uli> items in <ul>
+    text = re.sub(r'(<uli>.*?</uli>\n?)+', lambda m: '<ul style="margin: 10px 0; padding-left: 20px;">' + m.group(0).replace('<uli>', '<li style="margin: 4px 0;">').replace('</uli>', '</li>') + '</ul>', text)
+
+    # Wrap consecutive <oli> items in <ol>
+    text = re.sub(r'(<oli>.*?</oli>\n?)+', lambda m: '<ol style="margin: 10px 0; padding-left: 20px;">' + m.group(0).replace('<oli>', '<li style="margin: 4px 0;">').replace('</oli>', '</li>') + '</ol>', text)
 
     # Line breaks for paragraphs
     text = re.sub(r'\n\n+', '</p><p style="margin: 10px 0;">', text)
@@ -136,7 +141,8 @@ class ResendProvider(EmailProvider):
             url = "https://api.resend.com/emails"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "AunooAI/1.0"
             }
 
             data = {

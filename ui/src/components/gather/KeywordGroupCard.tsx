@@ -2,13 +2,14 @@
  * KeywordGroupCard - Summary card for a keyword group
  */
 
-import { FileText, CheckCircle2, XCircle, HelpCircle, Database, Calendar, Clock, CheckCircle, AlertCircle, Loader2, ChevronRight, X } from 'lucide-react';
+import { FileText, CheckCircle2, XCircle, HelpCircle, Database, Calendar, Clock, CheckCircle, AlertCircle, Loader2, ChevronRight, X, Settings, Sliders } from 'lucide-react';
 import type { KeywordGroupSummary } from '../../services/gatherApi';
 
 interface KeywordGroupCardProps {
   group: KeywordGroupSummary;
   onClick: () => void;
   onDeleteUnscored?: (groupId: number) => void;
+  onSettingsClick?: (groupId: number) => void;
 }
 
 // Simple sparkline component
@@ -41,9 +42,16 @@ function Sparkline({ data, width = 80, height = 24 }: { data: number[]; width?: 
   );
 }
 
-export function KeywordGroupCard({ group, onClick, onDeleteUnscored }: KeywordGroupCardProps) {
+export function KeywordGroupCard({ group, onClick, onDeleteUnscored, onSettingsClick }: KeywordGroupCardProps) {
+  // Check if group has custom settings
+  const hasCustomSettings = group.has_custom_schedule || group.has_custom_providers;
+
   // Status icon and color
   const getStatusInfo = () => {
+    // Check if group is inactive
+    if (group.is_active === false) {
+      return { icon: <Clock className="h-4 w-4" />, color: 'neutral', text: 'Paused' };
+    }
     switch (group.status) {
       case 'success':
         return { icon: <CheckCircle className="h-4 w-4" />, color: 'success', text: 'OK' };
@@ -57,6 +65,20 @@ export function KeywordGroupCard({ group, onClick, onDeleteUnscored }: KeywordGr
   };
 
   const statusInfo = getStatusInfo();
+
+  // Format next check time
+  const formatNextCheck = () => {
+    if (!group.next_check_at) return null;
+    const date = new Date(group.next_check_at);
+    const now = new Date();
+    const diff = date.getTime() - now.getTime();
+
+    if (diff < 0) return 'Due now';
+    if (diff < 60000) return 'In < 1 min';
+    if (diff < 3600000) return `In ${Math.round(diff / 60000)} min`;
+    if (diff < 86400000) return `In ${Math.round(diff / 3600000)} hr`;
+    return `In ${Math.round(diff / 86400000)} days`;
+  };
 
   // Format last checked time
   const formatLastChecked = () => {
@@ -77,6 +99,8 @@ export function KeywordGroupCard({ group, onClick, onDeleteUnscored }: KeywordGr
   // Calculate total collected (all articles matched to this group)
   const totalCollected = group.total_articles || 0;
 
+  const nextCheckText = formatNextCheck();
+
   return (
     <div className="gather-card" onClick={onClick}>
       {/* Card Header */}
@@ -85,12 +109,36 @@ export function KeywordGroupCard({ group, onClick, onDeleteUnscored }: KeywordGr
           <FileText className="h-5 w-5" />
         </div>
         <div className="gather-card-title-section">
-          <h3 className="gather-card-title">{group.name}</h3>
+          <div className="gather-card-title-row">
+            <h3 className="gather-card-title">{group.name}</h3>
+            {hasCustomSettings && (
+              <span className="gather-custom-badge" title="This group has custom collection settings">
+                <Sliders className="h-3 w-3" />
+                Custom
+              </span>
+            )}
+            {group.is_active === false && (
+              <span className="gather-paused-badge" title="Collection is paused for this group">
+                Paused
+              </span>
+            )}
+          </div>
           <p className="gather-card-subtitle">
-            {group.keyword_count} keyword{group.keyword_count !== 1 ? 's' : ''} monitored
+            {group.topic} · {group.keyword_count} keyword{group.keyword_count !== 1 ? 's' : ''} monitored
           </p>
         </div>
-        <span className="gather-card-topic-badge">{group.topic}</span>
+        {onSettingsClick && (
+          <button
+            className="gather-card-settings-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSettingsClick(group.id);
+            }}
+            title="Group collection settings"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Metrics Grid - Row 1: Relevance-based counts */}
@@ -175,9 +223,16 @@ export function KeywordGroupCard({ group, onClick, onDeleteUnscored }: KeywordGr
 
       {/* Card Footer */}
       <div className="gather-card-footer">
-        <span className="gather-card-last-checked">
-          Last checked: {formatLastChecked()}
-        </span>
+        <div className="gather-card-footer-left">
+          <span className="gather-card-last-checked">
+            Last checked: {formatLastChecked()}
+          </span>
+          {nextCheckText && (
+            <span className="gather-card-next-check" title={group.next_check_at ? new Date(group.next_check_at).toLocaleString() : ''}>
+              · Next: {nextCheckText}
+            </span>
+          )}
+        </div>
         <span className="gather-card-view-details">
           View Details
           <ChevronRight className="h-4 w-4" />

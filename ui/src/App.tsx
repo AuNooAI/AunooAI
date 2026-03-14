@@ -2,7 +2,7 @@
  * Trend Convergence Dashboard - Figma Design Implementation
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTrendConvergence } from './hooks/useTrendConvergence';
 import { SharedNavigation } from './components/SharedNavigation';
 import { TabNavigation, TabSettingsDropdown } from './components/TabNavigation';
@@ -25,7 +25,8 @@ import { Label } from './components/ui/label';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert';
 import { calculateContextInfo, type ContextInfo } from './utils/contextCalculation';
-import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw, listDashboardsForTopic, loadDashboard, saveDashboard, deleteDashboard } from './services/api';
+import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw, listDashboardsForTopic, loadDashboard, saveDashboard, deleteDashboard, generateHorizonsExecutiveSummary, getHorizonsExecutiveSummary } from './services/api';
+import { TopicExecutiveSummary, FutureHorizonsExportOptions } from './types/horizonsExecutiveSummary';
 import { ExportService } from './services/exportService';
 import { ArticleCitations } from './components/ArticleCitations';
 import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
@@ -36,6 +37,7 @@ import { SIOTuneModal } from './components/SIOTuneModal';
 import { ExtremeOutliers } from './components/ExtremeOutliers';
 import { useExtremeOutliers } from './hooks/useExtremeOutliers';
 import { EOSTuneModal } from './components/EOSTuneModal';
+import { FHTuneModal } from './components/FHTuneModal';
 import { Newsletter } from './components/Newsletter';
 import { useNewsletter } from './hooks/useNewsletter';
 import { NewsletterTuneModal } from './components/NewsletterTuneModal';
@@ -60,7 +62,9 @@ function App() {
     config,
     loading,
     error,
+    needsGeneration,
     generateAnalysis,
+    loadCached,
     updateConfig,
     clearError,
   } = useTrendConvergence();
@@ -118,6 +122,13 @@ function App() {
   const [isEosTuneOpen, setIsEosTuneOpen] = useState(false);
   const [showEosRawModal, setShowEosRawModal] = useState(false);
   const [showEosReferencesModal, setShowEosReferencesModal] = useState(false);
+
+  // Future Horizons Executive Summary state
+  const [horizonsExecutiveSummary, setHorizonsExecutiveSummary] = useState<TopicExecutiveSummary[] | null>(null);
+  const [horizonsExecSummaryGeneratedAt, setHorizonsExecSummaryGeneratedAt] = useState<string | null>(null);
+  const [isLoadingHorizonsExecSummary, setIsLoadingHorizonsExecSummary] = useState(false);
+  const [horizonsExecSummaryError, setHorizonsExecSummaryError] = useState<string | null>(null);
+  const [isFhTuneOpen, setIsFhTuneOpen] = useState(false);
 
   // Newsletter state - lifted from Newsletter component
   const newsletter = useNewsletter();
@@ -226,99 +237,103 @@ function App() {
     setTabOrder(newOrder);
   };
 
-  // Load saved SIO config on mount
-  useEffect(() => {
-    const loadSioConfig = async () => {
-      try {
-        const response = await fetch('/api/sio/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setSioCredibilityThreshold(config.credibility_threshold ?? 60);
-          setSioHoursBack(config.hours_back ?? 24);
-          setSioMaxEvents(config.max_events ?? 30);
-        }
-      } catch (err) {
-        console.error('Failed to load SIO config:', err);
-      }
-    };
-    loadSioConfig();
-  }, []);
+  // Deferred tab config loading — only fetch when the relevant tab is active
+  const sioConfigLoaded = useRef(false);
+  const eosConfigLoaded = useRef(false);
+  const newsletterConfigLoaded = useRef(false);
+  const fgConfigLoaded = useRef(false);
+  const ebConfigLoaded = useRef(false);
 
-  // Load saved EOS config on mount
   useEffect(() => {
-    const loadEosConfig = async () => {
-      try {
-        const response = await fetch('/api/eos/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setEosScenarioCount(config.scenario_count ?? 5);
-          setEosIncludeBlackSwans(config.include_black_swans ?? true);
-          setEosIncludeContrarian(config.include_contrarian ?? true);
-          setEosIncludeWildCards(config.include_wild_cards ?? true);
-          setEosTimeHorizon(config.time_horizon ?? 'mid');
+    if (activeTab === 'intelligence-brief' && !sioConfigLoaded.current) {
+      sioConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/sio/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setSioCredibilityThreshold(cfg.credibility_threshold ?? 60);
+            setSioHoursBack(cfg.hours_back ?? 24);
+            setSioMaxEvents(cfg.max_events ?? 30);
+          }
+        } catch (err) {
+          console.error('Failed to load SIO config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load EOS config:', err);
-      }
-    };
-    loadEosConfig();
-  }, []);
+      })();
+    }
 
-  // Load saved Newsletter config on mount
-  useEffect(() => {
-    const loadNewsletterConfig = async () => {
-      try {
-        const response = await fetch('/api/newsletter/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setNewsletterTitle(config.title ?? 'Intelligence Newsletter');
-          setNewsletterIntro(config.intro ?? '');
-          setNewsletterDaysBack(config.days_back ?? 7);
-          setNewsletterDeepDiveTopic(config.deep_dive_topic ?? '');
+    if (activeTab === 'extreme-outliers' && !eosConfigLoaded.current) {
+      eosConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/eos/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setEosScenarioCount(cfg.scenario_count ?? 5);
+            setEosIncludeBlackSwans(cfg.include_black_swans ?? true);
+            setEosIncludeContrarian(cfg.include_contrarian ?? true);
+            setEosIncludeWildCards(cfg.include_wild_cards ?? true);
+            setEosTimeHorizon(cfg.time_horizon ?? 'mid');
+          }
+        } catch (err) {
+          console.error('Failed to load EOS config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load Newsletter config:', err);
-      }
-    };
-    loadNewsletterConfig();
-  }, []);
+      })();
+    }
 
-  // Load saved Focus Group config on mount
-  useEffect(() => {
-    const loadFgConfig = async () => {
-      try {
-        const response = await fetch('/api/focus-groups/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setFgMaxPersonas(config.max_personas ?? 6);
-          setFgMinEvidenceThreshold(config.min_evidence_threshold ?? 2);
-          setFgIncludeDemographics(config.include_demographics ?? true);
-          setFgIncludePsychographics(config.include_psychographics ?? true);
-          setFgIncludeVoice(config.include_voice ?? true);
+    if (activeTab === 'newsletter' && !newsletterConfigLoaded.current) {
+      newsletterConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/newsletter/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setNewsletterTitle(cfg.title ?? 'Intelligence Newsletter');
+            setNewsletterIntro(cfg.intro ?? '');
+            setNewsletterDaysBack(cfg.days_back ?? 7);
+            setNewsletterDeepDiveTopic(cfg.deep_dive_topic ?? '');
+          }
+        } catch (err) {
+          console.error('Failed to load Newsletter config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load Focus Group config:', err);
-      }
-    };
-    loadFgConfig();
-  }, []);
+      })();
+    }
 
-  // Load saved Executive Briefing config on mount
-  useEffect(() => {
-    const loadEbConfig = async () => {
-      try {
-        const response = await fetch('/api/executive-briefing/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setEbPersona(config.default_persona ?? 'ceo');
-          setEbArticleCount(config.default_article_count ?? 6);
+    if (activeTab === 'focus-group' && !fgConfigLoaded.current) {
+      fgConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/focus-groups/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setFgMaxPersonas(cfg.max_personas ?? 6);
+            setFgMinEvidenceThreshold(cfg.min_evidence_threshold ?? 2);
+            setFgIncludeDemographics(cfg.include_demographics ?? true);
+            setFgIncludePsychographics(cfg.include_psychographics ?? true);
+            setFgIncludeVoice(cfg.include_voice ?? true);
+          }
+        } catch (err) {
+          console.error('Failed to load Focus Group config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load Executive Briefing config:', err);
-      }
-    };
-    loadEbConfig();
-  }, []);
+      })();
+    }
+
+    if (activeTab === 'executive-briefing' && !ebConfigLoaded.current) {
+      ebConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/executive-briefing/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setEbPersona(cfg.default_persona ?? 'ceo');
+            setEbArticleCount(cfg.default_article_count ?? 6);
+          }
+        } catch (err) {
+          console.error('Failed to load Executive Briefing config:', err);
+        }
+      })();
+    }
+  }, [activeTab]);
 
   // Load PAM definitions and cached report when PAM tab is selected
   useEffect(() => {
@@ -411,7 +426,7 @@ function App() {
     }
   }, []);
 
-  // Sync active tab to config and auto-load data if not cached
+  // Sync active tab to config and load cached data (never auto-generates)
   useEffect(() => {
     // Map UI tab names to backend tab parameter values
     const tabMap: { [key: string]: string } = {
@@ -426,18 +441,17 @@ function App() {
     if (backendTab) {
       updateConfig({ tab: backendTab });
 
-      // Check if we have cached data for this tab
+      // Check if we have cached data for this tab in localStorage
       const tabKey = `trendConvergence_data_${backendTab}`;
       const cachedData = localStorage.getItem(tabKey);
 
-      // If no cached data and we have a topic, auto-generate
-      // BUT: Don't auto-generate if there's already an error (prevents infinite loop)
+      // If no localStorage data and we have a topic, try backend cache (never generates)
       if (!cachedData && config.topic && !loading && !error) {
-        console.log(`No cached data for ${backendTab} tab, auto-generating...`);
-        generateAnalysis();
+        console.log(`No localStorage data for ${backendTab} tab, checking backend cache...`);
+        loadCached();
       }
     }
-  }, [activeTab, updateConfig, config.topic, loading, error, generateAnalysis]);
+  }, [activeTab, updateConfig, config.topic, loading, error, loadCached]);
 
   // Calculate context info when model or sample size changes
   useEffect(() => {
@@ -548,15 +562,50 @@ function App() {
     // Get current profile
     const currentProfile = profiles.find(p => p.id === config.profile_id);
 
+    // Gather ALL tab data from localStorage and current state
+    const tabDataKeys = ['consensus', 'strategic', 'timeline', 'signals', 'horizons'];
+    const tabData: Record<string, any> = {};
+
+    tabDataKeys.forEach(key => {
+      const storageKey = `trendConvergence_data_${key}`;
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        try {
+          tabData[key] = JSON.parse(cached);
+        } catch (e) {
+          console.error(`Failed to parse ${key} data:`, e);
+        }
+      }
+    });
+
+    // Override with current active tab's live data
+    const activeTabKey = activeTab === 'strategic-recommendations' ? 'strategic' :
+                         activeTab === 'impact-timeline' ? 'timeline' :
+                         activeTab === 'market-signals' ? 'signals' :
+                         activeTab === 'future-horizons' ? 'horizons' :
+                         'consensus';
+    if (data) {
+      tabData[activeTabKey] = data;
+    }
+
+    // Include executive summary in horizons data if available
+    if (horizonsExecutiveSummary) {
+      tabData.horizons = {
+        ...(tabData.horizons || {}),
+        executive_summary: {
+          summaries: horizonsExecutiveSummary,
+          generated_at: horizonsExecSummaryGeneratedAt
+        }
+      };
+    }
+
     const request = {
       topic: config.topic,
       name: dashboardName,
       description: dashboardDescription || undefined,
       config: config,
       article_uris: articleUris,
-      tab_data: {
-        [activeTab]: data
-      },
+      tab_data: tabData,
       profile_snapshot: currentProfile,
     };
 
@@ -600,6 +649,21 @@ function App() {
           localStorage.setItem(storageKey, JSON.stringify(dashboard[backendKey]));
         }
       });
+
+      // Restore executive summary if saved with horizons data
+      if (dashboard.horizons_data?.executive_summary) {
+        const execSummary = dashboard.horizons_data.executive_summary;
+        if (execSummary.summaries && execSummary.summaries.length > 0) {
+          setHorizonsExecutiveSummary(execSummary.summaries);
+          setHorizonsExecSummaryGeneratedAt(execSummary.generated_at || null);
+          setHorizonsExecSummaryError(null);
+        }
+      } else {
+        // Clear executive summary if not in saved dashboard
+        setHorizonsExecutiveSummary(null);
+        setHorizonsExecSummaryGeneratedAt(null);
+        setHorizonsExecSummaryError(null);
+      }
 
       // Get the data key for current active tab
       const currentDataKey = tabDataMap[activeTab];
@@ -664,6 +728,16 @@ function App() {
     setIsConfigOpen(false);
   };
 
+  const handleConfigSave = () => {
+    setIsConfigOpen(false);
+    // Clear localStorage for current tab so loadCached re-checks backend with new config
+    if (config.tab) {
+      localStorage.removeItem(`trendConvergence_data_${config.tab}`);
+    }
+    // Trigger cache load for the (possibly new) config
+    loadCached();
+  };
+
   const handleViewRaw = async () => {
     // Handle focus-group tab separately - uses focusGroup.result not data
     if (activeTab === 'focus-group') {
@@ -717,6 +791,78 @@ function App() {
       setLoadingRaw(false);
     }
   };
+
+  // Future Horizons Executive Summary handlers
+  const handleGenerateHorizonsExecSummary = async () => {
+    if (!data?.analysis_id || !data?.scenarios) {
+      setHorizonsExecSummaryError('No horizons analysis available. Please generate Future Horizons first.');
+      return;
+    }
+
+    setIsLoadingHorizonsExecSummary(true);
+    setHorizonsExecSummaryError(null);
+
+    try {
+      const result = await generateHorizonsExecutiveSummary(
+        data.analysis_id,
+        data.scenarios,
+        config.topic,
+        config.model
+      );
+
+      if (result.success && result.executive_summary?.summaries) {
+        setHorizonsExecutiveSummary(result.executive_summary.summaries);
+        setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || new Date().toISOString());
+      } else {
+        throw new Error(result.message || 'Failed to generate executive summary');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate horizons executive summary:', err);
+      setHorizonsExecSummaryError(err.message || 'Failed to generate executive summary');
+    } finally {
+      setIsLoadingHorizonsExecSummary(false);
+    }
+  };
+
+  const handleHorizonsExport = async (options: FutureHorizonsExportOptions) => {
+    if (!data?.scenarios) {
+      throw new Error('No scenarios available to export');
+    }
+
+    await ExportService.exportFutureHorizons(
+      options,
+      data.scenarios,
+      horizonsExecutiveSummary,
+      config.topic
+    );
+  };
+
+  // Load cached executive summary when horizons data is available (no auto-generation)
+  useEffect(() => {
+    const loadCachedExecSummary = async () => {
+      if (activeTab === 'future-horizons' && data?.analysis_id && data?.scenarios?.length > 0 && !horizonsExecutiveSummary && !isLoadingHorizonsExecSummary) {
+        try {
+          const result = await getHorizonsExecutiveSummary(data.analysis_id);
+          if (result.success && result.executive_summary?.summaries) {
+            setHorizonsExecutiveSummary(result.executive_summary.summaries);
+            setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || null);
+          }
+        } catch (err) {
+          // No cached summary — user can generate via the button in ExecutiveSummarySection
+          console.log('No cached executive summary found');
+        }
+      }
+    };
+
+    loadCachedExecSummary();
+  }, [activeTab, data?.analysis_id, data?.scenarios?.length]);
+
+  // Clear executive summary when topic changes
+  useEffect(() => {
+    setHorizonsExecutiveSummary(null);
+    setHorizonsExecSummaryGeneratedAt(null);
+    setHorizonsExecSummaryError(null);
+  }, [config.topic]);
 
   const handleExport = async (format: 'json' | 'markdown' | 'pdf' | 'image') => {
     if (!data) {
@@ -835,7 +981,7 @@ function App() {
         {/* Top Header */}
         <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb and Dashboard Selector */}
-          <div className="flex items-center gap-4 text-sm text-gray-700 dark:text-gray-300">
+          <div className="flex items-center gap-4 text-sm text-gray-700 dark:text-gray-400">
             <div className="flex items-center gap-2">
               <span>Explore</span>
               <span>/</span>
@@ -1033,6 +1179,13 @@ function App() {
                 {/* Action Buttons */}
                 <div className="flex justify-end gap-3 mt-8">
                   <Button
+                    variant="outline"
+                    onClick={handleConfigSave}
+                    className="px-6"
+                  >
+                    Save
+                  </Button>
+                  <Button
                     onClick={handleGenerate}
                     disabled={loading || !config.topic}
                     className="px-6 bg-pink-500 hover:bg-pink-600"
@@ -1040,11 +1193,11 @@ function App() {
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Loading...
+                        Generating...
                       </>
                     ) : (
                       <>
-                        Load analysis
+                        Generate Analysis
                         <span className="ml-2">▶</span>
                       </>
                     )}
@@ -1142,7 +1295,7 @@ function App() {
                                 e.preventDefault();
                                 openDeleteConfirmation(dashboard.id, dashboard.name);
                               }}
-                              className="p-1 hover:bg-red-100 rounded text-gray-400 hover:text-red-600 transition-colors flex-shrink-0"
+                              className="p-1 hover:bg-red-100 rounded text-gray-500 hover:text-red-600 transition-colors flex-shrink-0"
                               title="Delete dashboard"
                               aria-label={`Delete ${dashboard.name}`}
                             >
@@ -1261,6 +1414,8 @@ function App() {
                   setIsEbTuneOpen(true);
                 } else if (activeTab === 'pam') {
                   setIsPamTuneOpen(true);
+                } else if (activeTab === 'future-horizons') {
+                  setIsFhTuneOpen(true);
                 } else {
                   setIsPromptEditorOpen(true);
                 }
@@ -1884,13 +2039,27 @@ function App() {
           ) : !data ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
-                <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
-                <Button onClick={() => setIsConfigOpen(true)}>
-                  <Settings className="w-4 h-4 mr-2" />
-                  Configure Analysis
-                </Button>
+                {needsGeneration && config.topic ? (
+                  <>
+                    <TrendingUp className="w-16 h-16 text-pink-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-950 mb-2">No analysis available for "{config.topic}"</h3>
+                    <p className="text-gray-600 mb-4">This will analyze articles and generate insights (30-60s)</p>
+                    <Button onClick={() => generateAnalysis()}>
+                      <Zap className="w-4 h-4 mr-2" />
+                      Generate Analysis
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
+                    <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
+                    <Button onClick={() => setIsConfigOpen(true)}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Configure Analysis
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -1945,7 +2114,7 @@ function App() {
                                 <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700 dark:text-gray-300 mb-2">
+                                <div className="text-xs text-gray-700 dark:text-gray-400 mb-2">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                                 {/* Article Citations for Key Insight (supports both single and multiple citations) */}
@@ -2377,7 +2546,7 @@ function App() {
                                 <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700 dark:text-gray-300">
+                                <div className="text-xs text-gray-700 dark:text-gray-400">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                               </div>
@@ -2418,7 +2587,7 @@ function App() {
                         </div>
                         <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">NEAR-TERM</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-400">
                         {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
                       </div>
                     </div>
@@ -2428,7 +2597,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-400 leading-relaxed flex gap-2">
                               <span className="text-green-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -2450,7 +2619,7 @@ function App() {
                         </div>
                         <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">MID-TERM</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-400">
                         {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
                       </div>
                     </div>
@@ -2460,7 +2629,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-400 leading-relaxed flex gap-2">
                               <span className="text-amber-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -2482,7 +2651,7 @@ function App() {
                         </div>
                         <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">LONG-TERM (2032+)</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-400">
                         {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
                       </div>
                     </div>
@@ -2492,7 +2661,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-400 leading-relaxed flex gap-2">
                               <span className="text-rose-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -2590,7 +2759,18 @@ function App() {
                     </p>
                   </div>
 
-                  <FutureHorizons scenarios={data.scenarios || []} articleList={articleList} />
+                  <FutureHorizons
+                    scenarios={data.scenarios || []}
+                    articleList={articleList}
+                    analysisId={data.analysis_id}
+                    topic={config.topic}
+                    executiveSummary={horizonsExecutiveSummary}
+                    executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
+                    isLoadingExecutiveSummary={isLoadingHorizonsExecSummary}
+                    executiveSummaryError={horizonsExecSummaryError}
+                    onGenerateExecutiveSummary={handleGenerateHorizonsExecSummary}
+                    onExport={handleHorizonsExport}
+                  />
 
                   {/* AI Disclosure Footer */}
                   <AIDisclosureFooter
@@ -3463,6 +3643,21 @@ function App() {
         onIncludeContrarianChange={setEosIncludeContrarian}
         onIncludeWildCardsChange={setEosIncludeWildCards}
         onTimeHorizonChange={setEosTimeHorizon}
+      />
+
+      {/* FH Tune Modal - Settings for Future Horizons Executive Summary */}
+      <FHTuneModal
+        open={isFhTuneOpen}
+        onOpenChange={setIsFhTuneOpen}
+        executiveSummary={horizonsExecutiveSummary}
+        executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
+        isGenerating={isLoadingHorizonsExecSummary}
+        selectedProfileId={config.profile_id}
+        selectedModel={config.model}
+        onProfileChange={(profileId) => updateConfig({ profile_id: profileId })}
+        onModelChange={(model) => updateConfig({ model })}
+        onRegenerateExecutiveSummary={handleGenerateHorizonsExecSummary}
+        profiles={profiles}
       />
 
       {/* Newsletter Tune Modal - Configuration editor for Newsletter Generator */}

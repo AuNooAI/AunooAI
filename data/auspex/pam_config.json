@@ -209,7 +209,9 @@
         "velocity_thresholds": {
             "accelerating": 20,
             "decelerating": -15
-        }
+        },
+        "smoothing_factor": 0.5,
+        "_comment_smoothing": "EMA smoothing: 0=no smoothing (raw scores), 0.5=equal blend, 1=fully historical"
     },
 
     "score_calculation": {

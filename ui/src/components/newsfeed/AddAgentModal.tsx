@@ -728,7 +728,7 @@ export function AddAgentModal({
                           className="font-mono text-sm"
                         />
                         <div className="flex justify-between items-center">
-                          <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                          <p className="text-xs text-gray-600 dark:text-gray-300">
                             This prompt tells the AI how to analyze and summarize matched articles
                           </p>
                           <button
@@ -790,14 +790,14 @@ export function AddAgentModal({
                               <div className="flex items-center gap-2">
                                 <span>{voice.name}</span>
                                 {voice.category && (
-                                  <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">({voice.category})</span>
+                                  <span className="text-xs text-gray-600 dark:text-gray-300">({voice.category})</span>
                                 )}
                               </div>
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                      <p className="text-xs text-gray-600 dark:text-gray-300">
                         Select the voice to use when generating audio from the podcast summary
                       </p>
                     </div>
@@ -827,7 +827,7 @@ export function AddAgentModal({
                           className="font-mono text-sm"
                         />
                         <div className="flex justify-between items-center">
-                          <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                          <p className="text-xs text-gray-600 dark:text-gray-300">
                             This prompt tells the AI how to create an audio-friendly summary
                           </p>
                           <button
@@ -912,7 +912,7 @@ export function AddAgentModal({
                           type="email"
                           disabled={saving || loading}
                         />
-                        <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                        <p className="text-xs text-gray-600 dark:text-gray-300">
                           Leave blank to use the default notification email
                         </p>
                       </div>
@@ -969,7 +969,7 @@ export function AddAgentModal({
                           placeholder="@username or username.bsky.social"
                           disabled={saving || loading}
                         />
-                        <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                        <p className="text-xs text-gray-600 dark:text-gray-300">
                           Bluesky handle to receive DM alerts
                         </p>
                       </div>
@@ -989,7 +989,7 @@ export function AddAgentModal({
                   <div className="flex items-center gap-2">
                     <Workflow className="w-4 h-4 text-purple-500" />
                     <span className="font-medium text-gray-900">Trigger Workflow</span>
-                    <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Soon</span>
+                    <span className="text-xs text-gray-600 dark:text-gray-300 bg-gray-100 px-1.5 py-0.5 rounded">Soon</span>
                   </div>
                   <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     Execute a custom workflow (e.g., send to Slack, create task)
@@ -1005,7 +1005,7 @@ export function AddAgentModal({
               <div className="flex items-center gap-2">
                 <Label htmlFor="agent-active" className="font-medium">Active Status</Label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-gray-600 dark:text-gray-400 cursor-help" />
+                  <Info className="w-4 h-4 text-gray-600 dark:text-gray-300 cursor-help" />
                   <div className="absolute bottom-full left-0 mb-2 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                     Active agents will be included when you click "Run All". Paused agents can still be run individually.
                   </div>
@@ -1144,6 +1144,35 @@ export function AddAgentModal({
                   <p className="text-xs text-gray-700 dark:text-gray-300">
                     Analyze articles from the last {scheduleDaysBack} day{scheduleDaysBack !== 1 ? 's' : ''} on each run
                   </p>
+                </div>
+
+                {/* Email Notification for Scheduled Runs */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Email Notification</Label>
+                    <Switch
+                      checked={actionSendEmail}
+                      onCheckedChange={(checked) => {
+                        setActionSendEmail(checked);
+                        setShowEmailConfig(checked);
+                      }}
+                      disabled={saving || loading}
+                    />
+                  </div>
+                  {actionSendEmail && (
+                    <div className="space-y-2">
+                      <Input
+                        value={emailRecipient}
+                        onChange={(e) => setEmailRecipient(e.target.value)}
+                        placeholder="recipient@example.com"
+                        type="email"
+                        disabled={saving || loading}
+                      />
+                      <p className="text-xs text-gray-700 dark:text-gray-300">
+                        Receive email alerts when matches are found during scheduled runs
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Next Run Preview */}

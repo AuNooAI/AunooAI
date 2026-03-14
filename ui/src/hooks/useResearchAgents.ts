@@ -13,6 +13,7 @@ import {
   getSignalAlerts,
   acknowledgeAlert,
   acknowledgeAllAlerts,
+  getSignalRunStatus,
   type ResearchAgent,
   type SignalAlert,
   type CreateAgentRequest,
@@ -147,6 +148,43 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
     }
   }, []);
 
+  // Poll for signal run completion
+  const pollRunStatus = useCallback(async (
+    runId: string,
+    agentIds: number[],
+    topic?: string
+  ): Promise<boolean> => {
+    const pollInterval = 3000; // 3 seconds
+    const maxWait = 900000; // 15 minutes
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWait) {
+      try {
+        const status = await getSignalRunStatus(runId);
+
+        if (status.status === 'completed') {
+          // Refresh alerts after completion
+          await fetchAlerts({ topic });
+          return status.result?.success ?? true;
+        } else if (status.status === 'failed') {
+          setError(status.error || 'Signal run failed');
+          return false;
+        }
+
+        // Still running, wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      } catch (err) {
+        console.error('Error polling signal run status:', err);
+        // Continue polling even if one request fails
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+    }
+
+    // Don't show error — agents continue running in background and will send emails
+    await fetchAlerts({ topic });
+    return true;
+  }, [fetchAlerts]);
+
   // Run a single agent
   const runAgent = useCallback(async (
     agentId: number,
@@ -163,11 +201,16 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
       });
 
       if (response.success) {
-        // Capture podcast summaries if any
+        // Handle async response (running in background)
+        if (response.status === 'running' && response.run_id) {
+          // Poll for completion
+          return await pollRunStatus(response.run_id, [agentId], options?.topic);
+        }
+
+        // Handle sync response (legacy)
         if (response.podcast_summaries && response.podcast_summaries.length > 0) {
           setPodcastSummaries(prev => [...response.podcast_summaries!, ...prev]);
         }
-        // Refresh alerts after running
         await fetchAlerts({ topic: options?.topic });
         return true;
       } else {
@@ -186,7 +229,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
         return next;
       });
     }
-  }, [fetchAlerts]);
+  }, [fetchAlerts, pollRunStatus]);
 
   // Run all active agents
   const runAllAgents = useCallback(async (
@@ -210,15 +253,18 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
       });
 
       if (response.success) {
-        // Capture podcast summaries if any
+        // Handle async response (running in background)
+        if (response.status === 'running' && response.run_id) {
+          // Poll for completion
+          return await pollRunStatus(response.run_id, activeAgentIds, options?.topic);
+        }
+
+        // Handle sync response (legacy)
         if (response.podcast_summaries && response.podcast_summaries.length > 0) {
           setPodcastSummaries(prev => [...response.podcast_summaries!, ...prev]);
         }
-        // Refresh alerts after running
         await fetchAlerts({ topic: options?.topic });
-        // Notify about generated unified report
         if (response.report) {
-          // Use browser alert for now - can be replaced with proper toast later
           window.alert(`Unified report generated!\n\nReport: ${response.report.name}\nArticles analyzed: ${response.report.articles_used}\n\nView in Saved Reports.`);
         }
         return true;
@@ -234,7 +280,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
     } finally {
       setRunningAgents(new Set());
     }
-  }, [agents, fetchAlerts]);
+  }, [agents, fetchAlerts, pollRunStatus]);
 
   // Acknowledge single alert
   const acknowledgeOne = useCallback(async (alertId: number): Promise<boolean> => {

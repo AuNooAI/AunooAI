@@ -610,7 +610,7 @@ Example:
         query = f"""
             SELECT id, event_date, event_type, acquirer, target,
                    deal_value_usd, funding_round, headline, summary,
-                   strategic_significance, market_impact_score
+                   strategic_significance, market_impact_score, source_articles
             FROM pam_financial_events
             WHERE event_date >= CURRENT_DATE - INTERVAL '{days_back} days'
         """
@@ -638,6 +638,7 @@ Example:
                 'summary': row[8],
                 'strategic_significance': row[9],
                 'market_impact_score': row[10],
+                'source_articles': row[11] if row[11] else [],  # JSONB is already parsed
             }
             for row in rows
         ]
@@ -656,7 +657,7 @@ Example:
         query = f"""
             SELECT id, event_date, jurisdiction, regulation_name, event_type,
                    headline, summary, publisher_implications, tech_implications,
-                   t4_impact_score
+                   t4_impact_score, source_articles
             FROM pam_regulatory_events
             WHERE event_date >= CURRENT_DATE - INTERVAL '{days_back} days'
         """
@@ -683,6 +684,7 @@ Example:
                 'publisher_implications': row[7],
                 'tech_implications': row[8],
                 't4_impact_score': row[9],
+                'source_articles': row[10] if row[10] else [],  # JSONB is already parsed
             }
             for row in rows
         ]

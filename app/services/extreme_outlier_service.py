@@ -215,7 +215,8 @@ class ExtremeOutlierService:
         self,
         topic: str,
         source_analysis: Dict,
-        config: Optional[EOSConfig] = None
+        config: Optional[EOSConfig] = None,
+        raw_articles: Optional[List[Dict]] = None
     ) -> AsyncGenerator[Dict, None]:
         """
         Run Extreme Outlier Scenarios generation.
@@ -224,6 +225,7 @@ class ExtremeOutlierService:
             topic: The topic being analyzed
             source_analysis: Existing trend convergence analysis data
             config: Optional configuration override
+            raw_articles: Optional list of source articles for grounding scenarios
 
         Yields:
             Progress updates and final scenarios
@@ -234,7 +236,8 @@ class ExtremeOutlierService:
         state = EOSState(
             scan_id=str(uuid.uuid4()),
             topic=topic,
-            source_analysis=source_analysis
+            source_analysis=source_analysis,
+            raw_articles=raw_articles or []
         )
 
         # Extract trend and consensus data from source analysis
@@ -409,6 +412,23 @@ class ExtremeOutlierService:
 
         return consensus
 
+    def _format_article_excerpts(
+        self,
+        articles: List[Dict],
+        limit: int = 20,
+        summary_length: int = 250
+    ) -> str:
+        """Format articles as numbered excerpts for prompts."""
+        if not articles:
+            return ""
+        excerpts = []
+        for i, article in enumerate(articles[:limit]):
+            title = article.get("title", "Untitled")
+            source = article.get("source", "Unknown")
+            summary = (article.get("summary", "") or "")[:summary_length]
+            excerpts.append(f"[{i+1}] {title} ({source}): {summary}")
+        return "\n".join(excerpts)
+
     async def _run_weak_signals(self, state: EOSState, config: EOSConfig):
         """
         Stage 1: Weak Signals Detection
@@ -423,30 +443,38 @@ class ExtremeOutlierService:
         model = agent_config.get('model', config.weak_signals_model)
         temperature = agent_config.get('temperature', config.weak_signals_temp)
 
-        prompt = f"""Analyze this trend convergence data for {state.topic} and identify WEAK SIGNALS that mainstream analysis might overlook.
+        article_excerpts = self._format_article_excerpts(state.raw_articles, limit=25)
 
-EXISTING ANALYSIS DATA:
-Trends identified: {len(state.trends_data)}
-{json.dumps(state.trends_data[:20], indent=2)}
+        prompt = f"""Analyze the source articles and trend data for {state.topic} to identify WEAK SIGNALS - minority viewpoints and outlier positions that mainstream analysis overlooks.
 
-Consensus themes: {len(state.consensus_data)}
-{json.dumps(state.consensus_data[:10], indent=2)}
+CRITICAL: Weak signals must be derived from actual content in the source articles below.
+Reference articles by number [1], [2], etc. and quote or paraphrase specific claims.
 
-Look for:
-1. Minority viewpoints that challenge the consensus
-2. Early-stage patterns that could grow exponentially
-3. Contradictions between different sources
-4. Historical analogies that suggest different outcomes
-5. Unexamined assumptions in the mainstream narrative
-6. Edge cases and tail risks being ignored
+SOURCE ARTICLES:
+{article_excerpts if article_excerpts else "(No articles - use trend data below)"}
 
-Return JSON with:
+TREND DATA:
+{json.dumps(state.trends_data[:15], indent=2)}
+
+CONSENSUS THEMES:
+{json.dumps(state.consensus_data[:8], indent=2)}
+
+Identify weak signals by looking for:
+1. Minority viewpoints in specific articles that challenge the consensus
+2. Contrarian claims or predictions from outlier sources
+3. Contradictions between different articles/sources
+4. Edge cases and tail risks mentioned but not emphasized
+5. Assumptions in mainstream coverage that specific articles question
+
+Return JSON:
 {{
     "weak_signals": [
         {{
             "signal_id": "ws_001",
-            "title": "Signal title",
-            "description": "What this signal indicates",
+            "title": "Signal title (descriptive)",
+            "description": "What this signal indicates - cite specific article(s)",
+            "source_articles": [1, 5],
+            "source_quote": "Key quote or paraphrase from source",
             "source_contradiction": "Which mainstream view it challenges",
             "amplification_potential": "high/medium/low",
             "time_sensitivity": "How soon this could become significant",
@@ -455,7 +483,7 @@ Return JSON with:
     ]
 }}
 
-Identify 8-12 weak signals across different domains."""
+Identify 8-12 weak signals. Each MUST reference at least one source article."""
 
         try:
             response = await litellm.acompletion(
@@ -597,49 +625,59 @@ Generate 6-10 amplified pathways across the three categories:
         if config.include_wild_cards:
             categories_enabled.append("wild_card")
 
-        prompt = f"""Create {target_count} detailed EXTREME OUTLIER SCENARIOS for {state.topic}.
+        article_excerpts = self._format_article_excerpts(state.raw_articles, limit=20, summary_length=300)
 
-AMPLIFIED PATHWAYS TO BUILD FROM:
+        prompt = f"""Create {target_count} analytical EXTREME OUTLIER SCENARIOS for {state.topic}.
+
+CRITICAL INSTRUCTION: All scenarios MUST be derived from the source articles and weak signals below.
+- Reference specific articles by number [1], [2], etc.
+- Quote or paraphrase actual claims from the sources
+- NEVER invent fictional names, companies, people, or events
+- Use descriptive placeholders like "a major manufacturer" if needed
+
+SOURCE ARTICLES FROM CORPUS:
+{article_excerpts if article_excerpts else "(No articles provided - use trends and pathways below)"}
+
+WEAK SIGNALS DETECTED:
+{json.dumps(state.weak_signals[:10], indent=2)}
+
+AMPLIFIED PATHWAYS:
 {json.dumps(state.amplified_pathways, indent=2)}
-
-ORIGINAL TRENDS (for context):
-{json.dumps(state.trends_data[:10], indent=2)}
 
 SCENARIO CATEGORIES TO INCLUDE: {', '.join(categories_enabled)}
 
 TIME HORIZON: {config.time_horizon} term
 
-For each scenario, provide:
-1. A compelling, memorable title
-2. A one-line subtitle/hook
-3. Detailed narrative (2-3 paragraphs) describing:
-   - How it unfolds
-   - Key turning points
-   - Ultimate impact
-4. The weak signals that foreshadow it
-5. Specific trigger events that could set it off
-6. A time horizon estimate
+For each scenario:
+1. Title summarizing the extrapolation (descriptive, not evocative)
+2. Subtitle stating the key assumption being challenged
+3. Analysis (2-3 paragraphs) with:
+   - TRAJECTORY: Which weak signal, its current state, direction of extrapolation
+   - MECHANISM: Causal chain - if [signal] then [consequence] because [mechanism]
+   - ENDPOINT: Projected state if trajectory completes
+4. Source article references (by number)
+5. Specific trigger events from the pathways
+6. Probability, impact rating (1-10), and time horizon
 
-Return JSON with:
+Return JSON:
 {{
     "scenarios": [
         {{
             "scenario_id": "scn_001",
             "category": "black_swan/contrarian/wild_card",
-            "title": "Compelling scenario title",
-            "subtitle": "One-line hook",
-            "narrative": "Full 2-3 paragraph description",
-            "weak_signals": ["Signal 1", "Signal 2"],
-            "trigger_events": ["Trigger 1", "Trigger 2"],
+            "title": "Descriptive scenario title",
+            "subtitle": "Key assumption being challenged",
+            "analysis": "2-3 paragraph analytical extrapolation citing sources",
+            "weak_signals": ["Signal from source data"],
+            "source_articles": [1, 3, 7],
+            "trigger_events": ["Trigger from pathways"],
             "probability": "very_low/low/moderate",
             "impact_rating": 1-10,
             "time_horizon": "2025-2027",
             "source_pathways": ["pathway_id references"]
         }}
     ]
-}}
-
-Make scenarios vivid, specific, and strategically relevant. Each should challenge assumptions."""
+}}"""
 
         yield {"status": "generating", "progress": 0.3}
 
@@ -647,7 +685,7 @@ Make scenarios vivid, specific, and strategically relevant. Each should challeng
             response = await litellm.acompletion(
                 model=model,
                 messages=[
-                    {"role": "system", "content": agent_prompt or "You are a scenario planner specializing in extreme outlier events. You create vivid, plausible narratives for low-probability, high-impact scenarios."},
+                    {"role": "system", "content": agent_prompt or "You are an analytical forecaster. You construct logical extrapolations from weak signals - projecting how outlier positions could develop if their premises prove correct. Ground all scenarios in source data."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
@@ -733,21 +771,33 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
 
             yield {"status": "merging", "progress": 0.7}
 
+            # Build pathway lookup for amplification_path
+            pathway_lookup = {p.get("pathway_id", ""): p for p in state.amplified_pathways}
+
             # Merge into final scenarios
             for raw in state.raw_scenarios:
                 scenario_id = raw.get("scenario_id", "")
                 enhancement = enhancements.get(scenario_id, {})
+
+                # Find amplification path from source pathways
+                amplification_path = ""
+                for pid in raw.get("source_pathways", []):
+                    pathway = pathway_lookup.get(pid)
+                    if pathway and pathway.get("cascade_chain"):
+                        amplification_path = pathway["cascade_chain"]
+                        break
 
                 scenario = OutlierScenario(
                     id=scenario_id,
                     category=raw.get("category", "wild_card"),
                     title=raw.get("title", "Unknown Scenario"),
                     subtitle=raw.get("subtitle", ""),
-                    description=raw.get("narrative", ""),
+                    description=raw.get("analysis") or raw.get("narrative", ""),
                     probability=raw.get("probability", "low"),
                     impact_rating=raw.get("impact_rating", 5),
                     time_horizon=raw.get("time_horizon", ""),
                     weak_signals=raw.get("weak_signals", []),
+                    amplification_path=amplification_path,
                     trigger_events=raw.get("trigger_events", []),
                     early_warning_signs=enhancement.get("early_warning_signs", []),
                     strategic_implications=enhancement.get("strategic_implications", ""),
@@ -768,7 +818,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
                     category=raw.get("category", "wild_card"),
                     title=raw.get("title", "Unknown Scenario"),
                     subtitle=raw.get("subtitle", ""),
-                    description=raw.get("narrative", ""),
+                    description=raw.get("analysis") or raw.get("narrative", ""),
                     probability=raw.get("probability", "low"),
                     impact_rating=raw.get("impact_rating", 5),
                     time_horizon=raw.get("time_horizon", ""),

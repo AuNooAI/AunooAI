@@ -566,14 +566,21 @@ class EmergingTopicsService:
             True if historical coverage exists (topic is ongoing, not new)
         """
         try:
+<<<<<<< HEAD
             from app.vector_store import VectorStore
+=======
+            from app.vector_store import search_articles
+>>>>>>> origin/bugfixes/wileymvp
 
             # Search for articles older than the analysis window
             # Using the theme's search query or label as the search term
             search_text = theme.search_query or theme.theme_label
 
+<<<<<<< HEAD
             vector_store = VectorStore()
 
+=======
+>>>>>>> origin/bugfixes/wileymvp
             # Search for matching articles with date filter for historical period
             # Articles from (history_window_days ago) to (days_back ago)
             conn = self._get_connection()
@@ -597,15 +604,22 @@ class EmergingTopicsService:
                 return False
 
             # Do a semantic search with the theme
+<<<<<<< HEAD
             search_results = vector_store.search(
                 query_text=search_text,
                 k=50,  # Get more results to find historical matches
                 filter_dict=None  # No filter, we'll filter by URIs manually
+=======
+            search_results = search_articles(
+                query=search_text,
+                top_k=50,
+>>>>>>> origin/bugfixes/wileymvp
             )
 
             # Count how many results are from the historical window
             historical_matches = 0
             for result in search_results:
+<<<<<<< HEAD
                 # Results are (uri, distance, metadata) tuples or dicts
                 if isinstance(result, dict):
                     uri = result.get('uri') or result.get('id')
@@ -615,6 +629,10 @@ class EmergingTopicsService:
                     continue
 
                 if uri in historical_uris:
+=======
+                uri = result.get('id') if isinstance(result, dict) else None
+                if uri and uri in historical_uris:
+>>>>>>> origin/bugfixes/wileymvp
                     historical_matches += 1
 
             if historical_matches >= min_historical_articles:
@@ -1042,7 +1060,11 @@ class EmergingTopicsService:
             conn = self._get_connection()
 
             # Build filter clause
+<<<<<<< HEAD
             filter_clause = "WHERE status = 'active' OR status IS NULL"
+=======
+            filter_clause = "WHERE (status = 'active' OR status IS NULL)"
+>>>>>>> origin/bugfixes/wileymvp
             params = {"threshold": consecutive_miss_threshold, "min_days": min_inactive_days}
 
             if topic_filter:

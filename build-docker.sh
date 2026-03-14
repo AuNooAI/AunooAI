@@ -67,7 +67,7 @@ if [ $? -eq 0 ]; then
     echo "  1. Review and edit .env file with your API keys"
     echo "  2. Start services: docker-compose up -d"
     echo "  3. View logs: docker-compose logs -f aunooai"
-    echo "  4. Access app: http://localhost:8080"
+    echo "  4. Access app: http://localhost:10001"
     echo ""
 else
     echo -e "${RED}================================================${NC}"

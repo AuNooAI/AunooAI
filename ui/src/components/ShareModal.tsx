@@ -45,6 +45,12 @@ export interface ShareIncidentData {
     url?: string;
     summary?: string;
   }>;
+  analyst_notes?: Array<{
+    id: string;
+    timestamp: string;
+    analyst: string;
+    comment: string;
+  }>;
 }
 
 export interface ShareNarrativeData {
@@ -71,8 +77,46 @@ export interface ShareBriefingData {
   type: 'briefing';
   persona: string;
   executive_summary?: string;
-  articles?: Array<{ title?: string; headline?: string; executive_takeaway?: string; category?: string; source?: string; date?: string; url?: string }>;
+  articles?: Array<{
+    title?: string;
+    headline?: string;
+    executive_takeaway?: string;
+    strategic_relevance?: string;
+    category?: string;
+    source?: string;
+    date?: string;
+    url?: string;
+    summary?: string;
+    signal_strength?: string;
+    risk_opportunity?: string;
+    time_horizon?: string;
+  }>;
   key_themes?: string[];
+}
+
+export interface ShareBriefingCardData {
+  type: 'briefing_card';
+  title: string;
+  headline?: string;
+  executive_takeaway?: string;
+  strategic_relevance?: string;
+  category?: string;
+  signal_strength?: string;
+  risk_opportunity?: string;
+  time_horizon?: string;
+  source?: string;
+  date?: string;
+  url?: string;
+  summary?: string;
+  executive_actions?: string[];
+  scores?: {
+    relevance?: number;
+    impact?: number;
+    actionability?: number;
+    timeliness?: number;
+    credibility?: number;
+    overall?: number;
+  };
 }
 
 export interface ShareIncidentsData {
@@ -92,6 +136,12 @@ export interface ShareIncidentsData {
       source?: string;
       url?: string;
       summary?: string;
+    }>;
+    analyst_notes?: Array<{
+      id: string;
+      timestamp: string;
+      analyst: string;
+      comment: string;
     }>;
   }>;
 }
@@ -146,7 +196,75 @@ export interface ShareEmergingTopicData {
   }>;
 }
 
-export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData | ShareEmergingTopicData;
+export interface ShareExecutiveSummaryData {
+  type: 'executive_summary';
+  topic_title: string;
+  research_topic?: string;
+  primary_horizon?: string;
+  horizon_label?: string;
+  opening_statement?: string;
+  consensus_percentage?: number;
+  minority_view?: {
+    percentage_range: string;
+    statement: string;
+  };
+  primary_signal?: string;
+  decision_fork?: {
+    condition_a?: {
+      condition: string;
+      outcome: string;
+    };
+    condition_b?: {
+      condition: string;
+      outcome: string;
+    };
+  };
+  action_window?: {
+    assessment?: { timeframe: string; action: string };
+    positioning?: { timeframe: string; action: string };
+  };
+  source_scenarios?: string[];
+}
+
+export interface ShareDeskBriefingData {
+  type: 'desk_briefing';
+  briefing_id: number;
+  name: string;
+  description?: string;
+  status?: 'draft' | 'finalized';
+  synthesis?: string;
+  themes?: Array<{
+    theme_name: string;
+    description?: string;
+  }>;
+  priority_actions?: Array<{
+    action: string;
+    urgency?: string;
+    rationale?: string;
+  }>;
+  articles?: Array<{
+    title?: string;
+    source?: string;
+    uri?: string;
+    summary?: string;
+    category?: string;
+  }>;
+  incidents?: Array<{
+    name: string;
+    type?: string;
+    significance?: string;
+    description?: string;
+    entities?: string[];
+  }>;
+  emerging_topics?: Array<{
+    name: string;
+    summary?: string;
+    trend_score?: number;
+    velocity?: string;
+  }>;
+}
+
+export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareBriefingCardData | ShareIncidentsData | ShareEmergingTopicData | ShareExecutiveSummaryData | ShareDeskBriefingData;
 
 interface ShareModalProps {
   open: boolean;
@@ -163,6 +281,23 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [includeNotes, setIncludeNotes] = useState(true);
+
+  // Check if sharing content is an incident type (for showing checkbox)
+  const isIncidentType = (): boolean => {
+    return data.type === 'incident' || data.type === 'incidents';
+  };
+
+  // Count analyst notes across incidents
+  const getNotesCount = (): number => {
+    if (data.type === 'incident') {
+      return data.analyst_notes?.length ?? 0;
+    }
+    if (data.type === 'incidents') {
+      return data.incidents.reduce((sum, i) => sum + (i.analyst_notes?.length ?? 0), 0);
+    }
+    return 0;
+  };
 
   // Load saved email and check configuration on mount
   useEffect(() => {
@@ -237,6 +372,10 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         };
       } else if (data.type === 'incident') {
         endpoint = '/api/share/incident';
+        const notesToSend = includeNotes ? data.analyst_notes : undefined;
+        console.log('[ShareModal] DEBUG - data.analyst_notes:', JSON.stringify(data.analyst_notes));
+        console.log('[ShareModal] DEBUG - includeNotes:', includeNotes);
+        console.log('[ShareModal] DEBUG - notesToSend:', JSON.stringify(notesToSend));
         body = {
           to_email: email,
           incident_name: data.incident_name,
@@ -254,13 +393,18 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           first_seen: data.first_seen,
           last_seen: data.last_seen,
           articles: data.articles,
+          analyst_notes: notesToSend,
         };
       } else if (data.type === 'incidents') {
         endpoint = '/api/share/incidents';
+        // Include or exclude notes based on checkbox
+        const incidentsToShare = includeNotes
+          ? data.incidents
+          : data.incidents.map(i => ({ ...i, analyst_notes: undefined }));
         body = {
           to_email: email,
           topic: data.topic,
-          incidents: data.incidents,
+          incidents: incidentsToShare,
         };
       } else if (data.type === 'narrative') {
         endpoint = '/api/share/narrative';
@@ -298,6 +442,46 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           events: data.events,
           implications: data.implications,
           articles: data.articles,
+        };
+      } else if (data.type === 'briefing_card') {
+        endpoint = '/api/share/briefing-card';
+        body = {
+          to_email: email,
+          title: data.title,
+          headline: data.headline,
+          executive_takeaway: data.executive_takeaway,
+          strategic_relevance: data.strategic_relevance,
+          category: data.category,
+          signal_strength: data.signal_strength,
+          risk_opportunity: data.risk_opportunity,
+          time_horizon: data.time_horizon,
+          source: data.source,
+          date: data.date,
+          url: data.url,
+          summary: data.summary,
+          executive_actions: data.executive_actions,
+          scores: data.scores,
+        };
+      } else if (data.type === 'executive_summary') {
+        endpoint = '/api/share/executive-summary';
+        body = {
+          to_email: email,
+          topic_title: data.topic_title,
+          research_topic: data.research_topic,
+          primary_horizon: data.primary_horizon,
+          horizon_label: data.horizon_label,
+          opening_statement: data.opening_statement,
+          consensus_percentage: data.consensus_percentage,
+          minority_view: data.minority_view,
+          primary_signal: data.primary_signal,
+          decision_fork: data.decision_fork,
+          action_window: data.action_window,
+          source_scenarios: data.source_scenarios,
+        };
+      } else if (data.type === 'desk_briefing') {
+        endpoint = `/api/desk-briefings/${data.briefing_id}/share`;
+        body = {
+          to_email: email,
         };
       } else {
         endpoint = '/api/share/briefing';
@@ -351,8 +535,14 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         return `Share Narrative: ${data.narrative_name}`;
       case 'briefing':
         return `Share Briefing: ${data.persona}`;
+      case 'briefing_card':
+        return `Share: ${data.title.slice(0, 50)}${data.title.length > 50 ? '...' : ''}`;
       case 'emerging_topic':
         return `Share Emerging Topic: ${data.topic_label}`;
+      case 'executive_summary':
+        return `Share Executive Summary: ${data.topic_title}`;
+      case 'desk_briefing':
+        return `Share Briefing: ${data.name}`;
       default:
         return 'Share via Email';
     }
@@ -364,13 +554,13 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-50 bg-black/50"
+        className="fixed inset-0 z-[1100] bg-black/50"
         onClick={() => onOpenChange(false)}
       />
 
       {/* Modal */}
       <div
-        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-6"
+        className="fixed z-[1100] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-6"
         style={{
           top: '50%',
           left: '50%',
@@ -382,7 +572,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         {/* Close button */}
         <button
           onClick={() => onOpenChange(false)}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          className="absolute top-4 right-4 text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -395,7 +585,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
             <Mail className="w-5 h-5 text-pink-500" />
             Share via Email
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-300 truncate mt-1">
             {getTitle()}
           </p>
         </div>
@@ -404,7 +594,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         <div className="py-2">
           {isConfigured === null ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
             </div>
           ) : !isConfigured ? (
             <div className="flex flex-col items-center justify-center py-6 text-center">
@@ -412,7 +602,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
                 Email Not Configured
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-300">
                 Email sharing requires the RESEND_API_KEY environment variable to be set.
                 Contact your administrator to enable this feature.
               </p>
@@ -423,14 +613,14 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
                 Email Sent!
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-300">
                 Successfully shared to {email}
               </p>
             </div>
           ) : (
             <div className="space-y-4">
               <div>
-                <Label htmlFor="share-email" className="text-sm font-medium block text-gray-700 dark:text-gray-300">
+                <Label htmlFor="share-email" className="text-sm font-medium block text-gray-700 dark:text-gray-400">
                   Recipient Email
                 </Label>
                 <input
@@ -458,7 +648,29 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
                   </p>
                 )}
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              {/* Include Analyst Notes checkbox - show for all incidents */}
+              {isIncidentType() && (
+                <label className={`flex items-center gap-2 ${getNotesCount() > 0 ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                  <input
+                    type="checkbox"
+                    checked={includeNotes && getNotesCount() > 0}
+                    onChange={(e) => setIncludeNotes(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-pink-500 focus:ring-pink-500"
+                    disabled={isSending || getNotesCount() === 0}
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Include analyst notes
+                    {getNotesCount() > 0 ? (
+                      <span className="text-gray-500 dark:text-gray-400 ml-1">
+                        ({getNotesCount()} note{getNotesCount() !== 1 ? 's' : ''})
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 dark:text-gray-500 ml-1">(none)</span>
+                    )}
+                  </span>
+                </label>
+              )}
+              <p className="text-xs text-gray-500 dark:text-gray-300">
                 Your email address will be saved for future shares.
               </p>
             </div>

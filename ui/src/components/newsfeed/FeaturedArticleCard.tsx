@@ -7,6 +7,7 @@ import { ExternalLink, Star, StarOff, Calendar } from 'lucide-react';
 import { type NewsArticle } from '../../services/newsFeedApi';
 import { Card, CardContent } from '../ui/card';
 import { getCategoryBadgeColor, getSentimentDotColor, formatDate } from './cardUtils';
+import { RelevanceFeedbackButtons } from './RelevanceFeedbackButtons';
 
 interface FeaturedArticleCardProps {
   article: NewsArticle;
@@ -14,6 +15,7 @@ interface FeaturedArticleCardProps {
   onStar?: (uri: string) => void;
   onUnstar?: (uri: string) => void;
   showCategory?: boolean;
+  showRelevanceFeedback?: boolean;
   onClick?: (article: NewsArticle) => void;
 }
 
@@ -23,6 +25,7 @@ export function FeaturedArticleCard({
   onStar,
   onUnstar,
   showCategory = true,
+  showRelevanceFeedback = false,
   onClick
 }: FeaturedArticleCardProps) {
   const handleStarClick = (e: React.MouseEvent) => {
@@ -65,6 +68,20 @@ export function FeaturedArticleCard({
               />
             )}
 
+            {/* Relevance feedback */}
+            {showRelevanceFeedback && article.topic && (
+              <RelevanceFeedbackButtons
+                articleUri={article.uri}
+                topic={article.topic}
+                articleMetadata={{
+                  title: article.title,
+                  category: article.category,
+                  source: article.source?.name,
+                }}
+                size="sm"
+              />
+            )}
+
             {/* Star button */}
             {(onStar || onUnstar) && (
               <button
@@ -75,7 +92,7 @@ export function FeaturedArticleCard({
                 {isStarred ? (
                   <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
                 ) : (
-                  <StarOff className="w-4 h-4 text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300" />
+                  <StarOff className="w-4 h-4 text-gray-600 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300" />
                 )}
               </button>
             )}
@@ -101,12 +118,12 @@ export function FeaturedArticleCard({
         </h3>
 
         {/* Summary */}
-        <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 line-clamp-3 flex-1 mb-3">
+        <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 flex-1 mb-3">
           {article.summary}
         </p>
 
         {/* Footer: Source + Date */}
-        <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 pt-3 border-t border-gray-300 dark:border-gray-700 dark:border-gray-700">
+        <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 pt-3 border-t border-gray-300 dark:border-gray-700 dark:border-gray-700">
           <div className="flex items-center gap-1.5">
             <Calendar className="w-3.5 h-3.5" />
             <span>{formatDate(article.publication_date)}</span>
