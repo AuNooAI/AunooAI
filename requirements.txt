@@ -75,3 +75,5 @@ accelerate>=0.20.0
 safetensors>=0.3.0
 # Threat intelligence IOC extraction
 iocextract>=1.16.1
+cachetools
+
