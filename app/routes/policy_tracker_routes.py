@@ -81,6 +81,14 @@ POLICY_CATEGORIES = {
         "corruption", "corrupt", "bribery", "grift", "pardon", "pardons", "ethics violation",
         "profiteering", "enrichment", "kickback"
     ],
+    "Foreign Policy": [
+        "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
+        "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
+        "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
+        "military intervention", "military", "troops",
+        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
+        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
+    ],
     "Immigration Enforcement": [
         "immigration", "immigrant", "immigrants", "border", "border patrol",
         "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
