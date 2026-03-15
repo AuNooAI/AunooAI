@@ -6,6 +6,7 @@ import sys
 import json
 import logging
 import os
+from unittest.mock import patch, MagicMock
 
 # Suppress debug messages from various modules
 logging.getLogger('app.analyzers.prompt_manager').setLevel(logging.WARNING)
@@ -36,8 +37,15 @@ def test_components():
     db = Database()
     with db.get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('PRAGMA table_info(articles)')
-        columns = [col[1] for col in cursor.fetchall()]
+        if db.db_type == 'postgresql':
+            cursor.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'articles'"
+            )
+            columns = [col[0] for col in cursor.fetchall()]
+        else:
+            cursor.execute('PRAGMA table_info(articles)')
+            columns = [col[1] for col in cursor.fetchall()]
         
         relevance_columns = [
             'topic_alignment_score',
@@ -73,10 +81,12 @@ def test_components():
     except Exception as e:
         print(f"❌ Prompt template error: {e}")
     
-    # 3. Test RelevanceCalculator
+    # 3. Test RelevanceCalculator (mocked - no API keys required)
     print("\n3. Testing RelevanceCalculator...")
     try:
-        calc = RelevanceCalculator('gpt-3.5-turbo')
+        mock_model = MagicMock()
+        with patch("app.relevance.LiteLLMModel.get_instance", return_value=mock_model):
+            calc = RelevanceCalculator('gpt-3.5-turbo')
         print("✅ RelevanceCalculator initialized successfully")
         
         # Test analyze_relevance method structure

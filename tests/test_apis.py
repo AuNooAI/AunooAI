@@ -12216,10 +12216,12 @@ def test_create_podcast_success_and_failure(client, fake_db, fake_session, monke
     facade = MagicMock(name="podcast_facade")
     monkeypatch.setattr(podcast_routes, "DatabaseQueryFacade", MagicMock(return_value=facade))
 
-    def _getenv(key):
+    def _getenv(key, default=None):
         if key == "ELEVENLABS_API_KEY":
             return "sk_test"
-        return None
+        if key == "DISABLE_SSL":
+            return "true"  # else middleware redirects POST to GET, causing 405
+        return default
 
     monkeypatch.setattr(podcast_routes.os, "getenv", _getenv)
 
@@ -12259,10 +12261,12 @@ def test_create_podcast_success_and_failure(client, fake_db, fake_session, monke
     assert res.status_code == status.HTTP_404_NOT_FOUND
 
     # VALIDATION: invalid API key format -> 500
-    def _bad_getenv(key):
+    def _bad_getenv(key, default=None):
         if key == "ELEVENLABS_API_KEY":
             return "bad_key"
-        return None
+        if key == "DISABLE_SSL":
+            return "true"
+        return default
 
     monkeypatch.setattr(podcast_routes.os, "getenv", _bad_getenv)
     fake_db.get_article.side_effect = lambda uri: {"title": "t", "summary": "s", "sentiment": "n", "time_to_impact": "soon", "driver_type": "x"}
@@ -12972,14 +12976,16 @@ def test_oauth_config_check_success_and_failure(client, monkeypatch):
 
     monkeypatch.setattr(oauth_config_module.OAuthConfig, "validate_configuration", classmethod(_validate))
 
-    def _getenv(key):
+    def _getenv(key, default=None):
         if key == "GOOGLE_CLIENT_ID":
             return "google-client-id-123"
         if key == "GOOGLE_CLIENT_SECRET":
             return "google-secret-xyz"
         if key == "GOOGLE_DEVICE_ID":
             return "device-1"
-        return None
+        if key == "DISABLE_SSL":
+            return "true"
+        return default
 
     monkeypatch.setattr(oauth_routes.os, "getenv", _getenv)
 
@@ -13000,7 +13006,7 @@ def test_oauth_config_check_success_and_failure(client, monkeypatch):
         return report2
 
     monkeypatch.setattr(oauth_config_module.OAuthConfig, "validate_configuration", classmethod(_validate2))
-    monkeypatch.setattr(oauth_routes.os, "getenv", lambda key: None)
+    monkeypatch.setattr(oauth_routes.os, "getenv", lambda key, default=None: "true" if key == "DISABLE_SSL" else default)
 
     res = client.get("/auth/config-check")
     assert res.status_code == 200
@@ -16295,7 +16301,10 @@ def test_onboarding_validate_api_key_success_openai(client, monkeypatch):
         lambda *a, **k: _aiohttp_client_session_mock(status_code=200, json_data={}),
     )
     monkeypatch.setattr(onboarding_routes, "load_dotenv", lambda *a, **k: None)
-    monkeypatch.setattr(onboarding_routes.os, "environ", {})
+    # Use a fresh dict for env writes; set DISABLE_SSL so middleware doesn't redirect
+    # (redirect would change POST to GET, causing 405 Method Not Allowed)
+    test_env = {"DISABLE_SSL": "true"}
+    monkeypatch.setattr(onboarding_routes.os, "environ", test_env)
 
     m = mock_open(read_data="")
     with patch("builtins.open", m):
@@ -16333,7 +16342,8 @@ def test_onboarding_validate_api_key_failure_openai_unauthorized(client, monkeyp
         lambda *a, **k: _aiohttp_client_session_mock(status_code=401, json_data={}),
     )
     monkeypatch.setattr(onboarding_routes, "load_dotenv", lambda *a, **k: None)
-    monkeypatch.setattr(onboarding_routes.os, "environ", {})
+    test_env = {"DISABLE_SSL": "true"}
+    monkeypatch.setattr(onboarding_routes.os, "environ", test_env)
 
     with patch("builtins.open", mock_open(read_data="")):
         res = client.post(
@@ -16354,7 +16364,8 @@ def test_onboarding_validate_api_key_failure_unsupported_provider(client, monkey
 
     # Ensure no accidental fs/env touches
     monkeypatch.setattr(onboarding_routes, "load_dotenv", lambda *a, **k: None)
-    monkeypatch.setattr(onboarding_routes.os, "environ", {})
+    test_env = {"DISABLE_SSL": "true"}
+    monkeypatch.setattr(onboarding_routes.os, "environ", test_env)
     with patch("builtins.open", mock_open(read_data="")):
         res = client.post(
             "/api/onboarding/validate-api-key",
@@ -16517,7 +16528,7 @@ def test_onboarding_suggest_topic_attributes_success_llm_json(client, monkeypatc
             ]
         },
     )
-    monkeypatch.setattr(onboarding_routes.os, "getenv", lambda k, d=None: "sk-test-123" if k == "OPENAI_API_KEY" else d)
+    monkeypatch.setattr(onboarding_routes.os, "getenv", lambda k, d=None: "sk-test-123" if k == "OPENAI_API_KEY" else ("true" if k == "DISABLE_SSL" else d))
     monkeypatch.setattr(onboarding_routes.json, "load", lambda f: {"topics": [{"name": "Trend Monitoring"}]})
 
     good_llm_json = json.dumps(
@@ -16568,7 +16579,7 @@ def test_onboarding_suggest_topic_attributes_fallback_bad_json(client, monkeypat
             ]
         },
     )
-    monkeypatch.setattr(onboarding_routes.os, "getenv", lambda k, d=None: "sk-test-123" if k == "OPENAI_API_KEY" else d)
+    monkeypatch.setattr(onboarding_routes.os, "getenv", lambda k, d=None: "sk-test-123" if k == "OPENAI_API_KEY" else ("true" if k == "DISABLE_SSL" else d))
     monkeypatch.setattr(onboarding_routes.json, "load", lambda f: {"topics": [{"name": "Trend Monitoring"}]})
 
     class _Choice:

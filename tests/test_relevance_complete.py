@@ -14,8 +14,15 @@ def test_database_schema():
     db = Database()
     with db.get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('PRAGMA table_info(articles)')
-        columns = [col[1] for col in cursor.fetchall()]
+        if db.db_type == 'postgresql':
+            cursor.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'articles'"
+            )
+            columns = [col[0] for col in cursor.fetchall()]
+        else:
+            cursor.execute('PRAGMA table_info(articles)')
+            columns = [col[1] for col in cursor.fetchall()]
         
         expected_cols = [
             'topic_alignment_score',

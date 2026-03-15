@@ -792,40 +792,37 @@ Remember to cite your sources and provide actionable insights where possible."""
         Raises:
             Exception: Database errors are logged and re-raised
         """
-        from sqlalchemy import insert, update, select, func
+        from sqlalchemy import insert, update, select
         from app.database_models import t_settings_podcasts
 
         conn = self._temp_get_connection()
 
         try:
-            # Check if settings exist
-            count_stmt = select(func.count()).select_from(t_settings_podcasts)
-            count = conn.execute(count_stmt).scalar()
+            defaults = {
+                'podcast_enabled': 0,
+                'transcribe_enabled': 1,
+                'openai_model': 'whisper-1',
+                'transcript_format': 'text',
+                'uploads_folder': 'podcast_uploads',
+                'output_folder': 'podcasts'
+            }
+            merged = {**defaults, **settings}
 
-            if count == 0:
-                # Insert new settings
-                stmt = insert(t_settings_podcasts).values(
-                    podcast_enabled=settings.get('podcast_enabled', 0),
-                    transcribe_enabled=settings.get('transcribe_enabled', 1),
-                    openai_model=settings.get('openai_model', 'whisper-1'),
-                    transcript_format=settings.get('transcript_format', 'text'),
-                    uploads_folder=settings.get('uploads_folder', 'podcast_uploads'),
-                    output_folder=settings.get('output_folder', 'podcasts')
+            for key, value in merged.items():
+                check_stmt = select(t_settings_podcasts.c.key).where(
+                    t_settings_podcasts.c.key == key
                 )
+                exists = conn.execute(check_stmt).fetchone()
+
+                if exists:
+                    stmt = update(t_settings_podcasts).where(
+                        t_settings_podcasts.c.key == key
+                    ).values(value=str(value))
+                else:
+                    stmt = insert(t_settings_podcasts).values(
+                        key=key, value=str(value)
+                    )
                 conn.execute(stmt)
-                logger.debug("Podcast settings inserted")
-            else:
-                # Update existing settings
-                stmt = update(t_settings_podcasts).values(
-                    podcast_enabled=settings.get('podcast_enabled', 0),
-                    transcribe_enabled=settings.get('transcribe_enabled', 1),
-                    openai_model=settings.get('openai_model', 'whisper-1'),
-                    transcript_format=settings.get('transcript_format', 'text'),
-                    uploads_folder=settings.get('uploads_folder', 'podcast_uploads'),
-                    output_folder=settings.get('output_folder', 'podcasts')
-                )
-                conn.execute(stmt)
-                logger.debug("Podcast settings updated")
 
             conn.commit()
             logger.info("Podcast settings saved successfully")
