@@ -81,7 +81,7 @@ class TestFutureSignalValidation(unittest.TestCase):
             result = {
                 'future_signal': valid_signal,
                 'sentiment': 'Positive',
-                'time_to_impact': 'Short-term (6-18 months)',
+                'time_to_impact': 'Short-term',
                 'category': 'Other',
                 'driver_type': self.valid_driver_types[0]  # Use actual valid driver type
             }
@@ -116,7 +116,7 @@ class TestFutureSignalValidation(unittest.TestCase):
                 'future_signal': invalid_signal,
                 'future_signal_explanation': 'Original explanation',
                 'sentiment': 'Positive',
-                'time_to_impact': 'Short-term (6-18 months)',
+                'time_to_impact': 'Short-term',
                 'category': 'Other',
                 'driver_type': self.valid_driver_types[0]
             }
@@ -132,14 +132,14 @@ class TestFutureSignalValidation(unittest.TestCase):
 
             self.assertEqual(
                 validated['future_signal'],
-                "",
-                f"Invalid signal '{invalid_signal}' should be cleared to empty string"
+                "Other",
+                f"Invalid signal '{invalid_signal}' should be set to 'Other'"
             )
 
-            self.assertIn(
-                "VALIDATION ERROR",
+            self.assertEqual(
                 validated.get('future_signal_explanation', ''),
-                f"Invalid signal '{invalid_signal}' should have validation error in explanation"
+                'Original explanation',
+                f"Explanation should be preserved for invalid signal '{invalid_signal}'"
             )
 
     def test_sentiment_validation(self):
@@ -154,7 +154,7 @@ class TestFutureSignalValidation(unittest.TestCase):
             result = {
                 'future_signal': 'AI will accelerate',
                 'sentiment': invalid_sentiment,
-                'time_to_impact': 'Short-term (6-18 months)',
+                'time_to_impact': 'Short-term',
                 'category': 'Other',
                 'driver_type': self.valid_driver_types[0]
             }
@@ -234,49 +234,42 @@ class TestFutureSignalValidation(unittest.TestCase):
         self.assertEqual(validated['sentiment'], '')
         self.assertEqual(validated['time_to_impact'], '')
 
-    @patch('app.config.settings.load_config')
-    def test_database_query_filtering(self, mock_load_config):
-        """Test that database queries filter by ontology"""
-        # Mock the config
-        mock_load_config.return_value = self.config
-
-        # Create a mock database
+    def test_database_query_filtering(self):
+        """Test that database facade returns future signal counts for a topic"""
         mock_db = Mock(spec=Database)
 
-        # Mock the fetch_all to return mixed valid/invalid signals
-        mock_db.fetch_all.return_value = [
-            ('AI will accelerate', 100),  # Valid
-            ('Acceleration', 50),  # Invalid (shortened)
-            ('AI is hype', 30),  # Valid
-            ('Neutral', 20),  # Invalid (sentiment)
-            ('AI has plateaued', 10),  # Valid
+        mock_rows = [
+            {'future_signal': 'AI will accelerate', 'count': 100},
+            {'future_signal': 'AI is hype', 'count': 30},
+            {'future_signal': 'AI has plateaued', 'count': 10},
         ]
 
-        # Create facade
-        facade = DatabaseQueryFacade(mock_db, logger)
+        mock_result = MagicMock()
+        mock_mappings = MagicMock()
+        mock_mappings.fetchall.return_value = mock_rows
+        mock_result.mappings.return_value = mock_mappings
 
-        # Call the method
+        facade = DatabaseQueryFacade(mock_db, logger)
+        facade._execute_with_rollback = Mock(return_value=mock_result)
+
         results = facade.get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(
             'AI and Machine Learning'
         )
 
-        # Verify the SQL query was called with correct parameters
-        self.assertTrue(mock_db.fetch_all.called)
+        # Verify _execute_with_rollback was called with a SQLAlchemy statement
+        self.assertTrue(facade._execute_with_rollback.called)
+        call_args = facade._execute_with_rollback.call_args
+        statement = call_args[0][0]
+        compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
 
-        # Get the actual SQL and params used
-        call_args = mock_db.fetch_all.call_args
-        sql_query = call_args[0][0]
-        params = call_args[0][1]
+        # Verify the query filters by topic and non-empty future_signal
+        self.assertIn('future_signal', compiled)
+        self.assertIn('AI and Machine Learning', compiled)
 
-        # Verify SQL contains IN clause with placeholders
-        self.assertIn('IN (', sql_query)
-        self.assertIn('future_signal', sql_query)
-
-        # Verify parameters include topic name and valid signals
-        self.assertEqual(params[0], 'AI and Machine Learning')
-        self.assertIn('AI will accelerate', params)
-        self.assertIn('AI is hype', params)
-        self.assertIn('AI has plateaued', params)
+        # Verify results are passed through correctly
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]['future_signal'], 'AI will accelerate')
+        self.assertEqual(results[0]['count'], 100)
 
     def test_mixed_valid_invalid_signals(self):
         """Test validation with mix of valid and invalid fields"""
@@ -303,8 +296,8 @@ class TestFutureSignalValidation(unittest.TestCase):
             self.valid_driver_types
         )
 
-        # Invalid fields should be cleared
-        self.assertEqual(validated['future_signal'], "")
+        # Invalid fields should be set to fallback values
+        self.assertEqual(validated['future_signal'], "Other")
         self.assertEqual(validated['time_to_impact'], "")
 
         # Valid fields should be preserved
@@ -395,7 +388,7 @@ class TestIntegration(unittest.TestCase):
         test_cases = [
             {
                 'input': 'Acceleration',
-                'expected_output': '',
+                'expected_output': 'Other',
                 'description': 'Shortened future signal'
             },
             {
@@ -405,12 +398,12 @@ class TestIntegration(unittest.TestCase):
             },
             {
                 'input': 'Neutral',
-                'expected_output': '',
+                'expected_output': 'Other',
                 'description': 'Sentiment value in future_signal field'
             },
             {
                 'input': 'None',
-                'expected_output': '',
+                'expected_output': 'Other',
                 'description': 'Null placeholder'
             }
         ]

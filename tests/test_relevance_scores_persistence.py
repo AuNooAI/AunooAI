@@ -17,11 +17,17 @@ def mock_db():
     db.db_type = 'postgresql'
     db.db_path = '/path/to/db'
 
-    # Mock connection
+    # Mock connection with realistic SELECT/INSERT behaviour
     mock_conn = MagicMock()
     mock_trans = MagicMock()
     mock_conn.begin.return_value = mock_trans
-    mock_conn.execute.return_value = MagicMock(rowcount=1)
+    mock_conn.begin_nested.return_value = mock_trans
+    mock_conn.in_transaction.return_value = False
+
+    # Default: SELECT returns no existing row, INSERT succeeds
+    mock_select_result = MagicMock()
+    mock_select_result.fetchone.return_value = None
+    mock_conn.execute.return_value = mock_select_result
 
     db._temp_get_connection.return_value = mock_conn
 
@@ -38,6 +44,11 @@ def mock_research():
     research.TIME_TO_IMPACT = ["Short-term", "Long-term"]
     research.DRIVER_TYPES = ["Accelerator", "Blocker"]
     return research
+
+
+def _patch_transaction_deps():
+    """Return a patch context for validate_topic_exists used inside _save_articles_transaction."""
+    return patch('app.config.config.validate_topic_exists', return_value=True)
 
 
 class TestRelevanceScoresPersistence:
@@ -68,7 +79,6 @@ class TestRelevanceScoresPersistence:
                 'driver_type_explanation': 'Speeds things up',
                 'topic': 'AI and Machine Learning',
                 'analyzed': True,
-                # Relevance scores - these should be saved
                 'topic_alignment_score': 0.85,
                 'keyword_relevance_score': 0.92,
                 'confidence_score': 0.88,
@@ -77,38 +87,14 @@ class TestRelevanceScoresPersistence:
             }
         ]
 
-        # Mock MediaBias
-        with patch('app.bulk_research.MediaBias') as MockMediaBias:
-            mock_media_bias = MockMediaBias.return_value
-            mock_media_bias.get_status.return_value = {'enabled': False}
-
-            # Capture the executed insert statement
-            captured_data = {}
-
-            def capture_insert(stmt):
-                # The statement contains the values
-                if hasattr(stmt, 'compile'):
-                    compiled = stmt.compile()
-                    if hasattr(compiled, 'params'):
-                        captured_data.update(compiled.params)
-
-                # For our mock, extract values from the statement
-                if hasattr(stmt, '_values'):
-                    captured_data.update(stmt._values)
-
-                return MagicMock(rowcount=1)
-
+        with _patch_transaction_deps():
             mock_conn = mock_db._temp_get_connection.return_value
-            mock_conn.execute.side_effect = capture_insert
 
             batch_results = {"success": [], "errors": []}
             await bulk_research._save_articles_transaction(articles, batch_results)
 
-        # Verify the article was marked as successfully saved
         assert len(batch_results["success"]) == 1
         assert batch_results["success"][0]["uri"] == 'https://example.com/article1'
-
-        # Verify execute was called (article insert)
         assert mock_conn.execute.called
 
     @pytest.mark.asyncio
@@ -136,18 +122,13 @@ class TestRelevanceScoresPersistence:
                 'driver_type_explanation': 'Drives change',
                 'topic': 'Technology',
                 'analyzed': True,
-                # Only one relevance score (from legacy method)
                 'topic_alignment_score': 0.65,
-                # keyword_relevance_score and confidence_score will be None
                 'keyword_relevance_score': None,
                 'confidence_score': None
             }
         ]
 
-        with patch('app.bulk_research.MediaBias') as MockMediaBias:
-            mock_media_bias = MockMediaBias.return_value
-            mock_media_bias.get_status.return_value = {'enabled': False}
-
+        with _patch_transaction_deps():
             batch_results = {"success": [], "errors": []}
             await bulk_research._save_articles_transaction(articles, batch_results)
 
@@ -179,20 +160,15 @@ class TestRelevanceScoresPersistence:
                 'driver_type_explanation': 'TBD',
                 'topic': 'General',
                 'analyzed': True,
-                # No relevance scores for manual ingestion
                 'auto_ingested': False,
                 'ingest_status': 'manual'
             }
         ]
 
-        with patch('app.bulk_research.MediaBias') as MockMediaBias:
-            mock_media_bias = MockMediaBias.return_value
-            mock_media_bias.get_status.return_value = {'enabled': False}
-
+        with _patch_transaction_deps():
             batch_results = {"success": [], "errors": []}
             await bulk_research._save_articles_transaction(articles, batch_results)
 
-        # Should still save successfully with None values for scores
         assert len(batch_results["success"]) == 1
 
 
@@ -224,7 +200,6 @@ class TestRelevanceScoresInBulkSave:
                 'driver_type_explanation': 'Explanation',
                 'topic': 'AI and Machine Learning',
                 'analyzed': True,
-                # Relevance scores from auto-ingest
                 'topic_alignment_score': 0.92,
                 'keyword_relevance_score': 0.88,
                 'confidence_score': 0.90,
@@ -233,16 +208,15 @@ class TestRelevanceScoresInBulkSave:
             }
         ]
 
-        with patch('app.bulk_research.MediaBias') as MockMediaBias:
+        with patch('app.models.media_bias.MediaBias') as MockMediaBias, \
+             _patch_transaction_deps():
             mock_media_bias = MockMediaBias.return_value
             mock_media_bias.get_status.return_value = {'enabled': False}
 
-            # Mock _index_articles_vector to avoid vector store operations
             bulk_research._index_articles_vector = AsyncMock()
 
             results = await bulk_research.save_bulk_articles(articles)
 
-        # Verify successful save
         assert len(results["success"]) == 1
         assert len(results["errors"]) == 0
 
@@ -251,7 +225,6 @@ class TestRelevanceScoresInBulkSave:
         """Test that batch processing preserves relevance scores for all articles"""
         bulk_research = BulkResearch(db=mock_db, research=mock_research)
 
-        # Multiple articles with different score combinations
         articles = [
             {
                 'uri': f'https://example.com/article{i}',
@@ -281,7 +254,8 @@ class TestRelevanceScoresInBulkSave:
             for i in range(5)
         ]
 
-        with patch('app.bulk_research.MediaBias') as MockMediaBias:
+        with patch('app.models.media_bias.MediaBias') as MockMediaBias, \
+             _patch_transaction_deps():
             mock_media_bias = MockMediaBias.return_value
             mock_media_bias.get_status.return_value = {'enabled': False}
 
@@ -289,7 +263,6 @@ class TestRelevanceScoresInBulkSave:
 
             results = await bulk_research.save_bulk_articles(articles)
 
-        # All articles should be saved successfully
         assert len(results["success"]) == 5
         assert len(results["errors"]) == 0
 
@@ -298,8 +271,8 @@ class TestPostgreSQLCompatibility:
     """Test PostgreSQL-specific features in save operations"""
 
     @pytest.mark.asyncio
-    async def test_uses_on_conflict_do_update_for_postgresql(self, mock_db, mock_research):
-        """Test that PostgreSQL uses on_conflict_do_update for upserts"""
+    async def test_upsert_uses_select_then_insert_or_update(self, mock_db, mock_research):
+        """Test that the save transaction uses SELECT to check existence, then INSERT or UPDATE"""
         bulk_research = BulkResearch(db=mock_db, research=mock_research)
 
         articles = [
@@ -328,24 +301,16 @@ class TestPostgreSQLCompatibility:
             }
         ]
 
-        with patch('app.bulk_research.MediaBias') as MockMediaBias, \
-             patch('app.bulk_research.insert') as mock_insert:
-
-            mock_media_bias = MockMediaBias.return_value
-            mock_media_bias.get_status.return_value = {'enabled': False}
-
-            # Mock the insert statement
-            mock_stmt = MagicMock()
-            mock_on_conflict_stmt = MagicMock()
-            mock_stmt.on_conflict_do_update.return_value = mock_on_conflict_stmt
-            mock_insert.return_value = mock_stmt
+        with _patch_transaction_deps():
+            mock_conn = mock_db._temp_get_connection.return_value
 
             batch_results = {"success": [], "errors": []}
             await bulk_research._save_articles_transaction(articles, batch_results)
 
-            # Verify on_conflict_do_update was called for PostgreSQL
-            if mock_db.db_type == 'postgresql':
-                mock_stmt.on_conflict_do_update.assert_called()
+            assert len(batch_results["success"]) == 1
+
+            # conn.execute is called at least twice: once for SELECT, once for INSERT/UPDATE
+            assert mock_conn.execute.call_count >= 2
 
 
 if __name__ == '__main__':

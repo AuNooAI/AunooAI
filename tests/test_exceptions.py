@@ -47,19 +47,17 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(auth_error)
+        severity = LLMErrorClassifier.classify(auth_error)
         assert severity == ErrorSeverity.FATAL
-        assert should_retry is False
 
         # BudgetExceededError
         budget_error = litellm.BudgetExceededError(
-            message="Budget exceeded",
-            model="gpt-4",
-            llm_provider="openai"
+            current_cost=15.0,
+            max_budget=10.0,
+            message="Budget exceeded"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(budget_error)
+        severity = LLMErrorClassifier.classify(budget_error)
         assert severity == ErrorSeverity.FATAL
-        assert should_retry is False
 
     def test_recoverable_exceptions_classification(self):
         """Test that recoverable exceptions are classified correctly."""
@@ -69,9 +67,8 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(rate_limit_error)
+        severity = LLMErrorClassifier.classify(rate_limit_error)
         assert severity == ErrorSeverity.RECOVERABLE
-        assert should_retry is True
 
         # Timeout
         timeout_error = litellm.Timeout(
@@ -79,9 +76,8 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(timeout_error)
+        severity = LLMErrorClassifier.classify(timeout_error)
         assert severity == ErrorSeverity.RECOVERABLE
-        assert should_retry is True
 
         # APIConnectionError
         connection_error = litellm.APIConnectionError(
@@ -89,9 +85,8 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(connection_error)
+        severity = LLMErrorClassifier.classify(connection_error)
         assert severity == ErrorSeverity.RECOVERABLE
-        assert should_retry is True
 
     def test_skippable_exceptions_classification(self):
         """Test that skippable exceptions are classified correctly."""
@@ -101,9 +96,8 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(context_error)
+        severity = LLMErrorClassifier.classify(context_error)
         assert severity == ErrorSeverity.SKIPPABLE
-        assert should_retry is False
 
         # BadRequestError
         bad_request_error = litellm.BadRequestError(
@@ -111,9 +105,8 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(bad_request_error)
+        severity = LLMErrorClassifier.classify(bad_request_error)
         assert severity == ErrorSeverity.SKIPPABLE
-        assert should_retry is False
 
         # InvalidRequestError
         invalid_request_error = litellm.InvalidRequestError(
@@ -121,19 +114,18 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(invalid_request_error)
+        severity = LLMErrorClassifier.classify(invalid_request_error)
         assert severity == ErrorSeverity.SKIPPABLE
-        assert should_retry is False
 
         # JSONSchemaValidationError
         json_error = litellm.JSONSchemaValidationError(
-            message="JSON schema validation failed",
             model="gpt-4",
-            llm_provider="openai"
+            llm_provider="openai",
+            raw_response="{}",
+            schema="{}"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(json_error)
+        severity = LLMErrorClassifier.classify(json_error)
         assert severity == ErrorSeverity.SKIPPABLE
-        assert should_retry is False
 
     def test_degraded_exceptions_classification(self):
         """Test that degraded exceptions are classified correctly."""
@@ -143,55 +135,50 @@ class TestLLMErrorClassifier:
             model="gpt-4",
             llm_provider="openai"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(service_error)
+        severity = LLMErrorClassifier.classify(service_error)
         assert severity == ErrorSeverity.DEGRADED
-        assert should_retry is True
 
         # APIError
         api_error = litellm.APIError(
+            status_code=500,
             message="API error occurred",
-            model="gpt-4",
-            llm_provider="openai"
+            llm_provider="openai",
+            model="gpt-4"
         )
-        severity, should_retry = LLMErrorClassifier.classify_error(api_error)
+        severity = LLMErrorClassifier.classify(api_error)
         assert severity == ErrorSeverity.DEGRADED
-        assert should_retry is True
 
     def test_unknown_exception_classification(self):
-        """Test that unknown exceptions are classified as DEGRADED."""
+        """Test that unknown exceptions are classified as FATAL (fail-safe)."""
         unknown_error = Exception("Unknown error type")
-        severity, should_retry = LLMErrorClassifier.classify_error(unknown_error)
-        assert severity == ErrorSeverity.DEGRADED
-        assert should_retry is False
+        severity = LLMErrorClassifier.classify(unknown_error)
+        assert severity == ErrorSeverity.FATAL
 
-    def test_get_error_message(self):
-        """Test extracting error messages from exceptions."""
-        # Test with message attribute
-        error_with_message = litellm.AuthenticationError(
-            message="Test error message",
+    def test_should_bail_out(self):
+        """Test that should_bail_out correctly identifies fatal exceptions."""
+        auth_error = litellm.AuthenticationError(
+            message="Invalid API key",
             model="gpt-4",
             llm_provider="openai"
         )
-        message = LLMErrorClassifier.get_error_message(error_with_message)
-        assert "Test error message" in message
+        assert LLMErrorClassifier.should_bail_out(auth_error) is True
 
-        # Test with string conversion fallback
-        error_without_message = Exception("Fallback message")
-        message = LLMErrorClassifier.get_error_message(error_without_message)
-        assert "Fallback message" in message
+        rate_limit_error = litellm.RateLimitError(
+            message="Rate limit exceeded",
+            model="gpt-4",
+            llm_provider="openai"
+        )
+        assert LLMErrorClassifier.should_bail_out(rate_limit_error) is False
 
-    def test_classify_error_returns_tuple(self):
-        """Test that classify_error always returns a tuple of (severity, should_retry)."""
+    def test_classify_returns_error_severity(self):
+        """Test that classify always returns an ErrorSeverity enum member."""
         error = litellm.RateLimitError(
             message="Test",
             model="gpt-4",
             llm_provider="openai"
         )
-        result = LLMErrorClassifier.classify_error(error)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        assert isinstance(result[0], ErrorSeverity)
-        assert isinstance(result[1], bool)
+        result = LLMErrorClassifier.classify(error)
+        assert isinstance(result, ErrorSeverity)
 
 
 class TestPipelineError:
@@ -207,17 +194,13 @@ class TestPipelineError:
 
         pipeline_error = PipelineError(
             message="Pipeline failed",
-            original_error=original_error,
             severity=ErrorSeverity.FATAL,
-            model_name="gpt-4",
-            article_uri="https://example.com/article"
+            original_exception=original_error
         )
 
-        assert pipeline_error.message == "Pipeline failed"
-        assert pipeline_error.original_error == original_error
+        assert str(pipeline_error) is not None
+        assert pipeline_error.original_exception == original_error
         assert pipeline_error.severity == ErrorSeverity.FATAL
-        assert pipeline_error.model_name == "gpt-4"
-        assert pipeline_error.article_uri == "https://example.com/article"
 
     def test_pipeline_error_str_representation(self):
         """Test string representation of PipelineError."""
@@ -225,33 +208,30 @@ class TestPipelineError:
 
         pipeline_error = PipelineError(
             message="Pipeline failed",
-            original_error=original_error,
             severity=ErrorSeverity.RECOVERABLE,
-            model_name="gpt-3.5-turbo"
+            original_exception=original_error
         )
 
         error_str = str(pipeline_error)
         assert "Pipeline failed" in error_str
-        assert "RECOVERABLE" in error_str
-        assert "gpt-3.5-turbo" in error_str
+        assert "recoverable" in error_str
+        assert "Original error message" in error_str
 
     def test_pipeline_error_optional_fields(self):
         """Test that optional fields can be None."""
         pipeline_error = PipelineError(
             message="Simple error",
-            original_error=None,
             severity=ErrorSeverity.SKIPPABLE,
-            model_name=None,
-            article_uri=None
+            original_exception=None
         )
 
-        assert pipeline_error.original_error is None
-        assert pipeline_error.model_name is None
-        assert pipeline_error.article_uri is None
+        assert pipeline_error.original_exception is None
         assert pipeline_error.severity == ErrorSeverity.SKIPPABLE
+        error_str = str(pipeline_error)
+        assert "Simple error" in error_str
 
-    def test_pipeline_error_with_context(self):
-        """Test PipelineError with additional context."""
+    def test_pipeline_error_with_original_exception(self):
+        """Test PipelineError wrapping a LiteLLM exception."""
         original_error = litellm.RateLimitError(
             message="Rate limit exceeded",
             model="gpt-4",
@@ -260,16 +240,15 @@ class TestPipelineError:
 
         pipeline_error = PipelineError(
             message="Failed to process article",
-            original_error=original_error,
             severity=ErrorSeverity.RECOVERABLE,
-            model_name="gpt-4",
-            article_uri="https://example.com/article",
-            context={"retry_count": 3, "last_attempt": "2025-01-18 12:00:00"}
+            original_exception=original_error
         )
 
-        assert pipeline_error.context is not None
-        assert pipeline_error.context["retry_count"] == 3
-        assert "last_attempt" in pipeline_error.context
+        assert pipeline_error.original_exception is original_error
+        assert pipeline_error.severity == ErrorSeverity.RECOVERABLE
+        error_str = str(pipeline_error)
+        assert "Failed to process article" in error_str
+        assert "caused by" in error_str
 
 
 class TestClassificationConsistency:

@@ -112,6 +112,7 @@ async def retry_with_backoff(
     if config is None:
         config = RetryConfig()
 
+    func_name = getattr(func, '__name__', repr(func))
     last_exception = None
 
     for attempt in range(config.max_attempts):
@@ -127,7 +128,7 @@ async def retry_with_backoff(
             if attempt > 0:
                 logger.info(
                     f"✅ Retry succeeded on attempt {attempt + 1}/{config.max_attempts} "
-                    f"for {func.__name__}"
+                    f"for {func_name}"
                 )
             return result
 
@@ -139,7 +140,7 @@ async def retry_with_backoff(
                 delay = config.get_delay(attempt)
                 logger.warning(
                     f"🔄 RETRY: Attempt {attempt + 1}/{config.max_attempts} failed "
-                    f"for {func.__name__}"
+                    f"for {func_name}"
                 )
                 logger.warning(f"🔄 Error type: {error_type}")
                 logger.warning(f"🔄 Error: {e}")
@@ -152,7 +153,7 @@ async def retry_with_backoff(
                 await asyncio.sleep(delay)
             else:
                 logger.error(
-                    f"❌ All {config.max_attempts} retry attempts failed for {func.__name__}"
+                    f"❌ All {config.max_attempts} retry attempts failed for {func_name}"
                 )
                 logger.error(f"❌ Last error type: {error_type}")
                 logger.error(f"❌ Last error: {e}")
@@ -161,7 +162,7 @@ async def retry_with_backoff(
             # Non-retryable exception - raise immediately
             error_type = type(e).__name__
             logger.error(
-                f"❌ Non-retryable exception on attempt {attempt + 1} for {func.__name__}: "
+                f"❌ Non-retryable exception on attempt {attempt + 1} for {func_name}: "
                 f"{error_type} - {e}"
             )
             raise
@@ -205,6 +206,7 @@ def retry_sync_with_backoff(
     if config is None:
         config = RetryConfig()
 
+    func_name = getattr(func, '__name__', repr(func))
     last_exception = None
 
     for attempt in range(config.max_attempts):
@@ -215,7 +217,7 @@ def retry_sync_with_backoff(
             if attempt > 0:
                 logger.info(
                     f"✅ Retry succeeded on attempt {attempt + 1}/{config.max_attempts} "
-                    f"for {func.__name__}"
+                    f"for {func_name}"
                 )
             return result
 
@@ -227,7 +229,7 @@ def retry_sync_with_backoff(
                 delay = config.get_delay(attempt)
                 logger.warning(
                     f"🔄 RETRY: Attempt {attempt + 1}/{config.max_attempts} failed "
-                    f"for {func.__name__}"
+                    f"for {func_name}"
                 )
                 logger.warning(f"🔄 Error type: {error_type}")
                 logger.warning(f"🔄 Error: {e}")
@@ -240,7 +242,7 @@ def retry_sync_with_backoff(
                 time.sleep(delay)  # Use time.sleep instead of asyncio.sleep
             else:
                 logger.error(
-                    f"❌ All {config.max_attempts} retry attempts failed for {func.__name__}"
+                    f"❌ All {config.max_attempts} retry attempts failed for {func_name}"
                 )
                 logger.error(f"❌ Last error type: {error_type}")
                 logger.error(f"❌ Last error: {e}")
@@ -249,7 +251,7 @@ def retry_sync_with_backoff(
             # Non-retryable exception - raise immediately
             error_type = type(e).__name__
             logger.error(
-                f"❌ Non-retryable exception on attempt {attempt + 1} for {func.__name__}: "
+                f"❌ Non-retryable exception on attempt {attempt + 1} for {func_name}: "
                 f"{error_type} - {e}"
             )
             raise
