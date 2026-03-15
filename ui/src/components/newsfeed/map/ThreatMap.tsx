@@ -71,6 +71,26 @@ if (!document.getElementById('leaflet-tailwind-fix-threat')) {
     .leaflet-tooltip {
       pointer-events: none !important;
     }
+    /* Permanent label styling - compact name label */
+    .leaflet-tooltip.threat-label {
+      background-color: rgba(31, 41, 55, 0.85) !important;
+      border: none !important;
+      border-radius: 4px !important;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+      padding: 2px 6px !important;
+      font-family: inherit !important;
+      color: #f9fafb !important;
+      font-size: 10px !important;
+      font-weight: 500 !important;
+      white-space: nowrap !important;
+      pointer-events: none !important;
+      max-width: 150px !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+    .leaflet-tooltip.threat-label::before {
+      display: none !important;
+    }
   `;
   document.body.appendChild(leafletFix);
 }
@@ -235,6 +255,7 @@ interface ThreatMapProps {
   onThreatClick?: (threat: ThreatMapData) => void;
   height?: string;
   showLegend?: boolean;
+  showLabels?: boolean;
   centerOnSelected?: boolean;
   fillContainer?: boolean;
 }
@@ -245,6 +266,7 @@ export function ThreatMap({
   onThreatClick,
   height = '500px',
   showLegend = true,
+  showLabels = false,
   centerOnSelected = true,
   fillContainer = false,
 }: ThreatMapProps) {
@@ -331,13 +353,28 @@ export function ThreatMap({
                 click: () => onThreatClick?.(threat),
                 add: (e) => {
                   const marker = e.target;
-                  const typeLabel = THREAT_CATEGORY_LABELS[threat.threat_type] || threat.threat_type;
-                  const tooltipContent = `<strong>${threat.threat_name}</strong><br/><span style="opacity:0.8">${threat.severity_level.toUpperCase()} - ${typeLabel}${threat.threat_actor_name ? ` - ${threat.threat_actor_name}` : ''}</span>`;
-                  marker.bindTooltip(tooltipContent, {
-                    direction: 'top',
-                    offset: [0, -8],
-                    className: 'threat-tooltip',
-                  });
+
+                  if (showLabels) {
+                    // Permanent label with threat name
+                    const labelName = threat.threat_name.length > 20
+                      ? threat.threat_name.substring(0, 18) + '...'
+                      : threat.threat_name;
+                    marker.bindTooltip(labelName, {
+                      permanent: true,
+                      direction: 'right',
+                      offset: [10, 0],
+                      className: 'threat-label',
+                    });
+                  } else {
+                    // Hover tooltip with full details
+                    const typeLabel = THREAT_CATEGORY_LABELS[threat.threat_type] || threat.threat_type;
+                    const tooltipContent = `<strong>${threat.threat_name}</strong><br/><span style="opacity:0.8">${threat.severity_level.toUpperCase()} - ${typeLabel}${threat.threat_actor_name ? ` - ${threat.threat_actor_name}` : ''}</span>`;
+                    marker.bindTooltip(tooltipContent, {
+                      direction: 'top',
+                      offset: [0, -8],
+                      className: 'threat-tooltip',
+                    });
+                  }
                 },
               }}
               {...({ severityLevel: threat.severity_level } as any)}

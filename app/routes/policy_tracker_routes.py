@@ -81,24 +81,23 @@ POLICY_CATEGORIES = {
         "corruption", "corrupt", "bribery", "grift", "pardon", "pardons", "ethics violation",
         "profiteering", "enrichment", "kickback"
     ],
-    "Foreign Policy": [
-        "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
-        "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
-        "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
-        "military intervention", "military", "troops",
-        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
-        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
-    ],
-    "Nationalism & Immigration": [
+    "Immigration Enforcement": [
         "immigration", "immigrant", "immigrants", "border", "border patrol",
         "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
         "asylum", "detention", "detention center", "detention centers", "wall", "border wall",
         "illegal alien", "illegal aliens", "undocumented", "CBP", "customs and border",
         "immigration enforcement", "mass deportation", "immigration raid", "immigration raids",
         "sanctuary city", "sanctuary cities", "visa", "visas", "green card", "citizenship",
-        "naturalization", "USCIS", "immigration court", "removal", "removals",
-        "nationalist", "nationalism", "National Guard", "invasion", "Honduras", "Mexico",
-        "Latin America", "Central America", "America first"
+        "naturalization", "USCIS", "immigration court", "removal", "removals"
+    ],
+    "Foreign Policy / Nationalism": [
+        "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
+        "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
+        "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
+        "military intervention", "nationalist", "nationalism", "military", "troops",
+        "National Guard", "invasion", "Honduras", "Mexico", "Latin America", "Central America",
+        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
+        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
     ]
 }
 
@@ -143,7 +142,7 @@ INTERNATIONAL_LOCATIONS = ["Greenland", "Venezuela", "Russia", "China", "Gaza", 
 CATEGORY_DEFINITIONS = """
 ## Policy Category Definitions (from Trump Action Tracker - trumpactiontracker.info)
 
-These are the 10 categories used to classify government actions. Use the EXACT category names shown:
+These are the 11 categories used to classify government actions. Use the EXACT short names shown:
 
 1. **Undermining Democracy** - Actions undermining democratic institutions, electoral integrity, constitutional processes. Also includes: undermining judicial independence, defying court orders, politicizing DOJ/FBI, attacking judges, eroding rule of law and checks and balances.
 
@@ -163,7 +162,9 @@ These are the 10 categories used to classify government actions. Use the EXACT c
 
 9. **Foreign Policy** - Aggressive foreign policy, destabilizing NATO/alliances, trade wars, tariffs, annexation threats (Greenland, Panama), relations with China/Russia/Ukraine, diplomatic actions, international summits.
 
-10. **Nationalism & Immigration** - ICE raids, mass deportations, detention centers, border wall, asylum restrictions, sanctuary city crackdowns, immigration courts, visa policies, citizenship/naturalization changes, nationalist rhetoric, "America First" policies.
+10. **Immigration Enforcement** - ICE raids, mass deportations, detention centers, border wall, asylum restrictions, sanctuary city crackdowns, immigration courts, visa policies, citizenship/naturalization changes.
+
+11. **Foreign Policy / Nationalism** - Aggressive foreign policy, destabilizing NATO/alliances, trade wars, tariffs, annexation threats (Greenland, Panama), relations with China/Russia/Ukraine, diplomatic actions, international summits.
 """
 
 SEMANTIC_CATEGORIZATION_PROMPT = """You are a policy analyst classifying news articles about Trump administration actions using the Trump Action Tracker methodology.

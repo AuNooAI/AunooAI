@@ -14,6 +14,10 @@ from app.services.threat_intelligence_service import (
     get_threat_intelligence_service,
     extract_threat_with_llm,
     generate_narrative_with_llm,
+    extract_iocs_from_text,
+    is_placeholder_domain,
+    is_placeholder_ip,
+    is_placeholder_cve,
     THREAT_CATEGORIES,
     SEVERITY_LEVELS,
     ACTOR_TYPES,
@@ -358,6 +362,45 @@ async def get_actor_threats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/actor/{actor_id}/generate-description")
+async def generate_actor_description(
+    actor_id: int,
+    session=Depends(verify_session_api)
+):
+    """Generate actor description from linked article summaries.
+
+    Uses LLM to generate a concise 2-3 sentence description based on
+    article summaries linked to the actor's threats.
+    """
+    try:
+        service = get_threat_intelligence_service()
+
+        # Verify actor exists
+        actor = service.get_actor_by_id(actor_id)
+        if not actor:
+            raise HTTPException(status_code=404, detail="Actor not found")
+
+        # Generate description
+        description = service.generate_actor_description(actor_id)
+
+        if description:
+            return {
+                "success": True,
+                "actor_id": actor_id,
+                "description": description
+            }
+        return {
+            "success": False,
+            "actor_id": actor_id,
+            "error": "No articles linked to actor"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating actor description: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # Timeline & Analysis Endpoints
 # ============================================================================
@@ -516,6 +559,7 @@ async def get_all_articles(
     severity_level: Optional[str] = Query(None, description="Filter by severity level"),
     threat_type: Optional[str] = Query(None, description="Filter by threat type"),
     threat_id: Optional[int] = Query(None, description="Filter by threat ID"),
+    actor_id: Optional[int] = Query(None, description="Filter by threat actor ID"),
     search: Optional[str] = Query(None, description="Search in title/summary"),
     sort_by: str = Query("date", description="Sort field: date, title, relevance, severity"),
     sort_order: str = Query("desc", description="Sort order: asc, desc")
@@ -529,6 +573,7 @@ async def get_all_articles(
             severity_level=severity_level,
             threat_type=threat_type,
             threat_id=threat_id,
+            actor_id=actor_id,
             search=search,
             sort_by=sort_by,
             sort_order=sort_order
@@ -592,7 +637,8 @@ _processing_status = {
     "completed": False,
     "message": "",
     "current_article": None,
-    "actors_identified": 0
+    "actors_identified": 0,
+    "iocs_extracted": 0
 }
 
 
@@ -616,6 +662,7 @@ def get_processing_status():
         "total_articles": status["total"],
         "threats_extracted": status["created"],
         "actors_identified": status.get("actors_identified", 0),
+        "iocs_extracted": status.get("iocs_extracted", 0),
         "current_article": status.get("current_article"),
         "error": status["last_error"]
     }
@@ -645,6 +692,7 @@ async def _process_articles_background(
     _processing_status["last_error"] = None
     _processing_status["current_article"] = None
     _processing_status["actors_identified"] = 0
+    _processing_status["iocs_extracted"] = 0
     _processing_status["message"] = f"Processing {len(articles)} articles..."
 
     try:
@@ -672,6 +720,71 @@ async def _process_articles_background(
                 if not result.get('threat_name') or not result.get('threat_type'):
                     _processing_status["skipped"] += 1
                     continue
+
+                # Skip threats with placeholder CVE names (e.g., CVE-2024-XXXX)
+                threat_name = result.get('threat_name', '')
+                if threat_name.upper().startswith('CVE-') and is_placeholder_cve(threat_name):
+                    logger.info(f"Skipping placeholder CVE threat name: {threat_name}")
+                    _processing_status["skipped"] += 1
+                    continue
+
+                # Extract IOCs from article text using iocextract
+                article_text = f"{article.get('title', '')} {article.get('summary', '')}"
+                extracted_iocs = extract_iocs_from_text(article_text)
+
+                # Filter LLM IOCs through blocklist before merging
+                llm_iocs = result.get('iocs', [])
+                filtered_llm_iocs = []
+                for ioc in llm_iocs:
+                    ioc_type = ioc.get('type', '')
+                    ioc_value = ioc.get('value', '')
+                    # Filter based on IOC type
+                    if ioc_type == 'domain' and is_placeholder_domain(ioc_value):
+                        continue
+                    if ioc_type == 'ip' and is_placeholder_ip(ioc_value):
+                        continue
+                    if ioc_type == 'url':
+                        try:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(ioc_value)
+                            if parsed.netloc and is_placeholder_domain(parsed.netloc):
+                                continue
+                        except:
+                            pass
+                    if ioc_type == 'email' and '@' in ioc_value:
+                        email_domain = ioc_value.split('@')[1]
+                        if is_placeholder_domain(email_domain):
+                            continue
+                    filtered_llm_iocs.append(ioc)
+
+                # Merge filtered LLM IOCs with extracted IOCs
+                existing_values = {(ioc.get('type'), ioc.get('value')) for ioc in filtered_llm_iocs}
+                for ioc in extracted_iocs:
+                    if (ioc['type'], ioc['value']) not in existing_values:
+                        filtered_llm_iocs.append(ioc)
+
+                result['iocs'] = filtered_llm_iocs
+                if filtered_llm_iocs:
+                    _processing_status["iocs_extracted"] += len(filtered_llm_iocs)
+                if extracted_iocs:
+                    logger.info(f"Extracted {len(extracted_iocs)} IOCs from article text")
+
+                # Run NER extraction on article text for supplementary entities
+                try:
+                    from app.utils.ner_extractor import extract_entities
+                    ner_entities = extract_entities(article_text)
+
+                    # Store NER-extracted entities in threat data
+                    if ner_entities.get('organizations'):
+                        result['ner_organizations'] = ner_entities['organizations']
+                    if ner_entities.get('locations'):
+                        result['ner_locations'] = ner_entities['locations']
+                    if ner_entities.get('persons'):
+                        result['ner_persons'] = ner_entities['persons']
+                    if ner_entities.get('products'):
+                        result['ner_products'] = ner_entities['products']
+                except Exception as ner_err:
+                    logger.warning(f"NER extraction failed: {ner_err}")
 
                 # Check if this will create or update
                 from app.database import get_database_instance
@@ -702,6 +815,12 @@ async def _process_articles_background(
                     _processing_status["created"] += 1
                 else:
                     _processing_status["updated"] += 1
+
+                # Track actor identification
+                actor_name = result.get('threat_actor_name')
+                invalid_actors = {'unknown', 'unidentified', 'unnamed', 'n/a', 'na', 'none', 'null', ''}
+                if actor_name and actor_name.lower().strip() not in invalid_actors:
+                    _processing_status["actors_identified"] += 1
 
                 _processing_status["processed"] += 1
                 logger.info(f"Processed ({i+1}/{len(articles)}): {article['title'][:40]}... -> {result['threat_name']}")
@@ -851,6 +970,35 @@ class NarrativeDetail(BaseModel):
 class GenerateNarrativeRequest(BaseModel):
     model: str = Field("gpt-4o-mini", description="LLM model to use for generation")
     topic: Optional[str] = Field(None, description="Optional topic filter")
+
+
+@router.get("/narratives")
+async def get_narratives(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    topic: Optional[str] = Query(None, description="Filter by topic")
+):
+    """Get paginated list of narratives."""
+    try:
+        service = get_threat_intelligence_service()
+        narratives, total = service.get_narratives(
+            page=page,
+            page_size=page_size,
+            topic=topic
+        )
+
+        total_pages = (total + page_size - 1) // page_size
+
+        return {
+            "data": narratives,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
+    except Exception as e:
+        logger.error(f"Error getting narratives: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/narrative")
