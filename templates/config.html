@@ -1961,12 +1961,15 @@
         }
         
         try {
-            const response = await fetch(`/config/${providerName}`, {
+            const response = await fetch('/providers/configure', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ api_key: key })
+                body: JSON.stringify({
+                    provider: providerName,
+                    credentials: { api_key: key }
+                })
             });
             
             const data = await response.json();
@@ -2194,14 +2197,18 @@
         }
         
         try {
-            const response = await fetch('/config/bluesky', {
+            const response = await fetch('/providers/configure', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
+                    provider: 'bluesky',
                     username: username,
-                    password: password
+                    credentials: {
+                        username: username,
+                        password: password
+                    }
                 })
             });
             
@@ -2235,15 +2242,16 @@
         }
 
         try {
-            const response = await fetch('/config/google_pse', {
+            const response = await fetch('/providers/configure', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    api_key: apiKey,
-                    extra_data: {
-                        GOOGLE_CSE_ID: cseId
+                    provider: 'google_pse',
+                    credentials: {
+                        api_key: apiKey,
+                        cse_id: cseId
                     }
                 })
             });

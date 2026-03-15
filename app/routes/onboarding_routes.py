@@ -27,7 +27,12 @@ def set_templates(template_instance: Jinja2Templates):
 
 @router.post("/api/onboarding/validate-api-key")
 async def validate_api_key(request: Request, key_data: Dict = Body(...)):
-    """Validate and store API keys."""
+    """Validate and store API keys.
+    
+    DEPRECATED: This endpoint is maintained for backwards compatibility with the React UI.
+    New integrations should use the unified /providers/configure endpoint from app/provider_config/api.py
+    which provides consistent validation and configuration for all providers.
+    """
     try:
         provider = key_data.get("provider")
         api_key = key_data.get("api_key")

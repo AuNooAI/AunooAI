@@ -656,7 +656,7 @@ function updateNewsProviderUI() {
     }
 }
 
-// Modify the testApiKey function to track successful validations
+// Modify the testApiKey function to use unified /providers/configure endpoint
 async function testApiKey(type) {
     const statusDiv = document.getElementById(`${type}-status`);
     statusDiv.style.display = 'block';
@@ -688,20 +688,21 @@ async function testApiKey(type) {
     }
 
     try {
-        const response = await fetch('/api/onboarding/validate-api-key', {
+        // Use the unified /providers/configure endpoint
+        const response = await fetch('/providers/configure', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 provider: provider,
-                api_key: api_key
+                credentials: { api_key: api_key }
             })
         });
 
         const data = await response.json();
-        if (response.ok && data.configured) {
-            statusDiv.innerHTML = 'Key configured ✓';
+        if (response.ok && data.status === 'success') {
+            statusDiv.innerHTML = 'Key validated & configured ✓';
             statusDiv.className = 'api-key-status text-success';
 
             // Track successful validation
