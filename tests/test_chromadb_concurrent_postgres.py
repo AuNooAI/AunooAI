@@ -10,6 +10,7 @@ import logging
 import asyncio
 from datetime import datetime
 from typing import List
+import pytest
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +23,7 @@ DB_TYPE = os.getenv('DB_TYPE', 'sqlite').lower()
 class TestChromaDBAsync:
     """Test suite for ChromaDB async operations"""
 
+    @pytest.mark.asyncio
     async def test_upsert_article_async(self):
         """Test async article upsert"""
         logger.info("Testing upsert_article_async()...")
@@ -45,6 +47,7 @@ class TestChromaDBAsync:
             logger.error(f"❌ upsert_article_async() failed: {e}")
             raise
 
+    @pytest.mark.asyncio
     async def test_search_articles_async(self):
         """Test async article search"""
         logger.info("Testing search_articles_async()...")
@@ -61,6 +64,7 @@ class TestChromaDBAsync:
             logger.error(f"❌ search_articles_async() failed: {e}")
             raise
 
+    @pytest.mark.asyncio
     async def test_similar_articles_async(self):
         """Test async similar articles search"""
         logger.info("Testing similar_articles_async()...")
@@ -92,6 +96,7 @@ class TestChromaDBAsync:
             logger.error(f"❌ similar_articles_async() failed: {e}")
             raise
 
+    @pytest.mark.asyncio
     async def test_get_vectors_by_metadata_async(self):
         """Test async vector retrieval by metadata"""
         logger.info("Testing get_vectors_by_metadata_async()...")
@@ -111,31 +116,11 @@ class TestChromaDBAsync:
             logger.error(f"❌ get_vectors_by_metadata_async() failed: {e}")
             raise
 
-    async def test_embedding_projection_async(self):
-        """Test async embedding projection"""
-        logger.info("Testing embedding_projection_async()...")
-
-        from app.vector_store import embedding_projection_async
-        import numpy as np
-
-        # Create test vectors
-        test_vecs = np.random.rand(10, 1536).tolist()
-
-        try:
-            result = await embedding_projection_async(test_vecs)
-            assert isinstance(result, dict), "Should return a dictionary"
-            assert 'points' in result, "Should have points"
-            assert 'centroids' in result, "Should have centroids"
-            assert 'sizes' in result, "Should have sizes"
-            logger.info("✅ embedding_projection_async() - Working correctly")
-        except Exception as e:
-            logger.error(f"❌ embedding_projection_async() failed: {e}")
-            raise
-
 
 class TestChromaDBConcurrency:
     """Test suite for ChromaDB concurrent operations"""
 
+    @pytest.mark.asyncio
     async def test_concurrent_upserts(self):
         """Test multiple concurrent upsert operations"""
         logger.info("Testing concurrent upsert operations...")
@@ -165,6 +150,7 @@ class TestChromaDBConcurrency:
             logger.error(f"❌ Concurrent upserts failed: {e}")
             raise
 
+    @pytest.mark.asyncio
     async def test_concurrent_searches(self):
         """Test multiple concurrent search operations"""
         logger.info("Testing concurrent search operations...")
@@ -193,6 +179,7 @@ class TestChromaDBConcurrency:
             logger.error(f"❌ Concurrent searches failed: {e}")
             raise
 
+    @pytest.mark.asyncio
     async def test_mixed_concurrent_operations(self):
         """Test mixed read/write concurrent operations"""
         logger.info("Testing mixed concurrent operations...")
@@ -233,6 +220,7 @@ class TestChromaDBConcurrency:
             logger.error(f"❌ Mixed concurrent operations failed: {e}")
             raise
 
+    @pytest.mark.asyncio
     async def test_concurrent_operations_stress(self):
         """Stress test with many concurrent operations"""
         logger.info("Testing concurrent operations stress test...")
@@ -278,36 +266,36 @@ class TestChromaDBConcurrency:
             raise
 
 
-class TestChromaDBHealth:
-    """Test suite for ChromaDB health and cleanup"""
+class TestPgvectorHealth:
+    """Test suite for pgvector health and cleanup"""
 
-    def test_check_chromadb_health(self):
-        """Test ChromaDB health check"""
-        logger.info("Testing check_chromadb_health()...")
+    def test_check_pgvector_health(self):
+        """Test pgvector health check"""
+        logger.info("Testing check_pgvector_health()...")
 
-        from app.vector_store import check_chromadb_health
+        from app.vector_store_pgvector import check_pgvector_health
 
         try:
-            health = check_chromadb_health()
+            health = check_pgvector_health()
 
             assert isinstance(health, dict), "Should return a dictionary"
             assert 'healthy' in health, "Should have healthy status"
-            assert 'collection_exists' in health, "Should have collection_exists status"
-            assert 'thread_pool_size' in health, "Should have thread_pool_size"
+            assert 'extension_installed' in health, "Should have extension_installed status"
+            assert 'articles_with_embeddings' in health, "Should have articles_with_embeddings"
 
             if health['healthy']:
                 logger.info(
-                    f"✅ check_chromadb_health() - ChromaDB is healthy "
-                    f"(collection_count: {health.get('collection_count', 0)}, "
-                    f"thread_pool_size: {health['thread_pool_size']})"
+                    f"✅ check_pgvector_health() - pgvector is healthy "
+                    f"(articles_with_embeddings: {health.get('articles_with_embeddings', 0)}, "
+                    f"extension_installed: {health['extension_installed']})"
                 )
             else:
                 logger.warning(
-                    f"⚠️  check_chromadb_health() - ChromaDB health check failed: {health.get('error')}"
+                    f"⚠️  check_pgvector_health() - pgvector health check returned unhealthy: {health.get('error')}"
                 )
 
         except Exception as e:
-            logger.error(f"❌ check_chromadb_health() failed: {e}")
+            logger.error(f"❌ check_pgvector_health() failed: {e}")
             raise
 
     def test_shutdown_vector_store(self):
@@ -340,7 +328,6 @@ async def run_async_tests():
     await async_tests.test_search_articles_async()
     await async_tests.test_similar_articles_async()
     await async_tests.test_get_vectors_by_metadata_async()
-    await async_tests.test_embedding_projection_async()
 
     logger.info("\n⚡ Testing ChromaDB Concurrent Operations:")
     concurrency_tests = TestChromaDBConcurrency()
@@ -361,9 +348,9 @@ def run_all_tests():
     asyncio.run(run_async_tests())
 
     # Run health check tests (sync)
-    logger.info("\n🏥 Testing ChromaDB Health and Cleanup:")
-    health_tests = TestChromaDBHealth()
-    health_tests.test_check_chromadb_health()
+    logger.info("\n🏥 Testing pgvector Health and Cleanup:")
+    health_tests = TestPgvectorHealth()
+    health_tests.test_check_pgvector_health()
 
     # Note: Uncomment the line below to test shutdown (will shutdown thread pool)
     # health_tests.test_shutdown_vector_store()
