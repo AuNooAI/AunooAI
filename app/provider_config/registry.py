@@ -12,6 +12,7 @@ from app.provider_config import (
     huggingface,
     bluesky,
     google_pse,
+    resend,
 )
 
 # Provider name → handler module mapping
@@ -28,6 +29,7 @@ PROVIDERS = {
     "huggingface": huggingface,
     "bluesky": bluesky,
     "google_pse": google_pse,
+    "resend": resend,
 }
 
 

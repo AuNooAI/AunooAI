@@ -20,6 +20,7 @@ from app.provider_config import (
     huggingface,
     bluesky,
     google_pse,
+    resend,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +44,7 @@ SAMPLE_CREDENTIALS = {
     "huggingface": {"api_key": "Sample HuggingFace API key"},
     "bluesky": {"username": "Sample Bluesky username", "password": "Sample Bluesky password"},
     "google_pse": {"api_key": "Sample Google PSE API key", "cse_id": "Sample Google PSE CSE ID"},
+    "resend": {"api_key": "re_VQaGQ54k_MKGizUbr6D5seo9y4qMhw"},
 }
 
 
@@ -299,6 +301,26 @@ async def test_google_pse_validation():
 
 
 # =============================================================================
+# Resend
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_resend_validation():
+    """Test Resend API key validation."""
+    credentials = SAMPLE_CREDENTIALS["resend"]
+    logger.info(f"Testing Resend with api_key: {credentials['api_key'][:10]}...")
+    
+    try:
+        await resend.validate(credentials)
+        logger.info("✅ Resend: VALID")
+        result = "valid"
+    except Exception as e:
+        logger.info(f"❌ Resend: INVALID - {e}")
+        result = "invalid"
+    assert result in ["valid", "invalid"]
+
+
+# =============================================================================
 # Run All Validations
 # =============================================================================
 
@@ -318,6 +340,7 @@ async def test_all_providers_summary():
         ("huggingface", huggingface, SAMPLE_CREDENTIALS["huggingface"]),
         ("bluesky", bluesky, SAMPLE_CREDENTIALS["bluesky"]),
         ("google_pse", google_pse, SAMPLE_CREDENTIALS["google_pse"]),
+        ("resend", resend, SAMPLE_CREDENTIALS["resend"]),
     ]
     
     results = []
@@ -346,5 +369,5 @@ async def test_all_providers_summary():
     logger.info("=" * 60 + "\n")
     
     # Test passes regardless of valid/invalid - we're just logging results
-    assert len(results) == 12
+    assert len(results) == 13
 

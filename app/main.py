@@ -3471,6 +3471,65 @@ async def remove_google_pse_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/config/resend")
+async def get_resend_config():
+    """Get Resend configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+
+        resend_api_key = os.getenv("RESEND_API_KEY")
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(resend_api_key),
+                "message": "Resend is configured" if resend_api_key else "Resend is not configured",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error getting Resend configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/config/resend")
+async def remove_resend_config():
+    """Remove Resend configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+        env_var = "RESEND_API_KEY"
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Remove the config line
+        new_lines = [line for line in lines if not line.startswith(f"{env_var}=")]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(new_lines)
+
+        # Remove from current environment
+        if env_var in os.environ:
+            del os.environ[env_var]
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+
+        logger.info("Resend configuration removed successfully")
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Resend configuration removed successfully"},
+        )
+    except Exception as e:
+        logger.error(f"Error removing Resend configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ---------------------------------------------------------------------------
 # Streaming bulk research endpoint – returns NDJSON (one JSON per line)
 # ---------------------------------------------------------------------------
