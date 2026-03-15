@@ -141,7 +141,7 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
   if (reports.length === 0) {
     return (
       <div className="bg-gray-50 rounded-lg p-8 text-center border border-dashed border-gray-300">
-        <FileText className="w-12 h-12 text-gray-600 dark:text-gray-600 dark:text-gray-400 mx-auto mb-4" />
+        <FileText className="w-12 h-12 text-gray-600 dark:text-gray-300 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">No Reports Yet</h3>
         <p className="text-gray-700 dark:text-gray-300 mb-4 max-w-md mx-auto">
           Reports are automatically generated when Research Agents with "Generate Report" enabled find matches.

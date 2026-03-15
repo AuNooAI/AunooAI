@@ -702,7 +702,7 @@ export const PAMTuneModal: React.FC<PAMTuneModalProps> = ({
                       <Label className="text-sm flex items-center gap-1">
                         <Sliders className="w-3 h-3" />
                         Relevance Threshold
-                        <span className="text-gray-400 font-normal">(lower = stricter)</span>
+                        <span className="text-gray-500 font-normal">(lower = stricter)</span>
                       </Label>
                       <div className="flex items-center gap-2">
                         <input
@@ -939,7 +939,7 @@ export const PAMTuneModal: React.FC<PAMTuneModalProps> = ({
                           )}
                         </div>
                         {preset.entities.length > 0 && (
-                          <p className="text-xs text-gray-400 mt-2 truncate">
+                          <p className="text-xs text-gray-500 mt-2 truncate">
                             {preset.entities.slice(0, 3).join(', ')}
                             {preset.entities.length > 3 && ` +${preset.entities.length - 3} more`}
                           </p>
@@ -1040,7 +1040,7 @@ export const PAMTuneModal: React.FC<PAMTuneModalProps> = ({
                             size="sm"
                             onClick={() => deleteEntity(entity.id, entity.entity_name)}
                             disabled={entitySaving}
-                            className="text-gray-400 hover:text-red-500 hover:bg-red-50"
+                            className="text-gray-500 hover:text-red-500 hover:bg-red-50"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -1100,7 +1100,7 @@ export const PAMTuneModal: React.FC<PAMTuneModalProps> = ({
                       <div>
                         <h4 className="font-medium">Semantic Scholar</h4>
                         <p className="text-sm text-gray-500">Academic citations, paper metrics, research impact</p>
-                        <p className="text-xs text-gray-400">Used by: Attention Agent</p>
+                        <p className="text-xs text-gray-500">Used by: Attention Agent</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -1125,7 +1125,7 @@ export const PAMTuneModal: React.FC<PAMTuneModalProps> = ({
                       <div>
                         <h4 className="font-medium">Google Search</h4>
                         <p className="text-sm text-gray-500">Funding announcements, M&A news, regulatory updates</p>
-                        <p className="text-xs text-gray-400">Used by: Power Agent, Money Agent</p>
+                        <p className="text-xs text-gray-500">Used by: Power Agent, Money Agent</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

@@ -125,53 +125,57 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
     <div className="space-y-6">
       {/* Header - z-index ensures tabs stay above Leaflet controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 relative z-[1001]">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <Globe className="w-5 h-5 text-pink-500" />
-            Geopolitical Hotspots
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
-            Global threat monitoring and analysis
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg">
+            <Globe className="w-6 h-6 text-pink-600 dark:text-pink-400" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+              Geopolitical Hotspots
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Global threat monitoring and analysis
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* Tab Navigation */}
+          <GeopoliticalHotspotsTabs activeTab={activeTab} onTabChange={setActiveTab} />
+
           {/* Days Back Selector */}
           <select
             value={config.daysBack}
             onChange={(e) => handleDaysBackChange(Number(e.target.value))}
-            className="px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100"
+            className="px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 dark:text-gray-100"
           >
-            <option value={7}>7 days</option>
-            <option value={30}>30 days</option>
-            <option value={90}>90 days</option>
-            <option value={180}>6 months</option>
-            <option value={365}>1 year</option>
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+            <option value={180}>Last 6 months</option>
+            <option value={365}>Last year</option>
           </select>
 
           {/* Update Button */}
           <button
             onClick={() => setShowImportModal(true)}
-            title="Update hotspots"
-            className="p-2 text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 rounded-lg hover:bg-teal-100"
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors"
           >
             <Download className="w-4 h-4" />
+            Update
           </button>
 
           {/* Refresh Button */}
           <button
             onClick={refresh}
             disabled={loading}
-            title="Refresh"
-            className="p-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100 disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-300 rounded-lg hover:bg-pink-100 dark:hover:bg-pink-900/30 disabled:opacity-50 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
           </button>
         </div>
       </div>
-
-      {/* Sub-tab navigation */}
-      <GeopoliticalHotspotsTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Error Alert */}
       {error && (

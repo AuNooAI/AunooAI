@@ -170,6 +170,21 @@ async def lifespan(app: FastAPI):
                         extra.delay, f"{module.name} ({extra.function})")
                     logger.info(f"Scheduled {module.name} extra task to start in {extra.delay}s")
 
+        # Start the geopolitical hotspots monitor background task with a delay
+        async def delayed_geopolitical_hotspots_monitor_start():
+            """Start geopolitical hotspots monitor after other monitors"""
+            await asyncio.sleep(30)  # Wait 30 seconds after startup
+            try:
+                from app.tasks.geopolitical_hotspots_monitor import run_geopolitical_hotspots_monitor
+                logger.info("Starting geopolitical hotspots monitor background task...")
+                asyncio.create_task(run_geopolitical_hotspots_monitor())
+                logger.info("Geopolitical hotspots monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start geopolitical hotspots monitor: {str(e)}")
+
+        asyncio.create_task(delayed_geopolitical_hotspots_monitor_start())
+        logger.info("Scheduled geopolitical hotspots monitor to start in 30 seconds")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise

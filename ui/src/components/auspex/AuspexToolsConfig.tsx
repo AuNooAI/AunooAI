@@ -218,7 +218,7 @@ export function AuspexToolsConfig({
                 Reset
               </Button>
             </div>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-500">
               Tools can be toggled during conversations
             </p>
           </div>
@@ -259,7 +259,7 @@ function ToolToggle({
         <Label className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer" onClick={onToggle}>
           {tool.label}
         </Label>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+        <p className="text-xs text-gray-500 dark:text-gray-300 mt-0.5">
           {tool.description}
         </p>
       </div>

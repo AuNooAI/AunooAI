@@ -116,7 +116,7 @@
   padding: 0.5rem 1rem;
   border: none;
   background: transparent;
-  color: #64748b;
+  color: #475569;
   font-weight: 500;
   cursor: pointer;
   border-radius: 6px;
@@ -151,7 +151,7 @@
   justify-content: center;
   height: 300px;
   gap: 1rem;
-  color: #64748b;
+  color: #475569;
 }
 
 .loading-spinner {
@@ -183,7 +183,7 @@
 }
 
 .pam-welcome p {
-  color: #64748b;
+  color: #475569;
   margin-bottom: 1rem;
 }
 
@@ -201,7 +201,7 @@
 .pam-empty {
   text-align: center;
   padding: 3rem;
-  color: #64748b;
+  color: #475569;
 }
 
 /* Footer */
@@ -212,7 +212,7 @@
   background: white;
   border-top: 1px solid #e2e8f0;
   font-size: 0.875rem;
-  color: #64748b;
+  color: #475569;
 }
 
 /* Score Cards */
@@ -256,7 +256,7 @@
 }
 
 .score-label {
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
   margin-top: 0.25rem;
 }
@@ -278,7 +278,7 @@
 
 .threat-label {
   font-size: 0.75rem;
-  color: #64748b;
+  color: #475569;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -344,7 +344,7 @@
 }
 
 .trend-velocity.velocity-up { color: #22c55e; }
-.trend-velocity.velocity-stable { color: #64748b; }
+.trend-velocity.velocity-stable { color: #475569; }
 .trend-velocity.velocity-down { color: #f59e0b; }
 
 .trend-bar-container {
@@ -392,7 +392,7 @@
 }
 
 .analysis-date {
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
 }
 
@@ -566,7 +566,7 @@
 .entities h4,
 .deals h4 {
   margin: 1rem 0 0.5rem 0;
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
 }
 
@@ -647,7 +647,7 @@
 }
 
 .event-source {
-  color: #94a3b8;
+  color: #475569;
   font-size: 0.75rem;
 }
 
@@ -669,7 +669,7 @@
 }
 
 .metric-label {
-  color: #64748b;
+  color: #475569;
   font-size: 0.75rem;
 }
 
@@ -684,7 +684,7 @@
 .metric-value.risk-low { color: #22c55e; }
 
 .trend-description {
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
   margin-top: 0.5rem;
 }
@@ -764,13 +764,13 @@
 }
 
 .indicator span:first-child {
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
 }
 
 .value.trend-increasing { color: #22c55e; }
 .value.trend-decreasing { color: #ef4444; }
-.value.trend-stable { color: #64748b; }
+.value.trend-stable { color: #475569; }
 
 .key-deals,
 .recent-deals {
@@ -780,7 +780,7 @@
 .key-deals h4,
 .recent-deals h4 {
   margin: 0 0 0.5rem 0;
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
 }
 
@@ -839,7 +839,7 @@
 
 .consolidation-trend {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #475569;
 }
 
 /* Scenario View */
@@ -865,7 +865,7 @@
   text-orientation: mixed;
   transform: rotate(180deg);
   font-size: 0.75rem;
-  color: #64748b;
+  color: #475569;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -878,7 +878,7 @@
 
 .quadrant-axis-x span {
   font-size: 0.75rem;
-  color: #64748b;
+  color: #475569;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -909,7 +909,7 @@
 
 .quadrant p {
   margin: 0 0 1rem 0;
-  color: #64748b;
+  color: #475569;
   font-size: 0.875rem;
 }
 
@@ -945,7 +945,7 @@
 }
 
 .scenario-trajectory p {
-  color: #64748b;
+  color: #475569;
   margin-bottom: 1rem;
 }
 

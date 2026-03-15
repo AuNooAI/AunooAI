@@ -109,7 +109,7 @@ export const AuspexChatInput = forwardRef<AuspexChatInputHandle, AuspexChatInput
 
           {/* Character count hint */}
           {value.length > 100 && (
-            <span className="absolute bottom-2 right-16 text-xs text-gray-400">
+            <span className="absolute bottom-2 right-16 text-xs text-gray-500">
               {value.length}
             </span>
           )}
@@ -122,7 +122,7 @@ export const AuspexChatInput = forwardRef<AuspexChatInputHandle, AuspexChatInput
             disabled={!value.trim() || isDisabled}
             className={cn(
               'flex-shrink-0 p-3 rounded-lg',
-              'text-gray-400 hover:text-pink-500',
+              'text-gray-500 hover:text-pink-500',
               'hover:bg-gray-100 dark:hover:bg-gray-800',
               'disabled:opacity-50 disabled:cursor-not-allowed',
               'transition-colors'
@@ -155,18 +155,18 @@ export const AuspexChatInput = forwardRef<AuspexChatInputHandle, AuspexChatInput
       </div>
 
       {/* Help text */}
-      <p className="mt-2 text-xs text-gray-400 flex items-center gap-1.5">
+      <p className="mt-2 text-xs text-gray-500 flex items-center gap-1.5">
         Press Enter to send, Shift+Enter for new line
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="w-3.5 h-3.5 text-gray-500 hover:text-gray-300 cursor-help" />
+              <Info className="w-3.5 h-3.5 text-gray-500 hover:text-gray-400 cursor-help" />
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <p className="font-medium mb-1">Query depth auto-detected:</p>
-              <p className="text-gray-400">• Quick: "Any news on AI?"</p>
-              <p className="text-gray-400">• Standard: "Summarize coverage on climate"</p>
-              <p className="text-gray-400">• Deep: "Analyze trends and implications"</p>
+              <p className="text-gray-500">• Quick: "Any news on AI?"</p>
+              <p className="text-gray-500">• Standard: "Summarize coverage on climate"</p>
+              <p className="text-gray-500">• Deep: "Analyze trends and implications"</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

@@ -108,7 +108,7 @@
 }
 
 .dark .auspex-message-content th {
-  background-color: #1f2937;
+  background-color: #232326;
 }
 
 /* Tool badge hover effect */
@@ -181,7 +181,7 @@
 }
 
 .dark .auspex-session-item:hover {
-  background-color: #1f2937;
+  background-color: #232326;
 }
 
 /* Responsive adjustments */
@@ -206,7 +206,7 @@
 /* CSS Variables for Select - Dark mode */
 html.dark,
 .dark {
-  --select-bg: #1f2937;
+  --select-bg: #232326;
   --select-text: #f3f4f6;
 }
 
@@ -218,7 +218,7 @@ html.dark,
 
 html.dark .auspex-select-fix,
 .dark .auspex-select-fix {
-  --select-bg: #1f2937;
+  --select-bg: #232326;
   --select-text: #f3f4f6;
 }
 

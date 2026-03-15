@@ -80,19 +80,19 @@ function SessionItem({
         <MessageSquare
           className={cn(
             'w-4 h-4 mt-0.5 flex-shrink-0',
-            isActive ? 'text-pink-500' : 'text-gray-400'
+            isActive ? 'text-pink-500' : 'text-gray-500'
           )}
         />
         <div className="flex-1 min-w-0">
           <p
             className={cn(
               'text-sm font-medium truncate',
-              isActive ? 'text-pink-700 dark:text-pink-300' : 'text-gray-700 dark:text-gray-300'
+              isActive ? 'text-pink-700 dark:text-pink-300' : 'text-gray-700 dark:text-gray-400'
             )}
           >
             {session.title || `Chat ${session.id}`}
           </p>
-          <div className="flex items-center gap-2 text-xs text-gray-400">
+          <div className="flex items-center gap-2 text-xs text-gray-500">
             <span>{formatDate(session.updated_at || session.created_at)}</span>
             {session.message_count && (
               <>
@@ -112,7 +112,7 @@ function SessionItem({
           className={cn(
             'absolute right-2 top-1/2 -translate-y-1/2',
             'p-1 rounded opacity-0 group-hover:opacity-100',
-            'text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20',
+            'text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20',
             'transition-all'
           )}
           title="Delete chat"
@@ -162,7 +162,7 @@ export function AuspexChatSidebar({
           'absolute left-0 top-1/2 -translate-y-1/2 z-10',
           'p-1.5 rounded-r-lg',
           'bg-gray-100 dark:bg-gray-800',
-          'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300',
+          'text-gray-500 hover:text-gray-700 dark:hover:text-gray-400',
           'hover:bg-gray-200 dark:hover:bg-gray-700',
           'transition-all',
           isOpen && (isWorkbenchMode ? 'left-72' : 'left-60')
@@ -191,7 +191,7 @@ export function AuspexChatSidebar({
         {/* Header */}
         <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-400">
               <History className="w-4 h-4" />
               Chat History
             </h3>
@@ -209,7 +209,7 @@ export function AuspexChatSidebar({
           {/* Search */}
           {isWorkbenchMode && (
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
                 value={searchQuery}
@@ -220,7 +220,7 @@ export function AuspexChatSidebar({
                   'bg-gray-100 dark:bg-gray-800',
                   'border border-gray-200 dark:border-gray-700',
                   'text-gray-900 dark:text-gray-100',
-                  'placeholder:text-gray-400',
+                  'placeholder:text-gray-500',
                   'focus:outline-none focus:ring-2 focus:ring-pink-500/50'
                 )}
               />
@@ -230,7 +230,7 @@ export function AuspexChatSidebar({
           {/* Topic filter */}
           {isWorkbenchMode && topics.length > 1 && (
             <div className="flex items-center gap-2 mt-2">
-              <Filter className="w-3.5 h-3.5 text-gray-400" />
+              <Filter className="w-3.5 h-3.5 text-gray-500" />
               <div className="flex flex-wrap gap-1">
                 <button
                   onClick={() => setFilterTopic(null)}
@@ -238,7 +238,7 @@ export function AuspexChatSidebar({
                     'px-2 py-0.5 text-xs rounded-full transition-colors',
                     !filterTopic
                       ? 'bg-pink-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                   )}
                 >
                   All
@@ -251,7 +251,7 @@ export function AuspexChatSidebar({
                       'px-2 py-0.5 text-xs rounded-full transition-colors truncate max-w-[80px]',
                       filterTopic === topic
                         ? 'bg-pink-500 text-white'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                     )}
                     title={topic}
                   >
@@ -266,7 +266,7 @@ export function AuspexChatSidebar({
         {/* Sessions list */}
         <div className="flex-1 overflow-y-auto p-2">
           {filteredSessions.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-500">
               <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p className="text-sm">
                 {searchQuery || filterTopic ? 'No matching chats' : 'No chat history'}
@@ -282,7 +282,7 @@ export function AuspexChatSidebar({
             <div className="space-y-4">
               {Object.entries(groupedSessions).map(([group, groupSessions]) => (
                 <div key={group}>
-                  <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider px-2 mb-2">
+                  <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider px-2 mb-2">
                     {group}
                   </h4>
                   <div className="space-y-1">
@@ -318,7 +318,7 @@ export function AuspexChatSidebar({
 
         {/* Footer with stats */}
         {isWorkbenchMode && sessions.length > 0 && (
-          <div className="flex-shrink-0 px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400">
+          <div className="flex-shrink-0 px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500">
             {sessions.length} conversation{sessions.length !== 1 ? 's' : ''}
           </div>
         )}
