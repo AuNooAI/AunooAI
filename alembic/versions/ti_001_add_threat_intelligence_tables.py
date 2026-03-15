@@ -1,7 +1,7 @@
 """Add threat intelligence tables for cyber threat tracking and analysis
 
 Revision ID: ti_001
-Revises: bw_005
+Revises: gh_003
 Create Date: 2026-01-26
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision = 'ti_001'
-down_revision = 'bw_005'
+down_revision = 'gh_003'
 branch_labels = None
 depends_on = None
 

@@ -267,7 +267,7 @@ export function ThreatImportModal({ isOpen, onClose, onImportComplete, model = '
               )}
 
               {/* Stats */}
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center">
                   <div className="text-xl font-bold text-gray-900 dark:text-gray-100">
                     {status.processed || 0}
@@ -278,19 +278,13 @@ export function ThreatImportModal({ isOpen, onClose, onImportComplete, model = '
                   <div className="text-xl font-bold text-red-600">
                     {status.threats_extracted || 0}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Threats</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Threats Found</div>
                 </div>
                 <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center">
                   <div className="text-xl font-bold text-orange-600">
                     {status.actors_identified || 0}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Actors</div>
-                </div>
-                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center">
-                  <div className="text-xl font-bold text-blue-600">
-                    {status.iocs_extracted || 0}
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">IOCs</div>
                 </div>
               </div>
 

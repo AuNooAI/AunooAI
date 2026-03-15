@@ -71,38 +71,6 @@ if (!document.getElementById('leaflet-tailwind-fix-threat')) {
     .leaflet-tooltip {
       pointer-events: none !important;
     }
-    /* Permanent label styling - globe-style cards */
-    .leaflet-tooltip.threat-label {
-      background: rgba(0, 0, 0, 0.75) !important;
-      backdrop-filter: blur(4px) !important;
-      border: none !important;
-      border-radius: 4px !important;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
-      padding: 4px 8px !important;
-      font-family: system-ui, -apple-system, sans-serif !important;
-      white-space: nowrap !important;
-      pointer-events: auto !important;
-      cursor: pointer !important;
-      transition: transform 0.15s ease, box-shadow 0.15s ease !important;
-    }
-    .leaflet-tooltip.threat-label:hover {
-      transform: scale(1.05) !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important;
-    }
-    .leaflet-tooltip.threat-label::before {
-      display: none !important;
-    }
-    .threat-label-name {
-      font-size: 11px !important;
-      font-weight: 600 !important;
-      color: white !important;
-      line-height: 1.2 !important;
-    }
-    .threat-label-meta {
-      font-size: 9px !important;
-      font-weight: 500 !important;
-      margin-top: 1px !important;
-    }
   `;
   document.body.appendChild(leafletFix);
 }
@@ -267,7 +235,6 @@ interface ThreatMapProps {
   onThreatClick?: (threat: ThreatMapData) => void;
   height?: string;
   showLegend?: boolean;
-  showLabels?: boolean;
   centerOnSelected?: boolean;
   fillContainer?: boolean;
 }
@@ -278,7 +245,6 @@ export function ThreatMap({
   onThreatClick,
   height = '500px',
   showLegend = true,
-  showLabels = false,
   centerOnSelected = true,
   fillContainer = false,
 }: ThreatMapProps) {
@@ -365,36 +331,13 @@ export function ThreatMap({
                 click: () => onThreatClick?.(threat),
                 add: (e) => {
                   const marker = e.target;
-
-                  if (showLabels) {
-                    // Globe-style permanent label with colored left border
-                    const labelName = threat.threat_name.length > 25
-                      ? threat.threat_name.substring(0, 23) + '...'
-                      : threat.threat_name;
-                    const typeLabel = THREAT_CATEGORY_LABELS[threat.threat_type] || threat.threat_type;
-                    const color = SEVERITY_COLORS[threat.severity_level];
-                    const labelHtml = `
-                      <div style="border-left: 3px solid ${color}; padding-left: 6px;">
-                        <div class="threat-label-name">${labelName}</div>
-                        <div class="threat-label-meta" style="color: ${color};">${typeLabel} · ${threat.severity_level.toUpperCase()}</div>
-                      </div>
-                    `;
-                    marker.bindTooltip(labelHtml, {
-                      permanent: true,
-                      direction: 'right',
-                      offset: [12, 0],
-                      className: 'threat-label',
-                    });
-                  } else {
-                    // Hover tooltip with full details
-                    const typeLabel = THREAT_CATEGORY_LABELS[threat.threat_type] || threat.threat_type;
-                    const tooltipContent = `<strong>${threat.threat_name}</strong><br/><span style="opacity:0.8">${threat.severity_level.toUpperCase()} - ${typeLabel}${threat.threat_actor_name ? ` - ${threat.threat_actor_name}` : ''}</span>`;
-                    marker.bindTooltip(tooltipContent, {
-                      direction: 'top',
-                      offset: [0, -8],
-                      className: 'threat-tooltip',
-                    });
-                  }
+                  const typeLabel = THREAT_CATEGORY_LABELS[threat.threat_type] || threat.threat_type;
+                  const tooltipContent = `<strong>${threat.threat_name}</strong><br/><span style="opacity:0.8">${threat.severity_level.toUpperCase()} - ${typeLabel}${threat.threat_actor_name ? ` - ${threat.threat_actor_name}` : ''}</span>`;
+                  marker.bindTooltip(tooltipContent, {
+                    direction: 'top',
+                    offset: [0, -8],
+                    className: 'threat-tooltip',
+                  });
                 },
               }}
               {...({ severityLevel: threat.severity_level } as any)}

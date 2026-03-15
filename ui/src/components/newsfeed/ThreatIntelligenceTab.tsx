@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { RefreshCw, AlertCircle, X, Shield, Download, Calendar } from 'lucide-react';
+import { RefreshCw, AlertCircle, X, Shield, Download } from 'lucide-react';
 import { useThreatIntelligence } from '../../hooks/useThreatIntelligence';
 import { ThreatIntelligenceTabs, type ThreatIntelTab } from './ThreatIntelligenceTabs';
 import { ThreatOverviewTab } from './ThreatOverviewTab';
@@ -16,8 +16,7 @@ import { ThreatAnalysisTab } from './ThreatAnalysisTab';
 import { ThreatInsightsTab } from './ThreatInsightsTab';
 import { ThreatArticlesTab } from './ThreatArticlesTab';
 import { ThreatImportModal } from './ThreatImportModal';
-import { ThreatScheduleModal } from './ThreatScheduleModal';
-import type { ThreatMapData, ThreatCategory, SeverityLevel, ThreatActor } from '../../services/threatIntelligenceApi';
+import type { ThreatMapData, ThreatCategory, SeverityLevel } from '../../services/threatIntelligenceApi';
 
 interface ThreatIntelligenceTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
@@ -26,7 +25,6 @@ interface ThreatIntelligenceTabProps {
 
 export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }: ThreatIntelligenceTabProps) {
   const [showImportModal, setShowImportModal] = useState(false);
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
 
   const {
     stats,
@@ -58,48 +56,24 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
   const [selectedThreat, setSelectedThreat] = useState<ThreatMapData | null>(null);
   const [articleThreatFilter, setArticleThreatFilter] = useState<ThreatMapData | null>(null);
   const [articleSeverityFilter, setArticleSeverityFilter] = useState<SeverityLevel | null>(null);
-  const [articleActorFilter, setArticleActorFilter] = useState<ThreatActor | null>(null);
-  const [articleCampaignFilter, setArticleCampaignFilter] = useState<{ id: number; name: string } | null>(null);
 
   // Handle threat click from any tab - navigate to articles with filter
   const handleThreatClick = useCallback((threat: ThreatMapData) => {
     setSelectedThreat(threat);
     setArticleThreatFilter(threat);
-    setArticleActorFilter(null);
     setActiveTab('articles');
   }, []);
 
-  // Handle actor articles click - navigate to articles filtered by actor
-  const handleActorArticlesClick = useCallback((actor: ThreatActor) => {
-    setArticleActorFilter(actor);
-    setArticleThreatFilter(null);
-    setArticleSeverityFilter(null);
-    setArticleCampaignFilter(null);
-    setActiveTab('articles');
-  }, []);
-
-  // Handle campaign articles click - navigate to articles filtered by campaign
-  const handleCampaignArticlesClick = useCallback((campaignId: number, campaignName: string) => {
-    setArticleCampaignFilter({ id: campaignId, name: campaignName });
-    setArticleActorFilter(null);
-    setArticleThreatFilter(null);
-    setArticleSeverityFilter(null);
-    setActiveTab('articles');
-  }, []);
-
-  // Clear the filters on articles tab
+  // Clear the threat filter on articles tab
   const handleThreatFilterClear = useCallback(() => {
     setArticleThreatFilter(null);
     setArticleSeverityFilter(null);
-    setArticleActorFilter(null);
-    setArticleCampaignFilter(null);
   }, []);
 
   // Handle severity level filter from overview tab
   const handleOverviewSeverityFilter = useCallback((level: SeverityLevel) => {
     setArticleSeverityFilter(level);
     setArticleThreatFilter(null);
-    setArticleActorFilter(null);
     setActiveTab('articles');
   }, []);
 
@@ -182,15 +156,6 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
             <option value={365}>Last year</option>
           </select>
 
-          {/* Schedule Button */}
-          <button
-            onClick={() => setShowScheduleModal(true)}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
-          >
-            <Calendar className="w-4 h-4" />
-            Schedule
-          </button>
-
           {/* Update Button */}
           <button
             onClick={() => setShowImportModal(true)}
@@ -264,14 +229,12 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
             fetchTimeline();
             fetchDailyCounts();
           }}
-          onCampaignArticlesClick={handleCampaignArticlesClick}
         />
       )}
 
       {activeTab === 'actors' && (
         <ThreatActorsTab
           onThreatClick={handleThreatClick}
-          onActorArticlesClick={handleActorArticlesClick}
         />
       )}
 
@@ -293,7 +256,6 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
             handleThreatTypesChange([category as ThreatCategory]);
             setActiveTab('articles');
           }}
-          onCampaignArticlesClick={handleCampaignArticlesClick}
         />
       )}
 
@@ -311,17 +273,7 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
           onArticleClick={(article) => {
             console.log('Article clicked:', article);
           }}
-          onThreatClick={(threatId, threatName) => {
-            // Find the threat from mapThreats and filter articles by it
-            const threat = mapThreats.find((t) => t.id === threatId);
-            if (threat) {
-              setArticleThreatFilter(threat);
-              setArticleActorFilter(null);
-            }
-          }}
-          initialThreat={articleThreatFilter ? { id: articleThreatFilter.id, threat_name: articleThreatFilter.threat_name } : null}
-          initialActor={articleActorFilter ? { id: articleActorFilter.id, name: articleActorFilter.name } : null}
-          initialCampaign={articleCampaignFilter}
+          initialThreat={articleThreatFilter}
           onThreatFilterClear={handleThreatFilterClear}
           initialSeverityLevel={articleSeverityFilter}
         />
@@ -333,12 +285,6 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
         onClose={() => setShowImportModal(false)}
         onImportComplete={refresh}
         model={model}
-      />
-
-      {/* Schedule Modal */}
-      <ThreatScheduleModal
-        isOpen={showScheduleModal}
-        onClose={() => setShowScheduleModal(false)}
       />
     </div>
   );

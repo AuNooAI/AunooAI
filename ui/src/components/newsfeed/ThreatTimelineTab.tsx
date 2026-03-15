@@ -1,9 +1,9 @@
 /**
  * ThreatTimelineTab Component
- * Temporal trends visualization with campaign timeline
+ * Temporal trends visualization
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect } from 'react';
 import {
   LineChart,
   Line,
@@ -16,51 +16,21 @@ import {
   Area,
   Legend,
 } from 'recharts';
-import type { TimelineDataPoint, DailyCount, Campaign } from '../../services/threatIntelligenceApi';
-import { getCampaigns } from '../../services/threatIntelligenceApi';
-import { CampaignDetailModal } from './CampaignDetailModal';
-import { CampaignTimelineChart } from './CampaignTimelineChart';
+import type { TimelineDataPoint, DailyCount } from '../../services/threatIntelligenceApi';
 
 interface ThreatTimelineTabProps {
   timeline: TimelineDataPoint[];
   dailyCounts: DailyCount[];
   loading: boolean;
   onLoad: () => void;
-  onCampaignClick?: (campaign: Campaign) => void;
-  onCampaignArticlesClick?: (campaignId: number, campaignName: string) => void;
 }
 
-export function ThreatTimelineTab({ timeline, dailyCounts, loading, onLoad, onCampaignClick, onCampaignArticlesClick }: ThreatTimelineTabProps) {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [campaignsLoading, setCampaignsLoading] = useState(true);
-  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-
-  const handleCampaignClick = (campaign: Campaign) => {
-    if (onCampaignClick) {
-      onCampaignClick(campaign);
-    } else {
-      setSelectedCampaign(campaign);
-    }
-  };
-
-  const fetchCampaigns = useCallback(async () => {
-    setCampaignsLoading(true);
-    try {
-      const result = await getCampaigns({ page: 1, pageSize: 50 });
-      setCampaigns(result.data);
-    } catch (error) {
-      console.error('Error fetching campaigns:', error);
-    } finally {
-      setCampaignsLoading(false);
-    }
-  }, []);
-
+export function ThreatTimelineTab({ timeline, dailyCounts, loading, onLoad }: ThreatTimelineTabProps) {
   useEffect(() => {
     if (timeline.length === 0 || dailyCounts.length === 0) {
       onLoad();
     }
-    fetchCampaigns();
-  }, [onLoad, timeline.length, dailyCounts.length, fetchCampaigns]);
+  }, [onLoad, timeline.length, dailyCounts.length]);
 
   if (loading && timeline.length === 0) {
     return (
@@ -77,20 +47,6 @@ export function ThreatTimelineTab({ timeline, dailyCounts, loading, onLoad, onCa
 
   return (
     <div className="space-y-6">
-      {/* Campaign Timeline Chart */}
-      {campaignsLoading ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex items-center justify-center h-32">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-500"></div>
-          </div>
-        </div>
-      ) : (
-        <CampaignTimelineChart
-          campaigns={campaigns}
-          onCampaignClick={handleCampaignClick}
-        />
-      )}
-
       {/* Article Activity Chart */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">
@@ -237,15 +193,6 @@ export function ThreatTimelineTab({ timeline, dailyCounts, loading, onLoad, onCa
           </ResponsiveContainer>
         </div>
       </div>
-
-      {/* Campaign Detail Modal */}
-      {selectedCampaign && (
-        <CampaignDetailModal
-          campaign={selectedCampaign}
-          onClose={() => setSelectedCampaign(null)}
-          onViewArticles={onCampaignArticlesClick}
-        />
-      )}
     </div>
   );
 }

@@ -6,7 +6,7 @@ Follows the same pattern as geopolitical_hotspots_monitor.py.
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any, List, Union
+from typing import Dict, Optional, Any, List
 from sqlalchemy import text
 
 from app.database import Database, get_database_instance
@@ -31,19 +31,17 @@ def get_task_status() -> Dict:
 
 def calculate_next_run(
     schedule_type: str,
-    schedule_interval: int = 1,
-    schedule_unit: str = 'hours',
-    schedule_time: Optional[Any] = None,
+    hour: int = 0,
+    day_of_week: int = 0,
     from_time: Optional[datetime] = None
 ) -> datetime:
     """
     Calculate the next run time based on schedule configuration.
 
     Args:
-        schedule_type: 'interval' or 'daily'
-        schedule_interval: Number of units between runs
-        schedule_unit: 'minutes', 'hours', 'days', or 'weeks'
-        schedule_time: Time of day to run (for daily schedules)
+        schedule_type: 'hourly', 'daily', or 'weekly'
+        hour: Hour of day to run (for daily/weekly)
+        day_of_week: Day of week (0=Sunday) for weekly
         from_time: Base time to calculate from (defaults to now)
 
     Returns:
@@ -51,43 +49,25 @@ def calculate_next_run(
     """
     now = from_time or datetime.now()
 
-    if schedule_type == 'interval':
-        # Interval-based scheduling
-        if schedule_unit == 'minutes':
-            return now + timedelta(minutes=schedule_interval)
-        elif schedule_unit == 'hours':
-            return now + timedelta(hours=schedule_interval)
-        elif schedule_unit == 'days':
-            return now + timedelta(days=schedule_interval)
-        elif schedule_unit == 'weeks':
-            return now + timedelta(weeks=schedule_interval)
-        else:
-            # Default to hours
-            return now + timedelta(hours=schedule_interval)
+    if schedule_type == 'hourly':
+        # Next hour
+        next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        return next_run
 
     elif schedule_type == 'daily':
-        # Daily at specific time
-        if schedule_time:
-            # schedule_time could be a time object or string
-            if hasattr(schedule_time, 'hour'):
-                hour = schedule_time.hour
-                minute = schedule_time.minute
-            else:
-                # Parse string like "14:00"
-                try:
-                    parts = str(schedule_time).split(':')
-                    hour = int(parts[0])
-                    minute = int(parts[1]) if len(parts) > 1 else 0
-                except:
-                    hour, minute = 0, 0
+        # Next occurrence of specified hour
+        next_run = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        return next_run
 
-            next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if next_run <= now:
-                next_run += timedelta(days=1)
-            return next_run
-        else:
-            # No time specified, run same time tomorrow
-            return now + timedelta(days=1)
+    elif schedule_type == 'weekly':
+        # Next occurrence of specified day and hour
+        days_until = (day_of_week - now.weekday()) % 7
+        if days_until == 0 and now.hour >= hour:
+            days_until = 7
+        next_run = now.replace(hour=hour, minute=0, second=0, microsecond=0) + timedelta(days=days_until)
+        return next_run
 
     # Default: run in 24 hours
     return now + timedelta(hours=24)
@@ -105,12 +85,11 @@ class ThreatIntelligenceMonitor:
         try:
             conn = self.db._temp_get_connection()
             result = conn.execute(text("""
-                SELECT id, name, topic, batch_size, model, process_all,
-                       schedule_enabled, schedule_type, schedule_interval,
-                       schedule_unit, schedule_time,
+                SELECT id, name, schedule_type, hour, day_of_week,
+                       article_limit, days_back, is_active,
                        last_run_at, next_run_at, run_count
                 FROM threat_intel_schedules
-                WHERE schedule_enabled = true
+                WHERE is_active = true
                   AND (next_run_at IS NULL OR next_run_at <= NOW())
                 ORDER BY next_run_at ASC NULLS FIRST
             """))
@@ -148,13 +127,13 @@ class ThreatIntelligenceMonitor:
                 updates.append("next_run_at = :next_run")
                 params["next_run"] = next_run_at
 
-            updates.append("last_run_articles_processed = :articles_processed")
+            updates.append("articles_processed = :articles_processed")
             params["articles_processed"] = articles_processed
 
-            updates.append("last_run_threats_created = :threats_extracted")
+            updates.append("threats_extracted = :threats_extracted")
             params["threats_extracted"] = threats_extracted
 
-            updates.append("last_run_threats_updated = :actors_identified")
+            updates.append("actors_identified = :actors_identified")
             params["actors_identified"] = actors_identified
 
             if status == 'success':
@@ -210,8 +189,8 @@ class ThreatIntelligenceMonitor:
             service = get_threat_intelligence_service()
 
             # Get configuration from schedule
-            article_limit = schedule.get('batch_size', 50)
-            days_back = 7  # Default to 7 days back for articles
+            article_limit = schedule.get('article_limit', 50)
+            days_back = schedule.get('days_back', 1)
 
             logger.info(f"Running threat intel schedule: {schedule_name} (ID: {schedule_id}, limit: {article_limit}, days: {days_back})")
 
@@ -227,10 +206,9 @@ class ThreatIntelligenceMonitor:
 
                 # Calculate next run time
                 next_run = calculate_next_run(
-                    schedule_type=schedule.get('schedule_type', 'interval'),
-                    schedule_interval=schedule.get('schedule_interval', 24),
-                    schedule_unit=schedule.get('schedule_unit', 'hours'),
-                    schedule_time=schedule.get('schedule_time')
+                    schedule_type=schedule.get('schedule_type', 'daily'),
+                    hour=schedule.get('hour', 0),
+                    day_of_week=schedule.get('day_of_week', 0)
                 )
                 self.update_schedule_status(schedule_id, 'success', next_run_at=next_run)
                 return result
@@ -271,23 +249,6 @@ class ThreatIntelligenceMonitor:
                         threats = [extraction_result]
 
                     for threat_data in threats:
-                        # Run NER extraction on article text
-                        try:
-                            from app.utils.ner_extractor import extract_entities
-                            article_text = f"{article.get('title', '')} {article.get('summary', '')}"
-                            ner_entities = extract_entities(article_text)
-
-                            if ner_entities.get('organizations'):
-                                threat_data['ner_organizations'] = ner_entities['organizations']
-                            if ner_entities.get('locations'):
-                                threat_data['ner_locations'] = ner_entities['locations']
-                            if ner_entities.get('persons'):
-                                threat_data['ner_persons'] = ner_entities['persons']
-                            if ner_entities.get('products'):
-                                threat_data['ner_products'] = ner_entities['products']
-                        except Exception as ner_err:
-                            logger.warning(f"NER extraction failed: {ner_err}")
-
                         # Create or update threat
                         threat_id = service.create_or_update_threat(threat_data)
 
@@ -331,37 +292,6 @@ class ThreatIntelligenceMonitor:
             except Exception as e:
                 logger.warning(f"Failed to update daily stats: {e}")
 
-            # Update threat trends (escalating/declining)
-            try:
-                from scripts.calculate_threat_trends import (
-                    get_threat_article_counts,
-                    get_threat_ioc_counts,
-                    calculate_trend,
-                    update_threat_trends,
-                    update_recent_article_counts
-                )
-                logger.info("Calculating threat trends...")
-                article_data = get_threat_article_counts(days=7)
-                ioc_data = get_threat_ioc_counts(days=7)
-
-                trends_to_update = {}
-                for threat_id, data in article_data.items():
-                    ioc_info = ioc_data.get(threat_id, {'current_iocs': 0, 'previous_iocs': 0})
-                    new_trend, _ = calculate_trend(
-                        current_articles=data['current_count'],
-                        previous_articles=data['previous_count'],
-                        current_iocs=ioc_info['current_iocs'],
-                        previous_iocs=ioc_info['previous_iocs'],
-                        severity_score=data['severity_score']
-                    )
-                    trends_to_update[threat_id] = new_trend
-
-                updated = update_threat_trends(trends_to_update)
-                update_recent_article_counts(days=7)
-                logger.info(f"Updated trends for {updated} threats")
-            except Exception as e:
-                logger.warning(f"Failed to update threat trends: {e}")
-
             result["success"] = True
             result["articles_processed"] = stats["processed"]
             result["threats_extracted"] = stats["threats"]
@@ -369,10 +299,9 @@ class ThreatIntelligenceMonitor:
 
             # Calculate next run time
             next_run = calculate_next_run(
-                schedule_type=schedule.get('schedule_type', 'interval'),
-                schedule_interval=schedule.get('schedule_interval', 24),
-                schedule_unit=schedule.get('schedule_unit', 'hours'),
-                schedule_time=schedule.get('schedule_time')
+                schedule_type=schedule.get('schedule_type', 'daily'),
+                hour=schedule.get('hour', 0),
+                day_of_week=schedule.get('day_of_week', 0)
             )
 
             self.update_schedule_status(
@@ -400,10 +329,9 @@ class ThreatIntelligenceMonitor:
 
             # Still calculate next run time even on error
             next_run = calculate_next_run(
-                schedule_type=schedule.get('schedule_type', 'interval'),
-                schedule_interval=schedule.get('schedule_interval', 24),
-                schedule_unit=schedule.get('schedule_unit', 'hours'),
-                schedule_time=schedule.get('schedule_time')
+                schedule_type=schedule.get('schedule_type', 'daily'),
+                hour=schedule.get('hour', 0),
+                day_of_week=schedule.get('day_of_week', 0)
             )
             self.update_schedule_status(schedule_id, 'error', error=error_msg, next_run_at=next_run)
 
@@ -494,9 +422,8 @@ async def run_schedule_now(db: Database, schedule_id: int) -> Dict[str, Any]:
     try:
         conn = db._temp_get_connection()
         result = conn.execute(text("""
-            SELECT id, name, topic, batch_size, model, process_all,
-                   schedule_enabled, schedule_type, schedule_interval,
-                   schedule_unit, schedule_time,
+            SELECT id, name, schedule_type, hour, day_of_week,
+                   article_limit, days_back, is_active,
                    last_run_at, next_run_at, run_count
             FROM threat_intel_schedules
             WHERE id = :id

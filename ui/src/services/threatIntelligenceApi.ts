@@ -440,15 +440,14 @@ export interface ThreatNarrative {
 export interface ThreatSchedule {
   id: number;
   name: string;
-  schedule_type: 'interval' | 'daily';
-  schedule_interval: number;
-  schedule_unit: 'minutes' | 'hours' | 'days' | 'weeks';
-  schedule_time: string | null;
-  batch_size: number;
-  schedule_enabled: boolean;
+  schedule_type: 'hourly' | 'daily' | 'weekly';
+  hour: number;
+  day_of_week: number | null;
+  article_limit: number;
+  days_back: number;
+  is_active: boolean;
   last_run_at: string | null;
   next_run_at: string | null;
-  last_run_status: string | null;
   run_count: number;
 }
 
@@ -458,7 +457,6 @@ export interface ProcessingStatus {
   total_articles: number;
   threats_extracted: number;
   actors_identified: number;
-  iocs_extracted: number;
   current_article: string | null;
   error: string | null;
 }
@@ -587,47 +585,6 @@ export async function getThreatArticles(
   const response = await fetch(`${API_BASE}/threat/${threatId}/articles?${params}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch threat articles: ${response.statusText}`);
-  }
-  const data = await response.json();
-  return {
-    data: data.articles,
-    total: data.total,
-    page: data.page,
-    page_size: data.page_size,
-    total_pages: data.total_pages,
-  };
-}
-
-/**
- * Get all articles that have linked threats (paginated with filters)
- */
-export async function getAllThreatArticles(options: {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  severityLevel?: SeverityLevel;
-  threatType?: ThreatType;
-  threatId?: number;
-  actorId?: number;
-  campaignId?: number;
-  sortBy?: 'date' | 'title' | 'relevance' | 'severity';
-  sortOrder?: 'asc' | 'desc';
-}): Promise<PaginatedResponse<LinkedArticle>> {
-  const params = new URLSearchParams();
-  if (options.page) params.append('page', String(options.page));
-  if (options.pageSize) params.append('page_size', String(options.pageSize));
-  if (options.search) params.append('search', options.search);
-  if (options.severityLevel) params.append('severity_level', options.severityLevel);
-  if (options.threatType) params.append('threat_type', options.threatType);
-  if (options.threatId) params.append('threat_id', String(options.threatId));
-  if (options.actorId) params.append('actor_id', String(options.actorId));
-  if (options.campaignId) params.append('campaign_id', String(options.campaignId));
-  if (options.sortBy) params.append('sort_by', options.sortBy);
-  if (options.sortOrder) params.append('sort_order', options.sortOrder);
-
-  const response = await fetch(`${API_BASE}/articles?${params}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch articles: ${response.statusText}`);
   }
   const data = await response.json();
   return {
@@ -954,33 +911,7 @@ export async function getNarratives(
   if (!response.ok) {
     throw new Error(`Failed to fetch narratives: ${response.statusText}`);
   }
-  const result = await response.json();
-
-  // Map backend fields to frontend interface
-  const mappedData = (result.data || []).map((item: any) => {
-    const generatedAt = item.generated_at || new Date().toISOString();
-    return {
-      id: item.id,
-      period_type: 'weekly' as const,
-      period_start: item.period_start || generatedAt,
-      period_end: item.period_end || generatedAt,
-      content: item.narrative_text || item.executive_summary || '',
-      threat_count: item.threat_count || 0,
-      actor_count: item.actor_count || item.top_actors?.length || 0,
-      article_count: item.article_count || 0,
-      model_used: item.model_used,
-      topic: item.topic,
-      created_at: generatedAt,
-    };
-  });
-
-  return {
-    data: mappedData,
-    total: result.total,
-    page: result.page,
-    page_size: result.page_size,
-    total_pages: result.total_pages,
-  };
+  return response.json();
 }
 
 export async function getLatestNarrative(topic?: string): Promise<Narrative | null> {
@@ -992,16 +923,6 @@ export async function getLatestNarrative(topic?: string): Promise<Narrative | nu
     throw new Error(`Failed to fetch narrative: ${response.statusText}`);
   }
   return response.json();
-}
-
-export async function deleteNarrative(narrativeId: number): Promise<void> {
-  const response = await fetch(`${API_BASE}/narratives/${narrativeId}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `Failed to delete narrative: ${response.statusText}`);
-  }
 }
 
 export async function generateNarrative(
@@ -1019,22 +940,7 @@ export async function generateNarrative(
     throw new Error(error.detail || `Failed to generate narrative: ${response.statusText}`);
   }
   const data = await response.json();
-  const item = data.narrative;
-
-  // Map backend fields to frontend interface
-  return {
-    id: item.id,
-    period_type: periodType,
-    period_start: item.period_start || item.generated_at || '',
-    period_end: item.period_end || item.generated_at || '',
-    content: item.narrative_text || item.executive_summary || '',
-    threat_count: item.threat_count || 0,
-    actor_count: 0,
-    article_count: item.article_count || 0,
-    model_used: item.model_used,
-    topic: item.topic,
-    created_at: item.generated_at || new Date().toISOString(),
-  };
+  return data.narrative;
 }
 
 // ============================================================================
@@ -1100,9 +1006,6 @@ export async function runScheduleNow(scheduleId: number): Promise<ProcessArticle
   }
   return response.json();
 }
-
-// Alias for backwards compatibility
-export const runSchedule = runScheduleNow;
 
 export async function getMonitorStatus(): Promise<MonitorStatus> {
   const response = await fetch(`${API_BASE}/schedules/status`);

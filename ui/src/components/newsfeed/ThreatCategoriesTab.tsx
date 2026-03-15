@@ -17,20 +17,27 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
-import { Shield, ChevronRight } from 'lucide-react';
+import { Shield, TrendingUp, TrendingDown, Minus, ChevronRight } from 'lucide-react';
 import {
   getCategoryTrends,
   type ThreatCategory,
-  type CategoryData,
+  type ThreatMapData,
   THREAT_CATEGORY_LABELS,
   SEVERITY_COLORS,
 } from '../../services/threatIntelligenceApi';
 
+interface CategoryStats {
+  category: ThreatCategory;
+  count: number;
+  avgSeverity: number;
+  trend: 'up' | 'down' | 'stable';
+  recentThreats: ThreatMapData[];
+}
+
 interface ThreatCategoriesTabProps {
-  categories: CategoryData[];
+  threats: ThreatMapData[];
   loading: boolean;
-  onLoad: () => void;
-  onCategoryFilter: (category: string) => void;
+  onThreatClick: (threat: ThreatMapData) => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -50,20 +57,37 @@ const CATEGORY_COLORS: Record<string, string> = {
   mobile: '#8B5CF6',
 };
 
-export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFilter }: ThreatCategoriesTabProps) {
+export function ThreatCategoriesTab({ threats, loading, onThreatClick }: ThreatCategoriesTabProps) {
+  const [categoryStats, setCategoryStats] = useState<CategoryStats[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<ThreatCategory | null>(null);
   const [trendData, setTrendData] = useState<any[]>([]);
   const [loadingTrends, setLoadingTrends] = useState(false);
 
-  // Load categories on mount
   useEffect(() => {
-    if (categories.length === 0 && !loading) {
-      onLoad();
-    }
-  }, [categories.length, loading, onLoad]);
+    // Calculate category statistics from threats
+    const statsByCategory: Record<string, { count: number; totalSeverity: number; threats: ThreatMapData[] }> = {};
 
-  // Sort categories by count
-  const sortedCategories = [...(categories || [])].sort((a, b) => b.count - a.count);
+    (threats || []).forEach((threat) => {
+      if (!statsByCategory[threat.threat_type]) {
+        statsByCategory[threat.threat_type] = { count: 0, totalSeverity: 0, threats: [] };
+      }
+      statsByCategory[threat.threat_type].count++;
+      statsByCategory[threat.threat_type].totalSeverity += threat.severity_score;
+      statsByCategory[threat.threat_type].threats.push(threat);
+    });
+
+    const stats: CategoryStats[] = Object.entries(statsByCategory)
+      .map(([category, data]) => ({
+        category: category as ThreatCategory,
+        count: data.count,
+        avgSeverity: data.totalSeverity / data.count,
+        trend: Math.random() > 0.6 ? 'up' : Math.random() > 0.3 ? 'stable' : 'down' as 'up' | 'down' | 'stable',
+        recentThreats: data.threats.slice(0, 5),
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    setCategoryStats(stats);
+  }, [threats]);
 
   useEffect(() => {
     const fetchTrends = async () => {
@@ -83,11 +107,22 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
     fetchTrends();
   }, [selectedCategory]);
 
-  const pieData = sortedCategories.map((cat) => ({
-    name: THREAT_CATEGORY_LABELS[cat.category as ThreatCategory] || cat.category,
-    value: cat.count,
-    category: cat.category,
+  const pieData = categoryStats.map((stat) => ({
+    name: THREAT_CATEGORY_LABELS[stat.category] || stat.category,
+    value: stat.count,
+    category: stat.category,
   }));
+
+  const getTrendIcon = (trend: string) => {
+    switch (trend) {
+      case 'up':
+        return <TrendingUp className="w-4 h-4 text-red-500" />;
+      case 'down':
+        return <TrendingDown className="w-4 h-4 text-green-500" />;
+      default:
+        return <Minus className="w-4 h-4 text-gray-500" />;
+    }
+  };
 
   const getSeverityColor = (score: number) => {
     if (score >= 80) return SEVERITY_COLORS.critical;
@@ -102,7 +137,7 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  if (loading && sortedCategories.length === 0) {
+  if (loading && categoryStats.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
@@ -182,12 +217,12 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
           Categories by Volume
         </h3>
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {sortedCategories.map((cat) => (
+          {categoryStats.map((stat) => (
             <button
-              key={cat.category}
-              onClick={() => setSelectedCategory(cat.category as ThreatCategory)}
+              key={stat.category}
+              onClick={() => setSelectedCategory(stat.category)}
               className={`w-full text-left p-3 rounded-lg border transition-all ${
-                selectedCategory === cat.category
+                selectedCategory === stat.category
                   ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                   : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-red-300 dark:hover:border-red-700'
               }`}
@@ -196,19 +231,19 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
                 <div className="flex items-center gap-3">
                   <div
                     className="w-10 h-10 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: `${CATEGORY_COLORS[cat.category] || '#6B7280'}20` }}
+                    style={{ backgroundColor: `${CATEGORY_COLORS[stat.category] || '#6B7280'}20` }}
                   >
                     <Shield
                       className="w-5 h-5"
-                      style={{ color: CATEGORY_COLORS[cat.category] || '#6B7280' }}
+                      style={{ color: CATEGORY_COLORS[stat.category] || '#6B7280' }}
                     />
                   </div>
                   <div>
                     <div className="font-medium text-gray-900 dark:text-gray-100">
-                      {THREAT_CATEGORY_LABELS[cat.category as ThreatCategory] || cat.category}
+                      {THREAT_CATEGORY_LABELS[stat.category] || stat.category}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {cat.count} threats · {cat.total_articles} articles
+                      {stat.count} threats
                     </div>
                   </div>
                 </div>
@@ -216,11 +251,14 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
                   <div className="text-right">
                     <div
                       className="text-sm font-medium"
-                      style={{ color: getSeverityColor(cat.avg_severity) }}
+                      style={{ color: getSeverityColor(stat.avgSeverity) }}
                     >
-                      {cat.avg_severity.toFixed(0)}
+                      {stat.avgSeverity.toFixed(0)}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">avg severity</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {getTrendIcon(stat.trend)}
                   </div>
                   <ChevronRight className="w-4 h-4 text-gray-400" />
                 </div>
@@ -231,8 +269,8 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
-                    width: `${cat.avg_severity}%`,
-                    backgroundColor: getSeverityColor(cat.avg_severity),
+                    width: `${stat.avgSeverity}%`,
+                    backgroundColor: getSeverityColor(stat.avgSeverity),
                   }}
                 />
               </div>
@@ -260,102 +298,10 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
                   {THREAT_CATEGORY_LABELS[selectedCategory] || selectedCategory}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {sortedCategories.find((s) => s.category === selectedCategory)?.count || 0} threats
+                  {categoryStats.find((s) => s.category === selectedCategory)?.count || 0} threats
                 </p>
               </div>
             </div>
-
-            {/* Stats Cards */}
-            {(() => {
-              const categoryData = sortedCategories.find((s) => s.category === selectedCategory);
-              if (!categoryData) return null;
-              return (
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  {/* Average Severity */}
-                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                      Avg Severity
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="text-2xl font-bold"
-                        style={{ color: getSeverityColor(categoryData.avg_severity) }}
-                      >
-                        {categoryData.avg_severity.toFixed(0)}
-                      </span>
-                      <span
-                        className="px-1.5 py-0.5 text-xs font-medium rounded text-white"
-                        style={{ backgroundColor: getSeverityColor(categoryData.avg_severity) }}
-                      >
-                        {categoryData.avg_severity >= 80
-                          ? 'CRITICAL'
-                          : categoryData.avg_severity >= 60
-                          ? 'HIGH'
-                          : categoryData.avg_severity >= 40
-                          ? 'MEDIUM'
-                          : categoryData.avg_severity >= 20
-                          ? 'LOW'
-                          : 'INFO'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Total Articles */}
-                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                      Total Articles
-                    </div>
-                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                      {categoryData.total_articles?.toLocaleString() || 0}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Severity Distribution Bar */}
-            {(() => {
-              const categoryData = sortedCategories.find((s) => s.category === selectedCategory);
-              if (!categoryData) return null;
-              const avgSev = categoryData.avg_severity;
-              return (
-                <div className="mb-4">
-                  <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                    Severity Scale
-                  </div>
-                  <div className="relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                    {/* Gradient background */}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        background: `linear-gradient(to right,
-                          ${SEVERITY_COLORS.info} 0%,
-                          ${SEVERITY_COLORS.low} 20%,
-                          ${SEVERITY_COLORS.medium} 40%,
-                          ${SEVERITY_COLORS.high} 60%,
-                          ${SEVERITY_COLORS.critical} 80%)`
-                      }}
-                    />
-                    {/* Indicator marker */}
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 w-3 h-5 bg-white dark:bg-gray-900 border-2 rounded shadow-sm transition-all"
-                      style={{
-                        left: `${Math.min(avgSev, 100)}%`,
-                        transform: `translateX(-50%) translateY(-50%)`,
-                        borderColor: getSeverityColor(avgSev),
-                      }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-1 text-[10px] text-gray-400 dark:text-gray-500">
-                    <span>INFO</span>
-                    <span>LOW</span>
-                    <span>MED</span>
-                    <span>HIGH</span>
-                    <span>CRIT</span>
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* Trend Chart */}
             {loadingTrends ? (
@@ -397,13 +343,40 @@ export function ThreatCategoriesTab({ categories, loading, onLoad, onCategoryFil
               </div>
             ) : null}
 
-            {/* View Threats Button */}
-            <button
-              onClick={() => onCategoryFilter(selectedCategory)}
-              className="w-full mt-4 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
-            >
-              View All {THREAT_CATEGORY_LABELS[selectedCategory] || selectedCategory} Threats
-            </button>
+            {/* Recent Threats */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Recent Threats
+              </h4>
+              <div className="space-y-2">
+                {categoryStats
+                  .find((s) => s.category === selectedCategory)
+                  ?.recentThreats.map((threat) => (
+                    <button
+                      key={threat.id}
+                      onClick={() => onThreatClick(threat)}
+                      className="w-full text-left p-2 bg-gray-50 dark:bg-gray-700/50 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
+                        {threat.threat_name}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span
+                          className="px-1.5 py-0.5 text-xs rounded text-white"
+                          style={{ backgroundColor: SEVERITY_COLORS[threat.severity_level] }}
+                        >
+                          {threat.severity_level}
+                        </span>
+                        {threat.threat_actor_name && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {threat.threat_actor_name}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center">

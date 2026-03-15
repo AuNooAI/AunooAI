@@ -863,6 +863,13 @@ export function NewsFeedPage() {
           )}
           {isModuleEnabled('policy') && (
           <button
+            className={`explore-tab-btn ${currentTab === 'threatintel' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('threatintel')}
+          >
+            <Shield className="w-4 h-4" />
+            Threat Intel
+          </button>
+          <button
             className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
             onClick={() => setCurrentTab('policy')}
           >
@@ -1252,6 +1259,13 @@ export function NewsFeedPage() {
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
                 <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
               </Suspense>
+            )}
+
+            {/* Threat Intelligence Tab Content */}
+            {currentTab === 'threatintel' && (
+              <ThreatIntelligenceTab
+                onArticleClick={handleArticleClick}
+              />
             )}
 
             {/* Saved Tab Content - Articles, Incidents, Emerging Topics, and Podcasts */}

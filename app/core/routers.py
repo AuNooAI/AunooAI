@@ -62,6 +62,7 @@ def register_routers(app: FastAPI):
     from app.routes.policy_tracker_routes import router as policy_tracker_router
     from app.routes.geopolitical_hotspots_routes import router as geopolitical_hotspots_router
     from app.provider_config.api import router as provider_config_router
+    from app.routes.threat_intelligence_routes import router as threat_intelligence_router
 
     # Register database routes
     app.include_router(database.router)
@@ -216,5 +217,8 @@ def register_routers(app: FastAPI):
 
     # Provider configuration routes
     app.include_router(provider_config_router)
+
+    # Threat Intelligence dashboard routes
+    app.include_router(threat_intelligence_router)
 
     logger.info("All routers registered successfully")

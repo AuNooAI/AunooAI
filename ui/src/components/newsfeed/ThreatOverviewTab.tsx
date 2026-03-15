@@ -16,34 +16,12 @@ import {
 import {
   type OverviewStats,
   type ThreatMapData,
-  type ThreatSummary,
   type SeverityLevel,
   type ThreatCategory,
   SEVERITY_COLORS,
   SEVERITY_LABELS,
   THREAT_CATEGORY_LABELS,
 } from '../../services/threatIntelligenceApi';
-
-// Helper to convert ThreatSummary to ThreatMapData for navigation
-function threatSummaryToMapData(threat: ThreatSummary): ThreatMapData {
-  return {
-    id: threat.id,
-    threat_name: threat.threat_name,
-    threat_type: threat.threat_type,
-    threat_subtype: null,
-    severity_level: threat.severity_level,
-    severity_score: threat.severity_score,
-    trend: threat.trend,
-    threat_actor_name: threat.threat_actor_name,
-    attributed_country: null,
-    attributed_country_name: null,
-    target_countries: null,
-    latitude: 0,
-    longitude: 0,
-    target_industries: null,
-    article_count: threat.article_count,
-  };
-}
 
 interface ThreatOverviewTabProps {
   stats: OverviewStats | null;
@@ -251,9 +229,8 @@ export function ThreatOverviewTab({
               <button
                 key={threat.id}
                 onClick={() => {
-                  // Find in mapThreats, or convert summary to map data for navigation
                   const mapThreat = threats.find((t) => t.id === threat.id);
-                  onThreatClick(mapThreat || threatSummaryToMapData(threat));
+                  if (mapThreat) onThreatClick(mapThreat);
                 }}
                 className="w-full text-left p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
               >
