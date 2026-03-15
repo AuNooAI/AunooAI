@@ -3619,22 +3619,22 @@ if __name__ == "__main__":
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(cert_file, keyfile=key_file)
         
-        logger.info("Starting server with SSL on https://0.0.0.0:10000")
+        logger.info("Starting server with SSL on https://0.0.0.0:10001")
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
-            port=10000,
+            port=10001,
             ssl_keyfile=key_file,
             ssl_certfile=cert_file,
             reload=True
         )
     else:
         # Run without SSL if certificates are not available
-        logger.info("SSL certificates not found. Starting server without SSL on http://0.0.0.0:8010")
+        logger.info("SSL certificates not found. Starting server without SSL on http://0.0.0.0:10001")
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
-            port=8010,
+            port=10001,
             reload=True
         )
 
