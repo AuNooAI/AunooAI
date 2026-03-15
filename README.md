@@ -110,6 +110,11 @@ python app/run.py
 ```
 
 ### Docker (Optional)
+#### Verify Docker is running
+```bash
+docker run hello-world
+```
+
 ```bash
 # Development
 docker-compose up aunooai-dev
