@@ -60,9 +60,24 @@ class AutomatedIngestService:
             thread_name_prefix="blocking_io_"
         )
 
+        # Cached Research instances keyed by model_name
+        self._research_cache = {}
+
         # Configure logging
         self.logger = logger
         self.logger.info("AutomatedIngestService initialized with async capabilities and dedicated blocking I/O executor (3 workers)")
+
+    def _get_research(self, model_name: str = None) -> 'Research':
+        """Get a cached Research instance, creating one only on first call per model_name.
+
+        Avoids re-initializing Firecrawl (which counts as a billable API call) and
+        reloading topic configs for every article processed.
+        """
+        from app.research import Research
+        cache_key = model_name or '_default'
+        if cache_key not in self._research_cache:
+            self._research_cache[cache_key] = Research(self.db, model_name=model_name)
+        return self._research_cache[cache_key]
     
     def get_llm_client(self, model_override: str = None) -> str:
         """
@@ -187,14 +202,13 @@ class AutomatedIngestService:
                 return article_data
             
             # Get topic-specific ontology dynamically using Research class
-            from app.research import Research
             model_name = self.get_llm_client()
-            research = Research(self.db, model_name=model_name)
+            research = self._get_research(model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
-            
+
             # Set topic and get dynamic ontology data
             research.set_topic(topic)
-            
+
             # Check if we're in an event loop context
             try:
                 # Try to get the running event loop
@@ -932,11 +946,10 @@ class AutomatedIngestService:
                 article_data['topic'] = topic
             
             # Get topic-specific ontology dynamically using Research class
-            from app.research import Research
             model_name = self.get_llm_client()
-            research = Research(self.db, model_name=model_name)
+            research = self._get_research(model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
-            
+
             # Set topic and get dynamic ontology data asynchronously
             research.set_topic(topic)
             
