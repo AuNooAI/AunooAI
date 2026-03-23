@@ -1051,7 +1051,7 @@ class AutomatedIngestService:
             self.logger.error(f"Vector database upsert failed: {e}")
             raise
 
-    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False) -> Dict[str, Any]:
+    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False, relevance_threshold_override: float = None) -> Dict[str, Any]:
         """
         Process a batch of articles through the enrichment pipeline
         
