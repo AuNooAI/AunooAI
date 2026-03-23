@@ -40,31 +40,48 @@ class NewsFirehoseCollector(ArticleCollector):
     def _normalize_query(query: str) -> str:
         """Normalize query for NewsFirehose /v1/search endpoint.
 
-        The /v1/search endpoint uses PostgreSQL full-text search and supports:
-        - Simple keywords: "climate change"
-        - Boolean operators: "climate AND change", "bitcoin OR ethereum"
-        - NOT operator: "tech NOT gaming"
-        - Phrase search: '"artificial intelligence"' (with quotes)
+        The /v1/search endpoint uses PostgreSQL full-text search via plainto_tsquery
+        or a custom parser. It supports:
+        - Simple keywords: climate change
+        - Single words with OR: AGI OR superintelligence
+        - AND: military AND coup
+        - Single quoted phrase: "artificial intelligence"
 
-        Boolean operators MUST be UPPERCASE (AND, OR, NOT).
+        It does NOT support:
+        - Multiple quoted phrases with OR: "AI" OR "machine learning" (tsquery parse error)
+        - Parenthetical grouping: (AGI | "frontier model") + (research)
+        - Complex NewsAPI-style boolean syntax
+
+        Strategy: extract all meaningful terms (quoted phrases become unquoted words),
+        strip parentheses and special operators, join with OR for broad matching.
+        Precision comes from the relevance scoring downstream, not the search query.
         """
         if not query:
             return query
 
-        # Convert lowercase boolean operators to uppercase
-        # Must be careful to only match standalone words, not parts of words
-        normalized = re.sub(r'\b(and)\b', 'AND', query, flags=re.IGNORECASE)
-        normalized = re.sub(r'\b(or)\b', 'OR', normalized, flags=re.IGNORECASE)
-        normalized = re.sub(r'\b(not)\b', 'NOT', normalized, flags=re.IGNORECASE)
+        # Extract quoted phrases and convert to unquoted words
+        # "artificial general intelligence" -> artificial general intelligence
+        normalized = re.sub(r'"([^"]+)"', r'\1', query)
 
-        # Convert NewsAPI-style operators:
-        # | -> OR
-        # + -> AND (when between words)
+        # Strip parentheses
+        normalized = normalized.replace('(', '').replace(')', '')
+
+        # Normalize boolean operators to OR for broad matching
+        # | -> OR, + -> OR (AND is too restrictive for firehose full-text search)
         normalized = re.sub(r'\s*\|\s*', ' OR ', normalized)
-        normalized = re.sub(r'\s*\+\s*', ' AND ', normalized)
+        normalized = re.sub(r'\s*\+\s*', ' OR ', normalized)
 
-        # Clean up multiple spaces
+        # Convert lowercase boolean operators to uppercase
+        normalized = re.sub(r'\b(and)\b', 'OR', normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r'\b(or)\b', 'OR', normalized, flags=re.IGNORECASE)
+
+        # Remove NOT terms entirely (they break tsquery and we filter downstream)
+        normalized = re.sub(r'\bNOT\s+\S+', '', normalized, flags=re.IGNORECASE)
+
+        # Clean up multiple spaces and dangling ORs
         normalized = re.sub(r'\s+', ' ', normalized).strip()
+        normalized = re.sub(r'^OR\s+|\s+OR$', '', normalized)
+        normalized = re.sub(r'\s+OR\s+OR\s+', ' OR ', normalized)
 
         if normalized != query:
             logger.debug(f"Normalized query: '{query}' -> '{normalized}'")
@@ -126,15 +143,16 @@ class NewsFirehoseCollector(ArticleCollector):
             timeframe: Hours to look back (converts to from_date)
         """
         try:
-            # Normalize query for /v1/search (uppercase boolean operators)
+            # Normalize query for /v1/search (strip complex boolean syntax)
             normalized_query = self._normalize_query(query)
+            logger.info(f"NewsFirehose query: '{query[:80]}' -> '{normalized_query[:80]}'")
 
             # Build parameters for /v1/search endpoint
             params = {
                 "q": normalized_query,
                 "page_size": min(max_results, 100),  # API limit is 100
                 "page": page,
-                "sort_by": sort_by if sort_by else "relevance"
+                "sort_by": {"publishedAt": "published_at", "publishedat": "published_at"}.get(sort_by, sort_by) if sort_by else "relevance"
             }
 
             # Add language filter (convert ISO code to full name if needed)
