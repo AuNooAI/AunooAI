@@ -267,24 +267,7 @@ class Research:
             
             firecrawl_instance = Firecrawl(api_key=api_key)
             logger.info("Successfully created Firecrawl v2 instance")
-            
-            # Test the instance with a basic request
-            try:
-                logger.info("Testing Firecrawl instance with a basic request...")
-                test_result = firecrawl_instance.scrape(
-                    "https://example.com",
-                    formats=["markdown"]
-                )
-                # Firecrawl v2 returns objects with attributes
-                if hasattr(test_result, 'markdown') and test_result.markdown:
-                    logger.info("Firecrawl v2 test successful!")
-                else:
-                    logger.warning("Firecrawl test returned unexpected response format")
-                    logger.debug(f"Test result type: {type(test_result)}, attributes: {dir(test_result) if hasattr(test_result, '__dict__') else 'N/A'}")
-            except Exception as test_error:
-                logger.warning(f"Firecrawl test request failed: {str(test_error)}")
-                # Continue anyway since the instance was created
-                
+
             return firecrawl_instance
         except Exception as e:
             logger.error(f"Error initializing Firecrawl: {str(e)}", exc_info=True)
