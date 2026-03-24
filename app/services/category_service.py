@@ -23,13 +23,14 @@ Usage:
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # vLLM Configuration for Qwen
-VLLM_BASE_URL = "http://localhost:8766/v1"
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
 VLLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 
 

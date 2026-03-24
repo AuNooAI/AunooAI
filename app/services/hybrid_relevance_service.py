@@ -296,7 +296,7 @@ Score:"""
         try:
             from litellm import completion
 
-            VLLM_BASE_URL = "http://localhost:8766/v1"
+            VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
             VLLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 
             response = completion(

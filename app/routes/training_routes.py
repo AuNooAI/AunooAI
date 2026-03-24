@@ -1794,8 +1794,9 @@ async def get_model_config():
     except:
         pass
 
-    phi3_available, phi3_model = check_vllm(8765)
-    qwen_available, qwen_model = check_vllm(8766)
+    vllm_port = int(os.getenv("VLLM_PORT", "8000"))
+    phi3_available, phi3_model = check_vllm(vllm_port)
+    qwen_available, qwen_model = check_vllm(vllm_port)
 
     # Local models with detailed tooltips and live latencies
     local_models = [
@@ -1817,7 +1818,7 @@ async def get_model_config():
             description="Summary, Tags",
             tooltip=f"Microsoft Phi-3-mini-4k-instruct running on vLLM (GPU). Generates article summaries and refines KeyBERT tags with NER. Model: {phi3_model or 'Not loaded'}",
             usage="Summarization, Tag refinement + NER",
-            port=8765,
+            port=vllm_port,
             cost="FREE",
         ),
         ModelInfo(
@@ -1828,7 +1829,7 @@ async def get_model_config():
             description="Explanations, Category",
             tooltip=f"Qwen2.5-3B-Instruct running on vLLM (GPU). Zero-shot category classification and generates human-readable explanations for classification decisions. Model: {qwen_model or 'Not loaded'}",
             usage="Category classification, Explanation generation",
-            port=8766,
+            port=vllm_port,
             cost="FREE",
         ),
         ModelInfo(
@@ -2265,7 +2266,7 @@ def check_local_models_available() -> dict:
         models_status["phi3_summarization"] = {"available": False, "name": "Phi-3 (Summarization)", "error": str(e)}
         missing.append("Phi-3 (Summarization)")
 
-    # Check Qwen vLLM (category) on port 8766
+    # Check Qwen vLLM (category)
     try:
         from app.services.category_service import get_category_service
         category_svc = get_category_service()
@@ -2275,7 +2276,7 @@ def check_local_models_available() -> dict:
         models_status["qwen_category"] = {
             "available": qwen_available,
             "name": "Qwen (Category)",
-            "error": None if qwen_available else "vLLM not running on port 8766"
+            "error": None if qwen_available else f"vLLM not running on port {os.getenv('VLLM_PORT', '8000')}"
         }
         if not qwen_available:
             missing.append("Qwen (Category)")
