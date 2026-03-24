@@ -1795,7 +1795,7 @@ async def get_model_config():
     except:
         pass
 
-    vllm_port = int(os.getenv("VLLM_PORT", "8000"))
+    vllm_port = int(os.getenv("VLLM_PORT", "8765"))
     phi3_available, phi3_model = check_vllm(vllm_port)
     qwen_available, qwen_model = check_vllm(vllm_port)
 
@@ -2277,7 +2277,7 @@ def check_local_models_available() -> dict:
         models_status["qwen_category"] = {
             "available": qwen_available,
             "name": "Qwen (Category)",
-            "error": None if qwen_available else f"vLLM not running on port {os.getenv('VLLM_PORT', '8000')}"
+            "error": None if qwen_available else f"vLLM not running on port {os.getenv('VLLM_PORT', '8765')}"
         }
         if not qwen_available:
             missing.append("Qwen (Category)")

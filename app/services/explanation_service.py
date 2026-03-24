@@ -36,7 +36,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 # vLLM Configuration for Qwen (separate port from Phi-3)
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8765/v1")
 VLLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 
 

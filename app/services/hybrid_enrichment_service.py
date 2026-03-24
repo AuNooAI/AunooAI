@@ -270,7 +270,7 @@ class HybridEnrichmentService:
             from litellm import completion
             import json
 
-            VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+            VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8765/v1")
             VLLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 
             # Build classification prompt
