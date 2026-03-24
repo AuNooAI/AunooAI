@@ -6,6 +6,7 @@ Provides sample counts, training status, finetuning triggers, and run management
 """
 
 import logging
+import os
 import threading
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
