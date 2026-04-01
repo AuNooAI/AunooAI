@@ -94,6 +94,9 @@ COPY setup.py .
 COPY .env.template .
 COPY docker-entrypoint.sh /entrypoint.sh
 
+# Copy trained SLM models (final weights only, checkpoints excluded via .dockerignore)
+COPY models/ models/
+
 # Copy built React UI from node-builder
 COPY --from=node-builder /ui-build/build/ /app/static/trend-convergence/
 

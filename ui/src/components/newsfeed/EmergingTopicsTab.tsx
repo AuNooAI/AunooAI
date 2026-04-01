@@ -82,6 +82,7 @@ import { getAvailableModels } from '../../services/newsFeedApi';
 import { ExportService } from '../../services/exportService';
 // Visual components
 import { TopicScoreRadar } from '../emerging-topics/TopicScoreRadar';
+import { EmergingTopicsDashboard } from './signal-dashboard';
 import { TopicWordCloud } from '../emerging-topics/TopicWordCloud';
 import { TopicComparisonDashboard } from '../emerging-topics/TopicComparisonDashboard';
 import { TopicSparkline } from '../emerging-topics/TopicSparkline';
@@ -293,8 +294,8 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   const [urgencyFilters, setUrgencyFilters] = useState<Set<string>>(new Set());
   const [velocityFilters, setVelocityFilters] = useState<Set<string>>(new Set());
 
-  // View mode: 'cards' or 'table'
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  // View mode: 'cards', 'table', or 'signals'
+  const [viewMode, setViewMode] = useState<'cards' | 'table' | 'signals'>('cards');
 
   // Future Horizons loading state
   const [horizonsLoading, setHorizonsLoading] = useState<number | null>(null);
@@ -1365,6 +1366,17 @@ Please provide:
               >
                 <List className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => setViewMode('signals')}
+                className={`p-1.5 transition-colors ${
+                  viewMode === 'signals'
+                    ? 'bg-pink-100 text-pink-600 dark:bg-pink-900/50 dark:text-pink-400'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+                title="Signal dashboard"
+              >
+                <Compass className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
@@ -1483,6 +1495,51 @@ Please provide:
                   </button>
                 </CardContent>
               </Card>
+            );
+          }
+
+          // Signal dashboard view
+          if (viewMode === 'signals') {
+            return (
+              <EmergingTopicsDashboard
+                topics={emergingTopics.map(t => ({
+                  id: t.id,
+                  name: t.topic_label,
+                  description: t.topic_description,
+                  topic_id: (t as any).topic_id ?? null,
+                  article_count: t.article_count,
+                  composite_score: t.trend_score?.composite ?? Math.round((t.confidence_score || 0) * 100),
+                  confidence_score: t.confidence_score,
+                  velocity: t.velocity as any,
+                  detection_type: t.detection_type as any,
+                  keywords: t.representative_keywords || [],
+                  topic_filter: null,
+                  first_detected_at: t.first_detection_date || t.detection_date || null,
+                  actors: t.actors || null,
+                  events: t.events ? {
+                    trigger_event: t.events.trigger_event || '',
+                    timeline: (t.events.timeline || []).map(item =>
+                      typeof item === 'string' ? item : (item.event || '')
+                    ),
+                    current_status: t.events.current_status || '',
+                  } : null,
+                  implications: t.implications || null,
+                  signals: t.signals || null,
+                  synthesis: t.synthesis || null,
+                  trend_score: t.trend_score ? {
+                    volume: t.trend_score.volume || 0,
+                    velocity: t.trend_score.velocity || 0,
+                    diversity: t.trend_score.diversity || 0,
+                    novelty: t.trend_score.novelty || 0,
+                    composite: t.trend_score.composite || 0,
+                  } : null,
+                  detection_count: t.detection_count ?? null,
+                  consecutive_detections: t.consecutive_detections ?? null,
+                  missed_runs: t.missed_runs ?? null,
+                  first_detection_date: t.first_detection_date || t.detection_date || null,
+                  last_detection_date: t.last_detection_date || null,
+                }))}
+              />
             );
           }
 

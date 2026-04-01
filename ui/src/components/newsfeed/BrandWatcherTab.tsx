@@ -8,7 +8,7 @@ import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
-  Download, AlertTriangle, Eye, Star, Image, FileDown,
+  Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
@@ -2201,12 +2201,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
               )}
               {narrative && !loadingNarrative && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div id="narrative-report-card" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                       Brand Intelligence Report — {narrative.brand_name || selectedBrand?.display_name}
                     </h3>
-                    <span className="text-xs text-gray-400">{narrative.generated_at ? new Date(narrative.generated_at).toLocaleString() : ''}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400">{narrative.generated_at ? new Date(narrative.generated_at).toLocaleString() : ''}</span>
+                      <NarrativeExportButtons narrative={narrative} brandName={narrative.brand_name || selectedBrand?.display_name || 'brand'} />
+                    </div>
                   </div>
                   <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300"
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(narrative.narrative) }}
@@ -2722,6 +2725,117 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   );
 }
 
+// Export buttons for the narrative report card
+function NarrativeExportButtons({ narrative, brandName }: { narrative: BWSavedNarrative; brandName: string }) {
+  const [copied, setCopied] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showMenu]);
+
+  const slug = brandName.toLowerCase().replace(/\s+/g, '-');
+  const dateStr = narrative.generated_at ? new Date(narrative.generated_at).toISOString().slice(0, 10) : 'report';
+  const filename = `brand-report-${slug}-${dateStr}`;
+
+  const handleCopyMarkdown = async () => {
+    try {
+      await navigator.clipboard.writeText(narrative.narrative);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* fallback */ }
+    setShowMenu(false);
+  };
+
+  const handleDownloadMarkdown = () => {
+    const header = `# Brand Intelligence Report — ${brandName}\n_Generated: ${narrative.generated_at ? new Date(narrative.generated_at).toLocaleString() : 'N/A'}_\n\n`;
+    const blob = new Blob([header + narrative.narrative], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${filename}.md`; a.click();
+    URL.revokeObjectURL(url);
+    setShowMenu(false);
+  };
+
+  const handleDownloadHTML = () => {
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Brand Intelligence Report — ${brandName}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1f2937; line-height: 1.6; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #3b82f6; padding-bottom: 0.5rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.5rem; }
+  a { color: #2563eb; }
+  li { margin-left: 1.5rem; list-style-type: disc; }
+  .meta { color: #6b7280; font-size: 0.85rem; }
+</style></head><body>
+<h1>Brand Intelligence Report — ${brandName}</h1>
+<p class="meta">Generated: ${narrative.generated_at ? new Date(narrative.generated_at).toLocaleString() : 'N/A'}</p>
+${markdownToHtml(narrative.narrative)}
+</body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${filename}.html`; a.click();
+    URL.revokeObjectURL(url);
+    setShowMenu(false);
+  };
+
+  const handlePrint = () => {
+    const el = document.getElementById('narrative-report-card');
+    if (!el) return;
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Brand Intelligence Report — ${brandName}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1f2937; line-height: 1.6; }
+  h2 { font-size: 1.15rem; margin-top: 1.5rem; }
+  h3 { font-size: 1rem; }
+  a { color: #2563eb; }
+  li { margin-left: 1.5rem; list-style-type: disc; }
+  @media print { body { margin: 0; } }
+</style></head><body>${el.innerHTML}</body></html>`);
+    win.document.close();
+    win.print();
+    setShowMenu(false);
+  };
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+        title="Export report"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Download className="w-3.5 h-3.5" />}
+        {copied ? 'Copied' : 'Export'}
+      </button>
+      {showMenu && (
+        <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+          <button onClick={handleCopyMarkdown} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+            <Copy className="w-3.5 h-3.5" /> Copy as Markdown
+          </button>
+          <button onClick={handleDownloadMarkdown} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+            <FileDown className="w-3.5 h-3.5" /> Download .md
+          </button>
+          <button onClick={handleDownloadHTML} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+            <FileText className="w-3.5 h-3.5" /> Download .html
+          </button>
+          <button onClick={handlePrint} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+            <Printer className="w-3.5 h-3.5" /> Print / Save as PDF
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Simple markdown to HTML converter for narratives
 function markdownToHtml(md: string): string {
   if (!md) return '';
@@ -2729,6 +2843,7 @@ function markdownToHtml(md: string): string {
     .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold mt-6 mb-2">$1</h2>')
     .replace(/^### (.+)$/gm, '<h3 class="text-base font-semibold mt-4 mb-2">$1</h3>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300">$1</a>')
     .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
     .replace(/\n\n/g, '</p><p class="mt-2">')
     .replace(/\n/g, '<br />');

@@ -190,36 +190,51 @@ NARRATIVE_ANALYSIS_PROMPT = """You are generating an analytical brand intelligen
 **Top Competitor Mentions:**
 {competitor_breakdown}
 
+**Brand Risk Assessment:**
+{risk_assessment}
+
+**Key Positive Articles:**
+{key_articles}
+
+## Analysis Approach
+
+Your job is to SYNTHESIZE the articles into coherent themes and narratives, not to cherry-pick or list individual articles. Read all the provided articles and identify the underlying patterns, recurring themes, and emerging storylines. When you reference specific articles, use them as evidence supporting a broader theme — not as standalone items.
+
+For example, instead of "Article X reports a data breach", write: "Data security has emerged as a significant theme, with incidents including a [major breach at a subsidiary](https://example.com/article) that exposed customer records, reinforcing broader concerns about information governance across the group."
+
 ## Required Sections
 
 Write a comprehensive brand intelligence narrative (600-1000 words) with these EXACT section headers (use ## markdown format):
 
 ## Executive Summary
-Key findings in 3-4 sentences. What is the dominant narrative around this brand? What requires immediate attention?
+Key findings in 3-4 sentences. Synthesize the dominant narrative threads around this brand. What requires immediate attention? If the Brand Risk Assessment shows Elevated or High risk, explain what themes in the coverage are driving it.
 
 ## Category Analysis
-What patterns emerge from the category distribution? Which areas have the most coverage? Use paragraphs for analysis.
+What patterns emerge from the category distribution? Which areas have the most coverage? Synthesize what the articles in each major category are collectively saying about the brand — don't just report percentages.
 
 ## Sentiment & Reputation
 YOU MUST use bullet points in this section. Format EXACTLY like this:
 
-- **Positive Signals**: [Analysis of positive coverage patterns]
-- **Risk Indicators**: [Analysis of negative coverage or emerging threats]
-- **Competitive Position**: [How the brand is positioned vs competitors]
+- **Positive Signals**: [Synthesize themes from the positive articles. What recurring patterns of good news exist? Link to representative articles as evidence using [title](url) format.]
+- **Risk Indicators**: [Synthesize themes from the negative articles. What recurring patterns of concern exist? Reference the Brand Risk Assessment level and explain what themes are driving it, linking to representative articles as evidence using [title](url) format. Do NOT speculate — ground every claim in the articles provided.]
+- **Competitive Position**: [How the brand is positioned vs competitors based on coverage themes]
 
 ## Forward-Looking Concerns
-YOU MUST use bullet points in this section. List 3-5 specific concerns:
+YOU MUST use bullet points in this section. List 3-5 specific concerns synthesized from patterns across multiple articles:
 
-- **Concern Title**: Explanation
-- **Concern Title**: Explanation
+- **Concern Title**: Explanation grounded in article themes
+- **Concern Title**: Explanation grounded in article themes
 
 CRITICAL FORMATTING REQUIREMENTS:
 - Use ## for section headers (H2 markdown)
 - MANDATORY: Sentiment & Reputation MUST use bullet points
 - MANDATORY: Forward-Looking Concerns MUST use bullet points
+- MANDATORY: If risk level is Elevated or High, the report MUST explicitly reference this assessment with its score and the themes driving it
+- MANDATORY: When citing articles, use the exact markdown link format: [Article Title](url). Preserve the links so readers can click through to sources.
+- MANDATORY: SYNTHESIZE, don't list. Identify themes across multiple articles rather than summarizing articles one by one. Articles are evidence for themes, not items in a list.
 - Use **bold** for bullet point headers
 - Include specific numbers from the data
-- Be analytical and evidence-based"""
+- Be analytical and evidence-based, grounding all claims in the provided articles"""
 
 CATEGORY_INSIGHT_PROMPT = """You are a brand intelligence analyst providing insights on a specific category for a brand.
 
@@ -2264,12 +2279,185 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             if count > 0
         ]) or "No competitor mentions tracked"
 
+        # --- Compute Brand Risk Assessment (mirrors frontend logic) ---
+        # Sentiment trends: weekly sentiment aggregates
+        sent_result = conn.execute(text("""
+            SELECT DATE_TRUNC('week', a.publication_date::timestamp)::date as week,
+                   a.sentiment, COUNT(*) as cnt
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND a.sentiment IS NOT NULL AND a.sentiment != ''
+            GROUP BY week, a.sentiment
+            ORDER BY week
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date})
+
+        # Normalize sentiment labels to match frontend bucketing
+        _NEGATIVE_LABELS = {"negative", "pessimistic", "concerning", "concerned", "critical", "alarming"}
+        _POSITIVE_LABELS = {"positive", "optimistic", "positive development"}
+
+        weekly_sentiments: Dict[str, Dict[str, int]] = {}
+        for row in sent_result.fetchall():
+            week_str = str(row[0])
+            raw_sentiment = row[1]
+            count = row[2]
+            if week_str not in weekly_sentiments:
+                weekly_sentiments[week_str] = {"Positive": 0, "Neutral": 0, "Negative": 0, "total": 0}
+            lo = raw_sentiment.lower().strip() if raw_sentiment else ""
+            if lo in _NEGATIVE_LABELS:
+                bucket = "Negative"
+            elif lo in _POSITIVE_LABELS:
+                bucket = "Positive"
+            else:
+                bucket = "Neutral"
+            weekly_sentiments[week_str][bucket] += count
+            weekly_sentiments[week_str]["total"] += count
+
+        sorted_weeks = sorted(weekly_sentiments.keys())
+        recent_4 = sorted_weeks[-4:] if len(sorted_weeks) >= 4 else sorted_weeks
+        older_4 = sorted_weeks[-8:-4] if len(sorted_weeks) >= 8 else sorted_weeks[:max(0, len(sorted_weeks) - 4)]
+
+        recent_neg = sum(weekly_sentiments[w].get("Negative", 0) for w in recent_4)
+        recent_total = sum(weekly_sentiments[w].get("total", 0) for w in recent_4)
+        older_neg = sum(weekly_sentiments[w].get("Negative", 0) for w in older_4)
+        older_total = sum(weekly_sentiments[w].get("total", 0) for w in older_4)
+
+        recent_neg_pct = (recent_neg / recent_total * 100) if recent_total > 0 else 0
+        older_neg_pct = (older_neg / older_total * 100) if older_total > 0 else 0
+        neg_trend = recent_neg_pct - older_neg_pct  # positive = worsening
+
+        # Category spike alerts (recent 7d vs prior 30d avg)
+        recent_alert = conn.execute(text("""
+            SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
+            GROUP BY bac.category
+        """), {"bid": request.brand_id})
+        recent_alert_counts = {row[0]: row[1] for row in recent_alert.fetchall()}
+
+        avg_alert = conn.execute(text("""
+            SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
+            AND a.publication_date < (NOW() - INTERVAL '7 days')::text
+            GROUP BY bac.category
+        """), {"bid": request.brand_id})
+        avg_alert_counts = {row[0]: float(row[1]) for row in avg_alert.fetchall()}
+
+        alerts = []
+        for category, count in recent_alert_counts.items():
+            avg = avg_alert_counts.get(category, 0)
+            if avg > 0 and count >= avg * 2 and count >= 3:
+                severity = "high" if count >= avg * 3 else "medium"
+                alerts.append({"category": category, "current": count, "average": round(avg, 1),
+                               "spike_ratio": round(count / avg, 1), "severity": severity})
+
+        alert_count = len(alerts)
+        high_alerts = sum(1 for a in alerts if a["severity"] == "high")
+
+        risk_score = min(100, round(
+            (recent_neg_pct * 1.5) +
+            (neg_trend * 2 if neg_trend > 0 else 0) +
+            (alert_count * 5) +
+            (high_alerts * 10)
+        ))
+        risk_level = "High" if risk_score >= 60 else "Elevated" if risk_score >= 30 else "Low"
+
+        # Fetch recent negative/concerning articles so the narrative can cite specific drivers
+        neg_articles_result = conn.execute(text("""
+            SELECT DISTINCT a.title, a.summary, a.sentiment,
+                   bac.category, a.publication_date, a.uri
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND LOWER(a.sentiment) IN ('negative', 'pessimistic', 'concerning',
+                                        'concerned', 'critical', 'alarming')
+            ORDER BY a.publication_date DESC
+            LIMIT 20
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date})
+        neg_articles = neg_articles_result.fetchall()
+
+        neg_articles_text = ""
+        if neg_articles:
+            lines = []
+            for art in neg_articles:
+                title = art[0] or "Untitled"
+                summary = (art[1] or "")[:200]
+                category = art[3] or ""
+                pub_date = art[4] or ""
+                uri = art[5] or ""
+                lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — {summary}")
+            neg_articles_text = "\n".join(lines)
+
+        # Fetch recent positive articles to ground positive signals with evidence
+        pos_articles_result = conn.execute(text("""
+            SELECT DISTINCT a.title, a.summary, a.sentiment,
+                   bac.category, a.publication_date, a.uri
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND LOWER(a.sentiment) IN ('positive', 'optimistic', 'positive development')
+            ORDER BY a.publication_date DESC
+            LIMIT 20
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date})
+        pos_articles = pos_articles_result.fetchall()
+
+        pos_articles_text = ""
+        if pos_articles:
+            lines = []
+            for art in pos_articles:
+                title = art[0] or "Untitled"
+                summary = (art[1] or "")[:200]
+                category = art[3] or ""
+                pub_date = art[4] or ""
+                uri = art[5] or ""
+                lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — {summary}")
+            pos_articles_text = "\n".join(lines)
+
+        # Build risk assessment text for the prompt
+        risk_factors = []
+        if recent_neg_pct >= 15:
+            risk_factors.append(f"High negative sentiment volume ({recent_neg_pct:.1f}% of recent coverage)")
+        if neg_trend > 2:
+            risk_factors.append(f"Negative sentiment trending upward (+{neg_trend:.1f} percentage points vs prior 4 weeks)")
+        if high_alerts > 0:
+            risk_factors.append(f"{high_alerts} high-severity category spike(s): " +
+                                ", ".join(a['category'] for a in alerts if a['severity'] == 'high'))
+        if alert_count > 0 and high_alerts == 0:
+            risk_factors.append(f"{alert_count} category spike alert(s): " +
+                                ", ".join(a['category'] for a in alerts))
+
+        risk_assessment = f"Risk Level: {risk_level} (Score: {risk_score}/100)\n"
+        risk_assessment += f"Recent Negative Sentiment: {recent_neg_pct:.1f}%\n"
+        risk_assessment += f"Negative Trend (4-week change): {'+' if neg_trend > 0 else ''}{neg_trend:.1f} percentage points\n"
+        risk_assessment += f"Active Alerts: {alert_count}" + (f" ({high_alerts} high-severity)" if high_alerts > 0 else "") + "\n"
+        if risk_factors:
+            risk_assessment += "Contributing Factors:\n" + "\n".join(f"- {f}" for f in risk_factors)
+        else:
+            risk_assessment += "No significant risk factors identified"
+
+        if neg_articles_text:
+            risk_assessment += f"\n\n**Recent Negative/Concerning Articles ({len(neg_articles)} most recent):**\n{neg_articles_text}"
+
+        key_articles = ""
+        if pos_articles_text:
+            key_articles += f"**Recent Positive/Optimistic Articles ({len(pos_articles)} most recent):**\n{pos_articles_text}"
+
         prompt = NARRATIVE_ANALYSIS_PROMPT.format(
             brand_name=brand["display_name"],
             date_range=f"{start_date} to {end_date}",
             total_articles=total_articles,
             category_breakdown=category_breakdown,
             competitor_breakdown=competitor_breakdown,
+            risk_assessment=risk_assessment,
+            key_articles=key_articles,
         )
 
         model = LiteLLMModel.get_instance(request.model)
@@ -2283,6 +2471,15 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             "date_range": {"start": start_date, "end": end_date},
             "categories": category_data,
             "competitors": competitor_counts,
+            "risk_assessment": {
+                "risk_level": risk_level,
+                "risk_score": risk_score,
+                "recent_neg_pct": round(recent_neg_pct, 1),
+                "neg_trend": round(neg_trend, 1),
+                "alert_count": alert_count,
+                "high_alerts": high_alerts,
+                "contributing_factors": risk_factors,
+            },
         }
 
         # Save narrative

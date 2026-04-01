@@ -2,6 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Signal Dashboard design tokens */
+:root {
+  --aunoo-red:         #E24B4A;
+  --aunoo-red-subtle:  #FCEBEB;
+  --aunoo-red-text:    #A32D2D;
+  --aunoo-amber:       #EF9F27;
+  --aunoo-amber-subtle:#FAEEDA;
+  --aunoo-amber-text:  #854F0B;
+  --aunoo-green-subtle:#EAF3DE;
+  --aunoo-green-text:  #3B6D11;
+  --aunoo-muted-bg:    #F1EFE8;
+  --aunoo-muted-text:  #5F5E5A;
+  --aunoo-border:      rgba(0,0,0,0.12);
+  --aunoo-border-hover:rgba(0,0,0,0.25);
+  --aunoo-surface:     #FFFFFF;
+  --aunoo-surface-secondary: #F7F6F2;
+  --aunoo-font:        "DM Sans", "Inter", system-ui, sans-serif;
+  --aunoo-radius-sm:   6px;
+  --aunoo-radius-md:   10px;
+  --aunoo-radius-lg:   14px;
+}
+
+html.dark {
+  --aunoo-red-subtle:  #501313;
+  --aunoo-red-text:    #F09595;
+  --aunoo-amber-subtle:#412402;
+  --aunoo-amber-text:  #FAC775;
+  --aunoo-green-subtle:#173404;
+  --aunoo-green-text:  #C0DD97;
+  --aunoo-muted-bg:    #2C2C2A;
+  --aunoo-muted-text:  #B4B2A9;
+  --aunoo-border:      rgba(255,255,255,0.10);
+  --aunoo-border-hover:rgba(255,255,255,0.22);
+  --aunoo-surface:     #1C1C1A;
+  --aunoo-surface-secondary: #222220;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --aunoo-red-subtle:  #501313;
+    --aunoo-red-text:    #F09595;
+    --aunoo-amber-subtle:#412402;
+    --aunoo-amber-text:  #FAC775;
+    --aunoo-green-subtle:#173404;
+    --aunoo-green-text:  #C0DD97;
+    --aunoo-muted-bg:    #2C2C2A;
+    --aunoo-muted-text:  #B4B2A9;
+    --aunoo-border:      rgba(255,255,255,0.10);
+    --aunoo-border-hover:rgba(255,255,255,0.22);
+    --aunoo-surface:     #1C1C1A;
+    --aunoo-surface-secondary: #222220;
+  }
+}
+
 /* Comprehensive Leaflet fix for Tailwind compatibility
    Tailwind's Preflight applies max-width: 100% to images which breaks Leaflet tile rendering.
    This must override Tailwind's base styles with higher specificity. */

@@ -59,6 +59,10 @@ services:
       - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30}
       - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
 
+      # vLLM Configuration (optional - only used if vllm profile is active)
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8765/v1}
+      - VLLM_PORT=${VLLM_PORT:-8765}
+
       # API Keys (configured via onboarding wizard inside container)
       # These are loaded from /app/.env by the application
       # DO NOT set environment variables here - they override the .env file!
@@ -77,12 +81,41 @@ services:
       start_period: 40s
       retries: 3
 
+  # vLLM Local Model Server (Optional - requires GPU)
+  # Start with: docker compose --profile gpu up
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles:
+      - gpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    ports:
+      - "${VLLM_PORT:-8765}:8765"
+    command: >
+      --model Qwen/Qwen2.5-3B-Instruct
+      --port 8765
+      --max-model-len 4096
+      --gpu-memory-utilization 0.85
+    restart: unless-stopped
+    networks:
+      - aunooai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+
 volumes:
   postgres_data:
   aunooai_data:
   aunooai_reports:
   aunooai_env:
   aunooai_config:
+  vllm_cache:
 
 networks:
   aunooai:
