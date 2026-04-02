@@ -1641,7 +1641,7 @@ class AutomatedIngestService:
             scraped_content = {}
             if articles_needing_scrape:
                 self.logger.info(f"🚀 Pre-scraping {len(articles_needing_scrape)} articles in batch...")
-                scraped_content = await self.scrape_articles_batch(articles_needing_scrape)
+                scraped_content = await self.scrape_articles_batch(articles_needing_scrape, topic=topic)
                 self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
 
             # Combine content from collectors and scraped content
@@ -2008,7 +2008,7 @@ class AutomatedIngestService:
                 "topic": topic_id
             }
     
-    async def scrape_articles_batch(self, uris: List[str]) -> Dict[str, Optional[str]]:
+    async def scrape_articles_batch(self, uris: List[str], topic: str = None) -> Dict[str, Optional[str]]:
         """
         Scrape multiple articles using Firecrawl's batch API
         
@@ -2051,13 +2051,27 @@ class AutomatedIngestService:
             # Use Firecrawl batch API
             batch_result = await self._firecrawl_batch_scrape(research.firecrawl_app, uris_to_scrape)
             
+            # Cache newly scraped content to raw_articles immediately so subsequent
+            # keywords in the same group get cache hits instead of re-scraping
+            saved_count = 0
+            for uri, content in batch_result.items():
+                if content:
+                    try:
+                        await self.async_db.save_raw_article_async(uri, content, topic)
+                        saved_count += 1
+                    except Exception as e:
+                        self.logger.debug(f"Failed to cache raw content for {uri}: {e}")
+
+            if saved_count > 0:
+                self.logger.info(f"💾 Cached {saved_count} raw articles for future deduplication")
+
             # Combine existing and newly scraped content
             results.update(existing_articles)
             results.update(batch_result)
-            
+
             self.logger.info(f"Batch scraping completed: {len(results)} articles processed")
             return results
-            
+
         except Exception as e:
             self.logger.error(f"Error in batch scraping: {e}")
             # Fallback to individual scraping on batch failure
