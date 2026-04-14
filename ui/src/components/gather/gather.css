@@ -2467,14 +2467,8 @@
 
 .explore-tab-navigation {
   display: flex;
-<<<<<<< HEAD
   gap: 2px;
   padding: 0 24px;
-=======
-  gap: 4px;
-  padding: 8px 24px;
-  background-color: var(--gather-mauve-2);
->>>>>>> origin/gathergranularity
   border-bottom: 1px solid var(--gather-mauve-6);
 }
 
@@ -2496,20 +2490,12 @@
 
 .explore-tab-btn:hover {
   color: var(--gather-mauve-12);
-<<<<<<< HEAD
-=======
-  background-color: var(--gather-mauve-3);
->>>>>>> origin/gathergranularity
+
 }
 
 .explore-tab-btn.active {
   color: var(--gather-pink-9);
-<<<<<<< HEAD
   border-bottom-color: var(--gather-pink-9);
-=======
-  background-color: var(--gather-card-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
->>>>>>> origin/gathergranularity
 }
 
 .explore-tab-badge {
@@ -2976,10 +2962,7 @@
 
 /* Explore Tab Navigation - Dark Mode */
 .dark .explore-tab-navigation {
-<<<<<<< HEAD
-=======
-  background-color: var(--gather-mauve-3);
->>>>>>> origin/gathergranularity
+
   border-bottom-color: var(--gather-mauve-12);
 }
 
@@ -2989,20 +2972,12 @@
 
 .dark .explore-tab-btn:hover {
   color: var(--gather-mauve-6);
-<<<<<<< HEAD
-=======
-  background-color: var(--gather-mauve-12);
->>>>>>> origin/gathergranularity
+
 }
 
 .dark .explore-tab-btn.active {
   color: var(--gather-pink-9);
-<<<<<<< HEAD
   border-bottom-color: var(--gather-pink-9);
-=======
-  background-color: var(--gather-mauve-12);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
->>>>>>> origin/gathergranularity
 }
 
 /* Research Agents - Dark Mode */
