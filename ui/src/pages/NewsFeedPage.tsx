@@ -862,20 +862,22 @@ export function NewsFeedPage() {
           </button>
           )}
           {isModuleEnabled('policy') && (
-          <button
-            className={`explore-tab-btn ${currentTab === 'threatintel' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('threatintel')}
-          >
-            <Shield className="w-4 h-4" />
-            Threat Intel
-          </button>
-          <button
-            className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('policy')}
-          >
-            <Scale className="w-4 h-4" />
-            US Crisis Tracker
-          </button>
+          <>
+            <button
+              className={`explore-tab-btn ${currentTab === 'threatintel' ? 'active' : ''}`}
+              onClick={() => setCurrentTab('threatintel')}
+            >
+              <Shield className="w-4 h-4" />
+              Threat Intel
+            </button>
+            <button
+              className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
+              onClick={() => setCurrentTab('policy')}
+            >
+              <Scale className="w-4 h-4" />
+              US Crisis Tracker
+            </button>
+          </>
           )}
           {isModuleEnabled('science') && (
           <button
