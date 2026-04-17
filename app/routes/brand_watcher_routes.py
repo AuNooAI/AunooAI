@@ -200,6 +200,12 @@ NARRATIVE_ANALYSIS_PROMPT = """You are generating an analytical brand intelligen
 
 Your job is to SYNTHESIZE the articles into coherent themes and narratives, not to cherry-pick or list individual articles. Read all the provided articles and identify the underlying patterns, recurring themes, and emerging storylines. When you reference specific articles, use them as evidence supporting a broader theme — not as standalone items.
 
+CRITICAL — Distinguish brand impact from topic sentiment:
+- An article tagged "negative" may have a negative TOPIC (e.g. cybersecurity threats, disease, conflict) but be POSITIVE for the brand if the brand published the content (a book, research paper, or guide). A publisher releasing a book about cybersecurity threats is product output, not a risk indicator.
+- Look at the article source and summary carefully. If the brand is the PUBLISHER or AUTHOR of the content, the article likely represents product activity or thought leadership, NOT a reputational risk — even if the subject matter is negative.
+- Only treat articles as genuine risk indicators when the brand itself is the subject of criticism, scandal, legal action, operational failure, or negative stakeholder reaction.
+- Similarly for positive articles: distinguish between "positive coverage about the brand" vs "the brand published content on a positive topic."
+
 For example, instead of "Article X reports a data breach", write: "Data security has emerged as a significant theme, with incidents including a [major breach at a subsidiary](https://example.com/article) that exposed customer records, reinforcing broader concerns about information governance across the group."
 
 ## Required Sections
@@ -2371,7 +2377,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         # Fetch recent negative/concerning articles so the narrative can cite specific drivers
         neg_articles_result = conn.execute(text("""
             SELECT DISTINCT a.title, a.summary, a.sentiment,
-                   bac.category, a.publication_date, a.uri
+                   bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
@@ -2392,13 +2398,14 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 category = art[3] or ""
                 pub_date = art[4] or ""
                 uri = art[5] or ""
-                lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — {summary}")
+                source = art[6] or "Unknown source"
+                lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — Source: {source} — {summary}")
             neg_articles_text = "\n".join(lines)
 
         # Fetch recent positive articles to ground positive signals with evidence
         pos_articles_result = conn.execute(text("""
             SELECT DISTINCT a.title, a.summary, a.sentiment,
-                   bac.category, a.publication_date, a.uri
+                   bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
@@ -2418,7 +2425,8 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 category = art[3] or ""
                 pub_date = art[4] or ""
                 uri = art[5] or ""
-                lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — {summary}")
+                source = art[6] or "Unknown source"
+                lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — Source: {source} — {summary}")
             pos_articles_text = "\n".join(lines)
 
         # Build risk assessment text for the prompt

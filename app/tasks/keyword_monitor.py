@@ -23,6 +23,20 @@ except ImportError:
     logger.warning("AutomatedIngestService not available - auto-ingest features disabled")
     AutomatedIngestService = None
 
+# Entity-type prefixes inherited from onboarding. The UI stores them to let
+# future features do entity-aware search, but external collectors (NewsAPI,
+# NewsData, TheNewsAPI) treat them as literal strings and return zero matches.
+# Strip before sending to collectors; keep the prefixed form in the DB.
+_ENTITY_PREFIXES = ("tech:", "company:", "person:", "location:")
+
+
+def _strip_entity_prefix(keyword: str) -> str:
+    for prefix in _ENTITY_PREFIXES:
+        if keyword.startswith(prefix):
+            return keyword[len(prefix):].strip()
+    return keyword
+
+
 # Global variable to track task status
 _background_task_status = {
     "running": False,
@@ -259,10 +273,14 @@ class KeywordMonitor:
     ) -> List[Dict]:
         """Search with individual collector, handling errors gracefully"""
         try:
-            logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
+            search_term = _strip_entity_prefix(keyword_text)
+            if search_term != keyword_text:
+                logger.info(f"Searching with {provider} for keyword: '{keyword_text}' (stripped to '{search_term}')...")
+            else:
+                logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
 
             articles = await collector.search_articles(
-                query=keyword_text,
+                query=search_term,
                 topic=topic,
                 max_results=self.page_size,
                 start_date=start_date,
