@@ -502,6 +502,22 @@ class KeywordMonitor:
                             total_auto_ingest_saved += auto_ingest_results.get("saved", 0)
                             total_auto_ingest_errors += len(auto_ingest_results.get("errors", []))
 
+                            # Post-ingest quality spot-check (non-blocking)
+                            saved_count = auto_ingest_results.get("saved", 0)
+                            if saved_count >= 3:
+                                try:
+                                    from app.services.data_quality_service import DataQualityService
+                                    dqs = DataQualityService()
+                                    approved_sample = [
+                                        a for a in articles[:saved_count]
+                                        if a.get("title")
+                                    ]
+                                    if approved_sample:
+                                        quality_report = dqs.audit_batch(topic, approved_sample)
+                                        logger.info(f"Quality audit for '{topic}': {quality_report['pass_rate']:.0%} pass rate ({quality_report['passed']}/{quality_report['sampled']})")
+                                except Exception as qe:
+                                    logger.debug(f"Quality audit skipped: {qe}")
+
                             # Check if auto-regenerate reports is enabled
                             if auto_ingest_results.get("saved", 0) > 0:
                                 try:

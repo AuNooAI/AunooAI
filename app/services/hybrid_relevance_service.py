@@ -44,13 +44,7 @@ CLASSIFIER_WEIGHT = 0.6  # Weight for classifier when available
 EMBEDDING_WEIGHT = 0.4   # Weight for embedding similarity
 NEW_TOPIC_THRESHOLD = 100  # Minimum training samples to trust classifier
 DEFAULT_THRESHOLD = 0.5
-LLM_FALLBACK_THRESHOLD = 0.3  # Use LLM if score is in uncertain range (0.3-0.7)
-# Classifier/embedding disagreement handling: when the binary classifier was never
-# trained on a topic, it returns ~0 for every article. If the embedding signal is
-# strong, that's disagreement — don't let a no-signal classifier veto the decision.
-CLASSIFIER_NO_SIGNAL_THRESHOLD = 0.1
-EMBEDDING_CONFIDENT_THRESHOLD = 0.6
-DISAGREEMENT_DELTA = 0.35  # |classifier - embedding| > this => force LLM arbitration
+LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 
 
 class HybridRelevanceService:
@@ -174,12 +168,7 @@ class HybridRelevanceService:
                             parts.append(t['description'])
                         if t.get('keywords'):
                             # Filter out exclusion keywords (starting with -)
-                            _entity_prefixes = ('company:', 'person:', 'tech:', 'location:')
-                            keywords = [
-                                k for k in t['keywords']
-                                if not k.startswith('-')
-                                and not any(k.startswith(p) for p in _entity_prefixes)
-                            ]
+                            keywords = [k for k in t['keywords'] if not k.startswith('-') and not k.startswith('company:') and not k.startswith('person:')]
                             if keywords:
                                 parts.append(', '.join(keywords[:10]))  # Limit to 10 keywords
                         topic_text = '. '.join(parts)
@@ -284,17 +273,20 @@ class HybridRelevanceService:
             summary: Article summary
             use_local: If True, use local Qwen model instead of external GPT
         """
-        prompt = f"""Rate the relevance of this article to the given topic on a scale of 0.0 to 1.0.
+        prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
 
 Topic: {topic}
 
 Article Title: {title}
 Article Summary: {summary}
 
-Respond with ONLY a number between 0.0 and 1.0, where:
-- 0.0 = completely irrelevant
-- 0.5 = somewhat relevant
-- 1.0 = highly relevant
+Rules:
+- The article must be DIRECTLY about the topic, not just tangentially related
+- Sharing a keyword is NOT enough — the article's main subject must match the topic
+- Generic news that mentions a related term in passing scores 0.1-0.2
+- Only score above 0.7 if the article is primarily about the topic
+
+Respond with ONLY a number between 0.0 and 1.0.
 
 Score:"""
 
@@ -357,10 +349,6 @@ Score:"""
         except Exception as e:
             logger.error(f"External LLM relevance scoring failed: {e}")
             return None
-
-    def _is_uncertain(self, score: float) -> bool:
-        """Check if score is in the uncertain range where LLM fallback would help."""
-        return LLM_FALLBACK_THRESHOLD < score < (1 - LLM_FALLBACK_THRESHOLD)
 
     def score_relevance(
         self,
@@ -435,28 +423,14 @@ Score:"""
             classifier_score = None
 
         # Combine scores based on availability
-        disagreement = False
         if classifier_score is not None and embedding_score is not None:
-            # When the classifier returns near-zero while the embedding is confident,
-            # the classifier almost certainly has no signal for this topic (untrained).
-            # Trust the embedding alone in that case rather than letting a 0.0 classifier
-            # veto a semantically-relevant article.
-            if (classifier_score < CLASSIFIER_NO_SIGNAL_THRESHOLD
-                    and embedding_score >= EMBEDDING_CONFIDENT_THRESHOLD):
-                result["score"] = embedding_score
-                result["method"] = "embedding_fallback"
-            else:
-                combined_score = (
-                    CLASSIFIER_WEIGHT * classifier_score +
-                    EMBEDDING_WEIGHT * embedding_score
-                )
-                result["score"] = combined_score
-                result["method"] = "hybrid"
-
-            # Flag component disagreement: a large gap between classifier and embedding
-            # means we should NOT treat the combined score as a confident decision —
-            # this is the case LLM arbitration exists to resolve.
-            disagreement = abs(classifier_score - embedding_score) > DISAGREEMENT_DELTA
+            # Both available - weighted combination
+            combined_score = (
+                CLASSIFIER_WEIGHT * classifier_score +
+                EMBEDDING_WEIGHT * embedding_score
+            )
+            result["score"] = combined_score
+            result["method"] = "hybrid"
 
         elif embedding_score is not None:
             # Only embedding available (new topic or classifier not loaded)
@@ -468,16 +442,18 @@ Score:"""
             result["score"] = classifier_score
             result["method"] = "classifier_only"
 
-        # Confidence: disagreement between components forces low confidence regardless
-        # of the combined score. Otherwise use score-position heuristic.
-        if disagreement:
-            result["confidence"] = "low"
-        elif result["score"] < 0.35 or result["score"] > 0.65:
-            result["confidence"] = "high"  # Clear decision, components agree
+        # Set confidence based on score position
+        # Only treat very low (<0.20) or very high (>0.85) as confident — everything
+        # else gets LLM verification. The previous 0.35/0.65 window was too narrow;
+        # the bimodal classifier (0.04 or 0.94) produced hybrid scores of ~0.24 or
+        # ~0.82 that always landed outside the "uncertain" range, making LLM fallback
+        # dead code.
+        if result["score"] < 0.20 or result["score"] > 0.85:
+            result["confidence"] = "high"
         else:
-            result["confidence"] = "medium"  # Borderline, may benefit from LLM
+            result["confidence"] = "medium"
 
-        # LLM fallback for uncertain/borderline scores OR component disagreement
+        # LLM fallback for uncertain/borderline scores
         if use_llm_fallback and result["confidence"] != "high":
             fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
             logger.info(f"🤖 {fallback_type} fallback triggered for borderline score {result['score']:.3f}")

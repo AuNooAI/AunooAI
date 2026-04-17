@@ -871,3 +871,40 @@ export async function reloadPreclassifier(id: string): Promise<ReloadPreclassifi
   }
   return response.json();
 }
+
+// Data Quality types and API
+
+export interface DataQualityFailure {
+  title: string;
+  reason: string;
+}
+
+export interface TopicQualityReport {
+  topic: string;
+  sampled: number;
+  passed: number;
+  failed: number;
+  error: number;
+  pass_rate: number;
+  failures: DataQualityFailure[];
+  timestamp?: string;
+}
+
+export interface DataQualityReport {
+  run_at: string;
+  hours_checked: number;
+  topics_audited: number;
+  total_sampled: number;
+  overall_pass_rate: number;
+  alerts: string[];
+  topic_reports: TopicQualityReport[];
+}
+
+export async function getDataQualityReport(hours: number = 24, samples: number = 5): Promise<DataQualityReport> {
+  const response = await fetch(`${API_BASE}/data-quality?hours=${hours}&samples=${samples}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to fetch quality report: ${response.statusText}`);
+  }
+  return response.json();
+}

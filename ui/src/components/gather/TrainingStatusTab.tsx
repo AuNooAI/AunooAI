@@ -49,11 +49,131 @@ import {
   type ModelConfig,
   type CostSavingsStats,
   type InferenceMode,
+  type DataQualityReport,
+  type TopicQualityReport,
+  getDataQualityReport,
 } from '../../services/trainingApi';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 const DEBERTA_THRESHOLD = 500;
+
+function DataQualityCard() {
+  const [report, setReport] = useState<DataQualityReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  const runAudit = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getDataQualityReport(24, 5);
+      setReport(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to run quality audit');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const passRateColor = (rate: number) => {
+    if (rate >= 0.8) return 'text-green-600';
+    if (rate >= 0.6) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const passRateBg = (rate: number) => {
+    if (rate >= 0.8) return 'bg-green-50 border-green-200';
+    if (rate >= 0.6) return 'bg-yellow-50 border-yellow-200';
+    return 'bg-red-50 border-red-200';
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <Target className="w-4 h-4 text-gray-400" />
+          Data Quality Audit
+        </h3>
+        <button
+          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-1.5"
+          onClick={runAudit}
+          disabled={loading}
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+          {loading ? 'Auditing...' : 'Run Audit'}
+        </button>
+      </div>
+
+      <div className="p-5">
+        {error && (
+          <div className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</div>
+        )}
+
+        {!report && !loading && (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Spot-checks approved articles against their topics using LLM verification. Click Run Audit to check the last 24h.
+          </p>
+        )}
+
+        {report && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-6 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Overall: </span>
+                <span className={`font-bold text-lg ${passRateColor(report.overall_pass_rate)}`}>
+                  {Math.round(report.overall_pass_rate * 100)}%
+                </span>
+              </div>
+              <div className="text-gray-400 dark:text-gray-500">
+                {report.topics_audited} topics &middot; {report.total_sampled} articles sampled
+              </div>
+            </div>
+
+            {report.alerts.length > 0 && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-red-700 dark:text-red-400 text-xs font-semibold mb-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {report.alerts.length} topic{report.alerts.length > 1 ? 's' : ''} below quality threshold
+                </div>
+                {report.alerts.map((a, i) => (
+                  <div key={i} className="text-xs text-red-600 dark:text-red-400 ml-5">{a}</div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              {report.topic_reports
+                .sort((a, b) => a.pass_rate - b.pass_rate)
+                .slice(0, expanded ? undefined : 5)
+                .map((tr, i) => (
+                  <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs ${passRateBg(tr.pass_rate)}`}>
+                    <span className="font-medium text-gray-800 dark:text-gray-200 truncate mr-3">{tr.topic}</span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-gray-500">{tr.passed}/{tr.sampled}</span>
+                      <span className={`font-bold ${passRateColor(tr.pass_rate)}`}>
+                        {Math.round(tr.pass_rate * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            {report.topic_reports.length > 5 && (
+              <button
+                className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                onClick={() => setExpanded(!expanded)}
+              >
+                {expanded ? 'Show less' : `Show all ${report.topic_reports.length} topics`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface SystemStatus {
   bootstrap_thresholds: TrainingThresholds;
@@ -539,6 +659,9 @@ export function TrainingStatusTab() {
           <div className="text-xs text-gray-400 mt-1">Awaiting samples</div>
         </div>
       </div>
+
+      {/* Data Quality Card */}
+      <DataQualityCard />
 
       {/* Pipeline Card - Full Width */}
       <div className="bg-white rounded-xl border border-gray-200">

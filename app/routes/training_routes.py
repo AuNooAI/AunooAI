@@ -2499,3 +2499,64 @@ async def get_triage_articles(
     finally:
         if conn:
             conn.close()
+
+
+@router.get("/data-quality")
+async def get_data_quality_report(
+    hours: int = 24,
+    samples: int = 5,
+):
+    """Run a data quality audit across all topics with recent approved articles."""
+    try:
+        from app.database import Database
+        from app.services.data_quality_service import DataQualityService
+
+        db = Database()
+        dqs = DataQualityService(db)
+        report = dqs.nightly_report(hours=hours, sample_per_topic=samples)
+        return report
+
+    except Exception as e:
+        logger.error(f"Error running data quality report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/data-quality/topic/{topic}")
+async def get_topic_quality(
+    topic: str,
+    samples: int = 10,
+    hours: int = 168,
+):
+    """Run a data quality audit for a single topic."""
+    try:
+        from app.database import Database
+        from app.services.data_quality_service import DataQualityService
+
+        db = Database()
+        dqs = DataQualityService(db)
+
+        cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT title, summary FROM articles
+                WHERE ingest_status = 'approved'
+                  AND topic = :topic
+                  AND submission_date >= :cutoff
+                  AND category IS NOT NULL
+                ORDER BY RANDOM()
+                LIMIT :limit
+            """, {"topic": topic, "cutoff": cutoff, "limit": samples})
+            rows = cursor.fetchall()
+
+        if not rows:
+            return {"topic": topic, "sampled": 0, "passed": 0, "failed": 0, "error": 0, "pass_rate": 1.0, "failures": []}
+
+        articles = [{"title": r[0], "summary": r[1]} for r in rows]
+        report = dqs.audit_batch(topic, articles, sample_size=len(articles))
+        return report
+
+    except Exception as e:
+        logger.error(f"Error running topic quality check: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
