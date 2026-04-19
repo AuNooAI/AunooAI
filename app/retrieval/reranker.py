@@ -41,12 +41,14 @@ logger = logging.getLogger(__name__)
 
 RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "false").lower() in {"1", "true", "yes"}
 
-# Default: English retrieval-tuned MS-MARCO MiniLM. Small (~90MB), fast on
-# CPU (~10-30ms per (query, doc) pair), produces 0-1 scores.
-# For multilingual queries set
-#   RERANK_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
-# — note that model outputs unbounded logits.
-RERANK_MODEL_NAME: str = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+# Default: BAAI/bge-reranker-v2-m3. Multilingual, 8K context (matters for
+# paragraph-level topical relevance rather than just titles+ledes), ~568M
+# params, Apache 2.0. Top of MTEB reranking benchmarks and outputs bounded
+# [0, 1] probabilities after sigmoid — so ``score_pair`` thresholds are
+# interpretable without per-model calibration.
+# Legacy option: ``cross-encoder/ms-marco-MiniLM-L-6-v2`` (~90MB, English,
+# 512 ctx, unbounded logits) if you need a tiny CPU footprint.
+RERANK_MODEL_NAME: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 
 # How many cosine-ranked candidates to fetch per top_k requested.
 # k=10, factor=5 → pull 50 from pgvector, rerank down to 10.
@@ -58,8 +60,10 @@ RERANK_MAX_CANDIDATES: int = int(os.getenv("RERANK_MAX_CANDIDATES", "200"))
 
 RERANK_BATCH_SIZE: int = int(os.getenv("RERANK_BATCH_SIZE", "32"))
 
-# Per-candidate text length cap. Matches what we feed to embeddings.
-RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "1000"))
+# Per-candidate text length cap. BGE-reranker-v2-m3 has an 8K-token window;
+# 4000 chars ≈ 1000 tokens, enough for body paragraphs where topical signal
+# actually lives for news articles (not just headline+lede).
+RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "4000"))
 
 
 def overfetch_limit(top_k: int) -> int:
@@ -207,12 +211,15 @@ def is_enabled() -> bool:
 def score_pair(query: str, document: str) -> Optional[float]:
     """Score a single (query, document) pair with the cross-encoder.
 
-    Returns the model's raw score. For the default
-    ``cross-encoder/ms-marco-MiniLM-L-6-v2`` this is an unbounded logit
-    (higher = more relevant, typical range ~[-12, +5]). Consumers that need
-    a bounded probability should apply their own sigmoid; thresholds are
-    model-specific and should be calibrated with a backtest (see
-    ``scripts/evaluate_ce_vs_llm_fallback.py``) before use.
+    Returns a probability in ``[0, 1]``. The default model
+    (``BAAI/bge-reranker-v2-m3``) emits a logit that sigmoid-maps cleanly
+    into that range; swapping to a model that returns unbounded or already-
+    bounded scores may shift thresholds. Calibrate with
+    ``scripts/evaluate_ce_vs_llm_fallback.py`` when changing models.
+
+    ``rerank()`` deliberately does not sigmoid its output — it only needs
+    relative ordering, and keeping the raw score avoids the extra exp call
+    per candidate on large candidate pools.
 
     Reuses the same lazy singleton as ``rerank`` so there is no duplicate
     model load. Returns ``None`` if the model is not available or inference
@@ -231,4 +238,13 @@ def score_pair(query: str, document: str) -> Optional[float]:
     except Exception:
         logger.exception("Cross-encoder score_pair inference failed")
         return None
-    return scores[0] if scores else None
+    if not scores:
+        return None
+    import math
+    logit = scores[0]
+    # Guard against models that already return probabilities in [0, 1]
+    # (rare but possible). Applying sigmoid to a probability would compress
+    # it; detect by range and short-circuit.
+    if 0.0 <= logit <= 1.0:
+        return float(logit)
+    return 1.0 / (1.0 + math.exp(-logit))

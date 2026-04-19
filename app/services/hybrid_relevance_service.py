@@ -49,14 +49,13 @@ LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 # Cross-encoder as an intermediate tier between classifier+embedding and LLM
 # fallback. Gated by its own env flag so we can roll it out independently of
 # the retrieval reranker (which shares the underlying model).
-# NOTE: score_pair returns the model's raw score — for the default MS-MARCO
-# MiniLM model these are unbounded logits (typical range ~[-12, +5]). The
-# defaults below bracket the "confident" tails for that model; run
-# scripts/evaluate_ce_vs_llm_fallback.py before enabling to verify they
-# reproduce LLM-fallback decisions ≥85% of the time on your data.
+# NOTE: score_pair returns a sigmoid probability in [0, 1]. Defaults below
+# pick the confident tails; re-run scripts/evaluate_ce_vs_llm_fallback.py
+# after changing models and when user_relevance_feedback grows past ~50
+# labels to tighten these.
 USE_CE_TIER = os.getenv("RELEVANCE_USE_CE_TIER", "false").lower() in {"1", "true", "yes"}
-CE_LOW = float(os.getenv("RELEVANCE_CE_LOW", "-10.0"))   # below → confident reject
-CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "-3.0"))  # above → confident accept
+CE_LOW = float(os.getenv("RELEVANCE_CE_LOW", "0.10"))   # below → confident reject
+CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.90"))  # above → confident accept
 
 
 class HybridRelevanceService:
