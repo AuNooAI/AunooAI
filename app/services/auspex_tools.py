@@ -13,6 +13,7 @@ from app.database import get_database_instance
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model, get_available_models
+from app.retrieval.reranker import rerank, overfetch_limit
 
 # Import sampling framework
 from app.services.sampling import (
@@ -196,12 +197,13 @@ class AuspexToolsService:
                     # No date filter - use topic filter if available, empty dict for cross-topic
                     vector_date_filter = {"topic": topic} if topic else {}
                 
+                fetch_k = overfetch_limit(limit)
                 vector_results = vector_search_articles(
                     query=query,
-                    top_k=limit,
+                    top_k=fetch_k,
                     metadata_filter=vector_date_filter
                 )
-                
+
                 # Convert vector results to article format
                 for result in vector_results:
                     if result.get("metadata"):
@@ -220,7 +222,14 @@ class AuspexToolsService:
                             "_from_vector_db": True,  # Mark as from internal vector database
                             "source_type": "database"  # Explicit source type for routing
                         })
-                
+
+                vector_articles = await rerank(
+                    query=query,
+                    candidates=vector_articles,
+                    text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
+                    top_k=limit,
+                )
+
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
                 
                 # Post-processing date filter (fallback for articles without timestamp metadata)

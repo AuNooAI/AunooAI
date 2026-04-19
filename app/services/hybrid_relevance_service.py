@@ -46,6 +46,18 @@ NEW_TOPIC_THRESHOLD = 100  # Minimum training samples to trust classifier
 DEFAULT_THRESHOLD = 0.5
 LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 
+# Cross-encoder as an intermediate tier between classifier+embedding and LLM
+# fallback. Gated by its own env flag so we can roll it out independently of
+# the retrieval reranker (which shares the underlying model).
+# NOTE: score_pair returns the model's raw score — for the default MS-MARCO
+# MiniLM model these are unbounded logits (typical range ~[-12, +5]). The
+# defaults below bracket the "confident" tails for that model; run
+# scripts/evaluate_ce_vs_llm_fallback.py before enabling to verify they
+# reproduce LLM-fallback decisions ≥85% of the time on your data.
+USE_CE_TIER = os.getenv("RELEVANCE_USE_CE_TIER", "false").lower() in {"1", "true", "yes"}
+CE_LOW = float(os.getenv("RELEVANCE_CE_LOW", "-10.0"))   # below → confident reject
+CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "-3.0"))  # above → confident accept
+
 
 class HybridRelevanceService:
     """
@@ -256,6 +268,26 @@ class HybridRelevanceService:
             logger.error(f"Classifier inference failed: {e}")
             return None
 
+    def _compute_cross_encoder_score(
+        self,
+        topic: str,
+        title: str,
+        summary: str,
+    ) -> Optional[float]:
+        """Score (topic, title+summary) with the shared cross-encoder.
+
+        Reuses the singleton loaded by ``app.retrieval.reranker`` — no
+        duplicate model in memory. Returns ``None`` if the CE is unavailable
+        so the caller degrades to the existing LLM fallback path.
+        """
+        try:
+            from app.retrieval.reranker import score_pair
+        except ImportError:
+            logger.debug("Reranker module unavailable — skipping CE tier")
+            return None
+        document = f"{title}. {summary}".strip(". ")
+        return score_pair(topic, document)
+
     def _compute_llm_score(
         self,
         topic: str,
@@ -386,6 +418,7 @@ Score:"""
                 "score": llm_score or 0,
                 "embedding_score": None,
                 "classifier_score": None,
+                "ce_score": None,
                 "llm_score": llm_score,
                 "method": "llm_only",
                 "confidence": "high" if llm_score is not None else "failed",
@@ -403,6 +436,7 @@ Score:"""
             "score": 0.0,
             "embedding_score": None,
             "classifier_score": None,
+            "ce_score": None,
             "llm_score": None,
             "method": "none",
             "confidence": "low",
@@ -452,6 +486,22 @@ Score:"""
             result["confidence"] = "high"
         else:
             result["confidence"] = "medium"
+
+        # Cross-encoder tier: for borderline cases, try the CE before paying
+        # for an LLM call. Populates ce_score either way when enabled so we
+        # can audit CE vs LLM agreement over time.
+        result["ce_score"] = None
+        if USE_CE_TIER and result["confidence"] == "medium":
+            ce_score = self._compute_cross_encoder_score(topic, title, summary)
+            if ce_score is not None:
+                result["ce_score"] = ce_score
+                if ce_score < CE_LOW or ce_score > CE_HIGH:
+                    result["score"] = ce_score
+                    result["method"] = f"{result['method']}+ce"
+                    result["confidence"] = "high"
+                    logger.info(
+                        f"🎯 CE resolved borderline case: {ce_score:.3f} (thresholds {CE_LOW}/{CE_HIGH})"
+                    )
 
         # LLM fallback for uncertain/borderline scores
         if use_llm_fallback and result["confidence"] != "high":

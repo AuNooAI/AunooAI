@@ -17,6 +17,7 @@ from app.database import get_database_instance, Database
 from app.security.session import verify_session
 from app.services.auspex_service import get_auspex_service
 from app.services.prompt_loader import PromptLoader
+from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,18 @@ async def get_market_signals_analysis(
             )
 
         logger.info(f"Fetched {len(articles)} articles for analysis")
+
+        # Rerank against the market-signals framing so the first 50 articles
+        # (token budget ceiling below) are the most signal-rich of the pool,
+        # not the first 50 by date. No-op when RERANK_ENABLED is false.
+        if rerank_is_enabled() and len(articles) > 50:
+            rerank_query = f"{topic} market signals, strategic risks, opportunities, emerging trends"
+            articles = await rerank(
+                query=rerank_query,
+                candidates=articles,
+                text_fn=lambda a: f"{a.get('title', '')}. {a.get('summary', '')}",
+                top_k=min(len(articles), 100),
+            )
 
         # 3. Prepare variables for prompt template
         variables = {

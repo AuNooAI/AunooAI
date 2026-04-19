@@ -331,7 +331,8 @@ class RelevanceConfidenceTracker:
         return db._temp_get_connection()
 
     def record(self, topic: str, score: float, classifier_score: float = None,
-               embedding_score: float = None, method: str = "hybrid", relevant: bool = None):
+               embedding_score: float = None, method: str = "hybrid", relevant: bool = None,
+               ce_score: float = None):
         """
         Record a relevance score for a topic.
 
@@ -342,6 +343,7 @@ class RelevanceConfidenceTracker:
             embedding_score: Embedding similarity score (optional)
             method: Scoring method used (hybrid, classifier_only, embedding_only, llm)
             relevant: Final relevance decision
+            ce_score: Cross-encoder score when the CE tier ran (optional)
         """
         conn = None
         try:
@@ -350,15 +352,16 @@ class RelevanceConfidenceTracker:
 
             conn.execute(text("""
                 INSERT INTO relevance_confidence_readings
-                    (topic, score, classifier_score, embedding_score, method, relevant)
-                VALUES (:topic, :score, :classifier_score, :embedding_score, :method, :relevant)
+                    (topic, score, classifier_score, embedding_score, method, relevant, ce_score)
+                VALUES (:topic, :score, :classifier_score, :embedding_score, :method, :relevant, :ce_score)
             """), {
                 "topic": topic,
                 "score": score,
                 "classifier_score": classifier_score,
                 "embedding_score": embedding_score,
                 "method": method,
-                "relevant": relevant
+                "relevant": relevant,
+                "ce_score": ce_score
             })
 
             conn.commit()
@@ -1353,6 +1356,7 @@ class RelevanceReading(BaseModel):
     embedding_score: Optional[float] = None
     method: str = "hybrid"
     relevant: Optional[bool] = None
+    ce_score: Optional[float] = None
 
 
 @router.get("/relevance-confidence-stats")
@@ -1400,7 +1404,8 @@ async def record_relevance_confidence(reading: RelevanceReading):
             classifier_score=reading.classifier_score,
             embedding_score=reading.embedding_score,
             method=reading.method,
-            relevant=reading.relevant
+            relevant=reading.relevant,
+            ce_score=reading.ce_score,
         )
         return {"status": "recorded"}
     except Exception as e:

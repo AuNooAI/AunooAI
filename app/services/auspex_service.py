@@ -21,6 +21,7 @@ from app.services.article_stats import compute_article_stats
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model
+from app.retrieval.reranker import rerank, overfetch_limit
 
 # Import sampling framework for strategy-based article selection
 from app.services.sampling import get_registry, SamplingContext
@@ -1066,9 +1067,10 @@ class QueryRouter:
         try:
             metadata_filter = {"topic": topic}
 
+            fetch_k = overfetch_limit(limit)
             results = vector_search_articles(
                 query=query,
-                top_k=limit,
+                top_k=fetch_k,
                 metadata_filter=metadata_filter
             )
 
@@ -1092,6 +1094,13 @@ class QueryRouter:
                     'topic': topic,
                     'similarity_score': result.get('score', 0.0)
                 })
+
+            articles = await rerank(
+                query=query,
+                candidates=articles,
+                text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
+                top_k=limit,
+            )
 
             return {'articles': articles, 'topic': topic}
 
@@ -1138,8 +1147,11 @@ class QueryRouter:
                 seen_uris.add(uri)
                 unique_articles.append(article)
 
-        # Sort by similarity score
-        unique_articles.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+        # Sort by rerank score when available, else fall back to cosine similarity.
+        unique_articles.sort(
+            key=lambda x: x.get('rerank_score', x.get('similarity_score', 0)),
+            reverse=True,
+        )
 
         return {
             'articles': unique_articles[:limit],
@@ -1168,9 +1180,10 @@ class QueryRouter:
         metadata_filter = {"topic": topic} if topic else {}
 
         try:
+            fetch_k = overfetch_limit(limit)
             results = vector_search_articles(
                 query=query,
-                top_k=limit,
+                top_k=fetch_k,
                 metadata_filter=metadata_filter
             )
 
@@ -1194,6 +1207,13 @@ class QueryRouter:
                     'topic': topic or metadata.get('topic', 'Unknown'),
                     'similarity_score': result.get('score', 0.0)
                 })
+
+            articles = await rerank(
+                query=query,
+                candidates=articles,
+                text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
+                top_k=limit,
+            )
 
             return {
                 'articles': articles,

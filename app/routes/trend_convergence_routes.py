@@ -19,6 +19,7 @@ from app.database_query_facade import DatabaseQueryFacade
 from app.services.auspex_service import get_auspex_service
 from app.services.prompt_loader import PromptLoader
 from app.analyzers.prompt_manager import PromptManager, PromptManagerError
+from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
 
 # Context limits for different AI models (copied from futures cone)
 CONTEXT_LIMITS = {
@@ -659,6 +660,21 @@ async def generate_trend_convergence(
         # Filter by source quality if specified
         filtered_articles = filter_articles_by_source_quality(articles, source_quality)
         logger.info(f"After source quality filter ({source_quality}): {len(filtered_articles)} articles")
+
+        # Rerank the filtered pool against the trend-convergence framing so the
+        # heuristic weighting + deterministic selection below pick from the most
+        # semantically relevant slice. No-op when RERANK_ENABLED is false.
+        if rerank_is_enabled() and len(filtered_articles) > optimal_sample_size:
+            rerank_query = f"{topic} emerging trends convergence strategic signals"
+            filtered_articles = await rerank(
+                query=rerank_query,
+                candidates=filtered_articles,
+                text_fn=lambda a: f"{a.get('title', '')}. {a.get('summary', '')}",
+                top_k=min(len(filtered_articles), optimal_sample_size * 2),
+            )
+            logger.info(
+                f"Reranked pool to top {len(filtered_articles)} for trend-convergence framing"
+            )
 
         if not filtered_articles:
             if source_quality == 'high_quality':

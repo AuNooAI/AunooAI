@@ -492,7 +492,8 @@ class AutomatedIngestService:
                     classifier_score=hybrid_result.get("classifier_score"),
                     embedding_score=hybrid_result.get("embedding_score"),
                     method=hybrid_result.get("method", "unknown"),
-                    relevant=hybrid_result.get("relevant")
+                    relevant=hybrid_result.get("relevant"),
+                    ce_score=hybrid_result.get("ce_score"),
                 )
             except Exception as tracker_err:
                 self.logger.debug(f"Failed to record relevance confidence stats: {tracker_err}")
