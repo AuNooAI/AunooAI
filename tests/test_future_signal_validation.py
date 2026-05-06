@@ -175,29 +175,34 @@ class TestFutureSignalValidation(unittest.TestCase):
             )
 
     def test_time_to_impact_validation(self):
-        """Test that invalid time_to_impact values are rejected"""
+        """Test validator behavior for allowed vs disallowed time_to_impact values.
+
+        This test intentionally uses a local, fixed allow-list so it remains stable
+        even if topic ontology values in config files evolve over time.
+        """
         mock_ai_model = Mock()
         mock_ai_model.model_name = "test-model"
         analyzer = ArticleAnalyzer(mock_ai_model, use_cache=False)
 
-        invalid_times = ["Soon", "Later", "Never", "None", "Short-term (6-18 months)"]
+        fixed_allowed_times = ["Immediate", "Long-term"]
+        invalid_times = ["Soon", "Later", "Never", "None"]
 
         for invalid_time in invalid_times:
             result = {
-                'future_signal': 'AI will accelerate',
+                'future_signal': 'Signal A',
                 'sentiment': 'Positive',
                 'time_to_impact': invalid_time,
-                'category': 'Other',
-                'driver_type': self.valid_driver_types[0]
+                'category': 'Cat A',
+                'driver_type': 'Driver A'
             }
 
             validated = analyzer._validate_analysis_fields(
                 result,
-                self.valid_categories,
-                self.valid_signals,
-                self.valid_sentiments,
-                self.valid_time_to_impact,
-                self.valid_driver_types
+                ["Cat A"],
+                ["Signal A"],
+                ["Positive"],
+                fixed_allowed_times,
+                ["Driver A"]
             )
 
             self.assertEqual(
@@ -205,6 +210,24 @@ class TestFutureSignalValidation(unittest.TestCase):
                 "",
                 f"Invalid time_to_impact '{invalid_time}' should be cleared"
             )
+
+        # Also verify an allowed value is preserved
+        result_valid = {
+            'future_signal': 'Signal A',
+            'sentiment': 'Positive',
+            'time_to_impact': "Immediate",
+            'category': 'Cat A',
+            'driver_type': 'Driver A'
+        }
+        validated_valid = analyzer._validate_analysis_fields(
+            result_valid,
+            ["Cat A"],
+            ["Signal A"],
+            ["Positive"],
+            fixed_allowed_times,
+            ["Driver A"]
+        )
+        self.assertEqual(validated_valid['time_to_impact'], "Immediate")
 
     def test_empty_values_allowed(self):
         """Test that empty/missing values are allowed (not validated)"""
@@ -384,6 +407,9 @@ class TestIntegration(unittest.TestCase):
 
         self.assertIsNotNone(ai_topic)
 
+        # Use a config-backed valid signal to keep this test stable as ontology evolves.
+        valid_future_signal = ai_topic['future_signals'][0] if ai_topic.get('future_signals') else "Other"
+
         # Simulate AI returning various invalid values
         test_cases = [
             {
@@ -392,9 +418,9 @@ class TestIntegration(unittest.TestCase):
                 'description': 'Shortened future signal'
             },
             {
-                'input': 'AI will accelerate',
-                'expected_output': 'AI will accelerate',
-                'description': 'Valid future signal'
+                'input': valid_future_signal,
+                'expected_output': valid_future_signal,
+                'description': 'Valid future signal from current config'
             },
             {
                 'input': 'Neutral',

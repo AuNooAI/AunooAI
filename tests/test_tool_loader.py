@@ -400,10 +400,11 @@ class TestActualDataFiles:
 
         assert workflow is not None
         assert workflow.name == "deep_research_workflow"
-        assert len(workflow.stages) == 4
+        assert len(workflow.stages) == 5
 
         # Verify stages
         stage_names = [s["name"] for s in workflow.stages]
+        assert "exploration" in stage_names
         assert "planning" in stage_names
         assert "searching" in stage_names
         assert "synthesis" in stage_names
@@ -422,7 +423,7 @@ class TestActualDataFiles:
         if workflow:
             sampling = workflow.get_sampling_config()
             assert sampling["strategy"] == "balanced"
-            assert sampling["articles_per_query"] == 20
+            assert sampling["articles_per_query"] == 100
             assert "diversity" in sampling
 
             filtering = workflow.get_filtering_config()

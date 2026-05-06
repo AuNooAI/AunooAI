@@ -1572,8 +1572,9 @@ def test_start_deep_research(client, monkeypatch):
         "topic": "Artificial Intelligence"
     }
 
-    # ------------------ 422 (Validation) ------------------
-    r1 = client.post(url, json={"query": "hi", "topic": "ai"})
+    # ------------------ 422 (Validation with authenticated session) ------------------
+    app.dependency_overrides[verify_session] = lambda: {"user": "test"}
+    r1 = client.post(url, json={"query": "hi"})  # missing required "topic"
     assert r1.status_code == 422
 
     # ------------------ 401 (No Session) ------------------
@@ -2781,7 +2782,32 @@ def test_chat_with_database_success_and_failure(client, monkeypatch):
     # ------------------ AI MODEL -----------------
 
     class MockAI:
-        def generate_response(self, msgs):
+        def __init__(self):
+            self.calls = 0
+
+        async def agenerate_response(self, msgs):
+            self.calls += 1
+            # 1st call: search strategy extraction expects JSON payload
+            if self.calls == 1:
+                return json.dumps(
+                    {
+                        "queries": [
+                            {
+                                "description": "Find relevant AI articles",
+                                "params": {
+                                    "category": None,
+                                    "keyword": "ai",
+                                    "sentiment": None,
+                                    "future_signal": None,
+                                    "time_to_impact": None,
+                                    "tags": ["ai"],
+                                    "date_range": None,
+                                },
+                            }
+                        ]
+                    }
+                )
+            # 2nd call: final response generation
             return "Mock AI response"
 
     monkeypatch.setattr(
@@ -4280,7 +4306,7 @@ def test_get_article_insights_success_and_failure(client, monkeypatch):
 
     # ---------- SUCCESS ----------
 
-    res = client.get("/api/dashboard/article-insights/AI")
+    res = client.post("/api/dashboard/article-insights/AI", json={})
 
     assert res.status_code == 200
 
@@ -4314,7 +4340,7 @@ def test_get_article_insights_success_and_failure(client, monkeypatch):
     )
 
 
-    res = client.get("/api/dashboard/article-insights/AI")
+    res = client.post("/api/dashboard/article-insights/AI", json={})
 
     assert res.status_code == 422
 
@@ -4338,7 +4364,7 @@ def test_get_article_insights_success_and_failure(client, monkeypatch):
     )
 
 
-    res = client.get("/api/dashboard/article-insights/AI")
+    res = client.post("/api/dashboard/article-insights/AI", json={})
 
     assert res.status_code == 404
 
@@ -4358,7 +4384,7 @@ def test_get_article_insights_success_and_failure(client, monkeypatch):
     )
 
 
-    res = client.get("/api/dashboard/article-insights/AI")
+    res = client.post("/api/dashboard/article-insights/AI", json={})
 
     # Your endpoint returns [] on generic exception
     assert res.status_code == 200
@@ -8440,7 +8466,7 @@ def test_review_content_success_and_failure(client, monkeypatch):
     app.dependency_overrides[get_database_instance] = lambda: MagicMock()
 
     class FakeLLM:
-        def generate_response(self, messages):
+        async def agenerate_response(self, messages):
             return '{"quality_score": 0.9, "issues_detected": [], "recommendation": "approve", "explanation": "Good", "content_type": "article"}'
 
     monkeypatch.setattr(keyword_monitor.LiteLLMModel, "get_instance", lambda m: FakeLLM())
@@ -8462,7 +8488,7 @@ def test_review_content_success_and_failure(client, monkeypatch):
     # ---------------- PARSE ERROR ----------------
 
     class BadLLM:
-        def generate_response(self, messages):
+        async def agenerate_response(self, messages):
             return "Not JSON"
 
     monkeypatch.setattr(keyword_monitor.LiteLLMModel, "get_instance", lambda m: BadLLM())
@@ -9618,7 +9644,7 @@ def test_get_six_articles_report_success_and_failure(client, monkeypatch):
     app = client.app
     fake_db = MagicMock()
     app.dependency_overrides[get_database_instance] = lambda: fake_db
-    app.dependency_overrides[verify_session] = lambda: {"user_id": 1, "user": "test-user"}
+    app.dependency_overrides[verify_session] = lambda: {"user_id": 1, "user": {"username": "test-user"}}
 
     fake_service = MagicMock()
     fake_service._get_articles_for_date_range = AsyncMock(return_value=[{"id": 1}])
@@ -12111,7 +12137,7 @@ def test_generate_podcast_script_success_and_failure(client, fake_db, fake_sessi
     monkeypatch.setattr(podcast_routes, "_postprocess_script", lambda raw: f"POST({raw})")
 
     # SUCCESS
-    fake_llm.generate_response.return_value = "RAW"
+    fake_llm.agenerate_response = AsyncMock(return_value="RAW")
     monkeypatch.setattr(podcast_routes.LiteLLMModel, "get_instance", lambda model: fake_llm)
 
     payload = {
@@ -12140,7 +12166,7 @@ def test_generate_podcast_script_success_and_failure(client, fake_db, fake_sessi
 
     # FAILURE: empty response
     monkeypatch.setattr(podcast_routes.LiteLLMModel, "get_instance", lambda model: fake_llm)
-    fake_llm.generate_response.return_value = ""
+    fake_llm.agenerate_response = AsyncMock(return_value="")
     res = client.post("/api/generate_podcast_script", json=payload)
     assert res.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert "Failed to generate podcast script" in res.json()["detail"]
@@ -12345,7 +12371,17 @@ def test_list_podcasts_success_and_failure(client, fake_db, fake_session, monkey
 
     # SUCCESS
     facade.get_all_podcasts.return_value = [
-        ("p1", "t1", "done", "/static/audio/a.mp3", "c1", "c2", None, "tr", '{"m": 1}'),
+        {
+            "id": "p1",
+            "title": "t1",
+            "status": "done",
+            "audio_url": "/static/audio/a.mp3",
+            "created_at": None,
+            "completed_at": None,
+            "error": None,
+            "transcript": "tr",
+            "metadata": '{"m": 1}',
+        },
     ]
     res = client.get("/api/podcast/list")
     assert res.status_code == status.HTTP_200_OK
@@ -15472,22 +15508,39 @@ def test_statistics_failure_500(client, mock_session):
 
 
 def test_clean_collection_success(client, mock_session):
-    mock_client = MagicMock()
-    with patch.object(vector_routes, "get_chroma_client", return_value=mock_client):
+    mock_conn = MagicMock(name="conn")
+    mock_result = MagicMock(name="result")
+    mock_result.rowcount = 3
+    mock_conn.execute.return_value = mock_result
+
+    mock_db = MagicMock(name="db")
+    mock_db._temp_get_connection.return_value = mock_conn
+
+    with patch.object(vector_routes, "get_database_instance", return_value=mock_db):
         res = client.post("/api/clean_collection")
 
     assert res.status_code == 200
-    assert res.json() is None
-    mock_client.delete_collection.assert_called_once_with("articles")
+    assert res.json()["success"] is True
+    assert "Cleared embeddings from 3 articles" in res.json()["message"]
+    mock_conn.execute.assert_called_once()
+    mock_conn.commit.assert_called_once()
+    mock_conn.close.assert_called_once()
 
 
 def test_clean_collection_failure_500(client, mock_session):
     failure_client = TestClient(client.app, raise_server_exceptions=False)
-    mock_client = MagicMock()
-    mock_client.delete_collection.side_effect = Exception("boom")
-    with patch.object(vector_routes, "get_chroma_client", return_value=mock_client):
+    mock_conn = MagicMock(name="conn")
+    mock_conn.execute.side_effect = Exception("boom")
+
+    mock_db = MagicMock(name="db")
+    mock_db._temp_get_connection.return_value = mock_conn
+
+    with patch.object(vector_routes, "get_database_instance", return_value=mock_db):
         res = failure_client.post("/api/clean_collection")
     assert res.status_code == 500
+    assert res.json()["detail"] == "boom"
+    mock_conn.rollback.assert_called_once()
+    mock_conn.close.assert_called_once()
 
 
 # ------------------------------------------------------------------
@@ -15692,13 +15745,14 @@ def test_update_incident_status_success(client, vector_mock_db, mock_session):
 
 def test_update_incident_status_invalid_status_400(client, vector_mock_db, mock_session):
     res = client.post("/api/incident-status/Test", params={"status": "nope", "topic": "ai"})
-    # NOTE: The route currently catches all Exceptions (including HTTPException)
-    # and re-raises a generic 500. We assert observed behavior without changing router code.
-    assert res.status_code == 500
+    assert res.status_code == 400
 
 
-def test_update_incident_status_db_failure_500(client, vector_mock_db, mock_session):
-    vector_mock_db.update_incident_status.return_value = False
+def test_update_incident_status_db_failure_500(client, vector_mock_db, mock_session, monkeypatch):
+    facade = MagicMock(name="incident_facade")
+    facade.update_incident_status.return_value = False
+    import app.database_query_facade as dqf_mod
+    monkeypatch.setattr(dqf_mod, "DatabaseQueryFacade", MagicMock(return_value=facade), raising=True)
     res = client.post("/api/incident-status/Test", params={"status": "seen", "topic": "ai"})
     assert res.status_code == 500
 
@@ -15858,44 +15912,10 @@ def test_debug_articles_failure_returns_error_field(client, vector_mock_db, mock
 
 
 def test_run_signal_instructions_success(client, vector_mock_db, mock_session):
-    vector_mock_db.fetch_all.return_value = [
-        {
-            "uri": "u1",
-            "title": "T",
-            "summary": "S",
-            "news_source": "Src",
-            "publication_date": "2024-01-01",
-            "category": "Tech",
-            "sentiment": "Positive",
-        }
-    ]
     vector_mock_db.facade.get_signal_instructions.return_value = [
         {"id": 1, "name": "Sig", "description": "d", "instruction": "i", "is_active": True}
     ]
-    vector_mock_db.facade.save_signal_alert.return_value = True
-    vector_mock_db.add_article_tag.return_value = None
-
-    class DummyModel:
-        def generate_response(self, messages):
-            return json.dumps(
-                [
-                    {
-                        "article_uri": "u1",
-                        "signal_detected": True,
-                        "confidence": 0.8,
-                        "summary": "why",
-                        "threat_level": "low",
-                        "recommended_action": "act",
-                    }
-                ]
-            )
-
-    async def _fake_threadpool(fn, *args, **kwargs):
-        return fn(*args, **kwargs)
-
-    with patch("app.ai_models.LiteLLMModel.get_instance", return_value=DummyModel()), patch(
-        "fastapi.concurrency.run_in_threadpool", new=AsyncMock(side_effect=_fake_threadpool)
-    ):
+    with patch.object(vector_routes, "_run_signals_background", new=AsyncMock(return_value=None)):
         res = client.post(
             "/api/run-signals",
             json={"instruction_ids": [1], "topic": "ai", "days_back": 1, "max_articles": 10, "model": "gpt-4o-mini"},
@@ -15903,7 +15923,8 @@ def test_run_signal_instructions_success(client, vector_mock_db, mock_session):
 
     assert res.status_code == 200
     assert res.json()["success"] is True
-    assert res.json()["total_matches"] == 1
+    assert res.json()["status"] == "running"
+    assert "run_id" in res.json()
 
 
 def test_run_signal_instructions_failure_no_instructions(client, vector_mock_db, mock_session):
@@ -16021,10 +16042,13 @@ def test_save_analysis_cache_failure_500(client, vector_mock_db, mock_optional_s
 # ------------------------------------------------------------------
 
 
-def test_article_deep_dive_success(client, mock_vector_collection, mock_session):
-    mock_vector_collection.get.return_value = {"metadatas": [{"title": "T"}], "documents": ["doc"]}
+def test_article_deep_dive_success(client, mock_session):
+    mock_pgvector_result = {
+        "metadatas": [{"title": "T", "news_source": "Src", "publication_date": "2024-01-01"}],
+        "documents": ["doc"],
+    }
     m = mock_open(read_data="template")
-    with patch("builtins.open", m), patch(
+    with patch.object(vector_routes, "get_by_ids", return_value=mock_pgvector_result), patch("builtins.open", m), patch(
         "litellm.acompletion", new_callable=AsyncMock, return_value=_litellm_resp("deep")
     ):
         res = client.post("/api/article-deep-dive", json={"ids": ["u1"], "model": "gpt-4o-mini"})
@@ -16065,24 +16089,21 @@ def test_get_news_facts_failure_file_not_found_500(client, mock_session):
 # ------------------------------------------------------------------
 
 
-def test_vector_delete_success(client, mock_vector_collection, mock_session):
-    # Direct lookup succeeds
-    mock_vector_collection.get.return_value = {"ids": ["u1"], "metadatas": [{}]}
-    res = client.delete("/api/vector-delete/u1")
+def test_vector_delete_success(client, mock_session):
+    with patch.object(vector_routes, "get_by_ids", return_value={"ids": ["u1"], "metadatas": [{}]}), patch.object(
+        vector_routes, "delete_embeddings", return_value=1
+    ) as mock_delete:
+        res = client.delete("/api/vector-delete/u1")
     assert res.status_code == 200
     assert res.json()["success"] is True
-    mock_vector_collection.delete.assert_called_once()
+    mock_delete.assert_called_once_with(["u1"])
 
 
-def test_vector_delete_failure_not_found_404(client, mock_vector_collection, mock_session):
-    # Direct lookup fails; metadata search yields nothing
-    mock_vector_collection.get.side_effect = [
-        {"ids": [], "metadatas": []},  # ids=[try_id]
-        {"ids": [], "metadatas": []},  # limit=1000 search
-        {"ids": [], "metadatas": []},  # sample_results limit=10
-    ]
-    mock_vector_collection.count.return_value = 0
-    res = client.delete("/api/vector-delete/u1")
+def test_vector_delete_failure_not_found_404(client, mock_session):
+    with patch.object(vector_routes, "get_by_ids", return_value={"ids": [], "metadatas": []}), patch.object(
+        vector_routes, "count_embeddings", return_value=0
+    ):
+        res = client.delete("/api/vector-delete/u1")
     assert res.status_code == 404
 
 
@@ -16091,17 +16112,20 @@ def test_vector_delete_failure_not_found_404(client, mock_vector_collection, moc
 # ------------------------------------------------------------------
 
 
-def test_vector_debug_success(client, mock_vector_collection, mock_session):
-    mock_vector_collection.get.return_value = {"ids": ["u1"], "metadatas": [{"title": "T"}]}
-    mock_vector_collection.count.return_value = 1
-    res = client.get("/api/vector-debug")
+def test_vector_debug_success(client, mock_session):
+    with patch.object(
+        vector_routes,
+        "get_vectors_by_metadata",
+        return_value=([], [{"title": "T"}], ["https://example.com/u1"]),
+    ), patch.object(vector_routes, "count_embeddings", return_value=1):
+        res = client.get("/api/vector-debug")
     assert res.status_code == 200
     assert res.json()["total_articles"] == 1
 
 
-def test_vector_debug_failure_returns_error_field(client, mock_vector_collection, mock_session):
-    mock_vector_collection.get.side_effect = Exception("boom")
-    res = client.get("/api/vector-debug")
+def test_vector_debug_failure_returns_error_field(client, mock_session):
+    with patch.object(vector_routes, "get_vectors_by_metadata", side_effect=Exception("boom")):
+        res = client.get("/api/vector-debug")
     assert res.status_code == 200
     assert "error" in res.json()
 
@@ -17303,12 +17327,12 @@ def test_trend_convergence_raw_analysis_endpoints_success_and_failures(
     assert res.json()["success"] is True
     assert expected_key in res.json()
 
-    # NOT FOUND / FAILURE (these handlers reference an undefined `status` symbol in the router;
-    # observable behavior is a 500 when server exceptions are not raised into the test.)
+    # NOT FOUND (facade returns no analysis data)
     getattr(fake_facade, facade_method).return_value = None
     res = trend_convergence_client_no_raise.get(path)
-    assert res.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert res.status_code == status.HTTP_404_NOT_FOUND
 
+    # INTERNAL ERROR (facade raises unexpected exception)
     getattr(fake_facade, facade_method).side_effect = Exception("boom")
     res = trend_convergence_client_no_raise.get(path)
     assert res.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -18021,11 +18045,11 @@ def test_get_thematic_clustering_success_markdown_json(feed_clustering_client, m
         feed_clustering_routes, "get_feed_items_for_clustering", AsyncMock(return_value=items), raising=True
     )
 
-    mock_ai_model.generate_response.return_value = (
+    mock_ai_model.agenerate_response = AsyncMock(return_value=(
         "```json\n"
         '[{"theme_name":"AI","theme_summary":"AI stuff","article_ids":[0],"confidence":0.9,"source_diversity":1}]\n'
         "```"
-    )
+    ))
 
     res = feed_clustering_client.get("/api/feed-clustering/thematic")
     assert res.status_code == 200
