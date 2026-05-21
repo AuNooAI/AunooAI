@@ -98,6 +98,58 @@ def _fmt_pct(x: Optional[float], digits: int = 2) -> str:
     return f"{x * 100:+.{digits}f}%" if x != 0 else f"{x * 100:.{digits}f}%"
 
 
+def _verdict_explanation(verdict_label: Optional[str], baseline: Optional[dict] = None) -> str:
+    """Plain-language interpretation for a verdict. Used on scenario slides so
+    readers don't need to know what 'Below baseline' means out of context."""
+    if baseline:
+        label = (baseline.get("label") or "")
+        if "Above" in label:
+            return (
+                "Genuine new signal. The per-article support rate has accelerated since "
+                "the forecast was published — the trajectory is materializing more "
+                "strongly than the pre-forecast baseline suggested."
+            )
+        if "Below" in label:
+            return (
+                "The deck appears to have called a peak signal. Pre-forecast articles "
+                "showed a higher support rate than post-forecast ones, so the story was "
+                "hotter at deck-authoring time than it is now. This is not a 'wrong "
+                "forecast' — it is a 'trend was already in motion and has since cooled' "
+                "framing."
+            )
+        if "At" in label:
+            return (
+                "The trend was already visible at deck-authoring time. Per-article signal "
+                "density is essentially unchanged in the post-forecast window, so we can "
+                "neither confirm nor refute the trajectory from this period alone."
+            )
+    fallback = {
+        "Accelerating": "Velocity is positive and milestones are landing — strong evidence the trajectory is materializing.",
+        "On-track": "Directional rate is positive and velocity is non-negative; trend continues.",
+        "Stalled": "Roughly equal supports and contradicts; no clear directional signal.",
+        "Off-track": "More contradicting than supporting evidence in the window.",
+        "Inconclusive": "Too few confident classifications to issue a directional verdict.",
+    }
+    return fallback.get(verdict_label or "", "")
+
+
+def _headline_finding(scenario_verdicts: list, baseline_per_scenario: dict) -> dict:
+    """Pick the scenario with the most extreme net_rate (positive or negative)
+    for the executive-summary spotlight. Returns the verdict dict + its
+    baseline block + a direction indicator."""
+    best = None
+    best_abs = -1.0
+    for v in scenario_verdicts:
+        b = baseline_per_scenario.get(str(v.get("scenario_idx")))
+        if not b:
+            continue
+        net = abs(b.get("net_rate") or 0)
+        if net > best_abs:
+            best_abs = net
+            best = (v, b)
+    return {"verdict": best[0], "baseline": best[1]} if best else {}
+
+
 # ── Slide builders ─────────────────────────────────────────────────────────
 
 def _add_cover_slide(prs, assessment: dict, forecast_run: dict):
@@ -157,6 +209,257 @@ def _add_cover_slide(prs, assessment: dict, forecast_run: dict):
     _text_box(slide, left=Inches(0.5), top=Inches(5.2), width=sw - Inches(1.0),
               height=Inches(0.6), text=f"{n} scenarios  ·  {verdict_summary}",
               font_size=16, color=SLATE_900)
+
+
+def _add_methodology_slide(prs):
+    """Single primer slide so the reader knows what Above/At/Below baseline mean
+    without needing external context. Drop this in every export."""
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = prs.slide_width
+
+    _filled_box(slide, left=0, top=0, width=sw, height=Inches(1.0), fill_color=INDIGO)
+    _text_box(slide, left=Inches(0.5), top=Inches(0.2), width=sw - Inches(1.0),
+              height=Inches(0.6), text="How to Read This Deck", font_size=22,
+              bold=True, color=WHITE)
+
+    intro = (
+        "We back-tested each Three Horizons scenario against articles that arrived "
+        "after the forecast was published. The headline verdict on every scenario slide "
+        "is baseline-corrected: we run the same classifier on a symmetric pre-forecast "
+        "window (the 'placebo') and subtract the pre-forecast support rate from the "
+        "post-forecast rate. What's left — the 'net rate' — is the incremental signal "
+        "attributable to the period after the forecast was made."
+    )
+    _text_box(slide, left=Inches(0.5), top=Inches(1.3), width=sw - Inches(1.0),
+              height=Inches(1.5), text=intro, font_size=14, color=SLATE_700)
+
+    rows = [
+        ("Above baseline", "Genuine new signal — trajectory accelerated after the forecast was published.", EMERALD),
+        ("At baseline", "Trend was already visible at deck-authoring time; per-article signal density is essentially unchanged.", GRAY),
+        ("Below baseline", "Deck appears to have called a peak signal — post-forecast support rate is lower than pre-forecast. NOT 'wrong'; rather 'trend was already cresting'.", RED),
+    ]
+    y = Inches(3.0)
+    for label, body, color in rows:
+        _filled_box(slide, left=Inches(0.5), top=y, width=Inches(2.6),
+                    height=Inches(0.55), fill_color=color)
+        _text_box(slide, left=Inches(0.5), top=y + Inches(0.1), width=Inches(2.6),
+                  height=Inches(0.4), text=label, font_size=14, bold=True,
+                  color=WHITE, align=PP_ALIGN.CENTER)
+        _text_box(slide, left=Inches(3.3), top=y + Inches(0.05),
+                  width=sw - Inches(3.8), height=Inches(0.6), text=body,
+                  font_size=12, color=SLATE_700)
+        y = y + Inches(0.8)
+
+    note = (
+        "Surprises (unanticipated developments) at the end of the deck are themes that "
+        "no scenario explains — articles topical to the brief but unrelated to any "
+        "stored scenario, clustered by embedding similarity."
+    )
+    _text_box(slide, left=Inches(0.5), top=Inches(6.0), width=sw - Inches(1.0),
+              height=Inches(1.0), text=note, font_size=11, color=SLATE_500,
+              italic=True)
+
+
+def _add_exec_summary_slide(prs, assessment: dict, headline: dict):
+    """One slide answering: what did the forecast get right / wrong / miss?"""
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = prs.slide_width
+
+    _filled_box(slide, left=0, top=0, width=sw, height=Inches(1.0), fill_color=INDIGO)
+    _text_box(slide, left=Inches(0.5), top=Inches(0.2), width=sw - Inches(1.0),
+              height=Inches(0.6), text="Executive Summary", font_size=22,
+              bold=True, color=WHITE)
+
+    summary = assessment.get("summary") or {}
+    bc = summary.get("baseline_correction") or {}
+    bc_per = bc.get("per_scenario") or {}
+    verdicts = assessment.get("scenario_verdicts") or []
+    n = len(verdicts)
+
+    # Distribution counts
+    if bc_per:
+        labels = [v.get("label") for v in bc_per.values()]
+    else:
+        labels = [v.get("verdict_label") for v in verdicts]
+    counts = {x: labels.count(x) for x in set(labels) if x}
+
+    # Distribution chips
+    y = Inches(1.3)
+    _text_box(slide, left=Inches(0.5), top=y, width=Inches(6.0),
+              height=Inches(0.35), text="VERDICT DISTRIBUTION", font_size=10,
+              bold=True, color=SLATE_500)
+    cy = y + Inches(0.4)
+    cx = Inches(0.5)
+    for label, count in sorted(counts.items(), key=lambda kv: -kv[1]):
+        w = Inches(2.5)
+        _filled_box(slide, left=cx, top=cy, width=w, height=Inches(0.55),
+                    fill_color=_verdict_color(label or ""))
+        _text_box(slide, left=cx, top=cy + Inches(0.05), width=w,
+                  height=Inches(0.25), text=label or "—", font_size=11,
+                  bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _text_box(slide, left=cx, top=cy + Inches(0.28), width=w,
+                  height=Inches(0.25), text=f"{count} of {n} scenarios",
+                  font_size=10, color=WHITE, align=PP_ALIGN.CENTER)
+        cx = cx + w + Inches(0.15)
+
+    # Headline finding
+    hy = Inches(2.8)
+    _text_box(slide, left=Inches(0.5), top=hy, width=sw - Inches(1.0),
+              height=Inches(0.35), text="HEADLINE FINDING", font_size=10,
+              bold=True, color=SLATE_500)
+    if headline:
+        v = headline["verdict"]
+        b = headline["baseline"]
+        deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
+        name = deck_info.get("deck_scenario_name") or v.get("scenario_title")
+        label = b.get("label") or "—"
+        net = b.get("net_rate") or 0
+        live_rate = b.get("live_rate") or 0
+        placebo_rate = b.get("placebo_rate") or 0
+        consensus = deck_info.get("consensus_pct")
+
+        body = f"{name}"
+        _text_box(slide, left=Inches(0.5), top=hy + Inches(0.35),
+                  width=sw - Inches(3.5), height=Inches(0.5), text=body,
+                  font_size=18, bold=True, color=SLATE_900)
+        chip_w = Inches(2.6)
+        chip_x = sw - chip_w - Inches(0.4)
+        _filled_box(slide, left=chip_x, top=hy + Inches(0.35), width=chip_w,
+                    height=Inches(0.55), fill_color=_verdict_color(label))
+        _text_box(slide, left=chip_x, top=hy + Inches(0.45), width=chip_w,
+                  height=Inches(0.4), text=label, font_size=14, bold=True,
+                  color=WHITE, align=PP_ALIGN.CENTER)
+
+        stats_line = (
+            f"Original deck consensus: {consensus}%   "
+            f"·   live {live_rate*100:.2f}%   −   placebo {placebo_rate*100:.2f}%   "
+            f"=   {net*100:+.2f}% net rate"
+        )
+        _text_box(slide, left=Inches(0.5), top=hy + Inches(1.0),
+                  width=sw - Inches(1.0), height=Inches(0.4), text=stats_line,
+                  font_size=12, color=SLATE_700)
+        _text_box(slide, left=Inches(0.5), top=hy + Inches(1.45),
+                  width=sw - Inches(1.0), height=Inches(1.2),
+                  text=_verdict_explanation(v.get("verdict_label"), b),
+                  font_size=12, color=SLATE_700, italic=True)
+    else:
+        _text_box(slide, left=Inches(0.5), top=hy + Inches(0.35),
+                  width=sw - Inches(1.0), height=Inches(0.5),
+                  text="No baseline-corrected scenario stood out.", font_size=14,
+                  color=SLATE_500, italic=True)
+
+    # Surprises spotlight
+    surprises = assessment.get("surprises") or []
+    sy = Inches(5.5)
+    _text_box(slide, left=Inches(0.5), top=sy, width=sw - Inches(1.0),
+              height=Inches(0.35), text="DOMINANT EMERGING THEME", font_size=10,
+              bold=True, color=SLATE_500)
+    if surprises:
+        top = max(surprises, key=lambda s: s.get("size") or 0)
+        label = top.get("label") or "(unlabelled cluster)"
+        size = top.get("size") or 0
+        _text_box(slide, left=Inches(0.5), top=sy + Inches(0.35),
+                  width=sw - Inches(1.0), height=Inches(0.5),
+                  text=f"{size}×  {label}", font_size=16, bold=True,
+                  color=AMBER)
+        note = top.get("note")
+        if note:
+            _text_box(slide, left=Inches(0.5), top=sy + Inches(0.95),
+                      width=sw - Inches(1.0), height=Inches(0.8),
+                      text=_truncate(note, 300), font_size=11, italic=True,
+                      color=SLATE_700)
+    else:
+        _text_box(slide, left=Inches(0.5), top=sy + Inches(0.35),
+                  width=sw - Inches(1.0), height=Inches(0.5),
+                  text="No surprise clusters of sufficient cohesion.",
+                  font_size=12, color=SLATE_500, italic=True)
+
+
+def _add_whats_changed_slide(prs, assessment: dict):
+    """Side-by-side: original deck consensus % vs corrected verdict per scenario."""
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = prs.slide_width
+
+    _filled_box(slide, left=0, top=0, width=sw, height=Inches(1.0), fill_color=INDIGO)
+    _text_box(slide, left=Inches(0.5), top=Inches(0.2), width=sw - Inches(1.0),
+              height=Inches(0.6), text="What's Changed: Deck vs Tracker",
+              font_size=22, bold=True, color=WHITE)
+
+    summary = assessment.get("summary") or {}
+    bc_per = ((summary.get("baseline_correction") or {}).get("per_scenario") or {})
+    verdicts = assessment.get("scenario_verdicts") or []
+
+    # Column headers
+    y = Inches(1.4)
+    cols = [
+        ("SCENARIO", Inches(0.5), Inches(5.5)),
+        ("DECK", Inches(6.2), Inches(1.2)),
+        ("LIVE RATE", Inches(7.5), Inches(1.2)),
+        ("PLACEBO", Inches(8.8), Inches(1.2)),
+        ("NET", Inches(10.1), Inches(1.2)),
+        ("VERDICT", Inches(11.4), Inches(1.8)),
+    ]
+    for label, x, w in cols:
+        _text_box(slide, left=x, top=y, width=w, height=Inches(0.35),
+                  text=label, font_size=9, bold=True, color=SLATE_500)
+    y = y + Inches(0.4)
+
+    # Header rule
+    _filled_box(slide, left=Inches(0.5), top=y, width=sw - Inches(1.0),
+                height=Inches(0.02), fill_color=SLATE_300)
+    y = y + Inches(0.1)
+
+    for v in verdicts:
+        b = bc_per.get(str(v.get("scenario_idx"))) or {}
+        deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
+        name = deck_info.get("deck_scenario_name") or v.get("scenario_title") or "—"
+        consensus = deck_info.get("consensus_pct")
+        live = b.get("live_rate")
+        placebo = b.get("placebo_rate")
+        net = b.get("net_rate")
+        label = b.get("label") or v.get("verdict_label") or "—"
+
+        row_y = y
+        _text_box(slide, left=Inches(0.5), top=row_y, width=Inches(5.5),
+                  height=Inches(0.4), text=_truncate(name, 75), font_size=11,
+                  bold=True, color=SLATE_900)
+        _text_box(slide, left=Inches(6.2), top=row_y, width=Inches(1.2),
+                  height=Inches(0.4),
+                  text=f"{consensus}%" if consensus is not None else "—",
+                  font_size=12, color=SLATE_700)
+        _text_box(slide, left=Inches(7.5), top=row_y, width=Inches(1.2),
+                  height=Inches(0.4),
+                  text=f"{live*100:.2f}%" if live is not None else "—",
+                  font_size=12, color=SLATE_700)
+        _text_box(slide, left=Inches(8.8), top=row_y, width=Inches(1.2),
+                  height=Inches(0.4),
+                  text=f"{placebo*100:.2f}%" if placebo is not None else "—",
+                  font_size=12, color=SLATE_700)
+        net_color = _verdict_color(label) if net is not None and abs(net) > 0.001 else SLATE_500
+        _text_box(slide, left=Inches(10.1), top=row_y, width=Inches(1.2),
+                  height=Inches(0.4),
+                  text=f"{net*100:+.2f}%" if net is not None else "—",
+                  font_size=12, bold=True, color=net_color)
+        chip_w = Inches(1.8)
+        _filled_box(slide, left=Inches(11.4), top=row_y - Inches(0.05),
+                    width=chip_w, height=Inches(0.4),
+                    fill_color=_verdict_color(label))
+        _text_box(slide, left=Inches(11.4), top=row_y, width=chip_w,
+                  height=Inches(0.3), text=label, font_size=10, bold=True,
+                  color=WHITE, align=PP_ALIGN.CENTER)
+        y = y + Inches(0.55)
+
+    # Footer caveat
+    footer = (
+        "Net rate = post-forecast support rate − symmetric pre-forecast support rate. "
+        "See methodology primer for verdict interpretations."
+    )
+    _text_box(slide, left=Inches(0.5), top=Inches(7.0), width=sw - Inches(1.0),
+              height=Inches(0.4), text=footer, font_size=9, italic=True,
+              color=SLATE_500)
 
 
 def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict]):
@@ -292,41 +595,115 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict]):
                           text=_truncate(rationale, 200), font_size=9,
                           italic=True, color=SLATE_700)
 
+    # Verdict explanation — a plain-language interpretation of what the chip
+    # label means in this context. Sits at the bottom so reviewers don't need
+    # external context to understand the verdict.
+    explanation = _verdict_explanation(verdict.get("verdict_label"), baseline)
+    if explanation:
+        _filled_box(slide, left=Inches(0.5), top=Inches(6.55),
+                    width=sw - Inches(1.0), height=Inches(0.85),
+                    fill_color=BG_TINT, line_color=SLATE_300)
+        _text_box(slide, left=Inches(0.7), top=Inches(6.6),
+                  width=Inches(2.4), height=Inches(0.3),
+                  text="WHAT THIS MEANS", font_size=9, bold=True, color=SLATE_500)
+        _text_box(slide, left=Inches(0.7), top=Inches(6.85),
+                  width=sw - Inches(1.4), height=Inches(0.5),
+                  text=explanation, font_size=10, italic=True, color=SLATE_700)
 
-def _add_surprises_slide(prs, surprises: list):
+
+def _add_surprises_section(prs, surprises: list):
+    """One overview slide listing all clusters at a glance, then one slide
+    per cluster with sample articles. Front-load the densest cluster."""
     blank = prs.slide_layouts[6]
-    slide = prs.slides.add_slide(blank)
-    sw, sh = prs.slide_width, prs.slide_height
+    sw = prs.slide_width
 
-    _filled_box(slide, left=0, top=0, width=sw, height=Inches(1.0), fill_color=AMBER)
-    _text_box(slide, left=Inches(0.5), top=Inches(0.2), width=sw - Inches(1.0),
-              height=Inches(0.6), text="Unanticipated Developments",
-              font_size=22, bold=True, color=WHITE)
+    # Overview / divider slide
+    slide = prs.slides.add_slide(blank)
+    _filled_box(slide, left=0, top=0, width=sw, height=Inches(7.5), fill_color=AMBER)
+    _text_box(slide, left=Inches(0.5), top=Inches(2.5), width=sw - Inches(1.0),
+              height=Inches(1.0), text="Unanticipated Developments",
+              font_size=42, bold=True, color=WHITE)
+    if surprises:
+        subtitle = (
+            f"{len(surprises)} cluster" + ("s" if len(surprises) != 1 else "") +
+            " of articles topical to this brief but unrelated to any deck scenario."
+        )
+    else:
+        subtitle = "No clusters of sufficient cohesion detected this window."
+    _text_box(slide, left=Inches(0.5), top=Inches(3.7), width=sw - Inches(1.0),
+              height=Inches(0.6), text=subtitle, font_size=16, color=WHITE,
+              italic=True)
+    if surprises:
+        rank = "  ·  ".join(
+            f"{s.get('size') or 0}×  {_truncate(s.get('label') or '(unlabelled)', 60)}"
+            for s in sorted(surprises, key=lambda s: -(s.get("size") or 0))[:5]
+        )
+        _text_box(slide, left=Inches(0.5), top=Inches(4.6),
+                  width=sw - Inches(1.0), height=Inches(2.0), text=rank,
+                  font_size=11, color=WHITE)
 
     if not surprises:
-        _text_box(slide, left=Inches(0.5), top=Inches(2.5), width=sw - Inches(1.0),
-                  height=Inches(0.5),
-                  text="No clusters with sufficient cohesion found.",
-                  font_size=14, color=SLATE_500, italic=True)
         return
 
-    y = Inches(1.3)
-    for sur in surprises[:6]:
-        size = sur.get("size") or 0
-        label = sur.get("label") or "(unlabelled cluster)"
-        note = sur.get("note") or ""
-        _text_box(slide, left=Inches(0.5), top=y, width=Inches(1.0),
-                  height=Inches(0.35), text=f"{size}×", font_size=14, bold=True,
-                  color=AMBER)
-        _text_box(slide, left=Inches(1.5), top=y, width=sw - Inches(2.0),
-                  height=Inches(0.35), text=_truncate(label, 160),
-                  font_size=13, bold=True, color=SLATE_900)
-        if note:
-            _text_box(slide, left=Inches(1.5), top=y + Inches(0.32),
-                      width=sw - Inches(2.0), height=Inches(0.4),
-                      text=_truncate(note, 200), font_size=10, italic=True,
-                      color=SLATE_700)
-        y = y + Inches(0.85)
+    # One cluster per slide, ordered by cluster size (densest first).
+    for sur in sorted(surprises, key=lambda s: -(s.get("size") or 0)):
+        _add_surprise_cluster_slide(prs, sur)
+
+
+def _add_surprise_cluster_slide(prs, sur: dict):
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = prs.slide_width
+
+    size = sur.get("size") or 0
+    label = sur.get("label") or "(unlabelled cluster)"
+    note = sur.get("note") or ""
+    samples = sur.get("sample_articles") or []
+
+    # Header bar
+    _filled_box(slide, left=0, top=0, width=sw, height=Inches(1.4), fill_color=BG_ACCENT)
+    _text_box(slide, left=Inches(0.5), top=Inches(0.2), width=Inches(2.5),
+              height=Inches(0.45), text="UNANTICIPATED THEME", font_size=10,
+              bold=True, color=AMBER)
+    _text_box(slide, left=Inches(0.5), top=Inches(0.6), width=Inches(10.5),
+              height=Inches(0.7), text=label, font_size=22, bold=True,
+              color=SLATE_900)
+
+    chip_w = Inches(1.8)
+    chip_x = sw - chip_w - Inches(0.4)
+    _filled_box(slide, left=chip_x, top=Inches(0.3), width=chip_w,
+                height=Inches(0.7), fill_color=AMBER)
+    _text_box(slide, left=chip_x, top=Inches(0.4), width=chip_w,
+              height=Inches(0.6), text=f"{size}×", font_size=22, bold=True,
+              color=WHITE, align=PP_ALIGN.CENTER)
+
+    y = Inches(1.7)
+    if note:
+        _text_box(slide, left=Inches(0.5), top=y, width=sw - Inches(1.0),
+                  height=Inches(0.45), text="WHY IT MATTERS", font_size=10,
+                  bold=True, color=SLATE_500)
+        _text_box(slide, left=Inches(0.5), top=y + Inches(0.35),
+                  width=sw - Inches(1.0), height=Inches(1.2),
+                  text=note, font_size=12, italic=True, color=SLATE_700)
+        y = y + Inches(1.7)
+
+    if samples:
+        _text_box(slide, left=Inches(0.5), top=y, width=sw - Inches(1.0),
+                  height=Inches(0.45),
+                  text=f"SAMPLE ARTICLES ({min(len(samples), 5)} of {size})",
+                  font_size=10, bold=True, color=SLATE_500)
+        y2 = y + Inches(0.4)
+        for art in samples[:5]:
+            title = art.get("title") or art.get("uri") or "(no title)"
+            date = art.get("date")
+            line = f"{date}   {_truncate(title, 130)}" if date else _truncate(title, 140)
+            _filled_box(slide, left=Inches(0.5), top=y2 + Inches(0.05),
+                        width=Inches(0.08), height=Inches(0.35),
+                        fill_color=AMBER)
+            _text_box(slide, left=Inches(0.75), top=y2,
+                      width=sw - Inches(1.25), height=Inches(0.45),
+                      text=line, font_size=11, color=SLATE_900)
+            y2 = y2 + Inches(0.55)
 
 
 # ── Public ─────────────────────────────────────────────────────────────────
@@ -336,17 +713,23 @@ def build_assessment_pptx(assessment: dict, forecast_run: Optional[dict] = None)
     prs.slide_width = Inches(13.33)
     prs.slide_height = Inches(7.5)
 
-    _add_cover_slide(prs, assessment, forecast_run or {})
-
     verdicts = assessment.get("scenario_verdicts") or []
     summary = assessment.get("summary") or {}
     bc_per = ((summary.get("baseline_correction") or {}).get("per_scenario") or {})
+
+    _add_cover_slide(prs, assessment, forecast_run or {})
+    _add_methodology_slide(prs)
+    headline = _headline_finding(verdicts, bc_per)
+    _add_exec_summary_slide(prs, assessment, headline)
+    if bc_per:
+        _add_whats_changed_slide(prs, assessment)
+
     for v in verdicts:
         key = str(v.get("scenario_idx"))
         baseline = bc_per.get(key)
         _add_scenario_slide(prs, v, baseline)
 
-    _add_surprises_slide(prs, assessment.get("surprises") or [])
+    _add_surprises_section(prs, assessment.get("surprises") or [])
 
     buf = BytesIO()
     prs.save(buf)

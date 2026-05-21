@@ -16,6 +16,8 @@ import type {
   ScenarioVerdict,
   SurpriseCluster,
   VerdictLabel,
+  AssessmentSnapshot,
+  SnapshotsResponse,
 } from '@/types/forecastAssessment';
 
 interface ForecastAssessmentTabProps {
@@ -201,6 +203,10 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
           <code className="font-mono text-xs"> {assessment.run_id}</code>). Run a new
           assessment to score the current page's forecast instead.
         </div>
+      )}
+
+      {assessment && (
+        <SnapshotHistoryPanel topic={topic} />
       )}
 
       {assessment ? (
@@ -520,4 +526,150 @@ function EmptyHint({ title, body }: { title: string; body: string }) {
       <div className="text-sm text-gray-600 dark:text-gray-300 mt-2 max-w-xl mx-auto">{body}</div>
     </div>
   );
+}
+
+/**
+ * Per-scenario net_rate trajectory across all stored paired-mode assessments
+ * for this topic. Each row is one scenario; horizontal bars/sparkline shows
+ * how the baseline-corrected net rate has moved between reruns. Useful for
+ * spotting a scenario drifting from "Below baseline" → "Above baseline" as
+ * the trajectory actually materialises.
+ */
+function SnapshotHistoryPanel({ topic }: { topic: string }) {
+  const [snaps, setSnaps] = useState<AssessmentSnapshot[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/forecast/snapshots/by-topic?topic=${encodeURIComponent(topic)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
+      .then((data: SnapshotsResponse) => {
+        if (cancelled) return;
+        setSnaps(data.snapshots || []);
+      })
+      .catch(e => { if (!cancelled) setError(String(e?.message || e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [topic]);
+
+  if (loading) return null;
+  if (error || snaps.length < 2) return null;  // history needs ≥2 snapshots
+
+  // Build a per-scenario timeseries from the snapshots.
+  const scenarioIdxs = Array.from(new Set(
+    snaps.flatMap(s => s.per_scenario.map(p => p.scenario_idx))
+  )).sort((a, b) => a - b);
+
+  const cellW = 14;
+  const cellGap = 2;
+  const seriesWidth = snaps.length * (cellW + cellGap);
+
+  return (
+    <div className="p-4 bg-white dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          Snapshot history — {snaps.length} paired assessments over time
+        </h3>
+        <button
+          className="text-xs text-indigo-600 dark:text-indigo-300 hover:underline"
+          onClick={() => setExpanded(e => !e)}
+        >
+          {expanded ? 'Collapse' : 'Expand details'}
+        </button>
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Each cell is one paired re-run. Color shows the baseline-corrected verdict
+        for that scenario at that snapshot; cell width is constant. Watch for a
+        scenario shifting <span className="text-emerald-700 dark:text-emerald-300">green</span> (Above baseline) over time
+        — that's a trajectory materialising.
+      </p>
+
+      {/* Date header strip */}
+      <div className="flex items-center gap-1 mb-1 pl-48">
+        <div className="flex" style={{ gap: `${cellGap}px` }}>
+          {snaps.map((s, i) => (
+            <div
+              key={s.assessment_id}
+              className="text-[9px] text-gray-500 dark:text-gray-400 text-center"
+              style={{ width: `${cellW}px` }}
+              title={new Date(s.assessed_at).toLocaleString()}
+            >
+              {i === 0 || i === snaps.length - 1 ? new Date(s.assessed_at).toLocaleDateString().slice(0, 5) : ''}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Per-scenario rows */}
+      <div className="space-y-1.5">
+        {scenarioIdxs.map(idx => {
+          // Use most recent snapshot for the row label
+          const latest = [...snaps].reverse().find(s => s.per_scenario.some(p => p.scenario_idx === idx));
+          const label = `Scenario ${idx}`;
+          return (
+            <div key={idx} className="flex items-center gap-2 text-xs">
+              <div className="w-48 truncate text-gray-700 dark:text-gray-200">
+                {label}
+              </div>
+              <div className="flex" style={{ gap: `${cellGap}px` }}>
+                {snaps.map(s => {
+                  const cell = s.per_scenario.find(p => p.scenario_idx === idx);
+                  const color = baselineFill(cell?.label);
+                  const tooltip = cell
+                    ? `${new Date(s.assessed_at).toLocaleDateString()}\n${cell.label}\nnet ${((cell.net_rate ?? 0) * 100).toFixed(2)}%\nlive ${cell.live_supports}/${(cell as any).live_pool ?? '?'}  placebo ${cell.placebo_supports}/${(cell as any).placebo_pool ?? '?'}`
+                    : 'no data';
+                  return (
+                    <div
+                      key={s.assessment_id}
+                      title={tooltip}
+                      className="h-5 rounded-sm"
+                      style={{ width: `${cellW}px`, background: color }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {expanded && (
+        <div className="mt-3 max-h-64 overflow-y-auto border-t border-gray-200 dark:border-gray-700 pt-2 text-xs">
+          <table className="w-full">
+            <thead className="text-[10px] uppercase text-gray-500 dark:text-gray-400">
+              <tr>
+                <th className="text-left py-1">Assessed</th>
+                <th className="text-left">Run</th>
+                <th className="text-right">Pool</th>
+                <th className="text-right">Window</th>
+                <th className="text-right">Surprises</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...snaps].reverse().map(s => (
+                <tr key={s.assessment_id} className="border-t border-gray-100 dark:border-gray-800">
+                  <td className="py-1">{new Date(s.assessed_at).toLocaleString()}</td>
+                  <td className="font-mono text-[10px] text-gray-500">{s.run_id.slice(0, 8)}…</td>
+                  <td className="text-right">{s.evidence_count ?? '—'}</td>
+                  <td className="text-right">{s.window_weeks ? `±${s.window_weeks}w` : 'full'}</td>
+                  <td className="text-right">{s.surprises_count ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function baselineFill(label?: string | null): string {
+  if (!label) return '#e5e7eb';
+  if (label.includes('Above')) return '#10b981';
+  if (label.includes('Below')) return '#ef4444';
+  if (label.includes('At')) return '#9ca3af';
+  return '#e5e7eb';
 }

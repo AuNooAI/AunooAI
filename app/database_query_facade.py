@@ -8089,6 +8089,79 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting latest forecast assessment for run {run_id}: {e}")
             return {}
 
+    def get_forecast_assessment_snapshots(self, topic: str, mode: str = "live", limit: int = 52) -> list:
+        """Return chronological list of assessments for a topic with extracted
+        per-scenario ``net_rate`` series. Used by the snapshot history UI to
+        plot each scenario's net rate over time across paired-mode reruns.
+
+        Only ``mode='live'`` rows have the ``baseline_correction`` block
+        patched into their summary, so we filter to live by default.
+        """
+        try:
+            from app.database_models import t_forecast_assessments
+            from sqlalchemy import select
+            import json
+
+            stmt = (
+                select(
+                    t_forecast_assessments.c.id,
+                    t_forecast_assessments.c.run_id,
+                    t_forecast_assessments.c.assessed_at,
+                    t_forecast_assessments.c.evidence_count,
+                    t_forecast_assessments.c.summary,
+                    t_forecast_assessments.c.surprises,
+                )
+                .where(t_forecast_assessments.c.topic == topic)
+                .where(t_forecast_assessments.c.mode == mode)
+                .where(t_forecast_assessments.c.status == "completed")
+                .order_by(t_forecast_assessments.c.assessed_at.asc())
+                .limit(limit)
+            )
+            rows = self._execute_with_rollback(stmt).fetchall()
+            out = []
+            for r in rows:
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                for key in ("summary", "surprises"):
+                    v = rd.get(key)
+                    if isinstance(v, str):
+                        try:
+                            rd[key] = json.loads(v)
+                        except Exception:
+                            pass
+                summary = rd.get("summary") or {}
+                bc = (summary.get("baseline_correction") or {})
+                per = (bc.get("per_scenario") or {})
+                # Flatten to ``[{scenario_idx, label, net_rate, live_rate, placebo_rate}]``
+                series = [
+                    {
+                        "scenario_idx": int(k),
+                        "label": v.get("label"),
+                        "net_rate": v.get("net_rate"),
+                        "live_rate": v.get("live_rate"),
+                        "placebo_rate": v.get("placebo_rate"),
+                        "live_supports": v.get("live_supports"),
+                        "placebo_supports": v.get("placebo_supports"),
+                    }
+                    for k, v in per.items()
+                ]
+                surprises = rd.get("surprises") or []
+                surprises_count = len(surprises) if isinstance(surprises, list) else 0
+                out.append(
+                    {
+                        "assessment_id": rd["id"],
+                        "run_id": rd["run_id"],
+                        "assessed_at": rd["assessed_at"].isoformat() if hasattr(rd["assessed_at"], "isoformat") else str(rd["assessed_at"]),
+                        "evidence_count": rd.get("evidence_count"),
+                        "window_weeks": summary.get("window_weeks"),
+                        "per_scenario": series,
+                        "surprises_count": surprises_count,
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.error(f"Error getting forecast assessment snapshots for topic {topic}: {e}")
+            return []
+
     def get_latest_forecast_assessment_by_topic(self, topic: str) -> dict:
         """Same as get_latest_forecast_assessment but keyed by topic instead of
         run_id. Lets the UI surface assessments tied to an older horizons run

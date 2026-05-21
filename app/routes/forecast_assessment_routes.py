@@ -243,6 +243,31 @@ async def get_latest_assessment(run_id: str):
     }
 
 
+@router.get("/api/forecast/snapshots/by-topic")
+async def get_snapshots_by_topic(
+    topic: str = Query(...),
+    limit: int = Query(52, ge=1, le=520),
+):
+    """Chronological list of paired-mode assessments for a topic.
+
+    Each snapshot has the per-scenario ``net_rate`` extracted from its
+    baseline_correction block so the UI can plot the trajectory over time.
+    Powers the "Snapshot history" panel on the Forecast Tracker tab.
+    """
+    from app.database import get_database_instance
+    db = get_database_instance()
+    snapshots = db.facade.get_forecast_assessment_snapshots(topic=topic, limit=limit)
+    return {"topic": topic, "snapshots": snapshots, "count": len(snapshots)}
+
+
+@router.get("/api/forecast/tracker-monitor/status")
+async def get_tracker_monitor_status():
+    """Inspect the scheduled-reassessment monitor — what it's doing, when it
+    last checked, what topics it has kicked off recently."""
+    from app.tasks.forecast_tracker_monitor import get_task_status
+    return get_task_status()
+
+
 @router.get("/api/forecast/{run_id}/assessment/{assessment_id}/export.pptx")
 async def export_assessment_pptx(run_id: str, assessment_id: str):
     """Render the assessment as a slide-per-scenario PowerPoint deck mirroring

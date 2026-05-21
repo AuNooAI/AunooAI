@@ -141,6 +141,22 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_rss_feed_monitor_start())
         logger.info("Scheduled RSS feed monitor to start in 25 seconds")
 
+        # Forecast tracker auto-reassessment. Gated by FORECAST_TRACKER_AUTO_RUN
+        # env flag — the monitor exits immediately if it's not set, so it's
+        # safe to always register here.
+        async def delayed_forecast_tracker_monitor_start():
+            await asyncio.sleep(30)
+            try:
+                from app.tasks.forecast_tracker_monitor import run_forecast_tracker_monitor
+                logger.info("Starting forecast tracker monitor background task...")
+                asyncio.create_task(run_forecast_tracker_monitor())
+                logger.info("Forecast tracker monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start forecast tracker monitor: {e}")
+
+        asyncio.create_task(delayed_forecast_tracker_monitor_start())
+        logger.info("Scheduled forecast tracker monitor to start in 30 seconds")
+
         # Dynamically schedule background tasks for enabled analysis modules
         import importlib
         from app.core.modules import get_enabled_modules

@@ -146,6 +146,32 @@ export interface ForecastAssessmentResponse {
   topic_fallback?: boolean;
 }
 
+export interface SnapshotScenario {
+  scenario_idx: number;
+  label?: string;
+  net_rate?: number;
+  live_rate?: number;
+  placebo_rate?: number;
+  live_supports?: number;
+  placebo_supports?: number;
+}
+
+export interface AssessmentSnapshot {
+  assessment_id: string;
+  run_id: string;
+  assessed_at: string;
+  evidence_count?: number;
+  window_weeks?: number | null;
+  per_scenario: SnapshotScenario[];
+  surprises_count?: number;
+}
+
+export interface SnapshotsResponse {
+  topic: string;
+  count: number;
+  snapshots: AssessmentSnapshot[];
+}
+
 export interface AssessmentJobStatus {
   id: string;
   name: string;
