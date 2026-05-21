@@ -2,12 +2,12 @@
 
 For every stored horizons run that has a matching deck overlay, this monitor
 kicks off a paired assessment if the last one is older than the staleness
-threshold. The intent is to keep a rolling weekly snapshot per topic so the
-UI can plot per-scenario ``net_rate`` trajectories over time.
+threshold. The intent is to keep a rolling monthly snapshot per topic so
+the UI can plot per-scenario ``net_rate`` trajectories over time.
 
 Disabled by default — set ``FORECAST_TRACKER_AUTO_RUN=true`` in the tenant
 env to enable. Each paired run takes ~15 minutes and ~$3-8, so 4 topics
-weekly is ~$20-30/month. Don't enable on tenants that don't use the brief.
+monthly is ~$10-30/month. Don't enable on tenants that don't use the brief.
 
 State lives in the existing ``forecast_assessments`` table; we don't need a
 separate scheduling table — last assessment timestamp per topic is the
@@ -26,9 +26,12 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-# Tunables (override via env if needed)
-CHECK_INTERVAL_SECONDS = int(os.getenv("FORECAST_TRACKER_CHECK_INTERVAL_SEC", "1800"))  # 30 min
-STALENESS_DAYS = int(os.getenv("FORECAST_TRACKER_STALENESS_DAYS", "7"))
+# Tunables (override via env if needed). Defaults are monthly cadence —
+# staleness=30d means a topic gets re-assessed once a month. The check loop
+# only inspects "should we run?" — actual work only happens at the staleness
+# boundary, so a 6h check interval is plenty.
+CHECK_INTERVAL_SECONDS = int(os.getenv("FORECAST_TRACKER_CHECK_INTERVAL_SEC", "21600"))  # 6 h
+STALENESS_DAYS = int(os.getenv("FORECAST_TRACKER_STALENESS_DAYS", "30"))
 WINDOW_WEEKS = int(os.getenv("FORECAST_TRACKER_WINDOW_WEEKS", "8"))
 MAX_ARTICLES = int(os.getenv("FORECAST_TRACKER_MAX_ARTICLES", "2000"))
 
