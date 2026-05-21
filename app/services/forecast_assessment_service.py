@@ -250,12 +250,18 @@ async def assess_run(
     _emit(progress_callback, 88, "Aggregated scenario verdicts")
 
     # ── Stage F: surprises ────────────────────────────────────────────────
+    # _find_surprises runs HDBSCAN's clusterer.fit_predict synchronously —
+    # CPU-bound on hundreds of embeddings and easily takes tens of seconds.
+    # Pushing it to a worker thread keeps the event loop responsive while
+    # the scheduled monitor / API caller waits.
     unrelated = [c for c in classified if c.get("verdict") == "unrelated"]
-    surprises = _find_surprises(
-        pool=pool,
-        ambiguous_pairs=ambiguous,
-        unrelated_verdicts=unrelated,
-        scenarios=scenarios,
+    surprises = await asyncio.to_thread(
+        lambda: _find_surprises(
+            pool=pool,
+            ambiguous_pairs=ambiguous,
+            unrelated_verdicts=unrelated,
+            scenarios=scenarios,
+        )
     )
     _emit(progress_callback, 94, f"Found {len(surprises)} surprise clusters")
 
