@@ -27,6 +27,32 @@ from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 
+# ── Global LLM concurrency gate ───────────────────────────────────────────
+# Every LLM call here ultimately runs ``litellm.completion`` (sync), which
+# async paths dispatch via ``asyncio.to_thread``. Without a cap, multiple
+# background services (automated_ingest, keyword_monitor, geopolitical_hotspots,
+# observer_agent, forecast_tracker, etc.) can collectively exhaust the
+# default 32-thread executor — at which point HTTP handlers stop being able
+# to dispatch sync work and the service starts returning 502s.
+#
+# This semaphore bounds the number of in-flight LLM calls across the entire
+# process (per-service caps don't help — it's the *cumulative* load that
+# saturates the pool). Set conservatively below the default executor size.
+#
+# Override via env: LLM_MAX_CONCURRENCY=N
+_LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "16"))
+_llm_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _get_llm_semaphore() -> asyncio.Semaphore:
+    """Lazy-init so the semaphore is bound to the running event loop, not
+    whatever loop existed at import time (which may be a no-op stub)."""
+    global _llm_semaphore
+    if _llm_semaphore is None:
+        _llm_semaphore = asyncio.Semaphore(_LLM_MAX_CONCURRENCY)
+    return _llm_semaphore
+
+
 def extract_content(response) -> str:
     """Extract text content from LLM response.
 
@@ -195,8 +221,13 @@ class AIModel:
             raise
 
     async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
-        """Async wrapper - runs sync LLM call in thread pool to avoid blocking the event loop."""
-        return await asyncio.to_thread(self.generate_sync, prompt, max_tokens=max_tokens, temperature=temperature)
+        """Async wrapper - runs sync LLM call in thread pool to avoid blocking
+        the event loop, bounded by the global LLM concurrency semaphore."""
+        async with _get_llm_semaphore():
+            return await asyncio.to_thread(
+                self.generate_sync, prompt,
+                max_tokens=max_tokens, temperature=temperature,
+            )
 
     def generate_response(self, messages):
         """Generate a response from a list of chat *messages*.
@@ -250,8 +281,12 @@ class AIModel:
             raise
 
     async def agenerate_response(self, messages, **kwargs):
-        """Async wrapper for generate_response - runs in thread pool to avoid blocking the event loop."""
-        return await asyncio.to_thread(self.generate_response, messages, **kwargs)
+        """Async wrapper for generate_response - runs in thread pool to avoid
+        blocking the event loop, bounded by the global LLM concurrency
+        semaphore so cumulative background-service load can't saturate the
+        executor."""
+        async with _get_llm_semaphore():
+            return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 
 def load_model_config() -> Dict[str, Dict[str, Any]]:
     """Load model configuration from *litellm_config.yaml*.
