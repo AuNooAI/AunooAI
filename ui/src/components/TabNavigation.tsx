@@ -47,6 +47,11 @@ const tabs: Tab[] = [
     tooltip: 'Explore long-term scenarios and future possibilities'
   },
   {
+    id: 'forecast-tracker',
+    label: 'Forecast Tracker',
+    tooltip: 'How is the stored Three Horizons forecast tracking against fresh evidence?'
+  },
+  {
     id: 'extreme-outliers',
     label: 'Extreme Outliers',
     tooltip: 'Black Swan events, Contrarian analysis, and Wild Card futures'

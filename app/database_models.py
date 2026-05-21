@@ -997,6 +997,67 @@ t_future_horizon_articles = Table(
     Index('ix_future_horizon_articles_topic', 'topic')
 )
 
+t_forecast_assessments = Table(
+    'forecast_assessments', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('run_id', String(36), nullable=False),
+    Column('topic', Text, nullable=False),
+    Column('assessed_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('evidence_count', Integer, nullable=False, server_default=text('0')),
+    Column('scenarios_count', Integer, nullable=False, server_default=text('0')),
+    Column('ambiguous_count', Integer, nullable=False, server_default=text('0')),
+    Column('unrelated_count', Integer, nullable=False, server_default=text('0')),
+    Column('surprises', JSONB),
+    Column('summary', JSONB),
+    Column('status', String(32), nullable=False, server_default=text("'completed'")),
+    Column('mode', String(32), nullable=False, server_default=text("'live'")),
+    Column('model_used', String(100)),
+    Column('runtime_seconds', Float),
+    Column('config', JSONB),
+    Index('ix_forecast_assessments_run_id', 'run_id'),
+    Index('ix_forecast_assessments_topic_assessed', 'topic', 'assessed_at'),
+)
+
+t_forecast_scenario_verdicts = Table(
+    'forecast_scenario_verdicts', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('assessment_id', String(36), nullable=False),
+    Column('scenario_idx', Integer, nullable=False),
+    Column('horizon_type', String(4), nullable=False),
+    Column('scenario_title', Text, nullable=False),
+    Column('verdict_label', String(32), nullable=False),
+    Column('directional_rate', Float),
+    Column('velocity', Float),
+    Column('milestone_density', Float),
+    Column('coverage', Float),
+    Column('supports', Integer, nullable=False, server_default=text('0')),
+    Column('contradicts', Integer, nullable=False, server_default=text('0')),
+    Column('neutral', Integer, nullable=False, server_default=text('0')),
+    Column('summary_md', Text),
+    Column('top_articles', JSONB),
+    UniqueConstraint('assessment_id', 'scenario_idx', name='uq_scenario_verdicts_assessment_scenario'),
+    Index('ix_scenario_verdicts_assessment', 'assessment_id'),
+)
+
+t_forecast_article_verdicts = Table(
+    'forecast_article_verdicts', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('assessment_id', String(36), nullable=False),
+    Column('article_uri', Text, nullable=False),
+    Column('scenario_idx', Integer),
+    Column('verdict', String(48), nullable=False),
+    Column('evidence_type', String(24)),
+    Column('confidence', Float),
+    Column('rerank_score', Float),
+    Column('margin', Float),
+    Column('best_alt_scenario_idx', Integer),
+    Column('rationale', Text),
+    Column('article_date', Text),
+    Column('recorded_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('ix_article_verdicts_assessment_scenario', 'assessment_id', 'scenario_idx'),
+    Index('ix_article_verdicts_assessment_uri', 'assessment_id', 'article_uri'),
+)
+
 # LLM Error Handling and Circuit Breaker Tables
 
 t_llm_retry_state = Table(

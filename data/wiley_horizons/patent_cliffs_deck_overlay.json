@@ -1,0 +1,98 @@
+{
+  "topic": "Patent Cliffs",
+  "source_deck": "Wiley Horizons Final (Feb 2026), slides 95-99",
+  "source_run_id": "9a6e8452-5dd2-4fbc-b032-da8c401ee73f",
+  "description": "Maps each DB-stored scenario (by exact title) for the Patent Cliffs topic to the 5 curated deck scenarios shown in the Wiley Horizons brief. The DB scenarios are the canonical evidence base; this overlay provides the public-facing framing.",
+
+  "deck_scenarios": {
+    "patent_cliffs_revenue_disruption": {
+      "deck_scenario_name": "Patent Cliffs & Revenue Disruption",
+      "horizon": "h1",
+      "consensus_pct": 80,
+      "primary_signal": "Patent cliffs will drive revenue declines and stock volatility for major firms like Merck and Sanofi, with generics and biosimilars rapidly eroding protected market share.",
+      "minority_view": "Some believe robust pipelines or regulatory interventions could delay or soften the revenue impact for incumbents.",
+      "decision_fork": {
+        "favorable": "If companies replenish pipelines and execute M&A: revenue stabilization and sustained leadership for firms like Merck and Eli Lilly.",
+        "adverse": "If generic entry accelerates and innovation lags: loss of market share, profit erosion, and further investor pressure for traditional pharma giants."
+      },
+      "action_windows": {
+        "0_6_months": "Assess portfolio LOE exposure and pipeline readiness",
+        "6_18_months": "Initiate pipeline renewal or pursue targeted M&A"
+      }
+    },
+    "cost_pressure_access": {
+      "deck_scenario_name": "Cost Pressure & Access Challenges",
+      "horizon": "h1",
+      "consensus_pct": 75,
+      "primary_signal": "High-priced therapies, especially GLP-1 drugs, are driving up system-wide costs and out-of-pocket expenses, with severe access challenges in emerging markets like India.",
+      "minority_view": "Value-based pricing or payer innovation may mitigate cost burdens before they become systemic risks.",
+      "decision_fork": {
+        "favorable": "If pricing reforms and payer adaptation occur: managed cost growth and improved patient access.",
+        "adverse": "If status quo persists: worsening affordability, increased poverty, and intensified scrutiny of pharma pricing practices."
+      },
+      "action_windows": {
+        "0_6_months": "Analyze payer relationships and exposure to high-cost therapies",
+        "6_18_months": "Develop access strategies or engage in policy dialogue"
+      }
+    },
+    "rd_model_transformation": {
+      "deck_scenario_name": "R&D Model Transformation & Digitalization",
+      "horizon": "h2",
+      "consensus_pct": 85,
+      "primary_signal": "AI-driven drug discovery and the rise of digital pharma hubs in locations like Hyderabad will accelerate pipeline renewal, biosimilar launches, and reshape global R&D networks.",
+      "minority_view": "Some foresee persistent organizational inertia or regulatory constraints slowing digital adoption.",
+      "decision_fork": {
+        "favorable": "If digital and AI adoption accelerates: firms like Biocon and Samsung Bioepis gain speed and cost advantages in new drug and biosimilar launches.",
+        "adverse": "If legacy R&D models persist: innovation cycle stagnates, leaving incumbents vulnerable post-patent cliff."
+      },
+      "action_windows": {
+        "0_6_months": "Evaluate digital maturity and talent hub strategy",
+        "6_18_months": "Invest in AI platforms and cross-border R&D collaborations"
+      }
+    },
+    "regionalization_market_access": {
+      "deck_scenario_name": "Regionalization & Global Market Access",
+      "horizon": "h3",
+      "consensus_pct": 80,
+      "primary_signal": "Telangana and Hyderabad will emerge as global techbio anchors, enabling faster drug launches and diversified market access strategies through cross-border R&D, AI-powered networks, and adaptive pricing.",
+      "minority_view": "A minority maintains that legacy Western hubs will retain dominance due to regulatory, capital, or IP advantages.",
+      "decision_fork": {
+        "favorable": "If regional hubs and alliances are leveraged: executive organizations achieve faster launches and broader access via Asia-led innovation ecosystems.",
+        "adverse": "If global collaboration lags: access bottlenecks persist, and traditional pharma geographies risk isolation."
+      },
+      "action_windows": {
+        "0_6_months": "Map global hub participation and supply chain exposure",
+        "6_18_months": "Form cross-border partnerships and invest in hub infrastructure"
+      }
+    },
+    "therapy_area_evolution": {
+      "deck_scenario_name": "Therapy Area Evolution & Specialty Pipelines",
+      "horizon": "h2",
+      "consensus_pct": 70,
+      "primary_signal": "Biologics, JAK inhibitors, and late-stage oncology assets will drive growth, requiring new go-to-market models and pipeline strategies.",
+      "minority_view": "Some suggest that primary care and generics will continue to dominate due to emerging market demand and payer constraints.",
+      "decision_fork": {
+        "favorable": "If organizations prioritize specialty and biologics pipelines: accelerated growth in high-value therapy areas and increased differentiation.",
+        "adverse": "If focus remains on legacy or primary care products: stagnant growth and increased vulnerability to generic erosion."
+      },
+      "action_windows": {
+        "0_6_months": "Review portfolio concentration and specialty pipeline depth",
+        "6_18_months": "Pivot R&D and commercial strategy to specialty areas"
+      }
+    }
+  },
+
+  "scenario_title_to_deck_key": {
+    "Patent Cliffs Challenge Big Pharma's Revenue Streams": "patent_cliffs_revenue_disruption",
+    "Generic Drug Competition Intensifies Market Pressures": "patent_cliffs_revenue_disruption",
+    "Biosimilar Approvals Reshape Pharmaceutical Landscape": "patent_cliffs_revenue_disruption",
+    "Global Biosimilar Market Matures and Expands": "patent_cliffs_revenue_disruption",
+    "Pharma's Struggle with Pricing Pressures and Patent Expirations": "cost_pressure_access",
+    "AI Integration in Drug Discovery Gains Traction": "rd_model_transformation",
+    "AI Revolutionizes Drug Development Processes": "rd_model_transformation",
+    "Strategic M&A to Offset Patent Losses": "rd_model_transformation",
+    "Decentralized R&D Hubs Transform Pharma Industry": "regionalization_market_access",
+    "Pharma Looks to Emerging Markets for Growth Opportunities": "regionalization_market_access",
+    "Precision Medicine Investments as a Strategic Response": "therapy_area_evolution"
+  }
+}

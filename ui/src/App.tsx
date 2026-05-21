@@ -11,6 +11,7 @@ import { ConvergenceCard } from './components/ConvergenceCard';
 import ConsensusCategoryCard from './components/ConsensusCategoryCard';
 import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
+import { ForecastAssessmentTab } from './components/ForecastAssessment';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
@@ -434,7 +435,9 @@ function App() {
       'strategic-recommendations': 'strategic',
       'impact-timeline': 'timeline',
       'market-signals': 'signals',
-      'future-horizons': 'horizons'
+      'future-horizons': 'horizons',
+      // Forecast Tracker piggybacks on the horizons data so we get the horizons run_id
+      'forecast-tracker': 'horizons',
     };
 
     const backendTab = tabMap[activeTab];
@@ -2778,6 +2781,15 @@ function App() {
                     modelUsed={data.model_used}
                   />
                 </>
+              )}
+
+              {/* Forecast Tracker Tab */}
+              {activeTab === 'forecast-tracker' && (
+                <ForecastAssessmentTab
+                  runId={data.analysis_id || null}
+                  topic={config.topic}
+                  forecastGeneratedAt={data.generated_at || data.created_at || null}
+                />
               )}
             </div>
           )}

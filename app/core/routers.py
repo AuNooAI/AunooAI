@@ -39,6 +39,7 @@ def register_routers(app: FastAPI):
     from app.routes.executive_summary_routes import router as executive_summary_router, web_router as executive_summary_web_router
     from app.routes.futures_cone_routes import router as futures_cone_router
     from app.routes.trend_convergence_routes import router as trend_convergence_router
+    from app.routes.forecast_assessment_routes import router as forecast_assessment_router
     from app.routes.feed_routes import router as feed_router
     from app.routes.feed_clustering_routes import router as feed_clustering_router
     from app.routes.filter_routes import router as filter_router
@@ -133,6 +134,7 @@ def register_routers(app: FastAPI):
     
     # Trend convergence routes
     app.include_router(trend_convergence_router)
+    app.include_router(forecast_assessment_router)
     
     # Feed system routes
     app.include_router(feed_router)

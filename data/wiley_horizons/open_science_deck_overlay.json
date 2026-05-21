@@ -1,0 +1,101 @@
+{
+  "topic": "Open Science Transition Uncertainty",
+  "source_deck": "Wiley Horizons Final (Feb 2026), slides 50-54",
+  "source_run_id": "4689c24f-0f17-4186-9cac-2ea0ac4c3005",
+  "description": "Maps each DB-stored scenario (by exact title) for the Open Science Transition Uncertainty topic to the 5 curated deck scenarios shown in the Wiley Horizons brief. The DB scenarios are the canonical evidence base; this overlay provides the public-facing framing.",
+
+  "deck_scenarios": {
+    "diamond_oa_subscription_erosion": {
+      "deck_scenario_name": "Diamond Open Access & Subscription Model Erosion",
+      "horizon": "h1",
+      "consensus_pct": 80,
+      "primary_signal": "Diamond Open Access will become the dominant paradigm, eliminating author fees and democratizing access, while legacy publishers face structural decline.",
+      "minority_view": "Some legacy publishers may retain niche or high-prestige paywalled offerings, slowing the erosion of subscription models.",
+      "decision_fork": {
+        "favorable": "If Diamond Open Access models receive sustained global policy and funding support: subscription models rapidly lose market share; publishers must pivot business models or risk obsolescence.",
+        "adverse": "If legacy publishers succeed in defending exclusive content or services: hybrid models emerge, with partial preservation of paywalls for high-impact journals."
+      },
+      "action_windows": {
+        "0_6_months": "Assess reliance on subscription revenue and exposure to Open Access mandates",
+        "6_18_months": "Develop alternative business models and partnership strategies"
+      }
+    },
+    "recognition_incentives_regional_gaps": {
+      "deck_scenario_name": "Recognition, Incentives & Regional Open Science Gaps",
+      "horizon": "h1",
+      "consensus_pct": 75,
+      "primary_signal": "Without reforms to recognition and assessment systems, Open Science adoption will plateau, especially outside top-tier institutions and advanced economies.",
+      "minority_view": "Some leading research economies may close these gaps faster, setting global best practices and accelerating alignment.",
+      "decision_fork": {
+        "favorable": "If new recognition and reward systems are implemented: Open Science practices accelerate, reducing regional disparities and improving research impact.",
+        "adverse": "If legacy incentive structures persist: Open Science remains a patchwork, with progress stalling in less-incentivized regions."
+      },
+      "action_windows": {
+        "0_6_months": "Map incentive structures and identify recognition bottlenecks",
+        "6_18_months": "Pilot alternative assessment and reward frameworks"
+      }
+    },
+    "publishing_integrity_predatory": {
+      "deck_scenario_name": "Publishing Integrity, Predatory Journals & Trust Risks",
+      "horizon": "h1",
+      "consensus_pct": 70,
+      "primary_signal": "Predatory and deceptive journals will further undermine confidence in academic publishing, draining resources and distorting research metrics unless systemic countermeasures are adopted.",
+      "minority_view": "Stronger regulatory interventions or industry self-policing could contain or reverse the proliferation of predatory journals.",
+      "decision_fork": {
+        "favorable": "If industry and regulators collaborate on integrity standards: predatory activity is curbed, restoring some trust and funding efficacy.",
+        "adverse": "If enforcement remains fragmented: predatory journals proliferate, with escalating reputational and financial risks for funders and institutions."
+      },
+      "action_windows": {
+        "0_6_months": "Review compliance and legal exposure in cross-border research",
+        "6_18_months": "Engage in policy advocacy or standard-setting consortia"
+      }
+    },
+    "policy_legal_data_sharing_barriers": {
+      "deck_scenario_name": "Policy, Legal & Data Sharing Barriers",
+      "horizon": "h2",
+      "consensus_pct": 80,
+      "primary_signal": "Fragmented IP, privacy, and national data regulations will impede full-scale Open Science unless coordinated reforms are implemented.",
+      "minority_view": "A harmonized international policy framework could resolve many data sharing issues faster than expected.",
+      "decision_fork": {
+        "favorable": "If international harmonization and policy reforms progress: open data sharing accelerates, benefiting multi-national research and industry collaboration.",
+        "adverse": "If legal barriers persist or intensify: data silos remain entrenched; cross-border research and innovation slow."
+      },
+      "action_windows": {
+        "0_6_months": "Review compliance and legal exposure in cross-border research",
+        "6_18_months": "Engage in policy advocacy or standard-setting consortia"
+      }
+    },
+    "ai_hybrid_research_ecosystems": {
+      "deck_scenario_name": "AI-Enabled Research Ecosystems & Hybrid Open-Closed Models",
+      "horizon": "h3",
+      "consensus_pct": 85,
+      "primary_signal": "Automated, AI-powered research, global infrastructures, and hybrid models will define a new equilibrium - balancing openness for collaboration with proprietary controls for commercial and security reasons.",
+      "minority_view": "Concerns over security, privacy, and IP may prompt a reversion to more closed, proprietary approaches in select sectors.",
+      "decision_fork": {
+        "favorable": "If AI platforms and infrastructures integrate robust privacy/security controls: hybrid models dominate, enabling safe public-private research and accelerating global knowledge sharing.",
+        "adverse": "If security and sovereignty risks escalate: balkanized research ecosystems emerge, with fragmented standards and reduced international collaboration."
+      },
+      "action_windows": {
+        "0_6_months": "Identify readiness for AI-enabled research and hybrid model adoption",
+        "6_18_months": "Invest in platform integration and security upgrades"
+      }
+    }
+  },
+
+  "scenario_title_to_deck_key": {
+    "Subscription-Based Publishing Models Persist Amid Criticism": "diamond_oa_subscription_erosion",
+    "Diamond Open Access Gains Momentum as Equitable Publishing Model": "diamond_oa_subscription_erosion",
+    "Global Diamond Open Access Network Enables Equitable Knowledge Sharing": "diamond_oa_subscription_erosion",
+    "Fragmented Open Access Adoption with Regional and Recognition Gaps": "recognition_incentives_regional_gaps",
+    "Predatory Journals and Misconduct Undermine Research Integrity": "publishing_integrity_predatory",
+    "Government and Policy Efforts Struggle to Harmonize Open Science": "policy_legal_data_sharing_barriers",
+    "AI Ethics and Regulation Intensify Amid Corporate and Societal Pushback": "policy_legal_data_sharing_barriers",
+    "Sovereign AI and Cloud Services Foster Data Control and Trust": "policy_legal_data_sharing_barriers",
+    "Ethical and Security Challenges in AI Integration Stagnate Progress": "policy_legal_data_sharing_barriers",
+    "AI-Driven Open Science Tools Enhance Research Productivity": "ai_hybrid_research_ecosystems",
+    "Global South and Alternative AI Models Challenge Big Tech Dominance": "ai_hybrid_research_ecosystems",
+    "Fully Open, AI-Integrated Research Ecosystems Transform Science": "ai_hybrid_research_ecosystems",
+    "Sovereign AI Infrastructures Empower Research Autonomy and Security": "ai_hybrid_research_ecosystems",
+    "Ethical AI Governance Restores Public Trust in Science and Innovation": "ai_hybrid_research_ecosystems"
+  }
+}

@@ -208,6 +208,107 @@ def is_enabled() -> bool:
     return RERANK_ENABLED
 
 
+async def assign_exclusive(
+    scenarios: list[dict],
+    articles: list[dict],
+    *,
+    scenario_text_fn: Callable[[dict], str] | None = None,
+    article_text_fn: Callable[[dict], str] | None = None,
+    margin: float = 0.1,
+) -> list[dict]:
+    """Score every article against every scenario, assign each article to the
+    scenario it best matches if the margin to the runner-up is large enough.
+
+    Used by Forecast Assessment to prevent overlapping scenarios (e.g., an H1
+    decline scenario and an H3 replacement scenario about the same system)
+    from both claiming credit for the same article.
+
+    Returns a list parallel to ``articles`` with dicts containing:
+        ``scenario_idx``       — winning scenario index (or None if ambiguous)
+        ``score``              — sigmoid'd reranker score against the winner
+        ``margin``             — score gap to runner-up scenario
+        ``best_alt_scenario_idx`` — runner-up scenario index
+        ``all_scores``         — full scenarios×score row (sigmoid'd) for inspection
+
+    When reranking is disabled or the model fails to load, returns rows with
+    ``scenario_idx=None`` so the caller can degrade gracefully (e.g. fall back
+    to topic-only attribution).
+    """
+    if not scenarios or not articles:
+        return []
+
+    if not RERANK_ENABLED:
+        return [
+            {"scenario_idx": None, "score": None, "margin": None,
+             "best_alt_scenario_idx": None, "all_scores": []}
+            for _ in articles
+        ]
+
+    model = _get_model()
+    if model is None:
+        return [
+            {"scenario_idx": None, "score": None, "margin": None,
+             "best_alt_scenario_idx": None, "all_scores": []}
+            for _ in articles
+        ]
+
+    import math
+
+    s_extractor = scenario_text_fn if scenario_text_fn is not None else (
+        lambda s: f"{s.get('title','')}. {s.get('description','')}"[:RERANK_MAX_TEXT_LEN]
+    )
+    a_extractor = article_text_fn if article_text_fn is not None else (
+        lambda a: _default_text(a, "title")
+    )
+
+    scenario_texts = [s_extractor(s) for s in scenarios]
+    article_texts = [a_extractor(a) for a in articles]
+
+    pairs: list[tuple[str, str]] = []
+    for a_text in article_texts:
+        for s_text in scenario_texts:
+            pairs.append((a_text, s_text))
+
+    try:
+        raw_scores = await asyncio.to_thread(_predict_scores, model, pairs)
+    except Exception:
+        logger.exception(
+            "Reranker assign_exclusive failed on %d pairs — returning unassigned",
+            len(pairs),
+        )
+        return [
+            {"scenario_idx": None, "score": None, "margin": None,
+             "best_alt_scenario_idx": None, "all_scores": []}
+            for _ in articles
+        ]
+
+    def _sigmoid(x: float) -> float:
+        if 0.0 <= x <= 1.0:
+            return float(x)
+        return 1.0 / (1.0 + math.exp(-x))
+
+    n_scen = len(scenarios)
+    out: list[dict] = []
+    for i in range(len(articles)):
+        row = [_sigmoid(raw_scores[i * n_scen + j]) for j in range(n_scen)]
+        # argmax + runner-up
+        ranked = sorted(range(n_scen), key=lambda j: row[j], reverse=True)
+        top = ranked[0]
+        second = ranked[1] if n_scen > 1 else None
+        top_score = row[top]
+        second_score = row[second] if second is not None else 0.0
+        gap = top_score - second_score
+        assigned = top if gap >= margin else None
+        out.append({
+            "scenario_idx": assigned,
+            "score": top_score,
+            "margin": gap,
+            "best_alt_scenario_idx": second,
+            "all_scores": row,
+        })
+    return out
+
+
 def score_pair(query: str, document: str) -> Optional[float]:
     """Score a single (query, document) pair with the cross-encoder.
 

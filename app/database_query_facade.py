@@ -7905,6 +7905,238 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting recent future horizons analyses: {e}")
             return []
 
+    # Forecast Assessment Storage Methods
+    def save_forecast_assessment(
+        self,
+        assessment_id: str,
+        run_id: str,
+        topic: str,
+        evidence_count: int,
+        scenarios_count: int,
+        ambiguous_count: int,
+        unrelated_count: int,
+        surprises: list,
+        summary: dict,
+        status: str = "completed",
+        mode: str = "live",
+        model_used: str = None,
+        runtime_seconds: float = None,
+        config: dict = None,
+    ) -> bool:
+        """Insert a forecast_assessments row.
+
+        Returns True on success, False otherwise. Caller writes scenario and
+        article verdict rows separately via the helpers below.
+        """
+        try:
+            from app.database_models import t_forecast_assessments
+            from sqlalchemy import insert
+            import json
+
+            stmt = insert(t_forecast_assessments).values(
+                id=assessment_id,
+                run_id=run_id,
+                topic=topic,
+                evidence_count=evidence_count,
+                scenarios_count=scenarios_count,
+                ambiguous_count=ambiguous_count,
+                unrelated_count=unrelated_count,
+                surprises=json.dumps(surprises) if surprises is not None else None,
+                summary=json.dumps(summary) if summary is not None else None,
+                status=status,
+                mode=mode,
+                model_used=model_used,
+                runtime_seconds=runtime_seconds,
+                config=json.dumps(config) if config is not None else None,
+            )
+            self._execute_with_rollback(stmt)
+            self.logger.info(f"Saved forecast assessment {assessment_id} for run {run_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving forecast assessment: {e}")
+            return False
+
+    def save_forecast_scenario_verdicts(self, assessment_id: str, rows: list) -> bool:
+        """Bulk-insert per-scenario verdict rows. `rows` items match the
+        forecast_scenario_verdicts column set."""
+        if not rows:
+            return True
+        try:
+            from app.database_models import t_forecast_scenario_verdicts
+            from sqlalchemy import insert
+            import json
+
+            payload = []
+            for r in rows:
+                top_articles = r.get("top_articles") or {}
+                # Stash optional deck_info inside the top_articles JSONB so we
+                # don't need an extra column. Keys live alongside supports/
+                # contradicts; the UI can look for them.
+                if r.get("deck_info"):
+                    top_articles = {**top_articles, "deck_info": r["deck_info"]}
+                payload.append({
+                    "assessment_id": assessment_id,
+                    "scenario_idx": r["scenario_idx"],
+                    "horizon_type": r["horizon_type"],
+                    "scenario_title": r["scenario_title"],
+                    "verdict_label": r["verdict_label"],
+                    "directional_rate": r.get("directional_rate"),
+                    "velocity": r.get("velocity"),
+                    "milestone_density": r.get("milestone_density"),
+                    "coverage": r.get("coverage"),
+                    "supports": r.get("supports", 0),
+                    "contradicts": r.get("contradicts", 0),
+                    "neutral": r.get("neutral", 0),
+                    "summary_md": r.get("summary_md"),
+                    "top_articles": json.dumps(top_articles) if top_articles else None,
+                })
+            self._execute_with_rollback(insert(t_forecast_scenario_verdicts), payload)
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving scenario verdicts: {e}")
+            return False
+
+    def save_forecast_article_verdicts(self, assessment_id: str, rows: list) -> bool:
+        """Bulk-insert per-article verdict rows."""
+        if not rows:
+            return True
+        try:
+            from app.database_models import t_forecast_article_verdicts
+            from sqlalchemy import insert
+
+            payload = []
+            for r in rows:
+                payload.append({
+                    "assessment_id": assessment_id,
+                    "article_uri": r["article_uri"],
+                    "scenario_idx": r.get("scenario_idx"),
+                    "verdict": r["verdict"],
+                    "evidence_type": r.get("evidence_type"),
+                    "confidence": r.get("confidence"),
+                    "rerank_score": r.get("rerank_score"),
+                    "margin": r.get("margin"),
+                    "best_alt_scenario_idx": r.get("best_alt_scenario_idx"),
+                    "rationale": r.get("rationale"),
+                    "article_date": r.get("article_date"),
+                })
+            self._execute_with_rollback(insert(t_forecast_article_verdicts), payload)
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving article verdicts: {e}")
+            return False
+
+    def get_latest_forecast_assessment(self, run_id: str) -> dict:
+        """Return the most recent assessment for a horizons run, including
+        per-scenario verdicts. Returns {} if none.
+
+        Prefer ``mode='live'`` over ``placebo``: in paired runs the placebo
+        is saved second (more recent) but only the live row gets the
+        ``baseline_correction`` block patched onto its summary. Picking the
+        live row keeps the UI showing the canonical baseline-corrected view.
+        """
+        try:
+            from app.database_models import (
+                t_forecast_assessments,
+                t_forecast_scenario_verdicts,
+            )
+            from sqlalchemy import select, case
+            import json
+
+            live_priority = case(
+                (t_forecast_assessments.c.mode == "live", 0),
+                else_=1,
+            )
+            a_stmt = (
+                select(t_forecast_assessments)
+                .where(t_forecast_assessments.c.run_id == run_id)
+                .order_by(
+                    live_priority.asc(),
+                    t_forecast_assessments.c.assessed_at.desc(),
+                )
+                .limit(1)
+            )
+            row = self._execute_with_rollback(a_stmt).fetchone()
+            if not row:
+                return {}
+            assessment = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+
+            for key in ("surprises", "summary", "config"):
+                v = assessment.get(key)
+                if isinstance(v, str):
+                    try:
+                        assessment[key] = json.loads(v)
+                    except Exception:
+                        pass
+
+            v_stmt = (
+                select(t_forecast_scenario_verdicts)
+                .where(t_forecast_scenario_verdicts.c.assessment_id == assessment["id"])
+                .order_by(t_forecast_scenario_verdicts.c.scenario_idx.asc())
+            )
+            verdicts = []
+            for vr in self._execute_with_rollback(v_stmt).fetchall():
+                vd = dict(vr._mapping) if hasattr(vr, "_mapping") else dict(vr)
+                ta = vd.get("top_articles")
+                if isinstance(ta, str):
+                    try:
+                        vd["top_articles"] = json.loads(ta)
+                    except Exception:
+                        pass
+                verdicts.append(vd)
+            assessment["scenario_verdicts"] = verdicts
+            return assessment
+        except Exception as e:
+            self.logger.error(f"Error getting latest forecast assessment for run {run_id}: {e}")
+            return {}
+
+    def get_latest_forecast_assessment_by_topic(self, topic: str) -> dict:
+        """Same as get_latest_forecast_assessment but keyed by topic instead of
+        run_id. Lets the UI surface assessments tied to an older horizons run
+        even when the current trend-convergence page has freshly generated a
+        different run for the same topic."""
+        try:
+            from app.database_models import t_forecast_assessments
+            from sqlalchemy import select, case
+
+            live_priority = case(
+                (t_forecast_assessments.c.mode == "live", 0),
+                else_=1,
+            )
+            id_stmt = (
+                select(t_forecast_assessments.c.run_id)
+                .where(t_forecast_assessments.c.topic == topic)
+                .order_by(
+                    live_priority.asc(),
+                    t_forecast_assessments.c.assessed_at.desc(),
+                )
+                .limit(1)
+            )
+            row = self._execute_with_rollback(id_stmt).fetchone()
+            if not row:
+                return {}
+            run_id = row[0] if not hasattr(row, "_mapping") else row._mapping["run_id"]
+            return self.get_latest_forecast_assessment(run_id)
+        except Exception as e:
+            self.logger.error(f"Error getting latest forecast assessment for topic {topic}: {e}")
+            return {}
+
+    def get_forecast_article_verdicts(self, assessment_id: str, scenario_idx: int = None) -> list:
+        """Return article verdicts for an assessment, optionally filtered to a single scenario."""
+        try:
+            from app.database_models import t_forecast_article_verdicts
+            from sqlalchemy import select
+
+            stmt = select(t_forecast_article_verdicts).where(
+                t_forecast_article_verdicts.c.assessment_id == assessment_id
+            )
+            if scenario_idx is not None:
+                stmt = stmt.where(t_forecast_article_verdicts.c.scenario_idx == scenario_idx)
+            rows = self._execute_with_rollback(stmt).fetchall()
+            return [dict(r._mapping) if hasattr(r, "_mapping") else dict(r) for r in rows]
+        except Exception as e:
+            self.logger.error(f"Error getting article verdicts: {e}")
+            return []
+
     # Future Horizons Executive Summary Storage Methods
     def save_horizons_executive_summary(
         self,

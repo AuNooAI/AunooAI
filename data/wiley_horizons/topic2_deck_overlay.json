@@ -1,0 +1,100 @@
+{
+  "topic": "Attacks on Expertise & Peer Review",
+  "source_deck": "Wiley Horizons Final (Feb 2026), slides 64-68",
+  "source_run_id": "4d51b708-9325-4920-99a8-16e7cc1098db",
+  "description": "Maps each DB-stored scenario (by exact title) to the curated deck-side narrative shown to Wiley: the named deck scenario, the synthesised consensus percentage, and the primary signal. The DB scenarios are the canonical evidence base; this overlay provides the public-facing framing.",
+
+  "deck_scenarios": {
+    "peer_review_under_strain": {
+      "deck_scenario_name": "Peer Review System Under Strain",
+      "horizon": "h1",
+      "consensus_pct": 80,
+      "primary_signal": "Entrenched weaknesses in peer review and editorial oversight are expected to drive higher retraction rates and undermine the credibility of leading journals.",
+      "minority_view": "A subset expects incremental reforms or stabilization will prevent systemic collapse before 2030.",
+      "decision_fork": {
+        "favorable": "If systemic reforms and vetting controls are implemented quickly: leading journals stabilize credibility and moderate retraction rates.",
+        "adverse": "If inertia persists and review fatigue deepens: reputational damage accelerates, driving researchers and funders toward alternative dissemination platforms."
+      },
+      "action_windows": {
+        "0_6_months": "Audit current exposure to peer review risk and retraction trends",
+        "6_18_months": "Engage with or support reform alliances and technology pilots"
+      }
+    },
+    "public_trust_erosion_restoration": {
+      "deck_scenario_name": "Erosion and Restoration of Public Trust in Expertise",
+      "horizon": "h1_h3",
+      "consensus_pct": 75,
+      "primary_signal": "Widespread skepticism toward health authorities and scientific expertise will define the late 2020s, but radical transparency and open data initiatives could restore legitimacy in the late 2030s.",
+      "minority_view": "A minority anticipates persistent distrust and fragmented public discourse despite transparency reforms.",
+      "decision_fork": {
+        "favorable": "If transparency reforms are fully realized: trust rebounds, enabling agencies like WHO, CDC, and EMA to reassert expert authority and public engagement.",
+        "adverse": "If transparency remains partial or performative: distrust persists, fueling alternative knowledge networks and eroding compliance with public health guidance."
+      },
+      "action_windows": {
+        "0_6_months": "Map trust levels and identify transparency gaps",
+        "6_18_months": "Pilot or advocate for open-data, open-review initiatives"
+      }
+    },
+    "ai_driven_reform": {
+      "deck_scenario_name": "AI-Driven Reform of Peer Review and Research Integrity",
+      "horizon": "h2_h3",
+      "consensus_pct": 85,
+      "primary_signal": "By late 2030s, automation - driven by large language models and continuous validation - will become the dominant force in fraud detection and peer review, dramatically reducing misconduct and accelerating publication cycles.",
+      "minority_view": "Some stakeholders warn that algorithmic bias and lack of transparency could undermine AI credibility in evaluation.",
+      "decision_fork": {
+        "favorable": "If AI deployment is coupled with transparent oversight: leading publishers and research funders (NIH, Wellcome Trust) realize substantial gains in efficiency and reliability.",
+        "adverse": "If AI is poorly governed or overly opaque: legitimacy crises accelerate, and regulatory backlash slows adoption or fragments standards across geographies."
+      },
+      "action_windows": {
+        "0_6_months": "Review AI pilot participation and vendor partnerships",
+        "6_18_months": "Develop or support governance frameworks for algorithmic integrity"
+      }
+    },
+    "hybrid_decentralized_platforms": {
+      "deck_scenario_name": "Emergence of Hybrid and Decentralized Knowledge Platforms",
+      "horizon": "h2_h3",
+      "consensus_pct": 70,
+      "primary_signal": "Hybrid peer review - combining open commentary, automated checks, and decentralized collaboration - will test new trust mechanisms, diminishing the gatekeeping role of legacy publishers.",
+      "minority_view": "Some expect traditional publishers to retain dominance via regulatory capture or proprietary standards.",
+      "decision_fork": {
+        "favorable": "If hybrid and decentralized models prove reliable and scalable: major publishers (Wiley, Elsevier) face accelerated disintermediation as researchers and funders migrate to open platforms.",
+        "adverse": "If incumbent publishers successfully adapt or defend regulatory moats: market power consolidates around a few global players, with selective adoption of open or hybrid features."
+      },
+      "action_windows": {
+        "0_6_months": "Track pilot projects and institutional migration patterns",
+        "6_18_months": "Establish partnerships with emerging platforms or invest in hybrid review capabilities"
+      }
+    },
+    "regulatory_response_reform": {
+      "deck_scenario_name": "Regulatory Response and Reform Movements",
+      "horizon": "h2",
+      "consensus_pct": 78,
+      "primary_signal": "Governments and international bodies will introduce stringent publishing ethics frameworks and accelerate reform movements, reshaping research governance and compliance standards.",
+      "minority_view": "Some expect regulatory action will be fragmented or insufficient, allowing misconduct to persist.",
+      "decision_fork": {
+        "favorable": "If reform coalitions and regulatory bodies coordinate effectively: global standards harmonize, reducing misconduct and restoring confidence among stakeholders.",
+        "adverse": "If reforms are piecemeal or resisted: patchwork regulations create uneven compliance burdens and perpetuate vulnerabilities in research integrity."
+      },
+      "action_windows": {
+        "0_6_months": "Map regulatory exposure and monitor legislative signals",
+        "6_18_months": "Align compliance frameworks and engage in reform advocacy"
+      }
+    }
+  },
+
+  "scenario_title_to_deck_key": {
+    "Peer Review System Struggles With Volume and Quality": "peer_review_under_strain",
+    "Retraction Rates Surge, Prompting Editorial Backlash": "peer_review_under_strain",
+    "Journalistic Retractions Undermine Media Reliability": "peer_review_under_strain",
+    "Public Trust in Expertise Erodes Amid Scandals": "public_trust_erosion_restoration",
+    "Polarization Hinders Consensus on Policy and Science": "public_trust_erosion_restoration",
+    "Public Trust in Expertise Rebuilt Through Radical Transparency": "public_trust_erosion_restoration",
+    "AI Tools Enter Peer Review, Raising Quality and Bias Debates": "ai_driven_reform",
+    "Enhanced Vetting and Editorial Overhauls Reshape Publishing": "ai_driven_reform",
+    "Peer Review Replaced by Transparent, AI-Augmented Validation": "ai_driven_reform",
+    "Skepticism Drives Growth of Alternative Validation Platforms": "hybrid_decentralized_platforms",
+    "Open Science and Collaborative Platforms Dominate Knowledge Creation": "hybrid_decentralized_platforms",
+    "Reform Movements Push for Greater Peer Review Accountability": "regulatory_response_reform",
+    "Regulatory Scrutiny and Policy Shifts Accelerate": "regulatory_response_reform"
+  }
+}

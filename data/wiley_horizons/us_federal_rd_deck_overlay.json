@@ -1,0 +1,86 @@
+{
+  "topic": "U.S. Federal R&D Pullback",
+  "source_deck": "Wiley Horizons Final (Feb 2026), slides 124-127",
+  "source_run_id": "62db0c1f-9231-4307-9d0a-4db0894ef337",
+  "description": "Maps each DB-stored scenario (by exact title) for the U.S. Federal R&D Pullback topic to the 4 curated deck scenarios shown in the Wiley Horizons brief. The DB scenarios are the canonical evidence base; this overlay provides the public-facing framing.",
+
+  "deck_scenarios": {
+    "federal_rd_funding_decline": {
+      "deck_scenario_name": "Federal R&D Funding Decline and Policy Uncertainty",
+      "horizon": "h1",
+      "consensus_pct": 75,
+      "primary_signal": "Sustained federal budget cuts and politicization will suppress innovation ecosystems, erode public trust, and complicate research governance through the 2025-2032 period.",
+      "minority_view": "Some scenarios foresee continued prioritization of traditional research domains and breakthrough biotech advances despite funding constraints.",
+      "decision_fork": {
+        "favorable": "If federal funding continues to decline with political interference: innovation pipelines and talent development weaken, increasing reliance on private and international R&D partnerships.",
+        "adverse": "If policy stabilizes with restored leadership and funding: traditional domains like cancer and neurodegenerative research regain momentum, enabling leverage of federal grants and public trust."
+      },
+      "action_windows": {
+        "0_6_months": "Assess funding exposure and leadership risks",
+        "6_18_months": "Diversify partnerships beyond federal sources"
+      }
+    },
+    "private_open_source_innovation": {
+      "deck_scenario_name": "Private Sector and Open Source as Innovation Drivers",
+      "horizon": "h2",
+      "consensus_pct": 70,
+      "primary_signal": "Private and open-source innovation ecosystems will expand rapidly, enabling agile market growth especially in AI and biotechnology, compensating for federal funding shortfalls.",
+      "minority_view": "Some scenarios emphasize ongoing federal research governance challenges and political frictions that may limit private sector impact.",
+      "decision_fork": {
+        "favorable": "If organizations engage early with open-source and private AI innovators: they capture emerging market opportunities and accelerate product development leveraging global talent pools.",
+        "adverse": "If political and regulatory frictions intensify: innovation ecosystems become fragmented, requiring strategic advocacy and adaptive governance engagement."
+      },
+      "action_windows": {
+        "0_6_months": "Evaluate partnerships with private and open-source innovators",
+        "6_18_months": "Invest in AI and biotech pilot projects driven by non-federal actors"
+      }
+    },
+    "quantum_biotech_breakthroughs": {
+      "deck_scenario_name": "Quantum Computing and Biotechnology Breakthroughs",
+      "horizon": "h3",
+      "consensus_pct": 65,
+      "primary_signal": "Quantum computing and AI-driven personalized biotechnologies will become commercially viable, enabling disruption in data security, diagnostics, and therapies.",
+      "minority_view": "A minority anticipate slower technology maturation due to funding constraints and governance challenges.",
+      "decision_fork": {
+        "favorable": "If organizations strategically invest in emerging quantum and biotech platforms: they achieve competitive advantage through disruptive innovation in healthcare and security sectors.",
+        "adverse": "If adoption is delayed by regulatory or funding limitations: competitors with early integration capture dominant market positions, marginalizing late movers."
+      },
+      "action_windows": {
+        "0_6_months": "Monitor quantum and biotech tech validation and pilot results",
+        "6_18_months": "Build capabilities for commercial deployment of breakthrough technologies"
+      }
+    },
+    "science_policy_trust_restoration": {
+      "deck_scenario_name": "Science-Policy Integration and Trust Restoration",
+      "horizon": "h3",
+      "consensus_pct": 80,
+      "primary_signal": "Integrated governance blending scientific expertise with transparent policy will enable sustainable innovation environments and rebuild credibility.",
+      "minority_view": "Some scenarios highlight persistent politicization and skepticism undermining long-term trust recovery.",
+      "decision_fork": {
+        "favorable": "If organizations actively engage in science-policy advocacy and transparent communication: they secure stable regulatory conditions facilitating innovation and market confidence.",
+        "adverse": "If distrust and politicization persist: organizations face regulatory uncertainty and reputational risks limiting growth."
+      },
+      "action_windows": {
+        "0_6_months": "Engage in policy dialogues and trust-building initiatives",
+        "6_18_months": "Integrate compliance and transparency practices to align with emerging frameworks"
+      }
+    }
+  },
+
+  "scenario_title_to_deck_key": {
+    "Federal R&D Funding Faces Steady Decline and Leadership Gaps": "federal_rd_funding_decline",
+    "Political Influence Undermines Science and Public Health Trust": "federal_rd_funding_decline",
+    "Regulatory Rollbacks Prioritize Corporate Interests Over Environment": "federal_rd_funding_decline",
+    "Federal Research Priorities Remain Focused on Traditional Domains": "federal_rd_funding_decline",
+    "Public and Academic Backlash Against Equity and Funding Cuts Grows": "federal_rd_funding_decline",
+    "Private Sector and Open Source Drive AI Innovation Amid Federal Cuts": "private_open_source_innovation",
+    "Hybrid Models of Research Governance Emerge Amid Political Frictions": "private_open_source_innovation",
+    "Growing Distrust Sparks Demand for AI and Science Regulation": "private_open_source_innovation",
+    "Decentralized, Open-Source AI Ecosystems Dominate Innovation": "private_open_source_innovation",
+    "Innovative Biotechnologies Advance Despite Funding Constraints": "quantum_biotech_breakthroughs",
+    "Emerging Quantum Computing Breakthroughs Signal Transition Phase": "quantum_biotech_breakthroughs",
+    "Quantum Computing Revolutionizes Industry and Security": "quantum_biotech_breakthroughs",
+    "Personalized Biotechnologies Enable New Health Paradigms": "quantum_biotech_breakthroughs",
+    "Integrated Science-Policy Frameworks Restore Trust and Drive Innovation": "science_policy_trust_restoration"
+  }
+}
