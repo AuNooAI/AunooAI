@@ -36,7 +36,8 @@ import requests
 from app.config.config import load_config, get_topic_description
 import time
 
-# Allow nested event loops (needed when called from FastAPI routes)
+# Allow nested event loops (needed when called from FastAPI routes that
+# invoke the sync analyze_article_content -> asyncio.run path).
 nest_asyncio.apply()
 
 # Set up logging

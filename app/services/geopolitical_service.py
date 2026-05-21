@@ -2017,7 +2017,11 @@ async def extract_location_with_llm(title: str, summary: str, category: str, mod
         )
 
         model = LiteLLMModel.get_instance(model_name)
-        response = model.generate_response([
+        # Was: model.generate_response(...) — sync LLM call from inside an
+        # async function blocks the event loop for the duration of the
+        # OpenAI HTTP round-trip (caught by SIGUSR1 stack dump 2026-05-21
+        # holding the main loop in asyncify.run_async_function).
+        response = await model.agenerate_response([
             {"role": "system", "content": "You are a geopolitical analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
         ])

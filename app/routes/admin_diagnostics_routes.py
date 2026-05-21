@@ -34,4 +34,11 @@ async def event_loop_status(
     }
     if dump:
         out["thread_dump"] = dump_all_thread_stacks()
+    # If the watchdog has captured a stack dump during a recent blocking
+    # event, include it — this is the stack trace of what was *actually
+    # holding* the loop, captured live by the faulthandler watchdog.
+    from app.utils.event_loop_monitor import get_last_blocking_dump
+    blocking = get_last_blocking_dump()
+    if blocking:
+        out["last_blocking_capture"] = blocking
     return out

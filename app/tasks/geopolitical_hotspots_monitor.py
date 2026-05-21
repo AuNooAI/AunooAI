@@ -559,7 +559,13 @@ async def run_hotspot_trend_updates():
             service = get_geopolitical_service()
 
             logger.info("Running scheduled hotspot trend update...")
-            result = service.update_hotspot_trends(days_recent=7, days_comparison=30)
+            # update_hotspot_trends runs sync SQLAlchemy queries — push to a
+            # worker thread so the main event loop stays responsive while the
+            # potentially-long DB work runs (caught blocking the loop for
+            # tens of seconds via SIGUSR1 stack dump, 2026-05-21).
+            result = await asyncio.to_thread(
+                service.update_hotspot_trends, 7, 30,
+            )
 
             _trend_update_status["last_run_time"] = datetime.now()
             _trend_update_status["last_result"] = result
