@@ -27,6 +27,23 @@ async def lifespan(app: FastAPI):
         # Use the new centralized application initialization
         from app.startup import initialize_application
 
+        # ── Optional: override the default thread-pool executor ───────
+        # Python defaults to ``min(32, cpu_count+4)`` workers for the
+        # executor used by asyncio.to_thread / loop.run_in_executor(None).
+        # On the 20-core production box that's 24 — usually fine. Set
+        # SERVICE_EXECUTOR_MAX_WORKERS only if you actually need to
+        # shrink (under-resourced box) or grow (very many background
+        # services hammering it). Leaving unset preserves Python's default.
+        import os, asyncio
+        _ex_override = os.getenv("SERVICE_EXECUTOR_MAX_WORKERS")
+        if _ex_override:
+            from concurrent.futures import ThreadPoolExecutor
+            loop = asyncio.get_running_loop()
+            loop.set_default_executor(
+                ThreadPoolExecutor(max_workers=int(_ex_override),
+                                   thread_name_prefix="aunoo_pool_")
+            )
+
         # Configure logging
         logging.basicConfig(
             level=logging.INFO,
@@ -140,6 +157,20 @@ async def lifespan(app: FastAPI):
 
         asyncio.create_task(delayed_rss_feed_monitor_start())
         logger.info("Scheduled RSS feed monitor to start in 25 seconds")
+
+        # Event-loop health monitor. Always on — overhead is one sleep+timestamp
+        # every 5s. Logs WARNING when scheduling lag exceeds 1s; samples
+        # available at GET /api/admin/event-loop-status.
+        async def delayed_event_loop_monitor_start():
+            await asyncio.sleep(3)
+            try:
+                from app.utils.event_loop_monitor import run_event_loop_monitor
+                logger.info("Starting event-loop monitor background task...")
+                asyncio.create_task(run_event_loop_monitor())
+            except Exception as e:
+                logger.error(f"Failed to start event-loop monitor: {e}")
+
+        asyncio.create_task(delayed_event_loop_monitor_start())
 
         # Forecast tracker auto-reassessment. Gated by FORECAST_TRACKER_AUTO_RUN
         # env flag — the monitor exits immediately if it's not set, so it's
