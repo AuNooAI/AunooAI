@@ -275,9 +275,15 @@ async def export_assessment_pptx(run_id: str, assessment_id: str):
 
     Pulls the latest assessment for the run (we treat the explicit
     ``assessment_id`` as a sanity-check parameter so a stale URL doesn't
-    silently render a newer assessment)."""
+    silently render a newer assessment).
+
+    On the first export for an assessment that has no cached narratives,
+    LLM synthesis fires and persists the prose to ``summary_md`` /
+    ``summary.exec_narrative`` so subsequent exports are instant.
+    """
     from app.database import get_database_instance
     from app.services.forecast_pptx_export import build_assessment_pptx
+    from app.services.forecast_narrative import ensure_narratives_for_assessment
 
     db = get_database_instance()
     record = db.facade.get_latest_forecast_assessment(run_id)
@@ -294,6 +300,16 @@ async def export_assessment_pptx(run_id: str, assessment_id: str):
             "PPTX export requested assessment %s but latest is %s; rendering latest",
             assessment_id, record.get("id"),
         )
+
+    # Lazily synthesize any missing narratives + persist them so the next
+    # export is fast. This can add 5-15s on first export per assessment.
+    try:
+        enriched = await ensure_narratives_for_assessment(record["id"])
+        if enriched:
+            record = enriched
+    except Exception as e:
+        logger.warning("Narrative synthesis failed for %s: %s — exporting without",
+                       record.get("id"), e)
 
     forecast_run = db.facade.get_future_horizons_analysis(record.get("run_id") or run_id)
     blob = build_assessment_pptx(record, forecast_run or {})

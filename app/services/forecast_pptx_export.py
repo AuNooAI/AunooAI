@@ -16,6 +16,7 @@ returns the PPTX as bytes.
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
 
@@ -25,53 +26,84 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
+# Brand asset paths (resolved at slide-build time so the deck embeds the
+# actual pink AUNOOAI wordmark instead of plain text).
+LOGO_PATH = Path("static/aunooai.png")
 
-# ── Wiley deck palette (sampled from the source PPTX) ─────────────────────
 
-NAVY        = RGBColor(0x0D, 0x1B, 0x2A)  # left rail bg, titles dark
-TITLE_DARK  = RGBColor(0x1A, 0x23, 0x30)  # title text
-SLATE_MID   = RGBColor(0x3D, 0x4F, 0x60)  # body text
-SLATE_BODY  = RGBColor(0x4A, 0x55, 0x68)  # softer body
-SLATE_LIGHT = RGBColor(0x8A, 0x96, 0xA3)  # labels, brand mark, dividers text
-RULE_GRAY   = RGBColor(0xD8, 0xDD, 0xE3)  # horizontal rule
-COL_DIV     = RGBColor(0xE2, 0xE8, 0xF0)  # column divider
+# ── Aunoo brand palette (sourced from ui/src/styles/globals.css + aunoo-theme.css)
 
-# Accents per horizon
-TEAL        = RGBColor(0x0D, 0x94, 0x88)  # H1 + primary signal accent
-ORANGE      = RGBColor(0xB8, 0x76, 0x20)  # H3
-GOLD        = RGBColor(0xC9, 0x92, 0x2A)  # H2 / minority view bar
-CORAL       = RGBColor(0xE0, 0x5A, 0x4E)  # action window accent, contradicts
-EMERALD     = RGBColor(0x05, 0x96, 0x69)  # check / favorable
+# Primary pink scale
+PINK         = RGBColor(0xEC, 0x48, 0x99)  # Primary brand pink (Radix pink-8)
+PINK_DARK    = RGBColor(0xE9, 0x3D, 0x82)  # pink-9
+PINK_DEEP    = RGBColor(0xD6, 0x34, 0x6C)  # pink-10
+PINK_DEEPEST = RGBColor(0x8B, 0x1A, 0x42)  # pink-12
 
-# Soft fills (icon chip backgrounds, banners)
-PALE_TEAL   = RGBColor(0xE6, 0xFA, 0xF8)
-PALE_GOLD   = RGBColor(0xFE, 0xF3, 0xDC)
-PALE_AMBER  = RGBColor(0xFF, 0xFB, 0xEB)
-PALE_GREEN  = RGBColor(0xD1, 0xFA, 0xE5)
-PALE_RED    = RGBColor(0xFE, 0xE2, 0xE2)
-PALE_CORAL  = RGBColor(0xFE, 0xF2, 0xEF)
+PALE_PINK_1  = RGBColor(0xFE, 0xF6, 0xFB)  # pink-1 (lightest)
+PALE_PINK_2  = RGBColor(0xFE, 0xE9, 0xF5)  # pink-2
+PALE_PINK_3  = RGBColor(0xFD, 0xD8, 0xED)  # pink-3
 
-MINORITY_TXT = RGBColor(0x7C, 0x57, 0x00)  # text on minority view banner
+# Neutral / slate
+SLATE_DARK   = RGBColor(0x11, 0x18, 0x27)  # slate-12, page titles
+SLATE_BLACK  = RGBColor(0x21, 0x25, 0x29)  # slate-11, body text dark
+SLATE_MID    = RGBColor(0x49, 0x50, 0x57)  # slate-9, body text
+SLATE_BODY   = RGBColor(0x34, 0x3A, 0x40)  # slate-10
+SLATE_LIGHT  = RGBColor(0x86, 0x8E, 0x96)  # slate-8, labels
+SLATE_PALE   = RGBColor(0xAD, 0xB5, 0xBD)  # slate-7
+RULE_GRAY    = RGBColor(0xDE, 0xE2, 0xE6)  # slate-5
+COL_DIV      = RGBColor(0xE9, 0xEC, 0xEF)  # slate-4
+SLATE_BG     = RGBColor(0xF8, 0xF9, 0xFA)  # slate-2
+WHITE        = RGBColor(0xFF, 0xFF, 0xFF)
 
-WHITE       = RGBColor(0xFF, 0xFF, 0xFF)
-CARD_BG     = WHITE
-BODY_FONT   = "Calibri"
+# Semantic colors (green/red still semantic, but Aunoo-flavored hues)
+GREEN        = RGBColor(0x10, 0xB9, 0x81)  # green-9, success/above-baseline
+GREEN_DEEP   = RGBColor(0x05, 0x96, 0x69)  # green-10
+RED          = RGBColor(0xEF, 0x44, 0x44)  # red-5 -> red-7
+RED_DEEP     = RGBColor(0xDC, 0x26, 0x26)
+AMBER        = RGBColor(0xF5, 0x9E, 0x0B)  # amber-7
+AMBER_DEEP   = RGBColor(0xD9, 0x77, 0x06)
 
-# Forecast Tracker additions — semantic colors for baseline labels
+# Soft fills (chip backgrounds)
+PALE_GREEN   = RGBColor(0xDC, 0xFC, 0xE7)  # green-2
+PALE_RED     = RGBColor(0xFE, 0xE2, 0xE2)  # red-2
+PALE_AMBER   = RGBColor(0xFE, 0xF3, 0xC7)
+
+NAVY         = SLATE_DARK     # Backwards-compat aliases used below
+TITLE_DARK   = SLATE_BLACK
+CARD_BG      = WHITE
+BODY_FONT    = "Calibri"
+
+# Forecast Tracker — semantic colors for baseline labels
 BASELINE_COLORS = {
-    "Above baseline": EMERALD,
-    "At baseline":    SLATE_LIGHT,
-    "Below baseline": CORAL,
+    "Above baseline": GREEN_DEEP,
+    "At baseline":    SLATE_PALE,
+    "Below baseline": RED_DEEP,
 }
 
-# Verdict label → soft fill on the supports/contradicts chips
-SUPPORT_COLOR = EMERALD
-CONTRA_COLOR  = CORAL
-NEUTRAL_COLOR = SLATE_LIGHT
+# Per-component
+SUPPORT_COLOR = GREEN_DEEP
+CONTRA_COLOR  = RED_DEEP
+NEUTRAL_COLOR = SLATE_PALE
 
 
 def _horizon_color(h: Optional[str]) -> RGBColor:
-    return {"h1": TEAL, "h2": GOLD, "h3": ORANGE}.get((h or "").lower(), TEAL)
+    # All horizons use the brand pink — the H-code itself communicates the
+    # horizon, no need to color-code per horizon (and would conflict with the
+    # pink brand identity).
+    return PINK
+
+
+# Aliases — the rest of the file still uses these older names. Mapping
+# them here keeps slide builders untouched while migrating the palette.
+TEAL         = PINK         # primary accent → brand pink
+GOLD         = AMBER_DEEP   # secondary accent (surprises, minority view)
+ORANGE       = AMBER
+CORAL        = RED          # below-baseline / contradicting
+EMERALD      = GREEN_DEEP   # above-baseline / favorable
+PALE_TEAL    = PALE_PINK_2
+PALE_GOLD    = PALE_AMBER
+PALE_CORAL   = PALE_RED
+MINORITY_TXT = PINK_DEEPEST
 
 
 def _horizon_label(h: Optional[str]) -> str:
@@ -177,9 +209,8 @@ def _add_left_rail(slide, *, horizon: str, consensus_pct: Optional[float]):
         _text(slide, x=0.2, y=3.88, w=1.2, h=0.3, text="CONSENSUS",
               font_size=8, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
-    # AunooAI brand mark
-    _text(slide, x=0.0, y=5.32, w=1.6, h=0.22, text="AunooAI",
-          font_size=8, color=SLATE_LIGHT, align=PP_ALIGN.CENTER)
+    # AunooAI brand mark (logo image if available, fallback to wordmark text)
+    _add_brand_mark(slide, x=0.15, y=5.15, w=1.3, h=0.4)
 
 
 def _add_minority_banner(slide, *, x, y, w, text):
@@ -196,14 +227,25 @@ def _add_column_card(slide, *, x, y, w, h, accent: RGBColor):
     _rect(slide, x=x, y=y, w=w, h=0.05, fill=accent)
 
 
+def _add_brand_mark(slide, *, x, y, w, h):
+    """Embed the pink AUNOOAI wordmark PNG. Falls back to text if image
+    is missing (e.g. running in a stripped-down test env)."""
+    if LOGO_PATH.exists():
+        slide.shapes.add_picture(str(LOGO_PATH), Inches(x), Inches(y),
+                                 width=Inches(w))
+    else:
+        _text(slide, x=x, y=y+0.1, w=w, h=h-0.1, text="AUNOOAI",
+              font_size=10, bold=True, color=PINK, align=PP_ALIGN.CENTER)
+
+
 def _add_brand_footer(slide, *, slide_label: str = ""):
-    """Faint AunooAI footer on non-scenario slides (the scenario slides have
-    the rail mark; other slides need their own brand mark)."""
-    sw = 10.0
-    _text(slide, x=0.5, y=5.35, w=4.0, h=0.2, text=f"AunooAI Forecast Tracker",
+    """Faint brand mark + slide label in the footer of non-scenario slides
+    (scenario slides have the brand mark in their left rail)."""
+    _add_brand_mark(slide, x=0.5, y=5.22, w=0.9, h=0.3)
+    _text(slide, x=1.5, y=5.32, w=4.0, h=0.2, text="Forecast Tracker",
           font_size=8, bold=True, color=SLATE_LIGHT)
     if slide_label:
-        _text(slide, x=5.5, y=5.35, w=4.0, h=0.2, text=slide_label,
+        _text(slide, x=5.5, y=5.32, w=4.0, h=0.2, text=slide_label,
               font_size=8, color=SLATE_LIGHT, align=PP_ALIGN.RIGHT)
 
 
@@ -214,31 +256,33 @@ def _add_cover_slide(prs, assessment: dict, forecast_run: dict):
     slide = prs.slides.add_slide(blank)
     sw = 10.0
 
-    # Full-bleed navy
-    _rect(slide, x=0, y=0, w=sw, h=5.62, fill=NAVY)
+    # Light cover with pink accent — matches the app's pink-on-white aesthetic.
+    _rect(slide, x=0, y=0, w=sw, h=5.62, fill=WHITE)
+    _rect(slide, x=0, y=0, w=sw, h=0.18, fill=PINK)  # top pink rule
 
-    # Brand mark + product strap
-    _text(slide, x=0.5, y=0.4, w=4.0, h=0.3, text="AunooAI · FORECAST TRACKER",
-          font_size=11, bold=True, color=TEAL)
+    # Brand logo top-left
+    _add_brand_mark(slide, x=0.5, y=0.5, w=1.8, h=0.55)
+
+    # Product label
+    _text(slide, x=0.5, y=1.15, w=4.0, h=0.3, text="FORECAST TRACKER",
+          font_size=11, bold=True, color=PINK_DEEP)
 
     # Topic
     topic = assessment.get("topic") or "—"
-    _text(slide, x=0.5, y=1.4, w=sw-1.0, h=0.9, text=topic, font_size=32,
-          bold=True, color=WHITE)
+    _text(slide, x=0.5, y=1.85, w=sw-1.0, h=0.9, text=topic, font_size=30,
+          bold=True, color=SLATE_DARK)
 
-    # Strapline
     summary = assessment.get("summary") or {}
     forecast_at = summary.get("forecast_generated_at") or forecast_run.get("created_at")
     assessed_at = summary.get("assessed_at") or assessment.get("assessed_at")
     window_weeks = summary.get("window_weeks")
-    elapsed = summary.get("elapsed_days")
 
     line2 = (
         f"Back-test of the Three Horizons forecast generated "
         f"{_short_date(forecast_at)}, assessed {_short_date(assessed_at)}"
     )
-    _text(slide, x=0.5, y=2.5, w=sw-1.0, h=0.5, text=line2,
-          font_size=14, color=RULE_GRAY)
+    _text(slide, x=0.5, y=2.85, w=sw-1.0, h=0.5, text=line2,
+          font_size=13, color=SLATE_MID)
 
     # Headline stats row
     bc = summary.get("baseline_correction") or {}
@@ -255,15 +299,19 @@ def _add_cover_slide(prs, assessment: dict, forecast_run: dict):
         ("Surprises", str(n_surprises)),
     ]
     cx = 0.5
+    cell_w = (sw - 1.0) / len(pairs)
     for label, value in pairs:
-        _text(slide, x=cx, y=3.5, w=1.7, h=0.28, text=label.upper(),
-              font_size=8, bold=True, color=TEAL)
-        _text(slide, x=cx, y=3.78, w=1.7, h=0.6, text=value, font_size=22,
-              bold=True, color=WHITE)
-        cx += 1.85
+        _text(slide, x=cx, y=3.8, w=cell_w-0.1, h=0.28, text=label.upper(),
+              font_size=8, bold=True, color=PINK_DEEP)
+        _text(slide, x=cx, y=4.08, w=cell_w-0.1, h=0.6, text=value,
+              font_size=22, bold=True, color=SLATE_DARK)
+        cx += cell_w
 
-    _text(slide, x=0.5, y=5.3, w=sw-1.0, h=0.22,
-          text=f"Model: {assessment.get('model_used') or '—'}  ·  Mode: {assessment.get('mode') or '—'}",
+    _rect(slide, x=0.5, y=5.05, w=sw-1.0, h=0.012, fill=RULE_GRAY)
+    _text(slide, x=0.5, y=5.18, w=sw-1.0, h=0.22,
+          text=f"Model: {assessment.get('model_used') or '—'}   ·   "
+               f"Mode: {assessment.get('mode') or '—'}   ·   "
+               f"AunooAI · aunoo.ai",
           font_size=8, color=SLATE_LIGHT)
 
 
@@ -322,7 +370,7 @@ def _add_exec_summary_slide(prs, assessment: dict, headline: dict):
     slide = prs.slides.add_slide(blank)
     sw = 10.0
 
-    _rect(slide, x=0, y=0, w=sw, h=0.85, fill=NAVY)
+    _rect(slide, x=0, y=0, w=sw, h=0.85, fill=PINK)
     _text(slide, x=0.5, y=0.18, w=sw-1.0, h=0.55, text="Executive Summary",
           font_size=20, bold=True, color=WHITE)
 
@@ -331,6 +379,24 @@ def _add_exec_summary_slide(prs, assessment: dict, headline: dict):
     bc_per = bc.get("per_scenario") or {}
     verdicts = assessment.get("scenario_verdicts") or []
     n = len(verdicts)
+
+    # LLM-synthesised narrative (if available) — the meatiest content on the
+    # slide. Goes right under the heading so readers see it first.
+    exec_narrative = (summary.get("exec_narrative") or "").strip()
+    if exec_narrative:
+        _rect(slide, x=0.5, y=1.0, w=sw-1.0, h=1.55,
+              fill=PALE_PINK_1)
+        _rect(slide, x=0.5, y=1.0, w=0.08, h=1.55, fill=PINK)
+        _text(slide, x=0.7, y=1.06, w=sw-1.4, h=0.25,
+              text="WHAT THE BACK-TEST FOUND", font_size=8.5,
+              bold=True, color=PINK_DEEP)
+        _text(slide, x=0.7, y=1.32, w=sw-1.4, h=1.2,
+              text=exec_narrative, font_size=10.5, color=SLATE_BLACK,
+              line_spacing=1.3)
+        # Distribution chips push down to make room
+        y_dist = 2.75
+    else:
+        y_dist = 1.05
 
     # Verdict distribution chips
     if bc_per:
@@ -341,23 +407,26 @@ def _add_exec_summary_slide(prs, assessment: dict, headline: dict):
         heading = "VERDICT DISTRIBUTION"
     counts = {x: labels.count(x) for x in set(labels) if x}
 
-    _text(slide, x=0.5, y=1.05, w=sw-1.0, h=0.25, text=heading, font_size=9,
-          bold=True, color=TEAL)
+    _text(slide, x=0.5, y=y_dist, w=sw-1.0, h=0.25, text=heading, font_size=9,
+          bold=True, color=PINK_DEEP)
     cx = 0.5
     for label, count in sorted(counts.items(), key=lambda kv: -kv[1]):
         color = _baseline_color(label)
         chip_w = 2.0
-        _rect(slide, x=cx, y=1.32, w=chip_w, h=0.5, fill=color, rounded=True)
-        _text(slide, x=cx, y=1.36, w=chip_w, h=0.22, text=label or "—",
+        _rect(slide, x=cx, y=y_dist+0.28, w=chip_w, h=0.5, fill=color, rounded=True)
+        _text(slide, x=cx, y=y_dist+0.32, w=chip_w, h=0.22, text=label or "—",
               font_size=10, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-        _text(slide, x=cx, y=1.58, w=chip_w, h=0.22,
+        _text(slide, x=cx, y=y_dist+0.54, w=chip_w, h=0.22,
               text=f"{count} of {n} scenarios", font_size=8.5,
               color=WHITE, align=PP_ALIGN.CENTER)
         cx += chip_w + 0.12
 
+    # If the LLM narrative covers it, skip the headline panel (redundant)
+    show_headline = not exec_narrative
+
     # Headline finding panel
-    y0 = 2.05
-    if headline:
+    y0 = y_dist + 1.05
+    if headline and show_headline:
         v = headline["verdict"]
         b = headline["baseline"]
         deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
@@ -391,14 +460,14 @@ def _add_exec_summary_slide(prs, assessment: dict, headline: dict):
         _text(slide, x=0.5, y=y0+1.3, w=sw-1.0, h=0.95, text=expl,
               font_size=10, italic=True, color=SLATE_MID, line_spacing=1.25)
 
-    # Dominant emerging theme
+    # Dominant emerging theme — skip when narrative is present (it covers it)
     surprises = assessment.get("surprises") or []
-    if surprises:
+    if surprises and not exec_narrative:
         top = max(surprises, key=lambda s: s.get("size") or 0)
         ty = 4.3
         _text(slide, x=0.5, y=ty, w=sw-1.0, h=0.28,
               text="DOMINANT EMERGING THEME", font_size=9, bold=True,
-              color=GOLD)
+              color=AMBER_DEEP)
         _text(slide, x=0.5, y=ty+0.28, w=sw-1.0, h=0.4,
               text=f"{top.get('size') or 0}×  {_truncate(top.get('label') or '(unlabelled)', 100)}",
               font_size=14, bold=True, color=TITLE_DARK)
@@ -486,160 +555,139 @@ def _add_whats_changed_slide(prs, assessment: dict):
 
 
 def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict]):
-    """One slide per scenario in the canonical Wiley card layout:
-    left-rail (horizon code + consensus + brand) and three right-side
-    panels: Primary Signal, Decision Fork, Tracking."""
+    """One slide per scenario, restructured to put narrative + dated
+    developments front-and-center (the deck context — primary signal,
+    minority view — compresses to a small strip up top)."""
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     sw = 10.0
     deck_info = (verdict.get("top_articles") or {}).get("deck_info") or {}
 
     horizon = (verdict.get("horizon_type") or "h1")
-    accent = _horizon_color(horizon)
     consensus = deck_info.get("consensus_pct")
     scenario_name = (deck_info.get("deck_scenario_name")
                      or verdict.get("scenario_title") or "—")
 
     _add_left_rail(slide, horizon=horizon, consensus_pct=consensus)
 
-    # ── Title block ────────────────────────────────────────────────────
-    # Split the title into ≤2 lines for the deck's stacked look.
-    title_lines = _split_title(scenario_name, max_chars=34)
-    _text(slide, x=1.9, y=0.1, w=7.9, h=0.4, text=title_lines[0],
-          font_size=18, bold=True, color=TITLE_DARK)
+    # ── Title block ───────────────────────────────────────────────────
+    title_lines = _split_title(scenario_name, max_chars=38)
+    _text(slide, x=1.9, y=0.12, w=7.9, h=0.42, text=title_lines[0],
+          font_size=17, bold=True, color=SLATE_DARK)
     if len(title_lines) > 1:
-        _text(slide, x=1.9, y=0.45, w=7.9, h=0.4, text=title_lines[1],
-              font_size=18, bold=True, color=TITLE_DARK)
+        _text(slide, x=1.9, y=0.5, w=7.9, h=0.42, text=title_lines[1],
+              font_size=17, bold=True, color=SLATE_DARK)
 
-    _text(slide, x=1.9, y=0.85, w=7.9, h=0.2, text=_horizon_full_label(horizon),
+    _text(slide, x=1.9, y=0.93, w=7.9, h=0.2, text=_horizon_full_label(horizon),
           font_size=8.5, bold=True, color=SLATE_LIGHT)
 
-    # Intro paragraph — short summary of the scenario context
-    intro = deck_info.get("primary_signal") or verdict.get("scenario_title") or ""
-    _text(slide, x=1.9, y=1.1, w=7.9, h=0.4, text=_truncate(intro, 240),
-          font_size=9.5, color=SLATE_MID, line_spacing=1.2)
+    # ── Original forecast (compressed) — single line from deck primary signal
+    primary = deck_info.get("primary_signal") or ""
+    if primary:
+        _text(slide, x=1.9, y=1.15, w=7.9, h=0.45, text=primary,
+              font_size=9, italic=True, color=SLATE_MID, line_spacing=1.25)
 
-    # Minority view banner
-    minority = deck_info.get("minority_view")
-    if minority:
-        _add_minority_banner(slide, x=1.9, y=1.5, w=7.9,
-                             text=_truncate(minority, 220))
-    panel_y = 2.1
+    # ── Tracking strip (full-width horizontal) ────────────────────────
+    track_y = 1.7
+    _rect(slide, x=1.9, y=track_y, w=7.9, h=0.6, fill=SLATE_BG)
+    _rect(slide, x=1.9, y=track_y, w=0.08, h=0.6, fill=PINK)
 
-    # ── Column 1: PRIMARY SIGNAL ──────────────────────────────────────
-    _add_column_card(slide, x=1.9, y=panel_y, w=2.4, h=3.1, accent=TEAL)
-    _text(slide, x=2.05, y=panel_y+0.18, w=2.1, h=0.28, text="PRIMARY SIGNAL",
-          font_size=8, bold=True, color=TEAL)
-    if consensus is not None:
-        _rect(slide, x=2.05, y=panel_y+0.5, w=0.85, h=0.28, fill=PALE_TEAL,
-              rounded=True)
-        _text(slide, x=2.05, y=panel_y+0.53, w=0.85, h=0.22,
-              text=f"{int(consensus)}% Consensus", font_size=7,
-              bold=True, color=TEAL, align=PP_ALIGN.CENTER)
-    primary = deck_info.get("primary_signal") or "—"
-    _text(slide, x=2.05, y=panel_y+0.9, w=2.1, h=2.1, text=primary,
-          font_size=9.5, bold=True, color=TITLE_DARK, line_spacing=1.25)
-
-    # ── Column 2: DECISION FORK ───────────────────────────────────────
-    _add_column_card(slide, x=4.5, y=panel_y, w=2.4, h=3.1, accent=NAVY)
-    _text(slide, x=4.65, y=panel_y+0.18, w=2.1, h=0.28, text="DECISION FORK",
-          font_size=8, bold=True, color=TITLE_DARK)
-    fork = deck_info.get("decision_fork") or {}
-    fav = fork.get("favorable")
-    adv = fork.get("adverse")
-
-    if fav:
-        _rect(slide, x=4.65, y=panel_y+0.6, w=0.28, h=0.28, fill=PALE_GREEN,
-              rounded=True)
-        _text(slide, x=4.65, y=panel_y+0.6, w=0.28, h=0.28, text="✔",
-              font_size=11, bold=True, color=EMERALD, align=PP_ALIGN.CENTER,
-              anchor=MSO_ANCHOR.MIDDLE)
-        _text(slide, x=5.0, y=panel_y+0.58, w=1.85, h=1.05,
-              text=_truncate(fav, 200), font_size=8.5, color=SLATE_MID,
-              line_spacing=1.2)
-    if adv:
-        _rect(slide, x=4.65, y=panel_y+1.85, w=2.1, h=0.012, fill=COL_DIV)
-        _rect(slide, x=4.65, y=panel_y+1.95, w=0.28, h=0.28, fill=PALE_RED,
-              rounded=True)
-        _text(slide, x=4.65, y=panel_y+1.95, w=0.28, h=0.28, text="!",
-              font_size=12, bold=True, color=CORAL, align=PP_ALIGN.CENTER,
-              anchor=MSO_ANCHOR.MIDDLE)
-        _text(slide, x=5.0, y=panel_y+1.93, w=1.85, h=1.05,
-              text=_truncate(adv, 200), font_size=8.5, color=SLATE_MID,
-              line_spacing=1.2)
-
-    # ── Column 3: TRACKING (replaces deck's "Your Window") ────────────
-    _add_column_card(slide, x=7.1, y=panel_y, w=2.65, h=3.1, accent=accent)
-    _text(slide, x=7.25, y=panel_y+0.18, w=2.4, h=0.28, text="TRACKING",
-          font_size=8, bold=True, color=accent)
-
-    # Verdict chip — baseline-corrected if available, else raw
+    # Verdict chip (left of strip)
     if baseline:
         label = baseline.get("label") or verdict.get("verdict_label") or "—"
-        chip_color = _baseline_color(label)
-        sub_label = f"raw: {verdict.get('verdict_label') or '—'}"
+        sub = f"raw: {verdict.get('verdict_label') or '—'}"
     else:
         label = verdict.get("verdict_label") or "—"
-        chip_color = _baseline_color(label)
-        sub_label = ""
-
-    _rect(slide, x=7.25, y=panel_y+0.5, w=2.4, h=0.36,
+        sub = ""
+    chip_color = _baseline_color(label)
+    _rect(slide, x=2.05, y=track_y+0.1, w=1.7, h=0.4,
           fill=chip_color, rounded=True)
-    _text(slide, x=7.25, y=panel_y+0.56, w=2.4, h=0.26,
-          text=label, font_size=10, bold=True, color=WHITE,
-          align=PP_ALIGN.CENTER)
-    if sub_label:
-        _text(slide, x=7.25, y=panel_y+0.88, w=2.4, h=0.2,
-              text=sub_label, font_size=7, color=SLATE_LIGHT,
-              align=PP_ALIGN.CENTER)
+    _text(slide, x=2.05, y=track_y+0.15, w=1.7, h=0.3, text=label,
+          font_size=10, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
-    # Baseline correction lines
-    ty = panel_y + 1.15
+    # Inline metrics across the strip
+    metric_x = 4.0
     if baseline:
-        live = baseline.get("live_rate", 0)
-        placebo = baseline.get("placebo_rate", 0)
-        net = baseline.get("net_rate", 0)
-        _text(slide, x=7.25, y=ty, w=2.4, h=0.22,
-              text=f"live   {live*100:.2f}%", font_size=9.5, color=SLATE_MID)
-        _text(slide, x=7.25, y=ty+0.22, w=2.4, h=0.22,
-              text=f"placebo   {placebo*100:.2f}%", font_size=9.5, color=SLATE_MID)
-        _text(slide, x=7.25, y=ty+0.46, w=2.4, h=0.3,
-              text=f"net   {net*100:+.2f}%", font_size=12, bold=True,
-              color=chip_color)
-        ty += 0.85
-
-    # Supports / Contradicts / Neutral counts
-    counts = [
-        (verdict.get("supports") or 0, "supports", SUPPORT_COLOR),
-        (verdict.get("contradicts") or 0, "contra", CONTRA_COLOR),
-        (verdict.get("neutral") or 0, "neutral", NEUTRAL_COLOR),
+        live = baseline.get("live_rate", 0) or 0
+        placebo = baseline.get("placebo_rate", 0) or 0
+        net = baseline.get("net_rate", 0) or 0
+        cells = [
+            ("LIVE", f"{live*100:.2f}%", SLATE_BLACK),
+            ("PLACEBO", f"{placebo*100:.2f}%", SLATE_BLACK),
+            ("NET", f"{net*100:+.2f}%", chip_color),
+        ]
+    else:
+        cells = []
+    cells += [
+        ("SUPPORTS", str(verdict.get("supports") or 0), SUPPORT_COLOR),
+        ("CONTRA", str(verdict.get("contradicts") or 0), CONTRA_COLOR),
     ]
-    cx = 7.25
-    cw = 0.78
-    for value, label, color in counts:
-        _text(slide, x=cx, y=ty, w=cw, h=0.3, text=str(value),
-              font_size=14, bold=True, color=color, align=PP_ALIGN.CENTER)
-        _text(slide, x=cx, y=ty+0.3, w=cw, h=0.2, text=label,
-              font_size=7, color=SLATE_LIGHT, align=PP_ALIGN.CENTER)
-        cx += cw + 0.04
+    cell_w = (sw - 0.5 - metric_x) / max(len(cells), 1)
+    for label_, val, color in cells:
+        _text(slide, x=metric_x, y=track_y+0.08, w=cell_w-0.05, h=0.2,
+              text=label_, font_size=7, bold=True, color=SLATE_LIGHT)
+        _text(slide, x=metric_x, y=track_y+0.25, w=cell_w-0.05, h=0.32,
+              text=val, font_size=14, bold=True, color=color)
+        metric_x += cell_w
 
-    # Top supporting article — title only, italic rationale
+    # ── DEVELOPMENTS narrative ────────────────────────────────────────
+    nar_y = 2.45
+    _text(slide, x=1.9, y=nar_y, w=7.9, h=0.25,
+          text="DEVELOPMENTS SINCE FORECAST", font_size=9, bold=True,
+          color=PINK_DEEP)
+
+    narrative = (verdict.get("summary_md") or "").strip()
+    supports_count = verdict.get("supports") or 0
+    contradicts_count = verdict.get("contradicts") or 0
+    if narrative:
+        _text(slide, x=1.9, y=nar_y+0.28, w=7.9, h=1.1, text=narrative,
+              font_size=10, color=SLATE_BLACK, line_spacing=1.3)
+        dev_y = nar_y + 1.45
+    elif supports_count == 0 and contradicts_count == 0:
+        # No articles to ground a narrative in — be honest about it.
+        _text(slide, x=1.9, y=nar_y+0.28, w=7.9, h=0.5,
+              text="No supporting or contradicting articles attributed to this scenario "
+                   "in the assessed window. The reranker either found no topical fits or "
+                   "all candidates fell below the assignment-margin gate.",
+              font_size=9, italic=True, color=SLATE_LIGHT, line_spacing=1.25)
+        dev_y = nar_y + 0.85
+    else:
+        _text(slide, x=1.9, y=nar_y+0.28, w=7.9, h=0.4,
+              text="(Narrative will be generated on first PPTX export.)",
+              font_size=9, italic=True, color=SLATE_LIGHT)
+        dev_y = nar_y + 0.7
+
+    # ── Recent developments — dated articles ──────────────────────────
     supports = (verdict.get("top_articles") or {}).get("supports") or []
-    if supports:
-        a = supports[0]
-        title = a.get("title") or a.get("article_uri") or "(no title)"
-        rationale = a.get("rationale") or ""
-        ty2 = panel_y + 2.45
-        _text(slide, x=7.25, y=ty2, w=2.4, h=0.55,
-              text=_truncate(title, 90), font_size=8, bold=True,
-              color=TITLE_DARK, line_spacing=1.1)
+    contras = (verdict.get("top_articles") or {}).get("contradicts") or []
 
-    # ── Verdict explanation strip (replaces source scenarios line) ────
+    _text(slide, x=1.9, y=dev_y, w=7.9, h=0.22,
+          text=f"RECENT ARTICLES (top {min(len(supports)+len(contras), 4)} of {len(supports)} supporting, {len(contras)} contradicting)",
+          font_size=8, bold=True, color=SLATE_LIGHT)
+    item_y = dev_y + 0.3
+    items: List[tuple] = [(a, "support") for a in supports[:3]] + [(a, "contra") for a in contras[:1]]
+    for art, kind in items[:4]:
+        title = art.get("title") or art.get("article_uri") or "(no title)"
+        date = art.get("article_date") or ""
+        rationale = art.get("rationale") or ""
+        color = SUPPORT_COLOR if kind == "support" else CONTRA_COLOR
+        _rect(slide, x=1.9, y=item_y+0.04, w=0.07, h=0.32, fill=color)
+        date_str = date[:10] if date else ""
+        head = f"{date_str}   {_truncate(title, 90)}" if date_str else _truncate(title, 100)
+        _text(slide, x=2.05, y=item_y, w=sw-2.55, h=0.22, text=head,
+              font_size=9, bold=True, color=SLATE_BLACK)
+        if rationale:
+            _text(slide, x=2.05, y=item_y+0.2, w=sw-2.55, h=0.2,
+                  text=_truncate(rationale, 150), font_size=8,
+                  italic=True, color=SLATE_MID)
+        item_y += 0.46
+
+    # ── Verdict explanation strip (footer) ────────────────────────────
     explanation = _verdict_explanation(verdict.get("verdict_label"), baseline)
     if explanation:
         _rect(slide, x=1.9, y=5.32, w=7.9, h=0.012, fill=RULE_GRAY)
         _text(slide, x=1.9, y=5.35, w=7.9, h=0.22,
-              text="WHAT THIS MEANS  ·  " + _truncate(explanation, 220),
+              text="WHAT THIS MEANS  ·  " + _truncate(explanation, 200),
               font_size=7.5, bold=True, color=SLATE_LIGHT, line_spacing=1.1)
 
 
@@ -647,28 +695,31 @@ def _add_surprises_divider(prs, surprises: list):
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     sw = 10.0
-    _rect(slide, x=0, y=0, w=sw, h=5.62, fill=NAVY)
-    _text(slide, x=0.5, y=0.4, w=4.0, h=0.3,
-          text="AunooAI · FORECAST TRACKER", font_size=11,
-          bold=True, color=GOLD)
-    _text(slide, x=0.5, y=1.5, w=sw-1.0, h=1.0,
-          text="Unanticipated Developments", font_size=32, bold=True,
-          color=WHITE)
+    _rect(slide, x=0, y=0, w=sw, h=5.62, fill=WHITE)
+    _rect(slide, x=0, y=0, w=sw, h=0.18, fill=PINK)
+    _add_brand_mark(slide, x=0.5, y=0.5, w=1.8, h=0.55)
+    _text(slide, x=0.5, y=1.15, w=4.0, h=0.3,
+          text="UNANTICIPATED", font_size=11,
+          bold=True, color=PINK_DEEP)
+    _text(slide, x=0.5, y=1.85, w=sw-1.0, h=1.0,
+          text="Unanticipated Developments", font_size=30, bold=True,
+          color=SLATE_DARK)
     body = (
         f"{len(surprises)} cluster{'s' if len(surprises) != 1 else ''} of articles "
         f"topical to this brief but unrelated to any deck scenario."
         if surprises else
         "No clusters of sufficient cohesion detected this window."
     )
-    _text(slide, x=0.5, y=2.7, w=sw-1.0, h=0.7, text=body, font_size=14,
-          italic=True, color=RULE_GRAY)
+    _text(slide, x=0.5, y=2.85, w=sw-1.0, h=0.5, text=body, font_size=13,
+          color=SLATE_MID)
     if surprises:
         rank = "\n".join(
             f"  {s.get('size') or 0}×   {_truncate(s.get('label') or '(unlabelled)', 80)}"
             for s in sorted(surprises, key=lambda s: -(s.get("size") or 0))[:6]
         )
-        _text(slide, x=0.5, y=3.5, w=sw-1.0, h=1.7, text=rank,
-              font_size=11, color=WHITE, line_spacing=1.35)
+        _text(slide, x=0.5, y=3.5, w=sw-1.0, h=1.5, text=rank,
+              font_size=11, color=SLATE_BLACK, line_spacing=1.35)
+    _add_brand_footer(slide, slide_label="Unanticipated Developments")
 
 
 def _add_surprise_cluster_slide(prs, sur: dict):
