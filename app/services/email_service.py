@@ -21,12 +21,15 @@ For SMTP:
 - SMTP_USE_TLS: Whether to use TLS (default: true)
 """
 
+import base64
 import os
 import smtplib
 import logging
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from typing import List, Optional
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -106,9 +109,19 @@ class EmailProvider(ABC):
         subject: str,
         body_html: str,
         body_text: Optional[str] = None,
-        from_email: Optional[str] = None
+        from_email: Optional[str] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> bool:
-        """Send an email."""
+        """Send an email.
+
+        ``attachments`` (optional) is a list of dicts each shaped as::
+
+            {"filename": str, "content": bytes, "mime_type": str}
+
+        Both providers carry the bytes through to the recipient with the
+        given filename and MIME type. Resend base64-encodes them in the
+        JSON body; SMTP wraps them as MIME parts.
+        """
         pass
 
 
@@ -128,7 +141,8 @@ class ResendProvider(EmailProvider):
         subject: str,
         body_html: str,
         body_text: Optional[str] = None,
-        from_email: Optional[str] = None
+        from_email: Optional[str] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("Resend not configured. Set RESEND_API_KEY environment variable.")
@@ -154,6 +168,17 @@ class ResendProvider(EmailProvider):
 
             if body_text:
                 data["text"] = body_text
+
+            if attachments:
+                data["attachments"] = [
+                    {
+                        "filename": a["filename"],
+                        "content": base64.b64encode(a["content"]).decode("ascii"),
+                        # Resend accepts content_type for MIME hinting
+                        "content_type": a.get("mime_type", "application/octet-stream"),
+                    }
+                    for a in attachments
+                ]
 
             req = urllib.request.Request(
                 url,
@@ -196,21 +221,44 @@ class SMTPProvider(EmailProvider):
         subject: str,
         body_html: str,
         body_text: Optional[str] = None,
-        from_email: Optional[str] = None
+        from_email: Optional[str] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD.")
             return False
 
         try:
-            msg = MIMEMultipart("alternative")
+            # When carrying attachments we need a 'mixed' container with the
+            # 'alternative' part nested inside it. For text-only we keep the
+            # simpler 'alternative' container.
+            if attachments:
+                msg = MIMEMultipart("mixed")
+                alt = MIMEMultipart("alternative")
+                if body_text:
+                    alt.attach(MIMEText(body_text, "plain"))
+                alt.attach(MIMEText(body_html, "html"))
+                msg.attach(alt)
+                for a in attachments:
+                    mime_type = a.get("mime_type", "application/octet-stream")
+                    maintype, _, subtype = mime_type.partition("/")
+                    part = MIMEBase(maintype or "application", subtype or "octet-stream")
+                    part.set_payload(a["content"])
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{a["filename"]}"',
+                    )
+                    msg.attach(part)
+            else:
+                msg = MIMEMultipart("alternative")
+                if body_text:
+                    msg.attach(MIMEText(body_text, "plain"))
+                msg.attach(MIMEText(body_html, "html"))
+
             msg["Subject"] = subject
             msg["From"] = from_email or self.from_email
             msg["To"] = ", ".join(to_addresses)
-
-            if body_text:
-                msg.attach(MIMEText(body_text, "plain"))
-            msg.attach(MIMEText(body_html, "html"))
 
             with smtplib.SMTP(self.host, self.port) as server:
                 if self.use_tls:
@@ -254,9 +302,13 @@ class EmailService:
         subject: str,
         body_html: str,
         body_text: Optional[str] = None,
-        from_email: Optional[str] = None
+        from_email: Optional[str] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> bool:
-        """Send an email using the configured provider."""
+        """Send an email using the configured provider.
+
+        See :meth:`EmailProvider.send_email` for the ``attachments`` shape.
+        """
         if not to_addresses:
             logger.warning("No recipients specified for email")
             return False
@@ -266,7 +318,8 @@ class EmailService:
             subject=subject,
             body_html=body_html,
             body_text=body_text,
-            from_email=from_email
+            from_email=from_email,
+            attachments=attachments,
         )
 
     def send_signal_alert_email(

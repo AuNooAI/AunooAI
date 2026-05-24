@@ -172,6 +172,74 @@ export interface SnapshotsResponse {
   snapshots: AssessmentSnapshot[];
 }
 
+export interface AddendumScenario {
+  id: string;
+  run_id: string;
+  title: string;
+  description: string;
+  horizon_type: 'h1' | 'h2' | 'h3';
+  timeframe?: string | null;
+  source_assessment_id?: string | null;
+  source_surprise_label?: string | null;
+  source_article_uris?: string[];
+  created_at: string;
+}
+
+export interface ScenarioDraft {
+  title: string;
+  description: string;
+  horizon_type: 'h1' | 'h2' | 'h3';
+  timeframe: string;
+  source_assessment_id: string;
+  source_surprise_label: string;
+  source_article_uris: string[];
+}
+
+export interface ScenarioStatusRow {
+  id: number;
+  run_id: string;
+  scenario_idx?: number | null;
+  user_scenario_id?: string | null;
+  status: 'active' | 'done';
+  marked_done_at?: string | null;
+  note?: string | null;
+}
+
+export interface ScenarioStatusesResponse {
+  originals: Record<string, ScenarioStatusRow>;
+  addendums: Record<string, ScenarioStatusRow>;
+}
+
+export interface TopicDeliveryConfig {
+  topic: string;
+  cadence: 'monthly' | 'quarterly' | 'none';
+  recipient_email?: string | null;
+  last_delivered_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DeliverablePreviewTopic {
+  topic: string;
+  ready: boolean;
+  reason?: string;
+  run_id?: string;
+  assessment_id?: string;
+  assessed_at?: string;
+  evidence_count?: number;
+  scenarios_count?: number;
+  surprises_count?: number;
+  label_distribution?: Record<string, number>;
+  recipient_email?: string | null;
+  cadence?: 'monthly' | 'quarterly' | 'none';
+}
+
+export interface DeliverablePreview {
+  cadence: 'monthly' | 'quarterly' | 'all';
+  topics: DeliverablePreviewTopic[];
+  configured_count: number;
+  ready_count: number;
+}
+
 export interface AssessmentJobStatus {
   id: string;
   name: string;

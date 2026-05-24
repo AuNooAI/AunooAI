@@ -7989,6 +7989,10 @@ class DatabaseQueryFacade:
                     "neutral": r.get("neutral", 0),
                     "summary_md": r.get("summary_md"),
                     "top_articles": json.dumps(top_articles) if top_articles else None,
+                    "current_consensus_pct": r.get("current_consensus_pct"),
+                    "synthesis": (
+                        json.dumps(r["synthesis"]) if r.get("synthesis") else None
+                    ),
                 })
             self._execute_with_rollback(insert(t_forecast_scenario_verdicts), payload)
             return True
@@ -8209,6 +8213,663 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error getting article verdicts: {e}")
             return []
+
+    def get_prior_live_assessment(self, run_id: str, before_assessed_at) -> dict:
+        """Return the live-mode assessment immediately preceding ``before_assessed_at``
+        for the given run, including its per-scenario verdicts and article verdicts.
+
+        Used by the ``?updates_only=true`` PPTX export to diff the current
+        assessment against the previous snapshot.
+        """
+        try:
+            from app.database_models import (
+                t_forecast_assessments,
+                t_forecast_scenario_verdicts,
+                t_forecast_article_verdicts,
+            )
+            from sqlalchemy import select
+            import json
+
+            stmt = (
+                select(t_forecast_assessments)
+                .where(t_forecast_assessments.c.run_id == run_id)
+                .where(t_forecast_assessments.c.mode == "live")
+                .where(t_forecast_assessments.c.status == "completed")
+                .where(t_forecast_assessments.c.assessed_at < before_assessed_at)
+                .order_by(t_forecast_assessments.c.assessed_at.desc())
+                .limit(1)
+            )
+            row = self._execute_with_rollback(stmt).fetchone()
+            if not row:
+                return {}
+            a = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for key in ("surprises", "summary", "config"):
+                v = a.get(key)
+                if isinstance(v, str):
+                    try:
+                        a[key] = json.loads(v)
+                    except Exception:
+                        pass
+
+            v_stmt = (
+                select(t_forecast_scenario_verdicts)
+                .where(t_forecast_scenario_verdicts.c.assessment_id == a["id"])
+                .order_by(t_forecast_scenario_verdicts.c.scenario_idx.asc())
+            )
+            verdicts = []
+            for vr in self._execute_with_rollback(v_stmt).fetchall():
+                vd = dict(vr._mapping) if hasattr(vr, "_mapping") else dict(vr)
+                ta = vd.get("top_articles")
+                if isinstance(ta, str):
+                    try:
+                        vd["top_articles"] = json.loads(ta)
+                    except Exception:
+                        pass
+                verdicts.append(vd)
+            a["scenario_verdicts"] = verdicts
+
+            uri_stmt = (
+                select(t_forecast_article_verdicts.c.article_uri)
+                .where(t_forecast_article_verdicts.c.assessment_id == a["id"])
+            )
+            a["article_uris"] = [
+                (r[0] if not hasattr(r, "_mapping") else r._mapping["article_uri"])
+                for r in self._execute_with_rollback(uri_stmt).fetchall()
+            ]
+            return a
+        except Exception as e:
+            self.logger.error(f"Error getting prior live assessment for run {run_id}: {e}")
+            return {}
+
+    # Forecast user scenarios (addendum scenarios promoted from surprise clusters)
+    def save_forecast_user_scenario(
+        self,
+        run_id: str,
+        title: str,
+        description: str,
+        horizon_type: str,
+        timeframe: str = None,
+        source_assessment_id: str = None,
+        source_surprise_label: str = None,
+        source_article_uris: list = None,
+    ) -> str:
+        """Insert a user-promoted scenario for the given forecast run.
+
+        Returns the new scenario id. The assessment service concatenates
+        these with the original ``raw_output['scenarios']`` at run time.
+        """
+        try:
+            from app.database_models import t_forecast_user_scenarios
+            from sqlalchemy import insert
+            import uuid
+
+            scenario_id = str(uuid.uuid4())
+            stmt = insert(t_forecast_user_scenarios).values(
+                id=scenario_id,
+                run_id=run_id,
+                title=title,
+                description=description,
+                horizon_type=horizon_type,
+                timeframe=timeframe,
+                source_assessment_id=source_assessment_id,
+                source_surprise_label=source_surprise_label,
+                source_article_uris=source_article_uris or [],
+            )
+            self._execute_with_rollback(stmt)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return scenario_id
+        except Exception as e:
+            self.logger.error(f"Error saving forecast user scenario for run {run_id}: {e}")
+            raise
+
+    def get_forecast_user_scenarios(self, run_id: str) -> list:
+        """Return all addendum scenarios for a forecast run, oldest first."""
+        try:
+            from app.database_models import t_forecast_user_scenarios
+            from sqlalchemy import select
+            import json
+
+            stmt = (
+                select(t_forecast_user_scenarios)
+                .where(t_forecast_user_scenarios.c.run_id == run_id)
+                .order_by(t_forecast_user_scenarios.c.created_at.asc())
+            )
+            rows = self._execute_with_rollback(stmt).fetchall()
+            out = []
+            for r in rows:
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                ua = rd.get("source_article_uris")
+                if isinstance(ua, str):
+                    try:
+                        rd["source_article_uris"] = json.loads(ua)
+                    except Exception:
+                        pass
+                ca = rd.get("created_at")
+                if hasattr(ca, "isoformat"):
+                    rd["created_at"] = ca.isoformat()
+                out.append(rd)
+            return out
+        except Exception as e:
+            self.logger.error(f"Error getting forecast user scenarios for run {run_id}: {e}")
+            return []
+
+    # Forecast scenario status (mark-as-done overlay)
+    def save_forecast_scenario_status(
+        self,
+        run_id: str,
+        *,
+        scenario_idx: int = None,
+        user_scenario_id: str = None,
+        status: str = "done",
+        note: str = None,
+    ) -> dict:
+        """Upsert a scenario status row.
+
+        Exactly one of ``scenario_idx`` (originals) or ``user_scenario_id``
+        (addendums) must be supplied. Returns the persisted row.
+        """
+        if (scenario_idx is None) == (user_scenario_id is None):
+            raise ValueError("Exactly one of scenario_idx or user_scenario_id required")
+        try:
+            from app.database_models import t_forecast_scenario_status
+            from sqlalchemy import select, insert, update
+            from datetime import datetime, timezone
+
+            marked_at = datetime.now(timezone.utc) if status == "done" else None
+
+            # Postgres treats NULL as DISTINCT in unique constraints, so
+            # ``ON CONFLICT (run_id, scenario_idx, user_scenario_id)`` with one
+            # of the columns NULL won't fire. We do an explicit existence
+            # check + UPDATE/INSERT instead.
+            sel = (
+                select(t_forecast_scenario_status)
+                .where(t_forecast_scenario_status.c.run_id == run_id)
+            )
+            if scenario_idx is not None:
+                sel = sel.where(
+                    t_forecast_scenario_status.c.scenario_idx == scenario_idx,
+                    t_forecast_scenario_status.c.user_scenario_id.is_(None),
+                )
+            else:
+                sel = sel.where(
+                    t_forecast_scenario_status.c.user_scenario_id == user_scenario_id,
+                    t_forecast_scenario_status.c.scenario_idx.is_(None),
+                )
+            existing = self._execute_with_rollback(sel).fetchone()
+
+            if existing is None:
+                stmt = insert(t_forecast_scenario_status).values(
+                    run_id=run_id,
+                    scenario_idx=scenario_idx,
+                    user_scenario_id=user_scenario_id,
+                    status=status,
+                    marked_done_at=marked_at,
+                    note=note,
+                )
+                self._execute_with_rollback(stmt)
+            else:
+                ex = dict(existing._mapping) if hasattr(existing, "_mapping") else dict(existing)
+                stmt = (
+                    update(t_forecast_scenario_status)
+                    .where(t_forecast_scenario_status.c.id == ex["id"])
+                    .values(status=status, marked_done_at=marked_at, note=note)
+                )
+                self._execute_with_rollback(stmt)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+
+            row = self._execute_with_rollback(sel).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            ma = rd.get("marked_done_at")
+            if hasattr(ma, "isoformat"):
+                rd["marked_done_at"] = ma.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error saving forecast scenario status: {e}")
+            raise
+
+    def get_forecast_scenario_statuses(self, run_id: str) -> dict:
+        """Return active status overlays for a run.
+
+        Returns ``{"originals": {scenario_idx: status_dict},
+                    "addendums": {user_scenario_id: status_dict}}``.
+        """
+        out = {"originals": {}, "addendums": {}}
+        try:
+            from app.database_models import t_forecast_scenario_status
+            from sqlalchemy import select
+
+            stmt = (
+                select(t_forecast_scenario_status)
+                .where(t_forecast_scenario_status.c.run_id == run_id)
+            )
+            for r in self._execute_with_rollback(stmt).fetchall():
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                ma = rd.get("marked_done_at")
+                if hasattr(ma, "isoformat"):
+                    rd["marked_done_at"] = ma.isoformat()
+                if rd.get("scenario_idx") is not None:
+                    out["originals"][rd["scenario_idx"]] = rd
+                elif rd.get("user_scenario_id"):
+                    out["addendums"][rd["user_scenario_id"]] = rd
+            return out
+        except Exception as e:
+            self.logger.error(f"Error getting forecast scenario statuses for run {run_id}: {e}")
+            return out
+
+    # Forecast topic delivery config (Wiley monthly/quarterly cadence)
+    def get_forecast_topic_delivery_configs(self) -> list:
+        """Return all configured delivery topics with cadence + recipient + last sent."""
+        try:
+            from app.database_models import t_forecast_topic_delivery
+            from sqlalchemy import select
+
+            stmt = (
+                select(t_forecast_topic_delivery)
+                .order_by(t_forecast_topic_delivery.c.topic.asc())
+            )
+            out = []
+            for r in self._execute_with_rollback(stmt).fetchall():
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                for k in ("last_delivered_at", "updated_at"):
+                    v = rd.get(k)
+                    if hasattr(v, "isoformat"):
+                        rd[k] = v.isoformat()
+                out.append(rd)
+            return out
+        except Exception as e:
+            self.logger.error(f"Error getting forecast topic delivery configs: {e}")
+            return []
+
+    def upsert_forecast_topic_delivery_config(
+        self, topic: str, cadence: str, recipient_email: str = None
+    ) -> dict:
+        """Set cadence + recipient for a topic. Cadence: monthly|quarterly|none."""
+        cadence = (cadence or "none").lower()
+        if cadence not in ("monthly", "quarterly", "none"):
+            raise ValueError(f"Invalid cadence '{cadence}'")
+        try:
+            from app.database_models import t_forecast_topic_delivery
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from sqlalchemy import select, text as sa_text
+
+            stmt = pg_insert(t_forecast_topic_delivery).values(
+                topic=topic,
+                cadence=cadence,
+                recipient_email=recipient_email,
+            ).on_conflict_do_update(
+                index_elements=["topic"],
+                set_={
+                    "cadence": cadence,
+                    "recipient_email": recipient_email,
+                    "updated_at": sa_text("NOW()"),
+                },
+            )
+            self._execute_with_rollback(stmt)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            sel = select(t_forecast_topic_delivery).where(
+                t_forecast_topic_delivery.c.topic == topic
+            )
+            row = self._execute_with_rollback(sel).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for k in ("last_delivered_at", "updated_at"):
+                v = rd.get(k)
+                if hasattr(v, "isoformat"):
+                    rd[k] = v.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error upserting forecast topic delivery config for {topic}: {e}")
+            raise
+
+    # ── Topic metadata (forecast_topic_metadata) ──────────────────────────
+    # Sidecar that powers the Topics dashboard. Keyed by topic string to
+    # match the rest of the forecast tables; renames remain a known wart
+    # (see plan §1).
+
+    def get_forecast_topic_metadata(self, topic: str) -> dict:
+        try:
+            from app.database_models import t_forecast_topic_metadata
+            from sqlalchemy import select
+
+            stmt = select(t_forecast_topic_metadata).where(
+                t_forecast_topic_metadata.c.topic == topic
+            )
+            row = self._execute_with_rollback(stmt).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for k in ("created_at", "updated_at"):
+                v = rd.get(k)
+                if hasattr(v, "isoformat"):
+                    rd[k] = v.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error getting topic metadata for {topic}: {e}")
+            return {}
+
+    def upsert_forecast_topic_metadata(
+        self, topic: str, *,
+        display_name: str = None,
+        description: str = None,
+        owner: str = None,
+        status: str = None,
+        tags: list = None,
+        overlay_status: str = None,
+    ) -> dict:
+        """Upsert a topic metadata row. Only supplied fields are updated;
+        omitted fields keep their existing values (or defaults on insert)."""
+        try:
+            from app.database_models import t_forecast_topic_metadata
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from sqlalchemy import select, text as sa_text
+            import json
+
+            # Validate constrained values when set.
+            if status is not None and status not in ("draft", "active", "archived"):
+                raise ValueError(f"Invalid status '{status}'")
+            if overlay_status is not None and overlay_status not in (
+                "missing", "auto_generated", "human_reviewed"
+            ):
+                raise ValueError(f"Invalid overlay_status '{overlay_status}'")
+
+            insert_values = {"topic": topic}
+            for field, value in (
+                ("display_name", display_name),
+                ("description", description),
+                ("owner", owner),
+                ("status", status),
+                ("overlay_status", overlay_status),
+            ):
+                if value is not None:
+                    insert_values[field] = value
+            # tags is JSONB — pass the python list directly so psycopg's
+            # JSON adapter stores it as a JSONB array (not a JSONB string).
+            if tags is not None:
+                insert_values["tags"] = tags
+
+            update_values = {k: v for k, v in insert_values.items() if k != "topic"}
+            update_values["updated_at"] = sa_text("NOW()")
+
+            stmt = pg_insert(t_forecast_topic_metadata).values(**insert_values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["topic"], set_=update_values,
+            )
+            self._execute_with_rollback(stmt)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return self.get_forecast_topic_metadata(topic)
+        except Exception as e:
+            self.logger.error(f"Error upserting topic metadata for {topic}: {e}")
+            raise
+
+    def list_topics_with_lifecycle(self) -> list:
+        """Return one merged row per known topic — joining metadata,
+        delivery config, and latest assessment. The dashboard's single
+        source of truth.
+
+        Topics are surfaced if they appear in ANY of:
+        - forecast_topic_metadata (explicit registration)
+        - forecast_topic_delivery (configured for delivery)
+        - forecast_assessments mode='live' status='completed' (has data)
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            sql = sa_text("""
+                WITH topics AS (
+                    SELECT topic FROM forecast_topic_metadata
+                    UNION
+                    SELECT topic FROM forecast_topic_delivery
+                    UNION
+                    SELECT DISTINCT topic FROM forecast_assessments
+                    WHERE mode = 'live' AND status = 'completed'
+                ),
+                latest_assess AS (
+                    SELECT DISTINCT ON (topic)
+                        topic,
+                        id        AS assessment_id,
+                        assessed_at,
+                        evidence_count,
+                        scenarios_count,
+                        surprises,
+                        summary,
+                        config
+                    FROM forecast_assessments
+                    WHERE mode = 'live' AND status = 'completed'
+                    ORDER BY topic, assessed_at DESC
+                )
+                SELECT
+                    t.topic,
+                    m.display_name,
+                    m.description,
+                    m.owner,
+                    COALESCE(m.status, 'active')         AS status,
+                    m.tags,
+                    COALESCE(m.overlay_status, 'missing') AS overlay_status,
+                    m.created_at,
+                    m.updated_at,
+                    d.cadence,
+                    d.recipient_email,
+                    d.last_delivered_at,
+                    la.assessment_id,
+                    la.assessed_at,
+                    la.evidence_count,
+                    la.scenarios_count,
+                    la.surprises,
+                    la.summary
+                FROM topics t
+                LEFT JOIN forecast_topic_metadata m ON m.topic = t.topic
+                LEFT JOIN forecast_topic_delivery  d ON d.topic = t.topic
+                LEFT JOIN latest_assess            la ON la.topic = t.topic
+                ORDER BY t.topic ASC
+            """)
+            rows = self._execute_with_rollback(sql).fetchall()
+            out = []
+            for r in rows:
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                for k in ("created_at", "updated_at", "last_delivered_at", "assessed_at"):
+                    v = rd.get(k)
+                    if hasattr(v, "isoformat"):
+                        rd[k] = v.isoformat()
+                out.append(rd)
+            return out
+        except Exception as e:
+            self.logger.error(f"Error listing topics with lifecycle: {e}")
+            return []
+
+    # Bundle-level synthesis cache (cross-topic LLM artefacts)
+    def get_forecast_bundle_synthesis(self, cadence: str, period_label: str) -> dict:
+        """Return cached cross-topic LLM synthesis for a bundle period, or {}."""
+        try:
+            from app.database_models import t_forecast_bundle_synthesis
+            from sqlalchemy import select
+            import json
+
+            stmt = (
+                select(t_forecast_bundle_synthesis)
+                .where(t_forecast_bundle_synthesis.c.cadence == cadence)
+                .where(t_forecast_bundle_synthesis.c.period_label == period_label)
+            )
+            row = self._execute_with_rollback(stmt).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for k in ("payload", "topics"):
+                v = rd.get(k)
+                if isinstance(v, str):
+                    try:
+                        rd[k] = json.loads(v)
+                    except Exception:
+                        pass
+            for k in ("created_at", "updated_at"):
+                v = rd.get(k)
+                if hasattr(v, "isoformat"):
+                    rd[k] = v.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error getting bundle synthesis ({cadence}/{period_label}): {e}")
+            return {}
+
+    def save_forecast_bundle_synthesis(
+        self, cadence: str, period_label: str, payload: dict, topics: list = None,
+    ):
+        """Upsert the cross-topic synth payload for a bundle period.
+
+        Use raw SQL with explicit ``CAST(... AS jsonb)`` so the dict gets
+        stored as a JSONB object, not a JSONB string. Going through
+        ``pg_insert(...).values(payload=json.dumps(...))`` double-encodes
+        because psycopg2 wraps the already-stringified value once more —
+        the resulting row's ``payload`` is a JSONB *string*, breaking the
+        ``payload->>'key'`` accessor used by the slide builders.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            import json
+
+            stmt = sa_text(
+                "INSERT INTO forecast_bundle_synthesis "
+                "(cadence, period_label, payload, topics) "
+                "VALUES (:cadence, :period_label, CAST(:payload AS jsonb), CAST(:topics AS jsonb)) "
+                "ON CONFLICT (cadence, period_label) DO UPDATE "
+                "SET payload = CAST(:payload AS jsonb), "
+                "    topics = CAST(:topics AS jsonb), "
+                "    updated_at = NOW()"
+            )
+            self._execute_with_rollback(stmt, {
+                "cadence": cadence,
+                "period_label": period_label,
+                "payload": json.dumps(payload or {}),
+                "topics": json.dumps(topics or []),
+            })
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+        except Exception as e:
+            self.logger.error(f"Error saving bundle synthesis ({cadence}/{period_label}): {e}")
+
+    # Bundle review gate (forecast_bundle_review) — backs the human-in-the-loop
+    # review step in the WileyBundleSupervisor pipeline.
+    def get_forecast_bundle_review(self, cadence: str, period_label: str) -> dict:
+        try:
+            from app.database_models import t_forecast_bundle_review
+            from sqlalchemy import select
+            import json
+
+            stmt = (
+                select(t_forecast_bundle_review)
+                .where(t_forecast_bundle_review.c.cadence == cadence)
+                .where(t_forecast_bundle_review.c.period_label == period_label)
+            )
+            row = self._execute_with_rollback(stmt).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            f = rd.get("reviewer_findings")
+            if isinstance(f, str):
+                try:
+                    rd["reviewer_findings"] = json.loads(f)
+                except Exception:
+                    pass
+            for k in ("approved_at", "shipped_at", "created_at", "updated_at"):
+                v = rd.get(k)
+                if hasattr(v, "isoformat"):
+                    rd[k] = v.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error getting bundle review ({cadence}/{period_label}): {e}")
+            return {}
+
+    def upsert_forecast_bundle_review(
+        self, cadence: str, period_label: str,
+        *,
+        status: str = None,
+        reviewer_findings: list = None,
+        reviewer_model: str = None,
+        approved_by: str = None,
+        approved_at=None,
+        shipped_at=None,
+    ) -> dict:
+        """Upsert the review row. Pass only the fields you want to change —
+        unset ones won't be overwritten.
+
+        Same JSONB-double-encoding hazard as save_forecast_bundle_synthesis:
+        we use raw SQL with explicit CAST so reviewer_findings stores as a
+        JSONB array, not a JSONB string.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            import json
+
+            findings_json = json.dumps(reviewer_findings) if reviewer_findings is not None else None
+
+            stmt = sa_text(
+                "INSERT INTO forecast_bundle_review "
+                "(cadence, period_label, status, reviewer_findings, reviewer_model, approved_by, approved_at, shipped_at) "
+                "VALUES (:cadence, :period_label, COALESCE(:status, 'awaiting_synth'), "
+                "        CASE WHEN :findings IS NULL THEN NULL ELSE CAST(:findings AS jsonb) END, "
+                "        :reviewer_model, :approved_by, :approved_at, :shipped_at) "
+                "ON CONFLICT (cadence, period_label) DO UPDATE SET "
+                "  status = COALESCE(:status, forecast_bundle_review.status), "
+                "  reviewer_findings = COALESCE(CASE WHEN :findings IS NULL THEN NULL ELSE CAST(:findings AS jsonb) END, forecast_bundle_review.reviewer_findings), "
+                "  reviewer_model = COALESCE(:reviewer_model, forecast_bundle_review.reviewer_model), "
+                "  approved_by = COALESCE(:approved_by, forecast_bundle_review.approved_by), "
+                "  approved_at = COALESCE(:approved_at, forecast_bundle_review.approved_at), "
+                "  shipped_at = COALESCE(:shipped_at, forecast_bundle_review.shipped_at), "
+                "  updated_at = NOW()"
+            )
+            self._execute_with_rollback(stmt, {
+                "cadence": cadence,
+                "period_label": period_label,
+                "status": status,
+                "findings": findings_json,
+                "reviewer_model": reviewer_model,
+                "approved_by": approved_by,
+                "approved_at": approved_at,
+                "shipped_at": shipped_at,
+            })
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return self.get_forecast_bundle_review(cadence, period_label)
+        except Exception as e:
+            self.logger.error(f"Error upserting bundle review ({cadence}/{period_label}): {e}")
+            raise
+
+    def set_forecast_topic_last_delivered(self, topic: str, when=None):
+        """Bump ``last_delivered_at`` after a successful email send."""
+        try:
+            from app.database_models import t_forecast_topic_delivery
+            from sqlalchemy import update
+            from datetime import datetime, timezone
+
+            ts = when or datetime.now(timezone.utc)
+            stmt = (
+                update(t_forecast_topic_delivery)
+                .where(t_forecast_topic_delivery.c.topic == topic)
+                .values(last_delivered_at=ts)
+            )
+            self._execute_with_rollback(stmt)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+        except Exception as e:
+            self.logger.error(f"Error setting last_delivered for topic {topic}: {e}")
 
     # Future Horizons Executive Summary Storage Methods
     def save_horizons_executive_summary(
@@ -10161,6 +10822,46 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error creating saved EOS: {e}")
             raise
+
+    def get_latest_saved_eos_for_topic(
+        self,
+        topic: str,
+        max_age_days: int = 90,
+    ) -> dict:
+        """Return the most recent saved EOS scan for a topic, regardless of
+        author, IF it's newer than ``max_age_days``. Used by the bundle
+        generator to decide whether to reuse a recent scan or trigger a
+        fresh one.
+
+        Returns the full row including ``scenarios`` JSONB, or {} if none."""
+        try:
+            from app.database_models import t_saved_eos
+            from sqlalchemy import select
+            from datetime import datetime, timezone, timedelta
+            import json
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+            stmt = (
+                select(t_saved_eos)
+                .where(t_saved_eos.c.topic == topic)
+                .where(t_saved_eos.c.created_at >= cutoff)
+                .order_by(t_saved_eos.c.created_at.desc())
+                .limit(1)
+            )
+            row = self._execute_with_rollback(stmt).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            v = rd.get("scenarios")
+            if isinstance(v, str):
+                try:
+                    rd["scenarios"] = json.loads(v)
+                except Exception:
+                    pass
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error getting latest EOS for topic {topic}: {e}")
+            return {}
 
     def get_saved_eos_for_topic(
         self,

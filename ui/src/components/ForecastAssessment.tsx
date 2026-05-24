@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Play, Sparkles, AlertTriangle, CheckCircle2, MinusCircle, TrendingDown, TrendingUp, Download } from 'lucide-react';
+import { Loader2, Play, Sparkles, AlertTriangle, CheckCircle2, MinusCircle, TrendingDown, TrendingUp, Download, Plus, X, Check, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type {
   ForecastAssessment,
@@ -18,7 +18,11 @@ import type {
   VerdictLabel,
   AssessmentSnapshot,
   SnapshotsResponse,
+  AddendumScenario,
+  ScenarioDraft,
+  ScenarioStatusesResponse,
 } from '@/types/forecastAssessment';
+import { WileyDeliverablesPanel } from './WileyDeliverablesPanel';
 
 interface ForecastAssessmentTabProps {
   runId: string | null;
@@ -57,23 +61,38 @@ const VERDICT_STYLES: Record<VerdictLabel, { label: string; chip: string; icon: 
 const HORIZON_LABEL: Record<string, string> = { h1: 'H1 · Declining', h2: 'H2 · Transition', h3: 'H3 · Future' };
 
 type BaselineLabel = 'Above baseline' | 'At baseline' | 'Below baseline';
-const BASELINE_STYLES: Record<BaselineLabel, { chip: string; icon: JSX.Element }> = {
+const BASELINE_STYLES: Record<BaselineLabel, { chip: string; icon: JSX.Element; display: string }> = {
   'Above baseline': {
     chip: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200',
     icon: <TrendingUp className="w-4 h-4" />,
+    display: 'Strengthening',
   },
   'At baseline': {
     chip: 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-300',
     icon: <MinusCircle className="w-4 h-4" />,
+    display: 'Stable',
   },
   'Below baseline': {
     chip: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200',
     icon: <TrendingDown className="w-4 h-4" />,
+    display: 'Cooling',
   },
 };
 
+// Internal label → customer-facing label (matches CUSTOMER_LABEL in the PPTX builder).
+const CUSTOMER_LABEL: Record<string, string> = {
+  'Above baseline': 'Strengthening',
+  'At baseline':    'Stable',
+  'Below baseline': 'Cooling',
+};
+function customerLabel(label: string | undefined | null): string {
+  if (!label) return '—';
+  return CUSTOMER_LABEL[label] || label;
+}
+
 export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: ForecastAssessmentTabProps) {
   const [assessment, setAssessment] = useState<ForecastAssessment | null>(null);
+  const [addendumScenarios, setAddendumScenarios] = useState<AddendumScenario[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [running, setRunning] = useState<boolean>(false);
   const [progress, setProgress] = useState<{ pct: number; msg: string } | null>(null);
@@ -81,6 +100,9 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
   const [topicFallback, setTopicFallback] = useState<boolean>(false);
   const [mode, setMode] = useState<'live' | 'placebo' | 'paired'>('live');
   const [windowWeeks, setWindowWeeks] = useState<number>(8);
+  // Surprise cluster currently being promoted to a scenario. When set, the
+  // PromoteScenarioModal is rendered.
+  const [promotingCluster, setPromotingCluster] = useState<{ cluster: SurpriseCluster; index: number } | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const fetchAssessment = useCallback(async () => {
@@ -99,6 +121,38 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
       setLoading(false);
     }
   }, [runId]);
+
+  const [scenarioStatuses, setScenarioStatuses] = useState<ScenarioStatusesResponse>({
+    originals: {}, addendums: {},
+  });
+
+  const fetchAddendumScenarios = useCallback(async () => {
+    if (!runId) return;
+    try {
+      const r = await fetch(`/api/forecast/${runId}/scenarios`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setAddendumScenarios(data.addendum_scenarios || []);
+      setScenarioStatuses(data.scenario_statuses || { originals: {}, addendums: {} });
+    } catch (e) {
+      console.warn('Failed to load addendum scenarios', e);
+    }
+  }, [runId]);
+
+  useEffect(() => { fetchAddendumScenarios(); }, [fetchAddendumScenarios]);
+
+  const updateScenarioStatus = useCallback(async (
+    payload: { scenario_idx?: number; user_scenario_id?: string; status: 'active' | 'done'; note?: string }
+  ) => {
+    if (!runId) return;
+    const r = await fetch(`/api/forecast/${runId}/scenarios/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    await fetchAddendumScenarios();
+  }, [runId, fetchAddendumScenarios]);
 
   useEffect(() => {
     fetchAssessment();
@@ -215,13 +269,56 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
           <ScenarioGrid
             verdicts={assessment.scenario_verdicts || []}
             baseline={assessment.summary?.baseline_correction}
+            addendumByIdx={mapAddendumScenariosByIdx(assessment.scenario_verdicts || [], addendumScenarios)}
+            onMarkDone={async (verdict) => {
+              const idx = verdict.scenario_idx;
+              const addendum = mapAddendumScenariosByIdx(assessment.scenario_verdicts || [], addendumScenarios)[idx];
+              if (addendum) {
+                await updateScenarioStatus({ user_scenario_id: addendum.id, status: 'done' });
+              } else {
+                await updateScenarioStatus({ scenario_idx: idx, status: 'done' });
+              }
+            }}
           />
-          <SurprisesPanel surprises={assessment.surprises || []} />
+          <AddedScenariosPanel scenarios={addendumScenarios.filter(s => scenarioStatuses.addendums[s.id]?.status !== 'done')} />
+          <ResolvedScenariosPanel
+            verdicts={assessment.scenario_verdicts || []}
+            addendums={addendumScenarios}
+            statuses={scenarioStatuses}
+            onUnmark={async ({ scenario_idx, user_scenario_id }) => {
+              await updateScenarioStatus({ scenario_idx, user_scenario_id, status: 'active' });
+            }}
+          />
+          <SurprisesPanel
+            surprises={assessment.surprises || []}
+            onPromote={(cluster, index) => setPromotingCluster({ cluster, index })}
+          />
+          <TopicCadenceInline topic={topic} />
+          <WileyDeliverablesPanel />
         </>
       ) : !running && (
         <EmptyHint
           title="No assessment has been run yet for this forecast"
           body="Click 'Run assessment' above to score each scenario against articles that have arrived since the forecast was generated. This typically takes 5–15 minutes."
+        />
+      )}
+
+      {promotingCluster && runId && assessment && (
+        <PromoteScenarioModal
+          runId={runId}
+          assessmentId={assessment.id}
+          cluster={promotingCluster.cluster}
+          surpriseIndex={promotingCluster.index}
+          windowWeeks={windowWeeks}
+          onClose={() => setPromotingCluster(null)}
+          onScenarioCreated={async () => {
+            setPromotingCluster(null);
+            await fetchAddendumScenarios();
+            // Surface that the new paired assessment is running so the user
+            // doesn't think nothing happened.
+            setRunning(true);
+            setProgress({ pct: 0, msg: 'Reassessing with new scenario…' });
+          }}
         />
       )}
     </div>
@@ -270,9 +367,9 @@ function Header({
               className="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800"
               disabled={running}
             >
-              <option value="paired">Paired (live + placebo, baseline-corrected)</option>
-              <option value="live">Live only (post-forecast)</option>
-              <option value="placebo">Placebo only (pre-forecast canary)</option>
+              <option value="paired">Paired (recommended — adjusts for pre-existing trend)</option>
+              <option value="live">Post-forecast only</option>
+              <option value="placebo">Pre-forecast comparison</option>
             </select>
             <label className="text-gray-600 dark:text-gray-300 ml-2">Window (weeks):</label>
             <input
@@ -287,13 +384,24 @@ function Header({
           </div>
           <div className="flex items-center gap-2">
             {assessment && (
-              <a
-                href={`/api/forecast/${assessment.run_id}/assessment/${assessment.id}/export.pptx`}
-                className="inline-flex items-center text-xs px-3 py-2 border border-indigo-300 text-indigo-700 dark:text-indigo-200 dark:border-indigo-700 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/40"
-                download
-              >
-                <Download className="w-3.5 h-3.5 mr-1" /> Export .pptx
-              </a>
+              <>
+                <a
+                  href={`/api/forecast/${assessment.run_id}/assessment/${assessment.id}/export.pptx`}
+                  className="inline-flex items-center text-xs px-3 py-2 border border-indigo-300 text-indigo-700 dark:text-indigo-200 dark:border-indigo-700 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/40"
+                  download
+                  title="Full deck with every scenario and every surprise cluster"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> Export .pptx
+                </a>
+                <a
+                  href={`/api/forecast/${assessment.run_id}/assessment/${assessment.id}/export.pptx?updates_only=true`}
+                  className="inline-flex items-center text-xs px-3 py-2 border border-pink-300 text-pink-700 dark:text-pink-200 dark:border-pink-700 rounded hover:bg-pink-50 dark:hover:bg-pink-900/40"
+                  download
+                  title="Slimmer deck: only scenarios where the status changed since the prior snapshot, plus newly-emerged themes"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> Updates only
+                </a>
+              </>
             )}
             <Button onClick={onRun} disabled={running} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               {running ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
@@ -329,11 +437,16 @@ function VerdictDistribution({ assessment }: { assessment: ForecastAssessment })
   );
 }
 
-function ScenarioGrid({ verdicts, baseline }: {
+function ScenarioGrid({ verdicts, baseline, addendumByIdx, onMarkDone }: {
   verdicts: ScenarioVerdict[];
   baseline?: import('@/types/forecastAssessment').BaselineCorrection;
+  addendumByIdx?: Record<number, AddendumScenario>;
+  onMarkDone?: (verdict: ScenarioVerdict) => Promise<void>;
 }) {
-  if (!verdicts.length) return null;
+  // Drop already-done scenarios from the grid — they appear in
+  // ResolvedScenariosPanel instead.
+  const active = verdicts.filter(v => v.verdict_label !== 'Done');
+  if (!active.length) return null;
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
@@ -346,11 +459,13 @@ function ScenarioGrid({ verdicts, baseline }: {
         )}
       </h3>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {verdicts.map((v) => (
+        {active.map((v) => (
           <ScenarioCard
             key={v.scenario_idx}
             verdict={v}
             baseline={baseline?.per_scenario?.[String(v.scenario_idx)]}
+            addendum={addendumByIdx?.[v.scenario_idx]}
+            onMarkDone={onMarkDone ? () => onMarkDone(v) : undefined}
           />
         ))}
       </div>
@@ -358,17 +473,38 @@ function ScenarioGrid({ verdicts, baseline }: {
   );
 }
 
-function ScenarioCard({ verdict, baseline }: {
+function mapAddendumScenariosByIdx(
+  verdicts: ScenarioVerdict[],
+  addendums: AddendumScenario[],
+): Record<number, AddendumScenario> {
+  // Addendum scenarios are appended after the originals, so they occupy the
+  // tail of the scenario_verdicts list. We match them by ordering — the
+  // i-th addendum corresponds to the (N-K+i)-th verdict where K = addendums.length
+  // and N = total verdicts. This mirrors the order assess_run produces.
+  const out: Record<number, AddendumScenario> = {};
+  if (!addendums.length || !verdicts.length) return out;
+  const start = verdicts.length - addendums.length;
+  if (start < 0) return out;
+  for (let i = 0; i < addendums.length; i++) {
+    const v = verdicts[start + i];
+    if (v) out[v.scenario_idx] = addendums[i];
+  }
+  return out;
+}
+
+function ScenarioCard({ verdict, baseline, addendum, onMarkDone }: {
   verdict: ScenarioVerdict;
   baseline?: import('@/types/forecastAssessment').BaselineCorrection['per_scenario'][string];
+  addendum?: AddendumScenario;
+  onMarkDone?: () => Promise<void>;
 }) {
   const rawStyle = VERDICT_STYLES[verdict.verdict_label] || VERDICT_STYLES.Inconclusive;
   const baselineStyle = baseline ? BASELINE_STYLES[baseline.label as BaselineLabel] : undefined;
-  // Promote the baseline-corrected verdict to the headline chip whenever
-  // paired mode was used; the raw verdict still shows below as a secondary
-  // pill so users can sanity-check the correction.
+  // Headline chip shows the customer-friendly status (Strengthening / Stable /
+  // Cooling) when a paired-mode baseline correction is available; otherwise
+  // falls back to the raw verdict label.
   const headline = baselineStyle
-    ? { label: baseline!.label, ...baselineStyle }
+    ? { label: baselineStyle.display, chip: baselineStyle.chip, icon: baselineStyle.icon }
     : { label: rawStyle.label, chip: rawStyle.chip, icon: rawStyle.icon };
   const horizon = HORIZON_LABEL[verdict.horizon_type] || verdict.horizon_type.toUpperCase();
   const deckInfo = verdict.top_articles?.deck_info;
@@ -393,27 +529,36 @@ function ScenarioCard({ verdict, baseline }: {
             </div>
           )}
         </div>
-        <span className={`flex-shrink-0 text-xs font-medium px-2 py-1 rounded border ${headline.chip} flex items-center gap-1`}>
-          {headline.icon} {headline.label}
-        </span>
+        <div className="flex-shrink-0 flex items-center gap-2">
+          <span className={`text-xs font-medium px-2 py-1 rounded border ${headline.chip} flex items-center gap-1`}>
+            {headline.icon} {headline.label}
+          </span>
+          {onMarkDone && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (window.confirm(`Mark "${deckInfo?.deck_scenario_name || verdict.scenario_title}" as done? It will be skipped from future assessments and moved to the Resolved section.`)) {
+                  await onMarkDone();
+                }
+              }}
+              className="text-[11px] px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              title="Mark this scenario as done — stops tracking + moves to Resolved"
+            >
+              <Check className="w-3 h-3 inline mr-0.5" /> Done
+            </button>
+          )}
+        </div>
       </div>
-      {baselineStyle && (
-        <div className="text-[11px] text-gray-500 dark:text-gray-400 -mt-1 mb-1">
-          raw verdict: <span className="font-medium">{rawStyle.label}</span>
+      {addendum && (
+        <div className="text-[10px] uppercase tracking-wide text-pink-600 dark:text-pink-300 -mt-0.5 mb-1">
+          Added from an emerging theme
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-2 mt-3 text-center text-xs">
-        <Metric label="Rate" value={verdict.directional_rate.toFixed(2)} />
-        <Metric label="Velocity" value={verdict.velocity.toFixed(1)} />
-        <Metric label="Milestones" value={`${Math.round(verdict.milestone_density * 100)}%`} />
-        <Metric label="Coverage" value={verdict.coverage.toFixed(2)} />
-      </div>
-
       <div className="mt-3 text-xs text-gray-600 dark:text-gray-300">
-        <span className="font-medium text-emerald-700 dark:text-emerald-300">{verdict.supports} support</span>
+        <span className="font-medium text-emerald-700 dark:text-emerald-300">{verdict.supports} confirming</span>
         {' · '}
-        <span className="font-medium text-red-700 dark:text-red-300">{verdict.contradicts} contradict</span>
+        <span className="font-medium text-red-700 dark:text-red-300">{verdict.contradicts} contradicting</span>
         {' · '}
         <span>{verdict.neutral} neutral</span>
       </div>
@@ -421,14 +566,11 @@ function ScenarioCard({ verdict, baseline }: {
       {baseline && (
         <div className="mt-3 p-2 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded text-xs">
           <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
-            Baseline-corrected
+            Confirmation strength vs. pre-forecast
           </div>
           <div className="flex items-baseline justify-between gap-3">
-            <div>
-              live <span className="font-mono">{(baseline.live_rate * 100).toFixed(2)}%</span>
-              {'  −  '}
-              placebo <span className="font-mono">{(baseline.placebo_rate * 100).toFixed(2)}%</span>
-              {'  ='}
+            <div className="text-gray-600 dark:text-gray-300">
+              {customerLabel(baseline.label)}
             </div>
             <div className="text-right">
               <span className={`font-mono font-semibold ${
@@ -440,18 +582,15 @@ function ScenarioCard({ verdict, baseline }: {
               }`}>
                 {baseline.net_rate > 0 ? '+' : ''}{(baseline.net_rate * 100).toFixed(2)}%
               </span>
-              <span className="ml-2 text-[11px] text-gray-500 dark:text-gray-400">{baseline.label}</span>
+              <span className="ml-2 text-[11px] text-gray-500 dark:text-gray-400">Δ</span>
             </div>
-          </div>
-          <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-            live {baseline.live_supports}/{baseline.live_pool}  ·  placebo {baseline.placebo_supports}/{baseline.placebo_pool}
           </div>
         </div>
       )}
 
       {verdict.top_articles?.supports?.length ? (
         <div className="mt-3">
-          <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Top supporting</div>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Top confirming evidence</div>
           <ul className="text-xs space-y-1">
             {verdict.top_articles.supports.slice(0, 3).map((a) => (
               <li key={a.article_uri} className="border-l-2 border-emerald-400 pl-2">
@@ -465,7 +604,7 @@ function ScenarioCard({ verdict, baseline }: {
 
       {verdict.top_articles?.contradicts?.length ? (
         <div className="mt-3">
-          <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Strongest contradiction</div>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Strongest contradicting evidence</div>
           <ul className="text-xs space-y-1">
             {verdict.top_articles.contradicts.slice(0, 2).map((a) => (
               <li key={a.article_uri} className="border-l-2 border-red-400 pl-2">
@@ -489,22 +628,40 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SurprisesPanel({ surprises }: { surprises: SurpriseCluster[] }) {
+function SurprisesPanel({
+  surprises,
+  onPromote,
+}: {
+  surprises: SurpriseCluster[];
+  onPromote?: (cluster: SurpriseCluster, index: number) => void;
+}) {
   if (!surprises?.length) return null;
   return (
     <div className="space-y-3">
       <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
-        Unanticipated developments
+        Emerging themes
         <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
-          Article clusters none of the {surprises.length === 1 ? 'scenarios' : 'forecast scenarios'} explain
+          Story lines in recent coverage that none of the original scenarios anticipated
         </span>
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {surprises.map((c, i) => (
           <div key={i} className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between gap-2">
               <div className="font-medium text-gray-900 dark:text-gray-100">{c.label}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-300">{c.size} articles</div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="text-xs text-gray-600 dark:text-gray-300">{c.size} articles</div>
+                {onPromote && (
+                  <button
+                    type="button"
+                    onClick={() => onPromote(c, i)}
+                    className="inline-flex items-center text-[11px] px-2 py-1 border border-pink-400 text-pink-700 dark:text-pink-200 dark:border-pink-600 rounded hover:bg-pink-50 dark:hover:bg-pink-900/30"
+                    title="Promote this cluster into a tracked scenario alongside the original Three Horizons forecast"
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Track as scenario
+                  </button>
+                )}
+              </div>
             </div>
             <ul className="mt-2 text-xs space-y-1">
               {c.sample_articles?.slice(0, 5).map((a) => (
@@ -514,6 +671,381 @@ function SurprisesPanel({ surprises }: { surprises: SurpriseCluster[] }) {
             {c.note && <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-2 italic">{c.note}</div>}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function AddedScenariosPanel({ scenarios }: { scenarios: AddendumScenario[] }) {
+  if (!scenarios?.length) return null;
+  return (
+    <div className="space-y-3">
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+        Added scenarios
+        <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+          Promoted from emerging themes — tracked alongside the original forecast
+        </span>
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {scenarios.map((s) => (
+          <div key={s.id} className="p-3 bg-pink-50 dark:bg-pink-900/20 border border-pink-300 dark:border-pink-800 rounded">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-pink-700 dark:text-pink-300">
+                  {HORIZON_LABEL[s.horizon_type] || s.horizon_type.toUpperCase()}
+                  {s.timeframe && <span className="ml-2 text-gray-500 dark:text-gray-400">{s.timeframe}</span>}
+                </div>
+                <div className="font-medium text-gray-900 dark:text-gray-100 leading-snug">{s.title}</div>
+              </div>
+              <div className="text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0">
+                {new Date(s.created_at).toLocaleDateString()}
+              </div>
+            </div>
+            <div className="text-xs text-gray-700 dark:text-gray-200 mt-2 line-clamp-3">{s.description}</div>
+            {s.source_surprise_label && (
+              <div className="text-[11px] text-pink-700 dark:text-pink-300 mt-2 italic">
+                From cluster: {s.source_surprise_label}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ResolvedScenariosPanel({
+  verdicts, addendums, statuses, onUnmark,
+}: {
+  verdicts: ScenarioVerdict[];
+  addendums: AddendumScenario[];
+  statuses: ScenarioStatusesResponse;
+  onUnmark: (key: { scenario_idx?: number; user_scenario_id?: string }) => Promise<void>;
+}) {
+  const addendumByIdx = mapAddendumScenariosByIdx(verdicts, addendums);
+  const done = verdicts.filter(v => v.verdict_label === 'Done');
+  if (!done.length) return null;
+  return (
+    <div className="space-y-3">
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+        Resolved scenarios
+        <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+          Marked done — skipped from future assessments. Historical verdict rows preserved.
+        </span>
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {done.map((v) => {
+          const addendum = addendumByIdx[v.scenario_idx];
+          const statusRow = addendum
+            ? statuses.addendums[addendum.id]
+            : statuses.originals[String(v.scenario_idx)];
+          return (
+            <div key={v.scenario_idx} className="p-3 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    {HORIZON_LABEL[v.horizon_type] || v.horizon_type.toUpperCase()}
+                    {addendum && <span className="ml-2 text-pink-600 dark:text-pink-300">addendum</span>}
+                  </div>
+                  <div className="font-medium text-gray-800 dark:text-gray-100 leading-snug line-through opacity-80">
+                    {v.scenario_title}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onUnmark(addendum
+                      ? { user_scenario_id: addendum.id }
+                      : { scenario_idx: v.scenario_idx });
+                  }}
+                  className="text-[11px] px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700"
+                  title="Restore to active tracking"
+                >
+                  <RotateCcw className="w-3 h-3 inline mr-0.5" /> Un-mark
+                </button>
+              </div>
+              {(statusRow?.marked_done_at || statusRow?.note) && (
+                <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+                  {statusRow?.marked_done_at && (
+                    <>Marked done {new Date(statusRow.marked_done_at).toLocaleDateString()}</>
+                  )}
+                  {statusRow?.note && <> · {statusRow.note}</>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TopicCadenceInline({ topic }: { topic: string }) {
+  // Lightweight inline editor so the user can set this topic's cadence and
+  // recipient without navigating to the global Wiley Deliverables panel.
+  const [cadence, setCadence] = useState<'monthly' | 'quarterly' | 'none'>('none');
+  const [email, setEmail] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [dirty, setDirty] = useState<boolean>(false);
+  const [savedHint, setSavedHint] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/forecast/topics/delivery')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data) => {
+        if (cancelled) return;
+        const cfg = (data.configs || []).find((c: any) => c.topic === topic);
+        if (cfg) {
+          setCadence(cfg.cadence);
+          setEmail(cfg.recipient_email || '');
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [topic]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/forecast/topics/${encodeURIComponent(topic)}/delivery`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cadence, recipient_email: email.trim() || null }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setDirty(false);
+      setSavedHint(true);
+      setTimeout(() => setSavedHint(false), 2500);
+    } catch (e) {
+      console.warn('Failed to save topic cadence', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return null;
+
+  return (
+    <div className="p-3 bg-white dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded text-sm flex flex-col md:flex-row md:items-center gap-2">
+      <div className="font-medium text-gray-800 dark:text-gray-100 text-xs uppercase tracking-wide">Wiley cadence for this topic:</div>
+      <select
+        value={cadence}
+        onChange={(e) => { setCadence(e.target.value as any); setDirty(true); }}
+        className="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800 dark:text-gray-100"
+      >
+        <option value="none">None</option>
+        <option value="monthly">Monthly</option>
+        <option value="quarterly">Quarterly</option>
+      </select>
+      <input
+        type="text"
+        value={email}
+        onChange={(e) => { setEmail(e.target.value); setDirty(true); }}
+        placeholder="recipient@wiley.com"
+        className="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800 dark:text-gray-100 flex-1 max-w-md"
+      />
+      {dirty && (
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="text-xs px-3 py-1 bg-pink-600 hover:bg-pink-700 text-white rounded disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Save'}
+        </button>
+      )}
+      {savedHint && <span className="text-xs text-emerald-700 dark:text-emerald-300">Saved</span>}
+    </div>
+  );
+}
+
+function PromoteScenarioModal({
+  runId,
+  assessmentId,
+  cluster,
+  surpriseIndex,
+  windowWeeks,
+  onClose,
+  onScenarioCreated,
+}: {
+  runId: string;
+  assessmentId: string;
+  cluster: SurpriseCluster;
+  surpriseIndex: number;
+  windowWeeks: number;
+  onClose: () => void;
+  onScenarioCreated: () => void;
+}) {
+  const [drafting, setDrafting] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ScenarioDraft | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDrafting(true);
+    setError(null);
+    fetch(`/api/forecast/${runId}/scenarios/draft-from-surprise`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment_id: assessmentId, surprise_index: surpriseIndex }),
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.text();
+          throw new Error(`${r.status} ${body || r.statusText}`);
+        }
+        return r.json();
+      })
+      .then((d: ScenarioDraft) => { if (!cancelled) setDraft(d); })
+      .catch((e) => { if (!cancelled) setError(e?.message || 'Draft failed'); })
+      .finally(() => { if (!cancelled) setDrafting(false); });
+    return () => { cancelled = true; };
+  }, [runId, assessmentId, surpriseIndex]);
+
+  const handleSave = async () => {
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/forecast/${runId}/scenarios`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: draft.title,
+          description: draft.description,
+          horizon_type: draft.horizon_type,
+          timeframe: draft.timeframe || null,
+          source_assessment_id: draft.source_assessment_id,
+          source_surprise_label: draft.source_surprise_label,
+          source_article_uris: draft.source_article_uris,
+          window_weeks: windowWeeks,
+        }),
+      });
+      if (!r.ok) {
+        const body = await r.text();
+        throw new Error(`${r.status} ${body || r.statusText}`);
+      }
+      onScenarioCreated();
+    } catch (e: any) {
+      setError(e?.message || 'Save failed');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Track as scenario</h3>
+            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+              Promote the cluster <span className="font-medium">"{cluster.label}"</span> ({cluster.size} articles) into a tracked scenario alongside the original forecast.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {drafting && (
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <Loader2 className="w-4 h-4 animate-spin" /> Drafting scenario with LLM…
+            </div>
+          )}
+          {error && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-300 rounded text-red-800 dark:text-red-200 text-sm">
+              {error}
+            </div>
+          )}
+          {draft && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">Title</label>
+                <input
+                  type="text"
+                  value={draft.title}
+                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                  className="w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">Description</label>
+                <textarea
+                  value={draft.description}
+                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                  rows={5}
+                  className="w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-100 leading-relaxed"
+                />
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">Horizon</label>
+                  <div className="flex gap-2">
+                    {(['h1', 'h2', 'h3'] as const).map((h) => (
+                      <label
+                        key={h}
+                        className={`flex-1 cursor-pointer border rounded px-3 py-2 text-xs text-center ${
+                          draft.horizon_type === h
+                            ? 'border-pink-500 bg-pink-50 dark:bg-pink-900/30 text-pink-700 dark:text-pink-200'
+                            : 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="horizon_type"
+                          value={h}
+                          checked={draft.horizon_type === h}
+                          onChange={() => setDraft({ ...draft, horizon_type: h })}
+                          className="sr-only"
+                        />
+                        {HORIZON_LABEL[h] || h.toUpperCase()}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="w-32">
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">Timeframe</label>
+                  <input
+                    type="text"
+                    value={draft.timeframe}
+                    onChange={(e) => setDraft({ ...draft, timeframe: e.target.value })}
+                    placeholder="2026-2030"
+                    className="w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-100"
+                  />
+                </div>
+              </div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                Saving will kick off a fresh paired assessment so the new scenario is classified against the post-forecast articles. This takes a few minutes.
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
+          <Button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            variant="outline"
+            className="text-gray-700 dark:text-gray-200"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={!draft || saving || drafting}
+            className="bg-pink-600 hover:bg-pink-700 text-white"
+          >
+            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+            {saving ? 'Saving…' : 'Save & reassess'}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -581,9 +1113,8 @@ function SnapshotHistoryPanel({ topic }: { topic: string }) {
         </button>
       </div>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-        Each cell is one paired re-run. Color shows the baseline-corrected verdict
-        for that scenario at that snapshot; cell width is constant. Watch for a
-        scenario shifting <span className="text-emerald-700 dark:text-emerald-300">green</span> (Above baseline) over time
+        Each cell is one re-assessment. Color shows the status at that snapshot.
+        Watch for a scenario shifting <span className="text-emerald-700 dark:text-emerald-300">green</span> (Strengthening) over time
         — that's a trajectory materialising.
       </p>
 

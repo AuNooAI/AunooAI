@@ -24,6 +24,24 @@ model_list:
       model: openai/gpt-4.1-nano
       api_key: "os.environ/OPENAI_API_KEY"
 
+  # OpenAI GPT-5 series — used by the Wiley bundle supervisor pipeline
+  # ("Ask David" pattern). gpt-5 for narrative/synthesis agents, gpt-5-mini
+  # for supervisor routing decisions, gpt-5-nano for cheap retrieval steps.
+  - model_name: gpt-5
+    litellm_params:
+      model: openai/gpt-5
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5-nano
+      api_key: "os.environ/OPENAI_API_KEY"
+
   # Hugging Face
   - model_name: mixtral-8x7b
     litellm_params:
@@ -66,5 +84,11 @@ fallbacks:
       - qwen3:14b
   - gpt-4.1-mini:
       - qwen3:14b
+  - gpt-5:
+      - gpt-4.1
+  - gpt-5-mini:
+      - gpt-4.1-mini
+  - gpt-5-nano:
+      - gpt-4.1-nano
 
 routing_strategy: least-busy

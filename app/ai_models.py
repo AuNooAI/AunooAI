@@ -669,7 +669,7 @@ class LiteLLMModel(AIModel):
         logger.warning(f"⚠️ All fallback options exhausted for {self.model_name}")
         return None
 
-    def generate_response(self, messages, _is_fallback=False, _attempted_models=None):
+    def generate_response(self, messages, _is_fallback=False, _attempted_models=None, **call_kwargs):
         """
         Generate a response using the LLM with proper exception handling.
 
@@ -677,6 +677,10 @@ class LiteLLMModel(AIModel):
             messages: The messages to send to the LLM
             _is_fallback: Internal parameter to track if this is a fallback call
             _attempted_models: Internal parameter to track which models have been attempted
+            **call_kwargs: Extra parameters forwarded to ``router.completion(...)``.
+                Use this to pass model-specific options such as
+                ``reasoning_effort='high'`` for the GPT-5 series, or
+                ``response_format={'type': 'json_object'}`` etc.
 
         Returns:
             The generated response text or error message
@@ -719,7 +723,8 @@ class LiteLLMModel(AIModel):
                 model=self.model_name,
                 messages=messages,
                 metadata={"model_name": self.model_name},
-                caching=False
+                caching=False,
+                **call_kwargs,
             )
 
             logger.info(f"✅ Received response from {self.model_name}")

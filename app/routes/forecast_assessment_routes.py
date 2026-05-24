@@ -21,7 +21,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +269,11 @@ async def get_tracker_monitor_status():
 
 
 @router.get("/api/forecast/{run_id}/assessment/{assessment_id}/export.pptx")
-async def export_assessment_pptx(run_id: str, assessment_id: str):
+async def export_assessment_pptx(
+    run_id: str,
+    assessment_id: str,
+    updates_only: bool = Query(False, description="Render only what's changed since the prior live snapshot."),
+):
     """Render the assessment as a slide-per-scenario PowerPoint deck mirroring
     the Wiley Horizons brief layout (slides 64-68 of the Feb 2026 deck).
 
@@ -280,6 +284,11 @@ async def export_assessment_pptx(run_id: str, assessment_id: str):
     On the first export for an assessment that has no cached narratives,
     LLM synthesis fires and persists the prose to ``summary_md`` /
     ``summary.exec_narrative`` so subsequent exports are instant.
+
+    With ``updates_only=true``, the export diffs against the previous
+    ``mode='live'`` assessment for the run and emits a slimmer deck:
+    only scenarios with new evidence or verdict flips, plus newly-emerged
+    surprise clusters.
     """
     from app.database import get_database_instance
     from app.services.forecast_pptx_export import build_assessment_pptx
@@ -312,10 +321,26 @@ async def export_assessment_pptx(run_id: str, assessment_id: str):
                        record.get("id"), e)
 
     forecast_run = db.facade.get_future_horizons_analysis(record.get("run_id") or run_id)
-    blob = build_assessment_pptx(record, forecast_run or {})
+
+    prior = None
+    if updates_only:
+        prior = db.facade.get_prior_live_assessment(
+            run_id=record.get("run_id") or run_id,
+            before_assessed_at=record.get("assessed_at"),
+        )
+        # When no prior snapshot exists yet, fall back to a stub "first snapshot"
+        # deck rather than 422-ing — the browser would try to save the JSON
+        # error response as a .pptx file otherwise.
+
+    blob = build_assessment_pptx(
+        record, forecast_run or {},
+        updates_only=updates_only,
+        prior_assessment=prior,
+    )
 
     topic_slug = (record.get("topic") or "forecast").lower().replace(" ", "_").replace("/", "_")[:60]
-    fname = f"forecast_assessment_{topic_slug}_{record.get('id', 'latest')}.pptx"
+    suffix = "_updates" if updates_only else ""
+    fname = f"forecast_assessment_{topic_slug}{suffix}_{record.get('id', 'latest')}.pptx"
     return Response(
         content=blob,
         media_type=(
@@ -323,6 +348,754 @@ async def export_assessment_pptx(run_id: str, assessment_id: str):
         ),
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
+
+
+# ── Promote unanticipated developments to tracked scenarios ──────────────
+
+class _DraftScenarioRequest(__import__("pydantic").BaseModel):  # noqa: N801 — keep BaseModel inline
+    assessment_id: str
+    surprise_index: int
+
+
+@router.post("/api/forecast/{run_id}/scenarios/draft-from-surprise")
+async def draft_scenario_from_surprise(run_id: str, payload: _DraftScenarioRequest):
+    """LLM-draft a tracked scenario from a surprise cluster on a stored assessment.
+
+    Returns ``{title, description, horizon_type, timeframe}`` for the UI to
+    present in an editable modal. Nothing is persisted at this step — the UI
+    posts the (possibly edited) draft to the create endpoint below.
+    """
+    from app.database import get_database_instance
+    from app.services.forecast_narrative import synthesize_scenario_from_surprise
+
+    db = get_database_instance()
+
+    # Load the assessment to fetch the topic and the requested surprise cluster.
+    # We use the by-id path rather than by-run because the assessment may live
+    # on a sibling run for the same topic.
+    from app.services.forecast_assessment_service import _hydrate_assessment_by_id
+    assessment = _hydrate_assessment_by_id(db, payload.assessment_id)
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+
+    surprises = assessment.get("surprises") or []
+    if payload.surprise_index < 0 or payload.surprise_index >= len(surprises):
+        raise HTTPException(
+            status_code=422,
+            detail=f"surprise_index {payload.surprise_index} out of range (0..{len(surprises)-1})",
+        )
+
+    cluster = surprises[payload.surprise_index]
+    topic = assessment.get("topic") or ""
+    try:
+        draft = await synthesize_scenario_from_surprise(cluster, topic)
+    except Exception as e:
+        logger.error("Scenario draft failed for run %s surprise %s: %s",
+                     run_id, payload.surprise_index, e)
+        raise HTTPException(status_code=502, detail=f"LLM draft failed: {e}")
+
+    sample_uris = [a.get("uri") for a in (cluster.get("sample_articles") or []) if a.get("uri")]
+    return {
+        **draft,
+        "source_assessment_id": payload.assessment_id,
+        "source_surprise_label": cluster.get("label"),
+        "source_article_uris": sample_uris,
+    }
+
+
+class _CreateScenarioRequest(__import__("pydantic").BaseModel):  # noqa: N801
+    title: str
+    description: str
+    horizon_type: str
+    timeframe: str | None = None
+    source_assessment_id: str | None = None
+    source_surprise_label: str | None = None
+    source_article_uris: list[str] | None = None
+    window_weeks: int = 8
+
+
+@router.post("/api/forecast/{run_id}/scenarios")
+async def create_user_scenario(run_id: str, payload: _CreateScenarioRequest):
+    """Persist a user-promoted scenario and kick off a fresh paired assessment.
+
+    The new scenario is appended to the run's scenario list at assessment
+    time (the original forecast's ``raw_output['scenarios']`` is never
+    mutated). After saving we immediately trigger an ``assess-paired`` job
+    so the user sees how articles classify against the new scenario.
+    """
+    from app.database import get_database_instance
+    from app.services.background_task_manager import get_task_manager
+    from app.services.forecast_assessment_service import assess_run, apply_baseline_correction
+
+    db = get_database_instance()
+    run = db.facade.get_future_horizons_analysis(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Forecast run {run_id} not found")
+
+    horizon = (payload.horizon_type or "h2").lower()
+    if horizon not in ("h1", "h2", "h3"):
+        raise HTTPException(status_code=422, detail="horizon_type must be h1, h2, or h3")
+
+    scenario_id = db.facade.save_forecast_user_scenario(
+        run_id=run_id,
+        title=payload.title.strip(),
+        description=payload.description.strip(),
+        horizon_type=horizon,
+        timeframe=(payload.timeframe or "").strip() or None,
+        source_assessment_id=payload.source_assessment_id,
+        source_surprise_label=payload.source_surprise_label,
+        source_article_uris=payload.source_article_uris or [],
+    )
+
+    # Kick off the fresh paired assessment so the new scenario gets classified.
+    tm = get_task_manager()
+    task_id = tm.create_task(
+        name=f"forecast_paired:{run_id}",
+        total_items=100,
+        metadata={
+            "run_id": run_id,
+            "topic": run.get("topic"),
+            "window_weeks": payload.window_weeks,
+            "triggered_by": "scenario_promotion",
+            "new_scenario_id": scenario_id,
+        },
+    )
+
+    async def _job(progress_callback=None):
+        def _cb_for(phase_start: int, phase_end: int):
+            def _emit(pct: int, msg: str):
+                child_pct = min(max(pct, 0), 100)
+                mapped = phase_start + int((phase_end - phase_start) * child_pct / 100)
+                if progress_callback:
+                    progress_callback(mapped, msg)
+            return _emit
+
+        live_result = await assess_run(
+            run_id=run_id, mode="live",
+            window_weeks=payload.window_weeks,
+            progress_callback=_cb_for(0, 48),
+        )
+        placebo_result = await assess_run(
+            run_id=run_id, mode="placebo",
+            window_weeks=payload.window_weeks,
+            progress_callback=_cb_for(48, 96),
+        )
+        if progress_callback:
+            progress_callback(97, "Computing baseline correction")
+        correction = apply_baseline_correction(
+            live_assessment_id=(live_result or {}).get("id"),
+            placebo_assessment_id=(placebo_result or {}).get("id"),
+        )
+        if progress_callback:
+            progress_callback(100, "Reassessment complete")
+        return {
+            "live_assessment_id": (live_result or {}).get("id"),
+            "placebo_assessment_id": (placebo_result or {}).get("id"),
+            "correction": correction,
+            "new_scenario_id": scenario_id,
+        }
+
+    import asyncio
+    asyncio.create_task(tm.run_task(task_id, _job))
+
+    return {
+        "scenario_id": scenario_id,
+        "task_id": task_id,
+        "status_url": f"/api/forecast/assessment/job/{task_id}",
+    }
+
+
+@router.get("/api/forecast/{run_id}/scenarios")
+async def list_user_scenarios(run_id: str):
+    """List addendum scenarios (user-promoted) for a forecast run."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    statuses = db.facade.get_forecast_scenario_statuses(run_id)
+    return {
+        "run_id": run_id,
+        "addendum_scenarios": db.facade.get_forecast_user_scenarios(run_id),
+        "scenario_statuses": statuses,
+    }
+
+
+# ── Mark-as-done overlay ─────────────────────────────────────────────────
+
+class _ScenarioStatusRequest(__import__("pydantic").BaseModel):  # noqa: N801
+    scenario_idx: int | None = None
+    user_scenario_id: str | None = None
+    status: str  # 'active' | 'done'
+    note: str | None = None
+
+
+@router.patch("/api/forecast/{run_id}/scenarios/status")
+async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
+    """Mark a scenario as done (or revert to active).
+
+    Exactly one of ``scenario_idx`` (originals) or ``user_scenario_id``
+    (addendums) must be supplied. Done scenarios are skipped from
+    reranker/LLM on the next assessment run and rendered in the
+    "Resolved scenarios" section in the UI.
+    """
+    from app.database import get_database_instance
+
+    if (payload.scenario_idx is None) == (payload.user_scenario_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="Exactly one of scenario_idx or user_scenario_id must be set",
+        )
+    status = (payload.status or "active").lower()
+    if status not in ("active", "done"):
+        raise HTTPException(status_code=422, detail="status must be 'active' or 'done'")
+
+    db = get_database_instance()
+    if not db.facade.get_future_horizons_analysis(run_id):
+        raise HTTPException(status_code=404, detail=f"Forecast run {run_id} not found")
+
+    row = db.facade.save_forecast_scenario_status(
+        run_id=run_id,
+        scenario_idx=payload.scenario_idx,
+        user_scenario_id=payload.user_scenario_id,
+        status=status,
+        note=(payload.note or None),
+    )
+    return {"status_row": row}
+
+
+# ── Per-topic delivery config ────────────────────────────────────────────
+
+@router.get("/api/forecast/topics/delivery")
+async def list_topic_delivery_configs():
+    """Return all topics × cadence × recipient × last_delivered. Used by the
+    Wiley Deliverables panel in the UI."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    return {"configs": db.facade.get_forecast_topic_delivery_configs()}
+
+
+class _TopicDeliveryRequest(__import__("pydantic").BaseModel):  # noqa: N801
+    cadence: str  # 'monthly' | 'quarterly' | 'none'
+    recipient_email: str | None = None
+
+
+@router.patch("/api/forecast/topics/{topic}/delivery")
+async def patch_topic_delivery_config(topic: str, payload: _TopicDeliveryRequest):
+    """Upsert the delivery cadence + recipient for a topic."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    cadence = (payload.cadence or "none").lower()
+    if cadence not in ("monthly", "quarterly", "none"):
+        raise HTTPException(status_code=422, detail="cadence must be monthly|quarterly|none")
+    return {"config": db.facade.upsert_forecast_topic_delivery_config(
+        topic=topic,
+        cadence=cadence,
+        recipient_email=(payload.recipient_email or None),
+    )}
+
+
+# ── Topic lifecycle: metadata + overlay management ────────────────────────
+
+
+class _TopicMetadataCreate(__import__("pydantic").BaseModel):  # noqa: N801
+    topic: str
+    display_name: str | None = None
+    description: str | None = None
+    owner: str | None = None
+    tags: list[str] | None = None
+
+
+class _TopicMetadataPatch(__import__("pydantic").BaseModel):  # noqa: N801
+    display_name: str | None = None
+    description: str | None = None
+    owner: str | None = None
+    status: str | None = None  # 'draft' | 'active' | 'archived'
+    tags: list[str] | None = None
+
+
+@router.get("/api/forecast/topics")
+async def list_topics_with_lifecycle():
+    """Single endpoint for the Topics dashboard: one row per topic merging
+    metadata, latest assessment, and delivery config. Health dot is derived
+    on the client from these fields."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    return {"topics": db.facade.list_topics_with_lifecycle()}
+
+
+@router.post("/api/forecast/topics")
+async def create_topic_metadata(payload: _TopicMetadataCreate):
+    """Register a new topic — wizard step 1. Creates a metadata row in
+    'draft' status. Idempotent: if a row already exists, returns it."""
+    from app.database import get_database_instance
+    topic = (payload.topic or "").strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic is required")
+    db = get_database_instance()
+    existing = db.facade.get_forecast_topic_metadata(topic)
+    if existing:
+        return {"topic": existing, "created": False}
+    row = db.facade.upsert_forecast_topic_metadata(
+        topic,
+        display_name=payload.display_name,
+        description=payload.description,
+        owner=payload.owner,
+        tags=payload.tags,
+        status="draft",
+        overlay_status="missing",
+    )
+    return {"topic": row, "created": True}
+
+
+@router.patch("/api/forecast/topics/{topic}/metadata")
+async def patch_topic_metadata(topic: str, payload: _TopicMetadataPatch):
+    """Edit description / owner / tags / status. Only supplied fields update."""
+    from app.database import get_database_instance
+    if payload.status is not None and payload.status not in ("draft", "active", "archived"):
+        raise HTTPException(status_code=422, detail="status must be draft|active|archived")
+    db = get_database_instance()
+    return {"topic": db.facade.upsert_forecast_topic_metadata(
+        topic,
+        display_name=payload.display_name,
+        description=payload.description,
+        owner=payload.owner,
+        status=payload.status,
+        tags=payload.tags,
+    )}
+
+
+def _overlay_slug(topic: str) -> str:
+    """Filesystem-safe slug for the overlay file. Mirrors the existing
+    naming convention (patent_cliffs_deck_overlay.json, etc.)."""
+    import re
+    s = re.sub(r"[^a-z0-9]+", "_", (topic or "").lower()).strip("_")
+    return f"{s}_deck_overlay"
+
+
+def _overlay_dir():
+    from pathlib import Path
+    return Path(__file__).resolve().parents[2] / "data" / "wiley_horizons"
+
+
+@router.post("/api/forecast/topics/{topic}/overlay/generate")
+async def generate_topic_overlay(topic: str):
+    """Kick off LLM overlay generation as a background task. The task
+    writes a .proposed file to data/wiley_horizons/ and flips the topic's
+    overlay_status to 'auto_generated'. Returns a task_id the wizard polls."""
+    from app.database import get_database_instance
+    from app.services.background_task_manager import get_task_manager
+    from app.services.wiley_overlay_generator import generate_overlay_proposal
+    import asyncio
+
+    db = get_database_instance()
+    if not db.facade.get_forecast_topic_metadata(topic):
+        raise HTTPException(status_code=404, detail=f"Topic '{topic}' not found")
+
+    tm = get_task_manager()
+    task_id = tm.create_task(
+        name=f"overlay_generation:{topic}",
+        total_items=100,
+        metadata={"topic": topic, "kind": "overlay_generation"},
+    )
+
+    async def _job(progress_callback=None):
+        def _cb(pct: int, msg: str):
+            if progress_callback:
+                progress_callback(pct, msg)
+        proposed_path, overlay = await generate_overlay_proposal(
+            topic, progress_callback=_cb
+        )
+        return {
+            "topic": topic,
+            "proposed_path": str(proposed_path),
+            "scenarios_count": len((overlay or {}).get("deck_scenarios") or {}),
+        }
+
+    asyncio.create_task(tm.run_task(task_id, _job))
+    return {
+        "task_id": task_id,
+        "topic": topic,
+        "status_url": f"/api/forecast/assessment/job/{task_id}",
+    }
+
+
+@router.get("/api/forecast/topics/{topic}/overlay/proposed")
+async def get_topic_overlay_proposed(topic: str):
+    """Return the proposed (LLM-generated) overlay JSON for review."""
+    import json
+    slug = _overlay_slug(topic)
+    p = _overlay_dir() / f"{slug}.json.proposed"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="No proposed overlay on disk")
+    try:
+        return {"topic": topic, "overlay": json.loads(p.read_text())}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read proposed overlay: {e}")
+
+
+class _OverlayApprove(__import__("pydantic").BaseModel):  # noqa: N801
+    overlay: dict
+
+
+@router.post("/api/forecast/topics/{topic}/overlay/approve")
+async def approve_topic_overlay(topic: str, payload: _OverlayApprove):
+    """Persist the (possibly human-edited) overlay JSON as the production
+    file. Marks overlay_status='human_reviewed', metadata.status='active'."""
+    import json
+    from app.database import get_database_instance
+
+    overlay = payload.overlay or {}
+    if not overlay.get("topic"):
+        overlay["topic"] = topic
+    if overlay.get("topic") != topic:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Overlay's 'topic' field '{overlay.get('topic')}' must match URL topic '{topic}'",
+        )
+
+    slug = _overlay_slug(topic)
+    final_path = _overlay_dir() / f"{slug}.json"
+    final_path.write_text(json.dumps(overlay, indent=2, ensure_ascii=False))
+    # Best-effort clean up the .proposed sibling
+    proposed_path = _overlay_dir() / f"{slug}.json.proposed"
+    if proposed_path.exists():
+        try:
+            proposed_path.unlink()
+        except Exception:
+            pass
+
+    db = get_database_instance()
+    row = db.facade.upsert_forecast_topic_metadata(
+        topic,
+        status="active",
+        overlay_status="human_reviewed",
+    )
+    return {"topic": row, "overlay_path": str(final_path)}
+
+
+# ── Wiley deliverables: preview + bundle PPTX + scheduled send ───────────
+
+@router.get("/api/forecast/deliverables/preview")
+async def preview_deliverable(cadence: str = Query(..., pattern="^(monthly|quarterly|all)$")):
+    """Preview what would go in a cadence bundle: topic list, evidence counts,
+    surprise counts, recipient summary. Used by the UI to confirm before
+    generating or sending."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+
+    configs = db.facade.get_forecast_topic_delivery_configs()
+    configs_by_topic = {c["topic"]: c for c in configs}
+
+    if cadence == "all":
+        from app.services.wiley_delivery_service import _all_topics_with_assessments
+        topic_names = _all_topics_with_assessments(db)
+    else:
+        topic_names = [c["topic"] for c in configs
+                       if (c.get("cadence") or "").lower() == cadence]
+
+    topics_preview = []
+    for topic in topic_names:
+        cfg = configs_by_topic.get(topic) or {}
+        assessment = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        if not assessment:
+            topics_preview.append({
+                "topic": topic,
+                "ready": False,
+                "reason": "No assessment yet",
+                "recipient_email": cfg.get("recipient_email"),
+            })
+            continue
+        verdicts = [v for v in (assessment.get("scenario_verdicts") or [])
+                    if v.get("verdict_label") != "Done"]
+        surprises = assessment.get("surprises") or []
+
+        # Baseline-corrected label distribution for the all-topics dashboard
+        bc_per = ((assessment.get("summary") or {}).get("baseline_correction") or {}).get("per_scenario") or {}
+        baseline_labels = [(bc_per.get(str(v.get("scenario_idx"))) or {}).get("label")
+                            or v.get("verdict_label")
+                           for v in verdicts]
+        label_dist = {}
+        for lbl in baseline_labels:
+            if not lbl:
+                continue
+            label_dist[lbl] = label_dist.get(lbl, 0) + 1
+
+        topics_preview.append({
+            "topic": topic,
+            "ready": True,
+            "run_id": assessment.get("run_id"),
+            "assessment_id": assessment.get("id"),
+            "assessed_at": (
+                assessment.get("assessed_at").isoformat()
+                if hasattr(assessment.get("assessed_at"), "isoformat")
+                else assessment.get("assessed_at")
+            ),
+            "evidence_count": assessment.get("evidence_count"),
+            "scenarios_count": len(verdicts),
+            "surprises_count": len(surprises),
+            "label_distribution": label_dist,
+            "recipient_email": cfg.get("recipient_email"),
+            "cadence": (cfg.get("cadence") or "none").lower(),
+        })
+
+    return {
+        "cadence": cadence,
+        "topics": topics_preview,
+        "configured_count": len(topic_names),
+        "ready_count": sum(1 for t in topics_preview if t.get("ready")),
+    }
+
+
+@router.get("/api/forecast/deliverables/bundle.pptx")
+async def export_bundle_pptx(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    updates_only: bool = Query(False),
+):
+    """Render the cadence bundle PPTX on demand via the WileyBundleSupervisor pipeline.
+
+    Returns 422 if no topics are configured for that cadence yet.
+    Returns 202 + findings if the LLM-as-judge reviewer flagged ``error``
+    severity issues — the UI shows the review panel so a human can resolve
+    before the deck ships.
+    """
+    from app.services.wiley_delivery_service import generate_bundle
+
+    try:
+        blob, period_label, topics, verdict, findings = await generate_bundle(
+            cadence, updates_only=updates_only
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # The download endpoint always returns a PPTX — even when the reviewer
+    # flagged errors. The PPTX has a banner slide explaining the issue when
+    # ``verdict == 'revision_requested'``. The /send endpoint is the one
+    # that refuses to ship until a human approves.
+    suffix = "_updates" if updates_only else ""
+    fname = (
+        f"wiley_forecast_{cadence}{suffix}_"
+        + period_label.replace(" ", "_").lower()
+        + ".pptx"
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    if verdict:
+        headers["X-Review-Verdict"] = verdict
+    if findings:
+        headers["X-Review-Error-Count"] = str(
+            sum(1 for f in findings if f.get("severity") == "error")
+        )
+    return Response(
+        content=blob,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        ),
+        headers=headers,
+    )
+
+
+@router.get("/api/forecast/deliverables/bundle.md")
+async def export_bundle_markdown(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    updates_only: bool = Query(False),
+):
+    """Markdown export of the bundle so reviewers can vet analytical content
+    before committing to a PPTX regeneration. Runs the same supervisor
+    pipeline as the PPTX export — cached calls return instantly."""
+    from app.services.wiley_delivery_service import generate_bundle_markdown
+
+    try:
+        blob, period_label, topics, verdict, findings = await generate_bundle_markdown(
+            cadence, updates_only=updates_only
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    suffix = "_updates" if updates_only else ""
+    fname = (
+        f"wiley_forecast_{cadence}{suffix}_"
+        + period_label.replace(" ", "_").lower()
+        + ".md"
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    if verdict:
+        headers["X-Review-Verdict"] = verdict
+    if findings:
+        headers["X-Review-Error-Count"] = str(
+            sum(1 for f in findings if f.get("severity") == "error")
+        )
+    return Response(
+        content=blob,
+        media_type="text/markdown; charset=utf-8",
+        headers=headers,
+    )
+
+
+@router.post("/api/forecast/deliverables/send")
+async def send_bundle(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    updates_only: bool = Query(True),
+):
+    """Generate + email the cadence bundle to each topic's configured recipient.
+
+    Used by the "Send to recipients now" button in the UI and by the
+    scheduled monthly/quarterly job on the 1st of the month/quarter.
+    """
+    from app.services.wiley_delivery_service import deliver_bundle
+    from app.services.wiley_bundle_supervisor import BundleRequiresReviewError
+
+    try:
+        return await deliver_bundle(cadence, updates_only=updates_only)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except BundleRequiresReviewError as e:
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "revision_requested",
+                "cadence": e.cadence,
+                "period_label": e.period_label,
+                "findings": e.findings,
+                "message": "Review required before deck ships.",
+            },
+        )
+
+
+# ── Background bundle generation with progress streaming ─────────────
+
+@router.post("/api/forecast/deliverables/bundle/start")
+async def start_bundle_generation(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    updates_only: bool = Query(False),
+):
+    """Kick off a bundle generation as a background task. Returns task_id
+    so the UI can poll ``/api/forecast/assessment/job/{task_id}`` for
+    per-stage progress, then GET ``/api/forecast/deliverables/bundle.pptx``
+    once the task completes (the cache from this task makes the second
+    request instant).
+    """
+    from app.services.background_task_manager import get_task_manager
+    from app.services.wiley_delivery_service import generate_bundle
+
+    tm = get_task_manager()
+    task_id = tm.create_task(
+        name=f"wiley_bundle:{cadence}",
+        total_items=100,
+        metadata={"cadence": cadence, "updates_only": updates_only,
+                  "kind": "wiley_bundle"},
+    )
+
+    async def _job(progress_callback=None):
+        def _cb(pct: int, msg: str):
+            if progress_callback:
+                progress_callback(pct, msg)
+        blob, period_label, topics, verdict, findings = await generate_bundle(
+            cadence, updates_only=updates_only, progress_callback=_cb,
+        )
+        return {
+            "cadence": cadence,
+            "period_label": period_label,
+            "topics": topics,
+            "verdict": verdict,
+            "error_count": sum(1 for f in (findings or []) if f.get("severity") == "error"),
+            "warning_count": sum(1 for f in (findings or []) if f.get("severity") == "warning"),
+            "blob_bytes": len(blob),
+        }
+
+    import asyncio
+    asyncio.create_task(tm.run_task(task_id, _job))
+
+    return {
+        "task_id": task_id,
+        "cadence": cadence,
+        "updates_only": updates_only,
+        "status_url": f"/api/forecast/assessment/job/{task_id}",
+        "bundle_url": f"/api/forecast/deliverables/bundle.pptx?cadence={cadence}&updates_only={'true' if updates_only else 'false'}",
+    }
+
+
+# ── Reviewer gate endpoints ──────────────────────────────────────────
+
+@router.get("/api/forecast/deliverables/review-status")
+async def get_bundle_review_status(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    period_label: str = Query(None, description="If omitted, returns the current period's review row."),
+):
+    """Return the current review-gate state for a (cadence, period_label).
+
+    UI polls this when the bundle endpoint returns 202; surfaces the
+    reviewer's findings + verdict so a human can act on them.
+    """
+    from app.database import get_database_instance
+    from app.services.wiley_delivery_service import _period_label
+    from datetime import datetime, timezone
+
+    if not period_label:
+        period_label = _period_label(cadence, datetime.now(timezone.utc))
+
+    db = get_database_instance()
+    row = db.facade.get_forecast_bundle_review(cadence, period_label) or {}
+    return {"cadence": cadence, "period_label": period_label, "review": row}
+
+
+class _BundleReviewApproveRequest(__import__("pydantic").BaseModel):  # noqa: N801
+    cadence: str
+    period_label: str
+    note: str | None = None
+    approved_by: str | None = None
+
+
+@router.post("/api/forecast/deliverables/review/approve")
+async def approve_bundle_review(payload: _BundleReviewApproveRequest):
+    """Override the reviewer gate and approve the bundle for delivery."""
+    from app.database import get_database_instance
+    from datetime import datetime, timezone
+
+    db = get_database_instance()
+    row = db.facade.upsert_forecast_bundle_review(
+        cadence=payload.cadence,
+        period_label=payload.period_label,
+        status="approved",
+        approved_by=payload.approved_by or "ui",
+        approved_at=datetime.now(timezone.utc),
+    )
+    return {"ok": True, "review": row}
+
+
+class _BundleReviewRevisionRequest(__import__("pydantic").BaseModel):  # noqa: N801
+    cadence: str
+    period_label: str
+    target_stages: list[str] | None = None
+
+
+@router.post("/api/forecast/deliverables/review/request-revision")
+async def request_bundle_revision(payload: _BundleReviewRevisionRequest):
+    """Mark the bundle for revision. Clears the targeted caches so the next
+    bundle generation re-fires the affected agents."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+
+    # Clear the bundle-level synthesis cache so cross-topic agents re-run
+    targets = set(payload.target_stages or [])
+    if not targets or "cross_topic" in targets or "exec_summary" in targets:
+        try:
+            from app.database_models import t_forecast_bundle_synthesis
+            from sqlalchemy import delete
+            stmt = delete(t_forecast_bundle_synthesis).where(
+                (t_forecast_bundle_synthesis.c.cadence == payload.cadence) &
+                (t_forecast_bundle_synthesis.c.period_label == payload.period_label)
+            )
+            db.facade._execute_with_rollback(stmt)
+            try:
+                db.facade.session.commit()
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning("Failed to clear bundle synth cache: %s", e)
+
+    row = db.facade.upsert_forecast_bundle_review(
+        cadence=payload.cadence,
+        period_label=payload.period_label,
+        status="awaiting_synth",
+    )
+    return {"ok": True, "cleared_targets": list(targets), "review": row}
 
 
 @router.get("/api/forecast/{run_id}/assessment/{assessment_id}/articles")

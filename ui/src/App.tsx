@@ -12,6 +12,9 @@ import ConsensusCategoryCard from './components/ConsensusCategoryCard';
 import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
 import { ForecastAssessmentTab } from './components/ForecastAssessment';
+import { AllTopicsForecastView } from './components/AllTopicsForecastView';
+import { TopicsDashboard } from './components/TopicsDashboard';
+import { AddTopicWizard } from './components/AddTopicWizard';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
@@ -71,6 +74,11 @@ function App() {
   } = useTrendConvergence();
 
   const [activeTab, setActiveTab] = useState('strategic-recommendations');
+  // Add-topic wizard modal — opened from Topics dashboard CTA or
+  // "Review overlay" links on other surfaces. Topic + step state is also
+  // persisted in localStorage by the wizard itself.
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardInitial, setWizardInitial] = useState<{ topic?: string; step?: number }>({});
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -2783,18 +2791,58 @@ function App() {
                 </>
               )}
 
+              {/* Topics Dashboard Tab */}
+              {activeTab === 'topics' && (
+                <TopicsDashboard
+                  onSelectTopic={(t) => {
+                    updateConfig({ topic: t });
+                    setActiveTab('forecast-tracker');
+                  }}
+                  onAddTopic={() => { setWizardInitial({}); setWizardOpen(true); }}
+                />
+              )}
+
               {/* Forecast Tracker Tab */}
               {activeTab === 'forecast-tracker' && (
-                <ForecastAssessmentTab
-                  runId={data.analysis_id || null}
-                  topic={config.topic}
-                  forecastGeneratedAt={data.generated_at || data.created_at || null}
-                />
+                config.topic === '__all__' ? (
+                  <AllTopicsForecastView
+                    onSelectTopic={(t) => updateConfig({ topic: t })}
+                  />
+                ) : (
+                  <ForecastAssessmentTab
+                    runId={data.analysis_id || null}
+                    topic={config.topic}
+                    forecastGeneratedAt={data.generated_at || data.created_at || null}
+                  />
+                )
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Add-topic wizard — opened from Topics dashboard "+ Add topic" CTA */}
+      <AddTopicWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        initialTopic={wizardInitial.topic}
+        initialStep={wizardInitial.step}
+        onCompleted={(t) => {
+          // Drop the user into the Forecast Tracker for the new topic
+          updateConfig({ topic: t });
+          setActiveTab('forecast-tracker');
+        }}
+        onNavigateToHorizons={(t) => {
+          setWizardOpen(false);
+          updateConfig({ topic: t });
+          setActiveTab('future-horizons');
+        }}
+        onNavigateToTracker={(t) => {
+          setWizardOpen(false);
+          updateConfig({ topic: t });
+          setActiveTab('forecast-tracker');
+        }}
+      />
 
       {/* Organizational Profile Modal */}
       <OrganizationalProfileModal

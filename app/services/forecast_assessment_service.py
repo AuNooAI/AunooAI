@@ -127,11 +127,49 @@ async def assess_run(
     else:
         scenarios = db_scenarios
         scenario_level = "db"
+
+    # Addendum scenarios promoted by the user from prior "unanticipated
+    # development" clusters. Appended after the original scenarios so they
+    # take higher scenario_idx values and the original ordering is stable.
+    user_scenarios = db.facade.get_forecast_user_scenarios(run_id)
+    addendum_count = 0
+    for us in user_scenarios:
+        scenarios.append({
+            "title": us.get("title"),
+            "description": us.get("description"),
+            "type": us.get("horizon_type"),
+            "timeframe": us.get("timeframe"),
+            "origin": "user_promoted",
+            "user_scenario_id": us.get("id"),
+            "source_surprise_label": us.get("source_surprise_label"),
+            "created_at": us.get("created_at"),
+        })
+        addendum_count += 1
+
+    # Scenario-status overlay (mark-as-done). We don't drop "done" scenarios
+    # from the list — scenario_idx is positional and dropping would shift
+    # later scenarios and break historical comparisons. Instead we tag each
+    # scenario with _status so the reranker/LLM stages can skip it and Stage
+    # E can emit a placeholder verdict row at the same index.
+    statuses = db.facade.get_forecast_scenario_statuses(run_id)
+    done_count = 0
+    for i, sc in enumerate(scenarios):
+        if sc.get("origin") == "user_promoted":
+            st = statuses["addendums"].get(sc.get("user_scenario_id"))
+        else:
+            st = statuses["originals"].get(i)
+        if st and st.get("status") == "done":
+            sc["_status"] = "done"
+            sc["_status_marked_at"] = st.get("marked_done_at")
+            sc["_status_note"] = st.get("note")
+            done_count += 1
+
     sibling_digest = _build_sibling_digest(scenarios)
 
     _emit(progress_callback, 2,
           f"Loaded forecast: {len(scenarios)} {scenario_level}-level scenarios "
-          f"(from {len(db_scenarios)} raw) for '{topic}'")
+          f"(from {len(db_scenarios)} raw, {addendum_count} user-promoted, "
+          f"{done_count} marked done) for '{topic}'")
 
     # ── Stage A: fetch the post-forecast (or pre-forecast, in placebo mode)
     # article window. We use one query bounded by ``max_articles`` rather than
@@ -172,12 +210,23 @@ async def assess_run(
     scenario_buckets: dict[int, list] = {i: [] for i in range(len(scenarios))}
     ambiguous: list = []
     for art, assign in zip(pool, assignments):
+        assigned_idx = assign.get("scenario_idx")
+        # If the reranker picked a "done" scenario, route the article to the
+        # ambiguous bucket instead so it has a chance to surface as a
+        # surprise cluster. Done scenarios get no Stage D classify spend.
         if (
-            assign.get("scenario_idx") is not None
+            assigned_idx is not None
+            and 0 <= assigned_idx < len(scenarios)
+            and scenarios[assigned_idx].get("_status") == "done"
+        ):
+            ambiguous.append((art, assign))
+            continue
+        if (
+            assigned_idx is not None
             and assign.get("score") is not None
             and assign["score"] >= STAGE_B_MIN_SCORE
         ):
-            scenario_buckets[assign["scenario_idx"]].append((art, assign))
+            scenario_buckets[assigned_idx].append((art, assign))
         else:
             ambiguous.append((art, assign))
 
@@ -238,6 +287,32 @@ async def assess_run(
     elapsed_days = _elapsed_days(forecast_date)
     scenario_verdict_rows = []
     for s_idx, scenario in enumerate(scenarios):
+        if scenario.get("_status") == "done":
+            # Preserve scenario_idx density: emit a placeholder row so later
+            # scenarios keep their stable positional index across runs.
+            marked_at = scenario.get("_status_marked_at") or ""
+            note = scenario.get("_status_note") or ""
+            scenario_verdict_rows.append({
+                "scenario_idx": s_idx,
+                "horizon_type": scenario.get("type", "h1"),
+                "scenario_title": scenario.get("title", ""),
+                "deck_info": None,
+                "verdict_label": "Done",
+                "directional_rate": 0.0,
+                "velocity": 0.0,
+                "milestone_density": 0.0,
+                "coverage": 0.0,
+                "supports": 0,
+                "contradicts": 0,
+                "neutral": 0,
+                "summary_md": (
+                    f"Scenario marked done"
+                    + (f" on {marked_at[:10]}" if marked_at else "")
+                    + (f" — {note}" if note else "")
+                ).strip(),
+                "top_articles": {"supports": [], "contradicts": []},
+            })
+            continue
         verdicts = [c for c in classified if c["scenario_idx"] == s_idx]
         row = _aggregate_scenario(
             scenario=scenario,
@@ -263,6 +338,11 @@ async def assess_run(
             scenarios=scenarios,
         )
     )
+    # Replace keyword-salad labels with LLM-generated names AND drop
+    # clusters the labeler judges off-topic (e.g. "Ukraine robot force"
+    # leaking into a Patent Cliffs assessment). Best-effort: on any
+    # failure we keep the original keyword labels rather than blocking.
+    surprises = await _label_clusters_with_llm(topic, surprises)
     _emit(progress_callback, 94, f"Found {len(surprises)} surprise clusters")
 
     # ── Persist ───────────────────────────────────────────────────────────
@@ -719,6 +799,13 @@ def _aggregate_scenario(
             "constituent_db_titles": scenario.get("_db_scenario_titles") or [],
         }
 
+    # Current consensus % among confident verdicts (recomputed each
+    # assessment). The Wiley bundle shows this next to the original deck
+    # consensus_pct so the reader can see quarter-over-quarter drift.
+    current_consensus_pct = (
+        round(100.0 * supports / n_total, 1) if n_total > 0 else None
+    )
+
     return {
         "scenario_idx": s_idx,
         "horizon_type": scenario.get("type", "h1"),
@@ -734,6 +821,7 @@ def _aggregate_scenario(
         "neutral": neutral + unrelated + better_other,
         "summary_md": summary_md,
         "top_articles": top_articles,
+        "current_consensus_pct": current_consensus_pct,
     }
 
 
@@ -891,6 +979,83 @@ def _cluster_with_hdbscan(articles: list[dict]) -> list[dict]:
                 for a in cluster_articles[:5]
             ],
         })
+    return out
+
+
+async def _label_clusters_with_llm(topic: str, clusters: list[dict]) -> list[dict]:
+    """Replace keyword-salad cluster labels with LLM-named ones and drop
+    clusters the labeler judges off-topic.
+
+    Mutates each cluster in-place to set ``label`` to the LLM's name and
+    record the original keyword label as ``keyword_label`` for audit.
+    Drops clusters where ``topic_relevance`` is false.
+
+    Best-effort: any per-cluster failure leaves that cluster's original
+    keyword label intact rather than blocking the assessment.
+    """
+    if not clusters:
+        return clusters
+
+    try:
+        from app.services.wiley_bundle_supervisor import _call_agent  # async LLM caller
+    except Exception as e:
+        logger.warning("Cluster labeler unavailable (%s); keeping keyword labels", e)
+        return clusters
+
+    out: list[dict] = []
+    for c in clusters:
+        original = c.get("label") or ""
+        titles = [s.get("title") for s in (c.get("sample_articles") or []) if s.get("title")]
+        if not titles:
+            out.append(c)
+            continue
+        try:
+            resp = await _call_agent("forecast_cluster_label_agent", {
+                "topic": topic,
+                "fallback_label": original,
+                "article_titles": titles,
+            })
+        except Exception as e:
+            logger.warning("Cluster labeler call failed for '%s': %s — keeping keyword label", original, e)
+            out.append(c)
+            continue
+
+        if not resp or not resp.get("name"):
+            out.append(c)
+            continue
+
+        if resp.get("topic_relevance") is False:
+            logger.info(
+                "Dropping off-topic cluster '%s' (LLM name='%s', size=%d): %s",
+                original, resp.get("name"), c.get("size", 0), resp.get("rationale") or "",
+            )
+            continue
+
+        # Keep the keyword label as audit trail
+        c["keyword_label"] = original
+        c["label"] = resp["name"]
+        if resp.get("rationale"):
+            c["label_rationale"] = resp["rationale"]
+
+        # Prune individual off-topic sample articles the LLM flagged inside
+        # a kept cluster (e.g. the Ukraine robot-war article in an otherwise
+        # pharma cluster). Indices are into the article_titles list we sent.
+        off_topic = resp.get("off_topic_article_indices") or []
+        if isinstance(off_topic, list) and off_topic:
+            try:
+                drop = {int(i) for i in off_topic if isinstance(i, (int, float))}
+                samples = c.get("sample_articles") or []
+                kept_samples = [s for i, s in enumerate(samples) if i not in drop]
+                if kept_samples:
+                    c["pruned_article_count"] = len(samples) - len(kept_samples)
+                    c["sample_articles"] = kept_samples
+                    # Reflect the prune in the cluster size so the UI doesn't
+                    # claim "N articles" while showing fewer.
+                    if isinstance(c.get("size"), int):
+                        c["size"] = max(0, c["size"] - c["pruned_article_count"])
+            except Exception as e:
+                logger.warning("Failed to apply off-topic prune for cluster '%s': %s", original, e)
+        out.append(c)
     return out
 
 

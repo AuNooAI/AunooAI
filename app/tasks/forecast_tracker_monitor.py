@@ -41,7 +41,14 @@ _status = {
     "last_check_time": None,
     "last_error": None,
     "last_kicked_off": [],  # list of (topic, run_id, kicked_at)
+    "last_delivery_check": None,
+    "last_delivery_results": [],  # list of {cadence, period_label, topics, ok, at}
 }
+
+# Override day-of-month + month checks for testing (e.g.
+# FORECAST_DELIVERY_FORCE_DAY=22 to make today behave as the 1st of the month).
+_FORCE_DAY = int(os.getenv("FORECAST_DELIVERY_FORCE_DAY", "0") or 0)
+_FORCE_QUARTER_MONTH = os.getenv("FORECAST_DELIVERY_FORCE_QUARTER", "").lower() in ("1", "true", "yes")
 
 
 def get_task_status() -> dict:
@@ -65,10 +72,86 @@ async def run_forecast_tracker_monitor():
         try:
             _status["last_check_time"] = datetime.now(timezone.utc).isoformat()
             await _check_and_kick_off()
+            await _check_delivery_cadences()
         except Exception as e:
             logger.error("Forecast tracker monitor loop error: %s", e, exc_info=True)
             _status["last_error"] = str(e)
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+
+
+async def _check_delivery_cadences():
+    """Fire monthly / quarterly bundle deliveries on calendar boundaries.
+
+    Runs once per check-loop iteration. Idempotent: ``last_delivered_at`` on
+    each topic guards against double-sends within the same period.
+
+    Boundaries:
+    * monthly  → day-of-month == 1
+    * quarterly → day-of-month == 1 AND month in (1, 4, 7, 10)
+    """
+    from app.database import get_database_instance
+    from app.services.wiley_delivery_service import deliver_bundle
+
+    now = datetime.now(timezone.utc)
+    _status["last_delivery_check"] = now.isoformat()
+
+    day = _FORCE_DAY or now.day
+    if day != 1:
+        return  # only fire on the 1st of the month
+
+    is_quarter_start = (now.month in (1, 4, 7, 10)) or _FORCE_QUARTER_MONTH
+
+    db = get_database_instance()
+    configs = db.facade.get_forecast_topic_delivery_configs()
+
+    # Decide whether each cadence needs to fire — guarded by checking whether
+    # any topic in that cadence hasn't been delivered yet for this period.
+    monthly_due = _period_due(configs, "monthly", now)
+    quarterly_due = is_quarter_start and _period_due(configs, "quarterly", now)
+
+    for cadence, due in (("monthly", monthly_due), ("quarterly", quarterly_due)):
+        if not due:
+            continue
+        try:
+            result = await deliver_bundle(cadence, updates_only=True, when=now)
+            _status["last_delivery_results"] = (
+                [{
+                    "cadence": cadence,
+                    "period_label": result.get("period_label"),
+                    "topics": result.get("topics"),
+                    "ok": result.get("ok"),
+                    "at": now.isoformat(),
+                }]
+                + _status["last_delivery_results"][:9]
+            )
+            logger.info("Scheduled %s delivery: ok=%s topics=%s",
+                        cadence, result.get("ok"), result.get("topics"))
+        except Exception as e:
+            logger.error("Scheduled %s delivery failed: %s", cadence, e, exc_info=True)
+
+
+def _period_due(configs: list, cadence: str, now: datetime) -> bool:
+    """True if ANY topic with the given cadence hasn't been delivered yet
+    in the current month (monthly) or quarter (quarterly)."""
+    selected = [c for c in configs if (c.get("cadence") or "").lower() == cadence]
+    if not selected:
+        return False
+    for c in selected:
+        last = c.get("last_delivered_at")
+        if not last:
+            return True
+        last_dt = _ensure_aware(last)
+        if last_dt is None:
+            return True
+        if cadence == "monthly":
+            if (last_dt.year, last_dt.month) < (now.year, now.month):
+                return True
+        else:  # quarterly
+            last_q = (last_dt.month - 1) // 3
+            now_q = (now.month - 1) // 3
+            if (last_dt.year, last_q) < (now.year, now_q):
+                return True
+    return False
 
 
 async def _check_and_kick_off():

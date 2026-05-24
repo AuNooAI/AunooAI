@@ -47,6 +47,11 @@ const tabs: Tab[] = [
     tooltip: 'Explore long-term scenarios and future possibilities'
   },
   {
+    id: 'topics',
+    label: 'Topics',
+    tooltip: 'All tracked topics — status, owner, last assessed, delivery cadence, overlay state. Add new topics from here.'
+  },
+  {
     id: 'forecast-tracker',
     label: 'Forecast Tracker',
     tooltip: 'How is the stored Three Horizons forecast tracking against fresh evidence?'

@@ -1035,8 +1035,50 @@ t_forecast_scenario_verdicts = Table(
     Column('neutral', Integer, nullable=False, server_default=text('0')),
     Column('summary_md', Text),
     Column('top_articles', JSONB),
+    # Freshly-measured "X% of confident verdicts support this scenario" — shown
+    # alongside the original deck-authored consensus_pct on the Wiley bundle's
+    # Briefing Synthesis / Consensus & Outlier slides so the reader can see
+    # quarter-over-quarter drift.
+    Column('current_consensus_pct', Float),
+    # Per-scenario LLM-synthesised artefacts: key_signals (list of 2-3 phrases),
+    # strategic_imperative (single sentence). Cached lazily.
+    Column('synthesis', JSONB),
     UniqueConstraint('assessment_id', 'scenario_idx', name='uq_scenario_verdicts_assessment_scenario'),
     Index('ix_scenario_verdicts_assessment', 'assessment_id'),
+)
+
+# Cross-topic LLM-synthesised artefacts that span an entire bundle run —
+# strategic_overview, cross_cutting_themes, executive_decision_framework.
+# Keyed by (cadence, period_label) so re-exports of the same quarter hit
+# the cache. Cleared by quarter boundary; bundle service recomputes when
+# the period_label changes.
+t_forecast_bundle_synthesis = Table(
+    'forecast_bundle_synthesis', metadata,
+    Column('cadence', String(16), primary_key=True),
+    Column('period_label', String(64), primary_key=True),
+    Column('payload', JSONB, nullable=False),
+    Column('topics', JSONB),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+)
+
+# Review gate state for the WileyBundleSupervisor pipeline. The LLM-as-judge
+# reviewer agent populates ``reviewer_findings`` after each generation;
+# ``status`` advances through awaiting_synth → under_review → either
+# revision_requested (blocks) / approved_with_warnings / approved → shipped.
+# A human approver clears the gate via the Wiley Deliverables UI.
+t_forecast_bundle_review = Table(
+    'forecast_bundle_review', metadata,
+    Column('cadence', String(16), primary_key=True),
+    Column('period_label', String(64), primary_key=True),
+    Column('status', String(32), nullable=False, server_default=text("'awaiting_synth'")),
+    Column('reviewer_findings', JSONB),
+    Column('reviewer_model', Text),
+    Column('approved_by', Text),
+    Column('approved_at', DateTime(timezone=True)),
+    Column('shipped_at', DateTime(timezone=True)),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
 )
 
 t_forecast_article_verdicts = Table(
@@ -1056,6 +1098,79 @@ t_forecast_article_verdicts = Table(
     Column('recorded_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Index('ix_article_verdicts_assessment_scenario', 'assessment_id', 'scenario_idx'),
     Index('ix_article_verdicts_assessment_uri', 'assessment_id', 'article_uri'),
+)
+
+# User-promoted scenarios — created by clicking "Track as scenario" on a
+# surprise cluster in the Forecast Tracker. Stored as an addendum so the
+# original future_horizons_runs.raw_output['scenarios'] stays untouched
+# (preserving the audit trail of what was originally forecast). The
+# assessment service concatenates these with the original scenarios at
+# run time and assigns them higher scenario_idx values.
+t_forecast_user_scenarios = Table(
+    'forecast_user_scenarios', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('run_id', String(36), nullable=False),
+    Column('title', Text, nullable=False),
+    Column('description', Text, nullable=False),
+    Column('horizon_type', String(4), nullable=False),
+    Column('timeframe', String(32)),
+    Column('source_assessment_id', String(36)),
+    Column('source_surprise_label', Text),
+    Column('source_article_uris', JSONB),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('ix_forecast_user_scenarios_run', 'run_id'),
+)
+
+# Overlay table for marking any scenario (original or addendum) as "done".
+# Polymorphic: exactly one of scenario_idx (original) or user_scenario_id
+# (addendum) is set per row. Done scenarios are skipped from reranker/LLM
+# during assess_run but still get a placeholder verdict row at the same
+# scenario_idx so historical comparisons stay valid (scenario_idx is
+# positional within an assess-time list).
+t_forecast_scenario_status = Table(
+    'forecast_scenario_status', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('run_id', String(36), nullable=False),
+    Column('scenario_idx', Integer),  # nullable: set for originals
+    Column('user_scenario_id', String(36)),  # nullable: set for addendums
+    Column('status', String(16), nullable=False, server_default=text("'active'")),
+    Column('marked_done_at', DateTime(timezone=True)),
+    Column('note', Text),
+    UniqueConstraint('run_id', 'scenario_idx', 'user_scenario_id',
+                     name='uq_scenario_status_run_keys'),
+    Index('ix_forecast_scenario_status_run', 'run_id'),
+)
+
+# Per-topic delivery cadence for the Wiley reporting pipeline. Sets which
+# topics roll up into the monthly per-topic update vs. the quarterly bundle
+# of the 5 core topics, plus the recipient address(es) and last-delivered
+# timestamp the scheduler uses to avoid duplicate sends.
+t_forecast_topic_delivery = Table(
+    'forecast_topic_delivery', metadata,
+    Column('topic', Text, primary_key=True),
+    Column('cadence', String(16), nullable=False, server_default=text("'none'")),
+    Column('recipient_email', Text),
+    Column('last_delivered_at', DateTime(timezone=True)),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+)
+
+# Sidecar metadata for a forecast topic — owner, description, status,
+# overlay-review status. Keyed by the same topic string used everywhere
+# else so existing rows remain untouched. Powers the Topics dashboard and
+# the "Add topic" wizard.
+t_forecast_topic_metadata = Table(
+    'forecast_topic_metadata', metadata,
+    Column('topic', Text, primary_key=True),
+    Column('display_name', Text),
+    Column('description', Text),
+    Column('owner', Text),
+    Column('status', String(16), nullable=False, server_default=text("'active'")),
+    Column('tags', JSONB),
+    Column('overlay_status', String(16), nullable=False, server_default=text("'missing'")),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_topic_metadata_status', 'status'),
+    Index('idx_topic_metadata_owner', 'owner'),
 )
 
 # LLM Error Handling and Circuit Breaker Tables
