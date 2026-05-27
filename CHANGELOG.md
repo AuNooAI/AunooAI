@@ -5,6 +5,66 @@ Notable changes to AunooAI (bugfixing tenant). Loosely follows
 
 ## [Unreleased]
 
+### Added — 2026-05-24
+
+- **Wiley trend-discovery → topic-promotion pipeline.** A weekly
+  background job runs the emerging-themes detector over the corpus,
+  judges every new cluster against the Wiley organisational profile
+  (`organizational_profiles`), and lands in-scope candidates in a new
+  `topic_candidates` inbox. Off-scope candidates are auto-rejected.
+  Analysts triage from a Candidates pill on the Topics dashboard —
+  **Promote** kicks off Three Horizons + paired assessment + draft
+  overlay, then drops the analyst into the wizard at the overlay-review
+  step. Snooze / Reject / Merge are first-class. New files:
+  `app/services/wiley_candidate_pipeline.py`,
+  `app/tasks/wiley_candidate_scheduler.py`,
+  `app/routes/wiley_candidates_routes.py`,
+  `data/auspex/agents/wiley_relevance_judge.md`,
+  `ui/src/components/CandidatesInbox.tsx`. Migration `fa_007` adds the
+  `topic_candidates` table + `source_candidate_id` lineage column on
+  `forecast_topic_metadata`. Gated by `WILEY_CANDIDATE_SCAN_ENABLED`
+  (default on). [`fa_007`]
+- **Topics dashboard + Add-topic wizard.** Single source of truth for
+  what topics are tracked: one row per topic with health dot, owner,
+  tags, last assessed, cadence, last delivered, overlay status, and
+  status (`draft` / `active` / `archived`). The "+ Add topic" CTA opens
+  a five-step wizard (name & framing → Three Horizons → first
+  assessment → overlay review → delivery cadence) that's resumable via
+  `localStorage`. The reviewer agent now warns when a topic with a
+  missing overlay is included in a bundle. New files:
+  `ui/src/components/TopicsDashboard.tsx`,
+  `ui/src/components/AddTopicWizard.tsx`,
+  `app/services/wiley_overlay_generator.py`,
+  `data/auspex/agents/wiley_overlay_agent.md`. Migration `fa_006` adds
+  the `forecast_topic_metadata` sidecar table.
+- **Wiley multi-agent supervisor + bundle review.** Quarterly deck
+  generation now runs through a supervisor that orchestrates
+  briefing / recommendations / next steps / cross-cutting themes /
+  executive-summary / surprises stages, with a separate
+  `wiley_reviewer_agent` (LLM-as-judge) auditing every artefact
+  against an explicit rubric before the deck ships. Reviewer findings
+  are persisted in `forecast_bundle_review` and surfaced in the
+  Deliverables panel. Migration `fa_005`.
+- **LLM-named emerging-theme clusters.** Replaces the previous
+  keyword-salad labels (`"ukraine, drug, generic"`) with Title Case
+  names from `forecast_cluster_label_agent`. The same agent decides
+  whether each cluster is genuinely topic-relevant; off-topic clusters
+  are dropped and off-topic articles inside otherwise-relevant clusters
+  are pruned. Reviewer's rubric extended to flag keyword-salad labels
+  as `error` so any future regression gates the deck.
+- **Markdown bundle export.** `wiley_delivery_service.generate_bundle_markdown`
+  produces the same content as the PPTX path through a shared synthesis
+  pipeline. Download button alongside "Download .pptx" in the
+  Deliverables panel. Endpoint:
+  `GET /api/forecast/deliverables/bundle.md`.
+- **Headline Findings full-mode counts** in the bundle's opening slide
+  now distinguish updates-only (status changes vs prior snapshot) from
+  full review (off-baseline + inconclusive + total articles).
+- **Strategic Domains card "no attribution" handling** — when zero
+  articles support or contradict every scenario for a topic, the
+  Strategic Domains slide drops the misleading "0% current consensus"
+  chip and shows a "no attribution this window" note instead.
+
 ### Added
 - **Cross-encoder reranker** (`app/retrieval/reranker.py`) — overfetch + rerank
   now runs on Auspex vector search, `/anticipate` Trend Convergence, and

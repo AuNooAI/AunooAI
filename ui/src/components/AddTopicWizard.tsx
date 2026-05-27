@@ -1,33 +1,38 @@
 /**
- * AddTopicWizard — 5-step modal that walks a non-developer through adding
+ * AddTopicWizard — 4-step modal that walks a non-developer through adding
  * a new tracked topic.
  *
- * v1 strategy: don't reinvent existing tab flows. Steps 2 (Three Horizons)
- * and 3 (paired assessment) DETECT existing work and link out to the
- * already-built UI for those flows. The wizard's own UI focuses on:
- *   - step 1: name + framing → metadata row in 'draft'
- *   - step 4: overlay review (generate → edit structured form → approve)
- *   - step 5: delivery cadence + recipient
+ *   1. Framing   — name + display name + description + owner + tags
+ *   2. Build     — fires horizons + paired assessment + draft overlay in
+ *                  the background. Wizard polls progress; auto-advances.
+ *                  Replaces the old "open another tab and come back"
+ *                  redirects that broke the flow.
+ *   3. Overlay   — structured editor for the auto-generated deck overlay.
+ *                  Approve writes the production overlay JSON.
+ *   4. Delivery  — cadence + recipient. Finishing flips the topic to
+ *                  'active' status.
  *
  * Wizard state lives in localStorage keyed by topic name so users can
  * close the modal and resume.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, X, Check, ChevronRight, ExternalLink, AlertTriangle, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { Loader2, X, Check, ChevronRight, AlertTriangle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onCompleted?: (topic: string) => void;
+  /** Kept for backwards compatibility with App.tsx wiring — no longer
+   *  triggered by the wizard itself. */
   onNavigateToHorizons?: (topic: string) => void;
   onNavigateToTracker?: (topic: string) => void;
   initialTopic?: string;
   initialStep?: number;
 }
 
-type StepIdx = 1 | 2 | 3 | 4 | 5;
+type StepIdx = 1 | 2 | 3 | 4;
 
 interface TopicMeta {
   topic: string;
@@ -66,6 +71,7 @@ interface Overlay {
 }
 
 const STORAGE_PREFIX = 'addTopicWizard:';
+const STEP_LABELS = ['Framing', 'Build', 'Overlay', 'Delivery'];
 
 function loadState(topic: string): { step: StepIdx; overlay?: Overlay } {
   try {
@@ -85,7 +91,7 @@ function clearState(topic: string) {
 }
 
 export function AddTopicWizard({
-  open, onClose, onCompleted, onNavigateToHorizons, onNavigateToTracker,
+  open, onClose, onCompleted,
   initialTopic, initialStep,
 }: Props) {
   const [step, setStep] = useState<StepIdx>((initialStep as StepIdx) || 1);
@@ -96,12 +102,21 @@ export function AddTopicWizard({
   const [tagsInput, setTagsInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [meta, setMeta] = useState<TopicMeta | null>(null);
+  const [, setMeta] = useState<TopicMeta | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleRow | null>(null);
   const [overlay, setOverlay] = useState<Overlay | null>(null);
+
+  // Step 2 — build pipeline progress
+  const [buildTaskId, setBuildTaskId] = useState<string | null>(null);
+  const [buildPct, setBuildPct] = useState(0);
+  const [buildStatus, setBuildStatus] = useState('');
+
+  // Step 3 — overlay generation (only needed if .proposed was lost or never written)
   const [generateTaskId, setGenerateTaskId] = useState<string | null>(null);
   const [generateStatus, setGenerateStatus] = useState<string>('');
   const [generatePct, setGeneratePct] = useState(0);
+
+  // Step 4 — delivery
   const [cadence, setCadence] = useState<'monthly' | 'quarterly' | 'none'>('none');
   const [recipient, setRecipient] = useState('');
 
@@ -113,8 +128,22 @@ export function AddTopicWizard({
       if (s.step) setStep(s.step);
       if (s.overlay) setOverlay(s.overlay);
       setName(initialTopic);
+    } else {
+      // Fresh wizard — reset state so the modal isn't poisoned by the
+      // previous run.
+      setStep((initialStep as StepIdx) || 1);
+      setName('');
+      setDisplayName('');
+      setDescription('');
+      setOwner('');
+      setTagsInput('');
+      setOverlay(null);
+      setBuildTaskId(null);
+      setBuildPct(0);
+      setBuildStatus('');
+      setError(null);
     }
-  }, [open, initialTopic]);
+  }, [open, initialTopic, initialStep]);
 
   const persist = useCallback((nextStep: StepIdx, nextOverlay?: Overlay | null) => {
     if (!name) return;
@@ -143,6 +172,31 @@ export function AddTopicWizard({
   useEffect(() => {
     if (open && step >= 2 && name) refreshLifecycle();
   }, [open, step, name, refreshLifecycle]);
+
+  // If the wizard opens directly at step 3 (overlay review — e.g. after
+  // candidate promotion) and we don't yet have an overlay loaded, fetch
+  // the .proposed file the pipeline wrote.
+  useEffect(() => {
+    if (!open || step !== 3 || !name || overlay) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pr = await fetch(
+          `/api/forecast/topics/${encodeURIComponent(name)}/overlay/proposed`,
+        );
+        if (cancelled || !pr.ok) return;
+        const pj = await pr.json();
+        if (pj?.overlay) {
+          setOverlay(pj.overlay);
+          persist(3, pj.overlay);
+        }
+      } catch {
+        // Step 3 panel offers a "Generate overlay" button when no
+        // proposal exists yet.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, step, name, overlay, persist]);
 
   // ── Step 1 — name & framing
   const createMetadata = async () => {
@@ -174,7 +228,64 @@ export function AddTopicWizard({
     }
   };
 
-  // ── Step 4 — overlay generate + review + approve
+  // ── Step 2 — build pipeline (horizons + assessment + overlay draft)
+  const startBuild = async () => {
+    setBusy(true); setError(null); setBuildPct(0); setBuildStatus('starting…');
+    try {
+      const r = await fetch(
+        `/api/forecast/topics/${encodeURIComponent(name)}/wizard/build`,
+        { method: 'POST' },
+      );
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`${r.status} ${t || r.statusText}`);
+      }
+      const data = await r.json();
+      setBuildTaskId(data.task_id);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to start build pipeline');
+      setBusy(false);
+    }
+  };
+
+  // Poll the build task — auto-advance to step 3 (overlay review) on completion.
+  useEffect(() => {
+    if (!buildTaskId) return;
+    const handle = window.setInterval(async () => {
+      try {
+        const r = await fetch(`/api/forecast/assessment/job/${buildTaskId}`);
+        if (!r.ok) return;
+        const s = await r.json();
+        setBuildPct(Math.round(s.progress || 0));
+        setBuildStatus(s.current_item || s.status || '');
+        if (s.status === 'completed') {
+          window.clearInterval(handle);
+          setBuildTaskId(null);
+          setBusy(false);
+          // Try to auto-load the .proposed overlay so step 3 has data
+          try {
+            const pr = await fetch(`/api/forecast/topics/${encodeURIComponent(name)}/overlay/proposed`);
+            if (pr.ok) {
+              const pj = await pr.json();
+              if (pj?.overlay) {
+                setOverlay(pj.overlay);
+                persist(3, pj.overlay);
+              }
+            }
+          } catch {}
+          setStep(3); persist(3);
+        } else if (s.status === 'failed' || s.status === 'error') {
+          window.clearInterval(handle);
+          setBuildTaskId(null);
+          setError(s.error || 'Build pipeline failed');
+          setBusy(false);
+        }
+      } catch {}
+    }, 2000);
+    return () => window.clearInterval(handle);
+  }, [buildTaskId, name, persist]);
+
+  // ── Step 3 — overlay regenerate (only used if no .proposed found)
   const startOverlayGen = async () => {
     setBusy(true); setError(null); setGenerateStatus('starting…'); setGeneratePct(0);
     try {
@@ -193,7 +304,6 @@ export function AddTopicWizard({
     }
   };
 
-  // Poll the overlay generation task; on completion, fetch the proposed JSON
   useEffect(() => {
     if (!generateTaskId) return;
     const handle = window.setInterval(async () => {
@@ -210,7 +320,7 @@ export function AddTopicWizard({
           if (pr.ok) {
             const pj = await pr.json();
             setOverlay(pj.overlay);
-            persist(4, pj.overlay);
+            persist(3, pj.overlay);
           } else {
             setError('Generation completed but proposed overlay could not be loaded');
           }
@@ -239,7 +349,7 @@ export function AddTopicWizard({
         const t = await r.text();
         throw new Error(`${r.status} ${t || r.statusText}`);
       }
-      setStep(5); persist(5);
+      setStep(4); persist(4);
     } catch (e: any) {
       setError(e?.message || 'Failed to approve overlay');
     } finally {
@@ -247,7 +357,7 @@ export function AddTopicWizard({
     }
   };
 
-  // ── Step 5 — delivery + finish
+  // ── Step 4 — delivery + finish
   const finish = async () => {
     setBusy(true); setError(null);
     try {
@@ -262,8 +372,6 @@ export function AddTopicWizard({
           throw new Error(`${r.status} ${t || r.statusText}`);
         }
       }
-      // Flip metadata.status to active (overlay approve already does this,
-      // but covers the "skipped step 4" case)
       await fetch(`/api/forecast/topics/${encodeURIComponent(name)}/metadata`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -288,7 +396,9 @@ export function AddTopicWizard({
         <div className="flex items-start justify-between p-4 border-b border-gray-200 dark:border-gray-700">
           <div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Add a new tracked topic</h3>
-            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">5 steps. You can close this and resume any time.</p>
+            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+              4 steps. Build runs the full horizons + assessment + overlay pipeline in the background (~10 min); you can close and resume.
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
             <X className="w-5 h-5" />
@@ -297,17 +407,19 @@ export function AddTopicWizard({
 
         {/* Stepper */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          {[1, 2, 3, 4, 5].map(i => (
+          {[1, 2, 3, 4].map(i => (
             <div key={i} className="flex items-center gap-2">
               <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium ${
-                step === i ? 'bg-pink-600 text-white' : step > i ? 'bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                step === i ? 'bg-pink-600 text-white'
+                  : step > i ? 'bg-emerald-600 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
               }`}>
                 {step > i ? <Check className="w-3 h-3" /> : i}
               </span>
               <span className={`text-[11px] ${step === i ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500'}`}>
-                {['Framing', 'Horizons', 'Assessment', 'Overlay', 'Delivery'][i - 1]}
+                {STEP_LABELS[i - 1]}
               </span>
-              {i < 5 && <ChevronRight className="w-3 h-3 text-gray-400" />}
+              {i < 4 && <ChevronRight className="w-3 h-3 text-gray-400" />}
             </div>
           ))}
         </div>
@@ -319,7 +431,6 @@ export function AddTopicWizard({
             </div>
           )}
 
-          {/* ── Step 1: Name & framing ── */}
           {step === 1 && (
             <Step1
               name={name} setName={setName}
@@ -331,32 +442,22 @@ export function AddTopicWizard({
           )}
 
           {step === 2 && (
-            <Step2Check
-              kind="horizons"
-              ready={!!lifecycle && lifecycle.status !== 'draft' /* heuristic: backend uses runs not in API yet */}
+            <Step2Build
               topic={name}
               lifecycle={lifecycle}
-              onRefresh={refreshLifecycle}
-              onNavigate={() => onNavigateToHorizons && onNavigateToHorizons(name)}
+              busy={!!buildTaskId || busy}
+              pct={buildPct}
+              status={buildStatus}
+              onBuild={startBuild}
+              onSkipToOverlay={() => { setStep(3); persist(3); }}
             />
           )}
 
           {step === 3 && (
-            <Step2Check
-              kind="assessment"
-              ready={!!lifecycle?.assessment_id}
-              topic={name}
-              lifecycle={lifecycle}
-              onRefresh={refreshLifecycle}
-              onNavigate={() => onNavigateToTracker && onNavigateToTracker(name)}
-            />
-          )}
-
-          {step === 4 && (
-            <Step4Overlay
+            <Step3Overlay
               topic={name}
               overlay={overlay}
-              setOverlay={(o) => { setOverlay(o); persist(4, o); }}
+              setOverlay={(o) => { setOverlay(o); persist(3, o); }}
               busy={busy}
               genPct={generatePct}
               genStatus={generateStatus}
@@ -364,8 +465,8 @@ export function AddTopicWizard({
             />
           )}
 
-          {step === 5 && (
-            <Step5Delivery
+          {step === 4 && (
+            <Step4Delivery
               cadence={cadence} setCadence={setCadence}
               recipient={recipient} setRecipient={setRecipient}
             />
@@ -377,7 +478,7 @@ export function AddTopicWizard({
           <button
             type="button"
             onClick={() => { setStep((Math.max(1, step - 1)) as StepIdx); persist((Math.max(1, step - 1)) as StepIdx); }}
-            disabled={step === 1 || busy}
+            disabled={step === 1 || busy || !!buildTaskId}
             className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
           >
             Back
@@ -387,17 +488,17 @@ export function AddTopicWizard({
               {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Save & continue
             </Button>
           )}
-          {(step === 2 || step === 3) && (
-            <Button onClick={() => { setStep((step + 1) as StepIdx); persist((step + 1) as StepIdx); }} className="text-xs bg-pink-600 hover:bg-pink-700 text-white h-7 px-3 py-0">
-              Continue
+          {step === 2 && lifecycle?.assessment_id && !buildTaskId && (
+            <Button onClick={() => { setStep(3); persist(3); }} className="text-xs bg-pink-600 hover:bg-pink-700 text-white h-7 px-3 py-0">
+              Continue to overlay
             </Button>
           )}
-          {step === 4 && (
+          {step === 3 && (
             <Button onClick={approveOverlay} disabled={busy || !overlay} className="text-xs bg-pink-600 hover:bg-pink-700 text-white h-7 px-3 py-0">
               {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Approve overlay & continue
             </Button>
           )}
-          {step === 5 && (
+          {step === 4 && (
             <Button onClick={finish} disabled={busy} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-3 py-0">
               {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Finish — activate topic
             </Button>
@@ -415,14 +516,14 @@ function Step1({ name, setName, displayName, setDisplayName, description, setDes
     <div className="space-y-3">
       <h4 className="font-medium text-gray-900 dark:text-gray-100">Name & framing</h4>
       <p className="text-xs text-gray-600 dark:text-gray-300">
-        The topic name is the universal join key — it must match the name you'll use in the Future Horizons tab and the eventual Wiley deck. Pick the deck-friendly form (e.g. "Patent Cliffs").
+        The topic name is the universal join key — it must match the name stored on articles in the corpus (or the name you'll tag new articles with going forward). Pick the deck-friendly form (e.g. "Patent Cliffs").
       </p>
       <Field label="Topic name *">
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Patent Cliffs"
                className="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
       </Field>
       <Field label="Display name (optional)">
-        <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="shown in the deck if different from the canonical name"
+        <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Shown in the deck if different from the canonical name"
                className="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
       </Field>
       <Field label="Description">
@@ -444,51 +545,73 @@ function Step1({ name, setName, displayName, setDisplayName, description, setDes
   );
 }
 
-// ── Step 2 / 3 — "is the prerequisite work done?"
-function Step2Check({ kind, ready, topic, lifecycle, onRefresh, onNavigate }: {
-  kind: 'horizons' | 'assessment'; ready: boolean; topic: string; lifecycle: LifecycleRow | null;
-  onRefresh: () => Promise<any>; onNavigate: () => void;
+// ── Step 2 — build pipeline inline
+function Step2Build({ topic, lifecycle, busy, pct, status, onBuild, onSkipToOverlay }: {
+  topic: string; lifecycle: LifecycleRow | null;
+  busy: boolean; pct: number; status: string;
+  onBuild: () => void; onSkipToOverlay: () => void;
 }) {
-  const isHorizons = kind === 'horizons';
+  const alreadyAssessed = !!lifecycle?.assessment_id;
   return (
     <div className="space-y-3">
-      <h4 className="font-medium text-gray-900 dark:text-gray-100">
-        {isHorizons ? 'Three Horizons forecast' : 'First paired assessment'}
-      </h4>
+      <h4 className="font-medium text-gray-900 dark:text-gray-100">Build the pipeline</h4>
       <p className="text-xs text-gray-600 dark:text-gray-300">
-        {isHorizons
-          ? `The deck overlay is built from the Three Horizons scenarios for this topic. Run a Three Horizons analysis on the Future Horizons tab using the exact topic name '${topic}', then come back.`
-          : `The overlay generator needs at least one live paired assessment so it has supports/contradicts data to anchor consensus_pct on. Go to the Forecast Tracker tab and run a paired assessment for '${topic}'.`
-        }
+        We'll run three things for you in the background:
       </p>
-      <div className={`rounded p-3 border ${ready
-        ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800'
-        : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800'
-      }`}>
-        <div className="text-xs font-medium text-gray-900 dark:text-gray-100">
-          {ready ? (isHorizons ? 'Topic is registered in the lifecycle index.' : 'Latest assessment detected.')
-                 : (isHorizons ? 'Topic not yet in the lifecycle index.' : 'No live assessment recorded yet.')}
-        </div>
-        {ready && lifecycle && !isHorizons && (
-          <div className="text-[11px] text-gray-700 dark:text-gray-200 mt-1">
-            assessed {lifecycle.assessed_at?.slice(0, 10) || '—'}
+      <ol className="list-decimal ml-5 text-xs text-gray-700 dark:text-gray-200 space-y-1">
+        <li>A Three Horizons projection seeded with recent articles tagged <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[11px]">{topic}</code> in the corpus.</li>
+        <li>A paired (live + placebo) assessment of the new forecast against the post-forecast window.</li>
+        <li>A draft deck overlay mapping the 10-14 raw scenarios into 4-5 deck-level scenarios.</li>
+      </ol>
+      <p className="text-xs text-gray-600 dark:text-gray-300">
+        Total runtime ≈ 8-12 minutes. The wizard polls progress — you can close this and resume.
+      </p>
+
+      {alreadyAssessed && !busy && (
+        <div className="rounded p-3 border bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800">
+          <div className="text-xs text-gray-900 dark:text-gray-100 font-medium">
+            This topic already has a stored assessment ({lifecycle?.assessed_at?.slice(0, 10) || '—'}).
           </div>
-        )}
-        <div className="mt-2 flex gap-2">
-          <button onClick={onNavigate} className="text-[11px] inline-flex items-center px-2 py-1 border border-gray-300 dark:border-gray-700 rounded hover:bg-white dark:hover:bg-gray-800">
-            <ExternalLink className="w-3 h-3 mr-1" /> Open {isHorizons ? 'Future Horizons' : 'Forecast Tracker'}
-          </button>
-          <button onClick={onRefresh} className="text-[11px] inline-flex items-center px-2 py-1 border border-gray-300 dark:border-gray-700 rounded hover:bg-white dark:hover:bg-gray-800">
-            <RefreshCw className="w-3 h-3 mr-1" /> Refresh
-          </button>
+          <div className="text-[11px] text-gray-700 dark:text-gray-200 mt-1">
+            You can skip the build and go straight to the overlay review, or re-run the pipeline to refresh the forecast and assessment.
+          </div>
+          <div className="mt-2 flex gap-2">
+            <Button onClick={onSkipToOverlay} className="text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white h-6 px-3 py-0">
+              Skip to overlay
+            </Button>
+            <Button onClick={onBuild} disabled={busy} className="text-[11px] bg-pink-600 hover:bg-pink-700 text-white h-6 px-3 py-0">
+              Re-run build
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {!alreadyAssessed && !busy && (
+        <Button onClick={onBuild} disabled={busy} className="text-xs bg-pink-600 hover:bg-pink-700 text-white h-7 px-3 py-0 inline-flex items-center">
+          <Sparkles className="w-3 h-3 mr-1" /> Run build pipeline
+        </Button>
+      )}
+
+      {busy && (
+        <div className="rounded border border-pink-200 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-900/20 p-3 space-y-2">
+          <div className="text-xs font-medium text-pink-900 dark:text-pink-100 inline-flex items-center gap-2">
+            <Loader2 className="w-3 h-3 animate-spin" /> Building pipeline · {pct}%
+          </div>
+          <div className="w-full bg-pink-100 dark:bg-pink-900/40 h-1.5 rounded overflow-hidden">
+            <div className="bg-pink-600 h-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="text-[11px] text-pink-900 dark:text-pink-100 truncate">{status}</div>
+          <p className="text-[10px] text-gray-600 dark:text-gray-300">
+            You can close this modal — the job runs server-side and will be picked up when you reopen the wizard for this topic.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Step 4 — overlay review (structured editor)
-function Step4Overlay({ topic, overlay, setOverlay, busy, genPct, genStatus, onGenerate }: {
+// ── Step 3 — overlay review (structured editor)
+function Step3Overlay({ topic, overlay, setOverlay, busy, genPct, genStatus, onGenerate }: {
   topic: string; overlay: Overlay | null; setOverlay: (o: Overlay) => void;
   busy: boolean; genPct: number; genStatus: string; onGenerate: () => void;
 }) {
@@ -498,7 +621,7 @@ function Step4Overlay({ topic, overlay, setOverlay, busy, genPct, genStatus, onG
       <div className="space-y-3">
         <h4 className="font-medium text-gray-900 dark:text-gray-100">Deck overlay — auto-generated proposal</h4>
         <p className="text-xs text-gray-600 dark:text-gray-300">
-          The overlay groups raw Three Horizons scenarios into 4-5 deck-level scenarios with consensus / signal / decision-fork framing. We'll generate a proposal you can edit before saving as the production overlay.
+          The overlay groups raw Three Horizons scenarios into 4-5 deck-level scenarios with consensus / signal / decision-fork framing. The build pipeline should have drafted one already — if it didn't, generate a fresh proposal you can edit before saving.
         </p>
         <Button onClick={onGenerate} disabled={busy} className="text-xs bg-pink-600 hover:bg-pink-700 text-white h-7 px-3 py-0">
           {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
@@ -625,8 +748,8 @@ function Step4Overlay({ topic, overlay, setOverlay, busy, genPct, genStatus, onG
   );
 }
 
-// ── Step 5 — delivery
-function Step5Delivery({ cadence, setCadence, recipient, setRecipient }: any) {
+// ── Step 4 — delivery
+function Step4Delivery({ cadence, setCadence, recipient, setRecipient }: any) {
   return (
     <div className="space-y-3">
       <h4 className="font-medium text-gray-900 dark:text-gray-100">Delivery cadence</h4>

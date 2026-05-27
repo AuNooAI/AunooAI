@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
@@ -1014,6 +1014,10 @@ t_forecast_assessments = Table(
     Column('model_used', String(100)),
     Column('runtime_seconds', Float),
     Column('config', JSONB),
+    # Dot-paths into `summary` that the analyst has locked. Supervisor
+    # re-runs of per-topic stages (briefing/recs/next_steps) restore
+    # these subtrees from their pre-run snapshot.
+    Column('summary_locked_keys', JSONB, nullable=False, server_default=text("'[]'::jsonb")),
     Index('ix_forecast_assessments_run_id', 'run_id'),
     Index('ix_forecast_assessments_topic_assessed', 'topic', 'assessed_at'),
 )
@@ -1058,6 +1062,14 @@ t_forecast_bundle_synthesis = Table(
     Column('period_label', String(64), primary_key=True),
     Column('payload', JSONB, nullable=False),
     Column('topics', JSONB),
+    # Dot-paths into `payload` that the analyst has locked. Supervisor
+    # re-runs restore these subtrees from their pre-run snapshot so an
+    # accidental "regenerate" doesn't clobber edited prose.
+    Column('locked_keys', JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    # Append-only audit log of analyst edits. Each entry:
+    # {key, prev_hash, next_hash, edited_by, edited_at}. Hashes keep the
+    # column small while still supporting "who changed what when" audit.
+    Column('edit_history', JSONB, nullable=False, server_default=text("'[]'::jsonb")),
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
 )
@@ -1080,6 +1092,43 @@ t_forecast_bundle_review = Table(
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
 )
+
+# Events extracted by the wiley_event_extractor_agent during the bundle's
+# events stage. Dedupe key: (topic, actor_normalized, action,
+# subject_normalized, event_date). Manual analyst additions land here
+# with origin='manual'. include_in_deck is the analyst's curate toggle.
+t_extracted_events = Table(
+    'extracted_events', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('assessment_id', String(36), nullable=True),
+    Column('topic', Text, nullable=False),
+    Column('cadence', String(16), nullable=True),
+    Column('period_label', String(64), nullable=True),
+    Column('actor', Text, nullable=False),
+    Column('actor_normalized', Text, nullable=False),
+    Column('action', Text, nullable=False),
+    Column('subject', Text, nullable=False),
+    Column('subject_normalized', Text, nullable=False),
+    Column('magnitude_value', Float),
+    Column('magnitude_unit', Text),
+    Column('event_date', Date),
+    Column('source_urls', JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column('confidence', Float),
+    Column('requires_review', Boolean, nullable=False, server_default=text('false')),
+    Column('include_in_deck', Boolean, nullable=False, server_default=text('true')),
+    Column('scenario_relevance', JSONB),
+    Column('origin', String(16), nullable=False, server_default=text("'auto'")),
+    Column('edited_by', Text),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'actor_normalized', 'action',
+                     'subject_normalized', 'event_date',
+                     name='uq_extracted_events_dedupe'),
+    Index('idx_extracted_events_topic_period', 'topic', 'period_label'),
+    Index('idx_extracted_events_assessment', 'assessment_id'),
+    Index('idx_extracted_events_requires_review', 'requires_review'),
+)
+
 
 t_forecast_article_verdicts = Table(
     'forecast_article_verdicts', metadata,
@@ -1167,10 +1216,63 @@ t_forecast_topic_metadata = Table(
     Column('status', String(16), nullable=False, server_default=text("'active'")),
     Column('tags', JSONB),
     Column('overlay_status', String(16), nullable=False, server_default=text("'missing'")),
+    # Optional pointer back to the candidate this topic was promoted from
+    # (added in fa_007). NULL for topics created without going through the
+    # Candidates inbox.
+    Column('source_candidate_id', Integer,
+           ForeignKey('topic_candidates.id', ondelete='SET NULL')),
+    # Consensus-topic lifecycle (fa_010). A tracked topic is a CLAIM whose
+    # consensus is the forecast basis; the loop formalizes it, analyzes each
+    # cycle, and retires it once evidence/coverage dies down.
+    #   claim_statement     — the documented claim being tracked
+    #   basis_consensus_pct — source-consensus % at formalization (the basis)
+    #   formalized_at       — when promoted to a tracked consensus topic
+    #   last_evidence_cycle — period_label of the last cycle with new events
+    #   dormant_since       — period_label when it first went evidence-quiet
+    Column('claim_statement', Text),
+    Column('basis_consensus_pct', Float),
+    Column('formalized_at', DateTime(timezone=True)),
+    Column('last_evidence_cycle', String(64)),
+    Column('dormant_since', String(64)),
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Index('idx_topic_metadata_status', 'status'),
     Index('idx_topic_metadata_owner', 'owner'),
+)
+
+# Candidate-topics inbox — emerging clusters that the relevance judge
+# scored against the Wiley organizational profile. Analysts triage via
+# the Topics dashboard. Promoted candidates become formal topics in
+# forecast_topic_metadata, with source_candidate_id pointing back here.
+t_topic_candidates = Table(
+    'topic_candidates', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('emerging_topic_id', Integer,
+           ForeignKey('emerging_topics.id', ondelete='CASCADE'), nullable=False),
+    Column('org_profile_id', Integer,
+           ForeignKey('organizational_profiles.id', ondelete='CASCADE'), nullable=False),
+    Column('relevance_verdict', String(16), nullable=False),  # 'in_scope' | 'adjacent' | 'off_scope'
+    Column('relevance_score', Float),
+    Column('relevance_rationale', Text),
+    Column('proposed_topic_name', Text),
+    Column('proposed_description', Text),
+    Column('proposed_tags', JSONB),
+    Column('triage_status', String(16), nullable=False,
+           server_default=text("'pending'")),
+    Column('snooze_until', Date),
+    Column('rejected_reason', Text),
+    Column('promoted_to_topic', Text),
+    Column('triaged_by', Text),
+    Column('triaged_at', DateTime(timezone=True)),
+    Column('created_at', DateTime(timezone=True),
+           server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True),
+           server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('emerging_topic_id', 'org_profile_id',
+                     name='uq_topic_candidates_topic_profile'),
+    Index('idx_topic_candidates_triage_status', 'triage_status'),
+    Index('idx_topic_candidates_verdict', 'relevance_verdict'),
+    Index('idx_topic_candidates_snooze_until', 'snooze_until'),
 )
 
 # LLM Error Handling and Circuit Breaker Tables

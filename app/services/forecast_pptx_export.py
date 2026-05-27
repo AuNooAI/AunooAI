@@ -185,12 +185,32 @@ def _baseline_color(label: Optional[str]) -> RGBColor:
 def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
           color=TITLE_DARK, align=PP_ALIGN.LEFT, font_name=BODY_FONT,
           line_spacing: Optional[float] = None,
-          anchor=MSO_ANCHOR.TOP):
+          anchor=MSO_ANCHOR.TOP,
+          shrink_to_fit: bool = True):
     """Add a text box. ``text`` may contain newlines — each becomes a paragraph
-    so paragraph-level alignment/spacing applies uniformly."""
+    so paragraph-level alignment/spacing applies uniformly.
+
+    ``shrink_to_fit`` enables PowerPoint's "Shrink text on overflow" autofit
+    (``MSO_AUTO_SIZE.TEXT_TO_SHAPE``) on the resulting text frame. With it on,
+    long content stays fully visible at a slightly smaller font instead of
+    being chopped by the caller's ``_truncate``. Default is on because the
+    deck's biggest legibility complaint historically was mid-sentence
+    ellipsis on every signal/imperative/description. Disable explicitly for
+    fixed-size titles where a smaller fallback font would look broken.
+    """
     tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     tf = tb.text_frame
     tf.word_wrap = True
+    if shrink_to_fit:
+        try:
+            from pptx.enum.text import MSO_AUTO_SIZE
+            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_SHAPE
+        except Exception:
+            # If the python-pptx build doesn't expose TEXT_TO_SHAPE for some
+            # reason, fall back silently. word_wrap=True is still applied so
+            # text wraps within the box, and the caller's _truncate cap
+            # (when used) still provides a last-resort safety net.
+            pass
     tf.vertical_anchor = anchor
     tf.margin_left = Emu(0)
     tf.margin_right = Emu(0)
@@ -252,13 +272,12 @@ def _add_left_rail(slide, *, horizon: str, consensus_pct: Optional[float]):
           bold=False, color=SLATE_LIGHT, align=PP_ALIGN.CENTER,
           line_spacing=1.1)
 
-    # Consensus chip
-    if consensus_pct is not None:
-        _rect(slide, x=0.2, y=3.4, w=1.2, h=0.85, fill=accent, rounded=True)
-        _text(slide, x=0.2, y=3.45, w=1.2, h=0.4, text=f"{int(consensus_pct)}%",
-              font_size=22, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-        _text(slide, x=0.2, y=3.88, w=1.2, h=0.3, text="CONSENSUS",
-              font_size=8, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    # NOTE: the "consensus %" chip that used to sit here was removed. It
+    # stamped an article-framing ratio on every scenario slide as if it
+    # were a forecast-confidence score — exactly the overclaim the customer
+    # rejected. The horizon code + system label above carry the legitimate
+    # Three Horizons positioning. (consensus_pct param kept for signature
+    # stability; intentionally unused.)
 
     # AunooAI brand mark (logo image if available, fallback to wordmark text)
     _add_brand_mark(slide, x=0.15, y=5.15, w=1.3, h=0.4)
@@ -665,21 +684,109 @@ def _add_whats_changed_slide(prs, assessment: dict):
     _add_brand_footer(slide, slide_label="Current status")
 
 
-def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict]):
-    """One slide per scenario, restructured to put narrative + dated
-    developments front-and-center (the deck context — primary signal,
-    minority view — compresses to a small strip up top)."""
+def _calibration_read(basis_pct, n_confirm: int, n_counter: int):
+    """Classify a trend on the consensus×evidence matrix → (text, category).
+
+    The product's value is the DIVERGENCE between what sources expected
+    (the basis consensus) and what the evidence (named events) shows:
+    a high-consensus claim with no confirming evidence is the crowd being
+    confidently wrong; a low-consensus outlier with confirming evidence is
+    a signal the crowd missed. Both are the high-value cells.
+    """
+    hi, lo = 60.0, 40.0
+    b = basis_pct if isinstance(basis_pct, (int, float)) else None
+
+    if n_confirm == 0 and n_counter == 0:
+        return ("Too early — no confirming or countering events yet this cycle.",
+                "early")
+
+    confirming_net = n_confirm - n_counter
+
+    if b is not None and b >= hi:
+        if n_confirm > 0 and n_counter == 0:
+            return ("Consensus holding — sources expected this and the evidence "
+                    "is bearing it out.", "holding")
+        if confirming_net <= 0:
+            return ("Consensus unconfirmed — sources expected this, but the "
+                    "evidence isn't showing up. The crowd may be wrong here "
+                    "(watch).", "crowd_wrong")
+        return ("Consensus largely holding, with some counter-evidence — "
+                "watch the dissent.", "holding")
+
+    if b is not None and b <= lo:
+        if n_confirm > n_counter:
+            return ("Outlier confirming — few sources expected this, but the "
+                    "evidence is accumulating. An early signal the consensus "
+                    "missed.", "outlier_confirming")
+        return ("Outlier not bearing out — neither widely expected nor "
+                "materialising.", "noise")
+
+    # Mid-consensus or unknown basis.
+    if confirming_net > 0:
+        return ("Evidence leaning toward this trend.", "leaning")
+    if confirming_net < 0:
+        return ("Counter-evidence outweighs confirming — trend in doubt.",
+                "doubt")
+    return ("Contested — evidence is split.", "contested")
+
+
+_READ_COLOR = {
+    "crowd_wrong": AMBER_DEEP,
+    "outlier_confirming": GREEN_DEEP,
+    "doubt": CORAL,
+    "holding": SLATE_MID,
+    "leaning": SLATE_MID,
+    "noise": SLATE_LIGHT,
+    "contested": SLATE_MID,
+    "early": SLATE_LIGHT,
+}
+
+
+def _fmt_event_line(e: dict) -> str:
+    actor = (e.get("actor") or "").strip()
+    action = (e.get("action") or "").strip()
+    subject = (e.get("subject") or "").strip()
+    if subject and subject.lower() == actor.lower():
+        subject = ""
+    mag = ""
+    if e.get("magnitude_value") is not None:
+        unit = e.get("magnitude_unit") or ""
+        mag = f" ({e['magnitude_value']:g} {unit})".replace("  ", " ").replace(" )", ")")
+    date = e.get("event_date") or ""
+    date = f" — {str(date)[:10]}" if date else ""
+    return (" ".join(p for p in (actor, action, subject) if p) + mag + date).strip()
+
+
+def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
+                        confirming_events: Optional[list] = None,
+                        countering_events: Optional[list] = None):
+    """Per-trend evidence ledger: the scenario is a CLAIM; the consensus is
+    the forecast basis (what sources expected); named events are the test of
+    whether it's bearing out.
+
+        TREND (claim) + horizon
+        Forecast basis: X% of sources framed this as likely at forecast time
+        Outlier watch: <contrarian alternative>
+        NEW EVIDENCE SINCE FORECAST (confirming): • event — date
+        COUNTER-EVIDENCE: • event — date
+        READ: <consensus×evidence calibration>
+
+    No drift deltas, no Cooling/Strengthening verdict, no current_consensus_pct
+    — the basis % is point-in-time, the test is events.
+    """
+    confirming_events = confirming_events or []
+    countering_events = countering_events or []
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     sw = 10.0
     deck_info = (verdict.get("top_articles") or {}).get("deck_info") or {}
 
     horizon = (verdict.get("horizon_type") or "h1")
-    consensus = deck_info.get("consensus_pct")
+    basis = deck_info.get("consensus_pct")
     scenario_name = (deck_info.get("deck_scenario_name")
                      or verdict.get("scenario_title") or "—")
 
-    _add_left_rail(slide, horizon=horizon, consensus_pct=consensus)
+    _add_left_rail(slide, horizon=horizon, consensus_pct=None)
 
     # ── Title block ───────────────────────────────────────────────────
     title_lines = _split_title(scenario_name, max_chars=38)
@@ -688,114 +795,70 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict]):
     if len(title_lines) > 1:
         _text(slide, x=1.9, y=0.5, w=7.9, h=0.42, text=title_lines[1],
               font_size=17, bold=True, color=SLATE_DARK)
-
     _text(slide, x=1.9, y=0.93, w=7.9, h=0.2, text=_horizon_full_label(horizon),
           font_size=8.5, bold=True, color=SLATE_LIGHT)
 
-    # ── Original forecast (compressed) — single line from deck primary signal
-    primary = deck_info.get("primary_signal") or ""
+    # ── Forecast basis (the hypothesis — point-in-time, not a drift) ──
+    y = 1.2
+    if isinstance(basis, (int, float)):
+        _text(slide, x=1.9, y=y, w=7.9, h=0.24,
+              text=f"FORECAST BASIS  ·  {int(basis)}% of sources framed this as likely at forecast time",
+              font_size=9, bold=True, color=TEAL)
+        y += 0.3
+    # Outlier watch — the contrarian alternative the basis might be missing.
+    primary = (deck_info.get("primary_signal") or "").strip()
     if primary:
-        _text(slide, x=1.9, y=1.15, w=7.9, h=0.45, text=primary,
-              font_size=9, italic=True, color=SLATE_MID, line_spacing=1.25)
+        _text(slide, x=1.9, y=y, w=7.9, h=0.4,
+              text=f"Outlier watch: {_truncate(primary, 150)}",
+              font_size=8.5, italic=True, color=SLATE_MID, line_spacing=1.2)
+        y += 0.46
 
-    # ── Tracking strip (full-width horizontal) ────────────────────────
-    track_y = 1.7
-    _rect(slide, x=1.9, y=track_y, w=7.9, h=0.6, fill=SLATE_BG)
-    _rect(slide, x=1.9, y=track_y, w=0.08, h=0.6, fill=PINK)
-
-    # Status chip (left of strip) — customer-facing label
-    if baseline:
-        internal_label = baseline.get("label") or verdict.get("verdict_label") or "—"
+    # ── New evidence since forecast (confirming) ──────────────────────
+    _text(slide, x=1.9, y=y, w=7.9, h=0.22,
+          text="NEW EVIDENCE SINCE FORECAST  ·  confirming",
+          font_size=8.5, bold=True, color=GREEN_DEEP)
+    y += 0.26
+    if confirming_events:
+        for e in confirming_events[:4]:
+            _rect(slide, x=1.9, y=y+0.03, w=0.06, h=0.18, fill=GREEN_DEEP)
+            _text(slide, x=2.05, y=y, w=sw-2.55, h=0.36,
+                  text=_truncate(_fmt_event_line(e), 130), font_size=9,
+                  color=SLATE_BLACK, line_spacing=1.15)
+            y += 0.4
     else:
-        internal_label = verdict.get("verdict_label") or "—"
-    label = _customer_label(internal_label)
-    chip_color = _baseline_color(internal_label)
-    _rect(slide, x=2.05, y=track_y+0.1, w=1.7, h=0.4,
-          fill=chip_color, rounded=True)
-    _text(slide, x=2.05, y=track_y+0.15, w=1.7, h=0.3, text=label,
-          font_size=10, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _text(slide, x=2.05, y=y, w=sw-2.55, h=0.24,
+              text="No confirming events attributed this cycle.",
+              font_size=8.5, italic=True, color=SLATE_LIGHT)
+        y += 0.3
 
-    # Inline metrics across the strip — drop placebo/net jargon, just show
-    # confirmation strength + confirming/contradicting article counts
-    metric_x = 4.0
-    if baseline and baseline.get("net_rate") is not None:
-        net = baseline.get("net_rate") or 0
-        cells = [
-            ("CONFIRMATION Δ", f"{net*100:+.2f}%", chip_color),
-        ]
+    # ── Counter-evidence ──────────────────────────────────────────────
+    _text(slide, x=1.9, y=y, w=7.9, h=0.22,
+          text="COUNTER-EVIDENCE", font_size=8.5, bold=True, color=CORAL)
+    y += 0.26
+    if countering_events:
+        for e in countering_events[:3]:
+            _rect(slide, x=1.9, y=y+0.03, w=0.06, h=0.18, fill=CORAL)
+            _text(slide, x=2.05, y=y, w=sw-2.55, h=0.36,
+                  text=_truncate(_fmt_event_line(e), 130), font_size=9,
+                  color=SLATE_BLACK, line_spacing=1.15)
+            y += 0.4
     else:
-        cells = []
-    cells += [
-        ("CONFIRMING", str(verdict.get("supports") or 0), SUPPORT_COLOR),
-        ("CONTRADICTING", str(verdict.get("contradicts") or 0), CONTRA_COLOR),
-    ]
-    cell_w = (sw - 0.5 - metric_x) / max(len(cells), 1)
-    for label_, val, color in cells:
-        _text(slide, x=metric_x, y=track_y+0.08, w=cell_w-0.05, h=0.2,
-              text=label_, font_size=7, bold=True, color=SLATE_LIGHT)
-        _text(slide, x=metric_x, y=track_y+0.25, w=cell_w-0.05, h=0.32,
-              text=val, font_size=14, bold=True, color=color)
-        metric_x += cell_w
+        _text(slide, x=2.05, y=y, w=sw-2.55, h=0.24,
+              text="None this cycle.", font_size=8.5, italic=True,
+              color=SLATE_LIGHT)
+        y += 0.3
 
-    # ── DEVELOPMENTS narrative ────────────────────────────────────────
-    nar_y = 2.45
-    _text(slide, x=1.9, y=nar_y, w=7.9, h=0.25,
-          text="DEVELOPMENTS SINCE FORECAST", font_size=9, bold=True,
-          color=PINK_DEEP)
-
-    narrative = (verdict.get("summary_md") or "").strip()
-    supports_count = verdict.get("supports") or 0
-    contradicts_count = verdict.get("contradicts") or 0
-    if narrative:
-        _text(slide, x=1.9, y=nar_y+0.28, w=7.9, h=1.1, text=narrative,
-              font_size=10, color=SLATE_BLACK, line_spacing=1.3)
-        dev_y = nar_y + 1.45
-    elif supports_count == 0 and contradicts_count == 0:
-        # No articles to ground a narrative in — be honest about it.
-        _text(slide, x=1.9, y=nar_y+0.28, w=7.9, h=0.5,
-              text="No confirming or contradicting articles attributed to this scenario "
-                   "in the tracking window. Either fresh coverage is sparse or topical "
-                   "fit is below our confidence threshold.",
-              font_size=9, italic=True, color=SLATE_LIGHT, line_spacing=1.25)
-        dev_y = nar_y + 0.85
-    else:
-        _text(slide, x=1.9, y=nar_y+0.28, w=7.9, h=0.4,
-              text="(Narrative will be generated on first PPTX export.)",
-              font_size=9, italic=True, color=SLATE_LIGHT)
-        dev_y = nar_y + 0.7
-
-    # ── Recent developments — dated articles ──────────────────────────
-    supports = (verdict.get("top_articles") or {}).get("supports") or []
-    contras = (verdict.get("top_articles") or {}).get("contradicts") or []
-
-    _text(slide, x=1.9, y=dev_y, w=7.9, h=0.22,
-          text=f"RECENT ARTICLES (top {min(len(supports)+len(contras), 4)} of {len(supports)} supporting, {len(contras)} contradicting)",
-          font_size=8, bold=True, color=SLATE_LIGHT)
-    item_y = dev_y + 0.3
-    items: List[tuple] = [(a, "support") for a in supports[:3]] + [(a, "contra") for a in contras[:1]]
-    for art, kind in items[:4]:
-        title = art.get("title") or art.get("article_uri") or "(no title)"
-        date = art.get("article_date") or ""
-        rationale = art.get("rationale") or ""
-        color = SUPPORT_COLOR if kind == "support" else CONTRA_COLOR
-        _rect(slide, x=1.9, y=item_y+0.04, w=0.07, h=0.32, fill=color)
-        date_str = date[:10] if date else ""
-        head = f"{date_str}   {_truncate(title, 90)}" if date_str else _truncate(title, 100)
-        _text(slide, x=2.05, y=item_y, w=sw-2.55, h=0.22, text=head,
-              font_size=9, bold=True, color=SLATE_BLACK)
-        if rationale:
-            _text(slide, x=2.05, y=item_y+0.2, w=sw-2.55, h=0.2,
-                  text=_truncate(rationale, 150), font_size=8,
-                  italic=True, color=SLATE_MID)
-        item_y += 0.46
-
-    # ── Verdict explanation strip (footer) ────────────────────────────
-    explanation = _verdict_explanation(verdict.get("verdict_label"), baseline)
-    if explanation:
-        _rect(slide, x=1.9, y=5.32, w=7.9, h=0.012, fill=RULE_GRAY)
-        _text(slide, x=1.9, y=5.35, w=7.9, h=0.22,
-              text="WHAT THIS MEANS  ·  " + _truncate(explanation, 200),
-              font_size=7.5, bold=True, color=SLATE_LIGHT, line_spacing=1.1)
+    # ── READ — the calibration call (pinned near the bottom) ──────────
+    read_text, category = _calibration_read(
+        basis, len(confirming_events), len(countering_events))
+    read_color = _READ_COLOR.get(category, SLATE_MID)
+    ry = 5.0
+    _rect(slide, x=1.9, y=ry, w=7.9, h=0.012, fill=RULE_GRAY)
+    _text(slide, x=1.9, y=ry+0.05, w=0.7, h=0.22, text="READ",
+          font_size=8.5, bold=True, color=read_color)
+    _text(slide, x=2.55, y=ry+0.05, w=sw-3.05, h=0.5,
+          text=read_text, font_size=9.5, bold=True, color=read_color,
+          line_spacing=1.15)
 
 
 def _add_surprises_divider(prs, surprises: list):
@@ -1210,10 +1273,14 @@ def _add_flip_detail_slide(
 
     deck_info = (verdict.get("top_articles") or {}).get("deck_info") or {}
     name = deck_info.get("deck_scenario_name") or verdict.get("scenario_title") or "—"
-    _text(slide, x=0.5, y=0.7, w=sw-1.0, h=0.5, text=name,
+    # Truncate long scenario names so they don't wrap into the chips below.
+    _text(slide, x=0.5, y=0.7, w=sw-1.0, h=0.85,
+          text=_truncate(name, 110),
           font_size=18, bold=True, color=WILEY_BODY)
 
-    # Big "Was → Now" panel — render customer-facing labels with internal colors
+    # Big "Was → Now" panel — render customer-facing labels with internal colors.
+    # Kept inside the left ~6.1" of the slide so the Confirmation Δ block on the
+    # right has clear width.
     _verdict_chip(slide, x=0.5, y=1.85, w=2.4, h=0.55,
                   label=_customer_label(prior_label),
                   color=_baseline_color(prior_label))
@@ -1223,41 +1290,54 @@ def _add_flip_detail_slide(
                   label=_customer_label(current_label),
                   color=_baseline_color(current_label))
 
-    # Confirmation-strength change on the right
+    # Confirmation-strength change on the right — explicit width cap so the
+    # ±NN.NN% number never bleeds past the slide edge at large negative deltas.
     was_net = (prior_baseline or {}).get("net_rate")
     now_net = (baseline or {}).get("net_rate")
     if was_net is not None or now_net is not None:
         delta = (now_net or 0) - (was_net or 0)
         sign = "+" if delta > 0 else ""
-        _text(slide, x=6.5, y=1.85, w=3.0, h=0.22,
+        _text(slide, x=6.3, y=1.85, w=3.2, h=0.22,
               text="CONFIRMATION Δ", font_size=8.5, bold=True,
               color=PINK_DEEP, align=PP_ALIGN.LEFT)
         was_s = f"{(was_net or 0)*100:.2f}%" if was_net is not None else "—"
         now_s = f"{(now_net or 0)*100:.2f}%" if now_net is not None else "—"
-        _text(slide, x=6.5, y=2.05, w=3.0, h=0.2,
+        _text(slide, x=6.3, y=2.05, w=3.2, h=0.2,
               text=f"{was_s} → {now_s}", font_size=10, color=SLATE_MID,
               align=PP_ALIGN.LEFT)
         delta_color = GREEN_DEEP if delta > 0 else (RED_DEEP if delta < 0 else SLATE_LIGHT)
-        _text(slide, x=6.5, y=2.25, w=3.0, h=0.35,
+        _text(slide, x=6.3, y=2.25, w=3.2, h=0.35,
               text=f"{sign}{delta*100:.2f}%",
               font_size=20, bold=True, color=delta_color, align=PP_ALIGN.LEFT)
 
-    # LLM narrative if cached, else fall back to top articles
+    # The 5.625" slide already gives us roughly 3" of vertical space below
+    # the chips (y=2.65 onward). Budget: narrative gets the larger half,
+    # evidence the smaller. If narrative is present, it's truncated to fit
+    # in 1.5" — previously h=2.0 + evidence underneath would run past the
+    # slide bottom on every flip with a cached summary_md narrative.
     narrative = (verdict.get("summary_md") or "").strip()
+    sup = ((verdict.get("top_articles") or {}).get("supports") or [])[:2]
+    con = ((verdict.get("top_articles") or {}).get("contradicts") or [])[:1]
+    n_evidence_lines = len(sup) + len(con)
+    evidence_block_h = (0.25 + 0.05 + 0.32 * n_evidence_lines) if n_evidence_lines else 0.0
+    # Slide bottom is 5.625"; leave 0.25" for the brand footer.
+    slide_bottom_limit = 5.4
     y = 2.65
     if narrative:
+        narrative_top = y + 0.4
+        narrative_h = max(0.6, slide_bottom_limit - evidence_block_h - narrative_top - 0.15)
+        # 11pt-ish text in a 0.6"-2.0" tall, 9.0"-wide box holds roughly
+        # 90 chars/line × N lines. Truncate so wrap doesn't overrun.
+        approx_chars_per_line = 100
+        max_chars = int(narrative_h / 0.18) * approx_chars_per_line
         _rect(slide, x=0.5, y=y, w=sw-1.0, h=0.04, fill=RULE_GRAY)
         _text(slide, x=0.5, y=y+0.1, w=sw-1.0, h=0.25,
               text="WHAT HAPPENED", font_size=8.5, bold=True, color=PINK_DEEP)
-        _text(slide, x=0.5, y=y+0.4, w=sw-1.0, h=2.0,
-              text=narrative, font_size=10.5, color=SLATE_BLACK,
-              line_spacing=1.3)
-        y += 2.4
+        _text(slide, x=0.5, y=narrative_top, w=sw-1.0, h=narrative_h,
+              text=_truncate(narrative, max_chars),
+              font_size=10.5, color=SLATE_BLACK, line_spacing=1.3)
+        y = narrative_top + narrative_h + 0.1
 
-    # Driving evidence — top 2 supports + top 1 contradict (or the inverse
-    # if the flip was negative-direction)
-    sup = ((verdict.get("top_articles") or {}).get("supports") or [])[:2]
-    con = ((verdict.get("top_articles") or {}).get("contradicts") or [])[:1]
     if sup or con:
         _text(slide, x=0.5, y=y, w=sw-1.0, h=0.25,
               text="EVIDENCE", font_size=8.5, bold=True, color=PINK_DEEP)
@@ -1335,12 +1415,10 @@ def _add_briefing_synthesis_slide(prs, assessment: dict):
           text=briefing.get("headline") or (assessment.get("topic") or "—"),
           font_size=12, italic=True, color=WILEY_MUTED)
 
-    # Consensus drift strip — shows original deck consensus next to
-    # the freshly-measured current consensus (averaged across scenarios)
-    drift_line = _consensus_drift_text(assessment)
-    if drift_line:
-        _text(slide, x=0.5, y=1.0, w=sw-1.0, h=0.22, text=drift_line,
-              font_size=10, bold=True, color=WILEY_TEAL)
+    # The "Original consensus X% → current Y%" drift strip was removed —
+    # that re-counted framing ratio over time was the rejected scorecard.
+    # The forecast-basis % now lives (point-in-time) on each per-scenario
+    # evidence-ledger slide instead.
 
     # ── Left panel: The Ecosystem at a Crossroads ────────────────────
     _rect(slide, x=0.5, y=1.1, w=4.5, h=4.2, fill=WILEY_CARD_BG)
@@ -1402,54 +1480,12 @@ def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None)
 
     insights = []  # list of {kind, body}
 
-    # 1. Strongest positive mover
-    pos = [(((bc_per.get(str(v.get("scenario_idx"))) or {}).get("net_rate") or 0), v)
-           for v in verdicts]
-    pos.sort(key=lambda kv: -kv[0])
-    if pos and pos[0][0] > 0.005:
-        net, v = pos[0]
-        deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
-        name = deck_info.get("deck_scenario_name") or v.get("scenario_title")
-        insights.append({
-            "kind": "STRONGEST CONFIRMATION",
-            "body": f"{name} is strengthening — confirmation Δ {net*100:+.2f}% with "
-                    f"{v.get('supports') or 0} confirming events since the forecast "
-                    f"was published, beyond what the pre-forecast trend predicted."
-        })
-
-    # 2. Strongest negative mover
-    if pos and pos[-1][0] < -0.005:
-        net, v = pos[-1]
-        deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
-        name = deck_info.get("deck_scenario_name") or v.get("scenario_title")
-        insights.append({
-            "kind": "STRONGEST COOLING",
-            "body": f"{name} is cooling — confirmation Δ {net*100:+.2f}%. The trend "
-                    f"was hotter at forecast-authoring time than it is now; not wrong, "
-                    f"just already crested."
-        })
-
-    # 3. Largest verdict-flip vs prior
-    if prior:
-        diff = _diff_assessments(assessment, prior)
-        flips = list(diff.get("verdict_flips", {}).items())
-        if flips:
-            biggest = max(
-                flips,
-                key=lambda kv: abs(
-                    ((bc_per.get(kv[0]) or {}).get("net_rate") or 0)
-                    - ((_prior_baseline_for(prior, kv[0]) or {}).get("net_rate") or 0)
-                ),
-            )
-            key, (was, now) = biggest
-            v = next((x for x in verdicts if str(x.get("scenario_idx")) == key), None)
-            if v:
-                deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
-                name = deck_info.get("deck_scenario_name") or v.get("scenario_title")
-                insights.append({
-                    "kind": "BIGGEST STATUS CHANGE",
-                    "body": f"{name}: {_customer_label(was)} → {_customer_label(now)} between snapshots."
-                })
+    # Insights 1-3 (STRONGEST CONFIRMATION / STRONGEST COOLING / BIGGEST
+    # STATUS CHANGE) were removed: they reported "confirmation Δ %" and
+    # verdict flips ("Cooling → On-track between snapshots"), scoring the
+    # futures-cone scenarios as a back-test the customer rejected. The
+    # emerging-theme and evidence-gap insights below are the legitimate,
+    # non-scorecard observations.
 
     # 4. Dominant emerging theme
     if surprises:
@@ -1736,23 +1772,61 @@ def _add_review_pending_banner_slide(prs, findings: list, period_label: str):
           text="Findings to resolve before shipping",
           font_size=12, bold=True, color=WILEY_NAVY)
 
+    # Card body spans y=1.05 → 5.05 (4.0" tall). Footer is at y=5.18.
+    # Findings need to fit within that band — header is at y=1.18 + label at
+    # y=1.55, so usable text space is ~5.05 - 1.55 = 3.50". With dynamic
+    # spacing the slide can comfortably show 4 errors at 2 lines each plus
+    # the warnings footnote, or fewer errors with longer bodies.
     y = 1.55
-    # Errors first
+    card_bottom = 5.05
+    # Each finding body is truncated to a length that fits the available
+    # width at font_size=9.5 (~110 chars/line) on at most 2 wrapped lines.
+    # Past the truncation length the box would otherwise spill into the
+    # next finding's header — the bug visible on the screenshot.
+    body_max_chars = 220
+    body_w = sw - 1.55
+    chars_per_line = 110
+
     for f in errors[:5]:
         sev = (f.get("severity") or "").upper()
         artefact = f.get("artefact_key") or ""
-        finding = f.get("finding") or ""
+        raw_finding = f.get("finding") or ""
+        finding = _truncate(raw_finding, body_max_chars)
+
+        # Estimate wrapped lines so the slot per finding adapts to the
+        # length. Two lines = ~0.42" at 9.5pt with line_spacing=1.3.
+        approx_lines = max(1, min(3, (len(finding) + chars_per_line - 1) // chars_per_line))
+        body_h = 0.22 * approx_lines + 0.04
+        # Header row above the body
+        next_y = y + 0.22 + body_h + 0.18  # +0.18 gap between findings
+        # If we'd overflow the card, stop and roll the rest into the
+        # warnings-style footnote so nothing collides with the footer.
+        if next_y > card_bottom:
+            break
+
         _text(slide, x=0.85, y=y, w=0.8, h=0.2,
               text=sev, font_size=8, bold=True, color=RED_DEEP)
         _text(slide, x=1.7, y=y, w=sw-2.4, h=0.2,
               text=artefact, font_size=8, color=WILEY_TEAL)
-        _text(slide, x=0.85, y=y+0.22, w=sw-1.55, h=0.42,
+        _text(slide, x=0.85, y=y+0.22, w=body_w, h=body_h,
               text=finding, font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
-        y += 0.72
+        y = next_y
+
+    rendered_errors = min(len(errors), 5)
+    overflow_errors = max(0, len(errors) - rendered_errors)
     remaining_warnings = len(warnings)
+    footnote_parts = []
+    if overflow_errors:
+        footnote_parts.append(
+            f"{overflow_errors} additional error{'' if overflow_errors == 1 else 's'}"
+        )
     if remaining_warnings:
-        _text(slide, x=0.7, y=y+0.05, w=sw-1.4, h=0.25,
-              text=f"Plus {remaining_warnings} warning{'' if remaining_warnings == 1 else 's'} — see the Wiley Deliverables panel.",
+        footnote_parts.append(
+            f"{remaining_warnings} warning{'' if remaining_warnings == 1 else 's'}"
+        )
+    if footnote_parts and y + 0.3 <= card_bottom:
+        _text(slide, x=0.85, y=y, w=sw-1.55, h=0.25,
+              text=f"Plus {' and '.join(footnote_parts)} — see the Wiley Deliverables panel.",
               font_size=9, italic=True, color=WILEY_MUTED)
 
     _text(slide, x=0.5, y=5.18, w=sw-1.0, h=0.22,
@@ -1763,10 +1837,12 @@ def _add_review_pending_banner_slide(prs, findings: list, period_label: str):
 def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: str):
     """Executive Summary LETTER — sits at slide 2, immediately after the cover.
 
-    Distinct from the stats-style Executive Summary (which becomes "Headline
-    Findings"). This is an addressed-to-the-reader prose paragraph (6-8
-    sentences) produced by the wiley_exec_summary_agent. Soft full-bleed bg
-    with a centred white card hosting the letter.
+    v2: multi-paragraph briefing rendered with inline-bold section headers
+    (``**The bottom line.**`` → bold run + body). Matches the human-authored
+    reference in ``docs/Wiley_Horizons_Executive_Summary_May2026.docx`` —
+    each paragraph leads with a bolded section title followed by 80–130
+    words of concrete prose with named actors, % numbers, and quoted
+    briefing lines.
     """
     letter = (exec_summary or {}).get("letter") or ""
     if not letter.strip():
@@ -1780,20 +1856,105 @@ def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: s
 
     # Title row
     _text(slide, x=0.5, y=0.4, w=sw-1.0, h=0.45,
-          text="Executive Summary", font_size=24, bold=True, color=WILEY_NAVY)
+          text="Executive Summary", font_size=24, bold=True, color=WILEY_NAVY,
+          shrink_to_fit=False)
     _text(slide, x=0.5, y=0.95, w=sw-1.0, h=0.3,
-          text=period_label, font_size=11, italic=True, color=WILEY_MUTED)
+          text=period_label, font_size=11, italic=True, color=WILEY_MUTED,
+          shrink_to_fit=False)
 
-    # Letter card
-    _rect(slide, x=0.5, y=1.4, w=sw-1.0, h=3.65, fill=WILEY_CARD_BG)
-    _rect(slide, x=0.5, y=1.4, w=0.08, h=3.65, fill=WILEY_TEAL)
-    _text(slide, x=0.85, y=1.55, w=sw-1.55, h=3.4, text=letter,
-          font_size=12.5, color=WILEY_BODY, line_spacing=1.55)
+    # Letter card. The body grew from ~6-sentence single paragraph to a
+    # 5-section briefing in the prompt v2 rewrite, so the card needs to
+    # be taller and the font slightly smaller. shrink_to_fit on _text
+    # also catches anything that still overflows.
+    card_top = 1.35
+    card_h = 3.75
+    _rect(slide, x=0.5, y=card_top, w=sw-1.0, h=card_h, fill=WILEY_CARD_BG)
+    _rect(slide, x=0.5, y=card_top, w=0.08, h=card_h, fill=WILEY_TEAL)
+
+    _render_markdown_paragraphs(
+        slide,
+        x=0.85, y=card_top + 0.15, w=sw-1.55, h=card_h - 0.30,
+        body=letter,
+        font_size=10.5,
+        color=WILEY_BODY,
+        line_spacing=1.35,
+    )
 
     # Signoff
     _text(slide, x=0.5, y=5.18, w=sw-1.0, h=0.25,
           text="— " + signoff, font_size=10, italic=True, color=WILEY_TEAL,
-          align=PP_ALIGN.RIGHT)
+          align=PP_ALIGN.RIGHT, shrink_to_fit=False)
+
+
+def _render_markdown_paragraphs(slide, *, x, y, w, h, body, font_size=10.5,
+                                color=None, line_spacing=1.35):
+    """Render a body of text with **inline bold** markers and double-newline
+    paragraph breaks into a single text frame.
+
+    Inputs like ``**Section.** Body sentence.`` become a paragraph whose
+    leading "Section." is bold and the rest is regular weight. Used by
+    the executive summary letter slide where the agent emits a
+    multi-paragraph briefing with bolded section headers.
+    """
+    import re as _re
+    from pptx.util import Inches, Pt, Emu
+    from pptx.enum.text import MSO_ANCHOR
+
+    if color is None:
+        color = WILEY_BODY
+
+    tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    tf = tb.text_frame
+    tf.word_wrap = True
+    try:
+        from pptx.enum.text import MSO_AUTO_SIZE
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_SHAPE
+    except Exception:
+        pass
+    tf.vertical_anchor = MSO_ANCHOR.TOP
+    tf.margin_left = Emu(0)
+    tf.margin_right = Emu(0)
+    tf.margin_top = Emu(0)
+    tf.margin_bottom = Emu(0)
+
+    # Split on blank lines to identify paragraphs. Within each paragraph,
+    # we still honour single newlines as soft line breaks via separate
+    # paragraphs (the renderer doesn't expose <w:br/> easily) but the
+    # agent prompt instructs the model to use \n\n between sections, so
+    # a paragraph here is one section of the letter.
+    paragraphs = [p.strip() for p in _re.split(r"\n\s*\n", body or "") if p.strip()]
+    bold_re = _re.compile(r"\*\*(.+?)\*\*")
+
+    for pi, para_text in enumerate(paragraphs):
+        p = tf.paragraphs[0] if pi == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.LEFT
+        p.line_spacing = line_spacing
+        if pi > 0:
+            # Visual gap between paragraphs.
+            p.space_before = Pt(font_size * 0.55)
+
+        cursor = 0
+        for m in bold_re.finditer(para_text):
+            if m.start() > cursor:
+                _add_run(p, para_text[cursor:m.start()], font_size, color, bold=False)
+            _add_run(p, m.group(1), font_size, color, bold=True)
+            cursor = m.end()
+        if cursor < len(para_text):
+            _add_run(p, para_text[cursor:], font_size, color, bold=False)
+
+
+def _add_run(paragraph, text, font_size, color, *, bold=False, italic=False,
+             font_name=BODY_FONT):
+    """Add a styled run to an existing paragraph. Used by the markdown
+    paragraph renderer to mix bold and regular weight inline."""
+    from pptx.util import Pt
+    r = paragraph.add_run()
+    r.text = text
+    r.font.name = font_name
+    r.font.size = Pt(font_size)
+    r.font.bold = bold
+    r.font.italic = italic
+    r.font.color.rgb = color
 
 
 def _add_strategic_overview_slide(prs, period_label: str, overview_text: str):
@@ -1837,7 +1998,7 @@ def _add_five_domains_summary_slide(prs, items: list):
     _text(slide, x=0.5, y=0.2, w=sw-1.0, h=0.4,
           text="Strategic Domains", font_size=22, bold=True, color=WILEY_NAVY)
     _text(slide, x=0.5, y=0.7, w=sw-1.0, h=0.3,
-          text="Status, key signals, and strategic imperative for each topic in this bundle",
+          text="Key signals and the strategic imperative for each topic in this bundle",
           font_size=10.5, italic=True, color=WILEY_MUTED)
 
     # Cards laid out as 2 rows that fit the 5.625" slide height. Top row
@@ -1898,58 +2059,48 @@ def _add_five_domains_summary_slide(prs, items: list):
         signals = synth.get("key_signals") or []
         imperative = (synth.get("strategic_imperative") or "").strip()
 
-        deck_info = (headline_v.get("top_articles") or {}).get("deck_info") if headline_v else None
-        deck_info = deck_info or {}
-        original_consensus = deck_info.get("consensus_pct")
-        # Current consensus comes from the headline scenario; if no scenario
-        # in the topic has attribution, show "—" instead of misleading 0%.
-        current_consensus = (headline_v or {}).get("current_consensus_pct") if attributed else None
-        no_attribution = not attributed
-
         # White card with teal header bar
         _rect(slide, x=cx, y=cy, w=card_w, h=card_h, fill=WILEY_CARD_BG)
         _rect(slide, x=cx, y=cy, w=card_w, h=0.42, fill=WILEY_TEAL)
         _text(slide, x=cx+0.15, y=cy+0.07, w=card_w-0.3, h=0.3,
               text=_truncate(topic, 50), font_size=11.5, bold=True, color=WHITE)
 
-        # Consensus drift line. When the topic has no attributed scenarios
-        # at all, label the gap explicitly ("insufficient attribution")
-        # rather than showing 0% which the reader misreads as "no signal".
-        if original_consensus is not None or current_consensus is not None:
-            o_s = f"{int(original_consensus)}%" if original_consensus is not None else "—"
-            c_s = f"{current_consensus:.0f}%" if current_consensus is not None else "—"
-            drift_text = (
-                f"Original consensus {o_s}   →   Current — (insufficient attribution)"
-                if no_attribution and original_consensus is not None
-                else f"Original consensus {o_s}   →   Current {c_s}"
-            )
-            _text(slide, x=cx+0.18, y=cy+0.5, w=card_w-0.3, h=0.22,
-                  text=drift_text,
-                  font_size=9, italic=True, color=WILEY_TEAL)
-            y_signals = cy + 0.78
-        else:
-            y_signals = cy + 0.55
+        # The "Original consensus X% → Current Y%" drift line was removed:
+        # it reported article-framing ratios as forecast accuracy. The card
+        # now leads straight into the key signals + strategic imperative,
+        # which are the qualitative foresight content.
+        y_signals = cy + 0.55
 
         # Signal/imperative truncation lengths scale with card width: a
         # 3-up row with narrower cards needs harsher trims to avoid overrun.
         sig_max = max(50, int(card_w * 22))
-        imp_max = max(100, int(card_w * 40))
+        imp_max = max(80, int(card_w * 32))
 
-        # Key signals (up to 2)
+        # Reserve the bottom of the card for the strategic imperative
+        # (rule-line + label + one wrapped line at 8.5pt italic ≈ 0.55").
+        # The signals block has to fit above that reservation, so cap how
+        # many signals we render based on remaining vertical space. Before
+        # the fix, two signals would render through the imperative band.
+        imp_block_h = 0.55 if imperative else 0.0
+        signals_top = y_signals + 0.22  # below the "KEY SIGNALS" label
+        signals_bottom_limit = cy + card_h - imp_block_h - 0.05  # 0.05 safety
+        per_signal_h = 0.36
+        max_signals = max(1, int((signals_bottom_limit - signals_top) // per_signal_h))
+
         if signals:
             _text(slide, x=cx+0.18, y=y_signals, w=card_w-0.3, h=0.22,
                   text="KEY SIGNALS", font_size=8, bold=True, color=WILEY_NAVY)
-            sy = y_signals + 0.22
-            for sig in signals[:2]:
+            sy = signals_top
+            for sig in signals[:max_signals]:
                 _rect(slide, x=cx+0.2, y=sy+0.07, w=0.05, h=0.18, fill=WILEY_TEAL)
-                _text(slide, x=cx+0.32, y=sy, w=card_w-0.45, h=0.34,
+                _text(slide, x=cx+0.32, y=sy, w=card_w-0.45, h=per_signal_h-0.02,
                       text=_truncate(sig, sig_max), font_size=9, color=WILEY_BODY,
                       line_spacing=1.3)
-                sy += 0.36
+                sy += per_signal_h
 
-        # Strategic imperative at the bottom of the card
+        # Strategic imperative pinned to the card bottom.
         if imperative:
-            iy = cy + card_h - 0.55
+            iy = cy + card_h - imp_block_h
             _rect(slide, x=cx+0.18, y=iy, w=card_w-0.36, h=0.012, fill=RULE_GRAY)
             _text(slide, x=cx+0.18, y=iy+0.04, w=card_w-0.36, h=0.18,
                   text="STRATEGIC IMPERATIVE", font_size=7.5, bold=True, color=WILEY_NAVY)
@@ -2063,6 +2214,177 @@ def _add_black_swans_slide(prs, eos_per_topic: dict):
             _text(slide, x=cx+0.18, y=cy+card_h-0.22, w=card_w-0.36, h=0.18,
                   text="   ·   ".join(parts), font_size=7.5, color=WILEY_TEAL,
                   bold=True)
+
+
+def _add_whats_changed_section_slide(prs, whats_changed: dict, *,
+                                     period_label: str,
+                                     prior_period_label: str = None):
+    """The honest "What's Changed" section — four signals in priority order:
+
+        1. Named events this quarter (factual ground-truth from extraction)
+        2. Scenarios that moved in our framing (Three Horizons drift)
+        3. New on the watch (emerging themes from discovery)
+        4. Where press attention shifted (labelled AS press attention)
+
+    Events are the priority and always shown; the three qualitative signals
+    share the right column and drop from the bottom if absent. This replaces
+    the retired Tracker scorecard as the deck's "what changed" view — facts
+    and labelled discourse, never "the forecast is playing out".
+    """
+    wc = whats_changed or {}
+    events = [e for e in (wc.get("events") or []) if str(e).strip()]
+    drift = [e for e in (wc.get("scenario_drift") or []) if str(e).strip()]
+    emerging = [e for e in (wc.get("emerging") or []) if str(e).strip()]
+    coverage = [e for e in (wc.get("coverage_shifts") or []) if str(e).strip()]
+
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = 10.0
+    _add_bg_image(slide, WILEY_BG_BOKEH)
+
+    since = f" Since {prior_period_label}" if prior_period_label else ""
+    _text(slide, x=0.5, y=0.2, w=sw - 1.0, h=0.4,
+          text=f"What's Changed{since}",
+          font_size=22, bold=True, color=WILEY_NAVY)
+    _text(slide, x=0.5, y=0.7, w=sw - 1.0, h=0.3,
+          text="Named events, scenario drift, and where coverage moved — "
+               "facts and attention, not forecast scoring.",
+          font_size=10.5, italic=True, color=WILEY_MUTED)
+
+    # Empty-state — honest, never a blank slide.
+    if not (events or drift or emerging or coverage):
+        _rect(slide, x=0.5, y=1.2, w=sw - 1.0, h=2.0, fill=WILEY_CARD_BG)
+        _rect(slide, x=0.5, y=1.2, w=0.08, h=2.0, fill=WILEY_TEAL)
+        _text(slide, x=0.85, y=1.5, w=sw - 1.7, h=1.4,
+              text="No new headline events confirmed across the portfolio this "
+                   "quarter. See the per-topic sections for scenario detail and "
+                   "emerging themes.",
+              font_size=12, color=WILEY_BODY, line_spacing=1.4)
+        return
+
+    # Adaptive layout that FILLS the slide regardless of which signals have
+    # data. Events are usually the bulk; drift/emerging/coverage are often
+    # sparse or empty — so events get a full-width, two-column card and only
+    # the populated qualitative signals appear as a bottom strip. No reserved
+    # empty regions.
+    qual_blocks = [
+        ("SCENARIOS THAT MOVED IN OUR FRAMING", drift),
+        ("NEW ON THE WATCH", emerging),
+        ("WHERE PRESS ATTENTION SHIFTED", coverage),
+    ]
+    active_qual = [(t, items) for (t, items) in qual_blocks if items]
+
+    full_w = sw - 1.0
+    left_x = 0.5
+    top_y = 1.2
+    total_h = 4.15
+    strip_h = 1.15 if active_qual else 0.0
+    events_h = total_h - (strip_h + 0.15 if active_qual else 0.0)
+
+    # ── Named events — full width, two columns, fills the card ────────
+    if events:
+        _rect(slide, x=left_x, y=top_y, w=full_w, h=events_h, fill=WILEY_CARD_BG)
+        _rect(slide, x=left_x, y=top_y, w=0.08, h=events_h, fill=WILEY_TEAL)
+        _text(slide, x=left_x + 0.2, y=top_y + 0.1, w=full_w - 0.35, h=0.25,
+              text="NAMED EVENTS THIS QUARTER", font_size=9, bold=True,
+              color=WILEY_TEAL)
+        body_top = top_y + 0.42
+        body_h = events_h - 0.5
+        col_gap = 0.3
+        col_w = (full_w - 0.5 - col_gap) / 2
+        col_x = [left_x + 0.2, left_x + 0.2 + col_w + col_gap]
+        # Show as many as fit: ~7 rows/column at a comfortable row height.
+        per_col = max(6, int(body_h // 0.56))
+        cap = per_col * 2
+        shown = events[:cap]
+        # Split down the columns (first half left, second half right).
+        half = (len(shown) + 1) // 2
+        cols = [shown[:half], shown[half:]]
+        row_h = min(0.56, body_h / max(half, 1))
+        for ci, colitems in enumerate(cols):
+            ey = body_top
+            for ev in colitems:
+                _rect(slide, x=col_x[ci], y=ey + 0.03, w=0.05, h=0.15, fill=WILEY_TEAL)
+                _text(slide, x=col_x[ci] + 0.13, y=ey, w=col_w - 0.18, h=row_h - 0.02,
+                      text=_truncate(ev, 95), font_size=8.8, color=WILEY_BODY,
+                      line_spacing=1.1)
+                ey += row_h
+        if len(events) > len(shown):
+            _text(slide, x=left_x + 0.2, y=top_y + events_h - 0.24,
+                  w=full_w - 0.4, h=0.2,
+                  text=f"+ {len(events) - len(shown)} further named events this quarter",
+                  font_size=7.5, italic=True, color=WILEY_MUTED, align=PP_ALIGN.RIGHT)
+
+    # ── Bottom strip: only the qualitative signals that have data ─────
+    if active_qual:
+        sy = top_y + events_h + 0.15
+        n = len(active_qual)
+        gap = 0.2
+        cw = (full_w - (n - 1) * gap) / n
+        for i, (title, items) in enumerate(active_qual):
+            cx = left_x + i * (cw + gap)
+            _rect(slide, x=cx, y=sy, w=cw, h=strip_h, fill=WILEY_CARD_BG)
+            _rect(slide, x=cx, y=sy, w=0.08, h=strip_h, fill=WILEY_NAVY)
+            _text(slide, x=cx + 0.16, y=sy + 0.08, w=cw - 0.28, h=0.22,
+                  text=title, font_size=7.5, bold=True, color=WILEY_NAVY)
+            iy = sy + 0.32
+            for it in items[:3]:
+                _rect(slide, x=cx + 0.16, y=iy + 0.03, w=0.04, h=0.13, fill=WILEY_NAVY)
+                _text(slide, x=cx + 0.27, y=iy, w=cw - 0.4, h=0.24,
+                      text=_truncate(it, 70), font_size=8, color=WILEY_BODY,
+                      line_spacing=1.05)
+                iy += 0.26
+
+
+def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
+    """Back-of-deck methodology appendix — documents how the brief is made so
+    the reader can trust (and challenge) it. Covers the consensus-as-basis /
+    events-as-test calibration model and any data-quality caveat."""
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = 10.0
+    _add_bg_image(slide, WILEY_BG_SOFT)
+
+    _text(slide, x=0.5, y=0.2, w=sw - 1.0, h=0.4, text="Methodology",
+          font_size=22, bold=True, color=WILEY_NAVY)
+    _text(slide, x=0.5, y=0.7, w=sw - 1.0, h=0.3,
+          text="How this brief is produced — so you can trust it and challenge it",
+          font_size=10.5, italic=True, color=WILEY_MUTED)
+
+    _rect(slide, x=0.5, y=1.15, w=sw - 1.0, h=3.55, fill=WILEY_CARD_BG)
+    _rect(slide, x=0.5, y=1.15, w=0.08, h=3.55, fill=WILEY_TEAL)
+
+    blocks = [
+        ("Consensus is the forecast basis, events are the test",
+         "Each tracked trend is a claim. At forecast time we measure the share "
+         "of sources framing it as likely — the prevailing expectation (what the "
+         "crowd expects, not proof). Named real-world events afterward either "
+         "bear the claim out or don't. We report point-in-time basis, never a "
+         "moving “accuracy” score."),
+        ("The value is the divergence",
+         "We lead with where consensus and evidence disagree: high-consensus "
+         "claims the evidence isn't bearing out (the crowd may be wrong) and "
+         "low-consensus outliers the evidence is confirming (signals the crowd "
+         "missed)."),
+        ("Sourcing & relevance",
+         "Articles are filtered to a topic by a per-article relevance score, "
+         "then events are extracted with an actor / action / magnitude / date, "
+         "de-duplicated, and tagged as confirming or countering each trend. "
+         "Low-confidence events are held for analyst review, not auto-published."),
+    ]
+    y = 1.35
+    for head, body in blocks:
+        _text(slide, x=0.85, y=y, w=sw - 1.7, h=0.24,
+              text=head, font_size=11, bold=True, color=WILEY_NAVY)
+        _text(slide, x=0.85, y=y + 0.26, w=sw - 1.7, h=0.7,
+              text=body, font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
+        y += 1.12
+
+    if data_quality_note:
+        _rect(slide, x=0.5, y=4.85, w=sw - 1.0, h=0.6, fill=PALE_AMBER)
+        _text(slide, x=0.7, y=4.92, w=sw - 1.4, h=0.5,
+              text=data_quality_note, font_size=9, italic=True,
+              color=SLATE_MID, line_spacing=1.25)
 
 
 def _add_cross_cutting_themes_slide(prs, themes: list):
@@ -2370,8 +2692,28 @@ def _split_title(s: str, max_chars: int = 34) -> List[str]:
 
 
 def _truncate(s: Optional[str], n: int) -> str:
+    """Last-resort safety net for catastrophically long input.
+
+    With ``MSO_AUTO_SIZE.TEXT_TO_SHAPE`` now enabled on every ``_text`` call,
+    long content shrinks to fit the text box rather than being chopped.
+    The per-call ``n`` (typically 50-250 chars in the old codebase) is
+    multiplied by 4 here so the chop only fires on pathological input
+    that would even at minimum font size still overflow the box. A
+    deliberate over-cap so authors still see *most* of their content.
+
+    Try to chop on a word boundary so the trailing ellipsis sits after a
+    full word, not mid-token.
+    """
     s = (s or "").strip()
-    return s if len(s) <= n else s[: n - 1] + "…"
+    cap = max(n * 4, 400)
+    if len(s) <= cap:
+        return s
+    # Cut at the last whitespace before the cap so we don't leave a
+    # truncated half-word stuck to the ellipsis.
+    cut = s.rfind(" ", 0, cap - 1)
+    if cut < cap * 0.6:  # if no good word break is reasonably close, hard cut
+        cut = cap - 1
+    return s[:cut].rstrip(",.;:— ") + "…"
 
 
 def _short_date(iso: Optional[str]) -> str:

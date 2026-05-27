@@ -8,8 +8,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Play, Sparkles, AlertTriangle, CheckCircle2, MinusCircle, TrendingDown, TrendingUp, Download, Plus, X, Check, RotateCcw } from 'lucide-react';
+import { Loader2, Play, Sparkles, AlertTriangle, CheckCircle2, MinusCircle, TrendingDown, TrendingUp, Download, Plus, X, Check, RotateCcw, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DocViewer } from './DocViewer';
 import type {
   ForecastAssessment,
   ForecastAssessmentResponse,
@@ -90,7 +91,52 @@ function customerLabel(label: string | undefined | null): string {
   return CUSTOMER_LABEL[label] || label;
 }
 
-export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: ForecastAssessmentTabProps) {
+export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGeneratedAt }: ForecastAssessmentTabProps) {
+  // The prop runId is whatever was in the parent's `data.analysis_id` at
+  // the time of last render — that's reliable when the user came in via
+  // the Future Horizons tab, but stale (or for a different topic
+  // entirely) when the user navigated in via the Topics dashboard.
+  // We resolve the *effective* run from the topic so the tracker always
+  // points at the latest horizons run for the currently-selected topic.
+  const [effectiveRunId, setEffectiveRunId] = useState<string | null>(propRunId);
+  const [resolveErr, setResolveErr] = useState<string | null>(null);
+  const [resolvedGeneratedAt, setResolvedGeneratedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!topic || topic === '__all__') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/forecast/topics/${encodeURIComponent(topic)}/latest-run`);
+        if (cancelled) return;
+        if (!r.ok) {
+          // Fall back to the prop runId — if the topic has no runs at all
+          // we let the empty-state branch render.
+          setResolveErr(`No horizons run found for topic '${topic}'`);
+          setEffectiveRunId(propRunId);
+          return;
+        }
+        const data = await r.json();
+        setResolveErr(null);
+        setEffectiveRunId(data.run_id || propRunId || null);
+        setResolvedGeneratedAt(data.generated_at || null);
+      } catch (e: any) {
+        if (!cancelled) {
+          setResolveErr(e?.message || 'Failed to resolve latest run');
+          setEffectiveRunId(propRunId);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [topic, propRunId]);
+
+  // Alias so the rest of the component (and downstream JSX) keeps using
+  // ``runId`` as a local — the effective run is now topic-derived.
+  const runId = effectiveRunId;
+  // Prefer the resolver's timestamp (matches the effective run), fall
+  // back to whatever the parent passed in.
+  const effectiveGeneratedAt = resolvedGeneratedAt || forecastGeneratedAt;
+
   const [assessment, setAssessment] = useState<ForecastAssessment | null>(null);
   const [addendumScenarios, setAddendumScenarios] = useState<AddendumScenario[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -216,7 +262,11 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
     return (
       <EmptyHint
         title="No stored Future Horizons run for this topic"
-        body="Generate a Three Horizons forecast on the Future Horizons tab first. Once you have a stored analysis, return here to assess how the forecast is tracking against fresh evidence."
+        body={
+          resolveErr
+            ? `${resolveErr}. Generate a Three Horizons forecast on the Future Horizons tab first, then return here to assess how it's tracking.`
+            : "Generate a Three Horizons forecast on the Future Horizons tab first. Once you have a stored analysis, return here to assess how the forecast is tracking against fresh evidence."
+        }
       />
     );
   }
@@ -233,7 +283,7 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
     <div className="space-y-6">
       <Header
         topic={topic}
-        forecastGeneratedAt={forecastGeneratedAt}
+        forecastGeneratedAt={effectiveGeneratedAt}
         assessment={assessment}
         running={running}
         progress={progress}
@@ -243,6 +293,8 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
         onWindowWeeksChange={setWindowWeeks}
         onRun={runAssessment}
       />
+
+      <ForecastTrackerHowItWorks />
 
       {error && (
         <div className="p-4 bg-red-50 dark:bg-red-900/30 border border-red-300 rounded text-red-800 dark:text-red-200 text-sm">
@@ -320,6 +372,33 @@ export function ForecastAssessmentTab({ runId, topic, forecastGeneratedAt }: For
             setProgress({ pct: 0, msg: 'Reassessing with new scenario…' });
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Collapsible "How it works" panel — shown above the assessment grid.
+ * Defaults closed; opens to render the markdown doc inline so the
+ * analyst doesn't have to navigate away.
+ */
+function ForecastTrackerHowItWorks() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/20">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-3 py-2 flex items-center gap-2 text-xs font-medium text-blue-900 dark:text-blue-100 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 transition"
+      >
+        <BookOpen className="w-3 h-3" />
+        How the Forecast Tracker works
+        {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <DocViewer name="how-it-works-forecast-tracker" embedded={false} />
+        </div>
       )}
     </div>
   );

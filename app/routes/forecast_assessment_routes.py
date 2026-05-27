@@ -203,6 +203,42 @@ async def get_assessment_job(task_id: str):
     return status
 
 
+@router.get("/api/forecast/topics/{topic}/latest-run")
+async def get_latest_run_for_topic(topic: str):
+    """Return the most recent ``future_horizons_runs`` row for a topic, or
+    404 if none exist. The UI uses this to resolve the correct ``run_id``
+    when an analyst opens the Forecast Tracker via the Topics dashboard —
+    where the previously-loaded ``analysis_id`` may belong to a different
+    topic entirely.
+    """
+    from app.database import get_database_instance
+    from sqlalchemy import text as sa_text
+    db = get_database_instance()
+    sql = sa_text("""
+        SELECT id, topic, model_used, created_at
+        FROM future_horizons_runs
+        WHERE topic = :topic
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    row = db.facade._execute_with_rollback(sql, {"topic": topic}).fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No future_horizons_runs entry for topic '{topic}'",
+        )
+    rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+    created = rd.get("created_at")
+    if hasattr(created, "isoformat"):
+        rd["created_at"] = created.isoformat()
+    return {
+        "run_id": rd["id"],
+        "topic": rd["topic"],
+        "model_used": rd.get("model_used"),
+        "generated_at": rd.get("created_at"),
+    }
+
+
 @router.get("/api/forecast/{run_id}/assessment")
 async def get_latest_assessment(run_id: str):
     """Return the most recent assessment for the run (with scenario verdicts).
@@ -675,6 +711,51 @@ def _overlay_dir():
     return Path(__file__).resolve().parents[2] / "data" / "wiley_horizons"
 
 
+@router.post("/api/forecast/topics/{topic}/wizard/build")
+async def wizard_build_topic_pipeline(
+    topic: str,
+    article_limit: int = Query(60, ge=10, le=200),
+    days_back: int = Query(90, ge=14, le=730),
+):
+    """Wizard helper — fires the full horizons → paired assessment →
+    overlay pipeline for an analyst-named topic in a single background
+    task. Returns a ``task_id`` the wizard polls.
+
+    Used by the Add-Topic wizard so the analyst doesn't have to bounce
+    between the Future Horizons + Forecast Tracker tabs.
+    """
+    from app.database import get_database_instance
+    from app.services.background_task_manager import get_task_manager
+    from app.services.wiley_candidate_pipeline import build_topic_pipeline
+    import asyncio
+
+    db = get_database_instance()
+    if not db.facade.get_forecast_topic_metadata(topic):
+        raise HTTPException(status_code=404, detail=f"Topic '{topic}' not found")
+
+    tm = get_task_manager()
+    task_id = tm.create_task(
+        name=f"wizard_build:{topic}",
+        total_items=100,
+        metadata={"topic": topic, "kind": "wizard_build"},
+    )
+
+    async def _job(progress_callback=None):
+        return await build_topic_pipeline(
+            topic,
+            article_limit=article_limit,
+            days_back=days_back,
+            progress_callback=progress_callback,
+        )
+
+    asyncio.create_task(tm.run_task(task_id, _job))
+    return {
+        "task_id": task_id,
+        "topic": topic,
+        "status_url": f"/api/forecast/assessment/job/{task_id}",
+    }
+
+
 @router.post("/api/forecast/topics/{topic}/overlay/generate")
 async def generate_topic_overlay(topic: str):
     """Kick off LLM overlay generation as a background task. The task
@@ -928,6 +1009,79 @@ async def export_bundle_markdown(
     )
 
 
+@router.get("/api/forecast/deliverables/bundle.html")
+async def export_bundle_html(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    updates_only: bool = Query(False),
+):
+    """Self-contained interactive HTML bundle — one standalone file with the
+    calibration matrix + per-trend evidence ledgers, data inlined. Same
+    synthesis pipeline as the PPTX; cached calls return instantly."""
+    from app.services.wiley_delivery_service import generate_bundle_html
+
+    try:
+        blob, period_label, topics, verdict, findings = await generate_bundle_html(
+            cadence, updates_only=updates_only
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    suffix = "_updates" if updates_only else ""
+    fname = (
+        f"wiley_foresight_{cadence}{suffix}_"
+        + period_label.replace(" ", "_").lower()
+        + ".html"
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    if verdict:
+        headers["X-Review-Verdict"] = verdict
+    return Response(content=blob, media_type="text/html; charset=utf-8", headers=headers)
+
+
+@router.get("/api/forecast/deliverables/bundle.docx")
+async def export_bundle_docx(
+    cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
+    updates_only: bool = Query(False),
+):
+    """Word-document export of the bundle — emailable executive briefing.
+
+    Same supervisor pipeline as the PPTX export. The docx is intentionally
+    NOT a slide-by-slide dump: it leads with the rewritten exec-summary
+    letter, then cross-cutting themes, then a 1-paragraph-per-topic
+    appendix. Modeled on the human reference at
+    ``docs/Wiley_Horizons_Executive_Summary_May2026.docx``.
+    """
+    from app.services.wiley_delivery_service import generate_bundle_docx
+
+    try:
+        blob, period_label, topics, verdict, findings = await generate_bundle_docx(
+            cadence, updates_only=updates_only
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    suffix = "_updates" if updates_only else ""
+    fname = (
+        f"wiley_forecast_{cadence}{suffix}_"
+        + period_label.replace(" ", "_").lower()
+        + ".docx"
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    if verdict:
+        headers["X-Review-Verdict"] = verdict
+    if findings:
+        headers["X-Review-Error-Count"] = str(
+            sum(1 for f in findings if f.get("severity") == "error")
+        )
+    return Response(
+        content=blob,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers=headers,
+    )
+
+
 @router.post("/api/forecast/deliverables/send")
 async def send_bundle(
     cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
@@ -1139,3 +1293,375 @@ async def get_assessment_articles(
         meta = by_uri.get(r["article_uri"]) or {}
         out.append({**r, "article": meta})
     return {"assessment_id": assessment_id, "articles": out, "total_in_assessment": len(rows)}
+
+
+# ======================================================================
+# Quarterly Brief Editor endpoints
+#
+# Back the QuarterlyBriefEditor page (ui/src/pages/QuarterlyBriefEditor.tsx).
+# The editor lets the analyst edit/lock/curate the generated bundle
+# before sending it to Wiley. Locks survive supervisor re-runs via
+# `_apply_locks_after_call` in wiley_bundle_supervisor.py.
+# ======================================================================
+
+import os as _os
+from pydantic import BaseModel as _BM
+
+
+def _editor_enabled() -> bool:
+    """Feature-flag the editor endpoints. Default ON for non-prod;
+    require explicit env opt-in on wiley (prod)."""
+    raw = _os.getenv("WILEY_BRIEF_EDITOR", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+class _BriefFieldPatch(_BM):
+    path: str
+    value: object | None = None
+    lock: bool | None = None
+    edited_by: str | None = None
+
+
+class _BriefLockPatch(_BM):
+    path: str
+    locked: bool
+
+
+class _BriefRegenStage(_BM):
+    stage: str  # 'briefing' | 'recommendations' | 'next_steps' | 'cross_topic' | 'exec_summary' | 'events'
+    topic: str | None = None  # required for per-topic stages
+    actor: str | None = None  # editor username, for audit
+
+
+class _BriefTopicFieldPatch(_BM):
+    topic: str
+    assessment_id: str
+    path: str
+    value: object | None = None
+    lock: bool | None = None
+    edited_by: str | None = None
+
+
+class _BriefApprove(_BM):
+    approved_by: str | None = None
+    note: str | None = None
+
+
+class _EventCreate(_BM):
+    topic: str
+    cadence: str | None = None
+    period_label: str | None = None
+    actor: str
+    action: str
+    subject: str
+    magnitude_value: float | None = None
+    magnitude_unit: str | None = None
+    event_date: str | None = None  # ISO date
+    source_urls: list[str] | None = None
+    confidence: float | None = None
+    requires_review: bool | None = False
+    scenario_relevance: list[str] | None = None
+    edited_by: str | None = None
+
+
+class _EventPatch(_BM):
+    actor: str | None = None
+    action: str | None = None
+    subject: str | None = None
+    magnitude_value: float | None = None
+    magnitude_unit: str | None = None
+    event_date: str | None = None
+    confidence: float | None = None
+    requires_review: bool | None = None
+    include_in_deck: bool | None = None
+    scenario_relevance: list[str] | None = None
+    edited_by: str | None = None
+
+
+def _normalize(s: str | None) -> str:
+    if not s:
+        return ""
+    return "-".join((s or "").lower().strip().split())
+
+
+@router.get("/api/forecast/brief/{cadence}/{period_label}")
+async def get_brief(cadence: str, period_label: str):
+    """Return the full editable bundle state: synthesis payload, locks,
+    edit history, review state, and per-topic summaries."""
+    if not _editor_enabled():
+        raise HTTPException(403, "Quarterly Brief Editor disabled on this tenant")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    payload = db.facade.get_brief_payload(cadence, period_label)
+    if not payload:
+        raise HTTPException(404, f"No brief for {cadence}/{period_label}")
+    return payload
+
+
+@router.patch("/api/forecast/brief/{cadence}/{period_label}/field")
+async def patch_brief_field_endpoint(
+    cadence: str, period_label: str, payload: _BriefFieldPatch,
+):
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    try:
+        result = db.facade.patch_brief_field(
+            cadence, period_label,
+            path=payload.path, value=payload.value,
+            edited_by=payload.edited_by, lock=payload.lock,
+        )
+    except Exception as e:
+        logger.exception("patch_brief_field failed")
+        raise HTTPException(500, f"patch failed: {e}")
+    return result
+
+
+@router.patch("/api/forecast/brief/{cadence}/{period_label}/lock")
+async def patch_brief_lock(
+    cadence: str, period_label: str, payload: _BriefLockPatch,
+):
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    try:
+        result = db.facade.toggle_brief_lock(
+            cadence, period_label, path=payload.path, locked=payload.locked,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"lock toggle failed: {e}")
+    return result
+
+
+@router.patch("/api/forecast/brief/{cadence}/{period_label}/topic-field")
+async def patch_brief_topic_field(
+    cadence: str, period_label: str, payload: _BriefTopicFieldPatch,
+):
+    """Patch a field inside a topic's assessment summary (e.g. briefing
+    lede or tension body)."""
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    try:
+        result = db.facade.patch_topic_summary_field(
+            topic=payload.topic, assessment_id=payload.assessment_id,
+            path=payload.path, value=payload.value,
+            edited_by=payload.edited_by, lock=payload.lock,
+        )
+    except Exception as e:
+        logger.exception("patch_brief_topic_field failed")
+        raise HTTPException(500, f"patch failed: {e}")
+    return result
+
+
+@router.post("/api/forecast/brief/{cadence}/{period_label}/regenerate-stage")
+async def regenerate_brief_stage(
+    cadence: str, period_label: str, payload: _BriefRegenStage,
+):
+    """Re-run one supervisor stage with locks respected. Returns task_id;
+    UI polls /api/forecast/assessment/job/{task_id} for progress.
+    """
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+
+    valid_stages = {
+        "briefing", "recommendations", "next_steps",
+        "cross_topic", "exec_summary", "events",
+    }
+    if payload.stage not in valid_stages:
+        raise HTTPException(400, f"unknown stage '{payload.stage}'; pick one of {valid_stages}")
+
+    from app.services.background_task_manager import get_task_manager
+    from app.services.wiley_bundle_supervisor import regenerate_single_stage
+
+    tm = get_task_manager()
+    task_id = tm.create_task(
+        name=f"regen_brief_stage:{cadence}:{period_label}:{payload.stage}",
+        total_items=100,
+        metadata={
+            "cadence": cadence, "period_label": period_label,
+            "stage": payload.stage, "topic": payload.topic,
+        },
+    )
+
+    async def _job(progress_callback=None):
+        async def _emit(pct, msg):
+            if progress_callback:
+                try:
+                    progress_callback(int(pct * 100), msg)
+                except Exception:
+                    pass
+        await regenerate_single_stage(
+            cadence=cadence, period_label=period_label,
+            stage=payload.stage, topic=payload.topic,
+            actor=payload.actor or "ui",
+            progress_cb=_emit,
+        )
+        return {"ok": True, "stage": payload.stage}
+
+    import asyncio as _asyncio
+    _asyncio.create_task(tm.run_task(task_id, _job))
+
+    return {
+        "ok": True, "task_id": task_id, "stage": payload.stage,
+        "status_url": f"/api/forecast/assessment/job/{task_id}",
+    }
+
+
+@router.get("/api/forecast/brief/{cadence}/{period_label}/preview.pptx")
+async def preview_brief_pptx(cadence: str, period_label: str):
+    """Render the current brief state (overrides applied, locks respected)
+    to PPTX for preview. Reads from cached forecast_bundle_synthesis +
+    latest assessments rather than re-running agents — fast iteration."""
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+
+    from app.database import get_database_instance
+    from app.services.forecast_bundle_pptx import build_bundle_pptx
+    from app.services.wiley_delivery_service import _data_quality_note
+    from app.services.wiley_bundle_supervisor import _load_items_for_period
+
+    db = get_database_instance()
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    if not synth.get("payload"):
+        raise HTTPException(
+            404,
+            f"No cached brief for {cadence}/{period_label} — generate the bundle first",
+        )
+
+    items = await _load_items_for_period(cadence, period_label)
+    if not items:
+        raise HTTPException(404, "No assessments available for this period")
+
+    # EOS per topic — load from per-topic assessment if present
+    eos_per_topic: dict = {}
+    for a, _r, _p in items:
+        topic = a.get("topic")
+        summary = a.get("summary") or {}
+        eos = summary.get("extreme_outlier_scenarios") or summary.get("eos") or []
+        if topic and eos:
+            eos_per_topic[topic] = eos
+
+    review = db.facade.get_forecast_bundle_review(cadence, period_label) or {}
+    # Per-trend evidence ledger needs this period's deck-included events.
+    events_by_topic: dict = {}
+    for e in (db.facade.list_extracted_events(
+            cadence=cadence, period_label=period_label, include_excluded=False) or []):
+        events_by_topic.setdefault(e.get("topic"), []).append(e)
+    blob = build_bundle_pptx(
+        items,
+        period_label=period_label,
+        cadence=cadence,
+        updates_only=False,
+        bundle_synthesis=synth,
+        eos_per_topic=eos_per_topic,
+        events_by_topic=events_by_topic,
+        data_quality_note=_data_quality_note(),
+        review_findings=(review.get("reviewer_findings")
+                         if review.get("status") == "revision_requested" else None),
+        review_verdict=review.get("status"),
+    )
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="brief-{cadence}-{period_label}-preview.pptx"'
+            ),
+        },
+    )
+
+
+@router.post("/api/forecast/brief/{cadence}/{period_label}/approve")
+async def approve_brief(
+    cadence: str, period_label: str, payload: _BriefApprove,
+):
+    """Single-analyst self-approval. Sets approved_by/approved_at on
+    forecast_bundle_review so the standard bundle.pptx download returns
+    200 instead of 202.
+    """
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    from datetime import datetime, timezone
+    db = get_database_instance()
+    row = db.facade.upsert_forecast_bundle_review(
+        cadence=cadence, period_label=period_label,
+        status="approved",
+        approved_by=payload.approved_by or "ui",
+        approved_at=datetime.now(timezone.utc),
+    )
+    return {"ok": True, "review": row}
+
+
+# ---- Events CRUD ----
+
+@router.get("/api/forecast/brief/{cadence}/{period_label}/events")
+async def list_brief_events(
+    cadence: str, period_label: str,
+    topic: str | None = Query(None),
+    include_excluded: bool = Query(True),
+):
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    return {
+        "events": db.facade.list_extracted_events(
+            topic=topic, cadence=cadence, period_label=period_label,
+            include_excluded=include_excluded,
+        ),
+    }
+
+
+@router.post("/api/forecast/brief/{cadence}/{period_label}/events")
+async def create_brief_event(
+    cadence: str, period_label: str, payload: _EventCreate,
+):
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    event = {
+        "topic": payload.topic,
+        "cadence": payload.cadence or cadence,
+        "period_label": payload.period_label or period_label,
+        "actor": payload.actor,
+        "actor_normalized": _normalize(payload.actor),
+        "action": payload.action,
+        "subject": payload.subject,
+        "subject_normalized": _normalize(payload.subject),
+        "magnitude_value": payload.magnitude_value,
+        "magnitude_unit": payload.magnitude_unit,
+        "event_date": payload.event_date,
+        "source_urls": payload.source_urls or [],
+        "confidence": payload.confidence,
+        "requires_review": bool(payload.requires_review),
+        "scenario_relevance": payload.scenario_relevance or [],
+        "origin": "manual",
+        "edited_by": payload.edited_by,
+    }
+    new_id = db.facade.upsert_extracted_event(event)
+    return {"ok": True, "id": new_id, "event": db.facade.get_extracted_event(new_id)}
+
+
+@router.patch("/api/forecast/brief/events/{event_id}")
+async def patch_brief_event(event_id: int, payload: _EventPatch):
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    return {"ok": True, "event": db.facade.patch_extracted_event(event_id, fields)}
+
+
+@router.delete("/api/forecast/brief/events/{event_id}")
+async def delete_brief_event(event_id: int):
+    if not _editor_enabled():
+        raise HTTPException(403, "disabled")
+    from app.database import get_database_instance
+    db = get_database_instance()
+    return {"ok": db.facade.delete_extracted_event(event_id)}

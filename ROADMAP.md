@@ -4,6 +4,24 @@ Forward-looking work. Ordered by priority, not by dependency.
 
 ## Immediate (this week)
 
+### Wiley topic-discovery pipeline — validate in production
+- [ ] **First production scan on wiley.aunoo.ai.** Service is restarted
+      with the new code; the scheduler's first scan runs ~30 minutes
+      after restart, then every 7 days. Confirm the first scan persists
+      candidates and that the inbox surfaces at least one `in_scope`
+      cluster.
+- [ ] **Wileytest dogfood.** Live test produced 15 pending candidates
+      with "AI Hallucinations and Research Integrity" at 0.90 — the
+      strongest signal. Promote one end-to-end through the wizard and
+      confirm the resulting overlay is structurally compatible with the
+      hand-authored ones.
+- [ ] Watch the off-scope auto-reject rate. Wileytest baseline: 13/28
+      (46%). If that climbs above ~60% on wiley, tune the judge prompt
+      or widen `monitored_keywords` in the org profile.
+- [ ] Surface "merge into existing topic" stats — how often analysts
+      pick merge vs promote — so we know whether the inbox is correctly
+      flagging new-vs-existing splits.
+
 ### Unblock retrieval quality
 - [ ] **OpenAI embedding quota exhausted on bugfixing.** Vector search is
       falling back to random 1536-d vectors; every semantic path produces
@@ -35,6 +53,31 @@ Forward-looking work. Ordered by priority, not by dependency.
       `wiley.aunoo.ai` and `wileytest.aunoo.ai` and restart their
       systemd services. Sentence-transformers is already installed on all
       three. `.env` additions: `RERANK_ENABLED=true`.
+
+## Short-term (next 1–2 weeks) — Wiley track
+
+### Topic-candidate signal quality
+- [ ] Backtest the `wiley_relevance_judge` against a hand-labelled set
+      of 30–50 emerging-topics clusters drawn from the last quarter.
+      Aim for >80% agreement on the in_scope/off_scope axis before
+      easing the conservative bias.
+- [ ] Capture each scan's summary (judged / in_scope / adjacent /
+      off_scope / persisted / errors) in a small history table so we
+      can plot signal-to-noise over time.
+- [ ] Add a "novelty floor" — drop candidates whose articles are
+      mostly low-novelty repeats of existing topic content. Today the
+      pipeline trusts the upstream HDBSCAN run to filter this; in
+      practice some candidates are just re-treads of `Patent Cliffs`.
+
+### Wiley overlay agent — fidelity work
+- [ ] Eval the auto-generated overlay against the five hand-authored
+      ones on a structural-compatibility checklist (4–5 deck scenarios,
+      every raw scenario mapped, `consensus_pct` populated,
+      `decision_fork` present when articles support both sides).
+- [ ] If the auto-generated overlay frequently misses `decision_fork`
+      or `action_windows`, lift the agent's reasoning_effort from
+      `high` to a chain-of-thought template that explicitly enumerates
+      the missing fields.
 
 ## Medium-term (this month)
 
@@ -70,6 +113,22 @@ Forward-looking work. Ordered by priority, not by dependency.
   once BGE-v2-m3 has been the default for a quarter without incident.
 
 ## Recently shipped (see CHANGELOG.md)
+
+### Wiley track (2026-05)
+- Trend-discovery → topic-promotion pipeline with weekly scan, Wiley-fit
+  relevance judge, Candidates inbox (Promote / Snooze / Reject / Merge),
+  and auto-fire pipeline on promotion (horizons + paired assessment +
+  draft overlay).
+- Topics dashboard + Add-topic wizard (`fa_006`) for analyst-driven
+  topic lifecycle management.
+- Multi-agent supervisor + LLM-as-judge reviewer for quarterly bundle
+  generation (`fa_005`), with persisted findings and reviewer-gated
+  delivery.
+- LLM-named emerging-theme clusters (replaces keyword-salad labels) and
+  off-topic article pruning.
+- Markdown export for the quarterly bundle (alongside PPTX).
+
+### Retrieval (2026-04)
 - Cross-encoder reranker for Auspex, `/anticipate`, and HybridRelevanceService
 - Eval harness (`scripts/evaluate_ce_vs_llm_fallback.py`)
 - Default model: `BAAI/bge-reranker-v2-m3`

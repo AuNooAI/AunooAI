@@ -1121,6 +1121,73 @@ class DatabaseQueryFacade:
 
         return self._execute_with_rollback(statement).mappings().fetchall()
 
+    def get_relevant_articles_for_topic(
+        self, topic: str, *, days_back: int = 110,
+        min_alignment: float = 0.3, limit: int = 200,
+    ):
+        """Recent articles for a topic, filtered by ``topic_alignment_score``.
+
+        ``get_articles_for_topic`` returns EVERYTHING tagged to a topic,
+        including the off-topic general news that lands in a feed (a
+        peer-review topic collects "fighter jets scrambled" etc. with
+        ``topic_alignment_score = 0.0``). Anything customer-facing — event
+        extraction, the "what's changed" section — must use the alignment
+        score the ingest pipeline already computed, or it inherits that
+        noise. Real on-topic articles score 0.9–1.0; the noise scores 0.0,
+        so a modest floor (default 0.3) cleanly separates them.
+
+        Ordered by alignment desc so the most on-topic material is consumed
+        first when a caller caps the result.
+        """
+        from datetime import datetime, timedelta
+
+        cutoff_str = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%dT%H:%M:%S')
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.publication_date,
+            articles.c.news_source,
+            articles.c.topic_alignment_score,
+        ).where(
+            and_(
+                articles.c.topic == topic,
+                articles.c.analyzed == True,
+                articles.c.publication_date >= cutoff_str,
+                articles.c.topic_alignment_score != None,
+                articles.c.topic_alignment_score > min_alignment,
+            )
+        ).order_by(
+            desc(articles.c.topic_alignment_score),
+            desc(articles.c.publication_date),
+        ).limit(limit)
+
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
+    def count_relevant_articles_for_topic_window(
+        self, topic: str, *, start: str, end: str, min_alignment: float = 0.3,
+    ) -> int:
+        """Count on-topic articles for ``topic`` with publication_date in [start, end).
+
+        Same alignment filter as ``get_relevant_articles_for_topic`` (so the
+        count reflects genuine on-topic coverage, not feed noise), but bounded
+        by an explicit ISO date window so two equal-length periods can be
+        compared for the "where press attention shifted" signal. ``start`` and
+        ``end`` are ISO strings; ``publication_date`` is TEXT in ISO format so
+        lexical comparison is correct.
+        """
+        statement = select(func.count()).select_from(articles).where(
+            and_(
+                articles.c.topic == topic,
+                articles.c.analyzed == True,
+                articles.c.publication_date >= start,
+                articles.c.publication_date < end,
+                articles.c.topic_alignment_score != None,
+                articles.c.topic_alignment_score > min_alignment,
+            )
+        )
+        return self._execute_with_rollback(statement).scalar() or 0
+
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
         # Use ALL articles (including historical) as inputs for foresight analysis
@@ -8065,12 +8132,17 @@ class DatabaseQueryFacade:
             assessment = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
 
             for key in ("surprises", "summary", "config"):
+                # Loop-parse to survive double-encoded JSONB (see
+                # get_prior_live_assessment for the full rationale).
                 v = assessment.get(key)
-                if isinstance(v, str):
+                for _ in range(3):
+                    if not isinstance(v, str):
+                        break
                     try:
-                        assessment[key] = json.loads(v)
+                        v = json.loads(v)
                     except Exception:
-                        pass
+                        break
+                assessment[key] = v
 
             v_stmt = (
                 select(t_forecast_scenario_verdicts)
@@ -8170,27 +8242,47 @@ class DatabaseQueryFacade:
         """Same as get_latest_forecast_assessment but keyed by topic instead of
         run_id. Lets the UI surface assessments tied to an older horizons run
         even when the current trend-convergence page has freshly generated a
-        different run for the same topic."""
-        try:
-            from app.database_models import t_forecast_assessments
-            from sqlalchemy import select, case
+        different run for the same topic.
 
-            live_priority = case(
-                (t_forecast_assessments.c.mode == "live", 0),
-                else_=1,
-            )
-            id_stmt = (
-                select(t_forecast_assessments.c.run_id)
-                .where(t_forecast_assessments.c.topic == topic)
-                .order_by(
-                    live_priority.asc(),
-                    t_forecast_assessments.c.assessed_at.desc(),
-                )
-                .limit(1)
-            )
-            row = self._execute_with_rollback(id_stmt).fetchone()
+        Skips assessments with zero ``forecast_scenario_verdicts`` rows —
+        those are aborted/empty runs (e.g. when a build pipeline returned
+        a horizons run with no parseable scenarios) and would render a
+        blank Strategic Domains card if picked. The most recent
+        *populated* assessment is preferred.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+
+            # Most recent live+completed assessment for this topic that
+            # actually has scenario verdicts. Filtering by an EXISTS
+            # sub-query keeps the query plan cheap.
+            id_stmt = sa_text("""
+                SELECT a.run_id
+                FROM forecast_assessments a
+                WHERE a.topic = :topic
+                  AND a.mode = 'live' AND a.status = 'completed'
+                  AND EXISTS (
+                      SELECT 1 FROM forecast_scenario_verdicts v
+                      WHERE v.assessment_id = a.id
+                  )
+                ORDER BY a.assessed_at DESC
+                LIMIT 1
+            """)
+            row = self._execute_with_rollback(id_stmt, {"topic": topic}).fetchone()
             if not row:
-                return {}
+                # Fall back to ANY latest assessment so a topic that's never
+                # had a populated run still surfaces something rather than
+                # silently disappearing from the bundle. The bundle's empty-
+                # state stub will render in that case.
+                fallback = sa_text("""
+                    SELECT run_id FROM forecast_assessments
+                    WHERE topic = :topic
+                    ORDER BY (mode = 'live') DESC, assessed_at DESC
+                    LIMIT 1
+                """)
+                row = self._execute_with_rollback(fallback, {"topic": topic}).fetchone()
+                if not row:
+                    return {}
             run_id = row[0] if not hasattr(row, "_mapping") else row._mapping["run_id"]
             return self.get_latest_forecast_assessment(run_id)
         except Exception as e:
@@ -8214,12 +8306,19 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting article verdicts: {e}")
             return []
 
-    def get_prior_live_assessment(self, run_id: str, before_assessed_at) -> dict:
-        """Return the live-mode assessment immediately preceding ``before_assessed_at``
-        for the given run, including its per-scenario verdicts and article verdicts.
+    def get_prior_live_assessment(self, run_id: str, before_assessed_at,
+                                  topic: str = None) -> dict:
+        """Return the live-mode assessment immediately preceding
+        ``before_assessed_at`` for the topic, including its per-scenario
+        verdicts and article verdicts.
 
-        Used by the ``?updates_only=true`` PPTX export to diff the current
-        assessment against the previous snapshot.
+        The lookup is keyed by **topic**, not by ``run_id``. Every fresh
+        Three Horizons run produces a new ``run_id``, so a run-keyed
+        prior-lookup would treat each new horizons run as a clean slate
+        and the bundle would emit the "no prior snapshot" stub for every
+        topic that has ever had its forecast regenerated. ``run_id``
+        remains a fallback when ``topic`` isn't supplied (call sites
+        gradually migrating).
         """
         try:
             from app.database_models import (
@@ -8230,26 +8329,58 @@ class DatabaseQueryFacade:
             from sqlalchemy import select
             import json
 
+            # Resolve the topic from the run if the caller didn't pass it.
+            # ``run_id`` is preserved as a fallback path so old callers
+            # don't break — but new code should pass ``topic`` explicitly.
+            if not topic and run_id:
+                try:
+                    from app.database_models import t_future_horizons_runs
+                    run_stmt = select(t_future_horizons_runs.c.topic).where(
+                        t_future_horizons_runs.c.id == run_id
+                    )
+                    run_row = self._execute_with_rollback(run_stmt).fetchone()
+                    if run_row:
+                        topic = run_row[0]
+                except Exception as e:
+                    self.logger.warning(
+                        "Could not resolve topic for run_id=%s: %s", run_id, e
+                    )
+
             stmt = (
                 select(t_forecast_assessments)
-                .where(t_forecast_assessments.c.run_id == run_id)
                 .where(t_forecast_assessments.c.mode == "live")
                 .where(t_forecast_assessments.c.status == "completed")
                 .where(t_forecast_assessments.c.assessed_at < before_assessed_at)
-                .order_by(t_forecast_assessments.c.assessed_at.desc())
-                .limit(1)
             )
+            if topic:
+                stmt = stmt.where(t_forecast_assessments.c.topic == topic)
+            else:
+                # Last-ditch: filter on run_id alone if no topic could be
+                # resolved. This preserves the old behaviour for the rare
+                # edge case where the run row is missing.
+                stmt = stmt.where(t_forecast_assessments.c.run_id == run_id)
+            stmt = (stmt
+                    .order_by(t_forecast_assessments.c.assessed_at.desc())
+                    .limit(1))
             row = self._execute_with_rollback(stmt).fetchone()
             if not row:
                 return {}
             a = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
             for key in ("surprises", "summary", "config"):
+                # Loop-parse to survive double-encoded JSONB: a value stored
+                # as json.dumps() of an already-stringified object decodes to
+                # a *string* on the first json.loads, and a later `.get()` on
+                # it raises "'str' object has no attribute 'get'". Decode
+                # until it's no longer a string (cap at 3 to avoid loops).
                 v = a.get(key)
-                if isinstance(v, str):
+                for _ in range(3):
+                    if not isinstance(v, str):
+                        break
                     try:
-                        a[key] = json.loads(v)
+                        v = json.loads(v)
                     except Exception:
-                        pass
+                        break
+                a[key] = v
 
             v_stmt = (
                 select(t_forecast_scenario_verdicts)
@@ -8690,6 +8821,303 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error listing topics with lifecycle: {e}")
             return []
 
+    # --- Topic Candidates (inbox) ----------------------------------------
+
+    def upsert_topic_candidate(
+        self, *,
+        emerging_topic_id: int,
+        org_profile_id: int,
+        relevance_verdict: str,
+        relevance_score: float = None,
+        relevance_rationale: str = None,
+        proposed_topic_name: str = None,
+        proposed_description: str = None,
+        proposed_tags: list = None,
+    ) -> int:
+        """Insert (or update on conflict) a candidate row keyed by
+        (emerging_topic_id, org_profile_id). off_scope verdicts are
+        auto-rejected at insert so they never surface in the inbox.
+
+        Returns the candidate id.
+        """
+        try:
+            from app.database_models import t_topic_candidates
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from sqlalchemy import text as sa_text, select
+
+            if relevance_verdict not in ("in_scope", "adjacent", "off_scope"):
+                raise ValueError(f"Invalid relevance_verdict '{relevance_verdict}'")
+
+            insert_values = {
+                "emerging_topic_id": emerging_topic_id,
+                "org_profile_id": org_profile_id,
+                "relevance_verdict": relevance_verdict,
+            }
+            for field, value in (
+                ("relevance_score", relevance_score),
+                ("relevance_rationale", relevance_rationale),
+                ("proposed_topic_name", proposed_topic_name),
+                ("proposed_description", proposed_description),
+            ):
+                if value is not None:
+                    insert_values[field] = value
+            if proposed_tags is not None:
+                insert_values["proposed_tags"] = proposed_tags  # python list -> JSONB array
+
+            # off_scope candidates are auto-rejected so they never appear
+            # in the analyst inbox. Analysts can still see them via the
+            # 'rejected' filter for audit purposes.
+            if relevance_verdict == "off_scope":
+                insert_values["triage_status"] = "rejected"
+                insert_values["rejected_reason"] = "off_scope (auto)"
+
+            update_values = {k: v for k, v in insert_values.items()
+                             if k not in ("emerging_topic_id", "org_profile_id")}
+            update_values["updated_at"] = sa_text("NOW()")
+
+            stmt = pg_insert(t_topic_candidates).values(**insert_values)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_topic_candidates_topic_profile",
+                set_=update_values,
+            ).returning(t_topic_candidates.c.id)
+            row = self._execute_with_rollback(stmt).fetchone()
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return int(row[0]) if row else None
+        except Exception as e:
+            self.logger.error(f"Error upserting candidate (et={emerging_topic_id}): {e}")
+            raise
+
+    def list_topic_candidates(
+        self, *,
+        triage_status: str = "pending",
+        min_score: float = 0.0,
+        org_profile_id: int = None,
+        include_emerging: bool = True,
+    ) -> list:
+        """List candidates joined with their underlying emerging-topic row.
+        Ordered by relevance_score * composite_score DESC (best signal first).
+
+        ``triage_status='all'`` returns every row regardless of status.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            where = ["1=1"]
+            params = {}
+            if triage_status and triage_status != "all":
+                where.append("tc.triage_status = :status")
+                params["status"] = triage_status
+            if min_score is not None and min_score > 0:
+                where.append("COALESCE(tc.relevance_score, 0) >= :min_score")
+                params["min_score"] = float(min_score)
+            if org_profile_id is not None:
+                where.append("tc.org_profile_id = :opid")
+                params["opid"] = int(org_profile_id)
+            # Hide snoozed rows whose snooze window has elapsed only when the
+            # caller specifically asked for snoozed — the sweeper unsnoozes
+            # them on its own tick.
+            sql = sa_text(f"""
+                SELECT
+                    tc.id,
+                    tc.emerging_topic_id,
+                    tc.org_profile_id,
+                    tc.relevance_verdict,
+                    tc.relevance_score,
+                    tc.relevance_rationale,
+                    tc.proposed_topic_name,
+                    tc.proposed_description,
+                    tc.proposed_tags,
+                    tc.triage_status,
+                    tc.snooze_until,
+                    tc.rejected_reason,
+                    tc.promoted_to_topic,
+                    tc.triaged_by,
+                    tc.triaged_at,
+                    tc.created_at,
+                    tc.updated_at,
+                    et.topic_label,
+                    et.topic_description,
+                    et.article_count,
+                    et.growth_rate,
+                    et.velocity,
+                    et.avg_novelty_score,
+                    et.confidence_score AS et_confidence,
+                    et.key_themes,
+                    et.representative_keywords,
+                    et.sample_article_uris,
+                    et.detection_date,
+                    et.detection_type
+                FROM topic_candidates tc
+                JOIN emerging_topics  et ON et.id = tc.emerging_topic_id
+                WHERE {' AND '.join(where)}
+                ORDER BY
+                    COALESCE(tc.relevance_score, 0) *
+                        COALESCE(et.confidence_score, 0.5) DESC,
+                    tc.created_at DESC
+            """)
+            rows = self._execute_with_rollback(sql, params).fetchall()
+            out = []
+            for r in rows:
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                for k in ("created_at", "updated_at", "triaged_at",
+                          "detection_date", "snooze_until"):
+                    v = rd.get(k)
+                    if hasattr(v, "isoformat"):
+                        rd[k] = v.isoformat()
+                out.append(rd)
+            return out
+        except Exception as e:
+            self.logger.error(f"Error listing topic candidates: {e}")
+            return []
+
+    def get_topic_candidate(self, candidate_id: int) -> dict:
+        try:
+            from sqlalchemy import text as sa_text
+            sql = sa_text("""
+                SELECT
+                    tc.*,
+                    et.topic_label,
+                    et.topic_description,
+                    et.article_count,
+                    et.growth_rate,
+                    et.key_themes,
+                    et.sample_article_uris,
+                    et.article_uris,
+                    et.detection_date
+                FROM topic_candidates tc
+                JOIN emerging_topics  et ON et.id = tc.emerging_topic_id
+                WHERE tc.id = :id
+            """)
+            row = self._execute_with_rollback(sql, {"id": int(candidate_id)}).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for k in ("created_at", "updated_at", "triaged_at",
+                      "detection_date", "snooze_until"):
+                v = rd.get(k)
+                if hasattr(v, "isoformat"):
+                    rd[k] = v.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error getting candidate {candidate_id}: {e}")
+            return {}
+
+    def triage_topic_candidate(
+        self, candidate_id: int, *,
+        action: str,
+        reason: str = None,
+        snooze_days: int = None,
+        merged_into: str = None,
+        promoted_to: str = None,
+        triaged_by: str = None,
+    ) -> dict:
+        """Apply a triage action to a candidate.
+
+        action ∈ {snooze, reject, merge, promote}. The promote action
+        only updates the candidate row — the actual horizons + assessment
+        pipeline is owned by ``wiley_candidate_pipeline``.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            if action not in ("snooze", "reject", "merge", "promote", "unsnooze"):
+                raise ValueError(f"Invalid triage action '{action}'")
+
+            updates = {"id": int(candidate_id)}
+            set_clauses = []
+            if action == "snooze":
+                if not snooze_days or snooze_days <= 0:
+                    raise ValueError("snooze_days required for snooze")
+                set_clauses.append("triage_status = 'snoozed'")
+                set_clauses.append(
+                    "snooze_until = (CURRENT_DATE + (:days || ' days')::interval)::date"
+                )
+                updates["days"] = int(snooze_days)
+            elif action == "unsnooze":
+                set_clauses.append("triage_status = 'pending'")
+                set_clauses.append("snooze_until = NULL")
+            elif action == "reject":
+                set_clauses.append("triage_status = 'rejected'")
+                if reason:
+                    set_clauses.append("rejected_reason = :reason")
+                    updates["reason"] = reason
+            elif action == "merge":
+                if not merged_into:
+                    raise ValueError("merged_into topic name required for merge")
+                set_clauses.append("triage_status = 'merged'")
+                set_clauses.append("promoted_to_topic = :merged_into")
+                updates["merged_into"] = merged_into
+            elif action == "promote":
+                if not promoted_to:
+                    raise ValueError("promoted_to topic name required for promote")
+                set_clauses.append("triage_status = 'promoted'")
+                set_clauses.append("promoted_to_topic = :promoted_to")
+                updates["promoted_to"] = promoted_to
+
+            if triaged_by:
+                set_clauses.append("triaged_by = :triaged_by")
+                updates["triaged_by"] = triaged_by
+            set_clauses.append("triaged_at = NOW()")
+            set_clauses.append("updated_at = NOW()")
+
+            sql = sa_text(
+                f"UPDATE topic_candidates SET {', '.join(set_clauses)} "
+                f"WHERE id = :id"
+            )
+            self._execute_with_rollback(sql, updates)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return self.get_topic_candidate(candidate_id)
+        except Exception as e:
+            self.logger.error(f"Error triaging candidate {candidate_id} ({action}): {e}")
+            raise
+
+    def sweep_snoozed_candidates(self) -> int:
+        """Flip any snoozed candidate whose snooze_until is today or
+        earlier back to 'pending'. Called daily by the scheduler.
+        Returns the number of rows unsnoozed.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            sql = sa_text("""
+                UPDATE topic_candidates
+                SET triage_status = 'pending', snooze_until = NULL,
+                    updated_at = NOW()
+                WHERE triage_status = 'snoozed'
+                  AND snooze_until IS NOT NULL
+                  AND snooze_until <= CURRENT_DATE
+            """)
+            result = self._execute_with_rollback(sql)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return int(result.rowcount or 0)
+        except Exception as e:
+            self.logger.error(f"Error sweeping snoozed candidates: {e}")
+            return 0
+
+    def get_organizational_profile_by_name(self, name: str) -> dict:
+        """Look up an organizational_profiles row by exact name match.
+        Used by the candidate pipeline to load the Wiley brief for the
+        relevance judge.
+        """
+        try:
+            from sqlalchemy import text as sa_text
+            sql = sa_text(
+                "SELECT * FROM organizational_profiles WHERE name = :name LIMIT 1"
+            )
+            row = self._execute_with_rollback(sql, {"name": name}).fetchone()
+            if not row:
+                return {}
+            return dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+        except Exception as e:
+            self.logger.error(f"Error loading org profile '{name}': {e}")
+            return {}
+
     # Bundle-level synthesis cache (cross-topic LLM artefacts)
     def get_forecast_bundle_synthesis(self, cadence: str, period_label: str) -> dict:
         """Return cached cross-topic LLM synthesis for a bundle period, or {}."""
@@ -8849,6 +9277,520 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error upserting bundle review ({cadence}/{period_label}): {e}")
             raise
+
+    # ------------------------------------------------------------------
+    # Quarterly Brief Editor helpers — back the QuarterlyBriefEditor page
+    # (ui/src/pages/QuarterlyBriefEditor.tsx) and the editor endpoints in
+    # forecast_assessment_routes.py.
+    # ------------------------------------------------------------------
+
+    def get_brief_payload(self, cadence: str, period_label: str) -> dict:
+        """Return the editable bundle state in one shot.
+
+        Combines synthesis payload + locked_keys + edit_history + review
+        state + per-topic summaries. Single GET feeds the whole editor
+        page.
+        """
+        try:
+            synth = self.get_forecast_bundle_synthesis(cadence, period_label) or {}
+            review = self.get_forecast_bundle_review(cadence, period_label) or {}
+
+            topics = synth.get("topics") or []
+            per_topic = []
+            for t in topics:
+                topic_name = t.get("topic") if isinstance(t, dict) else t
+                if not topic_name:
+                    continue
+                latest = self.get_latest_forecast_assessment_by_topic(topic_name) or {}
+                per_topic.append({
+                    "topic": topic_name,
+                    "assessment_id": latest.get("id"),
+                    "assessed_at": latest.get("assessed_at"),
+                    "summary": latest.get("summary") or {},
+                    "summary_locked_keys": latest.get("summary_locked_keys") or [],
+                })
+
+            return {
+                "cadence": cadence,
+                "period_label": period_label,
+                "payload": synth.get("payload") or {},
+                "topics": topics,
+                "locked_keys": synth.get("locked_keys") or [],
+                "edit_history": synth.get("edit_history") or [],
+                "updated_at": synth.get("updated_at"),
+                "review": review,
+                "per_topic": per_topic,
+            }
+        except Exception as e:
+            self.logger.error(f"Error get_brief_payload ({cadence}/{period_label}): {e}")
+            return {}
+
+    @staticmethod
+    def _split_path(path: str) -> list:
+        """Parse a dot-path like 'cross_cutting_themes[2].body' into a list
+        of (kind, key) tuples: [('key','cross_cutting_themes'),('idx',2),('key','body')].
+
+        Used for the jsonb_set parameter array and for in-Python walks.
+        """
+        if not path:
+            return []
+        out = []
+        token = ""
+        i = 0
+        while i < len(path):
+            ch = path[i]
+            if ch == ".":
+                if token:
+                    out.append(("key", token))
+                    token = ""
+            elif ch == "[":
+                if token:
+                    out.append(("key", token))
+                    token = ""
+                j = path.find("]", i)
+                if j == -1:
+                    raise ValueError(f"Unclosed bracket in path: {path}")
+                out.append(("idx", int(path[i + 1:j])))
+                i = j
+            else:
+                token += ch
+            i += 1
+        if token:
+            out.append(("key", token))
+        return out
+
+    @classmethod
+    def _path_to_jsonb_array(cls, path: str) -> list:
+        """Convert 'cross_cutting_themes[2].body' → ['cross_cutting_themes','2','body']
+        for use with PostgreSQL's jsonb_set(target, path, value) text[] argument.
+        """
+        return [str(tok) for _, tok in cls._split_path(path)]
+
+    @classmethod
+    def _walk_path(cls, obj, path: str):
+        """Return the subtree at `path` in `obj`, or None if missing."""
+        try:
+            cur = obj
+            for kind, tok in cls._split_path(path):
+                if kind == "key":
+                    if not isinstance(cur, dict):
+                        return None
+                    cur = cur.get(tok)
+                else:  # idx
+                    if not isinstance(cur, list) or tok >= len(cur) or tok < 0:
+                        return None
+                    cur = cur[tok]
+            return cur
+        except Exception:
+            return None
+
+    def patch_brief_field(
+        self, cadence: str, period_label: str,
+        *, path: str, value, edited_by: str = None,
+        lock: bool = None,
+    ) -> dict:
+        """Update a single field inside `payload` by dot-path. Appends an
+        entry to `edit_history`. Optionally toggles the path's lock.
+
+        Returns the refreshed brief payload.
+        """
+        try:
+            import hashlib
+            import json
+            from sqlalchemy import text as sa_text
+
+            row = self.get_forecast_bundle_synthesis(cadence, period_label) or {}
+            payload = row.get("payload") or {}
+            prev_subtree = self._walk_path(payload, path)
+
+            def _hash(o):
+                try:
+                    return hashlib.sha256(
+                        json.dumps(o, sort_keys=True, default=str).encode()
+                    ).hexdigest()[:16]
+                except Exception:
+                    return None
+
+            path_array = self._path_to_jsonb_array(path)
+            # jsonb_set expects a text[] like {a,b,2}; psycopg2 maps Python
+            # list[str] → text[] automatically when sent as a bound param.
+            stmt = sa_text(
+                "UPDATE forecast_bundle_synthesis "
+                "SET payload = jsonb_set(payload, :path, CAST(:value AS jsonb), true), "
+                "    edit_history = edit_history || CAST(:hist AS jsonb), "
+                "    updated_at = NOW() "
+                "WHERE cadence = :cadence AND period_label = :period_label"
+            )
+            hist_entry = [{
+                "key": path,
+                "prev_hash": _hash(prev_subtree),
+                "next_hash": _hash(value),
+                "edited_by": edited_by or "unknown",
+                "edited_at": datetime.utcnow().isoformat(),
+            }]
+            self._execute_with_rollback(stmt, {
+                "cadence": cadence,
+                "period_label": period_label,
+                "path": "{" + ",".join(path_array) + "}",
+                "value": json.dumps(value),
+                "hist": json.dumps(hist_entry),
+            })
+
+            if lock is not None:
+                self.toggle_brief_lock(cadence, period_label, path=path, locked=lock)
+
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+
+            return self.get_brief_payload(cadence, period_label)
+        except Exception as e:
+            self.logger.error(
+                f"Error patch_brief_field({cadence}/{period_label}, {path}): {e}"
+            )
+            raise
+
+    def toggle_brief_lock(
+        self, cadence: str, period_label: str,
+        *, path: str, locked: bool,
+    ) -> dict:
+        """Add/remove a path from locked_keys."""
+        try:
+            import json
+            from sqlalchemy import text as sa_text
+
+            row = self.get_forecast_bundle_synthesis(cadence, period_label) or {}
+            keys = list(row.get("locked_keys") or [])
+            if locked and path not in keys:
+                keys.append(path)
+            elif not locked and path in keys:
+                keys.remove(path)
+
+            stmt = sa_text(
+                "UPDATE forecast_bundle_synthesis "
+                "SET locked_keys = CAST(:keys AS jsonb), updated_at = NOW() "
+                "WHERE cadence = :cadence AND period_label = :period_label"
+            )
+            self._execute_with_rollback(stmt, {
+                "cadence": cadence,
+                "period_label": period_label,
+                "keys": json.dumps(keys),
+            })
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return {"path": path, "locked": locked, "locked_keys": keys}
+        except Exception as e:
+            self.logger.error(
+                f"Error toggle_brief_lock({cadence}/{period_label}, {path}): {e}"
+            )
+            raise
+
+    def get_brief_locked_keys(self, cadence: str, period_label: str) -> list:
+        try:
+            row = self.get_forecast_bundle_synthesis(cadence, period_label) or {}
+            return list(row.get("locked_keys") or [])
+        except Exception:
+            return []
+
+    def patch_topic_summary_field(
+        self, *, topic: str, assessment_id: str,
+        path: str, value, edited_by: str = None, lock: bool = None,
+    ) -> dict:
+        """Per-topic equivalent of patch_brief_field. Edits
+        `forecast_assessments.summary` for `assessment_id` via jsonb_set;
+        appends to a per-topic edit history (kept inline in summary for
+        simplicity)."""
+        try:
+            import hashlib
+            import json
+            from sqlalchemy import text as sa_text
+
+            latest = self.get_latest_forecast_assessment_by_topic(topic) or {}
+            summary = latest.get("summary") or {}
+            prev_subtree = self._walk_path(summary, path)
+
+            def _hash(o):
+                try:
+                    return hashlib.sha256(
+                        json.dumps(o, sort_keys=True, default=str).encode()
+                    ).hexdigest()[:16]
+                except Exception:
+                    return None
+
+            path_array = self._path_to_jsonb_array(path)
+            stmt = sa_text(
+                "UPDATE forecast_assessments "
+                "SET summary = jsonb_set(summary, :path, CAST(:value AS jsonb), true) "
+                "WHERE id = :assessment_id"
+            )
+            self._execute_with_rollback(stmt, {
+                "assessment_id": assessment_id,
+                "path": "{" + ",".join(path_array) + "}",
+                "value": json.dumps(value),
+            })
+
+            if lock is not None:
+                self.toggle_topic_summary_lock(
+                    assessment_id=assessment_id, path=path, locked=lock,
+                )
+
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+
+            return {
+                "topic": topic,
+                "assessment_id": assessment_id,
+                "path": path,
+                "prev_hash": _hash(prev_subtree),
+                "next_hash": _hash(value),
+                "edited_by": edited_by or "unknown",
+                "edited_at": datetime.utcnow().isoformat(),
+            }
+        except Exception as e:
+            self.logger.error(
+                f"Error patch_topic_summary_field({topic}, {path}): {e}"
+            )
+            raise
+
+    def toggle_topic_summary_lock(
+        self, *, assessment_id: str, path: str, locked: bool,
+    ) -> dict:
+        try:
+            import json
+            from sqlalchemy import text as sa_text
+
+            row = self._execute_with_rollback(
+                sa_text(
+                    "SELECT summary_locked_keys FROM forecast_assessments "
+                    "WHERE id = :id"
+                ),
+                {"id": assessment_id},
+            ).fetchone()
+            if not row:
+                return {"path": path, "locked": locked, "summary_locked_keys": []}
+            keys = list(row[0] or [])
+            if locked and path not in keys:
+                keys.append(path)
+            elif not locked and path in keys:
+                keys.remove(path)
+
+            stmt = sa_text(
+                "UPDATE forecast_assessments "
+                "SET summary_locked_keys = CAST(:keys AS jsonb) "
+                "WHERE id = :id"
+            )
+            self._execute_with_rollback(stmt, {
+                "id": assessment_id,
+                "keys": json.dumps(keys),
+            })
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return {"path": path, "locked": locked, "summary_locked_keys": keys}
+        except Exception as e:
+            self.logger.error(
+                f"Error toggle_topic_summary_lock({assessment_id}, {path}): {e}"
+            )
+            raise
+
+    # ------------------------------------------------------------------
+    # extracted_events CRUD — backs the Events tab in the editor + the
+    # supervisor's events stage runner.
+    # ------------------------------------------------------------------
+
+    def list_extracted_events(
+        self, *, topic: str = None, cadence: str = None,
+        period_label: str = None, include_excluded: bool = True,
+    ) -> list:
+        try:
+            from sqlalchemy import text as sa_text
+
+            where = []
+            params = {}
+            if topic:
+                where.append("topic = :topic")
+                params["topic"] = topic
+            if cadence:
+                where.append("cadence = :cadence")
+                params["cadence"] = cadence
+            if period_label:
+                where.append("period_label = :period_label")
+                params["period_label"] = period_label
+            if not include_excluded:
+                where.append("include_in_deck = true")
+            sql = "SELECT * FROM extracted_events"
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            sql += " ORDER BY event_date DESC NULLS LAST, id DESC"
+
+            rows = self._execute_with_rollback(sa_text(sql), params).fetchall()
+            out = []
+            for r in rows:
+                rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                for k in ("event_date", "created_at", "updated_at"):
+                    v = rd.get(k)
+                    if hasattr(v, "isoformat"):
+                        rd[k] = v.isoformat()
+                out.append(rd)
+            return out
+        except Exception as e:
+            self.logger.error(f"Error list_extracted_events: {e}")
+            return []
+
+    def upsert_extracted_event(self, event: dict) -> int:
+        """Insert an event, idempotent on the dedupe key. If a row already
+        exists, merges source_urls[] and keeps the higher confidence value.
+
+        Returns the row id.
+        """
+        try:
+            import json
+            from sqlalchemy import text as sa_text
+
+            stmt = sa_text(
+                "INSERT INTO extracted_events ("
+                "  assessment_id, topic, cadence, period_label, "
+                "  actor, actor_normalized, action, subject, subject_normalized, "
+                "  magnitude_value, magnitude_unit, event_date, "
+                "  source_urls, confidence, requires_review, include_in_deck, "
+                "  scenario_relevance, origin, edited_by) "
+                "VALUES ("
+                "  :assessment_id, :topic, :cadence, :period_label, "
+                "  :actor, :actor_normalized, :action, :subject, :subject_normalized, "
+                "  :magnitude_value, :magnitude_unit, :event_date, "
+                "  CAST(:source_urls AS jsonb), :confidence, :requires_review, "
+                "  :include_in_deck, "
+                "  CAST(:scenario_relevance AS jsonb), :origin, :edited_by) "
+                "ON CONFLICT ON CONSTRAINT uq_extracted_events_dedupe DO UPDATE SET "
+                "  source_urls = ("
+                "    SELECT to_jsonb(array_agg(DISTINCT u)) FROM ("
+                "      SELECT jsonb_array_elements_text(extracted_events.source_urls) AS u "
+                "      UNION SELECT jsonb_array_elements_text(CAST(:source_urls AS jsonb)) AS u "
+                "    ) deduped"
+                "  ), "
+                "  confidence = GREATEST(extracted_events.confidence, COALESCE(:confidence, 0)), "
+                "  requires_review = extracted_events.requires_review AND :requires_review, "
+                "  updated_at = NOW() "
+                "RETURNING id"
+            )
+            # Events default to in-deck. Quality is controlled upstream now
+            # (topic_alignment_score floor in get_relevant_articles_for_topic
+            # removes off-topic feed noise) plus the requires_review flag and
+            # the top-N deck-cap ranking. The analyst can still exclude any
+            # event from the editor's Events tab.
+            default_in_deck = True
+            params = {
+                "assessment_id": event.get("assessment_id"),
+                "topic": event.get("topic"),
+                "cadence": event.get("cadence"),
+                "period_label": event.get("period_label"),
+                "actor": event.get("actor"),
+                "actor_normalized": event.get("actor_normalized"),
+                "action": event.get("action"),
+                "subject": event.get("subject"),
+                "subject_normalized": event.get("subject_normalized"),
+                "magnitude_value": event.get("magnitude_value"),
+                "magnitude_unit": event.get("magnitude_unit"),
+                "event_date": event.get("event_date"),
+                "source_urls": json.dumps(event.get("source_urls") or []),
+                "confidence": event.get("confidence"),
+                "requires_review": bool(event.get("requires_review", False)),
+                "include_in_deck": bool(event.get("include_in_deck", default_in_deck)),
+                "scenario_relevance": json.dumps(event.get("scenario_relevance") or []),
+                "origin": event.get("origin", "auto"),
+                "edited_by": event.get("edited_by"),
+            }
+            row = self._execute_with_rollback(stmt, params).fetchone()
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return int(row[0]) if row else None
+        except Exception as e:
+            self.logger.error(f"Error upsert_extracted_event: {e}")
+            raise
+
+    def patch_extracted_event(self, event_id: int, fields: dict) -> dict:
+        """Patch any editable field on an extracted_events row. Whitelist
+        of fields prevents the editor from poking dedupe-key columns."""
+        try:
+            import json
+            from sqlalchemy import text as sa_text
+
+            allowed = {
+                "actor", "action", "subject",
+                "magnitude_value", "magnitude_unit", "event_date",
+                "confidence", "requires_review", "include_in_deck",
+                "scenario_relevance", "edited_by",
+            }
+            sets = []
+            params = {"id": event_id}
+            for k, v in fields.items():
+                if k not in allowed:
+                    continue
+                if k == "scenario_relevance":
+                    sets.append("scenario_relevance = CAST(:scenario_relevance AS jsonb)")
+                    params["scenario_relevance"] = json.dumps(v or [])
+                else:
+                    sets.append(f"{k} = :{k}")
+                    params[k] = v
+            if not sets:
+                return self.get_extracted_event(event_id)
+            sets.append("updated_at = NOW()")
+            stmt = sa_text(
+                "UPDATE extracted_events SET " + ", ".join(sets) +
+                " WHERE id = :id"
+            )
+            self._execute_with_rollback(stmt, params)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return self.get_extracted_event(event_id)
+        except Exception as e:
+            self.logger.error(f"Error patch_extracted_event({event_id}): {e}")
+            raise
+
+    def get_extracted_event(self, event_id: int) -> dict:
+        try:
+            from sqlalchemy import text as sa_text
+            row = self._execute_with_rollback(
+                sa_text("SELECT * FROM extracted_events WHERE id = :id"),
+                {"id": event_id},
+            ).fetchone()
+            if not row:
+                return {}
+            rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for k in ("event_date", "created_at", "updated_at"):
+                v = rd.get(k)
+                if hasattr(v, "isoformat"):
+                    rd[k] = v.isoformat()
+            return rd
+        except Exception as e:
+            self.logger.error(f"Error get_extracted_event({event_id}): {e}")
+            return {}
+
+    def delete_extracted_event(self, event_id: int) -> bool:
+        try:
+            from sqlalchemy import text as sa_text
+            self._execute_with_rollback(
+                sa_text("DELETE FROM extracted_events WHERE id = :id"),
+                {"id": event_id},
+            )
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            self.logger.error(f"Error delete_extracted_event({event_id}): {e}")
+            return False
 
     def set_forecast_topic_last_delivered(self, topic: str, when=None):
         """Bump ``last_delivered_at`` after a successful email send."""

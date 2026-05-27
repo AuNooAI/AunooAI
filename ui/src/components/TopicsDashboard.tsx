@@ -13,9 +13,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Plus, RefreshCw, AlertTriangle, CheckCircle2, MinusCircle,
-  ChevronRight, Tag, User,
+  ChevronRight, Tag, User, Sparkles, BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CandidatesInbox } from './CandidatesInbox';
+import { DocViewer } from './DocViewer';
 
 interface TopicRow {
   topic: string;
@@ -41,6 +43,9 @@ interface TopicRow {
 interface Props {
   onSelectTopic?: (topic: string) => void;
   onAddTopic?: () => void;
+  /** Called by the candidates inbox when a promotion finishes — parent
+   *  can open AddTopicWizard directly at step 4 (overlay review). */
+  onPromotionComplete?: (topic: string) => void;
 }
 
 type Health = 'green' | 'amber' | 'red';
@@ -94,10 +99,11 @@ function fmtDate(iso: string | null): string {
   }
 }
 
-export function TopicsDashboard({ onSelectTopic, onAddTopic }: Props) {
+export function TopicsDashboard({ onSelectTopic, onAddTopic, onPromotionComplete }: Props) {
   const [topics, setTopics] = useState<TopicRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'tracked' | 'candidates' | 'how-it-works'>('tracked');
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'active' | 'archived'>('active');
   const [search, setSearch] = useState('');
 
@@ -132,8 +138,64 @@ export function TopicsDashboard({ onSelectTopic, onAddTopic }: Props) {
     return rows;
   }, [topics, statusFilter, search]);
 
+  const knownTopics = useMemo(
+    () => (topics || []).map(t => t.topic).filter(Boolean),
+    [topics],
+  );
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setView('tracked')}
+          className={`text-xs px-3 py-1 rounded-full font-medium transition ${
+            view === 'tracked'
+              ? 'bg-pink-600 text-white'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
+          }`}
+        >
+          Tracked
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('candidates')}
+          className={`text-xs px-3 py-1 rounded-full font-medium transition inline-flex items-center gap-1 ${
+            view === 'candidates'
+              ? 'bg-pink-600 text-white'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
+          }`}
+          title="Emerging clusters the weekly scan judged in-scope for Wiley. Triage them here."
+        >
+          <Sparkles className="w-3 h-3" /> Candidates
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('how-it-works')}
+          className={`text-xs px-3 py-1 rounded-full font-medium transition inline-flex items-center gap-1 ${
+            view === 'how-it-works'
+              ? 'bg-pink-600 text-white'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
+          }`}
+          title="Inline documentation — what the Topics tab does and how the workflow fits together."
+        >
+          <BookOpen className="w-3 h-3" /> How it works
+        </button>
+      </div>
+
+      {view === 'how-it-works' ? (
+        <DocViewer name="how-it-works-topics" />
+      ) : view === 'candidates' ? (
+        <CandidatesInbox
+          knownTopics={knownTopics}
+          onPromotionComplete={(topic) => {
+            // Refresh the tracked list and let the parent open the wizard.
+            refresh();
+            if (onPromotionComplete) onPromotionComplete(topic);
+          }}
+        />
+      ) : (
+      <>
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Topics</h2>
@@ -279,6 +341,8 @@ export function TopicsDashboard({ onSelectTopic, onAddTopic }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
     </div>
   );

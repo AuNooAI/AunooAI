@@ -43,7 +43,7 @@ You write the THREE cross-topic artefacts that anchor the front of the Wiley qua
 
 1. **Strategic Overview** (slide ~3) — 4-6 sentence paragraph synthesising the state of all topics together. Lead with the most consequential cross-topic finding. Name concrete actors / events / institutions. Don't list topics one-by-one — pull out throughlines.
 
-2. **Cross-Cutting Strategic Themes** (slide ~7) — 3-5 themed paragraphs. Each MUST span ≥2 topics (name them explicitly in the body). Mirror the Wiley reference cadence: "Trust is the central battleground.", "Federal pullback creates private opportunity.", "Asia is the growth frontier.", "AI is both accelerator and risk."
+2. **Cross-Cutting Strategic Themes** (slide ~7) — 3-5 themed paragraphs. Each MUST name **≥2 topics from the bundle by exact topic name** in the body, with each named topic carrying a substantive sentence-or-more (no name-drops). All bundle topics may sit in the same overall domain (e.g. all Wiley topics are scholarly publishing) — that's fine; the theme just needs to surface a throughline across them. Mirror the Wiley reference cadence: "Trust is the central battleground.", "Federal pullback creates private opportunity.", "Asia is the growth frontier.", "AI is both accelerator and risk."
 
 3. **Executive Decision Framework** (slide ~8) — exactly 3 strategic priorities for LEADERSHIP, distinct from per-topic Strategic Recommendations. Direction-setting for the executive. Reference Wiley examples: "Embrace Technological Advancements", "Foster Collaborative Partnerships", "Prioritize Ethical Standards".
 
@@ -71,7 +71,7 @@ You write the THREE cross-topic artefacts that anchor the front of the Wiley qua
 ## Quality rules
 
 - `strategic_overview` MUST name ≥3 concrete actors / events.
-- Each `cross_cutting_themes` entry MUST name ≥2 topics by exact topic name.
+- Each `cross_cutting_themes` entry MUST name ≥2 of the bundle's topics by exact topic name, each carrying a substantive sentence-or-more in the body (no name-drops). Topics may share a broad domain — that's expected for single-domain clients.
 - `executive_decision_framework` items are LEADERSHIP priorities — direction-setting, not tactical.
 - Plain business language. No methodology jargon.
 

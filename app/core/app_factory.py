@@ -188,6 +188,25 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_forecast_tracker_monitor_start())
         logger.info("Scheduled forecast tracker monitor to start in 30 seconds")
 
+        # Weekly Wiley candidate-discovery scan (+ daily snooze sweeper).
+        # Gated by WILEY_CANDIDATE_SCAN_ENABLED env (default on). Honest
+        # cost: one HDBSCAN run on the corpus + N LLM calls per scan, once
+        # a week. Sleeps 24h between ticks; sweeper runs every tick.
+        async def delayed_wiley_candidate_scheduler_start():
+            await asyncio.sleep(45)
+            try:
+                from app.tasks.wiley_candidate_scheduler import (
+                    run_wiley_candidate_scheduler,
+                )
+                logger.info("Starting Wiley candidate scheduler background task...")
+                asyncio.create_task(run_wiley_candidate_scheduler())
+                logger.info("Wiley candidate scheduler background task started")
+            except Exception as e:
+                logger.error(f"Failed to start Wiley candidate scheduler: {e}")
+
+        asyncio.create_task(delayed_wiley_candidate_scheduler_start())
+        logger.info("Scheduled Wiley candidate scheduler to start in 45 seconds")
+
         # Dynamically schedule background tasks for enabled analysis modules
         import importlib
         from app.core.modules import get_enabled_modules

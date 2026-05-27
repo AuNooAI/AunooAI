@@ -71,9 +71,14 @@ def _resolve_items(cadence: str, *, updates_only: bool) -> list:
         forecast_run = db.facade.get_future_horizons_analysis(assessment.get("run_id"))
         prior = None
         if updates_only:
+            # Look up the prior by TOPIC, not run_id — every horizons re-run
+            # produces a fresh run_id, so a run_id-keyed lookup would treat
+            # each new horizons run as a clean slate and surface the "first
+            # assessment, nothing to compare" stub for every topic.
             prior = db.facade.get_prior_live_assessment(
                 run_id=assessment.get("run_id"),
                 before_assessed_at=assessment.get("assessed_at"),
+                topic=topic,
             )
         items.append((assessment, forecast_run or {}, prior or None))
     return items
@@ -197,6 +202,7 @@ async def _run_synthesis_pipeline(
         "next_steps": "Drafting Next Steps",
         "cross_topic": "Synthesising cross-topic themes",
         "exec_summary": "Writing Executive Summary letter",
+        "humanize": "Stripping AI-slop tells from the prose",
         "reviewer": "LLM-as-judge reviewing all artefacts",
     }
     async for update in run_pipeline(items, cadence=cadence, period_label=period_label,
@@ -220,6 +226,48 @@ async def _run_synthesis_pipeline(
     bundle_synth = (final_payload or {}).get("bundle_payload") or {}
     review_findings = (final_payload or {}).get("findings") or []
     return items, period_label, bundle_synth, eos_per_topic, verdict, review_findings
+
+
+def _data_quality_note() -> Optional[str]:
+    """Read data/wiley_horizons/collection_gap.json (written by
+    detect_collection_gap.py) and render the deck's collection-gap caveat.
+    Returns None when there's no detected gap."""
+    import json
+    import os
+    path = os.path.join("data", "wiley_horizons", "collection_gap.json")
+    try:
+        with open(path) as f:
+            g = json.load(f)
+    except Exception:
+        return None
+    if not g.get("detected"):
+        return None
+    outage = ("a collection-pipeline interruption" if g.get("likely_pipeline_outage")
+              else "reduced source coverage")
+    return (
+        f"Data note: {outage} between {g.get('start')} and {g.get('end')} "
+        f"({g.get('days')} days) reduced article volume for this period. "
+        "API-based sources (ArXiv, Semantic Scholar, news APIs) are backfilled "
+        "where the provider window still allows; RSS-only items from that span "
+        "are not recoverable. Findings for that window are correspondingly thinner."
+    )
+
+
+def _events_by_topic(cadence: str, period_label: str) -> dict:
+    """Group this period's deck-included extracted events by topic, for the
+    per-trend evidence ledger. Returns ``{topic: [event, …]}``."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    out: dict = {}
+    try:
+        rows = db.facade.list_extracted_events(
+            cadence=cadence, period_label=period_label, include_excluded=False,
+        )
+        for e in rows:
+            out.setdefault(e.get("topic"), []).append(e)
+    except Exception as e:
+        logger.warning("events_by_topic load failed (%s/%s): %s", cadence, period_label, e)
+    return out
 
 
 async def generate_bundle(
@@ -258,7 +306,54 @@ async def generate_bundle(
         updates_only=updates_only,
         bundle_synthesis=bundle_synth,
         eos_per_topic=eos_per_topic,
+        events_by_topic=_events_by_topic(cadence, period_label),
+        data_quality_note=_data_quality_note(),
         review_findings=review_findings if verdict == "revision_requested" else None,
+        review_verdict=verdict,
+    )
+    included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
+    return blob, period_label, included_topics, verdict, review_findings
+
+
+async def generate_bundle_docx(
+    cadence: str,
+    *,
+    updates_only: bool = False,
+    when: Optional[datetime] = None,
+    progress_callback=None,
+) -> Tuple[bytes, str, list, str, list]:
+    """Build a focused .docx executive briefing.
+
+    Not a slide-by-slide dump — the docx is positioned as the emailable
+    standalone briefing. It includes the rewritten exec-summary letter,
+    the cross-cutting themes, the executive decision framework, and a
+    one-paragraph-per-topic appendix. Source data is identical to the
+    PPTX/Markdown paths; only the renderer differs.
+    """
+    from app.services.forecast_bundle_docx import build_bundle_docx
+
+    def _emit(pct, msg):
+        if progress_callback:
+            try:
+                progress_callback(pct, msg)
+            except Exception as e:
+                logger.warning("progress_callback failed: %s", e)
+
+    items, period_label, bundle_synth, eos_per_topic, verdict, review_findings = \
+        await _run_synthesis_pipeline(
+            cadence, updates_only=updates_only, when=when,
+            progress_callback=progress_callback,
+        )
+
+    _emit(96, "Rendering Word document")
+    blob = build_bundle_docx(
+        items,
+        period_label=period_label,
+        cadence=cadence,
+        updates_only=updates_only,
+        bundle_synthesis=bundle_synth,
+        eos_per_topic=eos_per_topic,
+        review_findings=review_findings,
         review_verdict=verdict,
     )
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
@@ -305,6 +400,68 @@ async def generate_bundle_markdown(
     )
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     return blob, period_label, included_topics, verdict, review_findings
+
+
+async def generate_bundle_html(
+    cadence: str,
+    *,
+    updates_only: bool = False,
+    when: Optional[datetime] = None,
+    progress_callback=None,
+) -> Tuple[bytes, str, list, str, list]:
+    """Build the self-contained interactive HTML bundle.
+
+    Unlike the PPTX/DOCX/MD paths, this renders from the ALREADY-GENERATED
+    synthesis + events (cached in forecast_bundle_synthesis + extracted_events)
+    rather than re-running the multi-agent pipeline. The HTML is a *view* of
+    the brief, not a regeneration — so it's fast (no LLM calls) and doesn't
+    re-trigger the agent chain. Generate the bundle (PPTX) first to produce
+    the synthesis; this then renders it.
+    """
+    from app.database import get_database_instance
+    from app.services.forecast_bundle_html import build_bundle_html
+
+    db = get_database_instance()
+    period_label = _period_label(cadence, when)
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    if not synth.get("payload"):
+        raise ValueError(
+            f"No generated brief for {cadence}/{period_label} yet — "
+            "generate the bundle (PPTX) first, then export HTML."
+        )
+
+    # Resolve the same items the deck used, from the cached topic list.
+    items = []
+    for entry in (synth.get("topics") or []):
+        topic = entry.get("topic") if isinstance(entry, dict) else entry
+        if not topic:
+            continue
+        a = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        if a:
+            items.append((a, None, None))
+
+    eos_per_topic = {}
+    for a, _r, _p in items:
+        eos = (a.get("summary") or {}).get("extreme_outlier_scenarios") \
+            or (a.get("summary") or {}).get("eos") or []
+        if eos:
+            eos_per_topic[a.get("topic")] = eos
+
+    review = db.facade.get_forecast_bundle_review(cadence, period_label) or {}
+    blob = build_bundle_html(
+        items,
+        period_label=period_label,
+        cadence=cadence,
+        updates_only=updates_only,
+        bundle_synthesis=synth,
+        eos_per_topic=eos_per_topic,
+        events_by_topic=_events_by_topic(cadence, period_label),
+        data_quality_note=_data_quality_note(),
+        review_findings=review.get("reviewer_findings"),
+        review_verdict=review.get("status"),
+    )
+    included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
+    return blob, period_label, included_topics, review.get("status"), review.get("reviewer_findings")
 
 
 async def _ensure_eos_for_bundle(items: list) -> dict:

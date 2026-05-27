@@ -86,6 +86,16 @@ const tabs: Tab[] = [
     label: 'Power, Attention & Money',
     tooltip: 'Track power flows, attention economy, and financial dynamics reshaping the knowledge economy'
   },
+  {
+    id: 'changelog',
+    label: 'Changelog',
+    tooltip: 'Recent changes to AunooAI — what shipped, when, and why.'
+  },
+  {
+    id: 'roadmap',
+    label: 'Roadmap',
+    tooltip: 'Forward-looking work — what we are about to ship and what is deferred.'
+  },
 ];
 
 export function TabNavigation({ activeTab, onTabChange, hiddenTabs = new Set(), onToggleTabVisibility, tabOrder = [], onReorderTabs }: TabNavigationProps) {

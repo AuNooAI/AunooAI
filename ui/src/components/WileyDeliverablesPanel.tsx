@@ -10,12 +10,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Download, Send, RefreshCw, Calendar, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Loader2, Download, Send, RefreshCw, Calendar, ChevronDown, ChevronRight, X, Edit3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type {
   TopicDeliveryConfig,
   DeliverablePreview,
 } from '@/types/forecastAssessment';
+import { QuarterlyBriefEditor } from './QuarterlyBriefEditor';
 
 const CADENCES = ['monthly', 'quarterly', 'none'] as const;
 type Cadence = (typeof CADENCES)[number];
@@ -51,6 +52,21 @@ export function WileyDeliverablesPanel() {
   const [quarterlyPreview, setQuarterlyPreview] = useState<DeliverablePreview | null>(null);
   const [updatesOnly, setUpdatesOnly] = useState<boolean>(true);
   const [toast, setToast] = useState<string | null>(null);
+  // Quarterly Brief Editor — open as a full-screen overlay so the analyst
+  // can review/edit/lock/approve before sending to Wiley.
+  const [editorTarget, setEditorTarget] = useState<{ cadence: string; periodLabel: string } | null>(null);
+
+  // Mirror backend `_period_label` so the "Edit & curate" button can target
+  // the current period before a bundle has been generated (no review row
+  // yet). Quarterly: YYYY-Qn, Monthly: YYYY-MM, All: YYYY-Hn.
+  const computePeriodLabel = (cadence: string) => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    if (cadence === 'quarterly') return `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
+    if (cadence === 'monthly') return `${y}-${String(m).padStart(2, '0')}`;
+    return `${y}-H${m <= 6 ? 1 : 2}`;
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -399,6 +415,10 @@ export function WileyDeliverablesPanel() {
               review={reviews.monthly}
               onSend={() => sendBundle('monthly')}
               onDownload={() => downloadBundle('monthly')}
+              onEdit={() => setEditorTarget({
+                cadence: 'monthly',
+                periodLabel: reviews.monthly?.period_label || computePeriodLabel('monthly'),
+              })}
             />
             <BundleCard
               cadence="quarterly"
@@ -409,6 +429,10 @@ export function WileyDeliverablesPanel() {
               review={reviews.quarterly}
               onSend={() => sendBundle('quarterly')}
               onDownload={() => downloadBundle('quarterly')}
+              onEdit={() => setEditorTarget({
+                cadence: 'quarterly',
+                periodLabel: reviews.quarterly?.period_label || computePeriodLabel('quarterly'),
+              })}
             />
           </div>
 
@@ -429,6 +453,15 @@ export function WileyDeliverablesPanel() {
         <ProgressModal
           progress={progressTask}
           onClose={cancelProgress}
+        />
+      )}
+
+      {/* Quarterly Brief Editor — full-screen overlay */}
+      {editorTarget && editorTarget.periodLabel && (
+        <QuarterlyBriefEditor
+          cadence={editorTarget.cadence}
+          periodLabel={editorTarget.periodLabel}
+          onClose={() => setEditorTarget(null)}
         />
       )}
     </div>
@@ -581,7 +614,7 @@ function ConfigRow({
 
 
 function BundleCard({
-  cadence, preview, sending, generating, updatesOnly, review, onSend, onDownload,
+  cadence, preview, sending, generating, updatesOnly, review, onSend, onDownload, onEdit,
 }: {
   cadence: 'monthly' | 'quarterly';
   preview: DeliverablePreview | null;
@@ -591,8 +624,11 @@ function BundleCard({
   review?: ReviewState;
   onSend: () => void;
   onDownload: () => void;
+  onEdit?: () => void;
 }) {
   const [mdLoading, setMdLoading] = useState(false);
+  const [docxLoading, setDocxLoading] = useState(false);
+  const [htmlLoading, setHtmlLoading] = useState(false);
   // Per-topic overlay status — fetched alongside the preview so missing
   // / auto-generated overlays are visible BEFORE the deck is generated
   // (saves reviewer-roundtrip cost).
@@ -614,6 +650,59 @@ function BundleCard({
     })();
     return () => { cancelled = true; };
   }, [preview?.topics?.length]);
+  const downloadDocx = async () => {
+    setDocxLoading(true);
+    try {
+      const r = await fetch(
+        `/api/forecast/deliverables/bundle.docx?cadence=${cadence}&updates_only=${updatesOnly}`,
+      );
+      if (!r.ok) {
+        const body = await r.text();
+        throw new Error(`${r.status} ${body || r.statusText}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wiley_forecast_${cadence}${updatesOnly ? '_updates' : ''}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    } catch (e: any) {
+      // eslint-disable-next-line no-alert
+      alert(`DOCX download failed: ${e?.message || e}`);
+    } finally {
+      setDocxLoading(false);
+    }
+  };
+  const downloadHtml = async () => {
+    setHtmlLoading(true);
+    try {
+      const r = await fetch(
+        `/api/forecast/deliverables/bundle.html?cadence=${cadence}&updates_only=${updatesOnly}`,
+      );
+      if (!r.ok) {
+        const body = await r.text();
+        throw new Error(`${r.status} ${body || r.statusText}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wiley_foresight_${cadence}${updatesOnly ? '_updates' : ''}.html`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    } catch (e: any) {
+      // eslint-disable-next-line no-alert
+      alert(`HTML download failed: ${e?.message || e}`);
+    } finally {
+      setHtmlLoading(false);
+    }
+  };
   const downloadMarkdown = async () => {
     setMdLoading(true);
     try {
@@ -701,6 +790,20 @@ function BundleCard({
         </button>
         <button
           type="button"
+          onClick={downloadDocx}
+          disabled={ready === 0 || docxLoading}
+          title="Word-document executive briefing — emailable, with the rewritten exec-summary letter as the lead"
+          className={`inline-flex items-center text-xs px-3 py-1.5 border rounded ${
+            ready === 0 || docxLoading
+              ? 'border-gray-300 text-gray-400 cursor-not-allowed'
+              : 'border-pink-400 text-pink-700 dark:text-pink-200 dark:border-pink-700 hover:bg-pink-100 dark:hover:bg-pink-900/40'
+          }`}
+        >
+          {docxLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+          {docxLoading ? 'Generating…' : 'Download .docx'}
+        </button>
+        <button
+          type="button"
           onClick={downloadMarkdown}
           disabled={ready === 0 || mdLoading}
           title="Plain-markdown export of the same synthesis — fast review pass before regenerating PPTX"
@@ -713,6 +816,35 @@ function BundleCard({
           {mdLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
           {mdLoading ? 'Generating…' : 'Download .md'}
         </button>
+        <button
+          type="button"
+          onClick={downloadHtml}
+          disabled={ready === 0 || htmlLoading}
+          title="Interactive self-contained HTML — calibration matrix + clickable evidence ledgers, works offline"
+          className={`inline-flex items-center text-xs px-3 py-1.5 border rounded ${
+            ready === 0 || htmlLoading
+              ? 'border-gray-300 text-gray-400 cursor-not-allowed'
+              : 'border-indigo-400 text-indigo-700 dark:text-indigo-200 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/40'
+          }`}
+        >
+          {htmlLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+          {htmlLoading ? 'Generating…' : 'Interactive .html'}
+        </button>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={ready === 0}
+            title="Open the Quarterly Brief Editor — review, edit, lock, and approve before sending"
+            className={`inline-flex items-center text-xs px-3 py-1.5 border rounded ${
+              ready === 0
+                ? 'border-gray-300 text-gray-400 cursor-not-allowed'
+                : 'border-indigo-400 text-indigo-700 dark:text-indigo-200 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/40'
+            }`}
+          >
+            <Edit3 className="w-3 h-3 mr-1" /> Edit & curate
+          </button>
+        )}
         <Button
           type="button"
           onClick={onSend}

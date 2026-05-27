@@ -15,6 +15,7 @@ import { ForecastAssessmentTab } from './components/ForecastAssessment';
 import { AllTopicsForecastView } from './components/AllTopicsForecastView';
 import { TopicsDashboard } from './components/TopicsDashboard';
 import { AddTopicWizard } from './components/AddTopicWizard';
+import { DocViewer } from './components/DocViewer';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
@@ -2799,6 +2800,14 @@ function App() {
                     setActiveTab('forecast-tracker');
                   }}
                   onAddTopic={() => { setWizardInitial({}); setWizardOpen(true); }}
+                  onPromotionComplete={(t) => {
+                    // Candidate just finished promotion — open the wizard
+                    // at step 3 (overlay review) for the newly created
+                    // topic. The wizard's effect fetches the .proposed
+                    // overlay file the pipeline already wrote.
+                    setWizardInitial({ topic: t, step: 3 });
+                    setWizardOpen(true);
+                  }}
                 />
               )}
 
@@ -2815,6 +2824,14 @@ function App() {
                     forecastGeneratedAt={data.generated_at || data.created_at || null}
                   />
                 )
+              )}
+
+              {/* Changelog & Roadmap tabs — markdown docs served by /api/docs */}
+              {activeTab === 'changelog' && (
+                <DocViewer name="changelog" title="Changelog" />
+              )}
+              {activeTab === 'roadmap' && (
+                <DocViewer name="roadmap" title="Roadmap" />
               )}
             </div>
           )}

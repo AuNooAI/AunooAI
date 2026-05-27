@@ -12,9 +12,11 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Download, RefreshCw, AlertTriangle, CheckCircle2, MinusCircle, TrendingDown, TrendingUp, Sparkles } from 'lucide-react';
+import { Loader2, Download, RefreshCw, AlertTriangle, CheckCircle2, MinusCircle, TrendingDown, TrendingUp, Sparkles, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { DeliverablePreview, DeliverablePreviewTopic } from '@/types/forecastAssessment';
+import { DocViewer } from './DocViewer';
+import { WileyDeliverablesPanel } from './WileyDeliverablesPanel';
 
 interface Props {
   onSelectTopic?: (topic: string) => void;
@@ -100,6 +102,7 @@ export function AllTopicsForecastView({ onSelectTopic }: Props) {
 
   return (
     <div className="space-y-6">
+      <AllTopicsHowItWorks />
       <div className="p-5 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/30 dark:to-purple-900/30 border-l-4 border-indigo-500 rounded-r-lg">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div>
@@ -159,10 +162,39 @@ export function AllTopicsForecastView({ onSelectTopic }: Props) {
           ))}
         </div>
       )}
+
+      {/* Wiley Deliverables — same panel as the per-topic view so the
+          analyst can manage cadences, trigger sends, and grab any
+          format (.pptx / .docx / .md) without switching back to a
+          specific topic. The panel is self-contained and pulls its own
+          state. */}
+      <WileyDeliverablesPanel />
     </div>
   );
 }
 
+
+function AllTopicsHowItWorks() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/20">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-3 py-2 flex items-center gap-2 text-xs font-medium text-blue-900 dark:text-blue-100 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 transition"
+      >
+        <BookOpen className="w-3 h-3" />
+        How the Forecast Tracker works
+        {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <DocViewer name="how-it-works-forecast-tracker" embedded={false} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TopicCard({ topic, onSelect }: { topic: DeliverablePreviewTopic; onSelect?: (topic: string) => void }) {
   const handleClick = () => {

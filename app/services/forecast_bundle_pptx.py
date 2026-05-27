@@ -37,8 +37,20 @@ from app.services.forecast_pptx_export import (
     _add_black_swans_slide, _add_cross_cutting_themes_slide,
     _add_executive_decision_framework_slide, _add_next_steps_slide,
     _add_executive_summary_letter_slide, _add_review_pending_banner_slide,
+    _add_whats_changed_section_slide, _add_methodology_appendix_slide,
     _prior_baseline_for, _verdict_chip, _baseline_color, _customer_label,
 )
+
+import re as _re
+
+
+def _looks_like_keyword_salad(label: str) -> bool:
+    """True for un-relabelled cluster labels like 'ukraine, drug, generic'
+    (comma-separated lowercase tokens) that should not surface on a slide."""
+    s = (label or "").strip()
+    if not s:
+        return True
+    return bool(_re.fullmatch(r"[a-z0-9][a-z0-9\-]*(?:,\s*[a-z0-9][a-z0-9\-]*){1,5}", s))
 
 
 def build_bundle_pptx(
@@ -49,6 +61,8 @@ def build_bundle_pptx(
     updates_only: bool = False,
     bundle_synthesis: Optional[dict] = None,
     eos_per_topic: Optional[dict] = None,
+    events_by_topic: Optional[dict] = None,
+    data_quality_note: Optional[str] = None,
     review_findings: Optional[list] = None,
     review_verdict: Optional[str] = None,
 ) -> bytes:
@@ -96,8 +110,34 @@ def build_bundle_pptx(
     # don't compete for the "Executive Summary" name.
     _add_executive_summary_letter_slide(prs, synth.get("exec_summary") or {}, period_label)
     _add_cross_topic_exec_summary(prs, items, period_label, cadence,
-                                  updates_only=updates_only)
+                                  updates_only=updates_only,
+                                  events_by_topic=events_by_topic)
     _add_strategic_overview_slide(prs, period_label, synth.get("strategic_overview") or "")
+    # "What's Changed" — the honest replacement for the Tracker scorecard.
+    # Named events + scenario drift + emerging themes + press-attention
+    # shifts, drawn from the synthesis payload's whats_changed block (events
+    # populated by the extraction stage; the other three analyst-editable).
+    from app.services.wiley_bundle_supervisor import _prior_period_label
+    wc = dict(synth.get("whats_changed") or {})
+    # Auto-fill "new on the watch" from the existing surprise clusters when
+    # the analyst hasn't entered emerging themes — the data is already
+    # computed per topic, so the slide isn't sparse by default. Analyst
+    # edits in the editor take precedence (this only fires when empty).
+    if not wc.get("emerging"):
+        emerging = []
+        for a, _r, _p in items:
+            top = sorted((a.get("surprises") or []),
+                         key=lambda s: -(s.get("size") or 0))[:1]
+            for s in top:
+                lab = (s.get("label") or "").strip()
+                if lab and not _looks_like_keyword_salad(lab):
+                    emerging.append(f"{a.get('topic')}: {lab}")
+        wc["emerging"] = emerging[:5]
+    _add_whats_changed_section_slide(
+        prs, wc,
+        period_label=period_label,
+        prior_period_label=_prior_period_label(period_label),
+    )
     _add_five_domains_summary_slide(prs, items)
     _add_three_horizons_overview(prs, items, updates_only=updates_only)
     _add_black_swans_slide(prs, eos_per_topic or {})
@@ -114,28 +154,35 @@ def build_bundle_pptx(
         summary = assessment.get("summary") or {}
         bc_per = ((summary.get("baseline_correction") or {}).get("per_scenario") or {})
 
+        # Events for this topic this cycle — the evidence that tests each
+        # scenario's claim. Split per scenario (confirming/countering) at the
+        # call site via events_for_scenario.
+        topic_events = (events_by_topic or {}).get(assessment.get("topic")) or []
+
+        def _scenario_ev(v):
+            from app.services.wiley_event_extraction import events_for_scenario
+            name = ((v.get("top_articles") or {}).get("deck_info") or {}).get("deck_scenario_name") \
+                or v.get("scenario_title") or ""
+            return events_for_scenario(topic_events, name)
+
         _add_topic_divider(prs, assessment, forecast_run or {})
 
         if updates_only and prior:
             diff = _diff_assessments(assessment, prior)
 
-            # Narrative orientation BEFORE the data — matches original Wiley
-            # deck flow (section divider → Briefing Synthesis → data → Key
-            # Insights → Recommendations → Consensus & Outlier).
+            # The Tracker-era "gap analysis matrix" and per-scenario
+            # "status changed" (flip-detail) slides are intentionally NOT
+            # rendered — they back-tested the futures-cone scenarios against
+            # article framing (rejected). The per-trend evidence ledger
+            # (consensus basis + confirming/counter events + READ) is the
+            # canonical per-scenario view now, in every mode.
             _add_briefing_synthesis_slide(prs, assessment)
-
-            _add_gap_analysis_matrix_slide(prs, assessment, prior, diff)
 
             for v in verdicts:
                 key = str(v.get("scenario_idx"))
-                if key not in diff.get("verdict_flips", {}):
-                    continue
-                prior_label, current_label = diff["verdict_flips"][key]
-                _add_flip_detail_slide(
-                    prs, v, prior_label, current_label,
-                    baseline=bc_per.get(key),
-                    prior_baseline=_prior_baseline_for(prior, key),
-                )
+                _conf, _ctr = _scenario_ev(v)
+                _add_scenario_slide(prs, v, bc_per.get(key),
+                                    confirming_events=_conf, countering_events=_ctr)
 
             new_surprises = [
                 s for s in (assessment.get("surprises") or [])
@@ -150,30 +197,54 @@ def build_bundle_pptx(
             _add_key_insights_slide(prs, assessment, prior)
             _add_strategic_recommendations_slide(prs, assessment)
             _add_next_steps_slide(prs, assessment)
-            _add_consensus_outlier_slide(prs, assessment)
         elif updates_only and not prior:
-            # No prior snapshot for this topic — emit a 1-slide stub instead
-            # of dumping the entire full deck. Still include briefing if
-            # the LLM synthesised one for the current snapshot.
-            _add_no_prior_stub_slide(prs, assessment)
+            # No prior snapshot for this topic — previously emitted a
+            # "first assessment captured, nothing to compare against"
+            # stub. Users found that worse than useless because the
+            # topic still has actual content (current verdicts, surprises,
+            # briefing) the deck should surface. Fall through to the
+            # full-review branch so a single-assessment topic ships the
+            # same slides as the full-mode bundle, just without the
+            # gap-analysis matrix (which requires a prior to diff
+            # against).
+            # The per-topic "Executive Summary" status-distribution slide
+            # ("WHAT THE BACK-TEST FOUND" + Strengthening/Cooling chips) is
+            # retired — the Briefing Synthesis opens each topic with the
+            # qualitative read instead.
             _add_briefing_synthesis_slide(prs, assessment)
-            _add_key_insights_slide(prs, assessment, None)
-            _add_strategic_recommendations_slide(prs, assessment)
-            _add_next_steps_slide(prs, assessment)
-            _add_consensus_outlier_slide(prs, assessment)
-        else:
-            headline = _headline_finding(verdicts, bc_per)
-            _add_exec_summary_slide(prs, assessment, headline)
-            if bc_per:
-                _add_whats_changed_slide(prs, assessment)
             for v in verdicts:
                 key = str(v.get("scenario_idx"))
-                _add_scenario_slide(prs, v, bc_per.get(key))
+                _conf, _ctr = _scenario_ev(v)
+                _add_scenario_slide(prs, v, bc_per.get(key),
+                                    confirming_events=_conf, countering_events=_ctr)
             surprises = assessment.get("surprises") or []
             if surprises:
                 _add_surprises_divider(prs, surprises)
                 for sur in sorted(surprises, key=lambda s: -(s.get("size") or 0)):
                     _add_surprise_cluster_slide(prs, sur)
+            _add_key_insights_slide(prs, assessment, None)
+            _add_strategic_recommendations_slide(prs, assessment)
+            _add_next_steps_slide(prs, assessment)
+        else:
+            # Retired: per-topic status-distribution exec slide + the
+            # consensus-drift "what's changed" slide (both back-test
+            # framings). Briefing Synthesis opens the topic.
+            _add_briefing_synthesis_slide(prs, assessment)
+            for v in verdicts:
+                key = str(v.get("scenario_idx"))
+                _conf, _ctr = _scenario_ev(v)
+                _add_scenario_slide(prs, v, bc_per.get(key),
+                                    confirming_events=_conf, countering_events=_ctr)
+            surprises = assessment.get("surprises") or []
+            if surprises:
+                _add_surprises_divider(prs, surprises)
+                for sur in sorted(surprises, key=lambda s: -(s.get("size") or 0)):
+                    _add_surprise_cluster_slide(prs, sur)
+
+    # ── Back-of-deck methodology appendix (documents the calibration model
+    # + any collection data-quality caveat). Always present so the reader can
+    # trust and challenge the brief.
+    _add_methodology_appendix_slide(prs, data_quality_note=data_quality_note)
 
     buf = BytesIO()
     prs.save(buf)
@@ -181,7 +252,7 @@ def build_bundle_pptx(
     return buf.read()
 
 
-def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: str, *, updates_only: bool):
+def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: str, *, updates_only: bool, events_by_topic: Optional[dict] = None):
     """One-slide cross-topic executive summary.
 
     Mirrors the Feb 2026 Wiley deck slide 9. Aggregates over all topics: total
@@ -317,23 +388,19 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
     # Stats row inside the card. Pairs differ by mode so the numbers map
     # cleanly onto the deck's actual content (full review = vs-forecast,
     # updates only = vs-prior-snapshot).
+    # Neutral portfolio facts only. The Tracker-era "Status changes",
+    # "Off-baseline", "Inconclusive" counts and the "biggest movement /
+    # confirmation Δ / now Strengthening vs forecast" headline were
+    # removed — they scored the futures-cone scenarios as a back-test,
+    # which the customer rejected. The Executive Summary letter (slide 2)
+    # carries the narrative read of the quarter.
     y_stats = 2.78
-    if updates_only:
-        pairs = [
-            ("Topics",         str(n_topics)),
-            ("Scenarios",      str(n_scenarios)),
-            ("Status changes", str(n_flips)),
-            ("New articles",   f"{n_new_evidence:,}"),
-            ("Emerging",       str(n_new_clusters)),
-        ]
-    else:
-        pairs = [
-            ("Topics",         str(n_topics)),
-            ("Scenarios",      str(n_scenarios)),
-            ("Off-baseline",   str(n_off_baseline)),
-            ("Inconclusive",   str(n_inconclusive_full)),
-            ("Articles",       f"{n_total_articles:,}"),
-        ]
+    pairs = [
+        ("Topics",          str(n_topics)),
+        ("Scenarios",       str(n_scenarios)),
+        ("Articles analysed", f"{n_total_articles:,}"),
+        ("Emerging themes", str(n_total_surprises)),
+    ]
     inner_w = 8.4
     cell_w = inner_w / len(pairs)
     cx = 0.9
@@ -344,61 +411,51 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
               text=value, font_size=24, bold=True, color=WILEY_NAVY)
         cx += cell_w
 
-    # Headline finding inside the card, below the stats
-    y_h = 3.6
-    if biggest_mover:
-        delta, topic, scenario_name, was, now = biggest_mover
-        sign = "+" if delta > 0 else ""
-        delta_color = GREEN_DEEP if delta > 0 else (RED_DEEP if delta < 0 else SLATE_LIGHT)
-        _text(slide, x=0.9, y=y_h, w=inner_w, h=0.22,
-              text="HEADLINE FINDING — BIGGEST MOVEMENT THIS PERIOD",
-              font_size=8, bold=True, color=WILEY_TEAL)
-        _text(slide, x=0.9, y=y_h+0.24, w=inner_w, h=0.32,
-              text=f"{topic} — {scenario_name}",
-              font_size=14, bold=True, color=WILEY_BODY)
-        _text(slide, x=0.9, y=y_h+0.62, w=4.5, h=0.3,
-              text=f"{_customer_label(was)}  →  {_customer_label(now)}",
-              font_size=12, color=WILEY_MUTED)
-        _text(slide, x=5.4, y=y_h+0.58, w=3.9, h=0.4,
-              text=f"{sign}{delta*100:.2f}% confirmation Δ",
-              font_size=20, bold=True, color=delta_color, align=PP_ALIGN.RIGHT)
-    elif full_mode_headline:
-        # Full-forecast mode: no prior snapshot to diff against, so the
-        # headline is the scenario whose live verdict deviates most from
-        # the original forecast's baseline expectation.
-        net, topic, scenario_name, bc_label, _v = full_mode_headline
-        sign = "+" if net > 0 else ""
-        delta_color = GREEN_DEEP if net > 0 else (RED_DEEP if net < 0 else SLATE_LIGHT)
-        _text(slide, x=0.9, y=y_h, w=inner_w, h=0.22,
-              text="HEADLINE FINDING — LARGEST DEVIATION FROM ORIGINAL FORECAST",
-              font_size=8, bold=True, color=WILEY_TEAL)
-        _text(slide, x=0.9, y=y_h+0.24, w=inner_w, h=0.32,
-              text=f"{topic} — {scenario_name}",
-              font_size=14, bold=True, color=WILEY_BODY)
-        _text(slide, x=0.9, y=y_h+0.62, w=4.5, h=0.3,
-              text=f"Now {_customer_label(bc_label)} vs forecast expectation",
-              font_size=12, color=WILEY_MUTED)
-        _text(slide, x=5.4, y=y_h+0.58, w=3.9, h=0.4,
-              text=f"{sign}{net*100:.2f}% confirmation Δ",
-              font_size=20, bold=True, color=delta_color, align=PP_ALIGN.RIGHT)
-    else:
-        _text(slide, x=0.9, y=y_h+0.2, w=inner_w, h=0.4,
-              text="No scenarios with measurable movement vs forecast.",
-              font_size=12, italic=True, color=WILEY_MUTED)
+    # ── Calibration: where consensus and evidence DIVERGE ─────────────
+    # The product's value is the divergence, not confirmation. Compute each
+    # trend's READ and surface the two high-value cells: high-consensus
+    # claims the evidence is NOT bearing out (the crowd may be wrong), and
+    # low-consensus outliers the evidence IS bearing out (signals missed).
+    from app.services.forecast_pptx_export import _calibration_read
+    from app.services.wiley_event_extraction import events_for_scenario
 
-    # First-snapshot footnote only applies to updates-only mode — full
-    # review mode doesn't compare to a prior snapshot, so listing
-    # "first-snapshot topics" is misleading there.
-    if updates_only and no_prior_topics:
-        msg = (
-            f"First snapshot for: "
-            + ", ".join(no_prior_topics[:3])
-            + ("…" if len(no_prior_topics) > 3 else "")
-            + " — these will diff against this period from next bundle onward."
-        )
-        _text(slide, x=0.6, y=5.3, w=sw-1.2, h=0.3,
-              text=msg, font_size=8.5, italic=True, color=WILEY_MUTED,
-              align=PP_ALIGN.CENTER)
+    crowd_wrong, outliers_confirming = [], []
+    for assessment, _r, _p in items:
+        topic = assessment.get("topic") or "—"
+        t_events = (events_by_topic or {}).get(topic) or []
+        for v in (assessment.get("scenario_verdicts") or []):
+            if v.get("verdict_label") == "Done":
+                continue
+            deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
+            name = deck_info.get("deck_scenario_name") or v.get("scenario_title") or "—"
+            basis = deck_info.get("consensus_pct")
+            conf, ctr = events_for_scenario(t_events, name)
+            _, category = _calibration_read(basis, len(conf), len(ctr))
+            if category == "crowd_wrong":
+                crowd_wrong.append(f"{name} ({topic})")
+            elif category == "outlier_confirming":
+                outliers_confirming.append(f"{name} ({topic})")
+
+    col_y = 3.55
+    _text(slide, x=0.9, y=col_y, w=inner_w, h=0.22,
+          text="WHERE CONSENSUS & EVIDENCE DIVERGE  ·  the watch-list",
+          font_size=8, bold=True, color=WILEY_TEAL)
+
+    half = inner_w / 2
+    # Left: high consensus the evidence isn't bearing out.
+    _text(slide, x=0.9, y=col_y+0.26, w=half-0.2, h=0.22,
+          text="CONSENSUS NOT YET BEARING OUT", font_size=8, bold=True, color=AMBER_DEEP)
+    lw = crowd_wrong or ["— none this cycle"]
+    _text(slide, x=0.9, y=col_y+0.5, w=half-0.2, h=1.0,
+          text="\n".join(f"• {x}" for x in lw[:4]),
+          font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
+    # Right: low-consensus outliers the evidence IS bearing out.
+    _text(slide, x=0.9+half, y=col_y+0.26, w=half-0.2, h=0.22,
+          text="OUTLIERS THE EVIDENCE CONFIRMS", font_size=8, bold=True, color=GREEN_DEEP)
+    rw = outliers_confirming or ["— none this cycle"]
+    _text(slide, x=0.9+half, y=col_y+0.5, w=half-0.2, h=1.0,
+          text="\n".join(f"• {x}" for x in rw[:4]),
+          font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
 
 
 def _add_three_horizons_overview(prs, items: list, *, updates_only: bool):
@@ -418,7 +475,7 @@ def _add_three_horizons_overview(prs, items: list, *, updates_only: bool):
     _text(slide, x=0.5, y=0.3, w=sw-1.0, h=0.5,
           text="Three Horizons Overview", font_size=22, bold=True, color=WILEY_NAVY)
     _text(slide, x=0.5, y=0.85, w=sw-1.0, h=0.28,
-          text="Scenarios grouped by horizon · current status and confirmation strength",
+          text="The scenario set across the three horizons",
           font_size=11, italic=True, color=WILEY_MUTED)
 
     horizon_bands = [
@@ -444,27 +501,21 @@ def _add_three_horizons_overview(prs, items: list, *, updates_only: bool):
                     continue
                 if (v.get("horizon_type") or "").lower() != horizon_code:
                     continue
-                key = str(v.get("scenario_idx"))
-                bc = bc_per.get(key) or {}
-                internal_label = bc.get("label") or v.get("verdict_label") or "—"
-                net = bc.get("net_rate")
                 deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
                 name = deck_info.get("deck_scenario_name") or v.get("scenario_title") or "—"
-                topic = (assessment.get("topic") or "")[:18]
-                sub = f"{topic} · {(net or 0)*100:+.1f}%" if net is not None else topic
-                chips.append((name, internal_label, _customer_label(internal_label), sub))
+                topic = (assessment.get("topic") or "")[:22]
+                # The verdict color-bar + customer label + net-rate % were
+                # removed — they scored each scenario. The chip now just
+                # places the scenario in its horizon and names its topic.
+                chips.append((name, topic))
 
-        # Render chips inline — white cards with colored top bar
+        # Render chips inline — white cards with a neutral brand top bar
         cx = 2.75
         cy = y_top
-        for name, internal_label, customer_label, sub in chips[:5]:
+        for name, sub in chips[:5]:
             chip_w = 1.42
-            color = _baseline_color(internal_label) or WILEY_TEAL
             _rect(slide, x=cx, y=cy, w=chip_w-0.05, h=1.2, fill=WHITE)
-            _rect(slide, x=cx, y=cy, w=chip_w-0.05, h=0.22, fill=color)
-            _text(slide, x=cx, y=cy+0.03, w=chip_w-0.05, h=0.16,
-                  text=customer_label.upper(), font_size=7, bold=True, color=WHITE,
-                  align=PP_ALIGN.CENTER)
+            _rect(slide, x=cx, y=cy, w=chip_w-0.05, h=0.22, fill=WILEY_TEAL)
             _text(slide, x=cx+0.06, y=cy+0.28, w=chip_w-0.15, h=0.55,
                   text=_truncate(name, 38), font_size=8.5, bold=True,
                   color=WILEY_BODY)
@@ -534,15 +585,15 @@ def _add_bundle_cover(prs, period_label: str, cadence: str, topics: list, *, upd
     _rect(slide, x=0, y=0, w=sw, h=0.08, fill=WILEY_TEAL)
     _rect(slide, x=0, y=5.55, w=sw, h=0.08, fill=WILEY_TEAL)
 
-    suffix = " · UPDATES" if updates_only else ""
+    suffix = " · WHAT'S CHANGED" if updates_only else ""
     cadence_label = {
-        "monthly":   "Monthly intelligence briefing",
-        "quarterly": "Quarterly intelligence briefing",
-        "all":       "Strategic intelligence briefing",
-    }.get(cadence, "Intelligence briefing")
+        "monthly":   "Monthly foresight update",
+        "quarterly": "Quarterly foresight update",
+        "all":       "Strategic foresight update",
+    }.get(cadence, "Foresight update")
 
     _text(slide, x=0.6, y=2.0, w=sw-1.2, h=0.4,
-          text=f"WILEY HORIZONS · TRACKER{suffix}",
+          text=f"WILEY HORIZONS · FORESIGHT{suffix}",
           font_size=12, bold=True, color=WILEY_TEAL)
     _text(slide, x=0.6, y=2.45, w=sw-1.2, h=1.0, text=period_label,
           font_size=44, bold=True, color=WHITE)
@@ -569,8 +620,9 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
     _text(slide, x=0.5, y=0.3, w=sw-1.0, h=0.5,
           text="Topics in this bundle", font_size=22, bold=True, color=WILEY_NAVY)
     _text(slide, x=0.5, y=0.85, w=sw-1.0, h=0.3,
-          text="Each topic includes a Briefing Synthesis, gap analysis, "
-               "Key Insights, Strategic Recommendations, and Consensus & Outlier review.",
+          text="Each topic includes a Briefing Synthesis, per-trend evidence "
+               "ledgers, emerging themes, Key Insights, Strategic Recommendations, "
+               "and Next Steps.",
           font_size=10, italic=True, color=WILEY_MUTED)
 
     y = 1.4

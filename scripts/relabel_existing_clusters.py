@@ -28,9 +28,11 @@ logger = logging.getLogger("relabel_clusters")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
-# Heuristic: keyword-salad labels are 2-4 lowercase comma-separated tokens.
-# Real LLM names are Title Case with spaces.
-KEYWORD_SALAD_RE = re.compile(r"^[a-z]+(?:,\s*[a-z]+){1,4}$")
+# Heuristic: keyword-salad labels are 2-5 lowercase comma-separated tokens.
+# Real LLM names are Title Case with spaces. Tokens may contain hyphens
+# ("h-net") and digits ("gpt-4"), so allow both inside each comma-separated
+# token. Anchored to avoid matching arbitrary prose.
+KEYWORD_SALAD_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*(?:,\s*[a-z0-9][a-z0-9\-]*){1,4}$")
 
 
 def is_keyword_salad(label: str | None) -> bool:
