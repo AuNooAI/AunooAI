@@ -340,11 +340,39 @@ async def generate_bundle_docx(
             except Exception as e:
                 logger.warning("progress_callback failed: %s", e)
 
-    items, period_label, bundle_synth, eos_per_topic, verdict, review_findings = \
-        await _run_synthesis_pipeline(
-            cadence, updates_only=updates_only, when=when,
-            progress_callback=progress_callback,
+    # Render from the ALREADY-GENERATED synthesis (cached in
+    # forecast_bundle_synthesis), exactly like the HTML path — NOT by
+    # re-running the multi-agent pipeline. Re-running made every Word export
+    # fire the whole LLM chain (minutes; looked like it never finished) and
+    # could clobber analyst edits. The .docx is a *view* of the curated brief.
+    from app.database import get_database_instance
+    db = get_database_instance()
+    period_label = _period_label(cadence, when)
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    if not synth.get("payload"):
+        raise ValueError(
+            f"No generated brief for {cadence}/{period_label} yet — "
+            "generate the bundle first, then export Word."
         )
+    _emit(40, "Loading generated brief")
+    items = []
+    for entry in (synth.get("topics") or []):
+        topic = entry.get("topic") if isinstance(entry, dict) else entry
+        if not topic:
+            continue
+        a = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        if a:
+            items.append((a, None, None))
+    items = _apply_overlay_display_names(items)
+    eos_per_topic = {}
+    for a, _r, _p in items:
+        eos = (a.get("summary") or {}).get("extreme_outlier_scenarios") \
+            or (a.get("summary") or {}).get("eos") or []
+        if eos:
+            eos_per_topic[a.get("topic")] = eos
+    review = db.facade.get_forecast_bundle_review(cadence, period_label) or {}
+    verdict = review.get("status")
+    review_findings = review.get("reviewer_findings")
 
     _emit(96, "Rendering Word document")
     blob = build_bundle_docx(
@@ -352,7 +380,7 @@ async def generate_bundle_docx(
         period_label=period_label,
         cadence=cadence,
         updates_only=updates_only,
-        bundle_synthesis=bundle_synth,
+        bundle_synthesis=synth.get("payload") or {},
         eos_per_topic=eos_per_topic,
         review_findings=review_findings,
         review_verdict=verdict,

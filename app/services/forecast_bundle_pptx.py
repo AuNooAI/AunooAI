@@ -273,12 +273,10 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
     # Title + subtitle. The subtitle clarifies whether this deck is a full
     # 90-day review (default) or an updates-only diff against the prior
     # snapshot — confusion on this point is a recurring user complaint.
-    _text(slide, x=2.0, y=1.55, w=6.0, h=0.5, text="HEADLINE FINDINGS",
+    _text(slide, x=2.0, y=0.5, w=6.0, h=0.5, text="HEADLINE FINDINGS",
           font_size=22, bold=True, color=WILEY_NAVY, align=PP_ALIGN.CENTER)
-    mode_label = "Updates only — diff vs prior snapshot" if updates_only \
-                 else "Full review — current snapshot vs original forecast"
-    sub = f"AunooAI  ·  {period_label}  ·  {mode_label}"
-    _text(slide, x=2.0, y=2.10, w=6.0, h=0.3, text=sub,
+    sub = f"AunooAI  ·  {period_label} quarterly intelligence briefing"
+    _text(slide, x=2.0, y=1.05, w=6.0, h=0.3, text=sub,
           font_size=11, italic=True, color=WILEY_MUTED, align=PP_ALIGN.CENTER)
 
     # Aggregate stats. The stats shown depend on which question the deck
@@ -384,9 +382,10 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
                         v,
                     )
 
-    # Centred white content card hosting all the synthesis
-    _rect(slide, x=0.6, y=2.6, w=8.8, h=2.6, fill=WILEY_CARD_BG)
-    _rect(slide, x=0.6, y=2.6, w=0.08, h=2.6, fill=WILEY_TEAL)
+    # Centred white content card hosting all the synthesis — sized to fill
+    # the slide so the headline metrics + watch-list don't float in empty space.
+    _rect(slide, x=0.6, y=1.5, w=8.8, h=3.75, fill=WILEY_CARD_BG)
+    _rect(slide, x=0.6, y=1.5, w=0.08, h=3.75, fill=WILEY_TEAL)
 
     # Stats row inside the card. Pairs differ by mode so the numbers map
     # cleanly onto the deck's actual content (full review = vs-forecast,
@@ -397,7 +396,7 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
     # removed — they scored the futures-cone scenarios as a back-test,
     # which the customer rejected. The Executive Summary letter (slide 2)
     # carries the narrative read of the quarter.
-    y_stats = 2.55
+    y_stats = 1.78
     pairs = [
         ("Topics",          str(n_topics),
          "strategic themes tracked this quarter"),
@@ -441,32 +440,41 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
             conf, ctr = events_for_scenario(t_events, name)
             _, category = _calibration_read(basis, len(conf), len(ctr))
             if category == "crowd_wrong":
-                crowd_wrong.append(f"{name} ({topic})")
+                crowd_wrong.append(f"{topic} — {name}")
             elif category == "outlier_confirming":
-                outliers_confirming.append(f"{name} ({topic})")
+                outliers_confirming.append(f"{topic} — {name}")
 
-    col_y = 3.82
+    # Divider rule between the headline metrics and the watch-list.
+    _rect(slide, x=0.9, y=3.02, w=inner_w, h=0.012, fill=RULE_GRAY)
+
+    col_y = 3.2
     _text(slide, x=0.9, y=col_y, w=inner_w, h=0.22,
-          text="THE WATCH-LIST  ·  where expectations and the evidence don't line up",
-          font_size=8, bold=True, color=WILEY_TEAL)
+          text="WHAT TO WATCH THIS QUARTER",
+          font_size=10, bold=True, color=WILEY_NAVY)
+    _text(slide, x=0.9, y=col_y+0.24, w=inner_w, h=0.34,
+          text="We compare what most expert sources expect with what the news is actually "
+               "showing. The two gaps below are where the prevailing view and the real-world "
+               "evidence don't yet match — usually the most useful thing to know.",
+          font_size=8.5, italic=True, color=WILEY_MUTED, line_spacing=1.2)
 
     half = inner_w / 2
+    body_y = col_y + 0.66
     # Left: widely expected, but events haven't confirmed it.
-    _text(slide, x=0.9, y=col_y+0.26, w=half-0.2, h=0.22,
-          text="WIDELY EXPECTED — EVIDENCE HASN'T CONFIRMED IT YET",
-          font_size=8, bold=True, color=AMBER_DEEP)
-    lw = crowd_wrong or ["Nothing flagged this quarter"]
-    _text(slide, x=0.9, y=col_y+0.5, w=half-0.2, h=1.0,
+    _text(slide, x=0.9, y=body_y, w=half-0.2, h=0.44,
+          text="Most expect this — but it isn't happening yet",
+          font_size=9.5, bold=True, color=AMBER_DEEP, line_spacing=1.05)
+    lw = crowd_wrong or ["No clear gap this quarter"]
+    _text(slide, x=0.9, y=body_y+0.46, w=half-0.2, h=0.86,
           text="\n".join(f"• {x}" for x in lw[:4]),
-          font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
+          font_size=9, color=WILEY_BODY, line_spacing=1.3)
     # Right: few expected it, but the evidence is starting to back it.
-    _text(slide, x=0.9+half, y=col_y+0.26, w=half-0.2, h=0.22,
-          text="FEW SAW IT COMING — EVIDENCE IS STARTING TO BACK IT",
-          font_size=8, bold=True, color=GREEN_DEEP)
-    rw = outliers_confirming or ["Nothing flagged this quarter"]
-    _text(slide, x=0.9+half, y=col_y+0.5, w=half-0.2, h=1.0,
+    _text(slide, x=0.9+half, y=body_y, w=half-0.2, h=0.44,
+          text="Few expected this — but it's starting to happen",
+          font_size=9.5, bold=True, color=GREEN_DEEP, line_spacing=1.05)
+    rw = outliers_confirming or ["No clear gap this quarter"]
+    _text(slide, x=0.9+half, y=body_y+0.46, w=half-0.2, h=0.86,
           text="\n".join(f"• {x}" for x in rw[:4]),
-          font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
+          font_size=9, color=WILEY_BODY, line_spacing=1.3)
 
 
 def _add_three_horizons_overview(prs, items: list, *, updates_only: bool):

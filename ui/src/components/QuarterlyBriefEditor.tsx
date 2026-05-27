@@ -127,10 +127,13 @@ export function QuarterlyBriefEditor({ cadence, periodLabel, onClose, editorIden
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const showToast = (msg: string, ms = 3000) => {
+  // Memoised so it's referentially stable — EventsTab/other children depend
+  // on it inside useCallback/useEffect deps; an unstable showToast made those
+  // effects re-fire every render (the Events Curation refresh loop).
+  const showToast = useCallback((msg: string, ms = 3000) => {
     setToast(msg);
     setTimeout(() => setToast(null), ms);
-  };
+  }, []);
 
   const isLocked = useCallback((path: string) => {
     if (!brief) return false;

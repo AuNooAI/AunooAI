@@ -1000,7 +1000,9 @@ async def run_pipeline(
 
     # ── Stage 8: Executive Summary letter ────────────────────────────
     exec_summary = (prior_synth.get("payload") or {}).get("exec_summary") or {}
+    exec_regenerated = False
     if _stage_in_plan(plan, "exec_summary") or not exec_summary:
+        exec_regenerated = True
         yield {"stage": "exec_summary", "status": "started", "progress": 0.85}
         exec_summary = await _call_agent(
             "wiley_exec_summary_agent",
@@ -1090,6 +1092,22 @@ async def run_pipeline(
                 es["letter"] = r["text"]
                 exec_summary = es
                 yield {"stage": "humanize", "status": "verdict_scrubbed", "progress": 0.918}
+            # Ground-check: drop/soften any event the letter cites that isn't in
+            # named_events. Only when the letter was freshly generated this run
+            # (it's an LLM call) — not on every cached re-export.
+            if exec_regenerated:
+                try:
+                    from app.services.wiley_humanizer import ground_check_exec_summary
+                    named = db.facade.list_extracted_events(
+                        cadence=cadence, period_label=period_label) or []
+                    g = await ground_check_exec_summary(es["letter"], named)
+                    if g["changed"]:
+                        es["letter"] = g["text"]
+                        exec_summary = es
+                        yield {"stage": "humanize", "status": "event_grounded",
+                               "progress": 0.919}
+                except Exception as e:
+                    logger.warning("exec-summary ground-check failed (non-fatal): %s", e)
         # Same deterministic verdict guard on the expert commentary.
         ec_text = bundle_payload.get("expert_commentary")
         if (isinstance(ec_text, str) and ec_text.strip()
@@ -1421,13 +1439,18 @@ async def regenerate_single_stage(
         # consensus-verdict phrasing before persisting.
         try:
             from app.services.wiley_humanizer import (
-                humanize_text, strip_forecast_verdicts, humanize_enabled)
+                humanize_text, strip_forecast_verdicts, ground_check_exec_summary,
+                humanize_enabled)
             if humanize_enabled() and new_payload.get("letter") \
                     and "exec_summary.letter" not in (locked_keys or []):
                 h = await humanize_text(new_payload["letter"])
                 letter = h["text"] if h.get("changed") else new_payload["letter"]
                 v = await strip_forecast_verdicts(letter)
-                new_payload["letter"] = v["text"] if v.get("changed") else letter
+                letter = v["text"] if v.get("changed") else letter
+                named = db.facade.list_extracted_events(
+                    cadence=cadence, period_label=period_label) or []
+                g = await ground_check_exec_summary(letter, named)
+                new_payload["letter"] = g["text"] if g.get("changed") else letter
         except Exception as e:
             logger.warning("exec_summary post-guards failed (non-fatal): %s", e)
 

@@ -81,6 +81,68 @@ async def strip_forecast_verdicts(text: str) -> dict:
         logger.warning("strip_forecast_verdicts failed: %s", e)
         return out
 
+
+async def ground_check_exec_summary(text: str, named_events: list) -> dict:
+    """Revise the exec-summary letter so every *specific* real-world event it
+    cites is supported by the quarter's ``named_events``. Unsupported specifics
+    (a named agency action, a dated policy event) are removed or softened to the
+    general theme; supported claims and all other prose are kept verbatim.
+
+    Returns ``{text, changed}``. Never blocks. Only runs when there ARE
+    named_events to check against — otherwise we'd risk gutting a letter just
+    because extraction produced no events that period.
+    """
+    out = {"text": text, "changed": False}
+    events = named_events or []
+    if not text or not text.strip() or not humanize_enabled() or not events:
+        return out
+    try:
+        from app.ai_models import AIModelFactory
+        lines = []
+        for e in events[:60]:
+            if not isinstance(e, dict):
+                continue
+            actor = (e.get("actor") or e.get("actor_normalized") or "").strip()
+            action = (e.get("action") or "").strip()
+            subject = (e.get("subject") or e.get("subject_normalized") or "").strip()
+            date = (e.get("event_date") or "").strip()
+            line = " ".join(p for p in [actor, action, subject] if p).strip()
+            if date:
+                line += f" ({date})"
+            if line:
+                lines.append("- " + line)
+        grounded = "\n".join(lines)
+        if not grounded:
+            return out
+        sys = (
+            "You are a fact-grounding editor for a foresight brief. You are given "
+            "GROUNDED EVENTS (the only verified real-world events for this period) "
+            "and a LETTER. Some sentences may assert specific real-world events, "
+            "agency/government actions, named policies, or dated developments that "
+            "are NOT in GROUNDED EVENTS. For each such UNSUPPORTED specific claim, "
+            "remove it or rephrase to the general theme without the unverifiable "
+            "specifics. Keep every supported claim, and keep all other prose, "
+            "paragraph structure, bold headers, and tone EXACTLY. Do not add new "
+            "events. Return ONLY the revised letter."
+        )
+        usr = f"GROUNDED EVENTS:\n{grounded}\n\nLETTER:\n{text}"
+        model = AIModelFactory.get_model(_MODEL)
+        rewritten = await model.agenerate_response(
+            [{"role": "system", "content": sys}, {"role": "user", "content": usr}],
+            temperature=0.2, max_tokens=4000,
+        )
+        rewritten = (rewritten or "").strip()
+        # Guard against the model gutting the letter — only accept a revision
+        # that keeps at least half the original length.
+        if rewritten and rewritten != text and len(rewritten) >= 0.5 * len(text):
+            out["text"] = rewritten
+            out["changed"] = True
+            logger.info("ground_check_exec_summary: revised ungrounded event claim(s)")
+        return out
+    except Exception as e:
+        logger.warning("ground_check_exec_summary failed: %s", e)
+        return out
+
 # Above this many detected tells, rewrite. A few tells are normal in any
 # prose; the rewrite is for genuinely slop-heavy passages.
 _THRESHOLD = int(os.getenv("HUMANIZE_TELL_THRESHOLD", "3"))
