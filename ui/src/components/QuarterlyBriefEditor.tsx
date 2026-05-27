@@ -332,6 +332,8 @@ export function QuarterlyBriefEditor({ cadence, periodLabel, onClose, editorIden
                   onPatch={patchField}
                   onRegenerate={() => regenerateStage('exec_summary')}
                   regenerating={regenerating?.stage === 'exec_summary'}
+                  onRegenerateCommentary={() => regenerateStage('expert_commentary')}
+                  regeneratingCommentary={regenerating?.stage === 'expert_commentary'}
                 />
               )}
               {tab === 'cross_cutting' && (
@@ -468,18 +470,26 @@ interface ExecSummaryTabProps {
   onPatch: (path: string, value: any, lock?: boolean) => Promise<void>;
   onRegenerate: () => void;
   regenerating: boolean;
+  onRegenerateCommentary: () => void;
+  regeneratingCommentary: boolean;
 }
 
-function ExecSummaryTab({ brief, isLocked, onToggleLock, onPatch, onRegenerate, regenerating }: ExecSummaryTabProps) {
+function ExecSummaryTab({ brief, isLocked, onToggleLock, onPatch, onRegenerate, regenerating,
+                         onRegenerateCommentary, regeneratingCommentary }: ExecSummaryTabProps) {
   const letter = brief.payload?.exec_summary?.letter || '';
   const signoff = brief.payload?.exec_summary?.signoff || '';
+  const commentary = brief.payload?.expert_commentary || '';
   const [draft, setDraft] = useState(letter);
   const [signDraft, setSignDraft] = useState(signoff);
-  useEffect(() => { setDraft(letter); setSignDraft(signoff); }, [letter, signoff]);
+  const [commDraft, setCommDraft] = useState(commentary);
+  useEffect(() => { setDraft(letter); setSignDraft(signoff); setCommDraft(commentary); },
+            [letter, signoff, commentary]);
 
   const letterPath = 'exec_summary.letter';
   const signoffPath = 'exec_summary.signoff';
+  const commentaryPath = 'expert_commentary';
   const locked = isLocked(letterPath);
+  const commLocked = isLocked(commentaryPath);
 
   return (
     <div className="max-w-3xl">
@@ -527,6 +537,35 @@ function ExecSummaryTab({ brief, isLocked, onToggleLock, onPatch, onRegenerate, 
         >
           <Save className="w-4 h-4 mr-1.5" /> Save signoff
         </Button>
+      </div>
+
+      <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+        <SectionHeader
+          title="Expert view — emerging themes"
+          locked={commLocked}
+          onToggleLock={() => onToggleLock(commentaryPath, !commLocked)}
+          onRegenerate={onRegenerateCommentary}
+          regenerating={regeneratingCommentary}
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          One to two paragraphs of expert interpretation of the quarter's emerging themes.
+          AI drafts it grounded in the named themes — edit freely, then Save. Lock to preserve
+          across regenerates. Renders in the deck, Executive Summary doc, and HTML.
+        </p>
+        <textarea
+          value={commDraft}
+          onChange={(e) => setCommDraft(e.target.value)}
+          className="w-full h-[220px] p-3 font-mono text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100"
+          placeholder="Several themes this quarter show…"
+        />
+        <div className="flex items-center gap-2 mt-2">
+          <Button onClick={() => onPatch(commentaryPath, commDraft)} className="inline-flex items-center">
+            <Save className="w-4 h-4 mr-1.5" /> Save commentary
+          </Button>
+          <Button onClick={() => { setCommDraft(commentary); }} variant="outline">
+            Revert
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -38,6 +38,7 @@ from app.services.forecast_pptx_export import (
     _add_executive_decision_framework_slide, _add_next_steps_slide,
     _add_executive_summary_letter_slide, _add_review_pending_banner_slide,
     _add_whats_changed_section_slide, _add_methodology_appendix_slide,
+    _add_expert_commentary_slide,
     _prior_baseline_for, _verdict_chip, _baseline_color, _customer_label,
 )
 
@@ -109,6 +110,8 @@ def build_bundle_pptx(
     # The stats-style slide below renders as "Headline Findings" so the two
     # don't compete for the "Executive Summary" name.
     _add_executive_summary_letter_slide(prs, synth.get("exec_summary") or {}, period_label)
+    # Expert view on emerging themes (analyst-editable; renders only if present).
+    _add_expert_commentary_slide(prs, synth.get("expert_commentary") or "", period_label)
     _add_cross_topic_exec_summary(prs, items, period_label, cadence,
                                   updates_only=updates_only,
                                   events_by_topic=events_by_topic)
@@ -146,7 +149,7 @@ def build_bundle_pptx(
     _add_bundle_toc(prs, items, updates_only=updates_only)
 
     # ── Per-topic sections ────────────────────────────────────────────────
-    for assessment, forecast_run, prior in items:
+    for topic_idx, (assessment, forecast_run, prior) in enumerate(items, 1):
         verdicts = [
             v for v in (assessment.get("scenario_verdicts") or [])
             if v.get("verdict_label") != "Done"  # done scenarios suppressed from bundle
@@ -165,7 +168,7 @@ def build_bundle_pptx(
                 or v.get("scenario_title") or ""
             return events_for_scenario(topic_events, name)
 
-        _add_topic_divider(prs, assessment, forecast_run or {})
+        _add_topic_divider(prs, assessment, forecast_run or {}, topic_idx=topic_idx)
 
         if updates_only and prior:
             diff = _diff_assessments(assessment, prior)
@@ -176,7 +179,7 @@ def build_bundle_pptx(
             # article framing (rejected). The per-trend evidence ledger
             # (consensus basis + confirming/counter events + READ) is the
             # canonical per-scenario view now, in every mode.
-            _add_briefing_synthesis_slide(prs, assessment)
+            _add_briefing_synthesis_slide(prs, assessment, topic_idx=topic_idx)
 
             for v in verdicts:
                 key = str(v.get("scenario_idx"))
@@ -211,7 +214,7 @@ def build_bundle_pptx(
             # ("WHAT THE BACK-TEST FOUND" + Strengthening/Cooling chips) is
             # retired — the Briefing Synthesis opens each topic with the
             # qualitative read instead.
-            _add_briefing_synthesis_slide(prs, assessment)
+            _add_briefing_synthesis_slide(prs, assessment, topic_idx=topic_idx)
             for v in verdicts:
                 key = str(v.get("scenario_idx"))
                 _conf, _ctr = _scenario_ev(v)
@@ -229,7 +232,7 @@ def build_bundle_pptx(
             # Retired: per-topic status-distribution exec slide + the
             # consensus-drift "what's changed" slide (both back-test
             # framings). Briefing Synthesis opens the topic.
-            _add_briefing_synthesis_slide(prs, assessment)
+            _add_briefing_synthesis_slide(prs, assessment, topic_idx=topic_idx)
             for v in verdicts:
                 key = str(v.get("scenario_idx"))
                 _conf, _ctr = _scenario_ev(v)
@@ -394,21 +397,27 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
     # removed — they scored the futures-cone scenarios as a back-test,
     # which the customer rejected. The Executive Summary letter (slide 2)
     # carries the narrative read of the quarter.
-    y_stats = 2.78
+    y_stats = 2.55
     pairs = [
-        ("Topics",          str(n_topics)),
-        ("Scenarios",       str(n_scenarios)),
-        ("Articles analysed", f"{n_total_articles:,}"),
-        ("Emerging themes", str(n_total_surprises)),
+        ("Topics",          str(n_topics),
+         "strategic themes tracked this quarter"),
+        ("Scenarios",       str(n_scenarios),
+         "future scenarios under watch across all topics"),
+        ("Articles analysed", f"{n_total_articles:,}",
+         "news & research items processed since the last update"),
+        ("Emerging themes", str(n_total_surprises),
+         "new patterns that weren't in the original forecast"),
     ]
     inner_w = 8.4
     cell_w = inner_w / len(pairs)
     cx = 0.9
-    for label, value in pairs:
+    for label, value, desc in pairs:
         _text(slide, x=cx, y=y_stats, w=cell_w-0.1, h=0.2,
               text=label.upper(), font_size=8, bold=True, color=WILEY_TEAL)
-        _text(slide, x=cx, y=y_stats+0.22, w=cell_w-0.1, h=0.45,
-              text=value, font_size=24, bold=True, color=WILEY_NAVY)
+        _text(slide, x=cx, y=y_stats+0.22, w=cell_w-0.1, h=0.42,
+              text=value, font_size=22, bold=True, color=WILEY_NAVY)
+        _text(slide, x=cx, y=y_stats+0.66, w=cell_w-0.15, h=0.42,
+              text=desc, font_size=7.5, color=WILEY_MUTED, line_spacing=1.15)
         cx += cell_w
 
     # ── Calibration: where consensus and evidence DIVERGE ─────────────
@@ -436,23 +445,25 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
             elif category == "outlier_confirming":
                 outliers_confirming.append(f"{name} ({topic})")
 
-    col_y = 3.55
+    col_y = 3.82
     _text(slide, x=0.9, y=col_y, w=inner_w, h=0.22,
-          text="WHERE CONSENSUS & EVIDENCE DIVERGE  ·  the watch-list",
+          text="THE WATCH-LIST  ·  where expectations and the evidence don't line up",
           font_size=8, bold=True, color=WILEY_TEAL)
 
     half = inner_w / 2
-    # Left: high consensus the evidence isn't bearing out.
+    # Left: widely expected, but events haven't confirmed it.
     _text(slide, x=0.9, y=col_y+0.26, w=half-0.2, h=0.22,
-          text="CONSENSUS NOT YET BEARING OUT", font_size=8, bold=True, color=AMBER_DEEP)
-    lw = crowd_wrong or ["— none this cycle"]
+          text="WIDELY EXPECTED — EVIDENCE HASN'T CONFIRMED IT YET",
+          font_size=8, bold=True, color=AMBER_DEEP)
+    lw = crowd_wrong or ["Nothing flagged this quarter"]
     _text(slide, x=0.9, y=col_y+0.5, w=half-0.2, h=1.0,
           text="\n".join(f"• {x}" for x in lw[:4]),
           font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
-    # Right: low-consensus outliers the evidence IS bearing out.
+    # Right: few expected it, but the evidence is starting to back it.
     _text(slide, x=0.9+half, y=col_y+0.26, w=half-0.2, h=0.22,
-          text="OUTLIERS THE EVIDENCE CONFIRMS", font_size=8, bold=True, color=GREEN_DEEP)
-    rw = outliers_confirming or ["— none this cycle"]
+          text="FEW SAW IT COMING — EVIDENCE IS STARTING TO BACK IT",
+          font_size=8, bold=True, color=GREEN_DEEP)
+    rw = outliers_confirming or ["Nothing flagged this quarter"]
     _text(slide, x=0.9+half, y=col_y+0.5, w=half-0.2, h=1.0,
           text="\n".join(f"• {x}" for x in rw[:4]),
           font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
@@ -617,15 +628,15 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
     sw = 10.0
     _add_bg_image(slide, WILEY_BG_SOFT)
 
-    _text(slide, x=0.5, y=0.3, w=sw-1.0, h=0.5,
+    _text(slide, x=0.5, y=0.22, w=sw-1.0, h=0.45,
           text="Topics in this bundle", font_size=22, bold=True, color=WILEY_NAVY)
-    _text(slide, x=0.5, y=0.85, w=sw-1.0, h=0.3,
-          text="Each topic includes a Briefing Synthesis, per-trend evidence "
-               "ledgers, emerging themes, Key Insights, Strategic Recommendations, "
-               "and Next Steps.",
-          font_size=10, italic=True, color=WILEY_MUTED)
+    _text(slide, x=0.5, y=0.74, w=sw-1.0, h=0.26,
+          text="Each topic carries a Briefing Synthesis, per-trend evidence "
+               "ledgers, emerging themes, Key Insights, Recommendations and Next Steps.",
+          font_size=9.5, italic=True, color=WILEY_MUTED)
 
-    y = 1.4
+    y = 1.18
+    row_h = 0.74
     for i, (assessment, _run, _prior) in enumerate(items, 1):
         topic = assessment.get("topic") or "—"
         n_scenarios = len([
@@ -634,29 +645,41 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
         ])
         n_surprises = len(assessment.get("surprises") or [])
         evidence = assessment.get("evidence_count") or 0
-        assessed = _short_date((assessment.get("summary") or {}).get("assessed_at")
-                                or assessment.get("assessed_at"))
+        # Plain-English one-liner so a cold reader grasps the topic's scope —
+        # the briefing headline is the writer's own summary of the topic.
+        desc = (((assessment.get("summary") or {}).get("topic_briefing") or {})
+                .get("headline") or "").strip()
 
         # Each row in a white card with teal number badge
-        _rect(slide, x=0.5, y=y, w=sw-1.0, h=0.78, fill=WILEY_CARD_BG)
-        _rect(slide, x=0.5, y=y, w=0.7, h=0.78, fill=WILEY_TEAL)
-        _text(slide, x=0.5, y=y+0.18, w=0.7, h=0.42,
+        _rect(slide, x=0.5, y=y, w=sw-1.0, h=row_h, fill=WILEY_CARD_BG)
+        _rect(slide, x=0.5, y=y, w=0.7, h=row_h, fill=WILEY_TEAL)
+        _text(slide, x=0.5, y=y+0.22, w=0.7, h=0.42,
               text=str(i), font_size=22, bold=True, color=WHITE,
               align=PP_ALIGN.CENTER)
-        _text(slide, x=1.35, y=y+0.1, w=sw-1.95, h=0.32,
-              text=_truncate(topic, 80), font_size=13, bold=True, color=WILEY_BODY)
+        _text(slide, x=1.35, y=y+0.05, w=sw-1.95, h=0.28,
+              text=_truncate(topic, 80), font_size=12.5, bold=True, color=WILEY_BODY)
+        if desc:
+            _text(slide, x=1.35, y=y+0.31, w=sw-1.95, h=0.22,
+                  text=_truncate(desc, 105), font_size=9, color=WILEY_BODY)
         meta = (
             f"{n_scenarios} scenarios  ·  {n_surprises} emerging themes  ·  "
-            f"{evidence} articles  ·  assessed {assessed}"
+            f"{evidence} articles"
         )
-        _text(slide, x=1.35, y=y+0.42, w=sw-1.95, h=0.25, text=meta,
-              font_size=9.5, color=WILEY_MUTED)
-        y += 0.85
+        _text(slide, x=1.35, y=y+0.52, w=sw-1.95, h=0.2, text=meta,
+              font_size=8, color=WILEY_MUTED)
+        y += row_h + 0.05
         if y > 5.0:
             break
 
+    # Three Horizons legend — the H1/H2/H3 codes on the per-trend ledger slides
+    # are unfamiliar to new readers, so explain them once up front.
+    _text(slide, x=0.5, y=5.28, w=sw-1.0, h=0.26,
+          text="Horizons:  H1 — today's declining system (near-term)   ·   "
+               "H2 — transition & innovation   ·   H3 — long-term future vision",
+          font_size=8.5, italic=True, color=WILEY_MUTED, align=PP_ALIGN.CENTER)
 
-def _add_topic_divider(prs, assessment: dict, forecast_run: dict):
+
+def _add_topic_divider(prs, assessment: dict, forecast_run: dict, *, topic_idx: Optional[int] = None):
     """Per-topic section divider — mirrors Wiley deck slide 19. Full-bleed
     soft-teal background with the topic name large and centred, framed by a
     navy band so it reads as a chapter break."""
@@ -670,6 +693,10 @@ def _add_topic_divider(prs, assessment: dict, forecast_run: dict):
     # Navy band hosting the topic name (Wiley slide 19 style)
     _rect(slide, x=0, y=2.1, w=sw, h=1.5, fill=WILEY_NAVY)
     _rect(slide, x=0, y=2.1, w=sw, h=0.06, fill=WILEY_TEAL)
+    # "TOPIC N" eyebrow ties this section back to the numbered ToC.
+    if topic_idx is not None:
+        _text(slide, x=0.6, y=1.72, w=sw-1.2, h=0.3, text=f"TOPIC {topic_idx}",
+              font_size=13, bold=True, color=WILEY_TEAL, align=PP_ALIGN.CENTER)
     _text(slide, x=0.6, y=2.3, w=sw-1.2, h=1.1, text=topic,
           font_size=32, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 

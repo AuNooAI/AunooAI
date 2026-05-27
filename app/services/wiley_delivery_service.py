@@ -202,6 +202,7 @@ async def _run_synthesis_pipeline(
         "next_steps": "Drafting Next Steps",
         "cross_topic": "Synthesising cross-topic themes",
         "exec_summary": "Writing Executive Summary letter",
+        "expert_commentary": "Drafting expert view on emerging themes",
         "humanize": "Stripping AI-slop tells from the prose",
         "reviewer": "LLM-as-judge reviewing all artefacts",
     }

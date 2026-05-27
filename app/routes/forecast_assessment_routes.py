@@ -1469,7 +1469,7 @@ async def regenerate_brief_stage(
 
     valid_stages = {
         "briefing", "recommendations", "next_steps",
-        "cross_topic", "exec_summary", "events",
+        "cross_topic", "exec_summary", "expert_commentary", "events",
     }
     if payload.stage not in valid_stages:
         raise HTTPException(400, f"unknown stage '{payload.stage}'; pick one of {valid_stages}")

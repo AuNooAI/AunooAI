@@ -154,7 +154,8 @@ async def humanize_bundle_payload(payload: dict, *, locked_keys: list = None) ->
     ``{field: {tells_before, tells_after, changed}}`` for logging/audit.
 
     Fields humanized: exec_summary.letter, strategic_overview,
-    cross_cutting_themes[*].body, executive_decision_framework[*].body.
+    expert_commentary, cross_cutting_themes[*].body,
+    executive_decision_framework[*].body.
     """
     locked = set(locked_keys or [])
     summary: dict = {}
@@ -183,6 +184,11 @@ async def humanize_bundle_payload(payload: dict, *, locked_keys: list = None) ->
         await _do("strategic_overview",
                   lambda: payload.get("strategic_overview"),
                   lambda v: payload.__setitem__("strategic_overview", v))
+
+    if payload.get("expert_commentary"):
+        await _do("expert_commentary",
+                  lambda: payload.get("expert_commentary"),
+                  lambda v: payload.__setitem__("expert_commentary", v))
 
     for i, theme in enumerate(payload.get("cross_cutting_themes") or []):
         if isinstance(theme, dict) and theme.get("body"):

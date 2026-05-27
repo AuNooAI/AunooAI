@@ -182,6 +182,58 @@ def _baseline_color(label: Optional[str]) -> RGBColor:
 
 # ── Low-level helpers ─────────────────────────────────────────────────────
 
+def _estimate_font_scale(text, w_in, h_in, font_size, line_spacing) -> float:
+    """Estimate the font-scale (0.55–1.0) needed for ``text`` to fit a box of
+    ``w_in`` × ``h_in`` inches at ``font_size`` pt.
+
+    PowerPoint's "shrink text on overflow" only recomputes its scale lazily
+    (on open/edit) and stores none by default, so other renderers — PDF
+    export, previews, some viewers — show the text at full size and it
+    overruns the box. We therefore compute an explicit scale here and bake it
+    into the ``normAutofit`` element (see ``_set_autofit_scale``) so the file
+    itself carries the shrink. Approximate but conservative: glyph advance for
+    the brand sans ≈ 0.50× the point size; ~10% of each wrapped line is slack.
+    """
+    if not text or w_in <= 0 or h_in <= 0 or font_size <= 0:
+        return 1.0
+    ls = line_spacing or 1.2
+    char_w_in = (font_size * 0.50) / 72.0
+    line_h_in = (font_size * ls) / 72.0
+    if char_w_in <= 0 or line_h_in <= 0:
+        return 1.0
+    chars_per_line = max(1.0, w_in / char_w_in)
+    n_lines = max(1.0, h_in / line_h_in)
+    capacity = chars_per_line * n_lines * 0.90
+    # Each hard newline starts a fresh line that's usually only half-full.
+    n = len(text) + text.count("\n") * int(chars_per_line * 0.5)
+    if n <= capacity:
+        return 1.0
+    import math
+    return max(0.55, min(1.0, math.sqrt(capacity / float(n))))
+
+
+def _set_autofit_scale(tf, scale: float):
+    """Bake an explicit ``fontScale`` (+ modest line-spacing reduction) into
+    the text frame's ``normAutofit`` so the shrink renders everywhere, not
+    only where PowerPoint recomputes it."""
+    if scale >= 0.999:
+        return
+    try:
+        from pptx.oxml.ns import qn
+        bodyPr = tf._txBody.find(qn('a:bodyPr'))
+        if bodyPr is None:
+            return
+        na = bodyPr.find(qn('a:normAutofit'))
+        if na is None:
+            na = bodyPr.makeelement(qn('a:normAutofit'), {})
+            bodyPr.insert(0, na)
+        na.set('fontScale', str(int(round(scale * 100000))))
+        if scale < 0.85:
+            na.set('lnSpcReduction', str(int(round(min(0.20, 1.0 - scale) * 100000))))
+    except Exception:
+        pass
+
+
 def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
           color=TITLE_DARK, align=PP_ALIGN.LEFT, font_name=BODY_FONT,
           line_spacing: Optional[float] = None,
@@ -191,7 +243,7 @@ def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
     so paragraph-level alignment/spacing applies uniformly.
 
     ``shrink_to_fit`` enables PowerPoint's "Shrink text on overflow" autofit
-    (``MSO_AUTO_SIZE.TEXT_TO_SHAPE``) on the resulting text frame. With it on,
+    (``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE``) on the resulting text frame. With it on,
     long content stays fully visible at a slightly smaller font instead of
     being chopped by the caller's ``_truncate``. Default is on because the
     deck's biggest legibility complaint historically was mid-sentence
@@ -204,7 +256,11 @@ def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
     if shrink_to_fit:
         try:
             from pptx.enum.text import MSO_AUTO_SIZE
-            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_SHAPE
+            # "Shrink text on overflow" — the member is TEXT_TO_FIT_SHAPE.
+            # (A previous TEXT_TO_SHAPE typo raised AttributeError here and
+            # was silently swallowed, so autofit never actually applied and
+            # long content overran the box.)
+            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         except Exception:
             # If the python-pptx build doesn't expose TEXT_TO_SHAPE for some
             # reason, fall back silently. word_wrap=True is still applied so
@@ -229,6 +285,11 @@ def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
         r.font.bold = bold
         r.font.italic = italic
         r.font.color.rgb = color
+    # Bake an explicit shrink scale into the autofit so overflowing text is
+    # actually smaller in the saved file (not reliant on the viewer
+    # recomputing PowerPoint's autofit).
+    if shrink_to_fit and (text or "").strip():
+        _set_autofit_scale(tf, _estimate_font_scale(text, w, h, font_size, line_spacing))
     return tb
 
 
@@ -1389,7 +1450,7 @@ def _consensus_drift_text(assessment: dict) -> str:
     return "  →  ".join(parts)
 
 
-def _add_briefing_synthesis_slide(prs, assessment: dict):
+def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[int] = None):
     """Per-topic Briefing Synthesis — direct port of Wiley deck slide 20.
 
     Two equal-width white panels side-by-side. Left panel has a teal header
@@ -1408,8 +1469,11 @@ def _add_briefing_synthesis_slide(prs, assessment: dict):
 
     _add_bg_image(slide, WILEY_BG_SOFT)
 
-    # Title row (no header bar — title sits directly on the bg, Wiley-style)
-    _text(slide, x=0.5, y=0.2, w=sw-1.0, h=0.4, text="Briefing Synthesis",
+    # Title row (no header bar — title sits directly on the bg, Wiley-style).
+    # "Topic N" prefix ties the section back to the numbered ToC.
+    title = (f"Topic {topic_idx} · Briefing Synthesis"
+             if topic_idx is not None else "Briefing Synthesis")
+    _text(slide, x=0.5, y=0.2, w=sw-1.0, h=0.4, text=title,
           font_size=22, bold=True, color=WILEY_NAVY)
     _text(slide, x=0.5, y=0.7, w=sw-1.0, h=0.35,
           text=briefing.get("headline") or (assessment.get("topic") or "—"),
@@ -1886,6 +1950,34 @@ def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: s
           align=PP_ALIGN.RIGHT, shrink_to_fit=False)
 
 
+def _add_expert_commentary_slide(prs, commentary: str, period_label: str):
+    """Expert view on the quarter's emerging themes — sits just after the
+    Executive Summary letter. Analyst-editable prose generated by the
+    expert-commentary agent; renders only when present."""
+    if not (commentary or "").strip():
+        return
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = 10.0
+    _add_bg_image(slide, WILEY_BG_SOFT)
+
+    _text(slide, x=0.5, y=0.4, w=sw-1.0, h=0.45,
+          text="Expert View — Emerging Themes", font_size=24, bold=True,
+          color=WILEY_NAVY, shrink_to_fit=False)
+    _text(slide, x=0.5, y=0.95, w=sw-1.0, h=0.3,
+          text=f"{period_label} · analyst interpretation of this quarter's emerging themes",
+          font_size=11, italic=True, color=WILEY_MUTED, shrink_to_fit=False)
+
+    card_top = 1.35
+    card_h = 3.75
+    _rect(slide, x=0.5, y=card_top, w=sw-1.0, h=card_h, fill=WILEY_CARD_BG)
+    _rect(slide, x=0.5, y=card_top, w=0.08, h=card_h, fill=WILEY_TEAL)
+    _render_markdown_paragraphs(
+        slide, x=0.85, y=card_top + 0.2, w=sw-1.55, h=card_h - 0.4,
+        body=commentary, font_size=12, color=WILEY_BODY, line_spacing=1.45,
+    )
+
+
 def _render_markdown_paragraphs(slide, *, x, y, w, h, body, font_size=10.5,
                                 color=None, line_spacing=1.35):
     """Render a body of text with **inline bold** markers and double-newline
@@ -1908,7 +2000,7 @@ def _render_markdown_paragraphs(slide, *, x, y, w, h, body, font_size=10.5,
     tf.word_wrap = True
     try:
         from pptx.enum.text import MSO_AUTO_SIZE
-        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_SHAPE
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     except Exception:
         pass
     tf.vertical_anchor = MSO_ANCHOR.TOP
@@ -1941,6 +2033,11 @@ def _render_markdown_paragraphs(slide, *, x, y, w, h, body, font_size=10.5,
             cursor = m.end()
         if cursor < len(para_text):
             _add_run(p, para_text[cursor:], font_size, color, bold=False)
+
+    # Bake an explicit shrink scale in — paragraph gaps cost vertical room, so
+    # add the inter-paragraph spacing to the effective length estimate.
+    eff = (body or "") + "\n" * max(0, len(paragraphs) - 1) * 2
+    _set_autofit_scale(tf, _estimate_font_scale(eff, w, h, font_size, line_spacing))
 
 
 def _add_run(paragraph, text, font_size, color, *, bold=False, italic=False,
@@ -2110,10 +2207,12 @@ def _add_five_domains_summary_slide(prs, items: list):
 
 
 def _add_black_swans_slide(prs, eos_per_topic: dict):
-    """Cross-topic Black Swans & Wild Card Scenarios — mirrors Wiley deck slide 17.
+    """Cross-topic Black Swans & Wild Card Scenarios.
 
-    Aggregates the highest impact × probability scenarios across all topics'
-    EOS scans and surfaces the top 6-7 as cards on a single slide.
+    Two scenarios per slide, each in a full-height card, so the complete
+    trajectory/mechanism narrative is readable rather than crammed into a
+    2×2 grid (where the ~1,000-char descriptions had to shrink to ~5pt or
+    overran the card). Paginates across slides for the top scenarios.
     """
     aggregated = []
     for topic, scenarios in (eos_per_topic or {}).items():
@@ -2128,19 +2227,7 @@ def _add_black_swans_slide(prs, eos_per_topic: dict):
     if not aggregated:
         return
     aggregated.sort(key=lambda t: -t[0])
-    top = aggregated[:6]
-
-    blank = prs.slide_layouts[6]
-    slide = prs.slides.add_slide(blank)
-    sw = 10.0
-    _add_bg_image(slide, WILEY_BG_SOFT)
-
-    _text(slide, x=0.5, y=0.2, w=sw-1.0, h=0.4,
-          text="Black Swans & Wild Card Scenarios",
-          font_size=22, bold=True, color=WILEY_NAVY)
-    _text(slide, x=0.5, y=0.7, w=sw-1.0, h=0.3,
-          text="High-impact, low-probability scenarios that could reshape the landscape",
-          font_size=10.5, italic=True, color=WILEY_MUTED)
+    top = aggregated[:4]
 
     CATEGORY_COLOR = {
         "black_swan": WILEY_NAVY,
@@ -2153,67 +2240,78 @@ def _add_black_swans_slide(prs, eos_per_topic: dict):
         "wild_card":  "WILD CARD",
     }
 
-    # 2×2 grid of the top 4 cards. Cards are tall enough that the
-    # description doesn't overlap the footer line (the bug from the prior
-    # 3-row layout). Picking only 4 keeps every card readable; the
-    # markdown export covers the remainder.
+    sw = 10.0
     card_w = 4.55
-    card_h = 1.95
     gap_x = 0.1
-    gap_y = 0.12
     start_x = 0.5
-    start_y = 1.15
+    card_top = 1.15
+    card_h = 4.30
 
-    for i, (_score, topic, s) in enumerate(top[:4]):
-        col = i % 2
-        row = i // 2
-        cx = start_x + col * (card_w + gap_x)
-        cy = start_y + row * (card_h + gap_y)
+    # Two full-height cards per slide; paginate for the rest.
+    for page_start in range(0, len(top), 2):
+        page = top[page_start:page_start + 2]
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        _add_bg_image(slide, WILEY_BG_SOFT)
 
-        cat = (s.get("category") or "wild_card").lower()
-        cat_color = CATEGORY_COLOR.get(cat, WILEY_TEAL)
-        cat_label = CATEGORY_DISPLAY.get(cat, cat.upper())
+        title = "Black Swans & Wild Card Scenarios"
+        if page_start > 0:
+            title += " (continued)"
+        _text(slide, x=0.5, y=0.2, w=sw-1.0, h=0.4, text=title,
+              font_size=22, bold=True, color=WILEY_NAVY, shrink_to_fit=False)
+        _text(slide, x=0.5, y=0.7, w=sw-1.0, h=0.3,
+              text="High-impact, low-probability scenarios that could reshape the landscape",
+              font_size=10.5, italic=True, color=WILEY_MUTED)
 
-        _rect(slide, x=cx, y=cy, w=card_w, h=card_h, fill=WILEY_CARD_BG, line=WILEY_TEAL_LT)
-        # Header strip with category badge + source topic
-        _rect(slide, x=cx, y=cy, w=card_w, h=0.34, fill=cat_color)
-        _text(slide, x=cx+0.15, y=cy+0.06, w=2.0, h=0.22,
-              text=cat_label, font_size=8.5, bold=True, color=WHITE)
-        _text(slide, x=cx+2.2, y=cy+0.06, w=card_w-2.4, h=0.22,
-              text=_truncate(topic, 38), font_size=8, italic=True, color=WILEY_TEAL_LT,
-              align=PP_ALIGN.RIGHT)
+        for j, (_score, topic, s) in enumerate(page):
+            cx = start_x + j * (card_w + gap_x)
+            cy = card_top
+            cat = (s.get("category") or "wild_card").lower()
+            cat_color = CATEGORY_COLOR.get(cat, WILEY_TEAL)
+            cat_label = CATEGORY_DISPLAY.get(cat, cat.upper())
 
-        # Scenario title — up to 2 lines, generous height
-        title = (s.get("title") or "(untitled)")
-        _text(slide, x=cx+0.18, y=cy+0.42, w=card_w-0.36, h=0.5,
-              text=_truncate(title, 100), font_size=11, bold=True, color=WILEY_BODY,
-              line_spacing=1.2)
+            _rect(slide, x=cx, y=cy, w=card_w, h=card_h, fill=WILEY_CARD_BG, line=WILEY_TEAL_LT)
+            _rect(slide, x=cx, y=cy, w=card_w, h=0.34, fill=cat_color)
+            _text(slide, x=cx+0.15, y=cy+0.06, w=2.0, h=0.22,
+                  text=cat_label, font_size=8.5, bold=True, color=WHITE)
+            _text(slide, x=cx+2.2, y=cy+0.06, w=card_w-2.4, h=0.22,
+                  text=topic, font_size=8, italic=True, color=WILEY_TEAL_LT,
+                  align=PP_ALIGN.RIGHT)
 
-        # Description — fixed window leaves room for the footer
-        desc = (s.get("description") or s.get("subtitle") or "")
-        _text(slide, x=cx+0.18, y=cy+0.92, w=card_w-0.36, h=0.75,
-              text=_truncate(desc, 250), font_size=8.5, color=WILEY_MUTED, line_spacing=1.35)
+            # Scenario title.
+            _text(slide, x=cx+0.18, y=cy+0.42, w=card_w-0.36, h=0.66,
+                  text=(s.get("title") or "(untitled)"), font_size=12, bold=True,
+                  color=WILEY_BODY, line_spacing=1.15)
 
-        # Footer line: impact / probability / horizon — anchored at the bottom
-        impact = s.get("impact_rating")
-        prob = s.get("probability")
-        horizon = s.get("time_horizon") or ""
-        parts = []
-        if impact is not None:
-            parts.append(f"Impact {int(round(float(impact)))}/10")
-        if prob is not None:
-            try:
-                parts.append(f"Probability {int(round(float(prob)*100))}%")
-            except Exception:
-                pass
-        if horizon:
-            parts.append(horizon)
-        if parts:
-            # Thin rule above the footer to separate it visually from body
-            _rect(slide, x=cx+0.18, y=cy+card_h-0.28, w=card_w-0.36, h=0.01, fill=WILEY_TEAL_LT)
-            _text(slide, x=cx+0.18, y=cy+card_h-0.22, w=card_w-0.36, h=0.18,
-                  text="   ·   ".join(parts), font_size=7.5, color=WILEY_TEAL,
-                  bold=True)
+            # Full description fills the card down to the footer — no truncation;
+            # the baked fontScale shrinks only if it genuinely overflows.
+            desc = (s.get("description") or s.get("subtitle") or "")
+            desc_top = cy + 1.18
+            # End the description well clear of the footer band (rule sits at
+            # cy+card_h-0.30) so the last line never collides with the
+            # impact/horizon line.
+            desc_h = card_h - 1.18 - 0.58
+            _text(slide, x=cx+0.18, y=desc_top, w=card_w-0.36, h=desc_h,
+                  text=desc, font_size=9, color=WILEY_MUTED, line_spacing=1.32)
+
+            # Footer line: impact / probability / horizon — anchored at the bottom.
+            impact = s.get("impact_rating")
+            prob = s.get("probability")
+            horizon = s.get("time_horizon") or ""
+            parts = []
+            if impact is not None:
+                parts.append(f"Impact {int(round(float(impact)))}/10")
+            if prob is not None:
+                try:
+                    parts.append(f"Probability {int(round(float(prob)*100))}%")
+                except Exception:
+                    pass
+            if horizon:
+                parts.append(horizon)
+            if parts:
+                _rect(slide, x=cx+0.18, y=cy+card_h-0.30, w=card_w-0.36, h=0.01, fill=WILEY_TEAL_LT)
+                _text(slide, x=cx+0.18, y=cy+card_h-0.24, w=card_w-0.36, h=0.2,
+                      text="   ·   ".join(parts), font_size=8, color=WILEY_TEAL,
+                      bold=True, shrink_to_fit=False)
 
 
 def _add_whats_changed_section_slide(prs, whats_changed: dict, *,
@@ -2487,11 +2585,13 @@ def _add_next_steps_slide(prs, assessment: dict):
 
     y = 1.35
     for i, step in enumerate(steps[:3], 1):
-        # Card with large number on left, category + action on right
+        # Card with a bullet marker on left, category + action on right.
+        # (Was a large "01/02/03" numeral — dropped because the leading number
+        # read as a cross-reference to the numbered topics in the ToC.)
         _rect(slide, x=0.5, y=y, w=sw-1.0, h=1.15, fill=WILEY_CARD_BG)
         _rect(slide, x=0.5, y=y, w=1.05, h=1.15, fill=WILEY_TEAL)
-        _text(slide, x=0.5, y=y+0.2, w=1.05, h=0.8,
-              text=f"{i:02d}", font_size=42, bold=True, color=WHITE,
+        _text(slide, x=0.5, y=y+0.12, w=1.05, h=0.9,
+              text="•", font_size=44, bold=True, color=WHITE,
               align=PP_ALIGN.CENTER)
         cat = (step.get("category") or "").strip().upper()
         action = (step.get("action") or "").strip()
@@ -2694,7 +2794,7 @@ def _split_title(s: str, max_chars: int = 34) -> List[str]:
 def _truncate(s: Optional[str], n: int) -> str:
     """Last-resort safety net for catastrophically long input.
 
-    With ``MSO_AUTO_SIZE.TEXT_TO_SHAPE`` now enabled on every ``_text`` call,
+    With ``MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE`` now enabled on every ``_text`` call,
     long content shrinks to fit the text box rather than being chopped.
     The per-call ``n`` (typically 50-250 chars in the old codebase) is
     multiplied by 4 here so the chop only fires on pathological input
@@ -2705,7 +2805,11 @@ def _truncate(s: Optional[str], n: int) -> str:
     full word, not mid-token.
     """
     s = (s or "").strip()
-    cap = max(n * 4, 400)
+    # Generous safety net only — we do NOT want to chop readable content. The
+    # text instead shrinks to fit via the baked-in fontScale
+    # (_set_autofit_scale), so the reader sees the WHOLE sentence at a smaller
+    # size rather than an ellipsis. This only fires on pathological input.
+    cap = max(n * 4, 600)
     if len(s) <= cap:
         return s
     # Cut at the last whitespace before the cap so we don't leave a

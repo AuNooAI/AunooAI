@@ -559,6 +559,43 @@ def _compute_calibration(items: list, cadence: str = None,
     return out
 
 
+def _expert_commentary_payload(items: list, period_label: str) -> dict:
+    """Build the expert-commentary agent's input: the quarter's emerging
+    themes (surprise clusters) across all topics, with real sample headlines
+    for grounding. Keyword-salad labels are dropped so the commentary never
+    cites an un-relabelled cluster."""
+    import re as _re
+
+    def _salad(lab: str) -> bool:
+        return bool(_re.fullmatch(
+            r"[a-z0-9][a-z0-9\-]*(?:,\s*[a-z0-9][a-z0-9\-]*){1,5}",
+            (lab or "").strip()))
+
+    themes = []
+    for assessment, _run, _prior in items:
+        topic = assessment.get("topic") or "—"
+        ranked = sorted((assessment.get("surprises") or []),
+                        key=lambda s: -(s.get("size") or 0))[:3]
+        for s in ranked:
+            lab = (s.get("label") or "").strip()
+            if not lab or _salad(lab):
+                continue
+            samples = []
+            for a in (s.get("sample_articles") or [])[:3]:
+                t = a.get("title") if isinstance(a, dict) else a
+                if t:
+                    samples.append(t)
+            themes.append({
+                "topic": topic, "label": lab,
+                "size": s.get("size"), "sample_articles": samples,
+            })
+    return {
+        "period_label": period_label,
+        "topics": [(a.get("topic") or "—") for (a, _r, _p) in items],
+        "emerging_themes": themes,
+    }
+
+
 def _exec_summary_payload(items: list, period_label: str,
                           cross_topic: dict, eos_per_topic: dict,
                           briefings: dict = None,
@@ -987,6 +1024,20 @@ async def run_pipeline(
             exec_summary = _apply_locks_after_call(prior_es, exec_summary, es_locks)
         yield {"stage": "exec_summary", "status": "completed", "progress": 0.9}
 
+    # ── Stage 8b: Expert commentary on emerging themes ───────────────
+    # A short analyst-editable "expert view" on the quarter's emerging themes
+    # (the surprise clusters). Generated only when absent or explicitly
+    # re-planned, and never when the analyst has locked it. Grounded in the
+    # named themes; humanized + verdict-scrubbed below with the other prose.
+    expert_commentary = (prior_synth.get("payload") or {}).get("expert_commentary") or ""
+    if ("expert_commentary" not in (locked_keys or [])
+            and (_stage_in_plan(plan, "expert_commentary") or not expert_commentary)):
+        yield {"stage": "expert_commentary", "status": "started", "progress": 0.905}
+        ec = await _call_agent("wiley_expert_commentary_agent",
+                               _expert_commentary_payload(items, period_label))
+        expert_commentary = ((ec or {}).get("commentary") or "").strip() or expert_commentary
+        yield {"stage": "expert_commentary", "status": "completed", "progress": 0.91}
+
     # Persist the cross-topic synth payload (overwrites any prior)
     bundle_payload = dict((prior_synth.get("payload") or {}))
     if cross_topic:
@@ -997,6 +1048,8 @@ async def run_pipeline(
         })
     if exec_summary:
         bundle_payload["exec_summary"] = exec_summary
+    if expert_commentary:
+        bundle_payload["expert_commentary"] = expert_commentary
 
     # ── Humanization pass — strip AI-slop tells from the generated prose
     # (exec summary, strategic overview, theme/framework bodies) before the
@@ -1037,6 +1090,15 @@ async def run_pipeline(
                 es["letter"] = r["text"]
                 exec_summary = es
                 yield {"stage": "humanize", "status": "verdict_scrubbed", "progress": 0.918}
+        # Same deterministic verdict guard on the expert commentary.
+        ec_text = bundle_payload.get("expert_commentary")
+        if (isinstance(ec_text, str) and ec_text.strip()
+                and "expert_commentary" not in (locked_keys or [])):
+            from app.services.wiley_humanizer import strip_forecast_verdicts
+            r2 = await strip_forecast_verdicts(ec_text)
+            if r2["changed"]:
+                bundle_payload["expert_commentary"] = r2["text"]
+                expert_commentary = r2["text"]
     except Exception as e:
         logger.warning("Forecast-verdict scrub failed (non-fatal): %s", e)
 
@@ -1375,6 +1437,34 @@ async def regenerate_single_stage(
             cadence, period_label, merged, synth.get("topics") or [],
         )
         await _emit(1.0, "exec_summary stage complete")
+        return
+
+    if stage == "expert_commentary":
+        if "expert_commentary" in (locked_keys or []):
+            await _emit(1.0, "expert_commentary locked — skipped")
+            return
+        await _emit(0.3, "Calling expert_commentary agent")
+        ec = await _call_agent("wiley_expert_commentary_agent",
+                               _expert_commentary_payload(items, period_label))
+        text = ((ec or {}).get("commentary") or "").strip()
+        # Same guards as the full pipeline: humanize + verdict-scrub.
+        if text:
+            try:
+                from app.services.wiley_humanizer import (
+                    humanize_text, strip_forecast_verdicts, humanize_enabled)
+                if humanize_enabled():
+                    h = await humanize_text(text)
+                    text = h["text"] if h.get("changed") else text
+                v = await strip_forecast_verdicts(text)
+                text = v["text"] if v.get("changed") else text
+            except Exception as e:
+                logger.warning("expert_commentary post-guards failed (non-fatal): %s", e)
+        merged = dict(prior_payload)
+        merged["expert_commentary"] = text
+        db.facade.save_forecast_bundle_synthesis(
+            cadence, period_label, merged, synth.get("topics") or [],
+        )
+        await _emit(1.0, "expert_commentary stage complete")
         return
 
     if stage == "events":

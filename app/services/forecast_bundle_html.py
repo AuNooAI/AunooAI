@@ -99,6 +99,7 @@ def _build_report_data(items, *, period_label, cadence, bundle_synthesis,
         "cadence": cadence,
         "data_quality_note": data_quality_note or "",
         "exec_summary": (payload.get("exec_summary") or {}).get("letter") or "",
+        "expert_commentary": payload.get("expert_commentary") or "",
         "strategic_overview": payload.get("strategic_overview") or "",
         "cross_cutting_themes": payload.get("cross_cutting_themes") or [],
         "decision_framework": payload.get("executive_decision_framework") or [],
@@ -236,6 +237,11 @@ def build_bundle_html(items, *, period_label, cadence, updates_only=False,
     <div class="letter" id="execLetter"></div>
   </section>
 
+  <section id="expert" style="display:none">
+    <h2>Expert view — emerging themes</h2>
+    <div class="letter" id="expertCommentary"></div>
+  </section>
+
   <section id="calib">
     <h2>Calibration — where consensus and evidence diverge</h2>
     <p class="section-sub"><span class="screen-only">Each trend placed by the consensus at forecast time (vertical) against the evidence since (horizontal). Click any trend for its evidence ledger.</span><span class="print-only">Trends grouped by the consensus×evidence read; divergences first. Each ledger is expanded below.</span> The highlighted cells are the high-value divergences.</p>
@@ -258,21 +264,6 @@ def build_bundle_html(items, *, period_label, cadence, updates_only=False,
     <div id="wcBlocks"></div>
   </section>
 
-  <section id="events">
-    <h2>Events explorer</h2>
-    <div class="filters screen-only">
-      <select id="fTopic"><option value="">All topics</option></select>
-      <select id="fDir">
-        <option value="">All directions</option>
-        <option value="conf">Confirming</option>
-        <option value="ctr">Countering</option>
-      </select>
-      <input id="fText" placeholder="filter text…" size="20">
-      <span class="muted small" id="evCount"></span>
-    </div>
-    <div id="evList"></div>
-  </section>
-
   <section id="overview">
     <h2>Strategic overview</h2>
     <div class="letter" id="ovText"></div>
@@ -291,6 +282,21 @@ def build_bundle_html(items, *, period_label, cadence, updates_only=False,
   <section id="topics">
     <h2>By topic</h2>
     <div id="topicList"></div>
+  </section>
+
+  <section id="events">
+    <h2>Events explorer</h2>
+    <div class="filters screen-only">
+      <select id="fTopic"><option value="">All topics</option></select>
+      <select id="fDir">
+        <option value="">All directions</option>
+        <option value="conf">Confirming</option>
+        <option value="ctr">Countering</option>
+      </select>
+      <input id="fText" placeholder="filter text…" size="20">
+      <span class="muted small" id="evCount"></span>
+    </div>
+    <div id="evList"></div>
   </section>
 
   <details class="method"><summary>How this brief is made (methodology)</summary>
@@ -317,6 +323,11 @@ function esc(s){{return (s==null?'':String(s)).replace(/[&<>]/g,c=>({{'&':'&amp;
 // exec summary + overview (render **bold** markers)
 function md(s){{return esc(s).replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');}}
 document.getElementById('execLetter').innerHTML = md(D.exec_summary || '(no summary)');
+if((D.expert_commentary||'').trim()){{
+  document.getElementById('expert').style.display='';
+  document.getElementById('expertCommentary').innerHTML =
+    (D.expert_commentary||'').split(/\\n\\s*\\n/).map(p=>'<p>'+md(p)+'</p>').join('');
+}}
 document.getElementById('ovText').innerHTML = md(D.strategic_overview || '');
 
 // calibration matrix — place each trend by its ACTUAL axes (basis × evidence
@@ -423,7 +434,26 @@ document.getElementById('topicList').innerHTML=(D.per_topic||[]).map(t=>{{
   let h='<div class="topic-block"><h3 style="margin:0 0 2px">'+esc(t.topic)+'</h3>';
   if(t.headline)h+='<div class="muted small" style="margin-bottom:6px">'+esc(t.headline)+'</div>';
   if(t.lede)h+='<p>'+esc(t.lede)+'</p>';
-  if((t.recommendations||[]).length)h+='<div class="small"><strong>Recommendations:</strong><ul style="margin:4px 0;padding-left:20px">'+t.recommendations.slice(0,4).map(r=>'<li>'+esc(typeof r==='string'?r:(r.body||''))+'</li>').join('')+'</ul></div>';
+  if((t.recommendations||[]).length){{
+    h+='<div class="small"><strong>Strategic recommendations:</strong><ul style="margin:4px 0;padding-left:20px">';
+    h+=t.recommendations.slice(0,4).map(r=>{{
+      if(typeof r==='string') return '<li>'+esc(r)+'</li>';
+      const head=esc(r.headline||r.body||r.recommendation||'');
+      const hz=r.horizon?' <span class="muted">('+esc(r.horizon)+')</span>':'';
+      const why=r.rationale?'<div class="muted" style="margin:2px 0 6px">'+esc(r.rationale)+'</div>':'';
+      return '<li><strong>'+head+'</strong>'+hz+why+'</li>';
+    }}).join('');
+    h+='</ul></div>';
+  }}
+  if((t.next_steps||[]).length){{
+    h+='<div class="small"><strong>Next steps:</strong><ul style="margin:4px 0;padding-left:20px">';
+    h+=t.next_steps.slice(0,4).map(s=>{{
+      if(typeof s==='string') return '<li>'+esc(s)+'</li>';
+      const cat=s.category?'<span class="muted">'+esc(s.category)+': </span>':'';
+      return '<li>'+cat+esc(s.action||s.body||'')+'</li>';
+    }}).join('');
+    h+='</ul></div>';
+  }}
   return h+'</div>';
 }}).join('');
 </script>

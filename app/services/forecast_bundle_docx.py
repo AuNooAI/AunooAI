@@ -93,6 +93,13 @@ def build_bundle_docx(
         # no section headers.
         _para(doc, strategic_overview)
 
+    # 1b. Expert view on emerging themes (analyst-editable; renders if present)
+    expert_commentary = (synth.get("expert_commentary") or "").strip()
+    if expert_commentary:
+        _hrule(doc)
+        _h2(doc, "Expert view — emerging themes")
+        _render_markdown_paragraphs(doc, expert_commentary)
+
     # 2. Cross-cutting strategic themes
     if cross_themes:
         _hrule(doc)

@@ -90,6 +90,12 @@ def _render_exec_summary(exec_summary: dict, period_label: str) -> str:
     )
 
 
+def _render_expert_commentary(text: str) -> str:
+    if not (text or "").strip():
+        return ""
+    return f"## Expert View — Emerging Themes\n\n{text.strip()}\n"
+
+
 def _render_strategic_overview(text: str) -> str:
     if not text:
         return ""
@@ -301,6 +307,7 @@ def build_bundle_markdown(
 
     # ── Front matter ──
     blocks.append(_render_exec_summary(synth.get("exec_summary") or {}, period_label))
+    blocks.append(_render_expert_commentary(synth.get("expert_commentary") or ""))
     blocks.append(_render_strategic_overview(synth.get("strategic_overview") or ""))
     blocks.append(_render_cross_cutting(synth.get("cross_cutting_themes") or []))
     blocks.append(_render_decision_framework(synth.get("executive_decision_framework") or []))
