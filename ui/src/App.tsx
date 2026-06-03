@@ -14,6 +14,7 @@ import { FutureHorizons } from './components/FutureHorizons';
 import { ForecastAssessmentTab } from './components/ForecastAssessment';
 import { AllTopicsForecastView } from './components/AllTopicsForecastView';
 import { TopicsDashboard } from './components/TopicsDashboard';
+import { TopicReportsPanel } from './components/TopicReportsPanel';
 import { AddTopicWizard } from './components/AddTopicWizard';
 import { DocViewer } from './components/DocViewer';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
@@ -139,6 +140,13 @@ function App() {
   const [isLoadingHorizonsExecSummary, setIsLoadingHorizonsExecSummary] = useState(false);
   const [horizonsExecSummaryError, setHorizonsExecSummaryError] = useState<string | null>(null);
   const [isFhTuneOpen, setIsFhTuneOpen] = useState(false);
+
+  // Fallback for topics whose Three Horizons run came from the Add-Topic
+  // wizard (stored in future_horizons_runs) rather than a trend-convergence
+  // analysis. When the tab has no scenarios for the topic, load the latest
+  // stored run by topic so the wizard's scenarios surface here.
+  const [fallbackHorizons, setFallbackHorizons] =
+    useState<{ scenarios: any[]; analysisId: string } | null>(null);
 
   // Newsletter state - lifted from Newsletter component
   const newsletter = useNewsletter();
@@ -465,6 +473,41 @@ function App() {
     }
   }, [activeTab, updateConfig, config.topic, loading, error, loadCached]);
 
+  // Discovery bridge: when the Future Horizons tab has no scenarios for the
+  // current topic (e.g. the run came from the Add-Topic wizard, not a
+  // trend-convergence analysis), load the latest stored run by topic.
+  useEffect(() => {
+    if (activeTab !== 'future-horizons' || !config.topic) {
+      setFallbackHorizons(null);
+      return;
+    }
+    if (data?.scenarios && data.scenarios.length) {
+      setFallbackHorizons(null); // trend-convergence data wins
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const lr = await fetch(
+          `/api/forecast/topics/${encodeURIComponent(config.topic)}/latest-run`,
+        );
+        if (!lr.ok || cancelled) return;
+        const { run_id } = await lr.json();
+        if (!run_id) return;
+        const raw = await getFutureHorizonsRaw(run_id);
+        let ro: any = raw?.raw_output;
+        if (typeof ro === 'string') { try { ro = JSON.parse(ro); } catch { ro = null; } }
+        const scenarios = ro?.scenarios || [];
+        if (!cancelled && scenarios.length) {
+          setFallbackHorizons({ scenarios, analysisId: run_id });
+        }
+      } catch {
+        // No stored run for this topic — tab shows its usual empty state.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, config.topic, data?.scenarios]);
+
   // Calculate context info when model or sample size changes
   useEffect(() => {
     if (config.model) {
@@ -515,7 +558,7 @@ function App() {
   useEffect(() => {
     async function fetchTopics() {
       try {
-        const response = await fetch('/api/topics?include_config=false&with_articles=true');
+        const response = await fetch('/api/topics?include_config=false&with_articles=true&include_tracked=true');
         if (response.ok) {
           const topics = await response.json();
           setAllTopics(topics.map((t: any) => t.name));
@@ -806,7 +849,16 @@ function App() {
 
   // Future Horizons Executive Summary handlers
   const handleGenerateHorizonsExecSummary = async () => {
-    if (!data?.analysis_id || !data?.scenarios) {
+    // Wizard-built topics surface horizons via ``fallbackHorizons`` (the
+    // discovery-bridge effect populates this when ``data`` is empty for a
+    // topic that has a stored run). Fall back to it so the exec-summary
+    // button works whether the topic was opened through the Trends
+    // pipeline or built via the Add-Topic wizard.
+    const analysisId = data?.analysis_id || fallbackHorizons?.analysisId;
+    const scenarios = (data?.scenarios && data.scenarios.length)
+      ? data.scenarios
+      : fallbackHorizons?.scenarios;
+    if (!analysisId || !scenarios || !scenarios.length) {
       setHorizonsExecSummaryError('No horizons analysis available. Please generate Future Horizons first.');
       return;
     }
@@ -816,8 +868,8 @@ function App() {
 
     try {
       const result = await generateHorizonsExecutiveSummary(
-        data.analysis_id,
-        data.scenarios,
+        analysisId,
+        scenarios,
         config.topic,
         config.model
       );
@@ -841,8 +893,14 @@ function App() {
       throw new Error('No scenarios available to export');
     }
 
+    // Interactive HTML download needs the server run id so the endpoint
+    // can fetch raw_output + cached executive summary cards. Fall back
+    // to the wizard-discovery analysis id when the topic was opened via
+    // the Add-Topic wizard rather than the Trends pipeline.
+    const runId = data?.analysis_id || fallbackHorizons?.analysisId || undefined;
+
     await ExportService.exportFutureHorizons(
-      options,
+      { ...options, runId },
       data.scenarios,
       horizonsExecutiveSummary,
       config.topic
@@ -852,9 +910,15 @@ function App() {
   // Load cached executive summary when horizons data is available (no auto-generation)
   useEffect(() => {
     const loadCachedExecSummary = async () => {
-      if (activeTab === 'future-horizons' && data?.analysis_id && data?.scenarios?.length > 0 && !horizonsExecutiveSummary && !isLoadingHorizonsExecSummary) {
+      // Same fallback as the manual generator: use the wizard-discovery
+      // run id when ``data.analysis_id`` is empty (topic opened via
+      // Add-Topic wizard rather than the Trends pipeline).
+      const analysisId = data?.analysis_id || fallbackHorizons?.analysisId;
+      const haveScenarios = (data?.scenarios?.length || 0) > 0 ||
+                            (fallbackHorizons?.scenarios?.length || 0) > 0;
+      if (activeTab === 'future-horizons' && analysisId && haveScenarios && !horizonsExecutiveSummary && !isLoadingHorizonsExecSummary) {
         try {
-          const result = await getHorizonsExecutiveSummary(data.analysis_id);
+          const result = await getHorizonsExecutiveSummary(analysisId);
           if (result.success && result.executive_summary?.summaries) {
             setHorizonsExecutiveSummary(result.executive_summary.summaries);
             setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || null);
@@ -867,7 +931,7 @@ function App() {
     };
 
     loadCachedExecSummary();
-  }, [activeTab, data?.analysis_id, data?.scenarios?.length]);
+  }, [activeTab, data?.analysis_id, data?.scenarios?.length, fallbackHorizons?.analysisId, fallbackHorizons?.scenarios?.length]);
 
   // Clear executive summary when topic changes
   useEffect(() => {
@@ -1082,7 +1146,7 @@ function App() {
                       <label className="text-sm font-semibold mb-2 block">AI Model</label>
                       <Select value={config.model} onValueChange={(value) => updateConfig({ model: value })}>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="gpt-4.1-mini" />
+                          <SelectValue placeholder="gpt-5" />
                         </SelectTrigger>
                         <SelectContent>
                           {models.map((model) => (
@@ -2048,7 +2112,7 @@ function App() {
                 </p>
               </div>
             </div>
-          ) : !data ? (
+          ) : (!data && !(activeTab === 'future-horizons' && fallbackHorizons)) ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 {needsGeneration && config.topic ? (
@@ -2484,11 +2548,43 @@ function App() {
               {/* Consensus Analysis Tab */}
               {activeTab === 'consensus' && (
                 <>
-                  {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700 dark:text-gray-200">
-                      <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
-                    </p>
+                  {/* Dashboard Description + Interactive HTML download */}
+                  <div className="mb-6 flex items-start gap-3">
+                    <div className="flex-1 p-4 bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 rounded-r-lg">
+                      <p className="text-sm text-gray-700 dark:text-gray-200">
+                        <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
+                      </p>
+                    </div>
+                    {(data?.analysis_id) && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const resp = await fetch(`/api/trend-convergence/consensus/${encodeURIComponent(data.analysis_id)}/download.html`);
+                            if (!resp.ok) {
+                              const body = await resp.text();
+                              throw new Error(`${resp.status} ${body || resp.statusText}`);
+                            }
+                            const blob = await resp.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `consensus-analysis-${(config.topic || 'topic').toLowerCase().replace(/\s+/g, '-')}.html`;
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                          } catch (e: any) {
+                            // eslint-disable-next-line no-alert
+                            alert(`HTML download failed: ${e?.message || e}`);
+                          }
+                        }}
+                        title="Download a standalone, interactive HTML view of this Consensus Analysis"
+                        className="shrink-0 inline-flex items-center gap-2 text-sm px-3 py-2 border border-green-300 dark:border-green-700 text-green-800 dark:text-green-200 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-md"
+                      >
+                        <Download className="w-4 h-4" />
+                        Interactive HTML
+                      </button>
+                    )}
                   </div>
 
                   {/* Consensus Category Cards (New Auspex Structure) */}
@@ -2772,9 +2868,9 @@ function App() {
                   </div>
 
                   <FutureHorizons
-                    scenarios={data.scenarios || []}
+                    scenarios={(data?.scenarios && data.scenarios.length ? data.scenarios : fallbackHorizons?.scenarios) || []}
                     articleList={articleList}
-                    analysisId={data.analysis_id}
+                    analysisId={data?.analysis_id || fallbackHorizons?.analysisId}
                     topic={config.topic}
                     executiveSummary={horizonsExecutiveSummary}
                     executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
@@ -2787,7 +2883,7 @@ function App() {
                   {/* AI Disclosure Footer */}
                   <AIDisclosureFooter
                     {...dashboardFooterConfigs.horizons}
-                    modelUsed={data.model_used}
+                    modelUsed={data?.model_used}
                   />
                 </>
               )}
@@ -2824,6 +2920,11 @@ function App() {
                     forecastGeneratedAt={data.generated_at || data.created_at || null}
                   />
                 )
+              )}
+
+              {/* Topic Reports Tab — on-demand long-form PPTX */}
+              {activeTab === 'topic-reports' && (
+                <TopicReportsPanel />
               )}
 
               {/* Changelog & Roadmap tabs — markdown docs served by /api/docs */}

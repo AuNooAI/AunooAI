@@ -109,10 +109,20 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
       try {
         const r = await fetch(`/api/forecast/topics/${encodeURIComponent(topic)}/latest-run`);
         if (cancelled) return;
-        if (!r.ok) {
-          // Fall back to the prop runId — if the topic has no runs at all
-          // we let the empty-state branch render.
+        if (r.status === 404) {
+          // Topic genuinely has no horizons run. Clear effectiveRunId so the
+          // empty-state branch renders — DO NOT fall back to propRunId,
+          // which belongs to the previously-selected topic and would cause
+          // the "Run assessment" button to POST a stale run_id and 404.
           setResolveErr(`No horizons run found for topic '${topic}'`);
+          setEffectiveRunId(null);
+          setResolvedGeneratedAt(null);
+          return;
+        }
+        if (!r.ok) {
+          // Transport / 5xx — keep the prop as a last-ditch fallback so we
+          // don't blow away a working session on a transient blip.
+          setResolveErr(`Failed to resolve latest run (${r.status})`);
           setEffectiveRunId(propRunId);
           return;
         }
@@ -135,7 +145,13 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
   const runId = effectiveRunId;
   // Prefer the resolver's timestamp (matches the effective run), fall
   // back to whatever the parent passed in.
-  const effectiveGeneratedAt = resolvedGeneratedAt || forecastGeneratedAt;
+  // When the user picks a topic, the displayed "Forecast generated" date MUST
+  // come from /latest-run for THAT topic — not from the stale prop, which is
+  // sourced from the trend-convergence hook's `data.generated_at` and retains
+  // the previously-selected topic's value until that hook reloads. Falling
+  // back here was producing "21/05" on Quantum Advantage when the prior topic
+  // (Patent Cliffs / Open Science / U.S. Federal) had a 21/05 assessment.
+  const effectiveGeneratedAt = topic ? resolvedGeneratedAt : forecastGeneratedAt;
 
   const [assessment, setAssessment] = useState<ForecastAssessment | null>(null);
   const [addendumScenarios, setAddendumScenarios] = useState<AddendumScenario[]>([]);

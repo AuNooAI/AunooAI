@@ -112,6 +112,18 @@ async def assess_run(
     forecast_date = _parse_date(forecast_iso)
     deck_overlay = _load_deck_overlay(topic)
 
+    # Resolve which article topics back this (possibly decoupled) tracked topic.
+    # The Add-Topic wizard persists source_topics when the deck name differs from
+    # the corpus tag (e.g. "Quantum Advantage" → ["Quantum Computing"]); the
+    # post-forecast article window is pulled from those. Falls back to the deck
+    # name so topics whose name matches the article tag are unaffected.
+    _meta = db.facade.get_forecast_topic_metadata(topic) or {}
+    _src = _meta.get("source_topics")
+    eval_topics = _src if (isinstance(_src, list) and _src) else [topic]
+    if eval_topics != [topic]:
+        _emit(progress_callback, 1,
+              f"Evaluating against source topics: {', '.join(eval_topics)}")
+
     # Granularity decision: deck-level scenarios collapse overlapping DB
     # scenarios (e.g. five separate H1 peer-review-breakdown scenarios in the
     # raw run all describe the same underlying system) into the 5 named
@@ -178,8 +190,8 @@ async def assess_run(
     # tiny pool. Letting the reranker do exclusive assignment on the full
     # window is both simpler and gives strictly better recall.
     pool = await _fetch_window_articles(
-        topic=topic, forecast_iso=forecast_iso, mode=mode, limit=max_articles,
-        window_weeks=window_weeks,
+        eval_topics=eval_topics, forecast_iso=forecast_iso, mode=mode,
+        limit=max_articles, window_weeks=window_weeks,
     )
     _emit(progress_callback, 18,
           f"Stage A: pulled {len(pool)} articles from "
@@ -457,13 +469,17 @@ def _hydrate_assessment_by_id(db, assessment_id: str) -> dict:
 
 async def _fetch_window_articles(
     *,
-    topic: str,
+    eval_topics: list,
     forecast_iso: str,
     mode: str,
     limit: int,
     window_weeks: Optional[int] = None,
 ) -> list[dict]:
     """Pull embedded articles for the topic in the live or placebo window.
+
+    ``eval_topics`` is the list of article ``topic`` tags to draw from — the
+    tracked topic's persisted ``source_topics`` when its deck name is
+    decoupled from the corpus, else just ``[deck_name]``.
 
     When ``window_weeks`` is set, the window is bounded symmetrically:
         live    → [forecast_date, forecast_date + window_weeks weeks]
@@ -479,7 +495,7 @@ async def _fetch_window_articles(
     from datetime import timedelta as _td
 
     db = get_database_instance()
-    params: dict = {"topic": topic, "cutoff": forecast_iso, "lim": limit}
+    params: dict = {"topics": list(eval_topics), "cutoff": forecast_iso, "lim": limit}
     forecast_dt = _parse_date(forecast_iso)
 
     if mode == "placebo":
@@ -500,7 +516,7 @@ async def _fetch_window_articles(
         SELECT uri, title, summary, submission_date, publication_date,
                news_source, sentiment, future_signal, time_to_impact
         FROM articles
-        WHERE topic = :topic
+        WHERE topic = ANY(:topics)
           AND embedding IS NOT NULL
           {date_clause}
         ORDER BY submission_date::timestamp DESC

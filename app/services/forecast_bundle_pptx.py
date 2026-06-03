@@ -66,6 +66,7 @@ def build_bundle_pptx(
     data_quality_note: Optional[str] = None,
     review_findings: Optional[list] = None,
     review_verdict: Optional[str] = None,
+    template_path: Optional[str] = None,
 ) -> bytes:
     """Build one PPTX deck spanning multiple topics.
 
@@ -91,8 +92,19 @@ def build_bundle_pptx(
     eos_per_topic
         ``{topic: [scenario_dict]}`` from a recent ExtremeOutlierService
         scan per topic, produced by :func:`wiley_delivery_service._ensure_eos_for_bundle`.
+    template_path
+        Optional path to a PPTX file to use as the base presentation. Its
+        existing slides are kept at the head of the deck (intro pack), then
+        the cover + exec summary + per-topic sections are appended on top.
+        The template's ``slide_layouts[6]`` MUST be a BLANK layout — every
+        builder helper assumes index 6 is blank. The intro template at
+        ``app/static_assets/topic_report_intro.pptx`` has been reordered to
+        match.
     """
-    prs = Presentation()
+    if template_path:
+        prs = Presentation(template_path)
+    else:
+        prs = Presentation()
     prs.slide_width = Inches(10.0)
     prs.slide_height = Inches(5.625)
 
@@ -142,11 +154,16 @@ def build_bundle_pptx(
         prior_period_label=_prior_period_label(period_label),
     )
     _add_five_domains_summary_slide(prs, items)
-    _add_three_horizons_overview(prs, items, updates_only=updates_only)
     _add_black_swans_slide(prs, eos_per_topic or {})
     _add_cross_cutting_themes_slide(prs, synth.get("cross_cutting_themes") or [])
     _add_executive_decision_framework_slide(prs, synth.get("executive_decision_framework") or [])
     _add_bundle_toc(prs, items, updates_only=updates_only)
+    # Three Horizons Overview sits immediately before the per-topic dive so the
+    # framework is in the reader's head when they enter Topic 1 (and so the
+    # cross-topic horizon map serves as the bridge from cross-cutting analysis
+    # to per-topic detail). Previously sat earlier in the cross-topic stack,
+    # which left readers re-orienting when topic 1 arrived several slides later.
+    _add_three_horizons_overview(prs, items, updates_only=updates_only)
 
     # ── Per-topic sections ────────────────────────────────────────────────
     for topic_idx, (assessment, forecast_run, prior) in enumerate(items, 1):
@@ -169,6 +186,11 @@ def build_bundle_pptx(
             return events_for_scenario(topic_events, name)
 
         _add_topic_divider(prs, assessment, forecast_run or {}, topic_idx=topic_idx)
+        # Open every topic section with its own Three Horizons chart so the
+        # reader sees the H1/H2/H3 layout for THIS topic before diving into
+        # the briefing + scenario detail. The cross-topic overview earlier in
+        # the deck still gives the portfolio view; this is the topic view.
+        _add_topic_three_horizons_chart(prs, assessment, forecast_run or {}, topic_idx=topic_idx)
 
         if updates_only and prior:
             diff = _diff_assessments(assessment, prior)
@@ -185,7 +207,8 @@ def build_bundle_pptx(
                 key = str(v.get("scenario_idx"))
                 _conf, _ctr = _scenario_ev(v)
                 _add_scenario_slide(prs, v, bc_per.get(key),
-                                    confirming_events=_conf, countering_events=_ctr)
+                                    confirming_events=_conf, countering_events=_ctr,
+                                    topic=assessment.get("topic"))
 
             new_surprises = [
                 s for s in (assessment.get("surprises") or [])
@@ -219,7 +242,8 @@ def build_bundle_pptx(
                 key = str(v.get("scenario_idx"))
                 _conf, _ctr = _scenario_ev(v)
                 _add_scenario_slide(prs, v, bc_per.get(key),
-                                    confirming_events=_conf, countering_events=_ctr)
+                                    confirming_events=_conf, countering_events=_ctr,
+                                    topic=assessment.get("topic"))
             surprises = assessment.get("surprises") or []
             if surprises:
                 _add_surprises_divider(prs, surprises)
@@ -237,7 +261,8 @@ def build_bundle_pptx(
                 key = str(v.get("scenario_idx"))
                 _conf, _ctr = _scenario_ev(v)
                 _add_scenario_slide(prs, v, bc_per.get(key),
-                                    confirming_events=_conf, countering_events=_ctr)
+                                    confirming_events=_conf, countering_events=_ctr,
+                                    topic=assessment.get("topic"))
             surprises = assessment.get("surprises") or []
             if surprises:
                 _add_surprises_divider(prs, surprises)
@@ -478,74 +503,182 @@ def _add_cross_topic_exec_summary(prs, items: list, period_label: str, cadence: 
 
 
 def _add_three_horizons_overview(prs, items: list, *, updates_only: bool):
-    """Cross-topic Three Horizons map — mirrors original deck slide 16.
+    """Cross-topic Three Horizons map.
 
-    Three rows (H1 / H2 / H3), each listing topics' scenarios in that horizon
-    with their baseline-corrected verdict + net rate. Lets the reader see at
-    a glance which horizons are accelerating vs. cooling across the portfolio.
+    Three-zone layout on a single slide:
+      1. Title + one-line framing.
+      2. The canonical curves chart (Bezier paths copied from the web app's
+         Future Horizons tab) with this bundle's scenarios plotted as
+         numbered dots — numbers run H1 → H2 → H3.
+      3. A 3-column legend BELOW the chart pairing each [N] with its
+         scenario title and topic, so the slide reads on its own without
+         the audience flipping to speaker notes. The full notes are still
+         written as a printer-friendly handout.
     """
+    from io import BytesIO as _BytesIO
+    from pptx.dml.color import RGBColor as _RGB
+    from app.services.wiley_three_horizons_viz import (
+        collect_scenarios_for_render, render_to_png, build_notes, STROKES,
+    )
+
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     sw = 10.0
 
-    # Full-bleed bokeh background
     _add_bg_image(slide, WILEY_BG_BOKEH)
 
-    _text(slide, x=0.5, y=0.3, w=sw-1.0, h=0.5,
-          text="Three Horizons Overview", font_size=22, bold=True, color=WILEY_NAVY)
-    _text(slide, x=0.5, y=0.85, w=sw-1.0, h=0.28,
-          text="The scenario set across the three horizons",
-          font_size=11, italic=True, color=WILEY_MUTED)
+    _text(slide, x=0.5, y=0.18, w=sw-1.0, h=0.40,
+          text="Three Horizons Overview", font_size=20, bold=True, color=WILEY_NAVY)
+    _text(slide, x=0.5, y=0.58, w=sw-1.0, h=0.22,
+          text="H1 fades as H3 emerges; H2 carries the transition. "
+               "Numbered markers below match the scenarios listed beneath the chart.",
+          font_size=9.5, italic=True, color=WILEY_MUTED)
 
-    horizon_bands = [
-        ("h1", "H1 · DECLINING SYSTEM", 1.4),
-        ("h2", "H2 · TRANSITION",       2.85),
-        ("h3", "H3 · FUTURE VISION",    4.3),
-    ]
+    # Render the curves + numbered scenario markers in-process. The
+    # overview lists 23 scenarios across all topics — too dense for the
+    # label-card style, so we keep the numbered-circle marker mode here
+    # and pair it with the column legend below. (Per-topic charts use
+    # ``mode='cards'`` since their counts are small enough to fit.)
+    scenarios = collect_scenarios_for_render(items)
+    buf = _BytesIO()
+    render_to_png(scenarios, buf, mode="numbered")
+    buf.seek(0)
+    # Chart height 2.6 in — sized so all 11 H1/H2 scenarios fit the legend
+    # below without overflowing into a "+more — see notes" placeholder.
+    slide.shapes.add_picture(buf, left=Inches(0.3), top=Inches(0.88),
+                             width=Inches(9.4), height=Inches(2.6))
 
-    for horizon_code, horizon_label, y_top in horizon_bands:
-        # Teal label rail on the left
-        _rect(slide, x=0.4, y=y_top, w=2.2, h=1.2, fill=WILEY_TEAL)
-        _text(slide, x=0.55, y=y_top+0.15, w=2.0, h=0.25,
-              text=horizon_label.split("·")[0].strip(), font_size=10, bold=True, color=WHITE)
-        _text(slide, x=0.55, y=y_top+0.4, w=2.0, h=0.5,
-              text=horizon_label.split("·")[1].strip() if "·" in horizon_label else "",
-              font_size=12, bold=True, color=WHITE)
+    # ── 3-column legend ───────────────────────────────────────────────
+    # Numbers in the legend match the numbered dots on the chart 1:1
+    # (same source list, same H1→H2→H3 order).
+    HORIZON_LABEL = {
+        "h1": "H1 · DECLINING SYSTEM",
+        "h2": "H2 · TRANSITION",
+        "h3": "H3 · FUTURE VISION",
+    }
+    rgb_for = {
+        k: _RGB(int(v[1:3], 16), int(v[3:5], 16), int(v[5:7], 16))
+        for k, v in STROKES.items()
+    }
+    by_h = {"h1": [], "h2": [], "h3": []}
+    for n, s in enumerate(scenarios, 1):
+        by_h[s["wave_type"]].append((n, s["title"], s["topic"]))
 
-        chips = []  # (name, internal_label, customer_label, sub_text)
-        for assessment, _run, _prior in items:
-            bc_per = ((assessment.get("summary") or {}).get("baseline_correction") or {}).get("per_scenario") or {}
-            for v in (assessment.get("scenario_verdicts") or []):
-                if v.get("verdict_label") == "Done":
-                    continue
-                if (v.get("horizon_type") or "").lower() != horizon_code:
-                    continue
-                deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
-                name = deck_info.get("deck_scenario_name") or v.get("scenario_title") or "—"
-                topic = (assessment.get("topic") or "")[:22]
-                # The verdict color-bar + customer label + net-rate % were
-                # removed — they scored each scenario. The chip now just
-                # places the scenario in its horizon and names its topic.
-                chips.append((name, topic))
+    # Chart bottom is at 0.88 + 2.6 = 3.48; legend starts just below with a
+    # small breathing gap. Sized so 11 + header fits comfortably (max_lines
+    # ends up at 12, accommodating up to 11 + an optional "+K more" row).
+    legend_top = 3.55
+    col_w = 3.1
+    col_gap = 0.10
+    col_x0 = 0.3
+    header_h = 0.22
+    body_top = legend_top + header_h + 0.04   # ≈ 3.81
+    body_bottom = 5.50
+    line_h = 0.135
+    max_lines = int((body_bottom - body_top) / line_h)  # = 12
 
-        # Render chips inline — white cards with a neutral brand top bar
-        cx = 2.75
-        cy = y_top
-        for name, sub in chips[:5]:
-            chip_w = 1.42
-            _rect(slide, x=cx, y=cy, w=chip_w-0.05, h=1.2, fill=WHITE)
-            _rect(slide, x=cx, y=cy, w=chip_w-0.05, h=0.22, fill=WILEY_TEAL)
-            _text(slide, x=cx+0.06, y=cy+0.28, w=chip_w-0.15, h=0.55,
-                  text=_truncate(name, 38), font_size=8.5, bold=True,
-                  color=WILEY_BODY)
-            _text(slide, x=cx+0.06, y=cy+0.88, w=chip_w-0.15, h=0.3,
-                  text=sub, font_size=7, color=WILEY_MUTED)
-            cx += chip_w
+    for i, key in enumerate(("h1", "h2", "h3")):
+        col_x = col_x0 + i * (col_w + col_gap)
+        # Header: colour swatch + horizon label
+        _rect(slide, x=col_x, y=legend_top+0.04, w=0.16, h=0.13, fill=rgb_for[key])
+        _text(slide, x=col_x+0.22, y=legend_top, w=col_w-0.22, h=header_h,
+              text=HORIZON_LABEL[key], font_size=9, bold=True, color=WILEY_BODY)
 
-        if not chips:
-            _text(slide, x=2.85, y=y_top+0.45, w=7.0, h=0.3,
-                  text="(no scenarios in this horizon across the bundle)",
-                  font_size=10, italic=True, color=WILEY_MUTED)
+        rows = by_h[key]
+        if not rows:
+            _text(slide, x=col_x, y=body_top, w=col_w, h=line_h,
+                  text="(no scenarios in this horizon)",
+                  font_size=8, italic=True, color=WILEY_MUTED)
+            continue
+
+        # If the column overflows max_lines, last visible row is a "+K more"
+        # pointer that still references the speaker notes for the spill.
+        visible = rows
+        spill = 0
+        if len(rows) > max_lines:
+            visible = rows[: max_lines - 1]
+            spill = len(rows) - len(visible)
+
+        y = body_top
+        for (n, title, topic) in visible:
+            # Compose the line short enough to fit 3.1" wide at 8pt on ONE
+            # line: at this width that's ~46 chars max. Cap the whole string
+            # (title + " — " + topic) rather than each part separately, so
+            # the budget always lines up with the column width.
+            short_topic = (topic or "")
+            if len(short_topic) > 14:
+                short_topic = short_topic[:13] + "…"
+            raw = f"[{n}] {title} — {short_topic}" if short_topic else f"[{n}] {title}"
+            # ``_truncate`` multiplies its cap by 4 internally (last-resort
+            # safety net for autofit), so it won't actually cut at 46 chars.
+            # Do the hard cap inline to fit 3.10" × 8pt on one line.
+            MAX = 46
+            line = raw if len(raw) <= MAX else raw[: MAX - 1].rstrip() + "…"
+            tb = _text(slide, x=col_x, y=y, w=col_w, h=line_h,
+                       text=line, font_size=8, color=WILEY_BODY,
+                       line_spacing=1.05, shrink_to_fit=False)
+            # Disable wrap so anything that still pushes past the column
+            # edge gets clipped at the box edge instead of flowing to a
+            # second line and overlapping the next entry.
+            try:
+                tb.text_frame.word_wrap = False
+            except Exception:
+                pass
+            y += line_h
+        if spill:
+            _text(slide, x=col_x, y=y, w=col_w, h=line_h,
+                  text=f"+{spill} more — see speaker notes",
+                  font_size=8, italic=True, color=WILEY_MUTED, shrink_to_fit=False)
+
+    # Speaker notes still carry the full, untruncated list as a handout.
+    try:
+        notes_tf = slide.notes_slide.notes_text_frame
+        notes_tf.text = build_notes(scenarios)
+    except Exception:
+        pass
+
+
+def _add_topic_three_horizons_chart(prs, assessment: dict, forecast_run: dict, *, topic_idx: Optional[int] = None):
+    """Per-topic Three Horizons chart — opens each topic section.
+
+    Mirror of the web app's Future Horizons tab: the same Bezier curves
+    with this topic's scenarios placed as small colour-coded title cards
+    ON the curves (NOT numbered circles + legend). The chart is the slide.
+    """
+    from io import BytesIO as _BytesIO
+    from app.services.wiley_three_horizons_viz import (
+        collect_scenarios_for_render, render_to_png, build_notes,
+    )
+
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    sw = 10.0
+    _add_bg_image(slide, WILEY_BG_BOKEH)
+
+    topic = assessment.get("topic") or "—"
+    eyebrow = f"TOPIC {topic_idx} · FUTURE HORIZONS" if topic_idx is not None else "FUTURE HORIZONS"
+    _text(slide, x=0.5, y=0.18, w=sw-1.0, h=0.28,
+          text=eyebrow, font_size=10, bold=True, color=WILEY_TEAL)
+    _text(slide, x=0.5, y=0.42, w=sw-1.0, h=0.42,
+          text=topic, font_size=20, bold=True, color=WILEY_NAVY)
+    _text(slide, x=0.5, y=0.84, w=sw-1.0, h=0.22,
+          text="H1 fades as H3 emerges; H2 carries the transition. "
+               "Scenario titles are placed on the curves at their expected timeframe.",
+          font_size=9.5, italic=True, color=WILEY_MUTED)
+
+    scenarios = collect_scenarios_for_render([(assessment, forecast_run, None)])
+    buf = _BytesIO()
+    render_to_png(scenarios, buf)
+    buf.seek(0)
+    # Chart fills the remaining slide height — no legend below.
+    slide.shapes.add_picture(buf, left=Inches(0.2), top=Inches(1.12),
+                             width=Inches(9.6), height=Inches(4.30))
+
+    # Speaker notes still carry the scenario list as a printer-friendly handout.
+    try:
+        slide.notes_slide.notes_text_frame.text = build_notes(scenarios)
+    except Exception:
+        pass
 
 
 def _add_no_prior_stub_slide(prs, assessment: dict):

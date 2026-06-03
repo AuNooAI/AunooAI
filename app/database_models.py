@@ -1234,6 +1234,11 @@ t_forecast_topic_metadata = Table(
     Column('formalized_at', DateTime(timezone=True)),
     Column('last_evidence_cycle', String(64)),
     Column('dormant_since', String(64)),
+    # Existing corpus topics that back this (possibly decoupled) deck name,
+    # set by the Add-Topic wizard (fa_011). The forecast assessment reads
+    # these to pull its post-forecast article window from the real corpus
+    # when the deck name itself tags no articles. NULL = fall back to deck name.
+    Column('source_topics', JSONB),
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Index('idx_topic_metadata_status', 'status'),

@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { X, Download, Loader2, FileImage, FileText } from 'lucide-react';
+import { X, Download, Loader2, FileImage, FileText, Code } from 'lucide-react';
 import { FutureHorizonsExportOptions } from '@/types/horizonsExecutiveSummary';
 
 interface HorizonsExportModalProps {
@@ -55,7 +55,7 @@ const HorizonsExportModal: React.FC<HorizonsExportModalProps> = ({
     }
   };
 
-  const handleOptionChange = (key: keyof FutureHorizonsExportOptions, value: boolean | 'pdf' | 'image') => {
+  const handleOptionChange = (key: keyof FutureHorizonsExportOptions, value: boolean | 'pdf' | 'image' | 'html') => {
     setOptions((prev) => ({ ...prev, [key]: value }));
     setError(null);
   };
@@ -174,7 +174,22 @@ const HorizonsExportModal: React.FC<HorizonsExportModalProps> = ({
                 <FileImage className="h-4 w-4" />
                 Image (PNG)
               </Button>
+              <Button
+                variant={options.format === 'html' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleOptionChange('format', 'html')}
+                title="Interactive standalone HTML — server-rendered, shareable, works offline"
+                className="flex-1 gap-2"
+              >
+                <Code className="h-4 w-4" />
+                Interactive HTML
+              </Button>
             </div>
+            {options.format === 'html' && (
+              <p className="text-xs text-muted-foreground">
+                HTML pulls live from the server. Section checkboxes above are ignored — the file contains everything for this run.
+              </p>
+            )}
           </div>
 
           {/* Error Message */}

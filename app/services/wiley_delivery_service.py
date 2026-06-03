@@ -271,6 +271,68 @@ def _events_by_topic(cadence: str, period_label: str) -> dict:
     return out
 
 
+def _render_cache_dir() -> str:
+    """Where rendered bundle PPTXs are cached so a single user flow doesn't
+    render the deck twice. The job-start endpoint kicks off generation in a
+    background task, then the UI follows up with ``GET /bundle.pptx`` — both
+    paths funnel through :func:`generate_bundle`, so without a cache that's
+    two full ~10-second matplotlib + python-pptx render passes per click."""
+    import os, tempfile
+    d = os.path.join(tempfile.gettempdir(), "wiley_bundle_render_cache")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _render_cache_key(cadence: str, period_label: str, updates_only: bool) -> str:
+    """Stable cache key for the rendered bundle PPTX.
+
+    Just ``(cadence, period_label, updates_only)`` — no synthesis hash. The
+    synthesis pipeline re-saves the row on every run even when content is
+    unchanged (bumping ``updated_at``), so timestamp-derived keys always
+    miss. Cache is invalidated explicitly by ``invalidate_render_cache``,
+    which the request-revision and synthesis-save paths call."""
+    safe_period = (period_label or "").replace(" ", "_").lower()
+    suffix = "u" if updates_only else "f"
+    return f"{cadence}_{safe_period}_{suffix}.pptx"
+
+
+def invalidate_render_cache(cadence: str, period_label: str) -> None:
+    """Drop both ``updates_only=True`` and ``False`` cached PPTXs for this
+    period. Call sites: ``request-revision`` (analyst rejects the brief)
+    and ``save_forecast_bundle_synthesis`` (synthesis content changed)."""
+    import os
+    d = _render_cache_dir()
+    for u in (True, False):
+        path = os.path.join(d, _render_cache_key(cadence, period_label, u))
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception as e:
+            logger.warning("render-cache invalidate failed (%s): %s", path, e)
+
+
+def _read_render_cache(key: str) -> Optional[bytes]:
+    import os
+    path = os.path.join(_render_cache_dir(), key)
+    if os.path.exists(path):
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            logger.warning("render-cache read failed (%s): %s", key, e)
+    return None
+
+
+def _write_render_cache(key: str, blob: bytes) -> None:
+    import os
+    path = os.path.join(_render_cache_dir(), key)
+    try:
+        with open(path, "wb") as f:
+            f.write(blob)
+    except Exception as e:
+        logger.warning("render-cache write failed (%s): %s", key, e)
+
+
 async def generate_bundle(
     cadence: str,
     *,
@@ -283,6 +345,9 @@ async def generate_bundle(
     Wraps :func:`_run_synthesis_pipeline` and renders to PPTX. Even when the
     reviewer flags errors, still renders the PPTX (with a banner slide) — the
     user wants to look at the draft. The send path blocks separately.
+
+    Render output is cached by synthesis-content hash so the "background job
+    builds blob → GET downloads blob" round-trip doesn't render twice.
     """
     from app.services.forecast_bundle_pptx import build_bundle_pptx
 
@@ -293,11 +358,38 @@ async def generate_bundle(
             except Exception as e:
                 logger.warning("progress_callback failed: %s", e)
 
+    # Fast path: if the rendered blob is already cached for this period,
+    # skip the entire pipeline. The cache is invalidated by analyst
+    # actions (``request-revision``) and manual edits, so hitting it means
+    # nothing has changed since the last render.
+    period_label = _period_label(cadence, when)
+    cache_key = _render_cache_key(cadence, period_label, updates_only)
+    cached = _read_render_cache(cache_key)
+    if cached is not None:
+        _emit(100, "Returning cached PPTX")
+        from app.database import get_database_instance
+        db = get_database_instance()
+        review = db.facade.get_forecast_bundle_review(cadence, period_label) or {}
+        verdict = review.get("status")
+        findings = review.get("reviewer_findings") or []
+        # Topic list is needed by callers; synth.topics may be a list of
+        # strings OR a list of dicts depending on cadence — handle both.
+        synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+        topics: list = []
+        for t in (synth.get("topics") or []):
+            if isinstance(t, str):
+                topics.append(t)
+            elif isinstance(t, dict) and t.get("topic"):
+                topics.append(t["topic"])
+        return cached, period_label, topics, verdict, findings
+
     items, period_label, bundle_synth, eos_per_topic, verdict, review_findings = \
         await _run_synthesis_pipeline(
             cadence, updates_only=updates_only, when=when,
             progress_callback=progress_callback,
         )
+
+    included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
 
     _emit(96, "Rendering PPTX")
     blob = build_bundle_pptx(
@@ -312,7 +404,7 @@ async def generate_bundle(
         review_findings=review_findings if verdict == "revision_requested" else None,
         review_verdict=verdict,
     )
-    included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
+    _write_render_cache(cache_key, blob)
     return blob, period_label, included_topics, verdict, review_findings
 
 

@@ -62,7 +62,7 @@ export interface FutureHorizonsExportOptions {
   includeChart: boolean;
   includeExecutiveSummary: boolean;
   includeDetailedCards: boolean;
-  format: 'pdf' | 'image';
+  format: 'pdf' | 'image' | 'html';
 }
 
 // Horizon metadata for display

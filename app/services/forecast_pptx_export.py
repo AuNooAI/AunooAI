@@ -308,8 +308,15 @@ def _rect(slide, *, x, y, w, h, fill, line=None, rounded=False):
     return s
 
 
-def _add_left_rail(slide, *, horizon: str, consensus_pct: Optional[float]):
-    """Dark-navy rail with H-code, label, consensus chip, and AunooAI mark."""
+def _add_left_rail(slide, *, horizon: str, consensus_pct: Optional[float],
+                   topic: Optional[str] = None):
+    """Dark-navy rail with H-code, label, consensus chip, and AunooAI mark.
+
+    ``topic``, when supplied, renders below the system label so the reader
+    keeps the topic context on every per-scenario slide — without it, a deck
+    full of "H1 / DECLINING SYSTEM" rails reads identically across topics and
+    the reader loses track of which topic they're inside.
+    """
     accent = _horizon_color(horizon)
     h = (horizon or "").upper() if horizon else ""
 
@@ -332,6 +339,15 @@ def _add_left_rail(slide, *, horizon: str, consensus_pct: Optional[float]):
     _text(slide, x=0.0, y=2.3, w=1.6, h=0.6, text=sys_label, font_size=8,
           bold=False, color=SLATE_LIGHT, align=PP_ALIGN.CENTER,
           line_spacing=1.1)
+
+    # Topic anchor — keeps the reader oriented when paging through ~25
+    # scenario slides across 5 topics in a bundle.
+    if topic:
+        _text(slide, x=0.1, y=3.2, w=1.4, h=0.2, text="TOPIC",
+              font_size=7, bold=True, color=accent, align=PP_ALIGN.CENTER)
+        _text(slide, x=0.1, y=3.4, w=1.4, h=1.05, text=topic,
+              font_size=9, bold=True, color=WHITE, align=PP_ALIGN.CENTER,
+              line_spacing=1.15)
 
     # NOTE: the "consensus %" chip that used to sit here was removed. It
     # stamped an article-framing ratio on every scenario slide as if it
@@ -820,7 +836,8 @@ def _fmt_event_line(e: dict) -> str:
 
 def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
                         confirming_events: Optional[list] = None,
-                        countering_events: Optional[list] = None):
+                        countering_events: Optional[list] = None,
+                        topic: Optional[str] = None):
     """Per-trend evidence ledger: the scenario is a CLAIM; the consensus is
     the forecast basis (what sources expected); named events are the test of
     whether it's bearing out.
@@ -847,7 +864,7 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
     scenario_name = (deck_info.get("deck_scenario_name")
                      or verdict.get("scenario_title") or "—")
 
-    _add_left_rail(slide, horizon=horizon, consensus_pct=None)
+    _add_left_rail(slide, horizon=horizon, consensus_pct=None, topic=topic)
 
     # ── Title block ───────────────────────────────────────────────────
     title_lines = _split_title(scenario_name, max_chars=38)
@@ -1077,7 +1094,7 @@ def build_assessment_pptx(
         for v in verdicts:
             key = str(v.get("scenario_idx"))
             baseline = bc_per.get(key)
-            _add_scenario_slide(prs, v, baseline)
+            _add_scenario_slide(prs, v, baseline, topic=assessment.get("topic"))
 
         surprises = assessment.get("surprises") or []
         _add_surprises_divider(prs, surprises)

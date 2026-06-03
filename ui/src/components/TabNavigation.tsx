@@ -57,6 +57,11 @@ const tabs: Tab[] = [
     tooltip: 'How is the stored Three Horizons forecast tracking against fresh evidence?'
   },
   {
+    id: 'topic-reports',
+    label: 'Topic Reports',
+    tooltip: 'On-demand long-form Wiley-style PPTX reports for any combination of tracked topics.'
+  },
+  {
     id: 'extreme-outliers',
     label: 'Extreme Outliers',
     tooltip: 'Black Swan events, Contrarian analysis, and Wild Card futures'

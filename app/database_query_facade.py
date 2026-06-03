@@ -8698,6 +8698,7 @@ class DatabaseQueryFacade:
         status: str = None,
         tags: list = None,
         overlay_status: str = None,
+        source_topics: list = None,
     ) -> dict:
         """Upsert a topic metadata row. Only supplied fields are updated;
         omitted fields keep their existing values (or defaults on insert)."""
@@ -8729,6 +8730,9 @@ class DatabaseQueryFacade:
             # JSON adapter stores it as a JSONB array (not a JSONB string).
             if tags is not None:
                 insert_values["tags"] = tags
+            # source_topics is JSONB too — same direct-list handling.
+            if source_topics is not None:
+                insert_values["source_topics"] = source_topics
 
             update_values = {k: v for k, v in insert_values.items() if k != "topic"}
             update_values["updated_at"] = sa_text("NOW()")
@@ -8789,6 +8793,7 @@ class DatabaseQueryFacade:
                     m.owner,
                     COALESCE(m.status, 'active')         AS status,
                     m.tags,
+                    m.source_topics,
                     COALESCE(m.overlay_status, 'missing') AS overlay_status,
                     m.created_at,
                     m.updated_at,

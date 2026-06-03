@@ -2808,12 +2808,33 @@ export class ExportService {
       includeChart: boolean;
       includeExecutiveSummary: boolean;
       includeDetailedCards: boolean;
-      format: 'pdf' | 'image';
+      format: 'pdf' | 'image' | 'html';
+      runId?: string;
     },
     scenarios: any[],
     summaries: any[] | null,
     topic: string
   ): Promise<void> {
+    // Interactive HTML path — fetch the server-rendered standalone doc.
+    if (options.format === 'html') {
+      if (!options.runId) {
+        throw new Error('Interactive HTML download requires a horizons run id.');
+      }
+      const resp = await fetch(`/api/trend-convergence/horizons/${encodeURIComponent(options.runId)}/download.html`);
+      if (!resp.ok) {
+        const body = await resp.text();
+        throw new Error(`${resp.status} ${body || resp.statusText}`);
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `future-horizons-${topic.toLowerCase().replace(/\s+/g, '-')}.html`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+      return;
+    }
     // Create a temporary container for export content
     const exportContainer = document.createElement('div');
     exportContainer.id = 'horizons-export-temp';

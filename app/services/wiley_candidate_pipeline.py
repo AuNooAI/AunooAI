@@ -28,8 +28,8 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -309,16 +309,111 @@ def sweep_snoozed_candidates() -> int:
     return db.facade.sweep_snoozed_candidates()
 
 
+async def _gather_seed_articles(
+    db, topic: str, *,
+    source_topics: Optional[List[str]] = None,
+    days_back: int = 90,
+    limit: int = 60,
+) -> List[str]:
+    """Resolve the seed article set for a (possibly brand-new) tracked topic.
+
+    Three strategies, in priority order:
+
+    1. ``source_topics`` — the analyst explicitly picked one or more existing
+       corpus topics to draw from. Pull alignment-filtered, recent articles
+       from each (falling back to a plain topic match if a topic has no
+       alignment scores computed yet, e.g. a raw keyword-group feed), merge
+       newest-first, and cap at ``limit``.
+    2. Exact match — the tracked name itself matches a stored ``topic`` value.
+       This is the original behaviour and covers candidate-promotion as well
+       as tracked topics that reuse an existing collection name.
+    3. Semantic fallback — a genuinely new free-typed name (e.g. "Quantum
+       Advantage") with nothing tagged to it. Vector-search the corpus for the
+       name (+ description) and seed from the most relevant articles, whatever
+       topic they carry, rather than dead-ending on a zero exact match.
+    """
+    from sqlalchemy import text as sa_text
+
+    def _exact_match(t: str) -> list:
+        sql = sa_text("""
+            SELECT uri
+            FROM articles
+            WHERE topic = :topic
+              AND (publication_date IS NULL OR
+                   publication_date::timestamp >= NOW() - (:days || ' days')::interval)
+            ORDER BY publication_date DESC NULLS LAST
+            LIMIT :limit
+        """)
+        rows = db.facade._execute_with_rollback(
+            sql, {"topic": t, "days": int(days_back), "limit": int(limit)},
+        ).fetchall()
+        return [r._mapping["uri"] for r in rows]
+
+    seen: set = set()
+    ordered: list = []
+
+    def _add(new_uris):
+        for u in new_uris:
+            if u and u not in seen:
+                seen.add(u)
+                ordered.append(u)
+
+    # 1. Explicit source topics — alignment-filtered (customer-facing quality)
+    if source_topics:
+        for t in source_topics:
+            rows = db.facade.get_relevant_articles_for_topic(
+                t, days_back=days_back, limit=limit,
+            )
+            picked = [r["uri"] for r in rows]
+            if not picked:
+                # topic has no alignment scores yet — fall back to raw match
+                picked = _exact_match(t)
+            _add(picked)
+        return ordered[:limit]
+
+    # 2. Exact match on the tracked name (original behaviour)
+    _add(_exact_match(topic))
+    if ordered:
+        return ordered[:limit]
+
+    # 3. Semantic fallback for a brand-new free-typed name
+    try:
+        from app.vector_store_pgvector import search_articles_async
+        meta = db.facade.get_forecast_topic_metadata(topic) or {}
+        query = topic
+        if meta.get("description"):
+            query = f"{topic}. {meta['description']}"
+        cutoff = (datetime.now() - timedelta(days=int(days_back))).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
+        results = await search_articles_async(
+            query,
+            top_k=max(limit * 2, 60),
+            metadata_filter={"publication_date": {"$gte": cutoff}},
+        )
+        _add([r.get("id") for r in results])
+    except Exception as e:
+        logger.warning("Semantic seed fallback failed for '%s': %s", topic, e)
+
+    return ordered[:limit]
+
+
 async def build_topic_pipeline(
     topic: str, *,
     article_limit: int = 60,
     days_back: int = 90,
+    source_topics: Optional[List[str]] = None,
     progress_callback=None,
 ) -> dict:
     """Wizard helper — run horizons + paired assessment + overlay for an
-    analyst-named topic that doesn't have a backing candidate. Mirrors
-    :func:`promote_candidate` but the article seed is pulled from the
-    corpus by matching the topic field.
+    analyst-named topic that doesn't have a backing candidate.
+
+    The seed articles are resolved by :func:`_gather_seed_articles`, which
+    accepts an explicit ``source_topics`` selection, falls back to an exact
+    match on the tracked name, and finally to a corpus-wide semantic search
+    so a brand-new free-typed name still bootstraps. The tracked name is only
+    a deck/join label — the Three Horizons run is seeded from article URIs, so
+    the name need not match any stored ``topic`` value.
 
     If the topic already has a horizons run, the wizard's UI can call
     this for the assessment + overlay-only path; on the backend we still
@@ -327,7 +422,6 @@ async def build_topic_pipeline(
     directly.
     """
     from app.database import get_database_instance
-    from sqlalchemy import text as sa_text
 
     def _emit(pct, msg):
         if progress_callback:
@@ -339,25 +433,18 @@ async def build_topic_pipeline(
     db = get_database_instance()
 
     _emit(2, f"Looking up articles for '{topic}'")
-    sql = sa_text("""
-        SELECT uri
-        FROM articles
-        WHERE topic = :topic
-          AND (publication_date IS NULL OR
-               publication_date::timestamp >= NOW() - (:days || ' days')::interval)
-        ORDER BY publication_date DESC NULLS LAST
-        LIMIT :limit
-    """)
-    rows = db.facade._execute_with_rollback(
-        sql, {"topic": topic, "days": int(days_back), "limit": int(article_limit)},
-    ).fetchall()
-    article_uris = [r._mapping["uri"] for r in rows]
+    article_uris = await _gather_seed_articles(
+        db, topic,
+        source_topics=source_topics,
+        days_back=days_back,
+        limit=article_limit,
+    )
     if not article_uris:
+        srcs = f" from {', '.join(source_topics)}" if source_topics else ""
         raise RuntimeError(
-            f"No articles found for topic '{topic}' in the last {days_back} days. "
-            "Either the corpus has no articles tagged with this topic, or the topic "
-            "name needs to match the value stored on articles. Add some articles or "
-            "rename the topic first."
+            f"No articles found for topic '{topic}'{srcs} in the last {days_back} days. "
+            "Either select one or more existing source topics that have articles, "
+            "or add/collect articles for this topic first."
         )
     _emit(8, f"Found {len(article_uris)} seed article(s)")
 
@@ -536,66 +623,16 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
             "Could not fetch any articles for the candidate's URIs."
         )
 
-    # Build numbered article references — same pattern as the existing
-    # emerging-topic-driver route.
-    refs = []
-    for i, a in enumerate(article_rows[:30], 1):
-        date_str = str(a.get("publication_date") or "")[:10] or "Unknown date"
-        refs.append(f"[{i}] {a.get('title', 'Untitled')} ({date_str})")
-
-    sentiment_counts = Counter(
-        a.get("sentiment") for a in article_rows if a.get("sentiment")
-    )
-    driver_counts = Counter(
-        a.get("driver_type") for a in article_rows if a.get("driver_type")
-    )
-    articles_summary = (
-        f"**Data Overview:**\n- Total articles: {len(article_rows)}\n\n"
-        f"**Sentiment Distribution:**\n"
-        + "\n".join(f"- {s}: {c}" for s, c in sentiment_counts.most_common(5))
-        + "\n\n**Driver Types:**\n"
-        + "\n".join(f"- {d}: {c}" for d, c in driver_counts.most_common(5))
-    )
-
-    # Load the existing emerging-topic-driver prompt; fall back to an
-    # inline minimal prompt only if the file is missing.
-    prompt_path = _Path(__file__).resolve().parents[2] / "data" / "prompts" \
-        / "future_horizons" / "emerging_topic_driver.json"
-    system_prompt = "You are a strategic foresight expert using the Futures Cone framework."
-    user_prompt = ""
-    if prompt_path.exists():
-        try:
-            tmpl = json.loads(prompt_path.read_text())
-            system_prompt = tmpl.get("system_prompt", system_prompt)
-            user_prompt = tmpl.get("user_prompt", "")
-        except Exception as e:
-            logger.warning("Failed to load horizons prompt template: %s", e)
-
-    why_emerging = candidate.get("proposed_description") or (
-        candidate.get("topic_description") or "Identified by emerging-themes detection."
-    )
-    user_prompt = (user_prompt or
-        "EMERGING DRIVER: {topic_label}\n\n"
-        "Description: {topic_description}\n\n"
-        "Why This Is Emerging: {why_emerging}\n\n"
-        "Evidence Base ({article_count} articles):\n{article_references}\n\n"
-        "{articles}\n\n"
-        "Return JSON with 10-14 scenarios in this shape: "
-        '{"scenarios":[{"type":"probable|plausible|possible|preferable",'
-        '"title":"...","description":"...","timeframe":"2025-2040",'
-        '"sentiment":"...","driver_connection":"..."}]}.'
-    )
-    user_prompt = (user_prompt
-        .replace("{topic_label}", topic)
-        .replace("{topic_description}", candidate.get("proposed_description")
-                 or candidate.get("topic_description") or "")
-        .replace("{emergence_rationale}", why_emerging)
-        .replace("{why_emerging}", why_emerging)
-        .replace("{article_count}", str(len(article_rows)))
-        .replace("{article_references}", "\n".join(refs))
-        .replace("{articles}", articles_summary)
-        .replace("{org_context}", "")
-        .replace("{action_vocabulary}", ""))
+    # Three Horizons prompt — reuse the exact builder the Future Horizons tab's
+    # generator uses (PromptLoader future_horizons/current → "Three Horizons
+    # framework", h1/h2/h3 scenarios). This previously loaded the Futures-Cone
+    # emerging_topic_driver prompt, whose probable/plausible/possible/preferable
+    # types render in NEITHER the Future Horizons tab nor the Forecast Tracker
+    # (both built around h1/h2/h3) — a naming/implementation drift the function
+    # name ("three_horizons") never matched. Seeded with the same article rows;
+    # org framing left default-executive, matching the prior empty org_context.
+    from app.routes.trend_convergence_routes import generate_future_horizons_prompt
+    formatted_prompt = generate_future_horizons_prompt(topic, article_rows, "", None)
 
     ai_model = get_ai_model("gpt-4o")
     if not ai_model:
@@ -603,8 +640,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
 
     started = _time.time()
     raw_response = await ai_model.agenerate_response(
-        [{"role": "system", "content": system_prompt},
-         {"role": "user", "content": user_prompt}]
+        [{"role": "user", "content": formatted_prompt}]
     )
 
     # Parse JSON out of the response — strip fences if present.
@@ -625,10 +661,18 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
     if not scenarios:
         raise RuntimeError("Three Horizons returned no scenarios.")
 
+    # Normalize horizon types to lowercase h1/h2/h3 — the Future Horizons tab
+    # filters strictly on these, and the model occasionally emits "H1".
+    for sc in scenarios:
+        t = str(sc.get("type") or "").strip().lower()
+        if t in ("h1", "h2", "h3"):
+            sc["type"] = t
+
     run_id = str(_uuid.uuid4())
     raw_output = {
         "topic": topic,
         "scenarios": scenarios,
+        "disruption_scenarios": parsed.get("disruption_scenarios", []),
         "metadata": {
             "topic_label": topic,
             "topic_description": candidate.get("proposed_description"),

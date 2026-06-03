@@ -637,6 +637,7 @@ class _TopicMetadataCreate(__import__("pydantic").BaseModel):  # noqa: N801
     description: str | None = None
     owner: str | None = None
     tags: list[str] | None = None
+    source_topics: list[str] | None = None
 
 
 class _TopicMetadataPatch(__import__("pydantic").BaseModel):  # noqa: N801
@@ -657,6 +658,79 @@ async def list_topics_with_lifecycle():
     return {"topics": db.facade.list_topics_with_lifecycle()}
 
 
+@router.get("/api/forecast/topics/available")
+async def list_available_source_topics():
+    """Every distinct ``articles.topic`` value with its article count.
+
+    Drives the Add-Topic wizard's source-topic multi-select so an analyst
+    picks from topics that actually have a corpus rather than typing a name
+    that must match exactly."""
+    from app.database import get_database_instance
+    from sqlalchemy import text as sa_text
+    db = get_database_instance()
+    rows = db.facade._execute_with_rollback(sa_text("""
+        SELECT topic, COUNT(*) AS count
+        FROM articles
+        WHERE topic IS NOT NULL AND topic <> ''
+        GROUP BY topic
+        ORDER BY count DESC
+    """)).fetchall()
+    return {"topics": [
+        {"topic": r._mapping["topic"], "count": int(r._mapping["count"])}
+        for r in rows
+    ]}
+
+
+@router.get("/api/forecast/topics/suggest")
+async def suggest_source_topics(
+    q: str = Query(..., min_length=2),
+    limit: int = Query(8, ge=1, le=25),
+):
+    """Freeform → ranked existing topics. Vector-searches the corpus for the
+    typed text and aggregates the hits by ``topic`` so a name like "Quantum
+    Advantage" surfaces "Quantum Computing" even though the strings differ.
+
+    Returns each candidate topic with how many of the top semantic hits it
+    accounts for (``match_count``) and its total corpus size (``total``)."""
+    from app.database import get_database_instance
+    from app.vector_store_pgvector import search_articles_async
+    db = get_database_instance()
+
+    try:
+        results = await search_articles_async(q, top_k=150)
+    except Exception as e:
+        logger.warning("Topic suggest vector search failed for %r: %s", q, e)
+        results = []
+
+    agg: dict[str, dict] = {}
+    for rank, r in enumerate(results):
+        # async results nest fields under "metadata"; sync returns them flat
+        t = r.get("topic") or (r.get("metadata") or {}).get("topic")
+        if not t:
+            continue
+        slot = agg.setdefault(t, {"topic": t, "match_count": 0, "best_score": None})
+        slot["match_count"] += 1
+        # search results are ordered best-first; capture the strongest hit
+        if slot["best_score"] is None:
+            slot["best_score"] = r.get("score")
+
+    # attach total corpus counts for the matched topics
+    if agg:
+        from sqlalchemy import text as sa_text
+        rows = db.facade._execute_with_rollback(sa_text("""
+            SELECT topic, COUNT(*) AS count
+            FROM articles
+            WHERE topic = ANY(:topics)
+            GROUP BY topic
+        """), {"topics": list(agg.keys())}).fetchall()
+        totals = {r._mapping["topic"]: int(r._mapping["count"]) for r in rows}
+        for t, slot in agg.items():
+            slot["total"] = totals.get(t, 0)
+
+    ranked = sorted(agg.values(), key=lambda s: s["match_count"], reverse=True)
+    return {"query": q, "suggestions": ranked[:limit]}
+
+
 @router.post("/api/forecast/topics")
 async def create_topic_metadata(payload: _TopicMetadataCreate):
     """Register a new topic — wizard step 1. Creates a metadata row in
@@ -675,6 +749,7 @@ async def create_topic_metadata(payload: _TopicMetadataCreate):
         description=payload.description,
         owner=payload.owner,
         tags=payload.tags,
+        source_topics=payload.source_topics,
         status="draft",
         overlay_status="missing",
     )
@@ -711,18 +786,29 @@ def _overlay_dir():
     return Path(__file__).resolve().parents[2] / "data" / "wiley_horizons"
 
 
+class _WizardBuildRequest(__import__("pydantic").BaseModel):  # noqa: N801
+    """Optional body for the wizard build — lets the analyst pin the seed to
+    specific existing corpus topics. Omitted/empty falls back to exact-name
+    match then corpus-wide semantic search."""
+    source_topics: list[str] | None = None
+
+
 @router.post("/api/forecast/topics/{topic}/wizard/build")
 async def wizard_build_topic_pipeline(
     topic: str,
     article_limit: int = Query(60, ge=10, le=200),
     days_back: int = Query(90, ge=14, le=730),
+    payload: Optional[_WizardBuildRequest] = None,
 ):
     """Wizard helper — fires the full horizons → paired assessment →
     overlay pipeline for an analyst-named topic in a single background
     task. Returns a ``task_id`` the wizard polls.
 
-    Used by the Add-Topic wizard so the analyst doesn't have to bounce
-    between the Future Horizons + Forecast Tracker tabs.
+    The optional ``source_topics`` body pins the article seed to one or more
+    existing corpus topics the analyst selected; otherwise the seed resolves
+    by exact-name match then corpus-wide semantic search. Used by the
+    Add-Topic wizard so the analyst doesn't have to bounce between the
+    Future Horizons + Forecast Tracker tabs.
     """
     from app.database import get_database_instance
     from app.services.background_task_manager import get_task_manager
@@ -732,6 +818,13 @@ async def wizard_build_topic_pipeline(
     db = get_database_instance()
     if not db.facade.get_forecast_topic_metadata(topic):
         raise HTTPException(status_code=404, detail=f"Topic '{topic}' not found")
+
+    source_topics = payload.source_topics if payload else None
+    # Persist the seed provenance so downstream consumers (the assessment's
+    # post-forecast article window, re-builds) can find the real corpus even
+    # though the deck name tags no articles.
+    if source_topics:
+        db.facade.upsert_forecast_topic_metadata(topic, source_topics=source_topics)
 
     tm = get_task_manager()
     task_id = tm.create_task(
@@ -745,6 +838,7 @@ async def wizard_build_topic_pipeline(
             topic,
             article_limit=article_limit,
             days_back=days_back,
+            source_topics=source_topics,
             progress_callback=progress_callback,
         )
 
@@ -956,7 +1050,14 @@ async def export_bundle_pptx(
         + period_label.replace(" ", "_").lower()
         + ".pptx"
     )
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        # Same URL + query string can otherwise serve a stale browser-cached
+        # PPTX downloaded days earlier (the file we ship is data-dependent and
+        # changes whenever a topic/assessment is added).
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+    }
     if verdict:
         headers["X-Review-Verdict"] = verdict
     if findings:
@@ -1249,6 +1350,17 @@ async def request_bundle_revision(payload: _BundleReviewRevisionRequest):
         period_label=payload.period_label,
         status="awaiting_synth",
     )
+
+    # Drop the rendered-PPTX cache so the next bundle download re-renders
+    # with whatever the revision pass produces. The cache key is just
+    # ``(cadence, period_label, updates_only)`` — without this clear, the
+    # GET handler would return the pre-revision deck from /tmp.
+    try:
+        from app.services.wiley_delivery_service import invalidate_render_cache
+        invalidate_render_cache(payload.cadence, payload.period_label)
+    except Exception as e:
+        logger.warning("render-cache invalidation failed: %s", e)
+
     return {"ok": True, "cleared_targets": list(targets), "review": row}
 
 

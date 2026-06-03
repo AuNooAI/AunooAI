@@ -23,6 +23,11 @@ from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
 
 # Context limits for different AI models (copied from futures cone)
 CONTEXT_LIMITS = {
+    # OpenAI flagship — gpt-5 is the current customer-facing recommendation
+    # (the Wiley bundle supervisor pipeline already runs on it).
+    'gpt-5': 400000,
+    'gpt-5-mini': 400000,
+    'gpt-5-nano': 400000,
     'gpt-3.5-turbo': 16385,
     'gpt-3.5-turbo-16k': 16385,
     'gpt-4': 8192,
@@ -520,32 +525,70 @@ def _preprocess_response(response: str) -> str:
 
 @router.get("/api/trend-convergence/models")
 async def get_trend_convergence_models():
-    """Get available AI models for trend convergence analysis"""
+    """Get available AI models for trend convergence analysis.
+
+    Ordered with the flagship (gpt-5 family) first so the UI hook's
+    ``modelsData[0]`` default selection picks the flagship by default.
+    """
     try:
-        # Import AI models
-        from app.ai_models import list_available_models
+        from app.ai_models import get_available_models
 
-        # Get available models
-        models = list_available_models()
+        # Returns a list of ``{'name', 'provider'}`` dicts.
+        models = get_available_models() or []
 
-        # Format for frontend with context limits
-        formatted_models = []
-        for model_id, model_name in models.items():
-            context_limit = CONTEXT_LIMITS.get(model_id, CONTEXT_LIMITS['default'])
-            formatted_models.append({
-                'id': model_id,
-                'name': model_name,
-                'context_limit': context_limit
-            })
+        # Friendly display labels for known flagship + mid-tier models.
+        DISPLAY = {
+            'gpt-5':         'GPT-5 (flagship)',
+            'gpt-5-mini':    'GPT-5 Mini',
+            'gpt-4.1':       'GPT-4.1',
+            'gpt-5-nano':    'GPT-5 Nano',
+            'gpt-4o':        'GPT-4o',
+            'gpt-4.1-mini':  'GPT-4.1 Mini',
+            'gpt-4.1-nano':  'GPT-4.1 Nano',
+            'gpt-4o-mini':   'GPT-4o Mini',
+            'claude-4-sonnet-latest':   'Claude 4 Sonnet',
+            'claude-3-7-sonnet-latest': 'Claude 3.7 Sonnet',
+            'claude-3-5-sonnet-latest': 'Claude 3.5 Sonnet',
+        }
+        # Stable preference order — gpt-5 first (flagship, reasoning).
+        # The Topic Reports re-run path wires reasoning_effort + max_completion_tokens.
+        PREF = [
+            'gpt-5', 'gpt-5-mini',
+            'gpt-4.1', 'gpt-4o',
+            'claude-4-sonnet-latest', 'claude-3-7-sonnet-latest',
+            'gpt-4.1-mini', 'gpt-4o-mini',
+            'claude-3-5-sonnet-latest',
+            'gpt-5-nano', 'gpt-4.1-nano',
+        ]
+        seen = {m['name']: m for m in models if isinstance(m, dict) and m.get('name')}
 
-        return formatted_models
+        formatted = []
+        for mid in PREF:
+            if mid in seen:
+                formatted.append({
+                    'id': mid,
+                    'name': DISPLAY.get(mid, mid),
+                    'context_limit': CONTEXT_LIMITS.get(mid, CONTEXT_LIMITS['default']),
+                })
+        # Append any other configured models we didn't enumerate.
+        for mid in seen:
+            if not any(f['id'] == mid for f in formatted):
+                formatted.append({
+                    'id': mid,
+                    'name': DISPLAY.get(mid, mid),
+                    'context_limit': CONTEXT_LIMITS.get(mid, CONTEXT_LIMITS['default']),
+                })
+        return formatted
     except Exception as e:
         logger.error(f"Error fetching models: {str(e)}")
-        # Return default models as fallback
         return [
-            {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
+            {'id': 'gpt-5', 'name': 'GPT-5 (flagship)', 'context_limit': 400000},
+            {'id': 'gpt-5-mini', 'name': 'GPT-5 Mini', 'context_limit': 400000},
+            {'id': 'gpt-4.1', 'name': 'GPT-4.1', 'context_limit': 1000000},
+            {'id': 'gpt-4o', 'name': 'GPT-4o', 'context_limit': 128000},
             {'id': 'gpt-4.1-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
-            {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000}
+            {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
+            {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000},
         ]
 
 @router.get("/api/trend-convergence/{topic}")
@@ -3603,3 +3646,141 @@ async def get_horizons_executive_summary(
             status_code=500,
             detail=f"Failed to retrieve executive summary: {str(e)}"
         )
+
+
+# ── Interactive HTML downloads for the Future Horizons + Consensus tabs ─
+
+@router.get("/api/trend-convergence/horizons/{analysis_id}/download.html")
+async def download_horizons_html(
+    analysis_id: str,
+    db: Database = Depends(get_database_instance),
+):
+    """Render a Future Horizons analysis as a standalone interactive HTML
+    document — scenarios + Executive Summary cards (the React tab's
+    `ExecutiveSummaryCard` content).
+
+    Reads from ``future_horizons_runs`` (scenarios) + the cached
+    executive-summary row keyed ``horizons_exec_summary_{analysis_id}``.
+    The cards are rendered if present; otherwise the section is omitted.
+    """
+    from fastapi.responses import Response
+    from app.services.horizons_html import build_horizons_html
+
+    facade = DatabaseQueryFacade(db, logger)
+    run = facade.get_future_horizons_analysis(analysis_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Forecast run {analysis_id} not found")
+
+    raw = run.get("raw_output") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if isinstance(raw, str):  # double-encoded edge case
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    scenarios = (raw or {}).get("scenarios") or []
+    topic = (run.get("topic") or raw.get("topic") or "—")
+
+    summary_payload = facade.get_horizons_executive_summary(analysis_id) or {}
+    summaries = summary_payload.get("summaries") or []
+
+    generated_at = run.get("created_at") or raw.get("generated_at")
+    if hasattr(generated_at, "isoformat"):
+        generated_at = generated_at.isoformat()
+    model_used = run.get("model_used") or raw.get("model_used")
+
+    # Numbered article references — resolve the corpus the LLM was given
+    # so the [1], [2] citation markers in scenario descriptions actually
+    # link to a real source.
+    articles: list = []
+    try:
+        from sqlalchemy import text as sa_text
+        sql = sa_text("""
+            SELECT a.uri, a.title, a.news_source, a.publication_date
+            FROM future_horizon_articles fha
+            JOIN articles a ON a.uri = fha.article_uri
+            WHERE fha.horizon_id = :run_id
+            ORDER BY fha.id ASC
+        """)
+        rows = facade._execute_with_rollback(sql, {"run_id": analysis_id}).fetchall()
+        for r in rows:
+            d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            if (d.get("title") or "").strip():
+                articles.append({
+                    "title":  d.get("title"),
+                    "url":    d.get("uri"),
+                    "source": d.get("news_source"),
+                    "date":   (d.get("publication_date") or "")[:10],
+                })
+    except Exception as e:
+        logger.warning("horizons HTML: article refs lookup failed for %s: %s",
+                       analysis_id, e)
+
+    blob = build_horizons_html(
+        topic, scenarios, summaries,
+        generated_at=generated_at, model_used=model_used,
+        articles=articles,
+    )
+    filename = f"future-horizons-{topic.lower().replace(' ', '-')[:60]}.html"
+    return Response(
+        content=blob,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+    )
+
+
+@router.get("/api/trend-convergence/consensus/{analysis_id}/download.html")
+async def download_consensus_html(
+    analysis_id: str,
+    db: Database = Depends(get_database_instance),
+):
+    """Render a Consensus Analysis run as a standalone interactive HTML
+    document — categories with consensus summaries, sentiment distribution
+    bars, outliers, strategic implications, plus cross-category key
+    insight quotes.
+    """
+    from fastapi.responses import Response
+    from app.services.consensus_html import build_consensus_html
+
+    facade = DatabaseQueryFacade(db, logger)
+    run = facade.get_consensus_analysis(analysis_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Consensus run {analysis_id} not found")
+
+    raw = run.get("raw_output") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    topic = (run.get("topic") or raw.get("topic") or "—")
+    generated_at = run.get("created_at") or raw.get("generated_at")
+    if hasattr(generated_at, "isoformat"):
+        generated_at = generated_at.isoformat()
+    model_used = run.get("model_used") or raw.get("model_used")
+
+    blob = build_consensus_html(
+        topic, raw or {},
+        generated_at=generated_at, model_used=model_used,
+    )
+    filename = f"consensus-analysis-{topic.lower().replace(' ', '-')[:60]}.html"
+    return Response(
+        content=blob,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+    )

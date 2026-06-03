@@ -49,6 +49,7 @@ interface LifecycleRow extends TopicMeta {
   assessed_at: string | null;
   cadence: 'monthly' | 'quarterly' | 'none' | null;
   recipient_email: string | null;
+  source_topics: string[] | null;
 }
 
 interface DeckScenario {
@@ -100,6 +101,7 @@ export function AddTopicWizard({
   const [description, setDescription] = useState('');
   const [owner, setOwner] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [sourceTopics, setSourceTopics] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [, setMeta] = useState<TopicMeta | null>(null);
@@ -137,6 +139,7 @@ export function AddTopicWizard({
       setDescription('');
       setOwner('');
       setTagsInput('');
+      setSourceTopics([]);
       setOverlay(null);
       setBuildTaskId(null);
       setBuildPct(0);
@@ -161,6 +164,10 @@ export function AddTopicWizard({
       if (row) {
         setCadence((row.cadence || 'none') as any);
         setRecipient(row.recipient_email || '');
+        // Pre-fill the source-topic picker from persisted provenance on resume.
+        if (Array.isArray(row.source_topics) && row.source_topics.length) {
+          setSourceTopics(prev => (prev.length ? prev : row.source_topics as string[]));
+        }
       }
       return row as LifecycleRow | null;
     } catch (e: any) {
@@ -212,6 +219,7 @@ export function AddTopicWizard({
           description: description.trim() || null,
           owner: owner.trim() || null,
           tags: parsedTags.length ? parsedTags : null,
+          source_topics: sourceTopics.length ? sourceTopics : null,
         }),
       });
       if (!r.ok) {
@@ -234,7 +242,13 @@ export function AddTopicWizard({
     try {
       const r = await fetch(
         `/api/forecast/topics/${encodeURIComponent(name)}/wizard/build`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_topics: sourceTopics.length ? sourceTopics : null,
+          }),
+        },
       );
       if (!r.ok) {
         const t = await r.text();
@@ -438,6 +452,7 @@ export function AddTopicWizard({
               description={description} setDescription={setDescription}
               owner={owner} setOwner={setOwner}
               tagsInput={tagsInput} setTagsInput={setTagsInput}
+              sourceTopics={sourceTopics} setSourceTopics={setSourceTopics}
             />
           )}
 
@@ -445,6 +460,7 @@ export function AddTopicWizard({
             <Step2Build
               topic={name}
               lifecycle={lifecycle}
+              sourceTopics={sourceTopics}
               busy={!!buildTaskId || busy}
               pct={buildPct}
               status={buildStatus}
@@ -511,12 +527,12 @@ export function AddTopicWizard({
 
 
 // ── Step 1
-function Step1({ name, setName, displayName, setDisplayName, description, setDescription, owner, setOwner, tagsInput, setTagsInput }: any) {
+function Step1({ name, setName, displayName, setDisplayName, description, setDescription, owner, setOwner, tagsInput, setTagsInput, sourceTopics, setSourceTopics }: any) {
   return (
     <div className="space-y-3">
       <h4 className="font-medium text-gray-900 dark:text-gray-100">Name & framing</h4>
       <p className="text-xs text-gray-600 dark:text-gray-300">
-        The topic name is the universal join key — it must match the name stored on articles in the corpus (or the name you'll tag new articles with going forward). Pick the deck-friendly form (e.g. "Patent Cliffs").
+        Name the tracked topic in its deck-friendly form (e.g. "Patent Cliffs"). This is the label that appears on the deck and dashboard — it no longer has to match a topic stored on articles. Below, pick which existing topics' articles should seed the forecast.
       </p>
       <Field label="Topic name *">
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Patent Cliffs"
@@ -531,6 +547,9 @@ function Step1({ name, setName, displayName, setDisplayName, description, setDes
                   placeholder="1-2 sentence framing — appears in the Topics dashboard and onboarding docs"
                   className="w-full text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
       </Field>
+
+      <SourceTopicPicker name={name} selected={sourceTopics} setSelected={setSourceTopics} />
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="Owner (username)">
           <input value={owner} onChange={e => setOwner(e.target.value)} placeholder="e.g. admin"
@@ -545,13 +564,148 @@ function Step1({ name, setName, displayName, setDisplayName, description, setDes
   );
 }
 
+// ── Source-topic picker — freeform suggestions + select-from-all
+interface AvailableTopic { topic: string; count: number; }
+interface SuggestedTopic { topic: string; match_count: number; total?: number; }
+
+function SourceTopicPicker({ name, selected, setSelected }: {
+  name: string; selected: string[]; setSelected: (next: string[]) => void;
+}) {
+  const [available, setAvailable] = useState<AvailableTopic[]>([]);
+  const [suggestions, setSuggestions] = useState<SuggestedTopic[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [listOpen, setListOpen] = useState(false);
+
+  // Load the full topic list once.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/forecast/topics/available');
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        setAvailable(d.topics || []);
+      } catch { /* picker still works via suggestions */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Debounced freeform suggestions from whatever the analyst typed as the name.
+  useEffect(() => {
+    const q = (name || '').trim();
+    if (q.length < 2) { setSuggestions([]); return; }
+    let cancelled = false;
+    setSuggesting(true);
+    const handle = window.setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/forecast/topics/suggest?q=${encodeURIComponent(q)}`);
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        setSuggestions(d.suggestions || []);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggesting(false);
+      }
+    }, 450);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [name]);
+
+  const toggle = (t: string) => {
+    setSelected(selected.includes(t) ? selected.filter(x => x !== t) : [...selected, t]);
+  };
+
+  const countFor = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const a of available) m[a.topic] = a.count;
+    return m;
+  }, [available]);
+
+  const filtered = useMemo(() => {
+    const f = filter.trim().toLowerCase();
+    return available.filter(a => !f || a.topic.toLowerCase().includes(f));
+  }, [available, filter]);
+
+  // Suggestions the user hasn't already selected, surfaced as quick-add chips.
+  const freshSuggestions = suggestions.filter(s => !selected.includes(s.topic));
+
+  return (
+    <Field label="Source topics (seed articles)">
+      <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1.5">
+        Pick which existing topics' articles seed the forecast. Leave empty to let the system find the most relevant articles automatically from your topic name.
+      </p>
+
+      {/* Suggested-from-name chips */}
+      {(suggesting || freshSuggestions.length > 0) && (
+        <div className="mb-2">
+          <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1 inline-flex items-center gap-1">
+            <Sparkles className="w-3 h-3" /> Matched from "{(name || '').trim()}"
+            {suggesting && <Loader2 className="w-3 h-3 animate-spin" />}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {freshSuggestions.map(s => (
+              <button key={s.topic} type="button" onClick={() => toggle(s.topic)}
+                className="text-[11px] px-2 py-0.5 rounded-full border border-pink-300 dark:border-pink-700 bg-pink-50 dark:bg-pink-900/30 text-pink-800 dark:text-pink-200 hover:bg-pink-100 dark:hover:bg-pink-900/50">
+                + {s.topic}
+                {typeof s.total === 'number' && <span className="text-pink-500 dark:text-pink-400 ml-1">({s.total})</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Selected chips */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {selected.map(t => (
+            <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 inline-flex items-center gap-1">
+              {t}
+              {typeof countFor[t] === 'number' && <span className="text-emerald-600 dark:text-emerald-400">({countFor[t]})</span>}
+              <button type="button" onClick={() => toggle(t)} className="hover:text-emerald-950 dark:hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Browse-all toggle + searchable checkbox list */}
+      <button type="button" onClick={() => setListOpen(o => !o)}
+        className="text-[11px] text-gray-600 dark:text-gray-300 underline decoration-dotted hover:text-gray-900 dark:hover:text-gray-100">
+        {listOpen ? 'Hide all topics' : `Browse all ${available.length} topics`}
+      </button>
+
+      {listOpen && (
+        <div className="mt-1.5 border border-gray-200 dark:border-gray-700 rounded">
+          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter topics…"
+            className="w-full text-xs px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-t" />
+          <div className="max-h-44 overflow-y-auto">
+            {filtered.length === 0 && (
+              <div className="text-[11px] text-gray-500 px-2 py-2">No topics match "{filter}".</div>
+            )}
+            {filtered.map(a => (
+              <label key={a.topic} className="flex items-center gap-2 px-2 py-1 text-xs text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                <input type="checkbox" checked={selected.includes(a.topic)} onChange={() => toggle(a.topic)} className="accent-pink-600" />
+                <span className="flex-1 truncate">{a.topic}</span>
+                <span className="text-gray-400 dark:text-gray-500">{a.count}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </Field>
+  );
+}
+
 // ── Step 2 — build pipeline inline
-function Step2Build({ topic, lifecycle, busy, pct, status, onBuild, onSkipToOverlay }: {
-  topic: string; lifecycle: LifecycleRow | null;
+function Step2Build({ topic, lifecycle, sourceTopics, busy, pct, status, onBuild, onSkipToOverlay }: {
+  topic: string; lifecycle: LifecycleRow | null; sourceTopics: string[];
   busy: boolean; pct: number; status: string;
   onBuild: () => void; onSkipToOverlay: () => void;
 }) {
   const alreadyAssessed = !!lifecycle?.assessment_id;
+  const hasSources = sourceTopics && sourceTopics.length > 0;
   return (
     <div className="space-y-3">
       <h4 className="font-medium text-gray-900 dark:text-gray-100">Build the pipeline</h4>
@@ -559,7 +713,14 @@ function Step2Build({ topic, lifecycle, busy, pct, status, onBuild, onSkipToOver
         We'll run three things for you in the background:
       </p>
       <ol className="list-decimal ml-5 text-xs text-gray-700 dark:text-gray-200 space-y-1">
-        <li>A Three Horizons projection seeded with recent articles tagged <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[11px]">{topic}</code> in the corpus.</li>
+        <li>
+          A Three Horizons projection seeded with recent articles from{' '}
+          {hasSources ? (
+            <span className="font-medium text-gray-900 dark:text-gray-100">{sourceTopics.join(', ')}</span>
+          ) : (
+            <>the topics most relevant to <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[11px]">{topic}</code> (found automatically)</>
+          )}.
+        </li>
         <li>A paired (live + placebo) assessment of the new forecast against the post-forecast window.</li>
         <li>A draft deck overlay mapping the 10-14 raw scenarios into 4-5 deck-level scenarios.</li>
       </ol>
