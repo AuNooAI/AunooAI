@@ -38,7 +38,7 @@ class NewsletterConfig:
     days_back: int = 7
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     max_articles: int = 2000  # High limit - no artificial cap
 
 

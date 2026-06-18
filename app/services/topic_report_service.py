@@ -341,7 +341,7 @@ Return ONLY the JSON object. No prose, no markdown, no code fences."""
 
 
 async def generate_executive_summary_for_run(
-    run_id: str, topic: str, scenarios: list, model: str = "gpt-5",
+    run_id: str, topic: str, scenarios: list, model: str = "gpt-5.4",
 ) -> Optional[dict]:
     """Generate the Future Horizons "Executive Summary" cards for a stored
     horizons run and cache them in ``analysis_versions_v2`` under the
@@ -388,7 +388,7 @@ async def generate_executive_summary_for_run(
     )
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
-    # Same gpt-5 reasoning params as the horizons rerun: reasoning_effort
+    # Same gpt-5.4 reasoning params as the horizons rerun: reasoning_effort
     # minimal + ample max_completion_tokens so the structured JSON has
     # room to land after the model's reasoning step.
     import litellm
@@ -454,7 +454,9 @@ async def generate_executive_summary_for_run(
     return summary_data
 
 
-async def _rerun_future_horizons_for_topic(topic: str, model: str) -> str:
+async def _rerun_future_horizons_for_topic(
+    topic: str, model: str, progress_callback=None,
+) -> str:
     """Run a fresh Three Horizons LLM analysis for a topic and persist it
     into ``future_horizons_runs``. Returns the new run_id.
 
@@ -477,7 +479,7 @@ async def _rerun_future_horizons_for_topic(topic: str, model: str) -> str:
     # what ``/api/trend-convergence/{topic}`` does for the Future Horizons
     # tab, so the deck has comparable coverage to a normal run. Default
     # ``auto`` mode: ≥1M-context models get ~180 articles, smaller-context
-    # models (incl. gpt-5 at 400k) get ~90.
+    # models (incl. gpt-5.4 at 400k) get ~90.
     from app.routes.trend_convergence_routes import calculate_optimal_sample_size
     sample_size = calculate_optimal_sample_size(model, sample_size_mode="auto")
     logger.info("rerun horizons: %s seeding with up to %d articles", model, sample_size)
@@ -617,10 +619,36 @@ async def _rerun_future_horizons_for_topic(topic: str, model: str) -> str:
     logger.info("rerun horizons: saved fresh run %s for %s (model=%s, articles=%d)",
                 run_id, topic, model, len(article_rows))
 
+    # Persist the numbered article corpus that the LLM was shown so the
+    # ``[1]`` / ``[2]`` citation markers in scenario descriptions resolve
+    # to real source URLs on the Future Horizons HTML download. The order
+    # MUST match the order the prompt builder used — same SELECT, same
+    # ORDER BY — so [N] = the Nth uri in this list.
+    try:
+        ordered_uris = [r.get("uri") for r in article_rows if r.get("uri")]
+        if ordered_uris:
+            db.facade.save_future_horizon_articles(run_id, ordered_uris, topic)
+            logger.info("rerun horizons: saved %d article refs for run %s",
+                        len(ordered_uris), run_id)
+    except Exception as e:
+        logger.warning("rerun horizons: save_future_horizon_articles failed for %s: %s",
+                       run_id, e)
+
     # Also generate the Future Horizons Executive Summary cards (the
     # consensus % / PRIMARY SIGNAL / DECISION FORK / YOUR WINDOW
     # cards the React UI tab shows). Uses the same prompt + cache key
     # the UI uses, so the PPTX cards we render later are byte-identical.
+    # gpt-5.4 reasoning latency on this step is highly variable (~50s on a
+    # fast pass, ~10min on a slow one), so emit progress BEFORE the call
+    # to unstick the UI from "5%" while the second LLM round runs.
+    if progress_callback:
+        try:
+            progress_callback(
+                None,
+                f"Generating Executive Summary cards for {topic} · {model}…",
+            )
+        except Exception as e:
+            logger.warning("progress_callback failed (exec summary stage): %s", e)
     try:
         await generate_executive_summary_for_run(
             run_id=run_id, topic=topic, scenarios=scenarios, model=model,
@@ -649,7 +677,7 @@ async def generate_topic_report(
 
     When ``rerun_forecast=True``, runs a fresh Three Horizons analysis
     per topic via :func:`_rerun_future_horizons_for_topic` (using
-    ``force_model`` or "gpt-5") BEFORE loading items — so the deck
+    ``force_model`` or "gpt-5.4") BEFORE loading items — so the deck
     reflects the latest model + latest article corpus.
 
     Returns ``(blob, period_label, included_topics, None, [])`` to keep the
@@ -683,16 +711,34 @@ async def generate_topic_report(
 
     # Re-run the upstream Three Horizons analysis per topic if asked.
     if rerun_forecast:
-        model = force_model or "gpt-5"
+        model = force_model or "gpt-5.4"
         span_lo, span_hi = 5, 65   # share the progress budget across topics
+        n = max(1, len(topics))
         for i, topic in enumerate(topics, 1):
-            pct = span_lo + int((span_hi - span_lo) * (i - 1) / max(1, len(topics)))
-            _emit(pct, f"Re-running Three Horizons for {topic} ({i}/{len(topics)}) · {model}…")
+            # Split each topic's slot in half: scenarios first, exec summary
+            # second. gpt-5.4 reasoning latency on the exec summary can rival
+            # the scenario generation, so without a mid-step ping the UI
+            # would freeze on the first percentage for ~10 minutes per topic.
+            slot = (span_hi - span_lo) / n
+            base = span_lo + slot * (i - 1)
+            pct_a = int(base)
+            pct_b = int(base + slot * 0.5)
+            _emit(pct_a, f"Re-running Three Horizons for {topic} ({i}/{n}) · {model}…")
+
+            def _topic_progress(pct, msg):
+                # The rerun emits a stage transition mid-call ("Generating
+                # Executive Summary cards…"). Anchor the % to ``pct_b`` —
+                # roughly half-way through this topic's slot — so the bar
+                # moves while gpt-5.4 spins on the second LLM round.
+                _emit(pct_b if pct is None else pct, msg)
+
             try:
-                await _rerun_future_horizons_for_topic(topic, model)
+                await _rerun_future_horizons_for_topic(
+                    topic, model, progress_callback=_topic_progress,
+                )
             except Exception as e:
                 logger.warning("rerun horizons failed for %s: %s", topic, e)
-                _emit(pct, f"⚠ {topic} rerun failed: {e}")
+                _emit(pct_a, f"⚠ {topic} rerun failed: {e}")
 
     _emit(70, "Loading forecasts")
     items = resolve_items(topics)
@@ -801,19 +847,27 @@ async def generate_topic_report_html(period_label: str) -> Tuple[bytes, str, lis
 
 
 async def generate_topic_report_docx(period_label: str) -> Tuple[bytes, str, list, str, list]:
-    """Render the cached topic-report synthesis as a Word document."""
-    from app.services.forecast_bundle_docx import build_bundle_docx
+    """Render the topic-report deck as a Word document.
 
-    items, synth, eos_per_topic, review = _load_cached_state(period_label)
-    blob = build_bundle_docx(
-        items,
-        period_label=period_label,
-        cadence="topic_report",
-        updates_only=True,
-        bundle_synthesis=synth.get("payload") or synth,
-        eos_per_topic=eos_per_topic,
-        review_findings=review.get("reviewer_findings"),
-        review_verdict=review.get("status"),
-    )
+    Uses the same ``items`` list ``build_topic_report_pptx`` consumes
+    (resolved via ``topic_report_pptx.resolve_items``) so the DOCX
+    carries Briefing Synthesis, Executive Summary cards, Key Insights,
+    Strategic Recs, Decision Framework, Next Steps, Black Swans, the
+    H1/H2/H3 scenario walk, and the numbered article references —
+    matching the HTML/PPTX. NOT the back-test bundle DOCX.
+    """
+    from app.services.topic_report_pptx import resolve_items
+    from app.services.topic_report_docx import build_topic_report_docx
+
+    state = _read_state_sidecar(period_label) or {}
+    topics = state.get("topics") or []
+    period = state.get("period") or period_label
+    if not topics:
+        raise ValueError(
+            f"No state sidecar for period_label={period_label}. "
+            "Generate the PPTX first so the export can resolve the same topic set."
+        )
+    items = resolve_items(topics)
+    blob = build_topic_report_docx(items, period_label=period_label, period=period)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
-    return blob, period_label, included_topics, review.get("status"), review.get("reviewer_findings")
+    return blob, period_label, included_topics, None, []

@@ -5,7 +5,7 @@
  * Shows progress toward the 500-sample threshold for switching from GPT to DeBERTa.
  *
  * Two-tier system:
- * - < 500 samples: GPT (gpt-4o-mini) for classification + training data collection
+ * - < 500 samples: GPT (gpt-5.4-mini) for classification + training data collection
  * - >= 500 samples: DeBERTa (fast, free, trained on collected samples)
  */
 

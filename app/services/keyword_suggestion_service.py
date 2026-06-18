@@ -202,9 +202,9 @@ class KeywordSuggestionService:
             if not model:
                 try:
                     settings = self.db.facade.get_keyword_monitor_settings_by_id(1)
-                    model = settings.get('default_llm_model', 'gpt-4o-mini') if settings else 'gpt-4o-mini'
+                    model = settings.get('default_llm_model', 'gpt-5.4-mini') if settings else 'gpt-5.4-mini'
                 except Exception:
-                    model = 'gpt-4o-mini'
+                    model = 'gpt-5.4-mini'
 
             # Get topic description if available
             topic_description = ""

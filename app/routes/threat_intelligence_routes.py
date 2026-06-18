@@ -614,7 +614,7 @@ class ProcessingStats(BaseModel):
 
 class ProcessArticlesRequest(BaseModel):
     batch_size: int = Field(50, ge=1, le=500, description="Number of articles to process")
-    model: str = Field("gpt-4o-mini", description="LLM model to use for threat extraction")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use for threat extraction")
     topic: Optional[str] = Field(None, description="Topic to process articles from")
     process_all: bool = Field(False, description="If True, process all articles including already-processed ones")
 
@@ -945,7 +945,7 @@ async def process_articles(
             str(venv_python),
             str(script_path),
             "--batch-size", str(request.batch_size),
-            "--model", request.model or "gpt-4o-mini"
+            "--model", request.model or "gpt-5.4-mini"
         ]
         if request.topic:
             cmd.extend(["--topic", request.topic])
@@ -999,7 +999,7 @@ class NarrativeDetail(BaseModel):
 
 
 class GenerateNarrativeRequest(BaseModel):
-    model: str = Field("gpt-4o-mini", description="LLM model to use for generation")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use for generation")
     topic: Optional[str] = Field(None, description="Optional topic filter")
 
 
@@ -1163,7 +1163,7 @@ class ThreatIntelScheduleCreate(BaseModel):
     name: str = Field(..., description="Name for the schedule")
     topic: Optional[str] = Field(None, description="Topic to process")
     batch_size: int = Field(50, ge=1, le=500, description="Number of articles per run")
-    model: str = Field("gpt-4o-mini", description="LLM model to use")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use")
     process_all: bool = Field(False, description="Reprocess already-processed articles")
     schedule_enabled: bool = Field(True, description="Enable scheduling")
     schedule_type: str = Field("interval", description="Schedule type: 'interval' or 'daily'")

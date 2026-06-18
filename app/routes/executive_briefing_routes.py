@@ -1103,7 +1103,7 @@ class GeneratePodcastScriptRequest(BaseModel):
     priority_actions: List[Dict[str, Any]] = Field(default_factory=list, description="Priority actions")
     articles: List[Dict[str, Any]] = Field(default_factory=list, description="Analyzed articles")
     duration: str = Field("short", description="Script duration: short, medium, long")
-    model: str = Field("gpt-4o", description="LLM model to use for script generation")
+    model: str = Field("gpt-5.4", description="LLM model to use for script generation")
 
 
 EB_PODCAST_SCRIPT_PROMPT = """You are an expert podcast script writer creating an executive intelligence briefing.

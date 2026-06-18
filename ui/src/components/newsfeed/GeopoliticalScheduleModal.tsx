@@ -46,7 +46,7 @@ export function GeopoliticalScheduleModal({
   isOpen,
   onClose,
   onScheduleRun,
-  model = 'gpt-4o-mini',
+  model = 'gpt-5.4-mini',
 }: GeopoliticalScheduleModalProps) {
   const [schedules, setSchedules] = useState<GeopoliticalSchedule[]>([]);
   const [availableTopics, setAvailableTopics] = useState<AvailableTopic[]>([]);

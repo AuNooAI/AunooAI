@@ -195,7 +195,7 @@ class SLMIntegration:
             # Get model from settings
             from app.database import get_database_instance
             db = get_database_instance()
-            model_name = db.facade.get_setting('llm_model', 'gpt-4o-mini')
+            model_name = db.facade.get_setting('llm_model', 'gpt-5.4-mini')
 
             calculator = RelevanceCalculator(model_name=model_name)
             topic_description = get_topic_description(topic)
@@ -272,7 +272,7 @@ class SLMIntegration:
             from app.database import get_database_instance
 
             db = get_database_instance()
-            model_name = db.facade.get_setting('llm_model', 'gpt-4o-mini')
+            model_name = db.facade.get_setting('llm_model', 'gpt-5.4-mini')
 
             analyzer = ArticleAnalyzer(model_name=model_name)
 

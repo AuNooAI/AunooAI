@@ -13,6 +13,10 @@ from app.ai_models import get_ai_model
 
 # Context limits for different AI models (copied from consensus analysis)
 CONTEXT_LIMITS = {
+    'gpt-5.5': 1000000,
+    'gpt-5.4': 400000,
+    'gpt-5.4-mini': 400000,
+    'gpt-5.4-nano': 400000,
     'gpt-3.5-turbo': 16385,
     'gpt-3.5-turbo-16k': 16385,
     'gpt-4': 8192,

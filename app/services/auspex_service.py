@@ -40,6 +40,38 @@ from app.services.conversation_compactor import (
 
 logger = logging.getLogger(__name__)
 
+
+def _llm_call_kwargs(model: str, *, output_tokens: int,
+                     temperature: float = 0.7) -> dict:
+    """Build per-model completion kwargs for a litellm call.
+
+    GPT-5 is a reasoning model: it burns the output-token budget on
+    internal reasoning before emitting any user-visible text, so a
+    naive ``max_tokens=N`` + ``temperature=0.7`` call returns an empty
+    string for any non-trivial JSON-output prompt — which then trips the
+    "No valid JSON found in AI response" path.
+
+    For gpt-5.4* models we therefore pass ``reasoning_effort='minimal'``
+    + ``max_completion_tokens`` (NOT ``max_tokens``) with ~4× the
+    headroom so the structured JSON has room to land after the
+    reasoning step, and drop the ``temperature`` kwarg (gpt-5.4 doesn't
+    accept it). All other models keep the existing semantics.
+    """
+    if (model or "").startswith("gpt-5"):
+        # Reasoning + JSON share the same output budget. Give the model
+        # plenty of room (≥4× the caller's hint, clamped to gpt-5.4's real
+        # 128k cap) so the JSON tail doesn't get truncated by the
+        # reasoning preamble — the original 4096-token default cut the
+        # Consensus Analysis JSON at ~17k chars mid-document.
+        completion = max(output_tokens * 4, 16000)
+        completion = min(completion, 128000)
+        return {
+            "reasoning_effort": "minimal",
+            "max_completion_tokens": completion,
+        }
+    return {"max_tokens": output_tokens, "temperature": temperature}
+
+
 # =============================================================================
 # QUERY DEPTH CLASSIFICATION
 # =============================================================================
@@ -97,7 +129,7 @@ def classify_query_depth(query: str) -> str:
 
     return 'standard'
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 
 # Citation depth configuration
 DEFAULT_CITATION_LIMIT = 25      # Default number of articles to include in detailed context
@@ -1244,7 +1276,7 @@ Example: ["AI healthcare diagnosis", "machine learning medical imaging", "AI dru
 
 Search queries:"""
 
-            ai_model = get_ai_model('gpt-4.1-mini')
+            ai_model = get_ai_model('gpt-5.4-mini')
             response = ai_model.generate_response([
                 {"role": "system", "content": "You are a search query optimizer. Return only valid JSON arrays."},
                 {"role": "user", "content": prompt}
@@ -2515,7 +2547,7 @@ User message:
 Extracted search query (respond with ONLY the query, no explanation):"""
 
             response = litellm.completion(
-                model="gpt-4.1-mini",  # Fast and cheap model for extraction
+                model="gpt-5.4-mini",  # Fast and cheap model for extraction
                 messages=[
                     {"role": "user", "content": extraction_prompt.format(message=message[:3000])}  # Limit to 3000 chars to avoid huge costs
                 ],
@@ -3622,14 +3654,17 @@ Article Details (First {detail_limit}):
             max_tokens = max(500, max_tokens)
             
             logger.info(f"Model: {model}, Context limit: {context_limit}, Max output limit: {max_output_tokens}, Estimated input tokens: {estimated_input_tokens}, Final max_tokens: {max_tokens}")
-            
-            # Create the streaming response
+
+            # Create the streaming response. gpt-5.4 needs ``reasoning_effort``
+            # + ``max_completion_tokens`` instead of ``max_tokens`` /
+            # ``temperature`` — otherwise it emits 0 chars and JSON parsing
+            # downstream fails with "No valid JSON found in AI response".
+            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens)
             response_stream = await litellm.acompletion(
                 model=model,
                 messages=messages,
                 stream=True,
-                temperature=0.7,
-                max_tokens=max_tokens
+                **call_kwargs,
             )
             
             # Handle the async generator properly
@@ -3654,7 +3689,7 @@ Article Details (First {detail_limit}):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str = "gpt-4",
+        model: str = "gpt-5.4",
         temperature: float = 0.7,
         max_tokens: int = 3000
     ) -> str:
@@ -3684,14 +3719,20 @@ Article Details (First {detail_limit}):
                 {"role": "user", "content": user_prompt}
             ]
 
-            # Use litellm completion with JSON mode if supported
+            # Use litellm completion with JSON mode if supported. Wire
+            # gpt-5.4 reasoning kwargs so the model has room to emit JSON
+            # after its internal reasoning step (the consensus analysis
+            # path hits this — without reasoning_effort + max_completion_
+            # tokens, gpt-5.4 returns 0 chars and the route raises 500
+            # "No valid JSON found in AI response").
+            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens,
+                                           temperature=temperature)
             try:
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"}  # Force JSON output
+                    response_format={"type": "json_object"},
+                    **call_kwargs,
                 )
             except Exception as e:
                 # Fallback without JSON mode if not supported
@@ -3699,8 +3740,7 @@ Article Details (First {detail_limit}):
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens
+                    **call_kwargs,
                 )
 
             # Extract content from response
@@ -3882,6 +3922,15 @@ Article Details (First {detail_limit}):
             "gpt-4.1": 1000000,  # 1M context window
             "gpt-4.1-mini": 1000000,  # 1M context window
             "gpt-4.1-nano": 1000000,  # 1M context window
+            # GPT-5 family. The "gpt-5.4" base-model key match below covers
+            # gpt-5.4/gpt-5-mini/gpt-5-nano — all share the 400k context.
+            "gpt-5": 400000,
+            "gpt-5-mini": 400000,
+            "gpt-5-nano": 400000,
+            "gpt-5.5": 1000000,
+            "gpt-5.4": 400000,
+            "gpt-5.4-mini": 400000,
+            "gpt-5.4-nano": 400000,
             "claude-3-opus": 200000,
             "claude-3-sonnet": 200000,
             "claude-3-haiku": 200000,
@@ -3917,6 +3966,17 @@ Article Details (First {detail_limit}):
             "gpt-4.1": 32768,    # GPT-4.1 max output tokens
             "gpt-4.1-mini": 32768,
             "gpt-4.1-nano": 32768,
+            # GPT-5 reasoning models. The output budget is shared with
+            # the (hidden) reasoning step, so we need plenty of room or
+            # JSON outputs get truncated mid-document (saw the consensus
+            # analysis cut at char ~17k with the old 4096 default).
+            "gpt-5": 128000,
+            "gpt-5-mini": 128000,
+            "gpt-5-nano": 128000,
+            "gpt-5.5": 128000,
+            "gpt-5.4": 128000,
+            "gpt-5.4-mini": 128000,
+            "gpt-5.4-nano": 128000,
             "gpt-3.5-turbo": 4096,  # GPT-3.5 max output tokens
             "gpt-3.5-turbo-16k": 4096,
             # For other models, use reasonable defaults based on their context size

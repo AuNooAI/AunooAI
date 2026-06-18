@@ -118,10 +118,10 @@ const CREATIVITY_PRESETS = [
 
 // Default models for each agent type
 const DEFAULT_MODELS: Record<string, string> = {
-  eb_selection_agent: 'gpt-4o',
-  eb_analysis_agent: 'gpt-4o',
-  eb_synthesis_agent: 'gpt-4o',
-  eb_podcast_agent: 'gpt-4o'
+  eb_selection_agent: 'gpt-5.4',
+  eb_analysis_agent: 'gpt-5.4',
+  eb_synthesis_agent: 'gpt-5.4',
+  eb_podcast_agent: 'gpt-5.4'
 };
 
 // Default temperatures for each agent type
@@ -220,7 +220,7 @@ export function EBTuneModal({
             };
             loadedAgents.push(agent);
             initialContent[agent.id] = agent.content;
-            initialModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-4o';
+            initialModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-5.4';
             const temp = agent.metadata?.model_config?.temperature;
             initialTemps[agent.id] = temp !== undefined ? String(temp) : (DEFAULT_TEMPS[agent.id] || '0.5');
           }
@@ -354,7 +354,7 @@ export function EBTuneModal({
 
     for (const agent of agents) {
       resetContent[agent.id] = agent.content;
-      resetModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-4o';
+      resetModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-5.4';
       const temp = agent.metadata?.model_config?.temperature;
       resetTemps[agent.id] = temp !== undefined ? String(temp) : (DEFAULT_TEMPS[agent.id] || '0.5');
     }

@@ -78,7 +78,7 @@ async def generate_daily_news_feed(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format, defaults to today"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(50, ge=10, le=200, description="Maximum articles to analyze"),
-    model: str = Query("gpt-4.1-mini", description="AI model to use for generation"),
+    model: str = Query("gpt-5.4-mini", description="AI model to use for generation"),
     include_bias_analysis: bool = Query(True, description="Include bias and factuality analysis"),
     db: Database = Depends(get_database_instance)
 ):
@@ -124,7 +124,7 @@ async def get_news_articles_only(
     date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(1000, ge=10, le=10000),
-    model: str = Query("gpt-4.1-mini"),
+    model: str = Query("gpt-5.4-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
@@ -382,7 +382,7 @@ async def get_six_articles_report(
     date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(50, ge=20, le=200),
-    model: str = Query("gpt-4.1-mini"),
+    model: str = Query("gpt-5.4-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
@@ -586,7 +586,7 @@ async def get_overview_markdown(
             date=target_date,
             topic=topic,
             max_articles=30,
-            model="gpt-4.1-mini"
+            model="gpt-5.4-mini"
         )
         
         # Generate overview
@@ -636,7 +636,7 @@ async def get_six_articles_markdown(
             date=target_date,
             topic=topic,
             max_articles=50,
-            model="gpt-4.1-mini"
+            model="gpt-5.4-mini"
         )
         
         # Generate six articles report
@@ -961,7 +961,7 @@ async def create_shared_feed(
             date=target_date,
             topic=topic,
             max_articles=50 if feed_type == "six-articles" else 30,
-            model="gpt-4.1-mini"
+            model="gpt-5.4-mini"
         )
         
         news_feed_service = get_news_feed_service(db)
@@ -1781,7 +1781,7 @@ async def run_dashboard_generation_now(
 # Internal functions for scheduled generation
 async def _generate_six_articles_internal(
     persona: str = "CEO",
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-5.4-mini",
     topic: Optional[str] = None
 ) -> Optional[List[Dict]]:
     """
@@ -1860,7 +1860,7 @@ async def _regenerate_highlights_internal(topic: Optional[str] = None):
             start_date=start_date.strftime('%Y-%m-%d'),
             end_date=end_date.strftime('%Y-%m-%d'),
             max_articles=100,
-            model='gpt-4o-mini',
+            model='gpt-5.4-mini',
             force_regenerate=True  # Force regenerate to ensure fresh data is cached
         )
 
@@ -1916,7 +1916,7 @@ async def _regenerate_narratives_internal(topic: Optional[str] = None):
                     end_date=end_date.strftime('%Y-%m-%d'),
                     days_limit=7,
                     force_regenerate=True,  # Force regenerate to ensure fresh data is cached
-                    model='gpt-4o-mini'
+                    model='gpt-5.4-mini'
                 )
 
                 # Create a mock session dict for the endpoint

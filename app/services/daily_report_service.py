@@ -25,12 +25,33 @@ from app.services.tool_loader import get_tool_loader
 logger = logging.getLogger(__name__)
 
 
+def _llm_token_kwargs(model: str, *, output_tokens: int) -> dict:
+    """LLM call params that respect the model family.
+
+    OpenAI's gpt-5.4 series is a reasoning model — by default it burns the
+    output token budget on internal reasoning before emitting any
+    user-visible text, so a plain ``max_tokens=N`` returns 0 chars on any
+    non-trivial prompt. Pass ``reasoning_effort='minimal'`` (smallest
+    reasoning step) and ``max_completion_tokens`` (not ``max_tokens``)
+    plus a 4× headroom multiplier so the JSON output has room.
+
+    Non-reasoning models (gpt-5.4*, claude, etc.) keep the standard
+    ``max_tokens`` shape; ``temperature`` continues to apply.
+    """
+    if (model or "").startswith("gpt-5"):
+        return {
+            "reasoning_effort": "minimal",
+            "max_completion_tokens": max(output_tokens * 4, 4000),
+        }
+    return {"max_tokens": output_tokens}
+
+
 @dataclass
 class DRConfig:
     """Configuration for Desk Briefing synthesis."""
     # Model settings
-    analysis_model: str = "gpt-4o"
-    synthesis_model: str = "gpt-4o"
+    analysis_model: str = "gpt-5.4"
+    synthesis_model: str = "gpt-5.4"
 
     # Temperature settings
     analysis_temp: float = 0.4
@@ -71,7 +92,7 @@ class DailyReportService:
         briefing_name: str,
         articles: List[Dict],
         incidents: List[Dict],
-        model: str = "gpt-4o",
+        model: str = "gpt-5.4",
         organizational_profile: str = None,
         persona: str = None
     ) -> AsyncGenerator[Dict, None]:
@@ -246,16 +267,18 @@ Return JSON:
 """
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            call_kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=1000,
-                response_format={"type": "json_object"}
-            )
+                "response_format": {"type": "json_object"},
+                **_llm_token_kwargs(model, output_tokens=1000),
+            }
+            if not model.startswith("gpt-5"):
+                call_kwargs["temperature"] = temperature
+            response = await litellm.acompletion(**call_kwargs)
 
             analysis = json.loads(response.choices[0].message.content)
 
@@ -315,16 +338,18 @@ Return JSON:
 """
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            call_kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=1000,
-                response_format={"type": "json_object"}
-            )
+                "response_format": {"type": "json_object"},
+                **_llm_token_kwargs(model, output_tokens=1000),
+            }
+            if not model.startswith("gpt-5"):
+                call_kwargs["temperature"] = temperature
+            response = await litellm.acompletion(**call_kwargs)
 
             analysis = json.loads(response.choices[0].message.content)
 
@@ -487,23 +512,28 @@ Return JSON:
 Present strategic considerations that inform executive judgment, not replace it."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            call_kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=3000,
-                response_format={"type": "json_object"}
-            )
+                "response_format": {"type": "json_object"},
+                **_llm_token_kwargs(model, output_tokens=3000),
+            }
+            if not model.startswith("gpt-5"):
+                call_kwargs["temperature"] = temperature
+            response = await litellm.acompletion(**call_kwargs)
 
-            result = json.loads(response.choices[0].message.content)
+            raw = response.choices[0].message.content or ""
+            logger.info("Briefing synthesis: %s returned %d chars for '%s'",
+                        model, len(raw), briefing_name)
+            result = json.loads(raw)
             logger.info(f"Synthesis complete for '{briefing_name}'")
             return result
 
         except Exception as e:
-            logger.error(f"Synthesis failed: {e}")
+            logger.error(f"Synthesis failed ({model}): {type(e).__name__}: {e}")
             return {
                 "briefing_summary": f"Briefing of {len(articles)} articles and {len(incidents)} incidents.",
                 "themes": [],

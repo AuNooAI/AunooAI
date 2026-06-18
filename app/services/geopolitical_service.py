@@ -2005,7 +2005,7 @@ class GeopoliticalService:
             conn.close()
 
 
-async def extract_location_with_llm(title: str, summary: str, category: str, model_name: str = "gpt-4o-mini") -> Dict[str, Any]:
+async def extract_location_with_llm(title: str, summary: str, category: str, model_name: str = "gpt-5.4-mini") -> Dict[str, Any]:
     """Use LLM to extract location information from an article."""
     from app.ai_models import LiteLLMModel
 
@@ -2045,7 +2045,7 @@ async def extract_location_with_llm(title: str, summary: str, category: str, mod
         return {"no_location": True, "error": str(e)}
 
 
-async def generate_narrative_with_llm(stats: Dict[str, Any], model_name: str = "gpt-4o-mini") -> Dict[str, Any]:
+async def generate_narrative_with_llm(stats: Dict[str, Any], model_name: str = "gpt-5.4-mini") -> Dict[str, Any]:
     """Use LLM to generate a strategic intelligence narrative."""
     from app.ai_models import LiteLLMModel
 

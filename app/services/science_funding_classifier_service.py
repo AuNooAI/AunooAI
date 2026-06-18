@@ -2,7 +2,7 @@
 Science Funding Classifier Service
 
 ML-based science funding category classification using DeBERTa.
-Distilled from LLM (gpt-4.1-mini) classifications.
+Distilled from LLM (gpt-5.4-mini) classifications.
 
 Usage:
     from app.services.science_funding_classifier_service import ScienceFundingClassifierService

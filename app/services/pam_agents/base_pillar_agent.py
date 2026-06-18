@@ -19,7 +19,7 @@ import litellm
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 
 
 class AgentStage(Enum):

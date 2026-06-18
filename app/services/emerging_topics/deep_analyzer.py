@@ -198,7 +198,7 @@ class DeepAnalyzer:
     def __init__(
         self,
         ai_model_getter: Optional[Callable] = None,
-        default_model: str = "gpt-4o"
+        default_model: str = "gpt-5.4"
     ):
         self.ai_model_getter = ai_model_getter
         self.default_model = default_model

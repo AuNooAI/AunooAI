@@ -61,7 +61,7 @@ class EmergingTopicsMonitor:
                 self.min_articles = row['min_articles']
                 self.sample_size = row['sample_size'] or 200
                 self.days_back = row['days_back'] or 7
-                self.model = row['model'] or 'gpt-4o-mini'
+                self.model = row['model'] or 'gpt-5.4-mini'
                 self.topic_filter = row['topic_filter']
                 self.notifications_enabled = row['notifications_enabled']
                 self.notification_channels = row['notification_channels'] or {}
@@ -95,7 +95,7 @@ class EmergingTopicsMonitor:
         self.min_articles = 50
         self.sample_size = 200
         self.days_back = 7
-        self.model = 'gpt-4o-mini'
+        self.model = 'gpt-5.4-mini'
         self.topic_filter = None
         self.notifications_enabled = False
         self.notification_channels = {}
@@ -156,6 +156,27 @@ class EmergingTopicsMonitor:
 
         except Exception as e:
             logger.error(f"Error updating status: {e}")
+
+    def _get_next_check_time(self) -> Optional[datetime]:
+        """Read the persisted next_check_time from the status table.
+
+        Returning the persisted value (rather than recomputing now+interval on
+        every startup) makes the schedule restart-resilient: a deploy /
+        ``systemctl restart`` mid-interval resumes the existing schedule instead
+        of pushing the next run a full interval into the future.
+        """
+        try:
+            conn = self.db._temp_get_connection()
+            row = conn.execute(text("""
+                SELECT next_check_time
+                FROM emerging_topics_monitor_status
+                WHERE id = 1
+            """)).mappings().first()
+            conn.close()
+            return row["next_check_time"] if row else None
+        except Exception as e:
+            logger.error(f"Error reading next_check_time: {e}")
+            return None
 
     async def run_detection(self) -> Dict[str, Any]:
         """Run emerging topics detection."""
@@ -310,32 +331,27 @@ async def run_emerging_topics_monitor():
     logger.info("Emerging topics monitor background task started")
     _background_task_status["running"] = True
 
+    # Poll at most this often so settings/enable changes and restarts are
+    # picked up promptly. The actual run cadence is governed by the persisted
+    # next_check_time, NOT by how long we sleep.
+    POLL_SECONDS = 60
+
     while True:
         try:
-            # Reload settings each iteration
+            # Reload settings each iteration (picks up enable/interval changes)
             monitor._load_settings()
 
             if not monitor.schedule_enabled:
                 logger.debug("Emerging topics scheduling is disabled")
-                # Check again in 60 seconds
-                await asyncio.sleep(60)
+                await asyncio.sleep(POLL_SECONDS)
                 continue
 
-            # Calculate next check time
-            next_check = datetime.now() + timedelta(seconds=monitor.check_interval_seconds)
-            _background_task_status["next_check_time"] = next_check
-            monitor._update_status(next_check_time=next_check)
+            now = datetime.now()
+            next_check = monitor._get_next_check_time()
 
-            logger.info(
-                f"Emerging topics detection scheduled - next check in "
-                f"{monitor.check_interval} {monitor.interval_unit} at {next_check.strftime('%H:%M:%S')}"
-            )
-
-            # Sleep until next check
-            await asyncio.sleep(monitor.check_interval_seconds)
-
-            # Run detection
-            if monitor.schedule_enabled:  # Re-check in case it was disabled
+            # First run after enabling, or a window we missed while the service
+            # was down: run now (catch-up) rather than waiting a full interval.
+            if next_check is None or now >= next_check:
                 logger.info("Starting scheduled emerging topics detection")
                 result = await monitor.run_detection()
 
@@ -347,12 +363,28 @@ async def run_emerging_topics_monitor():
                 else:
                     logger.error(f"Scheduled detection failed: {result['error']}")
 
+                # Schedule the next run one interval out and persist it so a
+                # restart resumes from here instead of resetting the timer.
+                next_check = datetime.now() + timedelta(seconds=monitor.check_interval_seconds)
+                _background_task_status["next_check_time"] = next_check
+                monitor._update_status(next_check_time=next_check)
+                logger.info(
+                    f"Next emerging topics check in {monitor.check_interval} "
+                    f"{monitor.interval_unit} at {next_check.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                continue
+
+            # Not due yet: surface the persisted target and sleep a short slice.
+            _background_task_status["next_check_time"] = next_check
+            remaining = (next_check - now).total_seconds()
+            await asyncio.sleep(max(1, min(remaining, POLL_SECONDS)))
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Emerging topics monitor error: {error_msg}", exc_info=True)
             _background_task_status["last_error"] = error_msg
             # Sleep before retrying
-            await asyncio.sleep(60)
+            await asyncio.sleep(POLL_SECONDS)
 
 
 async def run_detection_now(db: Database, topic_filter: Optional[str] = None) -> Dict[str, Any]:

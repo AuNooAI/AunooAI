@@ -789,7 +789,7 @@ async def remove_model(model_data: RemoveModelRequest):
                 
             key_name = line_stripped.split('=')[0]
             
-            # Handle models with dots in the name (like gpt-3.5-turbo)
+            # Handle models with dots in the name (like gpt-5.4-mini)
             # Create a few common patterns to match against
             env_var_prefix = f"{provider}_API_KEY_"
             
@@ -1665,7 +1665,7 @@ async def bulk_research_endpoint(
             "urls": ["https://example.com/article1", "https://example.com/article2"],
             "topic": "AI and Machine Learning",
             "summary_type": "curious_ai",
-            "model_name": "gpt-4",
+            "model_name": "gpt-5.4",
             "summary_length": "medium",
             "summary_voice": "neutral"
         }]
@@ -1676,7 +1676,7 @@ async def bulk_research_endpoint(
         results = await bulk_research.analyze_bulk_urls(
             urls=data.get("urls", []),
             summary_type=data.get("summary_type", "curious_ai"),
-            model_name=data.get("model_name", "gpt-4"),
+            model_name=data.get("model_name", "gpt-5.4"),
             summary_length=data.get("summary_length", "medium"),
             summary_voice=data.get("summary_voice", "neutral"),
             topic=data.get("topic")

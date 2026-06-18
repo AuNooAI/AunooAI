@@ -630,7 +630,7 @@ class KeywordMonitor:
 
             # Load user config
             config = self.db.facade.get_six_articles_config(username) or {}
-            model = config.get('model', 'gpt-4o-mini')
+            model = config.get('model', 'gpt-5.4-mini')
 
             # === 1. Regenerate Six Articles ===
             try:
@@ -716,7 +716,7 @@ class KeywordMonitor:
                     start_date: Optional[str] = None
                     end_date: Optional[str] = None
                     max_articles: int = 100
-                    model: str = 'gpt-4o-mini'
+                    model: str = 'gpt-5.4-mini'
                     force_regenerate: bool = True
                     domain: Optional[str] = None
                     profile_id: Optional[int] = None

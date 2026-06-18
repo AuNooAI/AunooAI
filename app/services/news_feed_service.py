@@ -1202,7 +1202,7 @@ FULL ARTICLE CONTENT:
 Extract detailed strategic intelligence from this article."""
 
             response = await litellm.acompletion(
-                model="gpt-4o-mini",  # Use faster model for per-article analysis
+                model="gpt-5.4-mini",  # Use faster model for per-article analysis
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}

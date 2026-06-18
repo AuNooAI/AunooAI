@@ -119,9 +119,9 @@ class AnalyzerConfig:
     search_days_back: int = 7
 
     # Model settings
-    analysis_model: str = "gpt-4o"
+    analysis_model: str = "gpt-5.4"
     analysis_temperature: float = 0.3
-    extraction_model: str = "gpt-4.1-mini"
+    extraction_model: str = "gpt-5.4-mini"
     extraction_temperature: float = 0.2
 
     # Timeouts

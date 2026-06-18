@@ -40,6 +40,10 @@ import {
   fetchBriefings,
   fetchBriefing,
   createBriefing,
+  streamComposeDailyBriefing,
+  type ComposeProgressEvent,
+  fetchComposeConfig,
+  saveComposeConfig,
   deleteBriefing,
   removeArticleFromBriefing,
   removeIncidentFromBriefing,
@@ -96,6 +100,16 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
   const [newBriefingDescription, setNewBriefingDescription] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Auto-compose form state
+  const [showComposeForm, setShowComposeForm] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [availableTopics, setAvailableTopics] = useState<Array<{ name: string; description?: string }>>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [loadingTopics, setLoadingTopics] = useState(false);
+  const [savingDefault, setSavingDefault] = useState(false);
+  const [savedDefault, setSavedDefault] = useState(false);
+  const [composeLog, setComposeLog] = useState<ComposeProgressEvent[]>([]);
+
   // Finalize state
   const [finalizing, setFinalizing] = useState(false);
   const [finalizeProgress, setFinalizeProgress] = useState<FinalizeProgressEvent | null>(null);
@@ -150,6 +164,74 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
       setError(e instanceof Error ? e.message : 'Failed to create briefing');
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Open the compose modal and load configured topics + saved default selection
+  const openComposeForm = async () => {
+    setShowComposeForm(true);
+    setSavedDefault(false);
+    setLoadingTopics(true);
+    try {
+      const cfg = await fetchComposeConfig();
+      setAvailableTopics(cfg.available_topics);
+      setSelectedTopics(cfg.selected_topics);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load topics');
+    } finally {
+      setLoadingTopics(false);
+    }
+  };
+
+  const toggleTopic = (name: string) => {
+    setSavedDefault(false);
+    setSelectedTopics((prev) =>
+      prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]
+    );
+  };
+
+  // Persist the current selection as the saved default set
+  const handleSaveDefault = async () => {
+    setSavingDefault(true);
+    setError(null);
+    try {
+      await saveComposeConfig(selectedTopics);
+      setSavedDefault(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save selection');
+    } finally {
+      setSavingDefault(false);
+    }
+  };
+
+  // Auto-compose today's briefing — streams staged progress (detect + curate + stage)
+  const handleComposeBriefing = async () => {
+    setComposing(true);
+    setError(null);
+    setComposeLog([]);
+    try {
+      const final = await streamComposeDailyBriefing(
+        selectedTopics.length ? selectedTopics : undefined,
+        undefined,
+        (evt) => {
+          // Keep one line per stage; replace the stage's line as it progresses
+          setComposeLog((prev) => {
+            const next = prev.filter((e) => e.stage !== evt.stage);
+            return [...next, evt];
+          });
+        }
+      );
+      if (final?.briefing_id) {
+        setShowComposeForm(false);
+        setComposeLog([]);
+        await loadBriefings();
+        onRefreshNeeded?.();
+        await handleSelectBriefing(final.briefing_id);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to compose briefing');
+    } finally {
+      setComposing(false);
     }
   };
 
@@ -222,7 +304,7 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     setFinalizeProgress(null);
 
     try {
-      await finalizeBriefing(selectedBriefing.id, model || 'gpt-4o', (event) => {
+      await finalizeBriefing(selectedBriefing.id, model || 'gpt-5.4', (event) => {
         setFinalizeProgress(event);
       }, {
         organizational_profile: organizationalProfile,
@@ -397,6 +479,15 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={openComposeForm}
+            disabled={composing}
+            title="Auto-compose today's briefing from emerging topics + relevant news"
+            className="px-3 py-2 text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-900/20 rounded-lg hover:bg-pink-100 disabled:opacity-50 flex items-center gap-2 text-sm font-medium"
+          >
+            {composing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {composing ? 'Composing…' : "Compose today's briefing"}
+          </button>
+          <button
             onClick={() => setShowCreateForm(true)}
             title="New Briefing"
             className="p-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100"
@@ -405,6 +496,145 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
           </button>
         </div>
       </div>
+
+      {/* Auto-compose modal */}
+      {showComposeForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !composing && setShowComposeForm(false)} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-pink-500" />
+              Compose today's briefing
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-300 mb-4">
+              Creates a draft, runs Emerging Topics detection, and stages the strongest topics plus the
+              most relevant news for you to curate. This can take a minute or two per topic.
+            </p>
+            {composing ? (
+              <div className="py-2">
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  {['create', 'gather', 'emerging', 'incidents', 'curate', 'stage', 'complete']
+                    .map((s) => composeLog.find((e) => e.stage === s))
+                    .filter((e): e is ComposeProgressEvent => Boolean(e))
+                    .map((e) => {
+                      const done = e.status === 'completed' || e.stage === 'complete';
+                      return (
+                        <div key={e.stage} className="flex items-start gap-2 text-sm">
+                          {done ? (
+                            <Check className="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Loader2 className="w-4 h-4 mt-0.5 text-pink-500 animate-spin shrink-0" />
+                          )}
+                          <span className={done ? 'text-gray-600 dark:text-gray-300' : 'text-gray-900 dark:text-gray-100 font-medium'}>
+                            {e.message}
+                            {e.fallback ? ' (heuristic fallback)' : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
+                  Detecting and curating can take a minute or two…
+                </p>
+              </div>
+            ) : loadingTopics ? (
+              <div className="flex items-center justify-center py-8 text-gray-500 dark:text-gray-400">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading topics…
+              </div>
+            ) : availableTopics.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">
+                No topics configured.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Topics ({selectedTopics.length} selected)
+                  </label>
+                  <div className="flex items-center gap-2 text-xs">
+                    <button
+                      onClick={() => { setSavedDefault(false); setSelectedTopics(availableTopics.map((t) => t.name)); }}
+                      className="text-pink-600 dark:text-pink-400 hover:underline"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-gray-300 dark:text-gray-600">|</span>
+                    <button
+                      onClick={() => { setSavedDefault(false); setSelectedTopics([]); }}
+                      className="text-pink-600 dark:text-pink-400 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700">
+                  {availableTopics.map((t) => (
+                    <label
+                      key={t.name}
+                      className="flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTopics.includes(t.name)}
+                        onChange={() => toggleTopic(t.name)}
+                        disabled={composing}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-pink-500 focus:ring-pink-500"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm text-gray-900 dark:text-gray-100">{t.name}</span>
+                        {t.description ? (
+                          <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {t.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={handleSaveDefault}
+                  disabled={savingDefault || composing}
+                  className="mt-2 text-xs text-gray-600 dark:text-gray-300 hover:text-pink-600 dark:hover:text-pink-400 flex items-center gap-1 disabled:opacity-50"
+                >
+                  {savingDefault ? (
+                    <><Loader2 className="w-3 h-3 animate-spin" /> Saving…</>
+                  ) : savedDefault ? (
+                    <><Check className="w-3 h-3 text-emerald-500" /> Saved as default</>
+                  ) : (
+                    <><Save className="w-3 h-3" /> Save selection as default</>
+                  )}
+                </button>
+              </>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setShowComposeForm(false)}
+                disabled={composing}
+                className="flex-1 px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleComposeBriefing}
+                disabled={composing || selectedTopics.length === 0}
+                className="flex-1 px-3 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {composing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Composing…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Compose
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error display */}
       {error && (

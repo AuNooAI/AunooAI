@@ -41,7 +41,7 @@ STAGE_B_MIN_SCORE: float = 0.5    # sigmoid'd reranker score gate
 STAGE_C_MARGIN: float = 0.04
 STAGE_D_CONCURRENCY: int = 8      # parallel LLM calls
 DEFAULT_MAX_ARTICLES: int = 2000
-DEFAULT_CLASSIFY_MODEL: str = "gpt-4.1-mini"
+DEFAULT_CLASSIFY_MODEL: str = "gpt-5.4-mini"
 
 # Confidence floor below which a verdict counts as inconclusive evidence
 MIN_CONF_FOR_VERDICT_PROMOTION: float = 0.5

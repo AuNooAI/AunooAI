@@ -593,7 +593,7 @@ export function ExtremeOutliers({
           metadata: result?.metadata,
           articles_used: articles?.length || 0,
           article_uris: articles?.map(a => a.uri).filter(Boolean),
-          model_used: 'gpt-4.1',
+          model_used: 'gpt-5.4',
           time_horizon: timeHorizon,
           scenario_count: scenarios.length
         })

@@ -161,10 +161,10 @@ class SIOConfig:
     max_clusters: int = 50
 
     # Model settings
-    discovery_model: str = "gpt-4.1-mini"
-    triage_model: str = "gpt-4.1-mini"
-    analysis_model: str = "gpt-4.1"
-    synthesis_model: str = "gpt-4.1"
+    discovery_model: str = "gpt-5.4-mini"
+    triage_model: str = "gpt-5.4-mini"
+    analysis_model: str = "gpt-5.4"
+    synthesis_model: str = "gpt-5.4"
 
     # Timeouts (seconds)
     discovery_timeout: int = 120

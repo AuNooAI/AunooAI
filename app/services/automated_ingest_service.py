@@ -139,7 +139,7 @@ class AutomatedIngestService:
         except Exception as e:
             self.logger.warning(f"Could not get LLM settings from database: {e}")
 
-        return "gpt-4o-mini"  # Ultimate fallback
+        return "gpt-5.4-mini"  # Ultimate fallback
     
     def get_llm_parameters(self) -> Dict[str, Any]:
         """

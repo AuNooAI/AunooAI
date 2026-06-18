@@ -26,7 +26,7 @@ class RelevanceScoringConfig:
     high_relevance_threshold: float = 0.8  # Score for prioritized articles
 
     # Model settings
-    model: str = "gpt-4.1-mini"  # Fast model for scoring
+    model: str = "gpt-5.4-mini"  # Fast model for scoring
     temperature: float = 0.1  # Low temperature for consistent scoring
 
     # Batching

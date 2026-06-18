@@ -1863,12 +1863,12 @@ async def get_model_config():
     # External models (LLM fallbacks)
     external_models = [
         ModelInfo(
-            name="gpt-4o-mini",
+            name="gpt-5.4-mini",
             type="external",
             status="available",
-            latency=format_latency('gpt-4o-mini', '~2-5s'),
+            latency=format_latency('gpt-5.4-mini', '~2-5s'),
             description="Fallback for all stages",
-            tooltip="OpenAI gpt-4o-mini used as fallback when: (1) Local models unavailable, (2) DeBERTa confidence < 0.6, (3) Topics with < 500 training samples, (4) Relevance score in uncertain range (0.3-0.7). Cost is per-article average.",
+            tooltip="OpenAI gpt-5.4-mini used as fallback when: (1) Local models unavailable, (2) DeBERTa confidence < 0.6, (3) Topics with < 500 training samples, (4) Relevance score in uncertain range (0.3-0.7). Cost is per-article average.",
             usage="Fallback: Summary, Category, Enrichment, Explanations, Tags",
             cost="~$0.001/article",
         ),
@@ -1964,7 +1964,7 @@ async def get_cost_savings(hours: int = 24):
         total_articles = result.fetchone()[0] or 0
 
         # Calculate costs
-        # Assume ~$0.001 per article for LLM (gpt-4o-mini for summary + enrichment)
+        # Assume ~$0.001 per article for LLM (gpt-5.4-mini for summary + enrichment)
         COST_PER_LLM_ARTICLE = 0.001
 
         # Local model count = total - articles that used LLM fallback

@@ -1289,7 +1289,7 @@ async def regenerate_pillar_queries(
         service = get_pam_service()
         queries = await service._generate_pillar_queries(
             pillar,
-            model=model or "gpt-4.1-mini",
+            model=model or "gpt-5.4-mini",
             force_regenerate=True
         )
 
@@ -1338,7 +1338,7 @@ async def list_pam_prompts(
                             "id": filename.replace(".md", ""),
                             "name": frontmatter.get("name", filename),
                             "description": frontmatter.get("description", ""),
-                            "model": frontmatter.get("model_config", {}).get("model", "gpt-4.1-mini"),
+                            "model": frontmatter.get("model_config", {}).get("model", "gpt-5.4-mini"),
                             "temperature": frontmatter.get("model_config", {}).get("temperature", 0.3),
                             "version": frontmatter.get("version", "1.0.0")
                         })
@@ -1896,7 +1896,7 @@ class ExtractionRequest(BaseModel):
     days_back: int = Field(30, ge=7, le=365)
     batch_size: int = Field(50, ge=10, le=100)
     max_articles: int = Field(500, ge=50, le=2000)
-    model: Optional[str] = Field(None, description="Model to use for extraction (e.g., gpt-4.1-mini, gpt-4o)")
+    model: Optional[str] = Field(None, description="Model to use for extraction (e.g., gpt-5.4-mini, gpt-5.4)")
 
 
 @router.post("/events/extract")

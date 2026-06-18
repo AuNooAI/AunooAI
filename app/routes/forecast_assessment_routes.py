@@ -33,7 +33,7 @@ async def kick_off_assessment(
     run_id: str,
     mode: str = Query("live", pattern="^(live|placebo)$"),
     max_articles: int = Query(2000, ge=10, le=5000),
-    classify_model: str = Query("gpt-4.1-mini"),
+    classify_model: str = Query("gpt-5.4-mini"),
     margin: float = Query(0.04, ge=0.0, le=0.5),
     granularity: str = Query("auto", pattern="^(auto|deck|db)$"),
     window_weeks: Optional[int] = Query(None, ge=1, le=104),
@@ -97,7 +97,7 @@ async def kick_off_paired_assessment(
     run_id: str,
     window_weeks: int = Query(8, ge=1, le=52),
     max_articles: int = Query(2000, ge=10, le=5000),
-    classify_model: str = Query("gpt-4.1-mini"),
+    classify_model: str = Query("gpt-5.4-mini"),
     margin: float = Query(0.04, ge=0.0, le=0.5),
     granularity: str = Query("auto", pattern="^(auto|deck|db)$"),
 ):

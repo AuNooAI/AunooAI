@@ -231,7 +231,7 @@ t_newsfeed_dashboard_snapshots = Table(
     Column('topic', String(255), nullable=True),  # NULL = all topics
     Column('generated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Column('persona', String(100), nullable=False, server_default=text("'CEO'")),
-    Column('model', String(100), nullable=False, server_default=text("'gpt-4o-mini'")),
+    Column('model', String(100), nullable=False, server_default=text("'gpt-5.4-mini'")),
     Column('briefing_articles', JSONB, nullable=True),
     Column('briefing_generated', Boolean, server_default=text('false'), nullable=False),
     Column('highlights_data', JSONB, nullable=True),
@@ -1676,7 +1676,7 @@ t_enrichment_training_samples = Table(
     Column('field_name', Text, nullable=False),  # 'sentiment', 'time_to_impact', etc.
     Column('field_value', Text, nullable=False),
     Column('source', Text, nullable=False),  # 'llm_bootstrap', 'human_verified'
-    Column('model_used', Text),  # 'gpt-4o-mini'
+    Column('model_used', Text),  # 'gpt-5.4-mini'
     Column('confidence', Float),
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     UniqueConstraint('article_uri', 'field_name', name='uq_training_sample_article_field'),

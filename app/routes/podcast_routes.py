@@ -242,7 +242,7 @@ class TTSPodcastRequest(BaseModel):
     article_uris: Optional[List[str]] = None
 
     # Prompt / LLM configuration
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     duration: str = "medium"  # short | medium | long
     length_per_article: int = 90  # Target seconds per article (45-150)
     article_count: Optional[int] = None  # Number of articles
@@ -1550,7 +1550,7 @@ class DiaPodcastRequest(BaseModel):
     output_format: str = "mp3"
 
     # Script generation fallback extras
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     duration: str = "medium"
     host_name: Optional[str] = "Aunoo"
     guest_name: Optional[str] = "Auspex"

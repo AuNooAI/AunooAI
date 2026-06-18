@@ -77,7 +77,7 @@ const DEFAULT_CONFIG: EmergingTopicsConfig = {
   distanceThreshold: 0.85,
   minArticlesPerTheme: 3,
   maxArticlesPerTheme: 30,
-  model: 'gpt-4o',
+  model: 'gpt-5.4',
 };
 
 const STORAGE_KEY = 'emergingTopicsConfig';
@@ -154,14 +154,14 @@ export function EmergingTopicsConfigModal({
   const modelOptions = availableModels.length > 0
     ? availableModels
     : [
-        { id: 'gpt-4o', name: 'gpt-4o', provider: 'openai' },
-        { id: 'gpt-4o-mini', name: 'gpt-4o-mini', provider: 'openai' },
+        { id: 'gpt-5.4', name: 'gpt-5.4', provider: 'openai' },
+        { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini', provider: 'openai' },
         { id: 'claude-sonnet-4-20250514', name: 'claude-sonnet-4', provider: 'anthropic' },
       ];
 
   const selectedModel = modelOptions.find(m => m.id === config.model)?.id
     || modelOptions[0]?.id
-    || 'gpt-4o';
+    || 'gpt-5.4';
 
   const handleSave = async () => {
     setLoading(true);

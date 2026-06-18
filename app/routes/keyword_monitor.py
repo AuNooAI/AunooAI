@@ -107,7 +107,7 @@ class KeywordMonitorSettings(BaseModel):
     min_relevance_threshold: float = 0.0
     quality_control_enabled: bool = True
     auto_save_approved_only: bool = False
-    default_llm_model: str = "gpt-4o-mini"
+    default_llm_model: str = "gpt-5.4-mini"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1000
     max_articles_per_run: int = 50
@@ -3683,7 +3683,7 @@ Focus on making the patterns more specific to {request.topic} while excluding th
 async def suggest_keyword_improvements(
     keyword_id: int,
     group_id: int,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-5.4-mini",
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):

@@ -36,7 +36,7 @@ class _StartTopicReportRequest(BaseModel):
     )
     force_model: Optional[str] = Field(
         None,
-        description="Model id to use for the forecast rerun (default 'gpt-5'). Ignored when rerun_forecast=False.",
+        description="Model id to use for the forecast rerun (default 'gpt-5.4'). Ignored when rerun_forecast=False.",
     )
 
 

@@ -336,7 +336,7 @@ export function GeopoliticalInsightsTab({
   stats,
   hotspots,
   loading,
-  model = 'gpt-4o-mini',
+  model = 'gpt-5.4-mini',
 }: GeopoliticalInsightsTabProps) {
   const [generating, setGenerating] = useState(false);
   const [narrative, setNarrative] = useState<Narrative | null>(null);

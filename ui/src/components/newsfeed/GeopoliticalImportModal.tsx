@@ -53,7 +53,7 @@ export function GeopoliticalImportModal({
   isOpen,
   onClose,
   onImportComplete,
-  model = 'gpt-4o-mini',
+  model = 'gpt-5.4-mini',
 }: GeopoliticalImportModalProps) {
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [availableTopics, setAvailableTopics] = useState<AvailableTopic[]>([]);

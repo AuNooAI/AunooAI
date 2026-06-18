@@ -2523,7 +2523,7 @@ class SemanticClassifyRequest(BaseModel):
     article_uri: str = Field(..., description="URI of the article to classify")
     title: str = Field(..., description="Article title")
     summary: str = Field(..., description="Article summary/content")
-    model: str = Field("gpt-4.1-mini", description="LLM model to use for classification")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use for classification")
 
 
 class SemanticClassifyResponse(BaseModel):
@@ -2540,7 +2540,7 @@ class SemanticClassifyBatchRequest(BaseModel):
     topic: str = Field(DEFAULT_TRACKER_TOPIC, description="Topic to classify articles for")
     days_back: int = Field(30, ge=1, le=365, description="Days back to look for uncategorized articles")
     limit: int = Field(50, ge=1, le=200, description="Maximum articles to classify")
-    model: str = Field("gpt-4.1-mini", description="LLM model to use")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use")
     reprocess: bool = Field(False, description="Re-classify already classified articles")
 
 
@@ -2558,7 +2558,7 @@ class NarrativeRequest(BaseModel):
     """Request for narrative analysis generation."""
     topic: str = Field(DEFAULT_TRACKER_TOPIC, description="Topic to analyze")
     days_back: int = Field(365, ge=7, le=730, description="Days to analyze")
-    model: str = Field("gpt-4.1-mini", description="LLM model for narrative generation")
+    model: str = Field("gpt-5.4-mini", description="LLM model for narrative generation")
 
 
 class NarrativeResponse(BaseModel):
@@ -2573,7 +2573,7 @@ class CategoryInsightRequest(BaseModel):
     category: str = Field(..., description="Category to analyze")
     topic: str = Field(DEFAULT_TRACKER_TOPIC, description="Topic context")
     days_back: int = Field(365, ge=7, le=730, description="Days to analyze")
-    model: str = Field("gpt-4.1-mini", description="LLM model to use")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use")
 
 
 class CategoryInsightResponse(BaseModel):
@@ -2588,7 +2588,7 @@ class CategoryInsightResponse(BaseModel):
 async def llm_categorize_article(
     title: str,
     summary: str,
-    model_name: str = "gpt-4.1-mini"
+    model_name: str = "gpt-5.4-mini"
 ) -> Dict[str, Any]:
     """
     Use LLM for semantic categorization of an article.
@@ -3805,7 +3805,7 @@ async def save_narrative_to_db(topic: str, days_back: int, conn=None) -> int:
             geography_breakdown=geography_breakdown
         )
 
-        model = LiteLLMModel.get_instance("gpt-4.1-mini")
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
         narrative = await model.agenerate_response([
             {"role": "system", "content": """You are a senior policy analyst specializing in democratic backsliding and authoritarian transitions. You write critical analytical reports for civil society organizations monitoring threats to democracy.
 

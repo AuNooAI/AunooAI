@@ -175,7 +175,7 @@ class SummarizationService:
                 if available and len(available) > 0:
                     configured_model = available[0].get('name')
                 else:
-                    configured_model = "gpt-4o-mini"  # Ultimate fallback
+                    configured_model = "gpt-5.4-mini"  # Ultimate fallback
 
             logger.info(f"Using fallback LLM for summarization: {configured_model}")
 

@@ -23,11 +23,15 @@ from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
 
 # Context limits for different AI models (copied from futures cone)
 CONTEXT_LIMITS = {
-    # OpenAI flagship — gpt-5 is the current customer-facing recommendation
+    # OpenAI flagship — gpt-5.4 is the current customer-facing recommendation
     # (the Wiley bundle supervisor pipeline already runs on it).
     'gpt-5': 400000,
     'gpt-5-mini': 400000,
     'gpt-5-nano': 400000,
+    'gpt-5.5': 1000000,
+    'gpt-5.4': 400000,
+    'gpt-5.4-mini': 400000,
+    'gpt-5.4-nano': 400000,
     'gpt-3.5-turbo': 16385,
     'gpt-3.5-turbo-16k': 16385,
     'gpt-4': 8192,
@@ -527,7 +531,7 @@ def _preprocess_response(response: str) -> str:
 async def get_trend_convergence_models():
     """Get available AI models for trend convergence analysis.
 
-    Ordered with the flagship (gpt-5 family) first so the UI hook's
+    Ordered with the flagship (gpt-5.4 family) first so the UI hook's
     ``modelsData[0]`` default selection picks the flagship by default.
     """
     try:
@@ -538,10 +542,14 @@ async def get_trend_convergence_models():
 
         # Friendly display labels for known flagship + mid-tier models.
         DISPLAY = {
-            'gpt-5':         'GPT-5 (flagship)',
-            'gpt-5-mini':    'GPT-5 Mini',
+            'gpt-5.5':       'GPT-5.5 (flagship)',
+            'gpt-5.4':       'GPT-5.4',
+            'gpt-5.4-mini':  'GPT-5.4 Mini',
+            'gpt-5.4-nano':  'GPT-5.4 Nano',
+            'gpt-5':         'GPT-5 (legacy)',
+            'gpt-5-mini':    'GPT-5 Mini (legacy)',
             'gpt-4.1':       'GPT-4.1',
-            'gpt-5-nano':    'GPT-5 Nano',
+            'gpt-5-nano':    'GPT-5 Nano (legacy)',
             'gpt-4o':        'GPT-4o',
             'gpt-4.1-mini':  'GPT-4.1 Mini',
             'gpt-4.1-nano':  'GPT-4.1 Nano',
@@ -550,15 +558,15 @@ async def get_trend_convergence_models():
             'claude-3-7-sonnet-latest': 'Claude 3.7 Sonnet',
             'claude-3-5-sonnet-latest': 'Claude 3.5 Sonnet',
         }
-        # Stable preference order — gpt-5 first (flagship, reasoning).
+        # Stable preference order — gpt-5.4 first (flagship, reasoning).
         # The Topic Reports re-run path wires reasoning_effort + max_completion_tokens.
         PREF = [
-            'gpt-5', 'gpt-5-mini',
-            'gpt-4.1', 'gpt-4o',
+            'gpt-5.4', 'gpt-5.4-mini',
+            'gpt-5.4', 'gpt-5.4',
             'claude-4-sonnet-latest', 'claude-3-7-sonnet-latest',
-            'gpt-4.1-mini', 'gpt-4o-mini',
+            'gpt-5.4-mini', 'gpt-5.4-mini',
             'claude-3-5-sonnet-latest',
-            'gpt-5-nano', 'gpt-4.1-nano',
+            'gpt-5.4-nano', 'gpt-5.4-nano',
         ]
         seen = {m['name']: m for m in models if isinstance(m, dict) and m.get('name')}
 
@@ -582,12 +590,12 @@ async def get_trend_convergence_models():
     except Exception as e:
         logger.error(f"Error fetching models: {str(e)}")
         return [
-            {'id': 'gpt-5', 'name': 'GPT-5 (flagship)', 'context_limit': 400000},
-            {'id': 'gpt-5-mini', 'name': 'GPT-5 Mini', 'context_limit': 400000},
-            {'id': 'gpt-4.1', 'name': 'GPT-4.1', 'context_limit': 1000000},
-            {'id': 'gpt-4o', 'name': 'GPT-4o', 'context_limit': 128000},
-            {'id': 'gpt-4.1-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
-            {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
+            {'id': 'gpt-5.4', 'name': 'GPT-5 (flagship)', 'context_limit': 400000},
+            {'id': 'gpt-5.4-mini', 'name': 'GPT-5 Mini', 'context_limit': 400000},
+            {'id': 'gpt-5.4', 'name': 'GPT-4.1', 'context_limit': 1000000},
+            {'id': 'gpt-5.4', 'name': 'GPT-4o', 'context_limit': 128000},
+            {'id': 'gpt-5.4-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
+            {'id': 'gpt-5.4-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
             {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000},
         ]
 
@@ -3455,7 +3463,7 @@ class HorizonsExecutiveSummaryRequest(BaseModel):
     """Request model for generating executive summary from horizons scenarios"""
     scenarios: List[Dict[str, Any]]
     topic: str
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     profile_id: Optional[int] = None
 
 
@@ -3719,6 +3727,55 @@ async def download_horizons_html(
     except Exception as e:
         logger.warning("horizons HTML: article refs lookup failed for %s: %s",
                        analysis_id, e)
+
+    # Fallback: older runs (and Topic-Reports reruns made before the fha
+    # write was added) carry no future_horizon_articles rows. Reconstruct
+    # the same numbered list the prompt builder used so [N] still resolves
+    # — same SELECT / ORDER BY as ``_rerun_future_horizons_for_topic`` and
+    # the canonical Future Horizons prompt builder. Best-effort: if the
+    # article corpus has shifted since the run, the numbering may drift.
+    if not articles:
+        try:
+            from app.routes.trend_convergence_routes import calculate_optimal_sample_size
+            sample_size = calculate_optimal_sample_size(
+                model_used or "gpt-5.4", sample_size_mode="auto"
+            )
+            from sqlalchemy import text as sa_text
+            sql = sa_text(f"""
+                SELECT uri, title, news_source, publication_date
+                FROM articles
+                WHERE topic = :topic
+                  AND analyzed = TRUE
+                  AND topic_alignment_score IS NOT NULL
+                  AND topic_alignment_score > 0.7
+                ORDER BY topic_alignment_score DESC, publication_date DESC
+                LIMIT {int(sample_size)}
+            """)
+            rows = facade._execute_with_rollback(sql, {"topic": topic}).fetchall()
+            for r in rows:
+                d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                if (d.get("title") or "").strip():
+                    articles.append({
+                        "title":  d.get("title"),
+                        "url":    d.get("uri"),
+                        "source": d.get("news_source"),
+                        "date":   (d.get("publication_date") or "")[:10],
+                    })
+            if articles:
+                logger.info("horizons HTML: rebuilt %d-article ref list for %s from "
+                            "on-topic SELECT (no fha rows persisted)",
+                            len(articles), analysis_id)
+        except Exception as e:
+            logger.warning("horizons HTML: fallback ref rebuild failed for %s: %s",
+                           analysis_id, e)
+
+    # Resolve any Google News redirect URIs to the publisher's real URL
+    # so the references list's hover/click targets are short and clear.
+    try:
+        from app.services.html_report_common import resolve_google_news_uris
+        resolve_google_news_uris(articles)
+    except Exception as e:
+        logger.warning("horizons HTML: redirect resolution failed: %s", e)
 
     blob = build_horizons_html(
         topic, scenarios, summaries,

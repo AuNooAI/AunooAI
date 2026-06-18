@@ -55,7 +55,7 @@ class NewsFeedScheduler:
                     topic=topic,
                     max_articles=50,
                     include_bias_analysis=True,
-                    model="gpt-4o"
+                    model="gpt-5.4"
                 )
                 
                 # Generate feed
@@ -127,7 +127,7 @@ class NewsFeedScheduler:
                 json.dumps(feed_response.six_articles.dict(), default=str),
                 feed_response.generated_at.isoformat(),
                 feed_response.processing_time_seconds,
-                "gpt-4o"  # Default model used
+                "gpt-5.4"  # Default model used
             ))
             
             logger.debug(f"Saved generated feed to database: {topic}, {date.date()}")

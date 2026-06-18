@@ -22,7 +22,7 @@ import logging
 import urllib.parse
 from datetime import datetime
 
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.database import get_database_instance
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,24 @@ class CreateBriefingRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Briefing name")
     description: Optional[str] = Field(None, description="Optional description")
     topic: Optional[str] = Field(None, description="Optional topic association")
+
+
+class AutoComposeRequest(BaseModel):
+    """Request model for auto-composing a daily briefing."""
+    topics: Optional[List[str]] = Field(
+        None,
+        description="Topics to compose from. Falls back to the stored daily_briefing_topics setting when omitted.",
+    )
+    min_confidence: float = Field(0.6, ge=0.0, le=1.0, description="Emerging-topic confidence floor")
+    min_alignment: float = Field(0.7, ge=0.0, le=1.0, description="Article topic_alignment_score floor")
+    days_back: int = Field(7, ge=1, le=30, description="Look-back window in days")
+    run_detection: bool = Field(True, description="Run Emerging Topics detection before staging")
+    model: str = Field("gpt-5.4", description="Model for detection")
+
+
+class ComposeConfigRequest(BaseModel):
+    """Request model for saving the default daily-briefing topic set."""
+    topics: List[str] = Field(default_factory=list, description="Selected topic names")
 
 
 class UpdateBriefingRequest(BaseModel):
@@ -125,6 +143,24 @@ class AddIncidentRequest(BaseModel):
                 return [v.strip()] if v.strip() else None
         return v
 
+    @field_validator('timeline', 'first_seen', 'last_seen', 'significance', mode='before')
+    @classmethod
+    def coerce_to_string(cls, v):
+        """Coerce structured values to a string.
+
+        Incident sources sometimes provide these as objects/lists (e.g.
+        timeline = {"announced": "2026-06-17"}) rather than plain strings. The
+        briefing stores and renders them as text, so flatten instead of
+        rejecting the request with a 422.
+        """
+        if v is None or isinstance(v, str):
+            return v
+        if isinstance(v, dict):
+            return "; ".join(f"{k}: {val}" for k, val in v.items())
+        if isinstance(v, (list, tuple)):
+            return "; ".join(str(item) for item in v)
+        return str(v)
+
     @model_validator(mode='after')
     def ensure_name_from_title(self):
         """Ensure name is set from title if not provided."""
@@ -138,7 +174,7 @@ class AddIncidentRequest(BaseModel):
 
 class FinalizeBriefingRequest(BaseModel):
     """Request model for finalizing a briefing."""
-    model: str = Field("gpt-4o", description="AI model to use for synthesis")
+    model: str = Field("gpt-5.4", description="AI model to use for synthesis")
     organizational_profile: Optional[str] = Field(None, description="Organizational profile name for context")
     persona: Optional[str] = Field(None, description="Persona/role for tailored recommendations")
 
@@ -235,6 +271,162 @@ async def create_briefing(
     except Exception as e:
         logger.error(f"Failed to create desk briefing: {e}")
         raise HTTPException(500, f"Failed to create briefing: {str(e)}")
+
+
+def _get_stored_daily_briefing_topics(db) -> List[str]:
+    """Read the configured daily-briefing topic set from emerging_topics_settings."""
+    from sqlalchemy import text
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text(
+            "SELECT daily_briefing_topics FROM emerging_topics_settings WHERE id = 1"
+        )).mappings().first()
+        if row and row["daily_briefing_topics"]:
+            topics = row["daily_briefing_topics"]
+            if isinstance(topics, str):
+                topics = json.loads(topics)
+            return [t for t in topics if t]
+        return []
+    finally:
+        conn.close()
+
+
+@router.post("/auto-compose")
+async def auto_compose_briefing(
+    request: AutoComposeRequest,
+    session: dict = Depends(verify_session_api)
+):
+    """
+    Auto-compose a draft daily briefing.
+
+    Creates a new DRAFT briefing, runs Emerging Topics detection for each named
+    topic, and stages detected topics (above a confidence floor) plus relevant
+    News Feed articles (above a topic-alignment floor) for the user to curate.
+    Falls back to the stored daily_briefing_topics setting when no topics given.
+    """
+    username = _get_username_from_session(session)
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+
+    topics = request.topics or _get_stored_daily_briefing_topics(db)
+    if not topics:
+        raise HTTPException(
+            400,
+            "No topics provided and no daily_briefing_topics configured.",
+        )
+
+    from app.services.daily_briefing_compose_service import compose_daily_briefing
+
+    try:
+        summary = await compose_daily_briefing(
+            db,
+            username,
+            topics,
+            min_confidence=request.min_confidence,
+            min_alignment=request.min_alignment,
+            days_back=request.days_back,
+            run_detection=request.run_detection,
+            model=request.model,
+        )
+        return summary
+    except Exception as e:
+        logger.error(f"Auto-compose failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to compose briefing: {str(e)}")
+
+
+@router.post("/auto-compose/stream")
+async def auto_compose_briefing_stream(
+    request: AutoComposeRequest,
+    session: dict = Depends(verify_session_api)
+):
+    """
+    Auto-compose a draft daily briefing, streaming staged progress as SSE.
+
+    Pipeline: create draft -> gather recent articles -> detect emerging topics ->
+    detect incidents -> LLM-curate the briefing-worthy items -> stage into draft.
+    Each stage emits a `data: {json}` progress event; ends with `[DONE]`.
+    """
+    username = _get_username_from_session(session)
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    topics = request.topics or _get_stored_daily_briefing_topics(db)
+    if not topics:
+        raise HTTPException(400, "No topics provided and no daily_briefing_topics configured.")
+
+    from app.services.daily_briefing_compose_service import compose_daily_briefing_stream
+
+    async def stream():
+        try:
+            async for evt in compose_daily_briefing_stream(
+                db, username, topics,
+                days_back=request.days_back,
+                run_detection=request.run_detection,
+                model=request.model,
+            ):
+                yield f"data: {json.dumps(evt)}\n\n"
+        except Exception as e:
+            logger.error(f"Auto-compose stream error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'stage': 'error', 'status': 'failed', 'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/compose-config")
+async def get_compose_config(session: dict = Depends(verify_session_api)):
+    """Return the configured topics plus the saved default selection for compose."""
+    username = _get_username_from_session(session)
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    from app.config.config import load_config
+    config = load_config()
+    available = [
+        {"name": t["name"], "description": t.get("description", "")}
+        for t in config.get("topics", [])
+        if t.get("name")
+    ]
+
+    db = get_database_instance()
+    selected = _get_stored_daily_briefing_topics(db)
+    return {"available_topics": available, "selected_topics": selected}
+
+
+@router.post("/compose-config")
+async def save_compose_config(
+    request: ComposeConfigRequest,
+    session: dict = Depends(verify_session_api)
+):
+    """Save the default daily-briefing topic set (upsert emerging_topics_settings)."""
+    username = _get_username_from_session(session)
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    from sqlalchemy import text
+    db = get_database_instance()
+    topics = [t for t in request.topics if t]
+    conn = db._temp_get_connection()
+    try:
+        conn.execute(text("""
+            INSERT INTO emerging_topics_settings (id, daily_briefing_topics)
+            VALUES (1, CAST(:topics AS jsonb))
+            ON CONFLICT (id) DO UPDATE
+                SET daily_briefing_topics = CAST(:topics AS jsonb),
+                    updated_at = NOW()
+        """), {"topics": json.dumps(topics)})
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"success": True, "selected_topics": topics}
 
 
 @router.get("/count")

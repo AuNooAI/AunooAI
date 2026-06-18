@@ -65,8 +65,8 @@ def load_newsletter_config() -> Dict[str, Any]:
         "days_back": 7,
         "deep_dive_topic": "",
         "agents": {
-            "deep_dive": {"model": "gpt-4.1", "temperature": 0.3, "max_tokens": 4000},
-            "main_newsletter": {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 8000}
+            "deep_dive": {"model": "gpt-5.4", "temperature": 0.3, "max_tokens": 4000},
+            "main_newsletter": {"model": "gpt-5.4", "temperature": 0.5, "max_tokens": 8000}
         }
     }
 
@@ -90,7 +90,7 @@ def save_newsletter_config(config: Dict[str, Any]) -> None:
 def get_ai_model_getter(model_name: str = None):
     """Get AI model function for the newsletter generator."""
     def getter(name: str = None):
-        actual_name = name or model_name or 'gpt-4.1'
+        actual_name = name or model_name or 'gpt-5.4'
         return LiteLLMModel(actual_name)
     return getter
 
@@ -140,7 +140,7 @@ async def generate_newsletter(request: Request, body: NewsletterGenerateRequest)
                 "vector_store": vector_search_articles,
                 "ai_model": get_ai_model_getter(body.model),
                 "topic": body.topic,
-                "model": body.model or "gpt-4.1",
+                "model": body.model or "gpt-5.4",
             }
 
             # Prepare params
@@ -248,14 +248,14 @@ async def get_newsletter_config(
         "days_back": user_config.get("days_back", 7),
         "deep_dive_topic": user_config.get("deep_dive_topic", ""),
         "agents": user_config.get("agents", {
-            "deep_dive": {"model": "gpt-4.1", "temperature": 0.3, "max_tokens": 4000},
-            "main_newsletter": {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 8000}
+            "deep_dive": {"model": "gpt-5.4", "temperature": 0.3, "max_tokens": 4000},
+            "main_newsletter": {"model": "gpt-5.4", "temperature": 0.5, "max_tokens": 8000}
         }),
         # Section limits (user overrides plugin defaults)
         "section_limits": merged_section_limits,
         # Plugin settings (read-only)
         "version": plugin_config.get("version", "2.0.0"),
-        "model": plugin_config.get("model", "gpt-4.1"),
+        "model": plugin_config.get("model", "gpt-5.4"),
         "max_articles_to_fetch": plugin_config.get("max_articles_to_fetch", 200),
         "min_articles_required": plugin_config.get("min_articles_required", 20),
         "sections": plugin_config.get("sections", {}),

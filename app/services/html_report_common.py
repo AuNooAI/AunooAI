@@ -12,6 +12,11 @@ Keep this file *thin* — anything tab-specific belongs in the per-tab
 from __future__ import annotations
 
 import html as _html
+import logging as _logging
+import re as _re
+import urllib.parse as _urlparse
+
+_log = _logging.getLogger(__name__)
 
 
 # Wiley pink + navy palette. Mirrors topic_report_pptx + forecast_pptx_export
@@ -114,6 +119,28 @@ small { color: #6b7280; }
 .consensus-bar > span { display: block; height: 100%; background: #d6346c; }
 .consensus-value { font-weight: 700; color: #111827; font-size: .9rem; min-width: 3rem; text-align: right; }
 
+/* Executive Summary card — "Based on scenarios" footer */
+.es-sources { margin-top: .9rem; padding-top: .8rem; border-top: 1px dashed #e5e7eb; }
+.es-sources .label { color: #6b7280; font-weight: 700; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .3rem; }
+.es-sources ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .2rem; }
+.es-sources li { color: #1f2937; font-size: .9rem; }
+.es-srctag { display: inline-block; padding: 0 .35rem; border-radius: 3px; font-weight: 700; font-size: .68rem; letter-spacing: .04em; color: #fff; vertical-align: baseline; margin-right: .35rem; }
+.es-srctag.h1 { background: #d6346c; }
+.es-srctag.h2 { background: #b45309; }
+.es-srctag.h3 { background: #0e7490; }
+
+/* Inline citations — clickable [N] markers that jump to the article ref list */
+a.cite { display: inline-block; padding: 0 .3rem; margin: 0 .05rem; background: #fee9f5; color: #8b1a42; border-radius: 3px; font-weight: 700; font-size: .82em; text-decoration: none; vertical-align: baseline; }
+a.cite:hover { background: #fbcfe4; }
+
+/* Article references list (target for the [N] anchors) */
+.article-refs { padding-left: 1.3rem; margin: 0; }
+.article-refs li { padding: .55rem 0; border-bottom: 1px solid #f3f4f6; scroll-margin-top: 1rem; }
+.article-refs li:last-child { border-bottom: 0; }
+.article-refs li:target { background: #fff7e6; box-shadow: inset 4px 0 0 #d6346c; padding-left: .6rem; }
+.article-refs .title { font-weight: 600; color: #111827; }
+.article-refs .ref-meta { color: #6b7280; font-size: .82rem; margin-top: .15rem; }
+
 /* Footer */
 footer.meta { color: #6b7280; font-size: .82rem; margin-top: 3rem; text-align: center; }
 
@@ -128,6 +155,131 @@ def esc(v) -> str:
     if v is None:
         return ""
     return _html.escape(str(v))
+
+
+_CITATION_RE = _re.compile(r"\[(\d{1,3})\]")
+
+
+def linkify_citations(escaped_html: str, articles: list | None = None) -> str:
+    """Wrap ``[N]`` markers in already-HTML-escaped text with anchors.
+
+    When ``articles`` is given (the numbered corpus the LLM cited),
+    each ``[N]`` becomes an anchor pointing DIRECTLY at the publisher's
+    URL (``articles[N-1]["uri"]`` / ``["url"]``), opens in a new tab.
+    This is what a reader expects from a clickable citation.
+
+    Without ``articles`` (or for an out-of-range ``N``), falls back to
+    the in-document jump ``#ref-N`` — still useful when the page also
+    renders a numbered references list at the bottom.
+    """
+    if not escaped_html or "[" not in escaped_html:
+        return escaped_html or ""
+
+    def _replace(m):
+        n_str = m.group(1)
+        try:
+            n = int(n_str)
+        except ValueError:
+            return m.group(0)
+        href = None
+        if articles and 1 <= n <= len(articles):
+            entry = articles[n - 1] or {}
+            href = (entry.get("uri") or entry.get("url") or "").strip()
+        if href:
+            return (f'<a class="cite" href="{esc(href)}" target="_blank" '
+                    f'rel="noopener">[{n_str}]</a>')
+        return f'<a class="cite" href="#ref-{n_str}">[{n_str}]</a>'
+
+    return _CITATION_RE.sub(_replace, escaped_html)
+
+
+def esc_cites(v, articles: list | None = None) -> str:
+    """``esc()`` + ``linkify_citations()`` — use anywhere body text may carry
+    ``[N]`` citations. Pass ``articles`` to make the ``[N]`` links open the
+    publisher URL directly (the common, reader-expected behaviour).
+    """
+    return linkify_citations(esc(v), articles=articles)
+
+
+_TITLE_PUBLISHER_RE = _re.compile(r"\s+[–—-]\s+([^–—-]{2,60})\s*$")
+
+_GOOGLE_NEWS_RE = _re.compile(r"^https?://(?:[a-z0-9.-]+\.)?google\.com/", _re.IGNORECASE)
+
+
+def _google_search_url(title: str, publisher: str = "") -> str:
+    """Build a Google Search URL that lands on the article.
+
+    Decoding ``news.google.com/rss/articles/CBMi…`` redirects offline is
+    fragile (Google rotates the encoding; HEAD lands on a consent page).
+    A search query is short, clickable, and reliably brings the article
+    up as the first hit — better UX than the 500-char redirect.
+    """
+    q = (title or "").strip()
+    if publisher:
+        q = f'{q} {publisher}'.strip()
+    return f"https://www.google.com/search?q={_urlparse.quote_plus(q)}"
+
+
+def resolve_google_news_uris(articles: list, **_kwargs) -> None:
+    """Rewrite Google News redirect URIs in place to a short search URL.
+
+    Mutates each article's URI field — works on both ``uri`` and ``url``
+    keys (different loaders use different conventions). If the URL points
+    at a Google aggregator, replace it with a ``google.com/search?q=…``
+    URL built from the title + publisher. Non-Google URIs are left
+    untouched. Compatible with the older HTTP-resolving signature —
+    extra kwargs are accepted and ignored.
+    """
+    if not articles:
+        return
+    for a in articles:
+        if not isinstance(a, dict):
+            continue
+        # Find whichever URL key this article uses.
+        key = "uri" if a.get("uri") else ("url" if a.get("url") else None)
+        if not key:
+            continue
+        uri = a.get(key) or ""
+        if not _GOOGLE_NEWS_RE.match(uri):
+            continue
+        cleaned = clean_article_ref(a)
+        a[key] = _google_search_url(cleaned["title"], cleaned["source"])
+
+
+def clean_article_ref(article: dict) -> dict:
+    """Return ``{title, uri, source, date}`` with two cleanups applied:
+
+    1. **Source promotion.** Articles ingested via Google News carry
+       ``news_source = "news.google.com"`` and a long redirect URI like
+       ``https://news.google.com/rss/articles/CBMi…``. The real publisher
+       is buried in the title's trailing `" - Publisher"` segment. When
+       the stored source is empty or a known aggregator, hoist that
+       publisher into ``source`` so the reader sees the actual outlet.
+    2. **Title suffix strip.** Once the publisher is in ``source``, drop
+       the `" - Publisher"` tail from the displayed title — the reader
+       gets the headline + outlet shown as separate fields rather than a
+       stuffed string.
+
+    Accepts a dict with any subset of ``title / uri / url / source /
+    news_source / date / publication_date``. Always returns the same four
+    keys. Doesn't touch the URI — the redirect still works.
+    """
+    title = (article.get("title") or "").strip()
+    uri = article.get("uri") or article.get("url") or ""
+    source = (article.get("source") or article.get("news_source") or "").strip()
+    date = (article.get("date") or article.get("publication_date") or "")[:10]
+
+    aggregators = {"news.google.com", "google.com", "consent.google.com"}
+    publisher = ""
+    m = _TITLE_PUBLISHER_RE.search(title)
+    if m:
+        publisher = m.group(1).strip()
+
+    if publisher and (not source or source.lower() in aggregators):
+        source = publisher
+        title = _TITLE_PUBLISHER_RE.sub("", title)
+
+    return {"title": title, "uri": uri, "source": source, "date": date}
 
 
 def section_open(title: str, *, eyebrow: str = "") -> str:
@@ -153,10 +305,14 @@ def html_document(title: str, body: str) -> str:
     )
 
 
-def render_executive_summary_cards(cards: list) -> str:
+def render_executive_summary_cards(cards: list, articles: list | None = None) -> str:
     """Reusable Executive Summary card stack — same shape used by both the
     Topic Report HTML and the standalone Future Horizons HTML. Each ``card``
     is one entry from ``analysis_versions_v2[horizons_exec_summary_*]``.
+
+    ``articles`` (optional) is the numbered corpus the LLM cited; when
+    given, any ``[N]`` markers in card body text become direct anchors
+    to the publisher URLs.
     """
     if not cards:
         return ""
@@ -188,18 +344,36 @@ def render_executive_summary_cards(cards: list) -> str:
             parts.append(f'<span class="es-pill consensus">{cons_pct} CONSENSUS</span>')
         parts.append('</div>')
         if opening:
-            parts.append(f'<p>{esc(opening)}</p>')
+            parts.append(f'<p>{esc_cites(opening, articles)}</p>')
         if mv.get("statement"):
             pct = mv.get("percentage_range") or ""
             label = "Minority view" + (f"  ·  {pct}" if pct else "")
             parts.append('<div class="es-minority">')
             parts.append(f'<div class="label">{esc(label)}</div>')
-            parts.append(f'<div>{esc(mv.get("statement") or "")}</div>')
+            parts.append(f'<div>{esc_cites(mv.get("statement") or "", articles)}</div>')
             parts.append('</div>')
         if signal:
             label = "Primary signal" + (f"  ·  {cons_pct} consensus" if cons_pct else "")
             parts.append(f'<div class="es-signal-label">{esc(label)}</div>')
-            parts.append(f'<p class="es-signal">{esc(signal)}</p>')
+            parts.append(f'<p class="es-signal">{esc_cites(signal, articles)}</p>')
+        # Source scenarios — list the H1/H2/H3 scenario titles the card
+        # draws from, so the reader can trace each summary back to the
+        # underlying forecast scenarios.
+        src = [s for s in (c.get("source_scenarios") or []) if isinstance(s, dict)]
+        if src:
+            parts.append('<div class="es-sources">')
+            parts.append('<div class="label">Based on scenarios</div>')
+            parts.append('<ul>')
+            for s in src:
+                h = (s.get("horizon") or "").upper()
+                t = (s.get("title") or "").strip()
+                if not t:
+                    continue
+                tag = (f'<span class="es-srctag {h.lower()}">{esc(h)}</span>'
+                       if h else "")
+                parts.append(f'<li>{tag} {esc(t)}</li>')
+            parts.append('</ul></div>')
+
         if (fa.get("condition") or fb.get("condition") or
             aw_a.get("action") or aw_p.get("action")):
             parts.append('<div class="es-bottom">')
@@ -207,15 +381,15 @@ def render_executive_summary_cards(cards: list) -> str:
                 parts.append('<div class="es-fork"><div class="label">Decision fork</div>')
                 if fa.get("condition") or fa.get("outcome"):
                     parts.append('<div class="row">')
-                    parts.append(f'<div><span class="marker ok">✔</span> {esc(fa.get("condition") or "")}</div>')
+                    parts.append(f'<div><span class="marker ok">✔</span> {esc_cites(fa.get("condition") or "", articles)}</div>')
                     if fa.get("outcome"):
-                        parts.append(f'<div class="outcome">→ {esc(fa.get("outcome") or "")}</div>')
+                        parts.append(f'<div class="outcome">→ {esc_cites(fa.get("outcome") or "", articles)}</div>')
                     parts.append('</div>')
                 if fb.get("condition") or fb.get("outcome"):
                     parts.append('<div class="row">')
-                    parts.append(f'<div><span class="marker alt">!</span> {esc(fb.get("condition") or "")}</div>')
+                    parts.append(f'<div><span class="marker alt">!</span> {esc_cites(fb.get("condition") or "", articles)}</div>')
                     if fb.get("outcome"):
-                        parts.append(f'<div class="outcome">→ {esc(fb.get("outcome") or "")}</div>')
+                        parts.append(f'<div class="outcome">→ {esc_cites(fb.get("outcome") or "", articles)}</div>')
                     parts.append('</div>')
                 parts.append('</div>')
             if aw_a.get("action") or aw_p.get("action"):
@@ -226,7 +400,7 @@ def render_executive_summary_cards(cards: list) -> str:
                     if tf:
                         parts.append(f'<div class="tf">{esc(tf)}</div>')
                     if act:
-                        parts.append(f'<div class="action">{esc(act)}</div>')
+                        parts.append(f'<div class="action">{esc_cites(act, articles)}</div>')
                 parts.append('</div>')
             parts.append('</div>')
         parts.append('</div>')
@@ -234,8 +408,13 @@ def render_executive_summary_cards(cards: list) -> str:
     return "\n".join(parts)
 
 
-def render_scenarios(scenarios: list) -> str:
-    """Render Three Horizons scenarios grouped under H1/H2/H3 headers."""
+def render_scenarios(scenarios: list, articles: list | None = None) -> str:
+    """Render Three Horizons scenarios grouped under H1/H2/H3 headers.
+
+    ``articles`` (optional) is the numbered corpus the LLM cited; when
+    given, any ``[N]`` markers in scenario descriptions become direct
+    anchors to the publisher URLs.
+    """
     scenarios = [s for s in (scenarios or []) if isinstance(s, dict)]
     if not scenarios:
         return ""
@@ -263,7 +442,7 @@ def render_scenarios(scenarios: list) -> str:
             parts.append(f'<h4>{esc(s.get("title") or "—")}</h4>')
             desc = (s.get("description") or "").strip()
             if desc:
-                parts.append(f'<p class="desc">{esc(desc)}</p>')
+                parts.append(f'<p class="desc">{esc_cites(desc, articles)}</p>')
             parts.append('</div>')
         parts.append('</div>')
     parts.append('</section>')

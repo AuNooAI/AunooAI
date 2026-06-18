@@ -23,7 +23,7 @@ interface GeopoliticalHotspotsTabProps {
   model?: string;
 }
 
-export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' }: GeopoliticalHotspotsTabProps) {
+export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-5.4-mini' }: GeopoliticalHotspotsTabProps) {
   const [showImportModal, setShowImportModal] = useState(false);
 
   const {

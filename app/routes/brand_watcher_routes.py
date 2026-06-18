@@ -386,7 +386,7 @@ class ShareOfVoiceResponse(BaseModel):
 class NarrativeRequest(BaseModel):
     brand_id: int
     days_back: int = 365
-    model: str = "gpt-4.1-mini"
+    model: str = "gpt-5.4-mini"
 
 
 class NarrativeResponse(BaseModel):
@@ -411,7 +411,7 @@ class CategoryInsightRequest(BaseModel):
     brand_id: int
     category: str
     days_back: int = 365
-    model: str = "gpt-4.1-mini"
+    model: str = "gpt-5.4-mini"
 
 
 class CategoryInsightResponse(BaseModel):
@@ -1053,7 +1053,7 @@ Be thorough but only include terms that would realistically appear in news artic
 Respond ONLY with valid JSON, no markdown formatting."""
 
     try:
-        model = LiteLLMModel.get_instance("gpt-4.1-mini")
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
@@ -1458,7 +1458,7 @@ async def _llm_categorize_article(title: str, summary: str, brand: dict) -> Dict
             summary=summary or "No summary available"
         )
 
-        model = LiteLLMModel.get_instance("gpt-4.1-mini")
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}

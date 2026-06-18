@@ -196,6 +196,157 @@ export async function createBriefing(
   return response.json();
 }
 
+export interface ComposeDailyBriefingResult {
+  success: boolean;
+  briefing_id: number;
+  name: string;
+  status: 'draft';
+  topics_requested: string[];
+  emerging_topics_staged: number;
+  articles_staged: number;
+  per_topic: Array<{
+    topic: string;
+    detected: number;
+    topics_staged: number;
+    articles_staged: number;
+    error?: string | null;
+  }>;
+}
+
+/**
+ * Auto-compose a draft daily briefing: create + run Emerging Topics detection +
+ * stage detected topics and relevant articles for the named topics. Leaves the
+ * briefing as a DRAFT for curation. Detection can take ~30-120s per topic.
+ */
+export async function composeDailyBriefing(
+  topics?: string[],
+  opts?: {
+    min_confidence?: number;
+    min_alignment?: number;
+    days_back?: number;
+    run_detection?: boolean;
+    model?: string;
+  }
+): Promise<ComposeDailyBriefingResult> {
+  const response = await fetch('/api/desk-briefings/auto-compose', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topics, ...opts }),
+  });
+
+  if (!response.ok) {
+    const error = await extractErrorMessage(response);
+    throw new Error(error || 'Failed to compose daily briefing');
+  }
+
+  return response.json();
+}
+
+export interface ComposeProgressEvent {
+  stage: string;
+  status?: string;
+  message?: string;
+  progress?: number;
+  briefing_id?: number;
+  name?: string;
+  count?: number;
+  current?: number;
+  total?: number;
+  fallback?: boolean;
+  articles_staged?: number;
+  incidents_staged?: number;
+  emerging_topics_staged?: number;
+  error?: string;
+}
+
+/**
+ * Auto-compose a draft daily briefing, streaming staged progress.
+ * Calls onEvent for each progress event; resolves with the final event.
+ */
+export async function streamComposeDailyBriefing(
+  topics: string[] | undefined,
+  opts: { days_back?: number; run_detection?: boolean; model?: string } | undefined,
+  onEvent: (e: ComposeProgressEvent) => void,
+): Promise<ComposeProgressEvent | null> {
+  const response = await fetch('/api/desk-briefings/auto-compose/stream', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topics, ...opts }),
+  });
+  if (!response.ok) {
+    const error = await extractErrorMessage(response);
+    throw new Error(error || 'Failed to start compose');
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response stream');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let last: ComposeProgressEvent | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6);
+      if (data === '[DONE]') return last;
+      try {
+        const evt = JSON.parse(data) as ComposeProgressEvent;
+        last = evt;
+        onEvent(evt);
+        if (evt.stage === 'error') {
+          throw new Error(evt.error || evt.message || 'Compose failed');
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) continue;
+        throw e;
+      }
+    }
+  }
+  return last;
+}
+
+export interface ComposeConfig {
+  available_topics: Array<{ name: string; description?: string }>;
+  selected_topics: string[];
+}
+
+/**
+ * Fetch configured topics + the saved default selection for the compose modal.
+ */
+export async function fetchComposeConfig(): Promise<ComposeConfig> {
+  const response = await fetch('/api/desk-briefings/compose-config', {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await extractErrorMessage(response);
+    throw new Error(error || 'Failed to load compose config');
+  }
+  return response.json();
+}
+
+/**
+ * Save the default daily-briefing topic set.
+ */
+export async function saveComposeConfig(topics: string[]): Promise<void> {
+  const response = await fetch('/api/desk-briefings/compose-config', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topics }),
+  });
+  if (!response.ok) {
+    const error = await extractErrorMessage(response);
+    throw new Error(error || 'Failed to save topic selection');
+  }
+}
+
 /**
  * Get a specific briefing with full content
  */

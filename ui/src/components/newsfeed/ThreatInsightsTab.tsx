@@ -21,7 +21,7 @@ interface ThreatInsightsTabProps {
   model?: string;
 }
 
-export function ThreatInsightsTab({ loading: parentLoading, model = 'gpt-4o-mini' }: ThreatInsightsTabProps) {
+export function ThreatInsightsTab({ loading: parentLoading, model = 'gpt-5.4-mini' }: ThreatInsightsTabProps) {
   const [narratives, setNarratives] = useState<ThreatNarrative[]>([]);
   const [selectedNarrative, setSelectedNarrative] = useState<ThreatNarrative | null>(null);
   const [loading, setLoading] = useState(true);

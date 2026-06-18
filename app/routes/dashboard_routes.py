@@ -139,7 +139,7 @@ class ArticleInsightsRequest(BaseModel):
     end_date: Optional[str] = None
     days_limit: int = 7
     force_regenerate: bool = False
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5.4-mini"
     system_prompt: Optional[str] = None  # Custom system prompt
     user_prompt: Optional[str] = None  # Custom user prompt
 
@@ -609,7 +609,7 @@ async def get_key_articles(
         combined_article_text = "\n---\n".join(article_details_for_llm)
 
         # 3. Initialize LLM
-        llm_model_name = "gpt-4o" 
+        llm_model_name = "gpt-5.4" 
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"Failed to initialize LLM model: {llm_model_name} for key articles")
@@ -755,7 +755,7 @@ async def get_generated_insights(
             data_for_llm += "No top tag data available for the selected period.\n\n"
         
         # 3. Initialize LLM
-        llm_model_name = "gpt-4o"
+        llm_model_name = "gpt-5.4"
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"LLM Initialization error for insights: {llm_model_name}", exc_info=True)
@@ -1368,7 +1368,7 @@ async def get_category_insights(
     # Accept both camelCase and snake_case from frontend
     force_regenerate_camel: Optional[str] = Query(None, alias="forceRegenerate"),
     force_regenerate_snake: Optional[str] = Query(None, alias="force_regenerate"),
-    model: str = Query("gpt-4o-mini", description="AI model to use for analysis"),
+    model: str = Query("gpt-5.4-mini", description="AI model to use for analysis"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):

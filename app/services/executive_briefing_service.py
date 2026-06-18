@@ -211,10 +211,10 @@ class EBConfig:
     podcast_duration: str = "short"  # short, medium, long
 
     # Model settings
-    selection_model: str = "gpt-4o"
-    analysis_model: str = "gpt-4o"
-    synthesis_model: str = "gpt-4o"
-    podcast_model: str = "gpt-4o"
+    selection_model: str = "gpt-5.4"
+    analysis_model: str = "gpt-5.4"
+    synthesis_model: str = "gpt-5.4"
+    podcast_model: str = "gpt-5.4"
 
     # Temperature settings
     selection_temp: float = 0.3

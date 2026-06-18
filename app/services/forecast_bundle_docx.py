@@ -59,17 +59,29 @@ def build_bundle_docx(
     review_findings: Optional[list] = None,
     review_verdict: Optional[str] = None,
 ) -> bytes:
-    """Render the bundle as a Word document. Returns the file bytes."""
+    """Render the bundle as a Word document — a genuine 3-page executive
+    summary, narrative only.
+
+    Per client feedback (Hetzscholdt, Jun 2026): the previous layered
+    structure (expert view + cross-cutting themes + decision framework +
+    per-topic appendix) reads as cluttered for C-level. The docx is now
+    just the executive summary letter as flowing prose — no section
+    headers, no chips, no bracketed citations, no inline hyperlinks. The
+    deck and the two HTMLs carry the structured detail; this file is the
+    narrative briefing.
+
+    ``items``, ``cadence``, ``eos_per_topic`` are retained in the signature
+    so the delivery service can call the function unchanged; they're
+    intentionally unused.
+    """
     synth = bundle_synthesis or {}
     exec_summary = synth.get("exec_summary") or {}
     strategic_overview = (synth.get("strategic_overview") or "").strip()
-    cross_themes = synth.get("cross_cutting_themes") or []
-    decision_framework = synth.get("executive_decision_framework") or []
 
     doc = Document()
     _set_default_styles(doc)
 
-    # Cover header: title + period
+    # Cover header: title + period.
     _h1(doc, "Wiley Horizons — Executive Summary")
     sub_period = period_label
     if updates_only:
@@ -83,79 +95,15 @@ def build_bundle_docx(
         _review_pending_block(doc, review_findings)
         _hrule(doc)
 
-    # 1. Executive summary letter (the rewritten 5-section briefing)
+    # Executive summary letter as plain narrative.
     letter = (exec_summary or {}).get("letter") or ""
-    if letter.strip():
-        _render_markdown_paragraphs(doc, letter)
-    elif strategic_overview:
-        # Fallback when the exec-summary agent didn't run / didn't produce
-        # a letter — use the strategic overview as the body. Single para,
-        # no section headers.
-        _para(doc, strategic_overview)
+    body = _strip_artefacts(letter)
+    if not body.strip() and strategic_overview:
+        body = _strip_artefacts(strategic_overview)
+    if body.strip():
+        _render_plain_paragraphs(doc, _cap_to_three_pages(body))
 
-    # 1b. Expert view on emerging themes (analyst-editable; renders if present)
-    expert_commentary = (synth.get("expert_commentary") or "").strip()
-    if expert_commentary:
-        _hrule(doc)
-        _h2(doc, "Expert view — emerging themes")
-        _render_markdown_paragraphs(doc, expert_commentary)
-
-    # 2. Cross-cutting strategic themes
-    if cross_themes:
-        _hrule(doc)
-        _h2(doc, "Cross-cutting strategic themes")
-        for theme in cross_themes:
-            if not isinstance(theme, dict):
-                continue
-            lead = (theme.get("lead") or "").strip()
-            body = (theme.get("body") or "").strip()
-            if lead:
-                p = doc.add_paragraph()
-                p.paragraph_format.space_after = Pt(4)
-                run = p.add_run(lead)
-                run.bold = True
-                run.font.size = Pt(11)
-                run.font.color.rgb = WILEY_NAVY
-                if body:
-                    sep = p.add_run(" ")
-                    sep.font.size = Pt(11)
-                    bod = p.add_run(body)
-                    bod.font.size = Pt(11)
-                    bod.font.color.rgb = WILEY_BODY
-            elif body:
-                _para(doc, body)
-
-    # 3. Executive decision framework
-    if decision_framework:
-        _hrule(doc)
-        _h2(doc, "Executive decision framework")
-        for item in decision_framework:
-            if not isinstance(item, dict):
-                continue
-            headline = (item.get("headline") or "").strip()
-            body = (item.get("body") or "").strip()
-            if headline:
-                p = doc.add_paragraph()
-                p.paragraph_format.space_after = Pt(4)
-                r1 = p.add_run(headline)
-                r1.bold = True
-                r1.font.size = Pt(11)
-                r1.font.color.rgb = WILEY_NAVY
-                if body:
-                    sep = p.add_run(" — ")
-                    sep.font.size = Pt(11)
-                    r2 = p.add_run(body)
-                    r2.font.size = Pt(11)
-                    r2.font.color.rgb = WILEY_BODY
-
-    # 4. Per-topic appendix
-    if items:
-        _hrule(doc)
-        _h2(doc, "Topic summaries")
-        for assessment, _run, prior in items:
-            _render_topic_block(doc, assessment, prior, eos_per_topic or {})
-
-    # Signoff footer
+    # Signoff footer.
     _hrule(doc)
     signoff = (exec_summary or {}).get("signoff") \
               or f"AunooAI Editorial Team · {period_label}"
@@ -170,6 +118,88 @@ def build_bundle_docx(
     doc.save(buf)
     buf.seek(0)
     return buf.read()
+
+
+# ── Narrative cleanup ───────────────────────────────────────────────
+
+
+# Bracketed citations like ``[1]`` / ``[12, 17]`` / ``[3]( http://… )``.
+_CITE_RE = re.compile(r"\s*\[(?:\d{1,3})(?:\s*,\s*\d{1,3})*\](?:\([^\)]*\))?")
+# Inline markdown link ``[text](url)`` — keep the visible text, drop the URL.
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((?:https?://|www\.)[^\)]+\)")
+# Bare URLs anywhere in prose.
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+# Markdown bold markers we want gone (Pascal: no header artefacts in the doc).
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+# Markdown list bullets at start of line ("- ", "* ", "1. ") — flatten to prose.
+_BULLET_RE = re.compile(r"^\s*(?:[-*•]|\d+\.)\s+", re.MULTILINE)
+# Generic section-header lines a model might still emit (e.g. "## Bottom line")
+# or trailing-colon labels at start of a paragraph ("Bottom line:").
+_MD_HEADING_RE = re.compile(r"^\s*#{1,6}\s+.*$", re.MULTILINE)
+
+
+def _strip_artefacts(text: str) -> str:
+    """Strip citations, links, and Markdown artefacts from the letter so
+    the docx reads as plain executive prose.
+
+    Removes: ``[N]`` citation markers, ``[text](url)`` links (keeps the
+    visible text), bare URLs, ``**bold**`` markers, ``## headings``, and
+    leading bullet markers. Multiple resulting blank lines are collapsed.
+    """
+    if not text:
+        return ""
+    out = text
+    out = _MD_LINK_RE.sub(r"\1", out)         # [text](url) → text
+    out = _CITE_RE.sub("", out)                # drop [1], [3,7] …
+    out = _URL_RE.sub("", out)                 # drop bare URLs
+    out = _MD_HEADING_RE.sub("", out)          # drop ## Heading lines
+    out = _BOLD_RE.sub(r"\1", out)             # **x** → x
+    out = _BULLET_RE.sub("", out)              # leading "- " / "* " stripped
+    # Collapse 3+ newlines to a paragraph break, trim trailing spaces.
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
+# Roughly the count that fills three Letter pages at 11pt Calibri with the
+# default 1.0"/0.8" margins set in ``_set_default_styles``. The exec-summary
+# letter sits well under this today (~400 words); the cap is a safety net
+# in case the agent drifts longer.
+_MAX_WORDS_THREE_PAGES = 1500
+
+
+def _cap_to_three_pages(text: str) -> str:
+    """Truncate the letter to roughly three pages of prose if the agent
+    over-runs. Cuts on a paragraph boundary so the last paragraph isn't
+    cut mid-sentence; falls back to a word-count cut when paragraphs are
+    huge.
+    """
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    out: list[str] = []
+    used = 0
+    for para in paragraphs:
+        wc = len(para.split())
+        if used + wc > _MAX_WORDS_THREE_PAGES and out:
+            break
+        out.append(para)
+        used += wc
+    return "\n\n".join(out) if out else text
+
+
+def _render_plain_paragraphs(doc: Document, body: str) -> None:
+    """Render ``body`` as plain prose — one Word paragraph per ``\\n\\n``
+    block, single body font, no bold, no inline hyperlinks. Replaces the
+    earlier renderer that translated ``**section**`` into bold runs."""
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body or "") if p.strip()]
+    for para_text in paragraphs:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(8)
+        # Single newlines inside a paragraph become spaces (the docx
+        # renderer doesn't need a soft break — paragraph flow handles it).
+        clean = re.sub(r"\s+", " ", para_text).strip()
+        r = p.add_run(clean)
+        r.font.size = Pt(11)
+        r.font.color.rgb = WILEY_BODY
 
 
 # ── Document-level helpers ──────────────────────────────────────────

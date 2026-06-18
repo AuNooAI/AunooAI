@@ -146,7 +146,7 @@ async def ground_check_exec_summary(text: str, named_events: list) -> dict:
 # Above this many detected tells, rewrite. A few tells are normal in any
 # prose; the rewrite is for genuinely slop-heavy passages.
 _THRESHOLD = int(os.getenv("HUMANIZE_TELL_THRESHOLD", "3"))
-_MODEL = os.getenv("HUMANIZE_MODEL", "gpt-4.1")
+_MODEL = os.getenv("HUMANIZE_MODEL", "gpt-5.4")
 
 
 def humanize_enabled() -> bool:

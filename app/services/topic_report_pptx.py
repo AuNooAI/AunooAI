@@ -31,11 +31,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from io import BytesIO
 from typing import Optional
 
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
 
 from app.services.forecast_pptx_export import (
     _add_methodology_appendix_slide,
@@ -96,6 +98,197 @@ def _decode_raw_output(forecast_run: dict) -> dict:
         except Exception:
             return {}
     return raw if isinstance(raw, dict) else {}
+
+
+_CITE_RE = re.compile(r"\[(\d{1,3})\]")
+
+
+def _text_cites(slide, *, x: float, y: float, w: float, h: float,
+                text: str, articles: Optional[list] = None,
+                font_size: float = 10.0, bold: bool = False,
+                italic: bool = False, color=None, align=None,
+                line_spacing: Optional[float] = None) -> None:
+    """Render ``text`` with ``[N]`` citation markers as clickable hyperlinks.
+
+    Each ``[N]`` token is split into its own pptx ``run`` with
+    ``run.hyperlink.address`` set to ``articles[N-1]["uri"]`` so
+    PowerPoint renders it as a clickable link. The bracketed text itself
+    is styled bold + teal so readers can SEE it's a citation, not just
+    plain text.
+
+    Falls back to plain :func:`_text` when ``articles`` is empty, the text
+    has no ``[N]`` markers, or any of the cited indices is out of range
+    for the corpus (better to skip styling than mislead the reader).
+    """
+    if not articles or not text or "[" not in text:
+        _text(slide, x=x, y=y, w=w, h=h, text=text or "",
+              font_size=font_size, bold=bold, italic=italic,
+              color=color, align=align, line_spacing=line_spacing)
+        return
+
+    parts = _CITE_RE.split(text)
+    if len(parts) == 1:
+        _text(slide, x=x, y=y, w=w, h=h, text=text,
+              font_size=font_size, bold=bold, italic=italic,
+              color=color, align=align, line_spacing=line_spacing)
+        return
+
+    tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    tf = tb.text_frame
+    tf.word_wrap = True
+    try:
+        tf.margin_left = tf.margin_right = 0
+        tf.margin_top  = tf.margin_bottom = 0
+    except Exception:
+        pass
+    p = tf.paragraphs[0]
+    if align is not None:
+        p.alignment = align
+    if line_spacing is not None:
+        try:
+            p.line_spacing = line_spacing
+        except Exception:
+            pass
+
+    body_color = color
+    cite_color = WILEY_TEAL
+
+    for i, chunk in enumerate(parts):
+        if chunk is None or chunk == "":
+            continue
+        run = p.add_run()
+        is_cite = (i % 2 == 1)
+        if is_cite:
+            try:
+                n = int(chunk)
+                article = articles[n - 1] if 1 <= n <= len(articles) else None
+            except Exception:
+                article = None
+            run.text = f"[{chunk}]"
+            run.font.size = Pt(font_size)
+            run.font.bold = True
+            try:
+                run.font.color.rgb = cite_color if isinstance(cite_color, RGBColor) \
+                    else RGBColor(*cite_color) if isinstance(cite_color, tuple) \
+                    else cite_color
+            except Exception:
+                pass
+            if article and (article.get("uri") or article.get("url")):
+                try:
+                    run.hyperlink.address = article.get("uri") or article.get("url")
+                except Exception:
+                    pass
+        else:
+            run.text = chunk
+            run.font.size = Pt(font_size)
+            run.font.bold = bold
+            run.font.italic = italic
+            if body_color is not None:
+                try:
+                    run.font.color.rgb = body_color if isinstance(body_color, RGBColor) \
+                        else RGBColor(*body_color) if isinstance(body_color, tuple) \
+                        else body_color
+                except Exception:
+                    pass
+
+
+def _add_topic_references_slide(prs, articles: list, *,
+                                topic: str, topic_idx: Optional[int] = None):
+    """Numbered article-references slides at the end of each topic section.
+
+    Visual companion to the ``[N]`` hyperlinks in the body slides — the
+    reader can either click ``[15]`` (opens the article URL in a browser)
+    or jump to this slide to see the full numbered list. Skips silently
+    when ``articles`` is empty.
+
+    When the cited corpus is larger than fits one slide (40 refs in a
+    two-column grid), emits as many references slides as needed and
+    labels them ``part 1 of N``, ``part 2 of N`` etc. — per Pascal's
+    Jun 2026 feedback that references were silently dropped when the
+    corpus ran past 40.
+    """
+    if not articles:
+        return
+    sw = 10.0
+    body_top = 1.20
+    body_bot = 5.50
+    col_w    = (sw - 1.0 - 0.30) / 2
+    col_x    = [0.5, 0.5 + col_w + 0.30]
+    rows_per_col = max(1, int((body_bot - body_top) / 0.21))
+    per_slide = rows_per_col * 2
+
+    from app.services.html_report_common import clean_article_ref
+
+    n_total = len(articles)
+    n_slides = (n_total + per_slide - 1) // per_slide
+    eyebrow_base = (f"TOPIC {topic_idx} · ARTICLE REFERENCES" if topic_idx is not None
+                    else "ARTICLE REFERENCES")
+
+    for slide_idx in range(n_slides):
+        blank = prs.slide_layouts[6]
+        slide = prs.slides.add_slide(blank)
+        _add_bg_image(slide, WILEY_BG_SOFT)
+
+        eyebrow = eyebrow_base
+        if n_slides > 1:
+            eyebrow = f"{eyebrow_base}  ·  PART {slide_idx + 1} OF {n_slides}"
+        _text(slide, x=0.5, y=0.20, w=sw-1.0, h=0.22,
+              text=eyebrow, font_size=9, bold=True, color=SLATE_MID)
+        _text(slide, x=0.5, y=0.42, w=sw-1.0, h=0.40,
+              text=f"{topic} — Source Corpus", font_size=18, bold=True, color=SLATE_DARK)
+        # Subtitle: total count on slide 1, range "[A]–[B]" on subsequent slides.
+        if slide_idx == 0:
+            sub = f"{n_total} articles the LLM cited as [N] in this report"
+        else:
+            first = slide_idx * per_slide + 1
+            last  = min(n_total, (slide_idx + 1) * per_slide)
+            sub = f"References [{first}]–[{last}] of {n_total}"
+        _text(slide, x=0.5, y=0.85, w=sw-1.0, h=0.22,
+              text=sub, font_size=9, italic=True, color=SLATE_LIGHT)
+
+        start = slide_idx * per_slide
+        end   = min(n_total, start + per_slide)
+        for i, a in enumerate(articles[start:end]):
+            n_overall = start + i + 1  # 1-based citation index across all slides
+            col = i // rows_per_col
+            r   = i %  rows_per_col
+            x = col_x[col]
+            y = body_top + r * 0.21
+            cleaned = clean_article_ref(a)
+            title = cleaned["title"] or "—"
+            source = cleaned["source"]
+            date = cleaned["date"]
+            meta_bits = [b for b in (source, date) if b]
+            meta_suffix = f"  ·  {'  ·  '.join(meta_bits)}" if meta_bits else ""
+            n_str = f"[{n_overall}]"
+            _text(slide, x=x, y=y, w=0.45, h=0.18, text=n_str,
+                  font_size=8, bold=True, color=WILEY_TEAL)
+            uri = cleaned["uri"]
+            if uri:
+                tb = slide.shapes.add_textbox(
+                    Inches(x + 0.42), Inches(y), Inches(col_w - 0.42), Inches(0.18))
+                tf = tb.text_frame; tf.word_wrap = False
+                try:
+                    tf.margin_left = tf.margin_right = 0
+                    tf.margin_top  = tf.margin_bottom = 0
+                except Exception:
+                    pass
+                p = tf.paragraphs[0]
+                run = p.add_run()
+                run.text = _truncate(title + meta_suffix, 92)
+                run.font.size = Pt(8)
+                try:
+                    run.font.color.rgb = WILEY_NAVY if isinstance(WILEY_NAVY, RGBColor) else None
+                except Exception:
+                    pass
+                try:
+                    run.hyperlink.address = uri
+                except Exception:
+                    pass
+            else:
+                _text(slide, x=x + 0.42, y=y, w=col_w - 0.42, h=0.18,
+                      text=_truncate(title + meta_suffix, 92),
+                      font_size=8, color=SLATE_BLACK)
 
 
 def _assessment_view(topic: str, run_id: str, raw: dict) -> dict:
@@ -585,7 +778,8 @@ def _add_branded_intro_pack(prs, *, period_label: str):
     _add_intro_monitor_slide(prs, db=db)
 
 
-def _add_forecast_scenario_slide(prs, scenario: dict, *, topic: Optional[str] = None):
+def _add_forecast_scenario_slide(prs, scenario: dict, *, topic: Optional[str] = None,
+                                 articles: Optional[list] = None):
     """Forward-looking per-scenario card — renders the forecast scenario
     itself, NOT a back-test of it.
 
@@ -647,9 +841,9 @@ def _add_forecast_scenario_slide(prs, scenario: dict, *, topic: Optional[str] = 
 
     # ── Description body ──────────────────────────────────────────────
     if description:
-        _text(slide, x=1.9, y=1.75, w=7.9, h=2.15,
-              text=description,
-              font_size=11, color=SLATE_BLACK, line_spacing=1.30)
+        _text_cites(slide, x=1.9, y=1.75, w=7.9, h=2.15,
+                    text=description, articles=articles,
+                    font_size=11, color=SLATE_BLACK, line_spacing=1.30)
 
     # ── Bottom row: 3 plates ──────────────────────────────────────────
     # Prefer rich forecast fields when present; fall back to fields we
@@ -720,7 +914,8 @@ def _add_forecast_scenario_slide(prs, scenario: dict, *, topic: Optional[str] = 
 
 
 def _add_key_insights_pure_slide(prs, assessment: dict, *, topic: str,
-                                 topic_idx: Optional[int] = None):
+                                 topic_idx: Optional[int] = None,
+                                 articles: Optional[list] = None):
     """Forecast-only Key Insights slide.
 
     The existing ``_add_key_insights_slide`` from forecast_pptx_export.py is
@@ -756,9 +951,9 @@ def _add_key_insights_pure_slide(prs, assessment: dict, *, topic: str,
     for s in insights[:6]:
         _rect(slide, x=0.7, y=y + 0.18, w=0.10, h=0.10,
               fill=_horizon_color("h2"))
-        _text(slide, x=0.92, y=y + 0.04, w=sw - 1.5, h=row_h - 0.10,
-              text=_truncate(s, 350),
-              font_size=12, color=SLATE_BLACK, line_spacing=1.35)
+        _text_cites(slide, x=0.92, y=y + 0.04, w=sw - 1.5, h=row_h - 0.10,
+                    text=_truncate(s, 350), articles=articles,
+                    font_size=12, color=SLATE_BLACK, line_spacing=1.35)
         _rect(slide, x=0.7, y=y + row_h - 0.05, w=sw - 1.4, h=0.008,
               fill=RULE_GRAY)
         y += row_h
@@ -994,6 +1189,14 @@ def _add_executive_summary_card_slide(prs, summary: dict, *,
     sw = 10.0
     _add_bg_image(slide, WILEY_BG_SOFT)
 
+    # Vertical budget (slide is 10.0 × 5.625):
+    #   header  0.15 → 0.78   (eyebrow + topic title)
+    #   chips   0.85 → 1.21   (horizon + consensus row)
+    #   body    1.30 → 1.92   (opening_statement)
+    #   minor.  1.97 → 2.52   (minority view, optional)
+    #   signal  2.58 → 3.36   (primary signal, optional)
+    #   plates  3.45 → 5.45   (decision fork + your window, 2.0" tall)
+
     # Header / eyebrow / topic_title
     eyebrow_bits = []
     if topic_idx is not None:
@@ -1002,40 +1205,41 @@ def _add_executive_summary_card_slide(prs, summary: dict, *,
     if card_idx is not None and total_cards:
         eyebrow_bits.append(f"{card_idx} of {total_cards}")
     eyebrow = "  ·  ".join(eyebrow_bits)
-    _text(slide, x=0.5, y=0.18, w=sw-1.0, h=0.25, text=eyebrow,
+    _text(slide, x=0.5, y=0.15, w=sw-1.0, h=0.20, text=eyebrow,
           font_size=9, bold=True, color=SLATE_MID)
-    _text(slide, x=0.5, y=0.42, w=sw-1.0, h=0.52,
+    _text(slide, x=0.5, y=0.36, w=sw-1.0, h=0.42,
           text=_truncate(summary.get("topic_title") or "", 90),
-          font_size=20, bold=True, color=SLATE_DARK)
+          font_size=18, bold=True, color=SLATE_DARK)
 
     # Horizon chip (left) + consensus % pill (right)
     horizon = (summary.get("primary_horizon") or "h1").lower()
     accent = _horizon_color(horizon)
     horizon_label = (summary.get("horizon_label")
                      or _horizon_full_label(horizon).split("—", 1)[-1].strip())
-    _rect(slide, x=0.5, y=1.05, w=2.55, h=0.42, fill=accent)
-    _text(slide, x=0.5, y=1.10, w=2.55, h=0.32,
+    _rect(slide, x=0.5, y=0.85, w=2.55, h=0.36, fill=accent)
+    _text(slide, x=0.5, y=0.89, w=2.55, h=0.28,
           text=f"{horizon.upper()}  ·  {horizon_label}",
-          font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+          font_size=10.5, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
     cons = summary.get("consensus_percentage")
     if isinstance(cons, (int, float)):
-        _rect(slide, x=sw - 2.55 - 0.5, y=1.05, w=2.55, h=0.42, fill=WILEY_TEAL)
-        _text(slide, x=sw - 2.55 - 0.5, y=1.10, w=2.55, h=0.32,
+        _rect(slide, x=sw - 2.55 - 0.5, y=0.85, w=2.55, h=0.36, fill=WILEY_TEAL)
+        _text(slide, x=sw - 2.55 - 0.5, y=0.89, w=2.55, h=0.28,
               text=f"{int(cons)}% CONSENSUS",
-              font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+              font_size=10.5, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
     # Opening statement body
     opening = (summary.get("opening_statement") or "").strip()
     if opening:
-        _text(slide, x=0.5, y=1.62, w=sw-1.0, h=0.95,
-              text=opening, font_size=11.5, color=SLATE_BLACK, line_spacing=1.35)
+        _text(slide, x=0.5, y=1.30, w=sw-1.0, h=0.62,
+              text=_truncate(opening, 280),
+              font_size=10.5, color=SLATE_BLACK, line_spacing=1.25)
 
-    # Minority view amber callout
+    # Minority view callout (optional)
     mv = summary.get("minority_view") or {}
     mv_pct = (mv.get("percentage_range") or "").strip()
     mv_text = (mv.get("statement") or "").strip()
-    cy = 2.65
+    cy = 1.97
     if mv_text:
         AMBER_FILL = WILEY_TEAL_LT
         AMBER_BAR  = WILEY_TEAL
@@ -1044,23 +1248,23 @@ def _add_executive_summary_card_slide(prs, summary: dict, *,
         label = "MINORITY VIEW" + (f"  ·  {mv_pct}" if mv_pct else "")
         _text(slide, x=0.70, y=cy+0.04, w=sw-1.4, h=0.22,
               text=label, font_size=8.5, bold=True, color=AMBER_BAR)
-        _text(slide, x=0.70, y=cy+0.26, w=sw-1.4, h=0.30,
-              text=_truncate(mv_text, 250),
-              font_size=9.5, color=SLATE_BLACK, line_spacing=1.25)
-        cy += 0.70
+        _text(slide, x=0.70, y=cy+0.24, w=sw-1.4, h=0.30,
+              text=_truncate(mv_text, 220),
+              font_size=9.5, color=SLATE_BLACK, line_spacing=1.20)
+        cy += 0.61
 
-    # PRIMARY SIGNAL block
+    # PRIMARY SIGNAL block (optional)
     ps = (summary.get("primary_signal") or "").strip()
     if ps:
         label = "PRIMARY SIGNAL"
         if isinstance(cons, (int, float)):
             label = f"PRIMARY SIGNAL  ·  {int(cons)}% CONSENSUS"
-        _text(slide, x=0.5, y=cy, w=sw-1.0, h=0.24,
+        _text(slide, x=0.5, y=cy, w=sw-1.0, h=0.22,
               text=label, font_size=9, bold=True, color=WILEY_TEAL)
-        _text(slide, x=0.5, y=cy+0.26, w=sw-1.0, h=0.55,
-              text=_truncate(ps, 320),
-              font_size=11, bold=True, color=SLATE_DARK, line_spacing=1.30)
-        cy += 0.90
+        _text(slide, x=0.5, y=cy+0.22, w=sw-1.0, h=0.56,
+              text=_truncate(ps, 240),
+              font_size=10.5, bold=True, color=SLATE_DARK, line_spacing=1.25)
+        cy += 0.83
 
     # DECISION FORK (left card) + YOUR WINDOW (right card)
     fork = summary.get("decision_fork") or {}
@@ -1070,8 +1274,8 @@ def _add_executive_summary_card_slide(prs, summary: dict, *,
     aw_assess = aw.get("assessment") or {}
     aw_pos    = aw.get("positioning") or {}
 
-    plate_y = max(cy, 4.10)
-    plate_h = 5.30 - plate_y
+    plate_y = max(cy, 3.45)
+    plate_h = 5.45 - plate_y
     plate_w = (sw - 1.0 - 0.15) / 2
     xL = 0.5
     xR = 0.5 + plate_w + 0.15
@@ -1079,40 +1283,128 @@ def _add_executive_summary_card_slide(prs, summary: dict, *,
     if fa.get("condition") or fb.get("condition"):
         _rect(slide, x=xL, y=plate_y, w=plate_w, h=plate_h, fill=WILEY_CARD_BG)
         _rect(slide, x=xL, y=plate_y, w=plate_w, h=0.05, fill=WILEY_NAVY)
-        _text(slide, x=xL+0.18, y=plate_y+0.12, w=plate_w-0.36, h=0.24,
+        _text(slide, x=xL+0.18, y=plate_y+0.12, w=plate_w-0.36, h=0.22,
               text="DECISION FORK", font_size=9, bold=True, color=WILEY_NAVY)
         fy = plate_y + 0.42
+        row_h = min(0.72, (plate_h - 0.50) / 2)
         for marker, frow in (("✔", fa), ("!", fb)):
             cond = (frow.get("condition") or "").strip()
             outc = (frow.get("outcome") or "").strip()
             if not cond and not outc:
                 continue
-            _text(slide, x=xL+0.18, y=fy, w=plate_w-0.36, h=0.30,
-                  text=f"{marker}  {_truncate(cond, 70)}",
-                  font_size=10, bold=True, color=accent)
-            _text(slide, x=xL+0.36, y=fy+0.26, w=plate_w-0.54, h=0.45,
-                  text=f"→ {_truncate(outc, 180)}",
-                  font_size=9, color=SLATE_BLACK, line_spacing=1.25)
-            fy += 0.75
+            _text(slide, x=xL+0.18, y=fy, w=plate_w-0.36, h=0.26,
+                  text=f"{marker}  {_truncate(cond, 60)}",
+                  font_size=9.5, bold=True, color=accent)
+            _text(slide, x=xL+0.36, y=fy+0.24, w=plate_w-0.54, h=0.42,
+                  text=f"→ {_truncate(outc, 140)}",
+                  font_size=8.5, color=SLATE_BLACK, line_spacing=1.20)
+            fy += row_h
 
     if aw_assess.get("action") or aw_pos.get("action"):
         _rect(slide, x=xR, y=plate_y, w=plate_w, h=plate_h, fill=WILEY_CARD_BG)
         _rect(slide, x=xR, y=plate_y, w=plate_w, h=0.05, fill=WILEY_TEAL)
-        _text(slide, x=xR+0.18, y=plate_y+0.12, w=plate_w-0.36, h=0.24,
+        _text(slide, x=xR+0.18, y=plate_y+0.12, w=plate_w-0.36, h=0.22,
               text="YOUR WINDOW", font_size=9, bold=True, color=WILEY_TEAL)
         ay = plate_y + 0.42
+        row_h = min(0.72, (plate_h - 0.50) / 2)
         for row in (aw_assess, aw_pos):
             tf = (row.get("timeframe") or "").strip()
             act = (row.get("action") or "").strip()
             if not tf and not act:
                 continue
             if tf:
-                _text(slide, x=xR+0.18, y=ay, w=plate_w-0.36, h=0.24,
+                _text(slide, x=xR+0.18, y=ay, w=plate_w-0.36, h=0.22,
                       text=tf.upper(), font_size=9, bold=True, color=WILEY_TEAL)
-            _text(slide, x=xR+0.18, y=ay+0.22, w=plate_w-0.36, h=0.50,
-                  text=_truncate(act, 180),
-                  font_size=10.5, color=SLATE_BLACK, line_spacing=1.30)
-            ay += 0.75
+            _text(slide, x=xR+0.18, y=ay+0.20, w=plate_w-0.36, h=0.48,
+                  text=_truncate(act, 140),
+                  font_size=9.5, color=SLATE_BLACK, line_spacing=1.25)
+            ay += row_h
+
+    # Source scenarios footer — link this card back to the H1/H2/H3
+    # scenarios the LLM clustered. Tight one-line band below the plates
+    # (slide bottom is 5.625; plates end at 5.45 → 0.13" footer).
+    src = [s for s in (summary.get("source_scenarios") or []) if isinstance(s, dict)]
+    src_bits = []
+    for s in src:
+        h = (s.get("horizon") or "").upper()
+        t = (s.get("title") or "").strip()
+        if t:
+            src_bits.append(f"{h} {t}" if h else t)
+    if src_bits:
+        footer = "Based on: " + "  ·  ".join(src_bits)
+        _text(slide, x=0.5, y=5.48, w=sw-1.0, h=0.13,
+              text=_truncate(footer, 200),
+              font_size=7.5, italic=True, color=SLATE_MID)
+
+
+def _load_articles_corpus(db, run_id: str, topic: str) -> list:
+    """Load the numbered article corpus the LLM cited as ``[1]``, ``[2]`` …
+
+    Returns the persisted ``future_horizon_articles`` set for the run,
+    preserving the prompt-time order (= [N] mapping). Falls back to the
+    canonical on-topic SELECT for older runs that don't have an fha row
+    set — same query the Topic Reports rerun uses, so [N] still resolves
+    to roughly the same article. Each dict: ``{title, uri, source, date}``.
+    """
+    out: list = []
+    try:
+        from sqlalchemy import text as sa_text
+        sql = sa_text("""
+            SELECT a.uri, a.title, a.news_source, a.publication_date
+            FROM future_horizon_articles fha
+            JOIN articles a ON a.uri = fha.article_uri
+            WHERE fha.horizon_id = :run_id
+            ORDER BY fha.id ASC
+        """)
+        rows = db.facade._execute_with_rollback(sql, {"run_id": run_id}).fetchall()
+        for r in rows:
+            d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            if (d.get("title") or "").strip():
+                out.append({
+                    "title":  d.get("title"),
+                    "uri":    d.get("uri") or "",
+                    "source": (d.get("news_source") or "").strip(),
+                    "date":   (d.get("publication_date") or "")[:10],
+                })
+    except Exception as e:
+        logger.warning("Topic report: fha lookup failed for %s: %s", run_id, e)
+
+    if out:
+        return out
+
+    # Fallback: rebuild the numbered list from the same SELECT the rerun
+    # uses. Best-effort — may drift if the article corpus has changed.
+    try:
+        from app.routes.trend_convergence_routes import calculate_optimal_sample_size
+        sample_size = calculate_optimal_sample_size("gpt-5.4", sample_size_mode="auto")
+        from sqlalchemy import text as sa_text
+        sql = sa_text(f"""
+            SELECT uri, title, news_source, publication_date
+            FROM articles
+            WHERE topic = :topic
+              AND analyzed = TRUE
+              AND topic_alignment_score IS NOT NULL
+              AND topic_alignment_score > 0.7
+            ORDER BY topic_alignment_score DESC, publication_date DESC
+            LIMIT {int(sample_size)}
+        """)
+        rows = db.facade._execute_with_rollback(sql, {"topic": topic}).fetchall()
+        for r in rows:
+            d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            if (d.get("title") or "").strip():
+                out.append({
+                    "title":  d.get("title"),
+                    "uri":    d.get("uri") or "",
+                    "source": (d.get("news_source") or "").strip(),
+                    "date":   (d.get("publication_date") or "")[:10],
+                })
+        if out:
+            logger.info("Topic report: rebuilt %d-article corpus for %s from "
+                        "on-topic SELECT (no fha rows persisted)", len(out), topic)
+    except Exception as e:
+        logger.warning("Topic report: corpus fallback rebuild failed for %s: %s",
+                       topic, e)
+    return out
 
 
 def _load_supporting_articles(db, topic: str, limit: int = 7) -> list:
@@ -1270,7 +1562,7 @@ def resolve_items(topics: list[str]) -> list:
         assessment = _assessment_view(topic, run_id, raw)
         # Fresh-forecast values WIN over the stored supervisor summary.
         # The supervisor's stored summary fills gaps only — that way a
-        # re-run via gpt-5 actually replaces stale text on the briefing /
+        # re-run via gpt-5.4 actually replaces stale text on the briefing /
         # strategic-recs / next-steps slides instead of the user seeing
         # the supervisor's old content from a prior run.
         stored_summary = (stored_assessment or {}).get("summary") or {}
@@ -1293,6 +1585,11 @@ def resolve_items(topics: list[str]) -> list:
         assessment["_consensus_payload"]   = _load_consensus_for_topic(db, topic)
         assessment["_supporting_articles"] = _load_supporting_articles(db, topic)
         assessment["_exec_summary_cards"]  = _load_horizons_executive_summary(db, run_id)
+        # The numbered corpus the LLM cited (``[1]``, ``[2]`` … markers in
+        # scenario / insight / rec body text resolve here). Per-topic
+        # builders attach hyperlinks to each [N] run targeting the matching
+        # article URL.
+        assessment["_articles_corpus"]     = _load_articles_corpus(db, run_id, topic)
 
         items.append((assessment, forecast_run, None))
     return _apply_overlay_display_names(items)
@@ -1344,6 +1641,11 @@ def build_topic_report_pptx(
     for topic_idx, (assessment, forecast_run, _prior) in enumerate(items, 1):
         topic_name = assessment.get("topic") or "—"
         raw = _decode_raw_output(forecast_run or {})
+        # Numbered corpus the LLM cited as ``[N]``. Threaded through the
+        # body-text slide builders so each [N] gets a hyperlink to the
+        # matching article URL — and rendered at the end of the topic
+        # section as a full numbered references slide.
+        articles_corpus = assessment.get("_articles_corpus") or []
 
         # ── Section openers (always rendered) ──────────────────────────
         _add_topic_divider(prs, assessment, forecast_run or {}, topic_idx=topic_idx)
@@ -1367,10 +1669,11 @@ def build_topic_report_pptx(
                 card_idx=k, total_cards=len(exec_cards),
             )
 
-        _add_key_insights_pure_slide(prs, assessment, topic=topic_name, topic_idx=topic_idx)
+        _add_key_insights_pure_slide(prs, assessment, topic=topic_name, topic_idx=topic_idx,
+                                     articles=articles_corpus)
         _add_strategic_recommendations_slide(prs, assessment)
         # Executive Decision Framework — render principles produced by the
-        # gpt-5 Topic Report prompt. Existing cross-topic helper expects a
+        # gpt-5.4 Topic Report prompt. Existing cross-topic helper expects a
         # list of {headline, body}; pull principles[] out of the dict.
         edf = (assessment.get("summary") or {}).get("executive_decision_framework") or {}
         edf_principles = edf.get("principles") if isinstance(edf, dict) else None
@@ -1412,7 +1715,13 @@ def build_topic_report_pptx(
                 continue
             _add_horizon_divider(prs, horizon, group, topic=topic_name)
             for scenario in group:
-                _add_forecast_scenario_slide(prs, scenario, topic=topic_name)
+                _add_forecast_scenario_slide(prs, scenario, topic=topic_name,
+                                             articles=articles_corpus)
+
+        # ── Article References slide (numbered corpus) — closes each
+        #    topic section and resolves the [N] markers on the body slides.
+        _add_topic_references_slide(prs, articles_corpus,
+                                    topic=topic_name, topic_idx=topic_idx)
 
     _add_methodology_appendix_slide(prs)
 

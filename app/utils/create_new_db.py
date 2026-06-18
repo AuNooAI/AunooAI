@@ -139,7 +139,7 @@ class DatabaseCreator:
                     min_relevance_threshold REAL DEFAULT 0.0,
                     quality_control_enabled BOOLEAN DEFAULT 1,
                     auto_save_approved_only BOOLEAN DEFAULT 0,
-                    default_llm_model TEXT DEFAULT 'gpt-4o-mini',
+                    default_llm_model TEXT DEFAULT 'gpt-5.4-mini',
                     llm_temperature REAL DEFAULT 0.1,
                     llm_max_tokens INTEGER DEFAULT 1000,
                     max_articles_per_run INTEGER DEFAULT 50

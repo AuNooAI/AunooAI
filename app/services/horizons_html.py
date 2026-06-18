@@ -12,8 +12,8 @@ from datetime import datetime
 from typing import Optional
 
 from app.services.html_report_common import (
-    BASE_CSS, esc, html_document, section_open,
-    render_executive_summary_cards, render_scenarios,
+    BASE_CSS, esc, esc_cites, html_document, section_open,
+    render_executive_summary_cards, render_scenarios, clean_article_ref,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,6 +140,13 @@ _H2_DESC = ("Transition / Innovation — experimental approaches and the period 
 _H3_DESC = ("Future Vision / Emerging — transformative visions becoming reality.")
 
 
+def render_horizons_chart(scenarios: list) -> str:
+    """Public alias — Topic Report HTML imports this to inline the same
+    visual under each topic.
+    """
+    return _render_horizons_chart(scenarios)
+
+
 def _render_horizons_chart(scenarios: list) -> str:
     """Render the inline SVG Three Horizons chart with scenario markers
     placed on the wave curves. Mirrors the React tab's chart so the HTML
@@ -231,7 +238,7 @@ def _render_horizons_chart(scenarios: list) -> str:
     return "\n".join(parts)
 
 
-def _render_horizon_columns(scenarios: list) -> str:
+def _render_horizon_columns(scenarios: list, articles: list | None = None) -> str:
     """Three side-by-side columns of scenario cards, matching the React
     "Three Horizons Columns" grid."""
     scenarios = [s for s in (scenarios or []) if isinstance(s, dict)]
@@ -270,7 +277,7 @@ def _render_horizon_columns(scenarios: list) -> str:
                     parts.append(f'<div class="timeframe">{esc(tf)}</div>')
                 parts.append(f'<h4>{esc(title)}</h4>')
                 if desc:
-                    parts.append(f'<div class="desc">{esc(desc)}</div>')
+                    parts.append(f'<div class="desc">{esc_cites(desc, articles)}</div>')
                 if sent:
                     parts.append(f'<span class="sentiment">{esc(sent)}</span>')
                 parts.append('</div>')
@@ -290,15 +297,16 @@ def _render_article_references(articles: list) -> str:
     parts: list = [section_open("Article References", eyebrow="SOURCE CORPUS")]
     parts.append(f'<style>{_HORIZONS_EXTRA_CSS}</style>')
     parts.append('<ol class="article-refs">')
-    for a in refs:
-        title = a.get("title") or ""
-        url = a.get("url") or a.get("uri") or ""
-        source = a.get("source") or a.get("news_source") or ""
-        date = (a.get("date") or a.get("publication_date") or "")[:10]
+    for n, a in enumerate(refs, 1):
+        c = clean_article_ref(a)
+        title = c["title"]
+        url = c["uri"]
+        source = c["source"]
+        date = c["date"]
         title_html = (f'<a href="{esc(url)}" target="_blank" rel="noopener">{esc(title)}</a>'
                       if url else esc(title))
         meta_bits = [b for b in (source, date) if b]
-        parts.append('<li>')
+        parts.append(f'<li id="ref-{n}">')
         parts.append(f'<div class="title">{title_html}</div>')
         if meta_bits:
             parts.append(f'<div class="ref-meta">{esc("  ·  ".join(meta_bits))}</div>')
@@ -360,11 +368,13 @@ def build_horizons_html(
     body_parts.append(_render_horizons_chart(scenarios or []))
 
     # Executive Summary cards (the React tab's `ExecutiveSummaryCard` content).
-    body_parts.append(render_executive_summary_cards(summaries or []))
+    # Pass ``articles`` so [N] markers in card body text link directly to
+    # the publisher URL (not just an in-document jump).
+    body_parts.append(render_executive_summary_cards(summaries or [], articles=articles))
 
     # Three Horizons Columns — H1/H2/H3 side-by-side with the full scenario
     # cards (timeframe / title / description / sentiment chip).
-    body_parts.append(_render_horizon_columns(scenarios or []))
+    body_parts.append(_render_horizon_columns(scenarios or [], articles=articles))
 
     # Numbered article references — resolves the [n] citations in the
     # scenario descriptions and exec-summary cards above.

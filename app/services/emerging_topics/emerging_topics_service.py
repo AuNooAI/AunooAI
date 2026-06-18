@@ -53,8 +53,8 @@ class EmergingTopicsConfig:
     theme_distance_threshold: float = 0.85  # Higher threshold needed - distances are typically 0.70-0.85
 
     # LLM settings
-    summarization_model: str = "gpt-4o"
-    model: str = "gpt-4o"  # Primary model selection (overrides summarization_model if set)
+    summarization_model: str = "gpt-5.4"
+    model: str = "gpt-5.4"  # Primary model selection (overrides summarization_model if set)
     max_articles_for_analysis: int = 15
 
 
@@ -306,7 +306,7 @@ class EmergingTopicsService:
             "min_articles_for_theme": self.config.min_articles_for_theme,
             "max_articles_per_theme": self.config.max_articles_per_theme,
         }
-        model_name = getattr(self.theme_proposer, 'default_model', 'gpt-4o') if self.theme_proposer else 'gpt-4o'
+        model_name = getattr(self.theme_proposer, 'default_model', 'gpt-5.4') if self.theme_proposer else 'gpt-5.4'
         run_id = self._create_detection_run(topic_filter, run_config, model_name)
 
         yield {

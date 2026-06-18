@@ -80,7 +80,7 @@ DEFAULT_REGULATORY_KEYWORDS = [
 # Technology/AI events (for attention tracking)
 DEFAULT_AI_TECH_KEYWORDS = [
     'launches', 'released', 'announces', 'unveils', 'introduces',
-    'gpt-4', 'gpt-5', 'claude', 'gemini', 'llama', 'mistral',
+    'gpt-5.4', 'gpt-5.4', 'claude', 'gemini', 'llama', 'mistral',
     'model release', 'new model', 'ai model', 'language model',
     'benchmark', 'leaderboard', 'sota', 'state-of-the-art',
     'api update', 'api change', 'deprecation',
@@ -118,7 +118,7 @@ class PAMEventExtractionService:
     """Service for extracting structured events from articles."""
 
     # Default model for extraction
-    DEFAULT_MODEL = "gpt-4.1-mini"
+    DEFAULT_MODEL = "gpt-5.4-mini"
 
     def __init__(self, model: Optional[str] = None, keyword_preset: Optional[str] = None):
         self.db = get_database_instance()

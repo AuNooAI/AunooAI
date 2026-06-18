@@ -20,7 +20,7 @@ interface ThreatImportModalProps {
   model?: string;
 }
 
-export function ThreatImportModal({ isOpen, onClose, onImportComplete, model = 'gpt-4o-mini' }: ThreatImportModalProps) {
+export function ThreatImportModal({ isOpen, onClose, onImportComplete, model = 'gpt-5.4-mini' }: ThreatImportModalProps) {
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [articleLimit, setArticleLimit] = useState(100);

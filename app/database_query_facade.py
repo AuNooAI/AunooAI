@@ -3340,7 +3340,7 @@ class DatabaseQueryFacade:
             func.coalesce(keyword_monitor_settings.c.min_relevance_threshold, 0.0).label("min_relevance_threshold"),
             func.coalesce(keyword_monitor_settings.c.quality_control_enabled, True).label("quality_control_enabled"),
             func.coalesce(keyword_monitor_settings.c.auto_save_approved_only, False).label("auto_save_approved_only"),
-            func.coalesce(keyword_monitor_settings.c.default_llm_model, "gpt-4o-mini").label("default_llm_model"),
+            func.coalesce(keyword_monitor_settings.c.default_llm_model, "gpt-5.4-mini").label("default_llm_model"),
             func.coalesce(keyword_monitor_settings.c.llm_temperature, 0.1).label("llm_temperature"),
             func.coalesce(keyword_monitor_settings.c.llm_max_tokens, 1000).label("llm_max_tokens"),
             func.coalesce(kms_subq.c.requests_today, 0).label("requests_today"),
@@ -3426,7 +3426,7 @@ class DatabaseQueryFacade:
                 min_relevance_threshold=0.7,
                 quality_control_enabled=True,
                 auto_save_approved_only=False,
-                default_llm_model="gpt-4",
+                default_llm_model="gpt-5.4",
                 llm_temperature=0.7,
                 llm_max_tokens=2000
             )

@@ -151,11 +151,11 @@ class ResearchConfig:
     temporal_distribution_older: float = 0.3  # 30% older context
 
     # Model settings
-    planning_model: str = "gpt-4.1-mini"
+    planning_model: str = "gpt-5.4-mini"
     planning_temperature: float = 0.3
-    synthesis_model: str = "gpt-4o"
+    synthesis_model: str = "gpt-5.4"
     synthesis_temperature: float = 0.4
-    writing_model: str = "gpt-4o"
+    writing_model: str = "gpt-5.4"
     writing_temperature: float = 0.5
 
     # Timeouts (seconds)
@@ -631,7 +631,7 @@ The more specific your question, the better insights I can provide!"""
             content = "\n".join(content_items)
 
             response = await litellm.acompletion(
-                model="gpt-4.1-mini",
+                model="gpt-5.4-mini",
                 messages=[
                     {
                         "role": "system",

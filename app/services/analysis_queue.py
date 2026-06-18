@@ -110,7 +110,7 @@ class AnalysisQueue:
                             urls=[task.url],
                             topic=task.topic,
                             summary_type='curious_ai',
-                            model_name='gpt-4',
+                            model_name='gpt-5.4',
                             summary_length=50,
                             summary_voice='neutral'
                         )

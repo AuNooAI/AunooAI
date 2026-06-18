@@ -94,7 +94,7 @@ class ThemeProposer:
         self,
         ai_model_getter: Optional[Callable] = None,
         embedding_model_getter: Optional[Callable] = None,
-        default_model: str = "gpt-4o"
+        default_model: str = "gpt-5.4"
     ):
         self.ai_model_getter = ai_model_getter
         self.embedding_model_getter = embedding_model_getter

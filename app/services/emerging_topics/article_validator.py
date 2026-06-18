@@ -52,7 +52,7 @@ class ArticleValidator:
     def __init__(
         self,
         ai_model_getter: Callable,
-        model_name: str = "gpt-4o"
+        model_name: str = "gpt-5.4"
     ):
         """
         Initialize the article validator.

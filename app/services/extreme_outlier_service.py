@@ -162,10 +162,10 @@ class EOSConfig:
     time_horizon: str = "mid"  # 'near' (0-2y), 'mid' (2-5y), 'long' (5-10y)
 
     # Model settings
-    weak_signals_model: str = "gpt-4o"
-    amplification_model: str = "gpt-4o"
-    scenario_model: str = "gpt-4o"
-    implications_model: str = "gpt-4o"
+    weak_signals_model: str = "gpt-5.4"
+    amplification_model: str = "gpt-5.4"
+    scenario_model: str = "gpt-5.4"
+    implications_model: str = "gpt-5.4"
 
     # Temperature settings (higher for more creative scenarios)
     weak_signals_temp: float = 0.3

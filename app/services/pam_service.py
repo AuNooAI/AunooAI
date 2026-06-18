@@ -40,7 +40,7 @@ from app.services.external_data import SemanticScholarProvider, GoogleSearchProv
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "auspex" / "pam_config.json"
 AGENTS_PATH = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
 
@@ -262,11 +262,11 @@ class PAMService:
                 "parallel_agents": True
             },
             "agents": {
-                "power": {"model": "gpt-4.1-mini", "temperature": 0.3, "max_tokens": 4000},
-                "attention": {"model": "gpt-4.1-mini", "temperature": 0.3, "max_tokens": 4000},
-                "money": {"model": "gpt-4.1-mini", "temperature": 0.3, "max_tokens": 4000},
-                "trends": {"model": "gpt-4.1-mini", "temperature": 0.3, "max_tokens": 3000},
-                "synthesis": {"model": "gpt-4.1", "temperature": 0.4, "max_tokens": 5000}
+                "power": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 4000},
+                "attention": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 4000},
+                "money": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 4000},
+                "trends": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 3000},
+                "synthesis": {"model": "gpt-5.4", "temperature": 0.4, "max_tokens": 5000}
             },
             "score_calculation": {
                 "pillar_weights": {"power": 0.35, "attention": 0.35, "money": 0.30},
@@ -1352,7 +1352,7 @@ class PAMService:
         """Generate executive summary using synthesis agent prompt."""
         # Load synthesis prompt from file
         prompt_file = AGENTS_PATH / "pam_synthesis_agent.md"
-        synthesis_model = self.config.get("agents", {}).get("synthesis", {}).get("model", "gpt-4.1")
+        synthesis_model = self.config.get("agents", {}).get("synthesis", {}).get("model", "gpt-5.4")
         synthesis_temp = self.config.get("agents", {}).get("synthesis", {}).get("temperature", 0.4)
 
         # Build context

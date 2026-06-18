@@ -161,7 +161,7 @@ async def perform_thematic_clustering(items: List[Dict[str, Any]]) -> List[Dict[
     """
     
     try:
-        ai_model = LiteLLMModel.get_instance("gpt-4o-mini")
+        ai_model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await ai_model.agenerate_response([
             {"role": "user", "content": prompt}
         ])
@@ -294,7 +294,7 @@ async def perform_sentiment_clustering(items: List[Dict[str, Any]]) -> Dict[str,
     """
 
     try:
-        ai_model = LiteLLMModel.get_instance("gpt-4o-mini")
+        ai_model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await ai_model.agenerate_response([
             {"role": "user", "content": prompt}
         ])
@@ -398,7 +398,7 @@ async def perform_temporal_clustering(
     """
 
     try:
-        ai_model = LiteLLMModel.get_instance("gpt-4o-mini")
+        ai_model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await ai_model.agenerate_response([
             {"role": "user", "content": prompt}
         ])

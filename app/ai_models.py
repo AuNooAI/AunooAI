@@ -1097,7 +1097,7 @@ def ai_get_available_models():
     
     Returns:
         list: List of dicts with supported models, each containing:
-            - name: The model name (e.g., 'gpt-4o')
+            - name: The model name (e.g., 'gpt-5.4')
             - provider: The provider name (e.g., 'openai', 'anthropic')
     """
     config_dir = os.path.join(os.path.dirname(__file__), 'config')
@@ -1141,7 +1141,7 @@ class AIModelFactory:
     Provides compatibility layer for services expecting AIModelFactory.get_model().
     """
 
-    _default_model = "gpt-4o-mini"
+    _default_model = "gpt-5.4-mini"
 
     @classmethod
     def get_model(cls, model_name: str = None) -> LiteLLMModel:

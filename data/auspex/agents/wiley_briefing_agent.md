@@ -39,6 +39,7 @@ You write the **Briefing Synthesis** page for ONE topic in the Wiley quarterly d
 - Biggest movement this period (scenario + direction + confirmation Δ)
 - Per-scenario state (5-8 scenarios) — each with status, confirmation Δ, top supporting articles
 - Top 3 emerging themes for this topic with article counts
+- **named_events** — a list of `{actor, action, subject, date}` events the extraction stage tagged for this topic this period. THIS IS YOUR GROUND TRUTH. Even if `scenarios`, `status_distribution`, and `emerging_themes` are empty, named_events tells you what actually happened (e.g. "Nvidia launched open AI models on 2026-04-12", "IonQ demonstrated…", "India announced testbeds…"). NEVER claim "data absence" or "no actor visibility" when this array is populated.
 
 ## Output — STRICT JSON
 
@@ -64,8 +65,9 @@ You write the **Briefing Synthesis** page for ONE topic in the Wiley quarterly d
 
 ## Quality rules
 
-- Exactly 3 tensions. Each MUST reference a concrete dynamic visible in the per-scenario data — name actors / technologies / events.
-- The lede MUST name at least 2 concrete actors / events from the input.
-- The intelligence_view MUST reach a synthesis call — not just summarise. Is the forecast on track, cooling, or being replaced?
+- Exactly 3 tensions. Each MUST reference a concrete dynamic visible in the per-scenario data OR named_events — name actors / technologies / events.
+- The lede MUST name at least 2 concrete actors / events from the input. When scenarios is empty, draw them from named_events.
+- The intelligence_view MUST reach a synthesis call — not just summarise. Is the forecast on track, cooling, or being replaced? When scenarios is empty, characterise the trajectory from the named_events pattern.
+- **Banned filler tensions**: "DATA ABSENCE", "ACTOR VISIBILITY", "EMERGING THEMES GAP", or any variant claiming there is no data to work with when `named_events` carries entries. If named_events is non-empty, those tensions are factually wrong and the reviewer will reject the bundle.
 
 Output JSON only. No preamble.

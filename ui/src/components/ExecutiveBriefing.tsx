@@ -668,7 +668,7 @@ export function ExecutiveBriefing({
                 strategic_relevance: a.strategic_relevance
               })),
               duration: podcastDuration || 'short',
-              model: 'gpt-4o'
+              model: 'gpt-5.4'
             })
           });
 

@@ -8,7 +8,7 @@ Architecture mirrors JP Morgan's "Ask David" pattern:
     specialised subagents (retrieval, analytics, briefing, recommendations,
                             next_steps, cross_topic, exec_summary)
         ↓
-    LLM-as-judge reviewer (gpt-5 with reasoning_effort=high)
+    LLM-as-judge reviewer (gpt-5.4 with reasoning_effort=high)
         ↓
     gate — errors block, warnings annotate, clean approves
         ↓
@@ -191,7 +191,7 @@ async def _call_agent(agent_name: str, payload: dict, *, reasoning_effort: str =
         return {}
 
     model_cfg = (agent.metadata or {}).get("model_config", {}) or {}
-    model_name = model_cfg.get("model", "gpt-5")
+    model_name = model_cfg.get("model", "gpt-5.4")
     temperature = model_cfg.get("temperature", 0.3)
     max_tokens = model_cfg.get("max_tokens", 2000)
     cfg_reasoning = model_cfg.get("reasoning_effort")
@@ -346,8 +346,19 @@ def _supervisor_payload(items: list, cadence: str, period_label: str, *,
     }
 
 
-def _topic_data_payload(assessment: dict) -> dict:
-    """Distil one topic's assessment into the shape the per-topic agents expect."""
+def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -> dict:
+    """Distil one topic's assessment into the shape the per-topic agents expect.
+
+    ``named_events`` (optional) — the topic's slice of
+    ``db.facade.list_extracted_events`` for this cadence/period. Threaded
+    through so the briefing/recs/next-steps agents can ground their
+    tensions, lede, and rationales in real events (Nvidia, IonQ, Google,
+    India, IBM…). Without this, topics that lack back-tested scenario
+    data — and so have an empty ``scenarios``/``emerging_themes`` slot —
+    were producing "DATA ABSENCE / ACTOR VISIBILITY / EMERGING THEMES
+    GAP" filler that the reviewer rightly rejected as contradicted by
+    the named-events table.
+    """
     summary = assessment.get("summary") or {}
     bc_per = ((summary.get("baseline_correction") or {}).get("per_scenario") or {})
     verdicts = [v for v in (assessment.get("scenario_verdicts") or [])
@@ -382,6 +393,11 @@ def _topic_data_payload(assessment: dict) -> dict:
     status_dist = {x: labels.count(x) for x in set(labels)}
     biggest = max(scenarios, key=lambda s: abs(s.get("confirmation_delta_pct") or 0), default=None)
 
+    # Ground-truth events the extraction stage tagged for this topic.
+    # Briefing/recs/next-steps agents anchor their tensions and rationales
+    # to these so empty-scenarios topics don't default to "DATA ABSENCE".
+    events = [e for e in (named_events or []) if isinstance(e, dict)]
+
     return {
         "topic": assessment.get("topic"),
         "forecast_published": summary.get("forecast_generated_at"),
@@ -394,15 +410,18 @@ def _topic_data_payload(assessment: dict) -> dict:
              "sample_articles": (s.get("sample_articles") or [])[:3]}
             for s in (assessment.get("surprises") or [])[:5]
         ],
+        "named_events": events[:30],
     }
 
 
 # ── Stage runners ────────────────────────────────────────────────────
 
-async def _run_briefings(items: list, plan: dict) -> dict:
+async def _run_briefings(items: list, plan: dict,
+                         events_by_topic: Optional[dict] = None) -> dict:
     """Per-topic Briefing Synthesis. Skips topics whose briefing is cached
     unless the plan explicitly targets them."""
     target_topics = _plan_targets(plan, "briefing")
+    events_by_topic = events_by_topic or {}
     tasks = []
     for assessment, _run, _prior in items:
         topic = assessment.get("topic") or ""
@@ -411,16 +430,20 @@ async def _run_briefings(items: list, plan: dict) -> dict:
         if ((assessment.get("summary") or {}).get("topic_briefing")
                 and (not target_topics or topic not in target_topics)):
             continue
-        tasks.append((topic, _call_agent("wiley_briefing_agent",
-                                         _topic_data_payload(assessment))))
+        tasks.append((topic, _call_agent(
+            "wiley_briefing_agent",
+            _topic_data_payload(assessment, named_events=events_by_topic.get(topic)),
+        )))
     results = {}
     for topic, fut in tasks:
         results[topic] = await fut
     return results
 
 
-async def _run_recommendations(items: list, plan: dict) -> dict:
+async def _run_recommendations(items: list, plan: dict,
+                               events_by_topic: Optional[dict] = None) -> dict:
     target_topics = _plan_targets(plan, "recommendations")
+    events_by_topic = events_by_topic or {}
     out = {}
     for assessment, _run, _prior in items:
         topic = assessment.get("topic") or ""
@@ -429,12 +452,17 @@ async def _run_recommendations(items: list, plan: dict) -> dict:
         if ((assessment.get("summary") or {}).get("strategic_recommendations")
                 and (not target_topics or topic not in target_topics)):
             continue
-        out[topic] = await _call_agent("wiley_recs_agent", _topic_data_payload(assessment))
+        out[topic] = await _call_agent(
+            "wiley_recs_agent",
+            _topic_data_payload(assessment, named_events=events_by_topic.get(topic)),
+        )
     return out
 
 
-async def _run_next_steps(items: list, plan: dict) -> dict:
+async def _run_next_steps(items: list, plan: dict,
+                          events_by_topic: Optional[dict] = None) -> dict:
     target_topics = _plan_targets(plan, "next_steps")
+    events_by_topic = events_by_topic or {}
     out = {}
     for assessment, _run, _prior in items:
         topic = assessment.get("topic") or ""
@@ -443,7 +471,39 @@ async def _run_next_steps(items: list, plan: dict) -> dict:
         if ((assessment.get("summary") or {}).get("next_steps")
                 and (not target_topics or topic not in target_topics)):
             continue
-        out[topic] = await _call_agent("wiley_next_steps_agent", _topic_data_payload(assessment))
+        out[topic] = await _call_agent(
+            "wiley_next_steps_agent",
+            _topic_data_payload(assessment, named_events=events_by_topic.get(topic)),
+        )
+    return out
+
+
+def _events_by_topic(db, cadence: str, period_label: str) -> dict:
+    """Fetch named events for the period and group by topic.
+
+    One DB call; the result is reused across briefing / recommendations /
+    next-steps so the per-topic agents have the same ground truth the
+    reviewer evaluates against.
+    """
+    out: dict[str, list] = {}
+    try:
+        rows = db.facade.list_extracted_events(
+            cadence=cadence, period_label=period_label, include_excluded=True) or []
+    except Exception as e:
+        logger.warning("events_by_topic: list_extracted_events failed: %s", e)
+        return out
+    for e in rows:
+        if not isinstance(e, dict):
+            continue
+        t = (e.get("topic") or "").strip()
+        if not t:
+            continue
+        out.setdefault(t, []).append({
+            "actor":   e.get("actor"),
+            "action":  e.get("action"),
+            "subject": e.get("subject"),
+            "date":    str(e.get("event_date"))[:10] if e.get("event_date") else None,
+        })
     return out
 
 
@@ -909,11 +969,17 @@ async def run_pipeline(
     # topic payloads we hand them. Retrieval/analytics live as helpers
     # inside the topic_data_payload builder.
 
+    # ── Named-events ground truth — fetch once, reuse for every per-topic
+    # agent. Without this the briefing agent invents "DATA ABSENCE" filler
+    # for topics whose back-test scenario_verdicts are empty, even though
+    # the extraction stage produced plenty of real events for that topic.
+    events_by_topic = _events_by_topic(db, cadence, period_label)
+
     # ── Stage 4: per-topic Briefing Synthesis ───────────────────────
     briefings = {}
     if _stage_in_plan(plan, "briefing"):
         yield {"stage": "briefing", "status": "started", "progress": 0.2}
-        briefings = await _run_briefings(items, plan)
+        briefings = await _run_briefings(items, plan, events_by_topic)
         # Persist into assessment.summary.topic_briefing so future runs hit cache
         for topic, payload in briefings.items():
             if payload:
@@ -925,7 +991,7 @@ async def run_pipeline(
     recommendations = {}
     if _stage_in_plan(plan, "recommendations"):
         yield {"stage": "recommendations", "status": "started", "progress": 0.4}
-        recommendations = await _run_recommendations(items, plan)
+        recommendations = await _run_recommendations(items, plan, events_by_topic)
         for topic, payload in recommendations.items():
             if payload:
                 _persist_recommendations(db, items, topic, payload)
@@ -936,7 +1002,7 @@ async def run_pipeline(
     next_steps = {}
     if _stage_in_plan(plan, "next_steps"):
         yield {"stage": "next_steps", "status": "started", "progress": 0.6}
-        next_steps = await _run_next_steps(items, plan)
+        next_steps = await _run_next_steps(items, plan, events_by_topic)
         for topic, payload in next_steps.items():
             if payload:
                 _persist_next_steps(db, items, topic, payload)
@@ -1175,7 +1241,7 @@ async def run_pipeline(
         # config so the audit row reflects what really ran (not a hard-coded label).
         reviewer_agent_cfg = (get_tool_loader().get_agent("wiley_reviewer_agent") or None)
         reviewer_model = ((reviewer_agent_cfg.metadata or {}).get("model_config", {}).get("model")
-                           if reviewer_agent_cfg else None) or "gpt-4.1"
+                           if reviewer_agent_cfg else None) or "gpt-5.4"
         db.facade.upsert_forecast_bundle_review(
             cadence, period_label,
             status=verdict,

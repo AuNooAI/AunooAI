@@ -24,7 +24,7 @@ interface ThreatIntelligenceTabProps {
   model?: string;
 }
 
-export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }: ThreatIntelligenceTabProps) {
+export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-5.4-mini' }: ThreatIntelligenceTabProps) {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
 

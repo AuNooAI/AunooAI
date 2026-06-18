@@ -222,7 +222,7 @@ class NewsfeedDashboardMonitor:
                     from app.routes.news_feed_routes import _generate_six_articles_internal
                     briefing_articles = await _generate_six_articles_internal(
                         persona=settings.get('persona', 'CEO'),
-                        model=settings.get('model', 'gpt-4o-mini'),
+                        model=settings.get('model', 'gpt-5.4-mini'),
                         topic=settings.get('topic_filter')
                     )
                     result["briefing_generated"] = briefing_articles is not None and len(briefing_articles) > 0
@@ -279,7 +279,7 @@ class NewsfeedDashboardMonitor:
                     snapshot_id = save_dashboard_snapshot(
                         topic=settings.get('topic_filter'),
                         persona=settings.get('persona', 'CEO'),
-                        model=settings.get('model', 'gpt-4o-mini'),
+                        model=settings.get('model', 'gpt-5.4-mini'),
                         briefing_articles=briefing_articles,
                         highlights_data=highlights_data,
                         narratives_data=narratives_data,

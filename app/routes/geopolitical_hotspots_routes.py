@@ -480,7 +480,7 @@ class ProcessingStats(BaseModel):
 
 class ProcessArticlesRequest(BaseModel):
     batch_size: int = Field(50, ge=1, le=500, description="Number of articles to process")
-    model: str = Field("gpt-4o-mini", description="LLM model to use for location extraction")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use for location extraction")
     topic: Optional[str] = Field(None, description="Topic to process articles from (default: Geopolitical Hotspots)")
     process_all: bool = Field(False, description="If True, process all articles including already-processed ones")
 
@@ -842,7 +842,7 @@ class NarrativeDetail(BaseModel):
 
 
 class GenerateNarrativeRequest(BaseModel):
-    model: str = Field("gpt-4o-mini", description="LLM model to use for generation")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use for generation")
     topic: Optional[str] = Field(None, description="Optional topic filter")
 
 
@@ -942,7 +942,7 @@ class GeopoliticalScheduleCreate(BaseModel):
     name: str = Field(..., description="Name for the schedule")
     topic: Optional[str] = Field(None, description="Topic to process (default: Geopolitical Hotspots)")
     batch_size: int = Field(50, ge=0, le=2000, description="Number of articles per run (0 = adaptive)")
-    model: str = Field("gpt-4o-mini", description="LLM model to use")
+    model: str = Field("gpt-5.4-mini", description="LLM model to use")
     process_all: bool = Field(False, description="Reprocess already-processed articles")
     schedule_enabled: bool = Field(True, description="Enable scheduling")
     schedule_type: str = Field("interval", description="Schedule type: 'interval' or 'daily'")

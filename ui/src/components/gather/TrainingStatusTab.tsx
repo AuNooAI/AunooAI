@@ -5,7 +5,7 @@
  * Part of the Gather page for the Adaptive Classification Training System.
  *
  * Two-tier system:
- * - GPT (gpt-4o-mini): Used when < 500 samples, stores results for training
+ * - GPT (gpt-5.4-mini): Used when < 500 samples, stores results for training
  * - DeBERTa: Used when >= 500 samples, fast and free
  */
 
@@ -821,7 +821,7 @@ export function TrainingStatusTab() {
               )}
               {bootstrappingTopics.length > 0 && (
                 <span className="px-2.5 py-1.5 rounded-md text-xs font-semibold bg-pink-50 text-pink-700" title={inferenceMode === 'local' ? 'Using Qwen for untrained topics' : 'Using GPT for untrained topics'}>
-                  {bootstrappingTopics.length} on {inferenceMode === 'local' ? 'Qwen' : 'gpt-4o-mini'}
+                  {bootstrappingTopics.length} on {inferenceMode === 'local' ? 'Qwen' : 'gpt-5.4-mini'}
                 </span>
               )}
             </div>
@@ -1015,7 +1015,7 @@ export function TrainingStatusTab() {
               </div>
               <div className="space-y-2">
                 {(modelConfig?.external_models ?? [
-                  { name: 'gpt-4o-mini', status: 'available', latency: '~2-5s', description: 'Fallback when local unavailable', tooltip: '', usage: null, cost: '~$0.001/article', type: 'external', port: null },
+                  { name: 'gpt-5.4-mini', status: 'available', latency: '~2-5s', description: 'Fallback when local unavailable', tooltip: '', usage: null, cost: '~$0.001/article', type: 'external', port: null },
                 ]).map((model) => (
                   <div
                     key={model.name}

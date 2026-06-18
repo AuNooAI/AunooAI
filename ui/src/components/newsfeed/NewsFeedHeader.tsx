@@ -69,11 +69,11 @@ export function NewsFeedHeader({
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
   // Use local state for model to match working pattern from LLMConfigModal
-  const [localModel, setLocalModel] = useState(config.model || 'gpt-4o-mini');
+  const [localModel, setLocalModel] = useState(config.model || 'gpt-5.4-mini');
 
   // Sync local model with config when it changes externally
   useEffect(() => {
-    setLocalModel(config.model || 'gpt-4o-mini');
+    setLocalModel(config.model || 'gpt-5.4-mini');
   }, [config.model]);
 
   const selectedTopics = narrativeConfig.selectedTopics || [];
@@ -254,10 +254,10 @@ export function NewsFeedHeader({
                 ))
               ) : (
                 <>
-                  <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
-                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                  <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini</SelectItem>
-                  <SelectItem value="gpt-4.1">GPT-4.1</SelectItem>
+                  <SelectItem value="gpt-5.4-mini">GPT-5.4 Mini</SelectItem>
+                  <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
+                  <SelectItem value="gpt-5.4-nano">GPT-5.4 Nano</SelectItem>
+                  <SelectItem value="gpt-5.5">GPT-5.5 (flagship)</SelectItem>
                 </>
               )}
             </SelectContent>

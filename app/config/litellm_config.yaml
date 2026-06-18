@@ -42,6 +42,29 @@ model_list:
       model: openai/gpt-5-nano
       api_key: "os.environ/OPENAI_API_KEY"
 
+  # OpenAI GPT-5.4 / 5.5 — current models. The gpt-5 snapshots above are
+  # deprecated (API shutdown 2026-12-10). gpt-5.4 = standard, mini/nano cheaper,
+  # gpt-5.5 = flagship reasoning. These are the repoint targets monolith-wide.
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5.4
+    litellm_params:
+      model: openai/gpt-5.4
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5.4-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5.4-nano
+    litellm_params:
+      model: openai/gpt-5.4-nano
+      api_key: "os.environ/OPENAI_API_KEY"
+
   # Hugging Face
   - model_name: mixtral-8x7b
     litellm_params:

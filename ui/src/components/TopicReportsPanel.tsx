@@ -400,9 +400,9 @@ export function TopicReportsPanel() {
 
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           <Button
-            onClick={() => startGeneration({ rerunForecast: true, forceModel: 'gpt-5' })}
+            onClick={() => startGeneration({ rerunForecast: true, forceModel: 'gpt-5.4' })}
             disabled={selected.size === 0 || progressTask?.state === 'running'}
-            title="Re-run a fresh Three Horizons analysis with gpt-5 (flagship) for each topic before rendering — adds ~25-40s per topic"
+            title="Re-run a fresh Three Horizons analysis with gpt-5.4 (flagship) for each topic before rendering — adds ~25-40s per topic"
             className="text-xs bg-pink-600 hover:bg-pink-700 text-white h-7 py-0 px-3"
           >
             {progressTask?.state === 'running'

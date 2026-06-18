@@ -1320,8 +1320,8 @@ async def vector_summary(
     import litellm
     logger = logging.getLogger(__name__)
 
-    # Use provided model or default to gpt-4o-mini (lightweight)
-    model_name = req.model or "gpt-4o-mini"
+    # Use provided model or default to gpt-5.4-mini (lightweight)
+    model_name = req.model or "gpt-5.4-mini"
     
     logger.info(f"Vector summary requested with model: {model_name}")
 
@@ -1474,7 +1474,7 @@ async def vector_summary_raw(
     joined = "\n\n".join(blocks)
 
     # 2) Prompt selection
-    model_name = req.model or "gpt-4o-mini"
+    model_name = req.model or "gpt-5.4-mini"
     is_single_article = len(metas) == 1
 
     if is_single_article:
@@ -1599,7 +1599,7 @@ async def article_insights(
     joined = "\n".join(lines)
 
     # 3) Prompt and LLM call
-    model_name = req.model or "gpt-4o-mini"
+    model_name = req.model or "gpt-5.4-mini"
     is_single_article = len(metas) == 1
 
     if is_single_article:
@@ -1765,7 +1765,7 @@ class _IncidentTrackingRequest(BaseModel):
     start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
     max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
-    model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
+    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
     domain: Optional[str] = Field(
         None,
@@ -3403,7 +3403,7 @@ class _RealTimeSignalsRequest(BaseModel):
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
     max_articles: int = Field(50, ge=10, le=200, description="Maximum articles to analyze")
     instruction_ids: Optional[List[int]] = Field(None, description="Specific signal instruction IDs to use")
-    model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
+    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
 
     @field_validator('topic')
@@ -3743,7 +3743,7 @@ class _RunSignalRequest(BaseModel):
     topic: Optional[str] = Field(None, description="Topic filter for articles")
     days_back: int = Field(7, ge=1, le=30, description="Days back to analyze")
     max_articles: int = Field(100, ge=10, le=500, description="Maximum articles to analyze")
-    model: str = Field("gpt-4o-mini", description="AI model to use")
+    model: str = Field("gpt-5.4-mini", description="AI model to use")
     tag_flagged_articles: bool = Field(True, description="Tag articles that match signals")
     generate_report: bool = Field(False, description="Generate a report from matches")
     report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
@@ -4731,7 +4731,7 @@ async def _run_signal_instruction_internal(
     instruction_id: int,
     days_back: int = 7,
     tag_articles: bool = True,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5.4-mini"
 ) -> Dict[str, Any]:
     """
     Internal function to run a single signal instruction.
@@ -5541,7 +5541,7 @@ async def article_deep_dive(
 
     article_block = "\n".join(context_header) + "\n\n" + _truncate(doc)
 
-    model_name = req.model or "gpt-4o-mini"
+    model_name = req.model or "gpt-5.4-mini"
     system_msg = (
         "You are Auspex – an expert strategic analyst. Follow the provided template strictly;"
         " ground every point in the article content. Do not invent data."

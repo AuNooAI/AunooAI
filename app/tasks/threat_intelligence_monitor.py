@@ -255,7 +255,7 @@ class ThreatIntelligenceMonitor:
                         article['title'] or "",
                         article['summary'] or "",
                         article['content'] or "",
-                        model='gpt-4o-mini'
+                        model='gpt-5.4-mini'
                     )
 
                     if extraction_result.get('no_threat'):

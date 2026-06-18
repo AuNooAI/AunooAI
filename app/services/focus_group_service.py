@@ -197,10 +197,10 @@ class FGConfig:
     include_voice: bool = True  # For future LLM querying
 
     # Model settings
-    discovery_model: str = "gpt-4o"
-    clustering_model: str = "gpt-4o"
-    profiling_model: str = "gpt-4o"
-    synthesis_model: str = "gpt-4o"
+    discovery_model: str = "gpt-5.4"
+    clustering_model: str = "gpt-5.4"
+    profiling_model: str = "gpt-5.4"
+    synthesis_model: str = "gpt-5.4"
 
     # Temperature settings
     discovery_temp: float = 0.3

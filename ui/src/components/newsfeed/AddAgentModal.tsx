@@ -477,10 +477,10 @@ export function AddAgentModal({
               disabled={saving || loading || loadingModels}
             >
               <SelectTrigger>
-                <SelectValue placeholder={loadingModels ? "Loading models..." : "Default (gpt-4o-mini)"} />
+                <SelectValue placeholder={loadingModels ? "Loading models..." : "Default (gpt-5.4-mini)"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__default__">Default (gpt-4o-mini)</SelectItem>
+                <SelectItem value="__default__">Default (gpt-5.4-mini)</SelectItem>
                 {availableModels.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.name} ({m.provider})

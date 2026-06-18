@@ -6,14 +6,14 @@ Stores GPT responses for training data collection.
 
 Decision Logic (Simplified):
 - samples >= 500 → Use DeBERTa (fast, accurate, no API cost)
-- samples < 500 → Use GPT (gpt-4o-mini) + store sample for training
+- samples < 500 → Use GPT (gpt-5.4-mini) + store sample for training
 
 This simplified approach:
 1. Uses GPT for quality classifications until enough training data exists
 2. Automatically accumulates training samples from GPT responses
 3. Switches to DeBERTa once 500+ samples collected (cost-free, fast)
 
-Cost: ~$0.75 per topic to bootstrap 500 samples with gpt-4o-mini
+Cost: ~$0.75 per topic to bootstrap 500 samples with gpt-5.4-mini
 
 Usage:
     from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
@@ -59,7 +59,7 @@ class HybridEnrichmentService:
     Routes between DeBERTa and GPT based on training sample counts.
 
     Simple two-tier approach:
-    - GPT (gpt-4o-mini) for topics with < 500 samples
+    - GPT (gpt-5.4-mini) for topics with < 500 samples
     - DeBERTa for topics with >= 500 samples
     """
 
@@ -130,7 +130,7 @@ class HybridEnrichmentService:
 
         Decision logic per field:
         - samples >= 500 → DeBERTa (trained model, fast, free)
-        - samples < 500 → GPT (gpt-4o-mini, store for training) or Qwen (if use_local_llm=True)
+        - samples < 500 → GPT (gpt-5.4-mini, store for training) or Qwen (if use_local_llm=True)
 
         Args:
             title: Article title

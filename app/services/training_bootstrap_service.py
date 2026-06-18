@@ -1,7 +1,7 @@
 """
 Training Bootstrap Service
 
-Generates training samples using external LLM (gpt-4o-mini) for new topics/ontology values.
+Generates training samples using external LLM (gpt-5.4-mini) for new topics/ontology values.
 Tracks sample counts per topic/field for training readiness assessment.
 
 Usage:
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Training thresholds (simplified two-tier: GPT -> DeBERTa)
 TRAINING_THRESHOLDS = {
-    "red": 500,       # < 500: use GPT (gpt-4o-mini) + store for training
+    "red": 500,       # < 500: use GPT (gpt-5.4-mini) + store for training
     "yellow": 500,    # (kept for backward compatibility, same as red)
     "green": 500,     # 500+: ready for DeBERTa
     "min_per_class": 50,  # Minimum samples per class value
@@ -54,7 +54,7 @@ class TrainingBootstrapService:
     _initialized = False
 
     # Default bootstrap model - can be overridden via config
-    DEFAULT_BOOTSTRAP_MODEL = "gpt-4o-mini"
+    DEFAULT_BOOTSTRAP_MODEL = "gpt-5.4-mini"
 
     def __new__(cls):
         if cls._instance is None:
@@ -77,7 +77,7 @@ class TrainingBootstrapService:
         with fallback to DEFAULT_BOOTSTRAP_MODEL.
 
         Returns:
-            Model name string (e.g., "gpt-4o-mini")
+            Model name string (e.g., "gpt-5.4-mini")
         """
         if self._bootstrap_model is None:
             try:
@@ -116,7 +116,7 @@ class TrainingBootstrapService:
         valid_values: Dict[str, List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Use gpt-4o-mini to generate classifications and store for training.
+        Use gpt-5.4-mini to generate classifications and store for training.
 
         Args:
             article_uri: URI of the article

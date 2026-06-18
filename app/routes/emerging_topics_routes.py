@@ -81,7 +81,7 @@ class DetectionRequest(BaseModel):
         description="Maximum articles to assign per theme"
     )
     model: str = Field(
-        "gpt-4o",
+        "gpt-5.4",
         description="AI model to use for theme proposal and analysis"
     )
 
@@ -125,7 +125,7 @@ async def stream_detection(
     distance_threshold: float = 0.85,
     min_articles_per_theme: int = 3,
     max_articles_per_theme: int = 30,
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
 ):
     """Stream detection progress as SSE events."""
     from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
@@ -277,7 +277,7 @@ class BatchDetectionRequest(BaseModel):
     distance_threshold: float = Field(0.85, ge=0.3, le=1.0)
     min_articles_per_theme: int = Field(3, ge=2, le=20)
     max_articles_per_theme: int = Field(30, ge=10, le=100)
-    model: str = Field("gpt-4o", description="AI model to use for theme proposal and analysis")
+    model: str = Field("gpt-5.4", description="AI model to use for theme proposal and analysis")
 
 
 async def stream_batch_detection(request: BatchDetectionRequest):
@@ -1673,7 +1673,7 @@ async def send_test_notification(
 
 class FutureHorizonsRequest(BaseModel):
     """Request model for running Future Horizons on an emerging topic."""
-    model: str = Field("gpt-4o", description="AI model to use")
+    model: str = Field("gpt-5.4", description="AI model to use")
     future_horizon: int = Field(15, ge=5, le=30, description="Years into the future to project")
 
 
