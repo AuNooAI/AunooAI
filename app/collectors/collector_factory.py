@@ -8,6 +8,7 @@ from .newsdata_collector import NewsdataCollector
 from .semantic_scholar_collector import SemanticScholarCollector
 from .rss_collector import RSSCollector
 from .newsfirehose_collector import NewsFirehoseCollector
+from .opoint_collector import OpointCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -21,7 +22,8 @@ class CollectorFactory:
         'newsdata': NewsdataCollector,
         'semantic_scholar': SemanticScholarCollector,
         'rss': RSSCollector,
-        'newsfirehose': NewsFirehoseCollector
+        'newsfirehose': NewsFirehoseCollector,
+        'opoint': OpointCollector
     }
 
     @classmethod
@@ -97,6 +99,15 @@ class CollectorFactory:
                     for env in (
                         "PROVIDER_NEWSFIREHOSE_API_KEY",
                         "NEWSFIREHOSE_API_KEY",
+                    )
+                )
+
+            if source == "opoint":
+                return any(
+                    os.getenv(env)
+                    for env in (
+                        "PROVIDER_OPOINT_API_KEY",
+                        "OPOINT_API_KEY",
                     )
                 )
 

@@ -179,6 +179,13 @@ class NewsAPIConfig(BaseModel):
         alias_generator = lambda string: string.lower()
         populate_by_name = True
 
+class OpointConfig(BaseModel):
+    api_key: str = Field(..., min_length=1)
+
+    class Config:
+        alias_generator = lambda string: string.lower()
+        populate_by_name = True
+
 class DiaAPIConfig(BaseModel):
     """Configuration payload for Dia TTS service.
 
@@ -1549,6 +1556,105 @@ async def remove_newsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/config/opoint")
+async def save_opoint_config(config: OpointConfig):
+    """Save Opoint configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'PROVIDER_OPOINT_API_KEY'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[env_var_name] = config.api_key
+
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Opoint configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving Opoint configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/opoint")
+async def get_opoint_config():
+    """Get Opoint configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+
+        opoint_key = os.getenv('PROVIDER_OPOINT_API_KEY') or os.getenv('OPOINT_API_KEY')
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(opoint_key),
+                "message": "Opoint is configured" if opoint_key else "Opoint is not configured"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking Opoint configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/opoint")
+async def remove_opoint_config():
+    """Remove Opoint configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_OPOINT_API_KEY=') or
+            line.startswith('PROVIDER_OPOINT_KEY=') or
+            line.startswith('OPOINT_API_KEY=')
+        )]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        for var in ('PROVIDER_OPOINT_API_KEY', 'PROVIDER_OPOINT_KEY', 'OPOINT_API_KEY'):
+            if var in os.environ:
+                del os.environ[var]
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+
+        return {"message": "Opoint configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing Opoint configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/create_topic", response_class=HTMLResponse)

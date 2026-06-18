@@ -367,7 +367,8 @@ class DatabaseQueryFacade:
                     publication_date=article['published_date'],
                     summary=article.get('summary', ''),
                     topic=topic,
-                    analyzed=False
+                    analyzed=False,
+                    opoint_entities=article.get('opoint_entities')
                 ))
 
                 inserted_new_article = True
@@ -4866,7 +4867,8 @@ class DatabaseQueryFacade:
                 'topic_alignment_score', 'keyword_relevance_score',
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
-                'ingest_status', 'auto_ingested', 'article_origin'
+                'ingest_status', 'auto_ingested', 'article_origin',
+                'opoint_entities'
             ]
 
             # Filter to only include fields that exist in article_data

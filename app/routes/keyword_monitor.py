@@ -1670,6 +1670,15 @@ async def get_available_providers():
             "configured": True
         })
 
+    # Check Opoint (matches opoint_collector.py)
+    if os.getenv('PROVIDER_OPOINT_API_KEY') or os.getenv('OPOINT_API_KEY'):
+        available.append({
+            "id": "opoint",
+            "name": "Opoint",
+            "description": "Media intelligence + entity/topic enrichment",
+            "configured": True
+        })
+
     # Check Bluesky (matches bluesky_collector.py)
     if os.getenv('PROVIDER_BLUESKY_USERNAME') and os.getenv('PROVIDER_BLUESKY_PASSWORD'):
         available.append({

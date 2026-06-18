@@ -7,6 +7,7 @@ from .bluesky_collector import BlueskyCollector
 from .newsdata_collector import NewsdataCollector
 from .semantic_scholar_collector import SemanticScholarCollector
 from .newsfirehose_collector import NewsFirehoseCollector
+from .opoint_collector import OpointCollector
 from .collector_factory import CollectorFactory
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     'NewsdataCollector',
     'SemanticScholarCollector',
     'NewsFirehoseCollector',
+    'OpointCollector',
     'CollectorFactory'
 ] 

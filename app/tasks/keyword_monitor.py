@@ -880,6 +880,7 @@ class KeywordMonitor:
                     'publication_date': article.get('published_date', ''),
                     'summary': article.get('summary', ''),
                     'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
+                    'opoint_entities': article.get('opoint_entities'),  # Preserve Opoint entity/topic enrichment
                     'topic': topic,
                     'analyzed': False
                 }

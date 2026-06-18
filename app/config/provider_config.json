@@ -37,6 +37,18 @@
       "api_key_help": "Get your API key from https://thenewsapi.com/account"
     },
     {
+      "name": "opoint",
+      "display_name": "Opoint",
+      "config_type": "api_key",
+      "description": "Media intelligence with per-article entity & topic enrichment (brand/competitor signal)",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_OPOINT_API_KEY",
+      "api_key_description": "Your Opoint API token",
+      "api_key_placeholder": "Enter your Opoint token",
+      "api_key_help": "Get your token from your Opoint account (see https://api-docs.opoint.com)"
+    },
+    {
       "name": "newsfirehose",
       "display_name": "NewsFirehose",
       "config_type": "api_key",

@@ -131,3 +131,6 @@ data/training/
 !static/**/*.png
 !static/**/*.jpg
 !ui/public/**/*.png
+
+# Opoint API token file (secrets)
+opointkeys
