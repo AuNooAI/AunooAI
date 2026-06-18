@@ -36,6 +36,7 @@ TARGET_EMERGING = 5
 ARTICLE_POOL_PER_TOPIC = 40
 ARTICLE_GATHER_DAYS = 3          # recency-first; picks are median ~1 day old
 FEWSHOT_BRIEFINGS = 5            # past briefings shown to the curator as taste
+MAX_PER_SOURCE = 3               # cap candidates per news_source to dampen source/region skew
 
 DEFAULT_DAYS_BACK = 7
 DEFAULT_MODEL = "gpt-5.4"
@@ -59,11 +60,74 @@ def _unique_briefing_name(facade, username: str, base_name: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Organizational profile (steers curation toward the org's priorities)
+# --------------------------------------------------------------------------
+
+def _get_default_org_profile(db) -> Optional[Dict[str, Any]]:
+    """The tenant's default org profile (same convention as the rest of the app)."""
+    from sqlalchemy import text
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("""
+            SELECT id, name, industry, organization_type, key_concerns,
+                   strategic_priorities, competitive_landscape, regulatory_environment,
+                   custom_context, region, monitored_brands
+            FROM organizational_profiles
+            WHERE is_default = true
+            LIMIT 1
+        """)).mappings().first()
+        if not row:
+            return None
+        d = dict(row)
+        for f in ("key_concerns", "strategic_priorities", "competitive_landscape",
+                  "regulatory_environment", "monitored_brands"):
+            v = d.get(f)
+            if isinstance(v, str):
+                try:
+                    d[f] = json.loads(v)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return d
+    except Exception as e:
+        logger.warning(f"[compose] org profile fetch failed: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def _profile_context(p: Optional[Dict[str, Any]]) -> str:
+    """Compact profile text for the curator prompt."""
+    if not p:
+        return ""
+    out = [f"Organization: {p.get('name')} ({p.get('industry') or p.get('organization_type') or ''})"]
+    for label, key in (
+        ("Key concerns", "key_concerns"),
+        ("Strategic priorities", "strategic_priorities"),
+        ("Monitored brands", "monitored_brands"),
+        ("Competitive landscape", "competitive_landscape"),
+        ("Regulatory environment", "regulatory_environment"),
+    ):
+        v = p.get(key)
+        if isinstance(v, (list, tuple)):
+            v = ", ".join(str(x) for x in v[:12])
+        if v:
+            out.append(f"{label}: {str(v)[:400]}")
+    if p.get("custom_context"):
+        out.append(f"Context: {str(p['custom_context'])[:400]}")
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------
 # Candidate gathering
 # --------------------------------------------------------------------------
 
 def _gather_candidate_articles(facade, topics: List[str], days_back: int) -> List[Dict[str, Any]]:
-    """Recent articles across the chosen topics — recency-first, no alignment gate."""
+    """Recent articles across the chosen topics — recency-first, source-diversified.
+
+    Caps articles per news_source (MAX_PER_SOURCE) so a few high-volume outlets
+    (the dataset skews heavily toward a handful of Indian business sources) can't
+    flood the candidate pool and crowd out the rest before the curator even sees it.
+    """
     pool: Dict[str, Dict[str, Any]] = {}
     for topic in topics:
         rows = facade.get_relevant_articles_for_topic(
@@ -78,11 +142,24 @@ def _gather_candidate_articles(facade, topics: List[str], days_back: int) -> Lis
     items = list(pool.values())
     # Recency-first (picked articles are median ~1 day old).
     items.sort(key=lambda r: (r.get("publication_date") or ""), reverse=True)
-    return items[: ARTICLE_POOL_PER_TOPIC * 2]
+    # Diversify: keep at most MAX_PER_SOURCE per news_source.
+    per_source: Dict[str, int] = {}
+    diversified: List[Dict[str, Any]] = []
+    for r in items:
+        src = (r.get("news_source") or "").lower()
+        if per_source.get(src, 0) >= MAX_PER_SOURCE:
+            continue
+        per_source[src] = per_source.get(src, 0) + 1
+        diversified.append(r)
+    return diversified[: ARTICLE_POOL_PER_TOPIC * 2]
 
 
-async def _detect_incidents(topics: List[str], days_back: int, model: str) -> List[Dict[str, Any]]:
-    """Run the incident-tracking detection for the chosen topics (best-effort)."""
+async def _detect_incidents(topics: List[str], days_back: int, model: str,
+                            profile_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Run the incident-tracking detection for the chosen topics (best-effort).
+
+    Passes profile_id so incidents are assessed against the org's priorities.
+    """
     try:
         from app.routes.vector_routes import analyze_incidents, _IncidentTrackingRequest
         req = _IncidentTrackingRequest(
@@ -90,6 +167,7 @@ async def _detect_incidents(topics: List[str], days_back: int, model: str) -> Li
             days_limit=max(days_back, 14),
             max_articles=120,
             model=model,
+            profile_id=profile_id,
         )
         result = await analyze_incidents(req, session=None)
         return result.get("incidents", []) or []
@@ -191,6 +269,7 @@ async def _curate(
     payload: Dict[str, List[Dict[str, Any]]],
     fewshot: Dict[str, List[str]],
     model: str,
+    profile_ctx: str = "",
 ) -> Optional[Dict[str, List[Dict[str, str]]]]:
     """LLM selects the briefing-worthy items from each pool. Returns ids + rationale."""
     import litellm
@@ -202,12 +281,28 @@ async def _curate(
         "candidate_incidents": payload.get("candidate_incidents", [])[:15],
         "candidate_emerging_topics": payload.get("candidate_emerging_topics", [])[:15],
     }
+    org_block = (
+        f"\nThis briefing is for the following organization — prioritize items "
+        f"material to ITS concerns, priorities, brands and competitive/regulatory "
+        f"landscape over generic news:\n{profile_ctx}\n" if profile_ctx else ""
+    )
     system = (
         "You are the editor of a daily intelligence briefing. You select which "
         "candidate items are briefing-worthy from EACH of the three pools (articles, "
         "incidents, emerging topics). Favor recent, materially significant, credible "
-        "developments; avoid routine or redundant items. Select ONLY by the exact 'id' "
-        "values provided — never invent ids. If a pool is empty, return [] for it."
+        "developments; avoid routine or redundant items. "
+        "RELEVANCE TEST (most important): judge each item on whether it is globally or "
+        "strategically MATERIAL TO THIS ORGANIZATION — NOT on the source's country. The "
+        "candidate pool over-represents purely local/regional stories (e.g. local Indian "
+        "college, exam, admissions or municipal data) that are not material to the "
+        "organization — exclude those. But KEEP genuinely relevant items regardless of "
+        "where they are sourced: India-sourced coverage of globally-relevant themes "
+        "(e.g. generic-drug patent cliffs, national R&D/science policy, the organization's "
+        "monitored brands or competitors) IS relevant and should be kept. The goal is "
+        "relevance, not geographic exclusion. "
+        "Select ONLY by the exact 'id' values provided — never invent ids. If a pool is "
+        "empty, return [] for it."
+        + org_block
     )
     user = f"""Past briefings picked items like these (match this editorial taste):
 ARTICLES: {json.dumps(fewshot.get('articles', [])[:25])}
@@ -373,6 +468,14 @@ async def compose_daily_briefing_stream(
         )
         yield _evt("create", "completed", f"Created '{name}'", briefing_id=briefing_id, progress=0.1)
 
+        # Load the tenant's default org profile — steers incident detection and
+        # curation toward its priorities (and helps de-bias generic coverage).
+        org_profile = _get_default_org_profile(db)
+        profile_ctx = _profile_context(org_profile)
+        profile_id = org_profile.get("id") if org_profile else None
+        if org_profile:
+            yield _evt("create", "progress", f"Curating for {org_profile.get('name')}", progress=0.12)
+
         # 2. Gather recent article candidates ----------------------------
         yield _evt("gather", "started", "Gathering recent articles…", progress=0.15)
         cand_articles = _gather_candidate_articles(facade, topics, ARTICLE_GATHER_DAYS)
@@ -411,7 +514,7 @@ async def compose_daily_briefing_stream(
 
         # 4. Detect incidents --------------------------------------------
         yield _evt("incidents", "started", "Detecting incidents…", progress=0.6)
-        cand_incidents = await _detect_incidents(topics, days_back, detect_model)
+        cand_incidents = await _detect_incidents(topics, days_back, detect_model, profile_id=profile_id)
         yield _evt("incidents", "completed", f"Found {len(cand_incidents)} incidents",
                    count=len(cand_incidents), progress=0.72)
 
@@ -429,7 +532,7 @@ async def compose_daily_briefing_stream(
             "candidate_emerging_topics": [_compact_emerging(t, k) for k, t in em_by_id.items()],
         }
         fewshot = _fewshot_examples(db)
-        selection = await _curate(compact, fewshot, model)
+        selection = await _curate(compact, fewshot, model, profile_ctx=profile_ctx)
         used_fallback = selection is None
         if used_fallback:
             selection = _heuristic_select(art_by_id, inc_by_id, em_by_id)

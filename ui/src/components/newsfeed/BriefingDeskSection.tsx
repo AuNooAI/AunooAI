@@ -209,6 +209,13 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     setComposing(true);
     setError(null);
     setComposeLog([]);
+    // Remember this selection so it persists across generations (the modal
+    // reloads selected_topics on open). Best-effort — don't block compose.
+    try {
+      await saveComposeConfig(selectedTopics);
+    } catch {
+      /* non-fatal: compose still proceeds with the in-memory selection */
+    }
     try {
       const final = await streamComposeDailyBriefing(
         selectedTopics.length ? selectedTopics : undefined,

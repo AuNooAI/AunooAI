@@ -316,6 +316,14 @@ Rules:
 - Sharing a keyword is NOT enough — the article's main subject must match the topic
 - Generic news that mentions a related term in passing scores 0.1-0.2
 - Only score above 0.7 if the article is primarily about the topic
+- MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
+  local administrative trivia. Purely LOCAL or single-institution items with no wider
+  significance — e.g. one local college's admissions, exam results, fee notices, campus
+  events, or municipal data — score LOW (0.1-0.3) even if on-topic. This is about the
+  scope/materiality of the item, NOT the country it is reported from.
+- Items of genuine global or strategic significance score normally regardless of where
+  they occur or are reported — e.g. national R&D/science-funding policy, patent-cliff or
+  generic-drug dynamics, major institutions, or developments affecting the field broadly.
 
 Respond with ONLY a number between 0.0 and 1.0.
 
