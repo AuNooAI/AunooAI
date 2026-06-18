@@ -49,7 +49,7 @@ class AutoComposeRequest(BaseModel):
     min_confidence: float = Field(0.6, ge=0.0, le=1.0, description="Emerging-topic confidence floor")
     min_alignment: float = Field(0.7, ge=0.0, le=1.0, description="Article topic_alignment_score floor")
     days_back: int = Field(7, ge=1, le=30, description="Look-back window in days")
-    run_detection: bool = Field(True, description="Run Emerging Topics detection before staging")
+    run_detection: bool = Field(False, description="Re-run Emerging Topics detection inline (slow; default reads recently-detected topics)")
     model: str = Field("gpt-5.4", description="Model for detection")
 
 
@@ -360,17 +360,35 @@ async def auto_compose_briefing_stream(
     from app.services.daily_briefing_compose_service import compose_daily_briefing_stream
 
     async def stream():
+        import asyncio
+        agen = compose_daily_briefing_stream(
+            db, username, topics,
+            days_back=request.days_back,
+            run_detection=request.run_detection,
+            model=request.model,
+        ).__aiter__()
         try:
-            async for evt in compose_daily_briefing_stream(
-                db, username, topics,
-                days_back=request.days_back,
-                run_detection=request.run_detection,
-                model=request.model,
-            ):
+            nxt = asyncio.ensure_future(agen.__anext__())
+            while True:
+                # Wait for the next stage event, but emit a keepalive comment
+                # every 15s of silence so the proxy/browser doesn't time out
+                # during long LLM calls (incident detection, curation). Do NOT
+                # cancel the in-flight task on timeout — keep awaiting it.
+                done, _ = await asyncio.wait({nxt}, timeout=15)
+                if not done:
+                    yield ": keepalive\n\n"
+                    continue
+                try:
+                    evt = nxt.result()
+                except StopAsyncIteration:
+                    break
                 yield f"data: {json.dumps(evt)}\n\n"
+                nxt = asyncio.ensure_future(agen.__anext__())
         except Exception as e:
             logger.error(f"Auto-compose stream error: {e}", exc_info=True)
             yield f"data: {json.dumps({'stage': 'error', 'status': 'failed', 'error': str(e)})}\n\n"
+        finally:
+            await agen.aclose()
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
