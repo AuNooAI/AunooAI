@@ -67,17 +67,17 @@ interface BrandWatcherTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
 }
 
-type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles';
+type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
     brands, topics, stats, categories, temporalData, articles,
-    comparison, shareOfVoice, config,
+    comparison, shareOfVoice, opointCoverage, config,
     totalArticles, totalPages,
-    loading, loadingStats, loadingCategories, loadingArticles,
+    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint,
     error,
     updateConfig, clearError, refresh,
-    fetchComparison, fetchShareOfVoice,
+    fetchComparison, fetchShareOfVoice, fetchOpointCoverage,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
     setPrimary,
   } = useBrandWatcher();
@@ -157,6 +157,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchComparison();
       fetchShareOfVoice();
     }
+    if (tab === 'opoint_coverage') {
+      fetchOpointCoverage();
+    }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
       getLatestNarrative(primarySelectedId)
@@ -176,7 +179,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -705,6 +708,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'comparison' as SubTab, label: 'Comparison', icon: Users },
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
+          { id: 'opoint_coverage' as SubTab, label: 'Opoint Coverage', icon: Sparkles },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -1814,6 +1818,115 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- COMPARISON TAB ---- */}
+      {activeTab === 'opoint_coverage' && (
+        <div className="space-y-6">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <Sparkles className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="font-semibold">Opoint entity coverage.</span> Brand mentions detected by matching Opoint's resolved organization entities (by Wikidata ID) against each tracked brand — disambiguated and precise, independent of substring keyword matching.
+              </div>
+            </div>
+          </div>
+
+          {loadingOpoint && (
+            <div className="flex items-center justify-center py-12 text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading coverage…
+            </div>
+          )}
+
+          {!loadingOpoint && opointCoverage && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Opoint articles scanned</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointCoverage.opoint_articles_scanned.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">last {opointCoverage.window_days} days</p>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Brands matched</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointCoverage.coverage.length}</p>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">High-confidence mentions</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointCoverage.coverage.reduce((s, c) => s + c.high_confidence, 0).toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">relevance ≥ 0.5</p>
+                </div>
+              </div>
+
+              {opointCoverage.coverage.length > 0 && (
+                <div id="chart-opoint-coverage" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Articles matched per brand (Opoint entities)</h3>
+                    <ChartDownloadButton targetId="chart-opoint-coverage" filename="opoint-coverage" />
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={opointCoverage.coverage} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis dataKey="brand" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="articles_matched" name="Articles matched" fill="#3b82f6" />
+                      <Bar dataKey="high_confidence" name="High confidence" fill="#10b981" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 overflow-x-auto">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Per-brand coverage</h3>
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300">Brand</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Articles</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Avg relevance</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">High confidence</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300">Wikidata IDs</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {opointCoverage.coverage.map(c => (
+                      <tr key={c.brand} className="hover:bg-gray-50 dark:hover:bg-gray-750">
+                        <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-gray-100">{c.brand}</td>
+                        <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.articles_matched.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.avg_relevance.toFixed(3)}</td>
+                        <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.high_confidence.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-xs text-gray-400 font-mono">{(opointCoverage.brand_wikidata[c.brand] || []).join(', ')}</td>
+                      </tr>
+                    ))}
+                    {opointCoverage.coverage.length === 0 && (
+                      <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">No Opoint entity matches in this window yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {opointCoverage.samples && opointCoverage.samples.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sample matched articles</h3>
+                  <ul className="space-y-2">
+                    {opointCoverage.samples.map((s: any, i: number) => (
+                      <li key={i} className="text-sm">
+                        <span className="text-gray-800 dark:text-gray-200">{s.title}</span>
+                        <span className="ml-2 text-xs text-gray-400">
+                          {(s.brands || []).map((b: any) => `${b.brand} (${(b.relevance_score ?? 0).toFixed(2)})`).join(', ')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+
+          {!loadingOpoint && !opointCoverage && (
+            <div className="text-center py-12 text-gray-400 text-sm">No coverage data loaded.</div>
+          )}
+        </div>
+      )}
+
       {(activeTab === 'comparison' || exportingReport) && (
         <div className={`space-y-6 ${exportingReport ? 'order-5' : ''}`}>
           {exportingReport && (
@@ -2309,6 +2422,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     {article.matched_keywords?.length > 0 && (
                       <span className="text-xs px-2 py-0.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded border border-yellow-200 dark:border-yellow-800">
                         Matched: {article.matched_keywords.join(', ')}
+                      </span>
+                    )}
+                    {article.entity_match?.verified && (
+                      <span
+                        title={`Opoint entity match (Wikidata)${article.entity_match.relevance != null ? ` · relevance ${article.entity_match.relevance}` : ''}`}
+                        className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded border border-blue-200 dark:border-blue-800 inline-flex items-center gap-1"
+                      >
+                        <Sparkles className="w-3 h-3" /> Entity-verified{article.entity_match.relevance != null ? ` ${article.entity_match.relevance.toFixed(2)}` : ''}
                       </span>
                     )}
                     {article.news_source && (

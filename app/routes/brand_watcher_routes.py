@@ -350,6 +350,9 @@ class ArticleResponse(BaseModel):
     brand_name: Optional[str] = None
     sentiment: Optional[str] = None
     matched_keywords: List[str] = []
+    # Opoint entity verification: {brands:[...], relevance:float} when the article's
+    # Opoint organization entities resolve (by Wikidata ID) to a tracked brand.
+    entity_match: Optional[dict] = None
 
 
 class ArticlesListResponse(BaseModel):
@@ -2232,7 +2235,8 @@ async def get_articles(
                        a.sentiment, bac.brand_id, b.display_name as brand_name,
                        ARRAY_AGG(DISTINCT bac.category) as categories,
                        COUNT(DISTINCT bac.category) as cat_count,
-                       a.tags, a.extracted_article_keywords
+                       a.tags, a.extracted_article_keywords, b.name as brand_slug,
+                       a.opoint_entities
                 FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 JOIN bw_brands b ON bac.brand_id = b.id
@@ -2241,7 +2245,7 @@ async def get_articles(
                 {brand_clause} {cat_clause} {topic_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name,
-                         a.tags, a.extracted_article_keywords
+                         a.tags, a.extracted_article_keywords, b.name, a.opoint_entities
             )
         """
 
@@ -2260,6 +2264,14 @@ async def get_articles(
             if brand_row:
                 brand_terms_cache[brand_id] = _get_brand_search_terms(_brand_row_to_dict(brand_row))
 
+        # Opoint entity verification: brand -> Wikidata IDs (loaded once)
+        from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands
+        try:
+            brand_wikidata = load_brand_wikidata(db.facade)
+        except Exception as e:
+            logger.debug(f"opoint brand_wikidata load failed: {e}")
+            brand_wikidata = {}
+
         articles = []
         for row in result.fetchall():
             row_brand_id = row[6]
@@ -2269,6 +2281,20 @@ async def get_articles(
                     brand_terms_cache[row_brand_id] = _get_brand_search_terms(_brand_row_to_dict(br))
             search_terms = brand_terms_cache.get(row_brand_id, [])
             matched = _find_matched_keywords(row[1], row[2], search_terms, tags=row[10], keywords=row[11]) if search_terms else []
+
+            # Opoint entity verification for this article (live-computed)
+            entity_match = None
+            if brand_wikidata:
+                hits = match_brands(row[13], brand_wikidata)  # row[13] = opoint_entities
+                if hits:
+                    row_brand_slug = row[12]  # b.name (slug)
+                    this_brand = next((h for h in hits if h["brand"] == row_brand_slug), None)
+                    entity_match = {
+                        "brands": sorted({h["brand"] for h in hits}),
+                        "relevance": round(this_brand["relevance_score"], 3) if this_brand else None,
+                        "verified": this_brand is not None,
+                    }
+
             articles.append(ArticleResponse(
                 uri=row[0], title=row[1], summary=row[2],
                 news_source=row[3],
@@ -2277,6 +2303,7 @@ async def get_articles(
                 brand_id=row[6], brand_name=row[7],
                 categories=list(row[8]) if row[8] else [],
                 matched_keywords=matched,
+                entity_match=entity_match,
             ))
 
         return ArticlesListResponse(

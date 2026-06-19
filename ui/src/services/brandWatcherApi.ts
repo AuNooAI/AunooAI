@@ -88,6 +88,24 @@ export interface BWArticle {
   brand_name: string | null;
   sentiment: string | null;
   matched_keywords: string[];
+  // Opoint entity verification (Wikidata-ID match), present when available.
+  entity_match?: { brands: string[]; relevance: number | null; verified: boolean } | null;
+}
+
+export interface BWOpointCoverage {
+  brand: string;
+  articles_matched: number;
+  avg_relevance: number;
+  high_confidence: number;
+}
+
+export interface BWOpointCoverageResponse {
+  window_days: number;
+  min_relevance: number;
+  opoint_articles_scanned: number;
+  brand_wikidata: Record<string, string[]>;
+  coverage: BWOpointCoverage[];
+  samples: any[];
 }
 
 export interface BWArticlesResponse {
@@ -372,6 +390,13 @@ export async function getCategories(brandIds?: number[], daysBack: number = 365,
   if (topics?.length) params.append('topics', topics.join(','));
   const res = await fetch(`${BASE}/categories?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get categories: ${res.status}`);
+  return res.json();
+}
+
+export async function getOpointCoverage(daysBack: number = 90, minRelevance: number = 0): Promise<BWOpointCoverageResponse> {
+  const params = new URLSearchParams({ days: Math.min(daysBack, 365).toString(), min_relevance: minRelevance.toString(), samples: '8' });
+  const res = await fetch(`${BASE}/opoint-coverage?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get Opoint coverage: ${res.status}`);
   return res.json();
 }
 
