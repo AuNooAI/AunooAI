@@ -625,6 +625,72 @@ async def list_brands(session=Depends(verify_session)):
         conn.close()
 
 
+@router.get("/opoint-coverage")
+async def opoint_brand_coverage(
+    days: int = Query(90, ge=1, le=365),
+    min_relevance: float = Query(0.0, ge=0.0, le=1.0),
+    samples: int = Query(0, ge=0, le=50),
+    session=Depends(verify_session),
+):
+    """Brand coverage derived from Opoint's resolved entities (Wikidata-ID match).
+
+    Counts articles whose Opoint organization entities resolve to each brand's
+    configured Wikidata IDs (bw_brands.config['wikidata_ids']), with relevance
+    distribution. This is the entity-based alternative to substring keyword
+    matching — precise and disambiguated.
+    """
+    from collections import defaultdict
+    from datetime import datetime as _dt, timedelta as _td
+    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brand_wd = load_brand_wikidata(db.facade)
+        # publication_date is TEXT/ISO -> safe lexicographic comparison (no ::timestamp cast)
+        cutoff = (_dt.utcnow() - _td(days=days)).strftime("%Y-%m-%d")
+        rows = conn.execute(text("""
+            SELECT uri, title, publication_date, opoint_entities
+            FROM articles
+            WHERE jsonb_typeof(opoint_entities->'entities') = 'object'
+              AND publication_date >= :cutoff
+        """), {"cutoff": cutoff}).fetchall()
+
+        agg = defaultdict(lambda: {"articles_matched": 0, "sum_rel": 0.0, "high_conf": 0})
+        sample_rows = []
+        for uri, title, pubdate, oe in rows:
+            hits = [h for h in match_brands(oe, brand_wd) if h["relevance_score"] >= min_relevance]
+            if not hits:
+                continue
+            for h in hits:
+                a = agg[h["brand"]]
+                a["articles_matched"] += 1
+                a["sum_rel"] += h["relevance_score"]
+                if h["relevance_score"] >= 0.5:
+                    a["high_conf"] += 1
+            if samples and len(sample_rows) < samples:
+                sample_rows.append({"uri": uri, "title": title,
+                                    "publication_date": str(pubdate), "brands": hits})
+
+        coverage = [{"brand": b, "articles_matched": v["articles_matched"],
+                     "avg_relevance": round(v["sum_rel"] / v["articles_matched"], 3),
+                     "high_confidence": v["high_conf"]}
+                    for b, v in sorted(agg.items(), key=lambda kv: -kv[1]["articles_matched"])]
+        return {
+            "window_days": days,
+            "min_relevance": min_relevance,
+            "opoint_articles_scanned": len(rows),
+            "brand_wikidata": {b: sorted(ids) for b, ids in brand_wd.items()},
+            "coverage": coverage,
+            "samples": sample_rows,
+        }
+    except Exception as e:
+        logger.error(f"opoint-coverage error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.post("/brands", response_model=BrandResponse, status_code=201)
 async def create_brand(brand: BrandCreate, session=Depends(verify_session)):
     """Create a new brand to track."""

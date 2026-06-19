@@ -168,8 +168,12 @@ class KeywordMonitor:
             from app.collectors.newsfirehose_collector import NewsFirehoseCollector
             return NewsFirehoseCollector()
 
+        elif provider == 'opoint':
+            from app.collectors.opoint_collector import OpointCollector
+            return OpointCollector()
+
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
