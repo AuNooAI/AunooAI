@@ -818,9 +818,15 @@ class AutomatedIngestService:
         self,
         article: Dict[str, Any],
         topic: str,
-        keywords: List[str]
+        keywords: List[str],
+        relevance_threshold_override: Optional[float] = None
     ) -> Dict[str, Any]:
-        """Process a single article asynchronously with optimized database operations"""
+        """Process a single article asynchronously with optimized database operations.
+
+        relevance_threshold_override: per-group relevance threshold (e.g. a Brand
+        Watch group's min_relevance_threshold). When provided it takes precedence
+        over the global threshold so per-group tuning is honored.
+        """
         article_uri = article.get('uri', 'unknown')
         article_title = article.get('title', 'Unknown Title')
 
@@ -842,7 +848,11 @@ class AutomatedIngestService:
                     article, topic, keywords
                 )
                 quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
-                relevance_threshold = self.get_relevance_threshold()
+                relevance_threshold = (
+                    relevance_threshold_override
+                    if relevance_threshold_override is not None
+                    else self.get_relevance_threshold()
+                )
 
                 self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
 
@@ -1330,7 +1340,10 @@ class AutomatedIngestService:
                 tasks = []
                 for article in batch:
                     task = asyncio.create_task(
-                        self._process_single_article_async(article, topic, keywords)
+                        self._process_single_article_async(
+                            article, topic, keywords,
+                            relevance_threshold_override=relevance_threshold_override
+                        )
                     )
                     tasks.append(task)
 
