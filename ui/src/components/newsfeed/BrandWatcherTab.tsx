@@ -83,6 +83,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   } = useBrandWatcher();
 
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
+  const [opointMinRel, setOpointMinRel] = useState(0.4);  // Opoint coverage relevance threshold
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyRunId, setClassifyRunId] = useState<number | null>(null);
@@ -158,7 +159,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchShareOfVoice();
     }
     if (tab === 'opoint_coverage') {
-      fetchOpointCoverage();
+      fetchOpointCoverage(opointMinRel);
     }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
@@ -179,7 +180,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, opointMinRel]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -1829,6 +1830,29 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           </div>
 
+          {/* Relevance threshold control — filters out incidental publisher/citation mentions (e.g. journal articles published by the brand) */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Mention strength:</span>
+            {([
+              { label: 'All mentions', val: 0 },
+              { label: 'Substantive ≥0.4', val: 0.4 },
+              { label: 'Strong ≥0.6', val: 0.6 },
+            ]).map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => { setOpointMinRel(opt.val); fetchOpointCoverage(opt.val); }}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  opointMinRel === opt.val
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <span className="text-xs text-gray-400">Higher = excludes incidental publisher/citation mentions (e.g. journal articles published by the brand).</span>
+          </div>
+
           {loadingOpoint && (
             <div className="flex items-center justify-center py-12 text-gray-500">
               <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading coverage…
@@ -1874,6 +1898,27 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
               )}
 
+              {opointCoverage.coverage.length > 0 && (
+                <div id="chart-opoint-sov" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Share of Voice — article count vs. reach-weighted</h3>
+                    <ChartDownloadButton targetId="chart-opoint-sov" filename="opoint-share-of-voice" />
+                  </div>
+                  <p className="text-xs text-gray-400 mb-4">Reach is weighted by each source's global traffic rank (more-read outlets count more). A reach bar above the article bar means that brand's coverage lands on higher-reach sources.</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={opointCoverage.coverage} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis dataKey="brand" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} unit="%" />
+                      <Tooltip formatter={(v: any) => `${v}%`} />
+                      <Legend />
+                      <Bar dataKey="article_sov_pct" name="Article SoV %" fill="#94a3b8" />
+                      <Bar dataKey="reach_sov_pct" name="Reach SoV %" fill="#3b82f6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 overflow-x-auto">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Per-brand coverage</h3>
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -1883,6 +1928,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Articles</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Avg relevance</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">High confidence</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Article SoV</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Reach SoV</th>
                       <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300">Wikidata IDs</th>
                     </tr>
                   </thead>
@@ -1893,11 +1940,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.articles_matched.toLocaleString()}</td>
                         <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.avg_relevance.toFixed(3)}</td>
                         <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.high_confidence.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-right text-gray-500 dark:text-gray-400">{c.article_sov_pct}%</td>
+                        <td className="px-4 py-2 text-sm text-right font-semibold text-blue-600 dark:text-blue-400">{c.reach_sov_pct}%</td>
                         <td className="px-4 py-2 text-xs text-gray-400 font-mono">{(opointCoverage.brand_wikidata[c.brand] || []).join(', ')}</td>
                       </tr>
                     ))}
                     {opointCoverage.coverage.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">No Opoint entity matches in this window yet.</td></tr>
+                      <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-400">No Opoint entity matches in this window yet.</td></tr>
                     )}
                   </tbody>
                 </table>

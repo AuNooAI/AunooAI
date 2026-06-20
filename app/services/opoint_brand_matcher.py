@@ -14,9 +14,32 @@ The opoint_entities JSONB shape this reads:
          "confidence_score": 24.1, "relevance_score": 0.64}, ...]}}, ...}
 """
 import logging
+import math
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def source_reach_weight(opoint_entities: Optional[dict]) -> float:
+    """Proxy for a source's audience reach, from Opoint ``site_rank.rank_global``.
+
+    SimilarWeb readership counts are not in the current Opoint license tier (the
+    ``similarweb`` block carries only the domain), so reach is proxied by the
+    publisher's global traffic rank: lower rank = more popular = higher reach.
+    Returns a weight in (0, ~0.5]; ~0.49 for top-100 sites, ~0.25 at rank 10k,
+    ~0.17 at rank 1M. Returns 0.0 when no rank is available.
+    """
+    if not isinstance(opoint_entities, dict):
+        return 0.0
+    sr = opoint_entities.get("site_rank") or {}
+    rank = sr.get("rank_global") or sr.get("rank_country")
+    try:
+        rank = int(rank)
+    except (TypeError, ValueError):
+        return 0.0
+    if rank <= 0:
+        return 0.0
+    return 1.0 / math.log10(rank + 10)
 
 
 def extract_org_entities(opoint_entities: Optional[dict]) -> List[dict]:

@@ -97,12 +97,16 @@ export interface BWOpointCoverage {
   articles_matched: number;
   avg_relevance: number;
   high_confidence: number;
+  reach_weight: number;
+  article_sov_pct: number;
+  reach_sov_pct: number;
 }
 
 export interface BWOpointCoverageResponse {
   window_days: number;
   min_relevance: number;
   opoint_articles_scanned: number;
+  reach_metric?: string;
   brand_wikidata: Record<string, string[]>;
   coverage: BWOpointCoverage[];
   samples: any[];

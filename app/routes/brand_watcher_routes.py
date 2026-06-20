@@ -644,7 +644,7 @@ async def opoint_brand_coverage(
     """
     from collections import defaultdict
     from datetime import datetime as _dt, timedelta as _td
-    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands
+    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands, source_reach_weight
 
     db = get_database_instance()
     conn = db._temp_get_connection()
@@ -659,30 +659,40 @@ async def opoint_brand_coverage(
               AND publication_date >= :cutoff
         """), {"cutoff": cutoff}).fetchall()
 
-        agg = defaultdict(lambda: {"articles_matched": 0, "sum_rel": 0.0, "high_conf": 0})
+        agg = defaultdict(lambda: {"articles_matched": 0, "sum_rel": 0.0, "high_conf": 0, "reach": 0.0})
         sample_rows = []
         for uri, title, pubdate, oe in rows:
             hits = [h for h in match_brands(oe, brand_wd) if h["relevance_score"] >= min_relevance]
             if not hits:
                 continue
+            rw = source_reach_weight(oe)  # reach proxy from source global traffic rank
             for h in hits:
                 a = agg[h["brand"]]
                 a["articles_matched"] += 1
                 a["sum_rel"] += h["relevance_score"]
+                a["reach"] += rw
                 if h["relevance_score"] >= 0.5:
                     a["high_conf"] += 1
             if samples and len(sample_rows) < samples:
                 sample_rows.append({"uri": uri, "title": title,
                                     "publication_date": str(pubdate), "brands": hits})
 
+        # Share-of-voice denominators (each shared mention counts toward each brand's voice)
+        total_articles = sum(v["articles_matched"] for v in agg.values()) or 1
+        total_reach = sum(v["reach"] for v in agg.values()) or 1.0
+
         coverage = [{"brand": b, "articles_matched": v["articles_matched"],
                      "avg_relevance": round(v["sum_rel"] / v["articles_matched"], 3),
-                     "high_confidence": v["high_conf"]}
-                    for b, v in sorted(agg.items(), key=lambda kv: -kv[1]["articles_matched"])]
+                     "high_confidence": v["high_conf"],
+                     "reach_weight": round(v["reach"], 3),
+                     "article_sov_pct": round(100 * v["articles_matched"] / total_articles, 1),
+                     "reach_sov_pct": round(100 * v["reach"] / total_reach, 1)}
+                    for b, v in sorted(agg.items(), key=lambda kv: -kv[1]["reach"])]
         return {
             "window_days": days,
             "min_relevance": min_relevance,
             "opoint_articles_scanned": len(rows),
+            "reach_metric": "source_global_traffic_rank_proxy",
             "brand_wikidata": {b: sorted(ids) for b, ids in brand_wd.items()},
             "coverage": coverage,
             "samples": sample_rows,

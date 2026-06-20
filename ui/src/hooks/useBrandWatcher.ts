@@ -209,10 +209,10 @@ export function useBrandWatcher() {
     }
   }, [brandIdsOrUndefined, config.daysBack, topicsOrUndefined]);
 
-  const fetchOpointCoverage = useCallback(async () => {
+  const fetchOpointCoverage = useCallback(async (minRelevance: number = 0.4) => {
     setLoadingOpoint(true);
     try {
-      const data = await getOpointCoverage(config.daysBack);
+      const data = await getOpointCoverage(config.daysBack, minRelevance);
       setOpointCoverage(data);
     } catch (err) {
       console.error('Error fetching Opoint coverage:', err);
