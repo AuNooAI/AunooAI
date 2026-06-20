@@ -302,6 +302,12 @@ class OpointCollector(ArticleCollector):
             "id_article": doc.get("id_article"),
             "id_site": doc.get("id_site"),
             "identical_count": identical_count,
+            # equalgroup = Opoint dedup-cluster id; articles sharing it are
+            # republications of the same story (identical_documents is null in this
+            # license tier, so equalgroup is the available pickup/dedup signal).
+            "equalgroup": doc.get("equalgroup"),
+            # mediatype.text = WEB / PRINT / TV / RADIO (channel, not journal-vs-news).
+            "media_type": (doc.get("mediatype") or {}).get("text") if isinstance(doc.get("mediatype"), dict) else None,
         }
 
         return {
