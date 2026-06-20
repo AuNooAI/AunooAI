@@ -711,6 +711,87 @@ async def opoint_brand_coverage(
         conn.close()
 
 
+@router.get("/social")
+async def get_social_posts(
+    topics: Optional[str] = Query(None, description="Comma-separated brand topic(s)"),
+    days_back: int = Query(30, ge=1, le=365),
+    min_relevance: float = Query(0.0, ge=0.0, le=1.0),
+    source: Optional[str] = Query(None, description="Filter: 'reddit' or 'bluesky'"),
+    limit: int = Query(100, ge=1, le=500),
+    session=Depends(verify_session),
+):
+    """Social (Reddit/Bluesky) brand mentions with basic relevance + sentiment.
+
+    Reads social posts directly from `articles` by topic + news_source — does NOT
+    require classification into bw_article_categories. relevance =
+    topic_alignment_score (set by the lightweight social eval); sentiment as stored.
+    """
+    from app.services.social_eval_service import SOCIAL_SOURCES
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        start_date, end_date = _get_date_range(days_back)
+        topic_clause, topic_params = _build_topics_filter(topics)
+
+        # social-source filter: either a specific source, or any of the social sources
+        if source and source.lower() in ("reddit", "bluesky"):
+            src_keys = ["reddit"] if source.lower() == "reddit" else ["bluesky", "bsky"]
+        else:
+            src_keys = list(SOCIAL_SOURCES)
+        src_clause = "(" + " OR ".join(f"LOWER(a.news_source) LIKE :_src_{i}" for i in range(len(src_keys))) + ")"
+        params = {"start": start_date, "end": end_date, "min_rel": min_relevance, "lim": limit, **topic_params}
+        for i, k in enumerate(src_keys):
+            params[f"_src_{i}"] = f"%{k}%"
+
+        rows = conn.execute(text(f"""
+            SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                   a.topic_alignment_score, a.sentiment, a.topic
+            FROM articles a
+            WHERE a.publication_date >= :start AND a.publication_date <= :end
+              AND {src_clause}
+              {topic_clause}
+              AND (a.topic_alignment_score IS NULL OR a.topic_alignment_score >= :min_rel)
+            ORDER BY a.publication_date DESC
+            LIMIT :lim
+        """), params).fetchall()
+
+        def _platform(ns):
+            s = (ns or "").lower()
+            if "reddit" in s:
+                return "reddit"
+            if "bsky" in s or "bluesky" in s:
+                return "bluesky"
+            return "social"
+
+        posts = [{
+            "uri": r[0], "title": r[1], "summary": r[2], "news_source": r[3],
+            "platform": _platform(r[3]),
+            "publication_date": str(r[4]) if r[4] else None,
+            "relevance": round(r[5], 3) if r[5] is not None else None,
+            "sentiment": r[6], "topic": r[7],
+        } for r in rows]
+
+        # sentiment + platform rollups for the tab summary
+        from collections import Counter
+        sent_counts = Counter((p["sentiment"] or "Unrated") for p in posts)
+        plat_counts = Counter(p["platform"] for p in posts)
+        evaluated = sum(1 for p in posts if p["relevance"] is not None)
+        return {
+            "window_days": days_back,
+            "min_relevance": min_relevance,
+            "total": len(posts),
+            "evaluated": evaluated,
+            "by_platform": dict(plat_counts),
+            "by_sentiment": dict(sent_counts),
+            "posts": posts,
+        }
+    except Exception as e:
+        logger.error(f"brand-watcher/social error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.post("/brands", response_model=BrandResponse, status_code=201)
 async def create_brand(brand: BrandCreate, session=Depends(verify_session)):
     """Create a new brand to track."""

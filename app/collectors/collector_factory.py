@@ -9,6 +9,7 @@ from .semantic_scholar_collector import SemanticScholarCollector
 from .rss_collector import RSSCollector
 from .newsfirehose_collector import NewsFirehoseCollector
 from .opoint_collector import OpointCollector
+from .reddit_collector import RedditCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -23,7 +24,8 @@ class CollectorFactory:
         'semantic_scholar': SemanticScholarCollector,
         'rss': RSSCollector,
         'newsfirehose': NewsFirehoseCollector,
-        'opoint': OpointCollector
+        'opoint': OpointCollector,
+        'reddit': RedditCollector
     }
 
     @classmethod

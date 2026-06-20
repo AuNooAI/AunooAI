@@ -1704,6 +1704,14 @@ async def get_available_providers():
         "configured": True
     })
 
+    # Reddit — free RSS, no credentials required
+    available.append({
+        "id": "reddit",
+        "name": "Reddit",
+        "description": "Community discussion & sentiment (RSS, no key)",
+        "configured": True
+    })
+
     return {"providers": available}
 
 @router.get("/trends")

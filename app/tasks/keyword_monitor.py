@@ -172,8 +172,12 @@ class KeywordMonitor:
             from app.collectors.opoint_collector import OpointCollector
             return OpointCollector()
 
+        elif provider == 'reddit':
+            from app.collectors.reddit_collector import RedditCollector
+            return RedditCollector()
+
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
@@ -1053,6 +1057,20 @@ class KeywordMonitor:
             self.db.facade.update_keyword_group_check_status(
                 group_id, error=error, next_check_seconds=effective['interval_seconds']
             )
+
+            # Social posts (reddit/bluesky) get a cheap relevance+sentiment eval via a
+            # configurable local/Bedrock model instead of the heavy news pipeline.
+            if any(p in self.collectors for p in ('reddit', 'bluesky')):
+                group_topic = group.get('topic')
+                if group_topic:
+                    try:
+                        from app.services.social_eval_service import get_social_eval_service
+                        eval_res = await get_social_eval_service().evaluate_and_store(
+                            self.db, group_topic, days_back=effective.get('search_date_range', 7)
+                        )
+                        logger.info(f"Social eval for '{group_topic}': {eval_res}")
+                    except Exception as se:
+                        logger.warning(f"Social eval failed for '{group_topic}': {se}")
 
             logger.info(
                 f"Completed collection for group '{group_name}': "

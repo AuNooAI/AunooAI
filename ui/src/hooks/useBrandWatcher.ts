@@ -19,7 +19,9 @@ import {
   getShareOfVoice,
   getTopics,
   getOpointCoverage,
+  getSocialPosts,
   type BWOpointCoverageResponse,
+  type BWSocialResponse,
   type Brand,
   type BrandCreate,
   type BrandUpdate,
@@ -87,6 +89,7 @@ export function useBrandWatcher() {
   const [comparison, setComparison] = useState<BWComparison[]>([]);
   const [shareOfVoice, setShareOfVoice] = useState<BWShareOfVoice[]>([]);
   const [opointCoverage, setOpointCoverage] = useState<BWOpointCoverageResponse | null>(null);
+  const [social, setSocial] = useState<BWSocialResponse | null>(null);
   const [config, setConfig] = useState<BrandWatcherConfig>(loadStoredConfig);
 
   // Pagination
@@ -102,6 +105,7 @@ export function useBrandWatcher() {
   const [loadingComparison, setLoadingComparison] = useState(false);
   const [loadingShareOfVoice, setLoadingShareOfVoice] = useState(false);
   const [loadingOpoint, setLoadingOpoint] = useState(false);
+  const [loadingSocial, setLoadingSocial] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loading = loadingStats || loadingCategories || loadingArticles;
@@ -221,6 +225,18 @@ export function useBrandWatcher() {
     }
   }, [config.daysBack]);
 
+  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string) => {
+    setLoadingSocial(true);
+    try {
+      const data = await getSocialPosts(topicsOrUndefined, config.daysBack, minRelevance, source);
+      setSocial(data);
+    } catch (err) {
+      console.error('Error fetching social posts:', err);
+    } finally {
+      setLoadingSocial(false);
+    }
+  }, [config.daysBack, topicsOrUndefined]);
+
   // Fetch temporal
   const fetchTemporal = useCallback(async () => {
     setLoadingTemporal(true);
@@ -312,15 +328,15 @@ export function useBrandWatcher() {
 
   return {
     brands, topics, stats, categories, temporalData, articles,
-    comparison, shareOfVoice, opointCoverage, config,
+    comparison, shareOfVoice, opointCoverage, social, config,
     totalArticles, totalPages,
     loading, loadingBrands, loadingStats, loadingCategories,
     loadingTemporal, loadingArticles, loadingComparison, loadingShareOfVoice,
-    loadingOpoint,
+    loadingOpoint, loadingSocial,
     error,
     updateConfig, clearError, refresh,
     fetchBrands, fetchTopics, fetchStats, fetchCategories, fetchTemporal,
-    fetchArticles, fetchComparison, fetchShareOfVoice, fetchOpointCoverage,
+    fetchArticles, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial,
     createBrand: handleCreateBrand, updateBrand: handleUpdateBrand,
     deleteBrand: handleDeleteBrand, toggleBrand: handleToggleBrand,
     setPrimary: handleSetPrimary,

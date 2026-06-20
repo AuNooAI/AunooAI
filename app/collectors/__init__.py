@@ -8,6 +8,7 @@ from .newsdata_collector import NewsdataCollector
 from .semantic_scholar_collector import SemanticScholarCollector
 from .newsfirehose_collector import NewsFirehoseCollector
 from .opoint_collector import OpointCollector
+from .reddit_collector import RedditCollector
 from .collector_factory import CollectorFactory
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     'SemanticScholarCollector',
     'NewsFirehoseCollector',
     'OpointCollector',
+    'RedditCollector',
     'CollectorFactory'
 ] 

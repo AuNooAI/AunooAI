@@ -615,6 +615,14 @@
     {
       "name": "mistral-small3.1",
       "provider": "ollama"
+    },
+    {
+      "name": "gemma3:4b",
+      "provider": "ollama"
+    },
+    {
+      "name": "bedrock-claude-haiku",
+      "provider": "bedrock"
     }
   ],
   "providers": [

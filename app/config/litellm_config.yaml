@@ -100,6 +100,21 @@ model_list:
       model: gemini/gemini-2.0-flash-exp
       api_key: "os.environ/GEMINI_API_KEY"
 
+  # Local Ollama gemma3:4b — cheap high-volume social-post relevance + sentiment.
+  # Requires `ollama serve` + `ollama pull gemma3:4b` (default port 11434).
+  - model_name: gemma3:4b
+    litellm_params:
+      model: ollama/gemma3:4b
+      api_base: "os.environ/OLLAMA_BASE_URL"
+
+  # AWS Bedrock — alternative for the social eval (no local serving needed).
+  # Requires AWS creds in env (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION_NAME
+  # or AWS_BEARER_TOKEN_BEDROCK). Swap the model id for whatever is enabled in the account.
+  - model_name: bedrock-claude-haiku
+    litellm_params:
+      model: bedrock/anthropic.claude-3-5-haiku-20241022-v1:0
+      aws_region_name: "os.environ/AWS_REGION_NAME"
+
 fallbacks:
   - gpt-4.1:
       - qwen3:14b

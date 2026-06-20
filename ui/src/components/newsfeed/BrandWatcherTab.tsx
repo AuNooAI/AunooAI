@@ -67,17 +67,17 @@ interface BrandWatcherTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
 }
 
-type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage';
+type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage' | 'social';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
     brands, topics, stats, categories, temporalData, articles,
-    comparison, shareOfVoice, opointCoverage, config,
+    comparison, shareOfVoice, opointCoverage, social, config,
     totalArticles, totalPages,
-    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint,
+    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint, loadingSocial,
     error,
     updateConfig, clearError, refresh,
-    fetchComparison, fetchShareOfVoice, fetchOpointCoverage,
+    fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
     setPrimary,
   } = useBrandWatcher();
@@ -85,6 +85,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
   const [opointMinRel, setOpointMinRel] = useState(0.4);  // Opoint coverage relevance threshold
   const [opointExclScholarly, setOpointExclScholarly] = useState(false);  // exclude journals/academic sources
+  const [socialSource, setSocialSource] = useState<string>('');  // '' = all, 'reddit', 'bluesky'
+  const [socialMinRel, setSocialMinRel] = useState(0);  // social relevance threshold
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyRunId, setClassifyRunId] = useState<number | null>(null);
@@ -162,6 +164,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (tab === 'opoint_coverage') {
       fetchOpointCoverage(opointMinRel, opointExclScholarly);
     }
+    if (tab === 'social') {
+      fetchSocial(socialMinRel, socialSource || undefined);
+    }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
       getLatestNarrative(primarySelectedId)
@@ -181,7 +186,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, opointMinRel, opointExclScholarly]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial, opointMinRel, opointExclScholarly, socialMinRel, socialSource]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -711,6 +716,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
           { id: 'opoint_coverage' as SubTab, label: 'Opoint Coverage', icon: Sparkles },
+          { id: 'social' as SubTab, label: 'Social', icon: Users },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -1820,6 +1826,131 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- COMPARISON TAB ---- */}
+      {activeTab === 'social' && (
+        <div className="space-y-6">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <Users className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="font-semibold">Social mentions.</span> Reddit + Bluesky posts mentioning this brand, with a lightweight relevance score ("is this actually about the brand?") and sentiment evaluated by a local/Bedrock model built for volume.
+              </div>
+            </div>
+          </div>
+
+          {/* Source + relevance controls */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Source:</span>
+            {([
+              { label: 'All', val: '' },
+              { label: 'Reddit', val: 'reddit' },
+              { label: 'Bluesky', val: 'bluesky' },
+            ]).map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => { setSocialSource(opt.val); fetchSocial(socialMinRel, opt.val || undefined); }}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  socialSource === opt.val
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 ml-2">Min relevance:</span>
+            {([
+              { label: 'All', val: 0 },
+              { label: '≥0.4', val: 0.4 },
+              { label: '≥0.6', val: 0.6 },
+            ]).map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => { setSocialMinRel(opt.val); fetchSocial(opt.val, socialSource || undefined); }}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  socialMinRel === opt.val
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {loadingSocial && (
+            <div className="flex items-center justify-center py-12 text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading social posts…
+            </div>
+          )}
+
+          {!loadingSocial && social && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Posts</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{social.total.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">last {social.window_days}d</p>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Evaluated</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{social.evaluated.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">relevance + sentiment scored</p>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">By platform</p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
+                    {Object.entries(social.by_platform).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}
+                  </p>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Sentiment</p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
+                    {Object.entries(social.by_sentiment).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
+                {social.posts.map(p => (
+                  <div key={p.uri} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-750">
+                    <div className="flex items-start justify-between gap-3">
+                      <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 line-clamp-2">{p.title}</a>
+                      <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
+                        p.platform === 'reddit' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400'
+                        : 'bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-400'
+                      }`}>{p.platform}</span>
+                    </div>
+                    {p.summary && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{p.summary}</p>}
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                      {p.relevance != null && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">relevance <span className="font-semibold text-gray-700 dark:text-gray-300">{p.relevance.toFixed(2)}</span></span>
+                      )}
+                      {p.sentiment && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          p.sentiment.toLowerCase() === 'positive' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                          : p.sentiment.toLowerCase() === 'negative' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        }`}>{p.sentiment}</span>
+                      )}
+                      {p.relevance == null && <span className="text-xs text-gray-400">not yet evaluated</span>}
+                      {p.news_source && <span className="text-xs text-gray-400">{p.news_source}</span>}
+                      {p.publication_date && <span className="text-xs text-gray-400">{p.publication_date.slice(0, 10)}</span>}
+                    </div>
+                  </div>
+                ))}
+                {social.posts.length === 0 && (
+                  <div className="p-8 text-center text-sm text-gray-400">No social posts yet. Add Reddit/Bluesky to this brand's collection sources and run a collection cycle.</div>
+                )}
+              </div>
+            </>
+          )}
+
+          {!loadingSocial && !social && (
+            <div className="text-center py-12 text-gray-400 text-sm">No social data loaded.</div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'opoint_coverage' && (
         <div className="space-y-6">
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">

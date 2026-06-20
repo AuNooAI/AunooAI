@@ -114,6 +114,28 @@ export interface BWOpointCoverageResponse {
   samples: any[];
 }
 
+export interface BWSocialPost {
+  uri: string;
+  title: string;
+  summary: string | null;
+  news_source: string | null;
+  platform: string;
+  publication_date: string | null;
+  relevance: number | null;
+  sentiment: string | null;
+  topic: string | null;
+}
+
+export interface BWSocialResponse {
+  window_days: number;
+  min_relevance: number;
+  total: number;
+  evaluated: number;
+  by_platform: Record<string, number>;
+  by_sentiment: Record<string, number>;
+  posts: BWSocialPost[];
+}
+
 export interface BWArticlesResponse {
   articles: BWArticle[];
   total_count: number;
@@ -403,6 +425,15 @@ export async function getOpointCoverage(daysBack: number = 90, minRelevance: num
   const params = new URLSearchParams({ days: Math.min(daysBack, 365).toString(), min_relevance: minRelevance.toString(), samples: '8', exclude_scholarly: String(excludeScholarly) });
   const res = await fetch(`${BASE}/opoint-coverage?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get Opoint coverage: ${res.status}`);
+  return res.json();
+}
+
+export async function getSocialPosts(topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string): Promise<BWSocialResponse> {
+  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), limit: '200' });
+  if (topics?.length) params.append('topics', topics.join(','));
+  if (source) params.append('source', source);
+  const res = await fetch(`${BASE}/social?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get social posts: ${res.status}`);
   return res.json();
 }
 
