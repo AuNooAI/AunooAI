@@ -84,6 +84,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
   const [opointMinRel, setOpointMinRel] = useState(0.4);  // Opoint coverage relevance threshold
+  const [opointExclScholarly, setOpointExclScholarly] = useState(false);  // exclude journals/academic sources
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyRunId, setClassifyRunId] = useState<number | null>(null);
@@ -159,7 +160,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchShareOfVoice();
     }
     if (tab === 'opoint_coverage') {
-      fetchOpointCoverage(opointMinRel);
+      fetchOpointCoverage(opointMinRel, opointExclScholarly);
     }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
@@ -180,7 +181,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, opointMinRel]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, opointMinRel, opointExclScholarly]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -1840,7 +1841,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             ]).map(opt => (
               <button
                 key={opt.val}
-                onClick={() => { setOpointMinRel(opt.val); fetchOpointCoverage(opt.val); }}
+                onClick={() => { setOpointMinRel(opt.val); fetchOpointCoverage(opt.val, opointExclScholarly); }}
                 className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                   opointMinRel === opt.val
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -1850,7 +1851,21 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 {opt.label}
               </button>
             ))}
-            <span className="text-xs text-gray-400">Higher = excludes incidental publisher/citation mentions (e.g. journal articles published by the brand).</span>
+            <button
+              onClick={() => { const v = !opointExclScholarly; setOpointExclScholarly(v); fetchOpointCoverage(opointMinRel, v); }}
+              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                opointExclScholarly
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+              }`}
+              title="Drop academic journals / publishing platforms (publisher & citation mentions, not 3rd-party news)"
+            >
+              {opointExclScholarly ? '✓ ' : ''}Exclude journals
+            </button>
+            <span className="text-xs text-gray-400">Higher strength + Exclude journals = third-party news coverage, not the brand's own/published content.</span>
+            {opointCoverage && opointCoverage.scholarly_excluded ? (
+              <span className="text-xs text-gray-400">({opointCoverage.scholarly_excluded} scholarly articles excluded)</span>
+            ) : null}
           </div>
 
           {loadingOpoint && (

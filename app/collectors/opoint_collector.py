@@ -96,6 +96,7 @@ class OpointCollector(ArticleCollector):
                         #   allsubject=0 -> topics subject taxonomy (broadly available)
                         "textrazor": 15,
                         "allsubject": "0",
+                        "groupidentical": 1,  # surfaces equalgroup (dedup cluster id) per doc; does not collapse results
                         "main": {
                             "header": 1,
                             "summary": 1,

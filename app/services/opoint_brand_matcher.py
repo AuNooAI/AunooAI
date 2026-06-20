@@ -20,6 +20,39 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+# Academic publishing platforms + journal-host domains. A brand mention on one of
+# these is the publisher/citation, not third-party news coverage. Heuristic, not
+# exhaustive — pair with the relevance threshold for best results.
+SCHOLARLY_DOMAINS = (
+    "sciencedirect.com", "link.springer.com", "springer.com", "springeropen.com",
+    "onlinelibrary.wiley.com", "journals.sagepub.com", "sagepub.com",
+    "tandfonline.com", "taylorfrancis.com", "plos.org", "pubs.acs.org", "acs.org",
+    "mdpi.com", "academic.oup.com", "cambridge.org", "jamanetwork.com", "bmj.com",
+    "thelancet.com", "cell.com", "nature.com", "frontiersin.org", "hindawi.com",
+    "karger.com", "emerald.com", "ieeexplore.ieee.org", "ahajournals.org",
+    "iaeme.com", "researchgate.net", "semanticscholar.org", "ssrn.com", "arxiv.org",
+    "biomedcentral.com", "elifesciences.org", "pnas.org", "rsc.org", "wiley.com",
+)
+# Strong journal name markers (kept conservative to avoid excluding real news like
+# "National Review"); require journal-ish phrasing.
+SCHOLARLY_NAME_PATTERNS = (
+    "proceedings", "annals of", "bulletin of", "tidende", "transactions of",
+    "journal of", "review of", "acta ", "quarterly journal", "j. of",
+)
+
+
+def is_scholarly_source(news_source: Optional[str], url: Optional[str] = "") -> bool:
+    """Heuristic: is this source an academic journal / publishing platform (i.e. the
+    brand appears as publisher/citation, not as the subject of third-party news)?"""
+    u = (url or "").lower()
+    if any(d in u for d in SCHOLARLY_DOMAINS):
+        return True
+    s = (news_source or "").lower()
+    if any(p in s for p in SCHOLARLY_NAME_PATTERNS):
+        return True
+    return False
+
+
 def source_reach_weight(opoint_entities: Optional[dict]) -> float:
     """Proxy for a source's audience reach, from Opoint ``site_rank.rank_global``.
 

@@ -633,6 +633,7 @@ async def opoint_brand_coverage(
     days: int = Query(90, ge=1, le=365),
     min_relevance: float = Query(0.0, ge=0.0, le=1.0),
     samples: int = Query(0, ge=0, le=50),
+    exclude_scholarly: bool = Query(False, description="Drop academic/journal sources (publisher/citation mentions, not 3rd-party news)"),
     session=Depends(verify_session),
 ):
     """Brand coverage derived from Opoint's resolved entities (Wikidata-ID match).
@@ -644,7 +645,7 @@ async def opoint_brand_coverage(
     """
     from collections import defaultdict
     from datetime import datetime as _dt, timedelta as _td
-    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands, source_reach_weight
+    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands, source_reach_weight, is_scholarly_source
 
     db = get_database_instance()
     conn = db._temp_get_connection()
@@ -653,7 +654,7 @@ async def opoint_brand_coverage(
         # publication_date is TEXT/ISO -> safe lexicographic comparison (no ::timestamp cast)
         cutoff = (_dt.utcnow() - _td(days=days)).strftime("%Y-%m-%d")
         rows = conn.execute(text("""
-            SELECT uri, title, publication_date, opoint_entities
+            SELECT uri, title, publication_date, opoint_entities, news_source
             FROM articles
             WHERE jsonb_typeof(opoint_entities->'entities') = 'object'
               AND publication_date >= :cutoff
@@ -661,7 +662,11 @@ async def opoint_brand_coverage(
 
         agg = defaultdict(lambda: {"articles_matched": 0, "sum_rel": 0.0, "high_conf": 0, "reach": 0.0})
         sample_rows = []
-        for uri, title, pubdate, oe in rows:
+        scholarly_excluded = 0
+        for uri, title, pubdate, oe, news_source in rows:
+            if exclude_scholarly and is_scholarly_source(news_source, uri):
+                scholarly_excluded += 1
+                continue
             hits = [h for h in match_brands(oe, brand_wd) if h["relevance_score"] >= min_relevance]
             if not hits:
                 continue
@@ -692,6 +697,8 @@ async def opoint_brand_coverage(
             "window_days": days,
             "min_relevance": min_relevance,
             "opoint_articles_scanned": len(rows),
+            "exclude_scholarly": exclude_scholarly,
+            "scholarly_excluded": scholarly_excluded,
             "reach_metric": "source_global_traffic_rank_proxy",
             "brand_wikidata": {b: sorted(ids) for b, ids in brand_wd.items()},
             "coverage": coverage,

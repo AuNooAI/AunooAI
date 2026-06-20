@@ -209,10 +209,10 @@ export function useBrandWatcher() {
     }
   }, [brandIdsOrUndefined, config.daysBack, topicsOrUndefined]);
 
-  const fetchOpointCoverage = useCallback(async (minRelevance: number = 0.4) => {
+  const fetchOpointCoverage = useCallback(async (minRelevance: number = 0.4, excludeScholarly: boolean = false) => {
     setLoadingOpoint(true);
     try {
-      const data = await getOpointCoverage(config.daysBack, minRelevance);
+      const data = await getOpointCoverage(config.daysBack, minRelevance, excludeScholarly);
       setOpointCoverage(data);
     } catch (err) {
       console.error('Error fetching Opoint coverage:', err);

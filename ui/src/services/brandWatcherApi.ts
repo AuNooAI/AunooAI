@@ -106,6 +106,8 @@ export interface BWOpointCoverageResponse {
   window_days: number;
   min_relevance: number;
   opoint_articles_scanned: number;
+  exclude_scholarly?: boolean;
+  scholarly_excluded?: number;
   reach_metric?: string;
   brand_wikidata: Record<string, string[]>;
   coverage: BWOpointCoverage[];
@@ -397,8 +399,8 @@ export async function getCategories(brandIds?: number[], daysBack: number = 365,
   return res.json();
 }
 
-export async function getOpointCoverage(daysBack: number = 90, minRelevance: number = 0): Promise<BWOpointCoverageResponse> {
-  const params = new URLSearchParams({ days: Math.min(daysBack, 365).toString(), min_relevance: minRelevance.toString(), samples: '8' });
+export async function getOpointCoverage(daysBack: number = 90, minRelevance: number = 0, excludeScholarly: boolean = false): Promise<BWOpointCoverageResponse> {
+  const params = new URLSearchParams({ days: Math.min(daysBack, 365).toString(), min_relevance: minRelevance.toString(), samples: '8', exclude_scholarly: String(excludeScholarly) });
   const res = await fetch(`${BASE}/opoint-coverage?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get Opoint coverage: ${res.status}`);
   return res.json();
