@@ -130,21 +130,25 @@ class SocialEvalService:
         Stores relevance -> topic_alignment_score + keyword_relevance_score,
         sentiment -> sentiment, and marks ingest_status='social_evaluated',
         analyzed=true. Idempotent: skips posts already social_evaluated.
+
+        Candidates are selected by COLLECTION recency (submission_date), not the
+        post's own publication_date — social posts (esp. subreddit feeds) are often
+        older than the poll window even when freshly collected. The idempotent
+        'social_evaluated' marker + limit bound the work.
         """
         from sqlalchemy import text
-        from datetime import datetime, timedelta
         if not self._get_model():
             return {"evaluated": 0, "skipped_model_unavailable": True}
-        cutoff = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         src_clause = " OR ".join([f"LOWER(news_source) LIKE :s{i}" for i in range(len(SOCIAL_SOURCES))])
-        params = {"t": brand_topic, "c": cutoff, "lim": limit}
+        params = {"t": brand_topic, "lim": limit}
         for i, s in enumerate(SOCIAL_SOURCES):
             params[f"s{i}"] = f"%{s}%"
         rows = db.facade._execute_with_rollback(text(f"""
             SELECT uri, title, summary FROM articles
-            WHERE topic = :t AND publication_date >= :c
+            WHERE topic = :t
               AND ({src_clause})
               AND (ingest_status IS NULL OR ingest_status <> 'social_evaluated')
+            ORDER BY submission_date DESC NULLS LAST
             LIMIT :lim
         """), params).fetchall()
         posts = [{"uri": r[0], "title": r[1], "summary": r[2]} for r in rows]

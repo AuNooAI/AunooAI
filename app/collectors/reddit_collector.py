@@ -49,6 +49,7 @@ class RedditCollector(ArticleCollector):
     def __init__(self):
         self.user_agent = os.getenv("REDDIT_USER_AGENT", _DEFAULT_UA)
         self.base_url = "https://www.reddit.com"
+        self.requests_today = 0  # rate-counter expected by keyword_monitor logging
         logger.info("RedditCollector initialized (RSS, no credentials)")
 
     async def search_articles(
@@ -111,6 +112,7 @@ class RedditCollector(ArticleCollector):
                 for e in await self._feed(session, f"{self.base_url}/search.rss", headers, params=params):
                     self._add(out, seen, e, topic, cutoff=cutoff, terms=terms_l)
 
+            self.requests_today += 1
             logger.info(f"Reddit returned {len(out)} posts for query '{term[:60]}' (r/{slug} + search)")
             return out[:max_results]
         except aiohttp.ClientError as e:

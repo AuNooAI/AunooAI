@@ -487,8 +487,15 @@ class KeywordMonitor:
                         None, _save_articles_batch, articles, topic, keyword_id
                     )
 
-                    # SECOND: Now run auto-ingest pipeline on the saved articles
+                    # SECOND: Now run auto-ingest pipeline on the saved articles.
+                    # Social-only groups (reddit/bluesky) SKIP the heavy news pipeline
+                    # (relevance + LLM analysis + bias) — those posts get the cheap
+                    # social eval (relevance + sentiment) instead, run once per group
+                    # in check_single_group. Avoids GPT cost on high-volume social.
                     should_auto_ingest = await loop.run_in_executor(None, self.should_auto_ingest)
+                    if getattr(self, '_social_only_group', False):
+                        should_auto_ingest = False
+                        logger.info("Social-only group: skipping heavy auto-ingest pipeline (social eval handles relevance+sentiment)")
                     logger.info(f"Auto-ingest check: enabled={should_auto_ingest}, articles_count={len(articles)}")
 
                     if should_auto_ingest:
@@ -1037,6 +1044,12 @@ class KeywordMonitor:
         original_collectors = self.collectors
         self.collectors = group_collectors
 
+        # A social-only group (reddit/bluesky) skips the heavy news pipeline and
+        # uses the cheap social eval instead.
+        self._social_only_group = bool(group_collectors) and all(
+            p in ('reddit', 'bluesky') for p in group_collectors
+        )
+
         # Also update settings temporarily
         original_search_date_range = self.search_date_range
         self.search_date_range = effective['search_date_range']
@@ -1092,6 +1105,7 @@ class KeywordMonitor:
             self.collectors = original_collectors
             self.search_date_range = original_search_date_range
             self._group_relevance_threshold = None
+            self._social_only_group = False
 
     async def check_due_groups(self) -> Dict:
         """Check all keyword groups that are due for collection.
