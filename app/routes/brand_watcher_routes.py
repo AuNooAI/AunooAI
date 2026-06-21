@@ -716,6 +716,7 @@ async def opoint_proof_of_value(
     brand_id: int = Query(..., description="Brand to compare"),
     days_back: int = Query(90, ge=1, le=365),
     min_relevance: float = Query(0.4, ge=0.0, le=1.0, description="On-brand relevance bar for 'chargeable' value"),
+    annual_cost: float = Query(20000, ge=0, description="Opoint annual cost (EUR) for cost-per-usable"),
     session=Depends(verify_session),
 ):
     """Proof-of-value: Opoint coverage vs. what we already do, for one brand.
@@ -747,12 +748,12 @@ async def opoint_proof_of_value(
 
         # Opoint-surfaced rows (with their enrichment) + existing (no opoint) rows
         opoint_rows = conn.execute(text("""
-            SELECT uri, news_source, opoint_entities FROM articles
+            SELECT uri, news_source, opoint_entities, title, publication_date FROM articles
             WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
               AND opoint_entities IS NOT NULL
         """), params).fetchall()
         existing_rows = conn.execute(text("""
-            SELECT news_source FROM articles
+            SELECT news_source, publication_date FROM articles
             WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
               AND opoint_entities IS NULL
         """), params).fetchall()
@@ -765,18 +766,33 @@ async def opoint_proof_of_value(
         except Exception as e:
             logger.debug(f"pov wikidata load failed: {e}")
 
+        from collections import Counter
         def _dom(ns):
             return (ns or "").lower().replace("www.", "").strip() or "unknown"
+        def _month(pd):
+            return pd[:7] if pd and len(pd) >= 7 else "unknown"
 
-        existing_domains = {_dom(ns) for (ns,) in existing_rows}
+        existing_domains = {_dom(ns) for (ns, pd) in existing_rows}
 
         opoint_domains = set()
         entity_resolved = entity_verified = with_reach = with_country = 0
-        # Quality-adjusted 'chargeable value' funnel
         on_brand = non_scholarly = chargeable = ch_verified = ch_reach = 0
-        for uri, ns, oe in opoint_rows:
-            opoint_domains.add(_dom(ns))
+        # drill-down accumulators
+        rel_hist = Counter()                 # relevance bucket -> opoint article count
+        opoint_dom_counts = Counter()        # domain -> opoint article count
+        scholarly_dom = {}                   # domain -> bool scholarly
+        country_counts = Counter()           # country -> opoint article count
+        monthly_opoint = Counter()           # month -> opoint count
+        chargeable_samples = []              # the actual usable items
+        for uri, ns, oe, title, pd in opoint_rows:
+            dom = _dom(ns)
+            opoint_domains.add(dom)
+            opoint_dom_counts[dom] += 1
+            monthly_opoint[_month(pd)] += 1
+            if dom not in scholarly_dom:
+                scholarly_dom[dom] = is_scholarly_source(ns, uri)
             if not isinstance(oe, dict):
+                rel_hist["0.0"] += 1
                 continue
             inner = oe.get("entities")
             if isinstance(inner, dict) and inner.get("entities"):
@@ -785,22 +801,29 @@ async def opoint_proof_of_value(
                 with_reach += 1
             if oe.get("countryname"):
                 with_country += 1
+                country_counts[oe.get("countryname")] += 1
             hits = match_brands(oe, brand_wd) if brand_wd else []
             if hits:
                 entity_verified += 1
-            # funnel: on-brand (entity relevance >= bar) -> non-scholarly -> incremental
             rel = max((h["relevance_score"] for h in hits if h["brand"] == slug), default=0.0)
+            rel_hist[f"{min(int(rel * 10), 9) / 10:.1f}"] += 1
             if rel < min_relevance:
                 continue
             on_brand += 1
             if is_scholarly_source(ns, uri):
                 continue
             non_scholarly += 1
-            if _dom(ns) not in existing_domains:
+            if dom not in existing_domains:
                 chargeable += 1
-                ch_verified += 1  # chargeable items are entity-verified by construction
-                if oe.get("site_rank"):
+                ch_verified += 1
+                rank = (oe.get("site_rank") or {}).get("rank_global") if isinstance(oe.get("site_rank"), dict) else None
+                if rank:
                     ch_reach += 1
+                if len(chargeable_samples) < 30:
+                    chargeable_samples.append({
+                        "title": title, "url": uri, "source": dom,
+                        "relevance": round(rel, 3), "rank_global": rank,
+                    })
 
         keyword_classified = conn.execute(text("""
             SELECT COUNT(DISTINCT a.uri) FROM articles a
@@ -812,40 +835,57 @@ async def opoint_proof_of_value(
         shared = opoint_domains & existing_domains
         existing_only = existing_domains - opoint_domains
 
+        # Monthly existing series (align months with opoint)
+        monthly_existing = Counter(_month(pd) for (ns, pd) in existing_rows)
+        months = sorted(m for m in (set(monthly_opoint) | set(monthly_existing)) if m != "unknown")
+        monthly = [{"month": m, "opoint": monthly_opoint.get(m, 0), "existing": monthly_existing.get(m, 0)} for m in months]
+
+        # Relevance histogram in fixed bucket order
+        rel_buckets = [f"{i/10:.1f}" for i in range(10)]
+        relevance_histogram = [{"bucket": b, "count": rel_hist.get(b, 0)} for b in rel_buckets]
+
+        # Top Opoint-only domains by article count (what the incremental coverage actually is)
+        top_opoint_only_domains = [
+            {"domain": d, "articles": opoint_dom_counts[d], "scholarly": scholarly_dom.get(d, False)}
+            for d in sorted(opoint_only, key=lambda d: -opoint_dom_counts[d])[:20]
+        ]
+
+        cost_per_chargeable = round(annual_cost / chargeable, 2) if chargeable else None
+
         return {
             "brand": display_name, "topic": topic, "window_days": days_back,
-            "volume": {
-                "opoint_articles": len(opoint_rows),
-                "existing_articles": len(existing_rows),
-            },
+            "volume": {"opoint_articles": len(opoint_rows), "existing_articles": len(existing_rows)},
             "source_domains": {
-                "opoint": len(opoint_domains),
-                "existing": len(existing_domains),
-                "opoint_only": len(opoint_only),
-                "shared": len(shared),
-                "existing_only": len(existing_only),
-                "opoint_only_sample": opoint_only[:25],
+                "opoint": len(opoint_domains), "existing": len(existing_domains),
+                "opoint_only": len(opoint_only), "shared": len(shared),
+                "existing_only": len(existing_only), "opoint_only_sample": opoint_only[:25],
             },
-            # Enrichment existing news sources do NOT provide at all (so existing=0)
             "enrichment_exclusive": {
                 "entities_resolved": {"opoint": entity_resolved, "existing": 0},
                 "source_reach": {"opoint": with_reach, "existing": 0},
                 "country_tagged": {"opoint": with_country, "existing": 0},
             },
             "precision": {
-                "opoint_entity_verified": entity_verified,   # Wikidata-confirmed brand mentions
-                "keyword_classified": keyword_classified,    # what our keyword path caught
+                "opoint_entity_verified": entity_verified,
+                "keyword_classified": keyword_classified,
                 "wikidata_ids": sorted(brand_wd.get(slug, [])),
             },
-            # The 'is it worth it / can we charge' funnel — quality-adjusted.
             "chargeable_value": {
-                "min_relevance": min_relevance,
-                "opoint_total": len(opoint_rows),
-                "on_brand": on_brand,            # entity relevance >= min_relevance
-                "non_scholarly": non_scholarly,  # ... and not a journal/citation source
-                "chargeable": chargeable,        # ... and incremental (domain existing didn't surface)
+                "min_relevance": min_relevance, "opoint_total": len(opoint_rows),
+                "on_brand": on_brand, "non_scholarly": non_scholarly, "chargeable": chargeable,
                 "chargeable_with_reach": ch_reach,
                 "chargeable_rate_pct": round(100 * chargeable / len(opoint_rows), 1) if opoint_rows else 0.0,
+            },
+            # --- drill-down analytics ---
+            "relevance_histogram": relevance_histogram,
+            "top_opoint_only_domains": top_opoint_only_domains,
+            "monthly": monthly,
+            "by_country": [{"country": c, "count": n} for c, n in country_counts.most_common(10)],
+            "chargeable_samples": chargeable_samples,
+            "cost": {
+                "annual_eur": annual_cost,
+                "chargeable": chargeable,
+                "cost_per_chargeable_eur": cost_per_chargeable,
             },
         }
     except HTTPException:

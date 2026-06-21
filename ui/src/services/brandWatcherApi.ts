@@ -123,6 +123,12 @@ export interface BWOpointPoV {
   enrichment_exclusive: Record<string, { opoint: number; existing: number }>;
   precision: { opoint_entity_verified: number; keyword_classified: number; wikidata_ids: string[] };
   chargeable_value: { min_relevance: number; opoint_total: number; on_brand: number; non_scholarly: number; chargeable: number; chargeable_with_reach: number; chargeable_rate_pct: number };
+  relevance_histogram: { bucket: string; count: number }[];
+  top_opoint_only_domains: { domain: string; articles: number; scholarly: boolean }[];
+  monthly: { month: string; opoint: number; existing: number }[];
+  by_country: { country: string; count: number }[];
+  chargeable_samples: { title: string; url: string; source: string; relevance: number; rank_global: number | null }[];
+  cost: { annual_eur: number; chargeable: number; cost_per_chargeable_eur: number | null };
 }
 
 export async function getOpointPoV(brandId: number, daysBack: number = 90): Promise<BWOpointPoV> {
