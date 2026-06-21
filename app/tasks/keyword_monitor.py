@@ -1072,16 +1072,20 @@ class KeywordMonitor:
             )
 
             # Social posts (reddit/bluesky) get a cheap relevance+sentiment eval via a
-            # configurable local/Bedrock model instead of the heavy news pipeline.
+            # configurable model instead of the heavy news pipeline. Model precedence:
+            # the group's default_llm_model (set in the Gather group-settings UI) ->
+            # SOCIAL_EVAL_MODEL env -> default. So the UI model dropdown controls it.
             if any(p in self.collectors for p in ('reddit', 'bluesky')):
                 group_topic = group.get('topic')
                 if group_topic:
                     try:
-                        from app.services.social_eval_service import get_social_eval_service
-                        eval_res = await get_social_eval_service().evaluate_and_store(
+                        from app.services.social_eval_service import SocialEvalService
+                        group_model = group.get('default_llm_model') or effective.get('default_llm_model')
+                        svc = SocialEvalService(group_model) if group_model else SocialEvalService()
+                        eval_res = await svc.evaluate_and_store(
                             self.db, group_topic, days_back=effective.get('search_date_range', 7)
                         )
-                        logger.info(f"Social eval for '{group_topic}': {eval_res}")
+                        logger.info(f"Social eval for '{group_topic}' (model={svc.model_name}): {eval_res}")
                     except Exception as se:
                         logger.warning(f"Social eval failed for '{group_topic}': {se}")
 
