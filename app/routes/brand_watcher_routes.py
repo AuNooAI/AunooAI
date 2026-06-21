@@ -1191,6 +1191,81 @@ async def setup_brand_monitoring(brand_id: int, session=Depends(verify_session))
         conn.close()
 
 
+class SocialMonitoringRequest(BaseModel):
+    interval_hours: int = Field(24, ge=1, le=168)
+    model: Optional[str] = None              # default_llm_model for the social eval
+    providers: Optional[List[str]] = None    # default ['reddit', 'bluesky']
+
+
+@router.post("/brands/{brand_id}/social-monitoring")
+async def setup_social_monitoring(brand_id: int, req: SocialMonitoringRequest = SocialMonitoringRequest(), session=Depends(verify_session)):
+    """Create/update a dedicated social keyword group for a brand (Reddit/Bluesky).
+
+    Polls on its OWN interval (decoupled from the news brand-watch group) and the
+    posts get the cheap social relevance+sentiment eval (not the heavy news pipeline).
+    Idempotent: updates the '<Brand> - Social' group if it already exists.
+    """
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brand = conn.execute(text(
+            "SELECT id, display_name, brand_keywords, product_keywords, people_keywords "
+            "FROM bw_brands WHERE id = :id"), {"id": brand_id}).fetchone()
+        if not brand:
+            raise HTTPException(status_code=404, detail="Brand not found")
+        display_name = brand[1]
+
+        def _kw(v):
+            return v if isinstance(v, list) else (json.loads(v) if v else [])
+        keywords = normalize_keyword_list(_kw(brand[2]) + _kw(brand[3]) + _kw(brand[4]))
+
+        topic_name = f"Brand Monitoring {display_name}"
+        group_name = f"{display_name} - Social"
+        providers = req.providers or ["reddit", "bluesky"]
+        interval_unit = 3600  # hours
+        primary = providers[0] if providers else "reddit"
+
+        facade = DatabaseQueryFacade(db, logger)
+        existing = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
+        if existing:
+            group_id = existing[0]
+            facade.delete_group_keywords(group_id)
+            created = False
+        else:
+            group_id = facade.create_group(group_name, topic_name)
+            created = True
+
+        # Apply social settings (own interval, social providers, eval model, light pipeline)
+        conn.execute(text("""
+            UPDATE keyword_groups
+            SET providers = :providers, source = :src, provider = :src,
+                check_interval = :ci, interval_unit = :iu,
+                is_active = true, auto_ingest_enabled = true,
+                min_relevance_threshold = 0, default_llm_model = :model
+            WHERE id = :id
+        """), {"providers": json.dumps(providers), "src": primary,
+               "ci": req.interval_hours, "iu": interval_unit,
+               "model": req.model, "id": group_id})
+        conn.commit()
+
+        for kw in keywords:
+            facade.add_keywords_to_group(group_id, kw)
+
+        return {
+            "brand_id": brand_id, "group_id": group_id, "group_name": group_name,
+            "created": created, "providers": providers,
+            "interval_hours": req.interval_hours, "model": req.model,
+            "keywords_added": len(keywords),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting up social monitoring for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 # ============================================================================
 # Keyword Suggestion
 # ============================================================================

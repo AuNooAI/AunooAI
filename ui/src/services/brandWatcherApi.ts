@@ -428,6 +428,16 @@ export async function getOpointCoverage(daysBack: number = 90, minRelevance: num
   return res.json();
 }
 
+export async function setupSocialMonitoring(brandId: number, intervalHours: number = 24, model?: string): Promise<any> {
+  const res = await fetch(`${BASE}/brands/${brandId}/social-monitoring`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interval_hours: intervalHours, model: model || null }),
+  });
+  if (!res.ok) throw new Error(`Failed to set up social monitoring: ${res.status}`);
+  return res.json();
+}
+
 export async function getSocialPosts(topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string): Promise<BWSocialResponse> {
   const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), limit: '200' });
   if (topics?.length) params.append('topics', topics.join(','));

@@ -18,7 +18,7 @@ import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
   generateCategoryInsight, suggestKeywords, setupBrandMonitoring, getSchedules, createSchedule, deleteSchedule,
   runScheduleNow, getSentimentTrends, getBrandAlerts, exportBrandData, updateBrandConfig,
-  retrainClassifier, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
+  retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
   type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
 } from '../../services/brandWatcherApi';
@@ -87,6 +87,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [opointExclScholarly, setOpointExclScholarly] = useState(false);  // exclude journals/academic sources
   const [socialSource, setSocialSource] = useState<string>('');  // '' = all, 'reddit', 'bluesky'
   const [socialMinRel, setSocialMinRel] = useState(0);  // social relevance threshold
+  const [enablingSocial, setEnablingSocial] = useState(false);
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyRunId, setClassifyRunId] = useState<number | null>(null);
@@ -1829,11 +1830,34 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {activeTab === 'social' && (
         <div className="space-y-6">
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-start gap-2">
-              <Users className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-gray-700 dark:text-gray-300">
-                <span className="font-semibold">Social mentions.</span> Reddit + Bluesky posts mentioning this brand, with a lightweight relevance score ("is this actually about the brand?") and sentiment evaluated by a local/Bedrock model built for volume.
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <Users className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-gray-700 dark:text-gray-300">
+                  <span className="font-semibold">Social mentions.</span> Reddit + Bluesky posts mentioning this brand, with a lightweight relevance score ("is this actually about the brand?") and sentiment evaluated by a local/Bedrock model built for volume.
+                </div>
               </div>
+              <button
+                onClick={async () => {
+                  if (!primarySelectedId) { alert('Select a brand first.'); return; }
+                  setEnablingSocial(true);
+                  try {
+                    const r = await setupSocialMonitoring(primarySelectedId, 24);
+                    alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune providers/interval/model in Gather → group Settings.`);
+                    fetchSocial(socialMinRel, socialSource || undefined);
+                  } catch (e: any) {
+                    alert('Failed to enable social monitoring: ' + e.message);
+                  } finally {
+                    setEnablingSocial(false);
+                  }
+                }}
+                disabled={enablingSocial || !primarySelectedId}
+                className="flex-shrink-0 text-xs px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5"
+                title={primarySelectedId ? 'Create/refresh this brand’s social monitoring group (Reddit + Bluesky, own schedule)' : 'Select a brand first'}
+              >
+                {enablingSocial ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                {enablingSocial ? 'Enabling…' : 'Add social monitoring'}
+              </button>
             </div>
           </div>
 
