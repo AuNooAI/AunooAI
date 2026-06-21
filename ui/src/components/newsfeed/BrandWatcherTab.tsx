@@ -67,17 +67,17 @@ interface BrandWatcherTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
 }
 
-type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage' | 'opoint_pov' | 'social';
+type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage' | 'social';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
     brands, topics, stats, categories, temporalData, articles,
-    comparison, shareOfVoice, opointCoverage, opointPoV, social, config,
+    comparison, shareOfVoice, opointCoverage, social, config,
     totalArticles, totalPages,
-    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint, loadingPoV, loadingSocial,
+    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint, loadingSocial,
     error,
     updateConfig, clearError, refresh,
-    fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchOpointPoV, fetchSocial,
+    fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
     setPrimary,
   } = useBrandWatcher();
@@ -165,9 +165,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (tab === 'opoint_coverage') {
       fetchOpointCoverage(opointMinRel, opointExclScholarly);
     }
-    if (tab === 'opoint_pov' && primarySelectedId) {
-      fetchOpointPoV(primarySelectedId);
-    }
     if (tab === 'social') {
       fetchSocial(socialMinRel, socialSource || undefined);
     }
@@ -190,7 +187,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchOpointPoV, fetchSocial, opointMinRel, opointExclScholarly, socialMinRel, socialSource]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial, opointMinRel, opointExclScholarly, socialMinRel, socialSource]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -720,7 +717,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
           { id: 'opoint_coverage' as SubTab, label: 'Opoint Coverage', icon: Sparkles },
-          { id: 'opoint_pov' as SubTab, label: 'Opoint vs Existing', icon: TrendingUp },
           { id: 'social' as SubTab, label: 'Social', icon: Users },
         ]).map(tab => (
           <button
@@ -1826,247 +1822,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               )}
 
             </>
-          )}
-        </div>
-      )}
-
-      {/* ---- COMPARISON TAB ---- */}
-      {activeTab === 'opoint_pov' && (
-        <div className="space-y-6">
-          <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-            <div className="flex items-start gap-2">
-              <TrendingUp className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-gray-700 dark:text-gray-300">
-                <span className="font-semibold">Opoint vs. existing — proof of value.</span> What Opoint adds over our current news collection for this brand: incremental source reach, enrichment our sources don't provide (resolved entities, reach, country), and Wikidata-precise brand matching vs. keyword classification.
-              </div>
-            </div>
-          </div>
-
-          {!primarySelectedId && (
-            <div className="text-center py-12 text-gray-400 text-sm">Select a brand to compare.</div>
-          )}
-          {primarySelectedId && loadingPoV && (
-            <div className="flex items-center justify-center py-12 text-gray-500">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Computing comparison…
-            </div>
-          )}
-          {primarySelectedId && !loadingPoV && opointPoV && (
-            <>
-              {/* Volume + domain reach side by side */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Existing news sources</p>
-                  <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{opointPoV.volume.existing_articles.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">articles · {opointPoV.source_domains.existing} source domains</p>
-                  <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">Keyword-classified: <span className="font-semibold">{opointPoV.precision.keyword_classified.toLocaleString()}</span></div>
-                </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-800 p-5">
-                  <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase mb-3">Opoint</p>
-                  <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{opointPoV.volume.opoint_articles.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">articles · {opointPoV.source_domains.opoint} source domains</p>
-                  <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">Entity-verified (Wikidata): <span className="font-semibold text-purple-600 dark:text-purple-400">{opointPoV.precision.opoint_entity_verified.toLocaleString()}</span></div>
-                </div>
-              </div>
-
-              {/* What Opoint adds */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">What Opoint adds</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.source_domains.opoint_only}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">source domains <span className="font-medium">only</span> Opoint surfaced ({opointPoV.source_domains.shared} shared)</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.enrichment_exclusive.entities_resolved.opoint.toLocaleString()}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">articles with resolved entities <span className="text-gray-400">(existing: 0)</span></p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.enrichment_exclusive.source_reach.opoint.toLocaleString()}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">with source reach / rank <span className="text-gray-400">(existing: 0)</span></p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.enrichment_exclusive.country_tagged.opoint.toLocaleString()}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">country-tagged <span className="text-gray-400">(existing: 0)</span></p>
-                  </div>
-                </div>
-                {opointPoV.source_domains.opoint_only_sample.length > 0 && (
-                  <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                    <span className="font-medium">Opoint-only domains:</span> {opointPoV.source_domains.opoint_only_sample.join(', ')}
-                  </div>
-                )}
-              </div>
-
-              {/* Chargeable value funnel — is it worth it / can we charge */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border-2 border-purple-300 dark:border-purple-700 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Is it worth it? — quality-adjusted value funnel</h3>
-                <p className="text-xs text-gray-400 mb-4">Of Opoint's raw volume, how much is genuinely high-value: on-brand (entity relevance ≥ {opointPoV.chargeable_value.min_relevance}), non-scholarly, and incremental (source we didn't already cover).</p>
-                <div className="flex items-end gap-2 flex-wrap">
-                  {([
-                    { label: 'Opoint raw', val: opointPoV.chargeable_value.opoint_total, color: 'bg-gray-300 dark:bg-gray-600' },
-                    { label: 'On-brand', val: opointPoV.chargeable_value.on_brand, color: 'bg-purple-300 dark:bg-purple-800' },
-                    { label: '+ non-scholarly', val: opointPoV.chargeable_value.non_scholarly, color: 'bg-purple-400 dark:bg-purple-700' },
-                    { label: '+ incremental = CHARGEABLE', val: opointPoV.chargeable_value.chargeable, color: 'bg-purple-600' },
-                  ]).map((s, i) => (
-                    <div key={i} className="flex-1 min-w-[120px] text-center">
-                      <div className={`${s.color} rounded-t-md mx-auto`} style={{ height: `${Math.max(8, (s.val / Math.max(opointPoV.chargeable_value.opoint_total, 1)) * 120)}px` }} />
-                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-1">{s.val.toLocaleString()}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">{s.label}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 flex items-center justify-between flex-wrap gap-2">
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    <span className="font-bold text-purple-600 dark:text-purple-400 text-lg">{opointPoV.chargeable_value.chargeable_rate_pct}%</span> of Opoint's volume is high-value incremental coverage
-                    {opointPoV.chargeable_value.chargeable_with_reach > 0 && <> · {opointPoV.chargeable_value.chargeable_with_reach} from ranked sources</>}
-                  </p>
-                </div>
-              </div>
-
-              {/* Precision comparison */}
-              <div id="chart-pov-precision" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Brand-match precision: Opoint entities (Wikidata) vs. keyword classification</h3>
-                  <ChartDownloadButton targetId="chart-pov-precision" filename="opoint-vs-existing-precision" />
-                </div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={[
-                    { method: 'Opoint entity-verified', count: opointPoV.precision.opoint_entity_verified },
-                    { method: 'Keyword-classified', count: opointPoV.precision.keyword_classified },
-                  ]} layout="vertical" margin={{ top: 8, right: 24, left: 80, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="method" tick={{ fontSize: 11 }} width={140} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#a855f7" />
-                  </BarChart>
-                </ResponsiveContainer>
-                <p className="text-xs text-gray-400 mt-2">Window: last {opointPoV.window_days} days · Wikidata IDs: {opointPoV.precision.wikidata_ids.join(', ') || '—'}</p>
-              </div>
-
-              {/* Cost-per-usable */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Opoint annual cost</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">€{opointPoV.cost.annual_eur.toLocaleString()}</p>
-                </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Chargeable items ({opointPoV.window_days}d)</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointPoV.cost.chargeable.toLocaleString()}</p>
-                </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border-2 border-amber-300 dark:border-amber-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Cost per usable article</p>
-                  <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{opointPoV.cost.cost_per_chargeable_eur != null ? `€${opointPoV.cost.cost_per_chargeable_eur.toLocaleString()}` : '—'}</p>
-                </div>
-              </div>
-
-              {/* Relevance distribution — the 'how much is noise' chart */}
-              <div id="chart-pov-relhist" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">On-brand relevance distribution (Opoint articles)</h3>
-                  <ChartDownloadButton targetId="chart-pov-relhist" filename="opoint-relevance-distribution" />
-                </div>
-                <p className="text-xs text-gray-400 mb-4">Entity-match relevance per Opoint article. Mass at the low end = peripheral / citation mentions, not brand news.</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={opointPoV.relevance_histogram} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Bar dataKey="count" name="Opoint articles">
-                      {opointPoV.relevance_histogram.map((b, i) => (
-                        <Cell key={i} fill={parseFloat(b.bucket) >= opointPoV.chargeable_value.min_relevance ? '#a855f7' : '#cbd5e1'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <p className="text-xs text-gray-400 mt-1">Purple = at/above the on-brand bar ({opointPoV.chargeable_value.min_relevance}); grey = below.</p>
-              </div>
-
-              {/* Monthly coverage timeline */}
-              {opointPoV.monthly.length > 0 && (
-                <div id="chart-pov-monthly" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Coverage over time — Opoint vs existing</h3>
-                    <ChartDownloadButton targetId="chart-pov-monthly" filename="opoint-vs-existing-monthly" />
-                  </div>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <AreaChart data={opointPoV.monthly} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                      <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Area type="monotone" dataKey="existing" name="Existing" stackId="1" stroke="#94a3b8" fill="#cbd5e1" />
-                      <Area type="monotone" dataKey="opoint" name="Opoint" stackId="1" stroke="#a855f7" fill="#d8b4fe" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Top Opoint-only domains */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 overflow-x-auto">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Top Opoint-only source domains</h3>
-                  <table className="min-w-full text-sm">
-                    <thead><tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                      <th className="py-1.5">Domain</th><th className="py-1.5 text-right">Articles</th><th className="py-1.5 text-right">Type</th></tr></thead>
-                    <tbody>
-                      {opointPoV.top_opoint_only_domains.map(d => (
-                        <tr key={d.domain} className="border-b border-gray-50 dark:border-gray-700/40">
-                          <td className="py-1.5 text-gray-800 dark:text-gray-200">{d.domain}</td>
-                          <td className="py-1.5 text-right text-gray-600 dark:text-gray-300">{d.articles}</td>
-                          <td className="py-1.5 text-right">{d.scholarly ? <span className="text-xs text-amber-600 dark:text-amber-400">scholarly</span> : <span className="text-xs text-green-600 dark:text-green-400">news</span>}</td>
-                        </tr>
-                      ))}
-                      {opointPoV.top_opoint_only_domains.length === 0 && <tr><td colSpan={3} className="py-4 text-center text-gray-400 text-xs">none</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* By country */}
-                <div id="chart-pov-country" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Opoint coverage by country</h3>
-                    <ChartDownloadButton targetId="chart-pov-country" filename="opoint-by-country" />
-                  </div>
-                  {opointPoV.by_country.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={opointPoV.by_country} layout="vertical" margin={{ top: 4, right: 16, left: 60, bottom: 4 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                        <XAxis type="number" tick={{ fontSize: 11 }} />
-                        <YAxis type="category" dataKey="country" tick={{ fontSize: 10 }} width={90} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill="#a855f7" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : <p className="text-xs text-gray-400 py-8 text-center">No country data.</p>}
-                </div>
-              </div>
-
-              {/* Chargeable article drill-down */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 overflow-x-auto">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">The chargeable articles (sample)</h3>
-                <p className="text-xs text-gray-400 mb-3">The actual high-value incremental items — eyeball whether they're worth paying for.</p>
-                <table className="min-w-full text-sm">
-                  <thead><tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                    <th className="py-1.5">Article</th><th className="py-1.5">Source</th><th className="py-1.5 text-right">Relevance</th><th className="py-1.5 text-right">Rank</th></tr></thead>
-                  <tbody>
-                    {opointPoV.chargeable_samples.map((s, i) => (
-                      <tr key={i} className="border-b border-gray-50 dark:border-gray-700/40">
-                        <td className="py-1.5 max-w-md"><a href={s.url} target="_blank" rel="noopener noreferrer" className="text-gray-800 dark:text-gray-200 hover:text-purple-600 dark:hover:text-purple-400 line-clamp-1">{s.title}</a></td>
-                        <td className="py-1.5 text-gray-500 dark:text-gray-400 text-xs">{s.source}</td>
-                        <td className="py-1.5 text-right text-gray-700 dark:text-gray-300">{s.relevance.toFixed(2)}</td>
-                        <td className="py-1.5 text-right text-gray-400 text-xs">{s.rank_global ? s.rank_global.toLocaleString() : '—'}</td>
-                      </tr>
-                    ))}
-                    {opointPoV.chargeable_samples.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-gray-400 text-xs">No chargeable items in this window.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-          {primarySelectedId && !loadingPoV && !opointPoV && (
-            <div className="text-center py-12 text-gray-400 text-sm">No comparison data.</div>
           )}
         </div>
       )}

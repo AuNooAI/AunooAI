@@ -711,6 +711,7 @@ async def opoint_brand_coverage(
         conn.close()
 
 
+@router.get("/source-comparison")
 @router.get("/opoint-pov")
 async def opoint_proof_of_value(
     brand_id: int = Query(..., description="Brand to compare"),
@@ -753,7 +754,7 @@ async def opoint_proof_of_value(
               AND opoint_entities IS NOT NULL
         """), params).fetchall()
         existing_rows = conn.execute(text("""
-            SELECT news_source, publication_date FROM articles
+            SELECT news_source, publication_date, bias_country FROM articles
             WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
               AND opoint_entities IS NULL
         """), params).fetchall()
@@ -772,7 +773,14 @@ async def opoint_proof_of_value(
         def _month(pd):
             return pd[:7] if pd and len(pd) >= 7 else "unknown"
 
-        existing_domains = {_dom(ns) for (ns, pd) in existing_rows}
+        # Existing-dataset aggregations (symmetric side of the comparison)
+        existing_dom_counts = Counter()
+        existing_country_counts = Counter()
+        for (ns, pd, bc) in existing_rows:
+            existing_dom_counts[_dom(ns)] += 1
+            if bc:
+                existing_country_counts[bc] += 1
+        existing_domains = set(existing_dom_counts)
 
         opoint_domains = set()
         entity_resolved = entity_verified = with_reach = with_country = 0
@@ -836,7 +844,7 @@ async def opoint_proof_of_value(
         existing_only = existing_domains - opoint_domains
 
         # Monthly existing series (align months with opoint)
-        monthly_existing = Counter(_month(pd) for (ns, pd) in existing_rows)
+        monthly_existing = Counter(_month(pd) for (ns, pd, bc) in existing_rows)
         months = sorted(m for m in (set(monthly_opoint) | set(monthly_existing)) if m != "unknown")
         monthly = [{"month": m, "opoint": monthly_opoint.get(m, 0), "existing": monthly_existing.get(m, 0)} for m in months]
 
@@ -886,6 +894,28 @@ async def opoint_proof_of_value(
                 "annual_eur": annual_cost,
                 "chargeable": chargeable,
                 "cost_per_chargeable_eur": cost_per_chargeable,
+            },
+            # --- symmetric Existing vs Opoint comparison (Source Comparison tab) ---
+            "summary": {
+                "existing": {
+                    "articles": len(existing_rows),
+                    "unique_sources": len(existing_domains),
+                    "countries": len(existing_country_counts),
+                },
+                "opoint": {
+                    "articles": len(opoint_rows),
+                    "unique_sources": len(opoint_domains),
+                    "countries": len(country_counts),
+                },
+            },
+            "top_domains": {
+                "existing": [{"domain": d, "articles": n} for d, n in existing_dom_counts.most_common(20)],
+                "opoint": [{"domain": d, "articles": n, "scholarly": scholarly_dom.get(d, False)}
+                           for d, n in opoint_dom_counts.most_common(20)],
+            },
+            "country_compare": {
+                "existing": [{"country": c, "count": n} for c, n in existing_country_counts.most_common(10)],
+                "opoint": [{"country": c, "count": n} for c, n in country_counts.most_common(10)],
             },
         }
     except HTTPException:
