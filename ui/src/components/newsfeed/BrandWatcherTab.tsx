@@ -67,17 +67,17 @@ interface BrandWatcherTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
 }
 
-type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage' | 'social';
+type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage' | 'opoint_pov' | 'social';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
     brands, topics, stats, categories, temporalData, articles,
-    comparison, shareOfVoice, opointCoverage, social, config,
+    comparison, shareOfVoice, opointCoverage, opointPoV, social, config,
     totalArticles, totalPages,
-    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint, loadingSocial,
+    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint, loadingPoV, loadingSocial,
     error,
     updateConfig, clearError, refresh,
-    fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial,
+    fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchOpointPoV, fetchSocial,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
     setPrimary,
   } = useBrandWatcher();
@@ -165,6 +165,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (tab === 'opoint_coverage') {
       fetchOpointCoverage(opointMinRel, opointExclScholarly);
     }
+    if (tab === 'opoint_pov' && primarySelectedId) {
+      fetchOpointPoV(primarySelectedId);
+    }
     if (tab === 'social') {
       fetchSocial(socialMinRel, socialSource || undefined);
     }
@@ -187,7 +190,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial, opointMinRel, opointExclScholarly, socialMinRel, socialSource]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchOpointPoV, fetchSocial, opointMinRel, opointExclScholarly, socialMinRel, socialSource]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -717,6 +720,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
           { id: 'opoint_coverage' as SubTab, label: 'Opoint Coverage', icon: Sparkles },
+          { id: 'opoint_pov' as SubTab, label: 'Opoint vs Existing', icon: TrendingUp },
           { id: 'social' as SubTab, label: 'Social', icon: Users },
         ]).map(tab => (
           <button
@@ -1827,6 +1831,99 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- COMPARISON TAB ---- */}
+      {activeTab === 'opoint_pov' && (
+        <div className="space-y-6">
+          <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <TrendingUp className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="font-semibold">Opoint vs. existing — proof of value.</span> What Opoint adds over our current news collection for this brand: incremental source reach, enrichment our sources don't provide (resolved entities, reach, country), and Wikidata-precise brand matching vs. keyword classification.
+              </div>
+            </div>
+          </div>
+
+          {!primarySelectedId && (
+            <div className="text-center py-12 text-gray-400 text-sm">Select a brand to compare.</div>
+          )}
+          {primarySelectedId && loadingPoV && (
+            <div className="flex items-center justify-center py-12 text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Computing comparison…
+            </div>
+          )}
+          {primarySelectedId && !loadingPoV && opointPoV && (
+            <>
+              {/* Volume + domain reach side by side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Existing news sources</p>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{opointPoV.volume.existing_articles.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">articles · {opointPoV.source_domains.existing} source domains</p>
+                  <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">Keyword-classified: <span className="font-semibold">{opointPoV.precision.keyword_classified.toLocaleString()}</span></div>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-800 p-5">
+                  <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase mb-3">Opoint</p>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{opointPoV.volume.opoint_articles.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">articles · {opointPoV.source_domains.opoint} source domains</p>
+                  <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">Entity-verified (Wikidata): <span className="font-semibold text-purple-600 dark:text-purple-400">{opointPoV.precision.opoint_entity_verified.toLocaleString()}</span></div>
+                </div>
+              </div>
+
+              {/* What Opoint adds */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">What Opoint adds</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.source_domains.opoint_only}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">source domains <span className="font-medium">only</span> Opoint surfaced ({opointPoV.source_domains.shared} shared)</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.enrichment_exclusive.entities_resolved.opoint.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">articles with resolved entities <span className="text-gray-400">(existing: 0)</span></p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.enrichment_exclusive.source_reach.opoint.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">with source reach / rank <span className="text-gray-400">(existing: 0)</span></p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{opointPoV.enrichment_exclusive.country_tagged.opoint.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">country-tagged <span className="text-gray-400">(existing: 0)</span></p>
+                  </div>
+                </div>
+                {opointPoV.source_domains.opoint_only_sample.length > 0 && (
+                  <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Opoint-only domains:</span> {opointPoV.source_domains.opoint_only_sample.join(', ')}
+                  </div>
+                )}
+              </div>
+
+              {/* Precision comparison */}
+              <div id="chart-pov-precision" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Brand-match precision: Opoint entities (Wikidata) vs. keyword classification</h3>
+                  <ChartDownloadButton targetId="chart-pov-precision" filename="opoint-vs-existing-precision" />
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={[
+                    { method: 'Opoint entity-verified', count: opointPoV.precision.opoint_entity_verified },
+                    { method: 'Keyword-classified', count: opointPoV.precision.keyword_classified },
+                  ]} layout="vertical" margin={{ top: 8, right: 24, left: 80, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="method" tick={{ fontSize: 11 }} width={140} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#a855f7" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-gray-400 mt-2">Window: last {opointPoV.window_days} days · Wikidata IDs: {opointPoV.precision.wikidata_ids.join(', ') || '—'}</p>
+              </div>
+            </>
+          )}
+          {primarySelectedId && !loadingPoV && !opointPoV && (
+            <div className="text-center py-12 text-gray-400 text-sm">No comparison data.</div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'social' && (
         <div className="space-y-6">
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">

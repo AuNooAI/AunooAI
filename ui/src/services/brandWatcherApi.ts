@@ -114,6 +114,23 @@ export interface BWOpointCoverageResponse {
   samples: any[];
 }
 
+export interface BWOpointPoV {
+  brand: string;
+  topic: string;
+  window_days: number;
+  volume: { opoint_articles: number; existing_articles: number };
+  source_domains: { opoint: number; existing: number; opoint_only: number; shared: number; existing_only: number; opoint_only_sample: string[] };
+  enrichment_exclusive: Record<string, { opoint: number; existing: number }>;
+  precision: { opoint_entity_verified: number; keyword_classified: number; wikidata_ids: string[] };
+}
+
+export async function getOpointPoV(brandId: number, daysBack: number = 90): Promise<BWOpointPoV> {
+  const params = new URLSearchParams({ brand_id: String(brandId), days_back: String(daysBack) });
+  const res = await fetch(`${BASE}/opoint-pov?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get Opoint proof-of-value: ${res.status}`);
+  return res.json();
+}
+
 export interface BWSocialPost {
   uri: string;
   title: string;

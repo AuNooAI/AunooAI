@@ -711,6 +711,120 @@ async def opoint_brand_coverage(
         conn.close()
 
 
+@router.get("/opoint-pov")
+async def opoint_proof_of_value(
+    brand_id: int = Query(..., description="Brand to compare"),
+    days_back: int = Query(90, ge=1, le=365),
+    session=Depends(verify_session),
+):
+    """Proof-of-value: Opoint coverage vs. what we already do, for one brand.
+
+    Compares, over a window, the brand's articles surfaced/enriched by Opoint vs.
+    those from existing news sources, on three axes:
+      1. Volume + source-domain reach (incremental domains Opoint adds).
+      2. Enrichment exclusivity — resolved entities (Wikidata), source reach
+         (site_rank), country — which existing sources don't provide at all.
+      3. Precision — Opoint Wikidata entity brand-match vs our keyword-based
+         classification (bw_article_categories).
+    """
+    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brand = conn.execute(text("SELECT id, name, display_name FROM bw_brands WHERE id=:id"),
+                             {"id": brand_id}).fetchone()
+        if not brand:
+            raise HTTPException(status_code=404, detail="Brand not found")
+        slug, display_name = brand[1], brand[2]
+        topic = f"Brand Monitoring {display_name}"
+        start_date, end_date = _get_date_range(days_back)
+        params = {"t": topic, "start": start_date, "end": end_date}
+
+        # Opoint-surfaced rows (with their enrichment) + existing (no opoint) rows
+        opoint_rows = conn.execute(text("""
+            SELECT uri, news_source, opoint_entities FROM articles
+            WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
+              AND opoint_entities IS NOT NULL
+        """), params).fetchall()
+        existing_rows = conn.execute(text("""
+            SELECT news_source FROM articles
+            WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
+              AND opoint_entities IS NULL
+        """), params).fetchall()
+
+        brand_wd = {}
+        try:
+            all_wd = load_brand_wikidata(db.facade)
+            if slug in all_wd:
+                brand_wd = {slug: all_wd[slug]}
+        except Exception as e:
+            logger.debug(f"pov wikidata load failed: {e}")
+
+        def _dom(ns):
+            return (ns or "").lower().replace("www.", "").strip() or "unknown"
+
+        opoint_domains, existing_domains = set(), set()
+        entity_resolved = entity_verified = with_reach = with_country = 0
+        for uri, ns, oe in opoint_rows:
+            opoint_domains.add(_dom(ns))
+            if isinstance(oe, dict):
+                inner = oe.get("entities")
+                if isinstance(inner, dict) and inner.get("entities"):
+                    entity_resolved += 1
+                if oe.get("site_rank"):
+                    with_reach += 1
+                if oe.get("countryname"):
+                    with_country += 1
+                if brand_wd and match_brands(oe, brand_wd):
+                    entity_verified += 1
+        for (ns,) in existing_rows:
+            existing_domains.add(_dom(ns))
+
+        keyword_classified = conn.execute(text("""
+            SELECT COUNT(DISTINCT a.uri) FROM articles a
+            JOIN bw_article_categories bac ON a.uri=bac.article_uri
+            WHERE bac.brand_id=:b AND a.publication_date>=:start AND a.publication_date<=:end
+        """), {"b": brand_id, "start": start_date, "end": end_date}).scalar() or 0
+
+        opoint_only = sorted(opoint_domains - existing_domains)
+        shared = opoint_domains & existing_domains
+        existing_only = existing_domains - opoint_domains
+
+        return {
+            "brand": display_name, "topic": topic, "window_days": days_back,
+            "volume": {
+                "opoint_articles": len(opoint_rows),
+                "existing_articles": len(existing_rows),
+            },
+            "source_domains": {
+                "opoint": len(opoint_domains),
+                "existing": len(existing_domains),
+                "opoint_only": len(opoint_only),
+                "shared": len(shared),
+                "existing_only": len(existing_only),
+                "opoint_only_sample": opoint_only[:25],
+            },
+            # Enrichment existing news sources do NOT provide at all (so existing=0)
+            "enrichment_exclusive": {
+                "entities_resolved": {"opoint": entity_resolved, "existing": 0},
+                "source_reach": {"opoint": with_reach, "existing": 0},
+                "country_tagged": {"opoint": with_country, "existing": 0},
+            },
+            "precision": {
+                "opoint_entity_verified": entity_verified,   # Wikidata-confirmed brand mentions
+                "keyword_classified": keyword_classified,    # what our keyword path caught
+                "wikidata_ids": sorted(brand_wd.get(slug, [])),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"opoint-pov error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.get("/social")
 async def get_social_posts(
     topics: Optional[str] = Query(None, description="Comma-separated brand topic(s)"),
