@@ -122,6 +122,7 @@ export interface BWOpointPoV {
   source_domains: { opoint: number; existing: number; opoint_only: number; shared: number; existing_only: number; opoint_only_sample: string[] };
   enrichment_exclusive: Record<string, { opoint: number; existing: number }>;
   precision: { opoint_entity_verified: number; keyword_classified: number; wikidata_ids: string[] };
+  chargeable_value: { min_relevance: number; opoint_total: number; on_brand: number; non_scholarly: number; chargeable: number; chargeable_with_reach: number; chargeable_rate_pct: number };
 }
 
 export async function getOpointPoV(brandId: number, daysBack: number = 90): Promise<BWOpointPoV> {

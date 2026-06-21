@@ -715,19 +715,24 @@ async def opoint_brand_coverage(
 async def opoint_proof_of_value(
     brand_id: int = Query(..., description="Brand to compare"),
     days_back: int = Query(90, ge=1, le=365),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0, description="On-brand relevance bar for 'chargeable' value"),
     session=Depends(verify_session),
 ):
     """Proof-of-value: Opoint coverage vs. what we already do, for one brand.
 
     Compares, over a window, the brand's articles surfaced/enriched by Opoint vs.
-    those from existing news sources, on three axes:
+    those from existing news sources, on four axes:
       1. Volume + source-domain reach (incremental domains Opoint adds).
       2. Enrichment exclusivity — resolved entities (Wikidata), source reach
          (site_rank), country — which existing sources don't provide at all.
       3. Precision — Opoint Wikidata entity brand-match vs our keyword-based
          classification (bw_article_categories).
+      4. CHARGEABLE VALUE — the quality-adjusted funnel: of Opoint's raw volume,
+         how much is genuinely on-brand (entity relevance >= min_relevance),
+         non-scholarly, AND incremental (from a source domain existing sources
+         didn't surface). This is the 'is it worth it / can we charge' number.
     """
-    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands
+    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands, is_scholarly_source
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
@@ -763,22 +768,39 @@ async def opoint_proof_of_value(
         def _dom(ns):
             return (ns or "").lower().replace("www.", "").strip() or "unknown"
 
-        opoint_domains, existing_domains = set(), set()
+        existing_domains = {_dom(ns) for (ns,) in existing_rows}
+
+        opoint_domains = set()
         entity_resolved = entity_verified = with_reach = with_country = 0
+        # Quality-adjusted 'chargeable value' funnel
+        on_brand = non_scholarly = chargeable = ch_verified = ch_reach = 0
         for uri, ns, oe in opoint_rows:
             opoint_domains.add(_dom(ns))
-            if isinstance(oe, dict):
-                inner = oe.get("entities")
-                if isinstance(inner, dict) and inner.get("entities"):
-                    entity_resolved += 1
+            if not isinstance(oe, dict):
+                continue
+            inner = oe.get("entities")
+            if isinstance(inner, dict) and inner.get("entities"):
+                entity_resolved += 1
+            if oe.get("site_rank"):
+                with_reach += 1
+            if oe.get("countryname"):
+                with_country += 1
+            hits = match_brands(oe, brand_wd) if brand_wd else []
+            if hits:
+                entity_verified += 1
+            # funnel: on-brand (entity relevance >= bar) -> non-scholarly -> incremental
+            rel = max((h["relevance_score"] for h in hits if h["brand"] == slug), default=0.0)
+            if rel < min_relevance:
+                continue
+            on_brand += 1
+            if is_scholarly_source(ns, uri):
+                continue
+            non_scholarly += 1
+            if _dom(ns) not in existing_domains:
+                chargeable += 1
+                ch_verified += 1  # chargeable items are entity-verified by construction
                 if oe.get("site_rank"):
-                    with_reach += 1
-                if oe.get("countryname"):
-                    with_country += 1
-                if brand_wd and match_brands(oe, brand_wd):
-                    entity_verified += 1
-        for (ns,) in existing_rows:
-            existing_domains.add(_dom(ns))
+                    ch_reach += 1
 
         keyword_classified = conn.execute(text("""
             SELECT COUNT(DISTINCT a.uri) FROM articles a
@@ -814,6 +836,16 @@ async def opoint_proof_of_value(
                 "opoint_entity_verified": entity_verified,   # Wikidata-confirmed brand mentions
                 "keyword_classified": keyword_classified,    # what our keyword path caught
                 "wikidata_ids": sorted(brand_wd.get(slug, [])),
+            },
+            # The 'is it worth it / can we charge' funnel — quality-adjusted.
+            "chargeable_value": {
+                "min_relevance": min_relevance,
+                "opoint_total": len(opoint_rows),
+                "on_brand": on_brand,            # entity relevance >= min_relevance
+                "non_scholarly": non_scholarly,  # ... and not a journal/citation source
+                "chargeable": chargeable,        # ... and incremental (domain existing didn't surface)
+                "chargeable_with_reach": ch_reach,
+                "chargeable_rate_pct": round(100 * chargeable / len(opoint_rows), 1) if opoint_rows else 0.0,
             },
         }
     except HTTPException:

@@ -1896,6 +1896,32 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 )}
               </div>
 
+              {/* Chargeable value funnel — is it worth it / can we charge */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border-2 border-purple-300 dark:border-purple-700 p-6">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Is it worth it? — quality-adjusted value funnel</h3>
+                <p className="text-xs text-gray-400 mb-4">Of Opoint's raw volume, how much is genuinely high-value: on-brand (entity relevance ≥ {opointPoV.chargeable_value.min_relevance}), non-scholarly, and incremental (source we didn't already cover).</p>
+                <div className="flex items-end gap-2 flex-wrap">
+                  {([
+                    { label: 'Opoint raw', val: opointPoV.chargeable_value.opoint_total, color: 'bg-gray-300 dark:bg-gray-600' },
+                    { label: 'On-brand', val: opointPoV.chargeable_value.on_brand, color: 'bg-purple-300 dark:bg-purple-800' },
+                    { label: '+ non-scholarly', val: opointPoV.chargeable_value.non_scholarly, color: 'bg-purple-400 dark:bg-purple-700' },
+                    { label: '+ incremental = CHARGEABLE', val: opointPoV.chargeable_value.chargeable, color: 'bg-purple-600' },
+                  ]).map((s, i) => (
+                    <div key={i} className="flex-1 min-w-[120px] text-center">
+                      <div className={`${s.color} rounded-t-md mx-auto`} style={{ height: `${Math.max(8, (s.val / Math.max(opointPoV.chargeable_value.opoint_total, 1)) * 120)}px` }} />
+                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-1">{s.val.toLocaleString()}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    <span className="font-bold text-purple-600 dark:text-purple-400 text-lg">{opointPoV.chargeable_value.chargeable_rate_pct}%</span> of Opoint's volume is high-value incremental coverage
+                    {opointPoV.chargeable_value.chargeable_with_reach > 0 && <> · {opointPoV.chargeable_value.chargeable_with_reach} from ranked sources</>}
+                  </p>
+                </div>
+              </div>
+
               {/* Precision comparison */}
               <div id="chart-pov-precision" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
