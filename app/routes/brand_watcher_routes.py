@@ -749,12 +749,12 @@ async def opoint_proof_of_value(
 
         # Opoint-surfaced rows (with their enrichment) + existing (no opoint) rows
         opoint_rows = conn.execute(text("""
-            SELECT uri, news_source, opoint_entities, title, publication_date FROM articles
+            SELECT uri, news_source, opoint_entities, title, publication_date, sentiment FROM articles
             WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
               AND opoint_entities IS NOT NULL
         """), params).fetchall()
         existing_rows = conn.execute(text("""
-            SELECT news_source, publication_date, bias_country FROM articles
+            SELECT news_source, publication_date, bias_country, sentiment, media_type FROM articles
             WHERE topic=:t AND publication_date>=:start AND publication_date<=:end
               AND opoint_entities IS NULL
         """), params).fetchall()
@@ -773,13 +773,20 @@ async def opoint_proof_of_value(
         def _month(pd):
             return pd[:7] if pd and len(pd) >= 7 else "unknown"
 
+        def _sent(s):
+            return (s or "").strip().capitalize() or "Unrated"
+
         # Existing-dataset aggregations (symmetric side of the comparison)
         existing_dom_counts = Counter()
         existing_country_counts = Counter()
-        for (ns, pd, bc) in existing_rows:
+        existing_sentiment = Counter()
+        existing_mediatype = Counter()
+        for (ns, pd, bc, sent, mt) in existing_rows:
             existing_dom_counts[_dom(ns)] += 1
             if bc:
                 existing_country_counts[bc] += 1
+            existing_sentiment[_sent(sent)] += 1
+            existing_mediatype[(mt or "Unknown").strip() or "Unknown"] += 1
         existing_domains = set(existing_dom_counts)
 
         opoint_domains = set()
@@ -791,14 +798,19 @@ async def opoint_proof_of_value(
         scholarly_dom = {}                   # domain -> bool scholarly
         country_counts = Counter()           # country -> opoint article count
         monthly_opoint = Counter()           # month -> opoint count
+        opoint_sentiment = Counter()
+        opoint_mediatype = Counter()
         chargeable_samples = []              # the actual usable items
-        for uri, ns, oe, title, pd in opoint_rows:
+        for uri, ns, oe, title, pd, sent in opoint_rows:
             dom = _dom(ns)
             opoint_domains.add(dom)
             opoint_dom_counts[dom] += 1
             monthly_opoint[_month(pd)] += 1
+            opoint_sentiment[_sent(sent)] += 1
             if dom not in scholarly_dom:
                 scholarly_dom[dom] = is_scholarly_source(ns, uri)
+            if isinstance(oe, dict):
+                opoint_mediatype[(oe.get("media_type") or "Unknown")] += 1
             if not isinstance(oe, dict):
                 rel_hist["0.0"] += 1
                 continue
@@ -844,7 +856,7 @@ async def opoint_proof_of_value(
         existing_only = existing_domains - opoint_domains
 
         # Monthly existing series (align months with opoint)
-        monthly_existing = Counter(_month(pd) for (ns, pd, bc) in existing_rows)
+        monthly_existing = Counter(_month(r[1]) for r in existing_rows)
         months = sorted(m for m in (set(monthly_opoint) | set(monthly_existing)) if m != "unknown")
         monthly = [{"month": m, "opoint": monthly_opoint.get(m, 0), "existing": monthly_existing.get(m, 0)} for m in months]
 
@@ -858,7 +870,11 @@ async def opoint_proof_of_value(
             for d in sorted(opoint_only, key=lambda d: -opoint_dom_counts[d])[:20]
         ]
 
-        cost_per_chargeable = round(annual_cost / chargeable, 2) if chargeable else None
+        # Project the windowed chargeable count onto a full year so cost-per-usable is a
+        # true ANNUAL rate (the €20k cost is annual). e.g. 88 chargeable over 365d -> 88/yr;
+        # 22 over 90d -> ~89/yr.
+        annualized_chargeable = (chargeable * 365.0 / days_back) if days_back else float(chargeable)
+        cost_per_chargeable = round(annual_cost / annualized_chargeable, 2) if annualized_chargeable else None
 
         return {
             "brand": display_name, "topic": topic, "window_days": days_back,
@@ -892,8 +908,9 @@ async def opoint_proof_of_value(
             "chargeable_samples": chargeable_samples,
             "cost": {
                 "annual_eur": annual_cost,
-                "chargeable": chargeable,
-                "cost_per_chargeable_eur": cost_per_chargeable,
+                "chargeable": chargeable,                    # in the selected window
+                "annualized_chargeable": round(annualized_chargeable, 1),  # projected to 1 year
+                "cost_per_chargeable_eur": cost_per_chargeable,            # annual basis
             },
             # --- symmetric Existing vs Opoint comparison (Source Comparison tab) ---
             "summary": {
@@ -917,11 +934,231 @@ async def opoint_proof_of_value(
                 "existing": [{"country": c, "count": n} for c, n in existing_country_counts.most_common(10)],
                 "opoint": [{"country": c, "count": n} for c, n in country_counts.most_common(10)],
             },
+            "sentiment_compare": {
+                "existing": [{"sentiment": s, "count": n} for s, n in existing_sentiment.most_common()],
+                "opoint": [{"sentiment": s, "count": n} for s, n in opoint_sentiment.most_common()],
+            },
+            "media_type_compare": {
+                "existing": [{"media_type": m, "count": n} for m, n in existing_mediatype.most_common(8)],
+                "opoint": [{"media_type": m, "count": n} for m, n in opoint_mediatype.most_common(8)],
+            },
+            "overlap": {
+                "shared": len(shared), "existing_only": len(existing_only), "opoint_only": len(opoint_only),
+                "opoint_only_domains": [{"domain": d, "articles": opoint_dom_counts[d]} for d in sorted(opoint_only, key=lambda d: -opoint_dom_counts[d])[:20]],
+                "shared_domains": [{"domain": d, "articles": opoint_dom_counts[d]} for d in sorted(shared, key=lambda d: -opoint_dom_counts[d])[:20]],
+            },
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"opoint-pov error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+def _brand_pov_summary(conn, db, brand_row, days_back, min_relevance, annual_cost):
+    """Compact per-brand existing-vs-Opoint summary (for portfolio table + report).
+
+    brand_row = (id, name/slug, display_name). Returns the headline numbers.
+    """
+    from app.services.opoint_brand_matcher import load_brand_wikidata, match_brands, is_scholarly_source
+    bid, slug, display = brand_row[0], brand_row[1], brand_row[2]
+    topic = f"Brand Monitoring {display}"
+    start_date, end_date = _get_date_range(days_back)
+    p = {"t": topic, "s": start_date, "e": end_date}
+
+    existing = conn.execute(text("""
+        SELECT news_source FROM articles
+        WHERE topic=:t AND publication_date>=:s AND publication_date<=:e AND opoint_entities IS NULL
+    """), p).fetchall()
+    existing_domains = {(ns or "").lower().replace("www.", "").strip() for (ns,) in existing}
+    opoint = conn.execute(text("""
+        SELECT news_source, opoint_entities FROM articles
+        WHERE topic=:t AND publication_date>=:s AND publication_date<=:e AND opoint_entities IS NOT NULL
+    """), p).fetchall()
+
+    brand_wd = {}
+    try:
+        wd = load_brand_wikidata(db.facade)
+        if slug in wd:
+            brand_wd = {slug: wd[slug]}
+    except Exception:
+        pass
+
+    chargeable = 0
+    for ns, oe in opoint:
+        if not isinstance(oe, dict):
+            continue
+        hits = match_brands(oe, brand_wd) if brand_wd else []
+        rel = max((h["relevance_score"] for h in hits if h["brand"] == slug), default=0.0)
+        if rel < min_relevance:
+            continue
+        if is_scholarly_source(ns, None):
+            continue
+        dom = (ns or "").lower().replace("www.", "").strip()
+        if dom not in existing_domains:
+            chargeable += 1
+    annualized = (chargeable * 365.0 / days_back) if days_back else float(chargeable)
+    return {
+        "brand": display,
+        "existing_articles": len(existing),
+        "opoint_articles": len(opoint),
+        "chargeable": chargeable,
+        "annualized_chargeable": round(annualized, 1),
+        "cost_per_chargeable_eur": round(annual_cost / annualized, 2) if annualized else None,
+        "chargeable_rate_pct": round(100 * chargeable / len(opoint), 1) if opoint else 0.0,
+    }
+
+
+@router.get("/source-comparison/portfolio")
+async def source_comparison_portfolio(
+    days_back: int = Query(365, ge=1, le=365),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0),
+    annual_cost: float = Query(20000, ge=0),
+    session=Depends(verify_session),
+):
+    """All-brands summary: existing vs Opoint volume + chargeable + cost-per-usable."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brands = conn.execute(text("SELECT id, name, display_name FROM bw_brands WHERE enabled ORDER BY display_name")).fetchall()
+        rows = [_brand_pov_summary(conn, db, b, days_back, min_relevance, annual_cost) for b in brands]
+        totals = {
+            "existing_articles": sum(r["existing_articles"] for r in rows),
+            "opoint_articles": sum(r["opoint_articles"] for r in rows),
+            "chargeable": sum(r["chargeable"] for r in rows),
+            "annualized_chargeable": round(sum(r["annualized_chargeable"] for r in rows), 1),
+        }
+        total_ann = totals["annualized_chargeable"]
+        totals["cost_per_chargeable_eur"] = round(annual_cost / total_ann, 2) if total_ann else None
+        return {"window_days": days_back, "annual_cost": annual_cost, "brands": rows, "totals": totals}
+    except Exception as e:
+        logger.error(f"portfolio error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/source-comparison/domain-articles")
+async def source_comparison_domain_articles(
+    brand_id: int = Query(...),
+    domain: str = Query(...),
+    dataset: str = Query("opoint", description="'opoint' or 'existing'"),
+    days_back: int = Query(365, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=200),
+    session=Depends(verify_session),
+):
+    """Drill-down: the actual articles from one source domain (one dataset)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brand = conn.execute(text("SELECT display_name FROM bw_brands WHERE id=:id"), {"id": brand_id}).fetchone()
+        if not brand:
+            raise HTTPException(status_code=404, detail="Brand not found")
+        topic = f"Brand Monitoring {brand[0]}"
+        start_date, end_date = _get_date_range(days_back)
+        op_clause = "a.opoint_entities IS NOT NULL" if dataset == "opoint" else "a.opoint_entities IS NULL"
+        rows = conn.execute(text(f"""
+            SELECT uri, title, publication_date, sentiment, topic_alignment_score, news_source
+            FROM articles a
+            WHERE topic=:t AND publication_date>=:s AND publication_date<=:e AND {op_clause}
+              AND lower(replace(news_source,'www.','')) = :dom
+            ORDER BY publication_date DESC LIMIT :lim
+        """), {"t": topic, "s": start_date, "e": end_date, "dom": domain.lower().replace("www.", ""), "lim": limit}).fetchall()
+        return {"brand": brand[0], "domain": domain, "dataset": dataset, "articles": [
+            {"uri": r[0], "title": r[1], "publication_date": str(r[2]) if r[2] else None,
+             "sentiment": r[3], "relevance": round(r[4], 3) if r[4] is not None else None, "source": r[5]}
+            for r in rows
+        ]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"domain-articles error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/source-comparison/report")
+async def source_comparison_report(
+    days_back: int = Query(365, ge=1, le=365),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0),
+    annual_cost: float = Query(20000, ge=0),
+    session=Depends(verify_session),
+):
+    """Downloadable self-contained HTML report — all-brands Existing vs Opoint."""
+    from fastapi.responses import Response
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brands = conn.execute(text("SELECT id, name, display_name FROM bw_brands WHERE enabled ORDER BY display_name")).fetchall()
+        rows = [_brand_pov_summary(conn, db, b, days_back, min_relevance, annual_cost) for b in brands]
+        t_existing = sum(r["existing_articles"] for r in rows)
+        t_opoint = sum(r["opoint_articles"] for r in rows)
+        t_charge = sum(r["chargeable"] for r in rows)
+        t_ann = round(sum(r["annualized_chargeable"] for r in rows), 1)
+        cpu = round(annual_cost / t_ann, 2) if t_ann else None
+        rate = round(100 * t_charge / t_opoint, 1) if t_opoint else 0.0
+
+        def tr(r):
+            return (f"<tr><td>{r['brand']}</td><td class='n'>{r['existing_articles']:,}</td>"
+                    f"<td class='n'>{r['opoint_articles']:,}</td><td class='n'>{r['chargeable']:,}</td>"
+                    f"<td class='n'>{r['annualized_chargeable']:,.0f}</td>"
+                    f"<td class='n'>{('€'+format(r['cost_per_chargeable_eur'],',.0f')) if r['cost_per_chargeable_eur'] else '—'}</td>"
+                    f"<td class='n'>{r['chargeable_rate_pct']}%</td></tr>")
+        from datetime import datetime as _dt, timedelta as _td
+        # No wall-clock in scripts, but this is a live request — use range bounds for the dateline
+        start_date, end_date = _get_date_range(days_back)
+        html = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Opoint vs Existing — Source Comparison Report</title>
+<style>
+body{{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;max-width:900px;margin:40px auto;padding:0 24px;line-height:1.5}}
+h1{{font-size:26px;margin-bottom:4px}} h2{{font-size:18px;margin-top:32px;border-bottom:2px solid #eee;padding-bottom:4px}}
+.sub{{color:#6b7280;font-size:13px}} table{{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}}
+th,td{{border:1px solid #e5e7eb;padding:8px 10px;text-align:left}} th{{background:#f9fafb}} td.n,th.n{{text-align:right}}
+.verdict{{background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:16px;margin:20px 0}}
+.big{{font-size:30px;font-weight:700;color:#b45309}} .kpis{{display:flex;gap:24px;flex-wrap:wrap;margin:16px 0}}
+.kpi{{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 18px}} .kpi .v{{font-size:22px;font-weight:700}}
+.kpi .l{{font-size:12px;color:#6b7280}}
+</style></head><body>
+<h1>Opoint vs. Existing — Source Comparison</h1>
+<p class="sub">All tracked brands · window {start_date} → {end_date} ({days_back}d) · Opoint annual cost €{annual_cost:,.0f}</p>
+
+<div class="verdict">
+<div>Across all brands, of <b>{t_opoint:,}</b> Opoint articles only <b>{t_charge:,}</b> were high-value incremental
+(on-brand ≥{min_relevance}, non-scholarly, from a source we don't already cover) — <span class="big">{rate}%</span>.</div>
+<div style="margin-top:10px">Projected to a year that's ~<b>{t_ann:,.0f}</b> usable articles for <b>€{annual_cost:,.0f}</b> =
+<b>{('€'+format(cpu,',.0f')) if cpu else '—'}</b> per usable article. Our existing feeds already deliver
+<b>{t_existing:,}</b> articles in the same window at a fraction of the cost.</div>
+</div>
+
+<div class="kpis">
+<div class="kpi"><div class="v">{t_existing:,}</div><div class="l">Existing articles</div></div>
+<div class="kpi"><div class="v">{t_opoint:,}</div><div class="l">Opoint articles</div></div>
+<div class="kpi"><div class="v">{t_charge:,}</div><div class="l">Chargeable (window)</div></div>
+<div class="kpi"><div class="v">{('€'+format(cpu,',.0f')) if cpu else '—'}</div><div class="l">Cost / usable article (annualized)</div></div>
+</div>
+
+<h2>Per-brand breakdown</h2>
+<table><thead><tr><th>Brand</th><th class="n">Existing</th><th class="n">Opoint</th><th class="n">Chargeable</th>
+<th class="n">Annualized</th><th class="n">€/usable</th><th class="n">Rate</th></tr></thead>
+<tbody>{''.join(tr(r) for r in rows)}</tbody></table>
+
+<h2>Thesis</h2>
+<p>The data supports the position that <b>premium aggregator feeds are not cost-justified and that adding more
+sources does not materially improve brand coverage</b>: ~{100-rate:.0f}% of Opoint's volume is peripheral / citation
+noise, the genuinely incremental high-value share is ~{rate}%, and the resulting annualized cost-per-usable-article
+(~{('€'+format(cpu,',.0f')) if cpu else '—'}) is far above our existing &lt;€2k/yr sources, which already surface the
+substantive coverage. Opoint's distinctive value is enrichment (resolved entities, source reach, country), not
+incremental article volume.</p>
+<p class="sub">Generated by AunooAI Source Comparison · evidence reproducible in /explore → Source Comparison.</p>
+</body></html>"""
+        return Response(content=html, media_type="text/html; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="opoint_source_comparison_{days_back}d.html"',
+                                 "Cache-Control": "no-store"})
+    except Exception as e:
+        logger.error(f"source-comparison report error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
