@@ -242,10 +242,10 @@ export function useBrandWatcher() {
     }
   }, [config.daysBack]);
 
-  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string) => {
+  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true) => {
     setLoadingSocial(true);
     try {
-      const data = await getSocialPosts(topicsOrUndefined, config.daysBack, minRelevance, source);
+      const data = await getSocialPosts(topicsOrUndefined, config.daysBack, minRelevance, source, includeUnevaluated);
       setSocial(data);
     } catch (err) {
       console.error('Error fetching social posts:', err);

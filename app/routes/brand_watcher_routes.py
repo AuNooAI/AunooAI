@@ -1244,6 +1244,7 @@ async def get_social_posts(
     days_back: int = Query(30, ge=1, le=365),
     min_relevance: float = Query(0.0, ge=0.0, le=1.0),
     source: Optional[str] = Query(None, description="Filter: 'reddit' or 'bluesky'"),
+    include_unevaluated: bool = Query(True, description="When no min_relevance, include posts the social eval hasn't scored yet"),
     limit: int = Query(100, ge=1, le=500),
     session=Depends(verify_session),
 ):
@@ -1270,6 +1271,17 @@ async def get_social_posts(
         for i, k in enumerate(src_keys):
             params[f"_src_{i}"] = f"%{k}%"
 
+        # Relevance filtering. The lightweight social eval may not have scored every
+        # post yet (topic_alignment_score IS NULL). A threshold means "evaluated AND
+        # at/above it", so NULLs are excluded the moment any minimum is requested.
+        # With no threshold, include_unevaluated decides whether pending posts show.
+        if min_relevance > 0:
+            rel_clause = "AND a.topic_alignment_score >= :min_rel"
+        elif not include_unevaluated:
+            rel_clause = "AND a.topic_alignment_score IS NOT NULL"
+        else:
+            rel_clause = ""
+
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
                    a.topic_alignment_score, a.sentiment, a.topic
@@ -1277,7 +1289,7 @@ async def get_social_posts(
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               AND {src_clause}
               {topic_clause}
-              AND (a.topic_alignment_score IS NULL OR a.topic_alignment_score >= :min_rel)
+              {rel_clause}
             ORDER BY a.publication_date DESC
             LIMIT :lim
         """), params).fetchall()
@@ -1306,6 +1318,7 @@ async def get_social_posts(
         return {
             "window_days": days_back,
             "min_relevance": min_relevance,
+            "include_unevaluated": include_unevaluated,
             "total": len(posts),
             "evaluated": evaluated,
             "by_platform": dict(plat_counts),

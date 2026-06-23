@@ -84,7 +84,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
   const [socialSource, setSocialSource] = useState<string>('');  // '' = all, 'reddit', 'bluesky'
-  const [socialMinRel, setSocialMinRel] = useState(0);  // social relevance threshold
+  const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
+  const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
   const [socialSentiment, setSocialSentiment] = useState<string>('');  // '' = all, 'positive', 'neutral', 'negative'
   const [socialSearch, setSocialSearch] = useState('');  // free-text filter over title/summary
   const [socialSort, setSocialSort] = useState<'recent' | 'oldest' | 'relevance'>('recent');
@@ -131,6 +132,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (t.includes('neg')) return 'negative';
     if (t.includes('neu') || t === 'mixed') return 'neutral';
     return 'unrated';
+  };
+  // Social posts store the author in the title ("Post by @handle") and the real text in summary.
+  const socialAuthorOf = (p: { title?: string | null; news_source?: string | null; platform?: string }) => {
+    const m = (p.title || '').match(/@([\w.\-]+)/);
+    return m ? `@${m[1]}` : (p.news_source || p.platform || 'unknown');
+  };
+  const socialBodyOf = (p: { title?: string | null; summary?: string | null }) => {
+    const body = (p.summary || '').trim();
+    if (body) return body;
+    const stripped = (p.title || '').replace(/^Post by @[\w.\-]+\s*/i, '').trim();
+    return stripped || (p.title || '').trim() || '(no text)';
   };
   const socialView = useMemo(() => {
     if (!social) return null;
@@ -211,7 +223,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchShareOfVoice();
     }
     if (tab === 'social') {
-      fetchSocial(socialMinRel, socialSource || undefined);
+      fetchSocial(socialMinRel, socialSource || undefined, socialInclUneval);
     }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
@@ -232,7 +244,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialSource]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialSource, socialInclUneval]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -1887,7 +1899,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   try {
                     const r = await setupSocialMonitoring(primarySelectedId, 24);
                     alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune providers/interval/model in Gather → group Settings.`);
-                    fetchSocial(socialMinRel, socialSource || undefined);
+                    fetchSocial(socialMinRel, socialSource || undefined, socialInclUneval);
                   } catch (e: any) {
                     alert('Failed to enable social monitoring: ' + e.message);
                   } finally {
@@ -1914,7 +1926,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             ]).map(opt => (
               <button
                 key={opt.val}
-                onClick={() => { setSocialSource(opt.val); fetchSocial(socialMinRel, opt.val || undefined); }}
+                onClick={() => { setSocialSource(opt.val); fetchSocial(socialMinRel, opt.val || undefined, socialInclUneval); }}
                 className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                   socialSource === opt.val
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -1932,7 +1944,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             ]).map(opt => (
               <button
                 key={opt.val}
-                onClick={() => { setSocialMinRel(opt.val); fetchSocial(opt.val, socialSource || undefined); }}
+                onClick={() => { setSocialMinRel(opt.val); fetchSocial(opt.val, socialSource || undefined, socialInclUneval); }}
                 className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                   socialMinRel === opt.val
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -1942,6 +1954,20 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 {opt.label}
               </button>
             ))}
+            {socialMinRel === 0 && (
+              <button
+                onClick={() => { const v = !socialInclUneval; setSocialInclUneval(v); fetchSocial(socialMinRel, socialSource || undefined, v); }}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  socialInclUneval
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+                title="Show posts the lightweight social eval hasn't scored yet (substring matches, often noise). Hidden by default."
+              >
+                {socialInclUneval ? '✓ ' : ''}Include unevaluated
+              </button>
+            )}
+            <span className="text-xs text-gray-400">≥0.4 = evaluated, on-brand. "All" shows scored-but-off-topic too; toggle to include not-yet-scored.</span>
           </div>
 
           {/* Client-side filters (no re-fetch): sentiment + search + sort */}
@@ -2079,33 +2105,55 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
               {/* Posts list (client-filtered + sorted) */}
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
-                {socialView.filtered.map(p => (
-                  <div key={p.uri} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-750">
-                    <div className="flex items-start justify-between gap-3">
-                      <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 line-clamp-2">{p.title}</a>
-                      <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
-                        p.platform === 'reddit' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400'
-                        : 'bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-400'
-                      }`}>{p.platform}</span>
-                    </div>
-                    {p.summary && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{p.summary}</p>}
-                    <div className="flex items-center gap-3 mt-2 flex-wrap">
-                      {p.relevance != null && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">relevance <span className="font-semibold text-gray-700 dark:text-gray-300">{p.relevance.toFixed(2)}</span></span>
-                      )}
-                      {p.sentiment && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          p.sentiment.toLowerCase() === 'positive' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
-                          : p.sentiment.toLowerCase() === 'negative' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                        }`}>{p.sentiment}</span>
-                      )}
-                      {p.relevance == null && <span className="text-xs text-gray-400">not yet evaluated</span>}
-                      {p.news_source && <span className="text-xs text-gray-400">{p.news_source}</span>}
-                      {p.publication_date && <span className="text-xs text-gray-400">{p.publication_date.slice(0, 10)}</span>}
+                {socialView.filtered.map(p => {
+                  const sent = socialSentimentOf(p.sentiment);
+                  return (
+                  <div key={p.uri} className="flex gap-3 p-4 hover:bg-gray-50 dark:hover:bg-gray-750">
+                    {/* sentiment rail */}
+                    <div className="w-1 rounded-full flex-shrink-0" style={{ backgroundColor: SOCIAL_SENTIMENT_COLORS[sent] }} title={sent} />
+                    <div className="min-w-0 flex-1">
+                      {/* byline */}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{socialAuthorOf(p)}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                            p.platform === 'reddit' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400'
+                            : 'bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-400'
+                          }`}>{p.platform}</span>
+                          {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
+                        </div>
+                        <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex-shrink-0 inline-flex items-center gap-1">
+                          <Eye className="w-3 h-3" /> View
+                        </a>
+                      </div>
+                      {/* post body */}
+                      <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap">{socialBodyOf(p)}</p>
+                      {/* metadata */}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        {p.relevance != null ? (
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                            p.relevance >= 0.6 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                            : p.relevance >= 0.4 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                          }`}>relevance {p.relevance.toFixed(2)}</span>
+                        ) : (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">not yet evaluated</span>
+                        )}
+                        {p.sentiment && (
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                            sent === 'positive' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                            : sent === 'negative' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                          }`}>{p.sentiment}</span>
+                        )}
+                        {p.news_source && p.news_source.toLowerCase() !== p.platform && (
+                          <span className="text-[11px] text-gray-400">{p.news_source}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 {socialView.filtered.length === 0 && socialView.totalLoaded > 0 && (
                   <div className="p-8 text-center text-sm text-gray-400">No posts match the current sentiment/search filters.</div>
                 )}

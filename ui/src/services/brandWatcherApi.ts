@@ -153,6 +153,7 @@ export interface BWSocialPost {
 export interface BWSocialResponse {
   window_days: number;
   min_relevance: number;
+  include_unevaluated?: boolean;
   total: number;
   evaluated: number;
   by_platform: Record<string, number>;
@@ -462,8 +463,8 @@ export async function setupSocialMonitoring(brandId: number, intervalHours: numb
   return res.json();
 }
 
-export async function getSocialPosts(topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string): Promise<BWSocialResponse> {
-  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), limit: '200' });
+export async function getSocialPosts(topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true): Promise<BWSocialResponse> {
+  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), include_unevaluated: includeUnevaluated.toString(), limit: '200' });
   if (topics?.length) params.append('topics', topics.join(','));
   if (source) params.append('source', source);
   const res = await fetch(`${BASE}/social?${params}`, { credentials: 'include' });
