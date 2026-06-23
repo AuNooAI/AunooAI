@@ -60,8 +60,6 @@ const BrandWatcherTab = React.lazy(() =>
   import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
 const ThreatIntelligenceTab = React.lazy(() =>
   import('../components/newsfeed/ThreatIntelligenceTab').then(m => ({ default: m.ThreatIntelligenceTab })));
-const SourceComparisonTab = React.lazy(() =>
-  import('../components/newsfeed/SourceComparisonTab').then(m => ({ default: m.SourceComparisonTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -209,7 +207,7 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel' | 'source_comparison'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -900,15 +898,6 @@ export function NewsFeedPage() {
             Threat Intelligence
           </button>
           )}
-          {isModuleEnabled('brand_watcher') && (
-          <button
-            className={`explore-tab-btn ${currentTab === 'source_comparison' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('source_comparison')}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Source Comparison
-          </button>
-          )}
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -1263,13 +1252,6 @@ export function NewsFeedPage() {
             {currentTab === 'threat_intel' && isModuleEnabled('threat_intel') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
                 <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
-              </Suspense>
-            )}
-
-            {/* Source Comparison Tab Content */}
-            {currentTab === 'source_comparison' && isModuleEnabled('brand_watcher') && (
-              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-emerald-500" /></div>}>
-                <SourceComparisonTab onArticleClick={handleArticleClick} />
               </Suspense>
             )}
 
