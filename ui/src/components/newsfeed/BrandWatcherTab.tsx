@@ -83,12 +83,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   } = useBrandWatcher();
 
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
-  const [socialSource, setSocialSource] = useState<string>('');  // '' = all, 'reddit', 'bluesky'
   const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
   const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
-  const [socialSentiment, setSocialSentiment] = useState<string>('');  // '' = all, 'positive', 'neutral', 'negative'
-  const [socialSearch, setSocialSearch] = useState('');  // free-text filter over title/summary
-  const [socialSort, setSocialSort] = useState<'recent' | 'oldest' | 'relevance'>('recent');
+  // Each social timeline column (Bluesky | Reddit/RSS) is filtered + sorted independently.
+  const [bskyFilter, setBskyFilter] = useState<{ sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' }>({ sentiment: '', search: '', sort: 'recent' });
+  const [feedFilter, setFeedFilter] = useState<{ sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' }>({ sentiment: '', search: '', sort: 'recent' });
   const [enablingSocial, setEnablingSocial] = useState(false);
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
@@ -144,20 +143,23 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     const stripped = (p.title || '').replace(/^Post by @[\w.\-]+\s*/i, '').trim();
     return stripped || (p.title || '').trim() || '(no text)';
   };
-  const socialView = useMemo(() => {
-    if (!social) return null;
-    const posts = social.posts || [];
-    const q = socialSearch.trim().toLowerCase();
-    let filtered = posts.filter(p => {
-      if (socialSentiment && socialSentimentOf(p.sentiment) !== socialSentiment) return false;
+  // Apply a column's sentiment/search/sort filter to a platform-split post list.
+  const filterSortSocial = (posts: any[], f: { sentiment: string; search: string; sort: string }) => {
+    const q = f.search.trim().toLowerCase();
+    const out = posts.filter(p => {
+      if (f.sentiment && socialSentimentOf(p.sentiment) !== f.sentiment) return false;
       if (q && !`${p.title || ''} ${p.summary || ''}`.toLowerCase().includes(q)) return false;
       return true;
     });
-    filtered = [...filtered].sort((a, b) => {
-      if (socialSort === 'relevance') return (b.relevance ?? -1) - (a.relevance ?? -1);
+    return out.sort((a, b) => {
+      if (f.sort === 'relevance') return (b.relevance ?? -1) - (a.relevance ?? -1);
       const da = a.publication_date || '', db = b.publication_date || '';
-      return socialSort === 'oldest' ? da.localeCompare(db) : db.localeCompare(da);
+      return f.sort === 'oldest' ? da.localeCompare(db) : db.localeCompare(da);
     });
+  };
+  const socialView = useMemo(() => {
+    if (!social) return null;
+    const posts = social.posts || [];
     const sentCounts = { positive: 0, neutral: 0, negative: 0, unrated: 0 };
     const platCounts: Record<string, number> = {};
     const byDay: Record<string, any> = {};
@@ -177,8 +179,124 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       .map(k => ({ name: k, value: sentCounts[k] })).filter(d => d.value > 0);
     const platPie = Object.entries(platCounts).map(([name, value]) => ({ name, value }));
     const timeline = Object.values(byDay).sort((a: any, b: any) => a.date.localeCompare(b.date));
-    return { filtered, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
-  }, [social, socialSentiment, socialSearch, socialSort]);
+    // Split into the two timelines: Bluesky (the social network) vs Reddit + any other RSS-collected source.
+    const bsky = posts.filter(p => p.platform === 'bluesky');
+    const feed = posts.filter(p => p.platform !== 'bluesky');
+    return { bsky, feed, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
+  }, [social]);
+
+  // One social post card (shared by both timeline columns).
+  const renderSocialPostCard = (p: any) => {
+    const sent = socialSentimentOf(p.sentiment);
+    return (
+      <div key={p.uri} className="flex gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-750">
+        <div className="w-1 rounded-full flex-shrink-0" style={{ backgroundColor: SOCIAL_SENTIMENT_COLORS[sent] }} title={sent} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{socialAuthorOf(p)}</span>
+              {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
+            </div>
+            <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex-shrink-0 inline-flex items-center gap-1">
+              <Eye className="w-3 h-3" /> View
+            </a>
+          </div>
+          <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap">{socialBodyOf(p)}</p>
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {p.relevance != null ? (
+              <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                p.relevance >= 0.6 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                : p.relevance >= 0.4 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+              }`}>relevance {p.relevance.toFixed(2)}</span>
+            ) : (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">not yet evaluated</span>
+            )}
+            {p.sentiment && (
+              <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                sent === 'positive' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                : sent === 'negative' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+              }`}>{p.sentiment}</span>
+            )}
+            {p.news_source && p.news_source.toLowerCase() !== p.platform && (
+              <span className="text-[11px] text-gray-400">{p.news_source}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // One timeline column: header + independent sentiment/search/sort controls + scrolling feed.
+  const renderSocialColumn = (
+    label: string, accent: string, basePosts: any[],
+    filter: { sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' },
+    setFilter: (f: { sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' }) => void,
+    emptyHint: string,
+  ) => {
+    const items = filterSortSocial(basePosts, filter);
+    return (
+      <div className="flex flex-col bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: accent }} />
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{label}</h3>
+          </div>
+          <span className="text-xs text-gray-400">{items.length}{items.length !== basePosts.length ? ` / ${basePosts.length}` : ''}</span>
+        </div>
+        {/* per-column controls */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex-wrap">
+          {([
+            { label: 'All', val: '' }, { label: '+', val: 'positive' },
+            { label: '·', val: 'neutral' }, { label: '−', val: 'negative' },
+          ]).map(opt => (
+            <button
+              key={opt.val}
+              onClick={() => setFilter({ ...filter, sentiment: opt.val })}
+              title={opt.val || 'all sentiments'}
+              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                filter.sentiment === opt.val
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+          <div className="relative flex-1 min-w-[100px]">
+            <Search className="w-3 h-3 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={filter.search}
+              onChange={e => setFilter({ ...filter, search: e.target.value })}
+              placeholder="Search…"
+              className="w-full text-xs pl-6 pr-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-blue-400"
+            />
+          </div>
+          <select
+            value={filter.sort}
+            onChange={e => setFilter({ ...filter, sort: e.target.value as 'recent' | 'oldest' | 'relevance' })}
+            className="text-xs px-1.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-blue-400"
+          >
+            <option value="recent">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="relevance">Relevant</option>
+          </select>
+        </div>
+        {/* scrolling feed */}
+        <div className="divide-y divide-gray-100 dark:divide-gray-700 overflow-y-auto" style={{ maxHeight: 640 }}>
+          {items.map(renderSocialPostCard)}
+          {items.length === 0 && basePosts.length > 0 && (
+            <div className="p-6 text-center text-xs text-gray-400">No posts match this column's filters.</div>
+          )}
+          {basePosts.length === 0 && (
+            <div className="p-6 text-center text-xs text-gray-400">{emptyHint}</div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const selectedBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
   const selectedBrand = selectedBrands[0] || undefined;
@@ -223,7 +341,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchShareOfVoice();
     }
     if (tab === 'social') {
-      fetchSocial(socialMinRel, socialSource || undefined, socialInclUneval);
+      fetchSocial(socialMinRel, undefined, socialInclUneval);
     }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
@@ -244,7 +362,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialSource, socialInclUneval]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -1899,7 +2017,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   try {
                     const r = await setupSocialMonitoring(primarySelectedId, 24);
                     alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune providers/interval/model in Gather → group Settings.`);
-                    fetchSocial(socialMinRel, socialSource || undefined, socialInclUneval);
+                    fetchSocial(socialMinRel, undefined, socialInclUneval);
                   } catch (e: any) {
                     alert('Failed to enable social monitoring: ' + e.message);
                   } finally {
@@ -1916,27 +2034,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           </div>
 
-          {/* Server-side filters (re-fetch): source + min relevance */}
+          {/* Global fetch controls (re-fetch). Source is no longer a filter — the two
+              timelines below split Bluesky vs Reddit/RSS; sentiment/search/sort are per-column. */}
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Source:</span>
-            {([
-              { label: 'All', val: '' },
-              { label: 'Reddit', val: 'reddit' },
-              { label: 'Bluesky', val: 'bluesky' },
-            ]).map(opt => (
-              <button
-                key={opt.val}
-                onClick={() => { setSocialSource(opt.val); fetchSocial(socialMinRel, opt.val || undefined, socialInclUneval); }}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  socialSource === opt.val
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 ml-2">Min relevance:</span>
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Min relevance:</span>
             {([
               { label: 'All', val: 0 },
               { label: '≥0.4', val: 0.4 },
@@ -1944,7 +2045,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             ]).map(opt => (
               <button
                 key={opt.val}
-                onClick={() => { setSocialMinRel(opt.val); fetchSocial(opt.val, socialSource || undefined, socialInclUneval); }}
+                onClick={() => { setSocialMinRel(opt.val); fetchSocial(opt.val, undefined, socialInclUneval); }}
                 className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                   socialMinRel === opt.val
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -1956,7 +2057,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             ))}
             {socialMinRel === 0 && (
               <button
-                onClick={() => { const v = !socialInclUneval; setSocialInclUneval(v); fetchSocial(socialMinRel, socialSource || undefined, v); }}
+                onClick={() => { const v = !socialInclUneval; setSocialInclUneval(v); fetchSocial(socialMinRel, undefined, v); }}
                 className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                   socialInclUneval
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -1968,48 +2069,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </button>
             )}
             <span className="text-xs text-gray-400">≥0.4 = evaluated, on-brand. "All" shows scored-but-off-topic too; toggle to include not-yet-scored.</span>
-          </div>
-
-          {/* Client-side filters (no re-fetch): sentiment + search + sort */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Sentiment:</span>
-            {([
-              { label: 'All', val: '' },
-              { label: 'Positive', val: 'positive' },
-              { label: 'Neutral', val: 'neutral' },
-              { label: 'Negative', val: 'negative' },
-            ]).map(opt => (
-              <button
-                key={opt.val}
-                onClick={() => setSocialSentiment(opt.val)}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  socialSentiment === opt.val
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <div className="relative ml-2">
-              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={socialSearch}
-                onChange={e => setSocialSearch(e.target.value)}
-                placeholder="Search posts…"
-                className="text-xs pl-7 pr-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 w-44 focus:outline-none focus:border-blue-400"
-              />
-            </div>
-            <select
-              value={socialSort}
-              onChange={e => setSocialSort(e.target.value as 'recent' | 'oldest' | 'relevance')}
-              className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-blue-400"
-            >
-              <option value="recent">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="relevance">Most relevant</option>
-            </select>
           </div>
 
           {loadingSocial && (
@@ -2043,9 +2102,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <p className="text-xs text-gray-400">% positive − % negative</p>
                 </div>
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Showing</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{socialView.filtered.length.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">of {socialView.totalLoaded.toLocaleString()} loaded</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">By timeline</p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
+                    <span className="text-sky-600 dark:text-sky-400 font-semibold">{socialView.bsky.length}</span> Bluesky · <span className="text-orange-600 dark:text-orange-400 font-semibold">{socialView.feed.length}</span> Reddit/RSS
+                  </p>
                 </div>
               </div>
 
@@ -2103,63 +2163,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
               )}
 
-              {/* Posts list (client-filtered + sorted) */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
-                {socialView.filtered.map(p => {
-                  const sent = socialSentimentOf(p.sentiment);
-                  return (
-                  <div key={p.uri} className="flex gap-3 p-4 hover:bg-gray-50 dark:hover:bg-gray-750">
-                    {/* sentiment rail */}
-                    <div className="w-1 rounded-full flex-shrink-0" style={{ backgroundColor: SOCIAL_SENTIMENT_COLORS[sent] }} title={sent} />
-                    <div className="min-w-0 flex-1">
-                      {/* byline */}
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{socialAuthorOf(p)}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                            p.platform === 'reddit' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400'
-                            : 'bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-400'
-                          }`}>{p.platform}</span>
-                          {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
-                        </div>
-                        <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex-shrink-0 inline-flex items-center gap-1">
-                          <Eye className="w-3 h-3" /> View
-                        </a>
-                      </div>
-                      {/* post body */}
-                      <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap">{socialBodyOf(p)}</p>
-                      {/* metadata */}
-                      <div className="flex items-center gap-2 mt-2 flex-wrap">
-                        {p.relevance != null ? (
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${
-                            p.relevance >= 0.6 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
-                            : p.relevance >= 0.4 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
-                          }`}>relevance {p.relevance.toFixed(2)}</span>
-                        ) : (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">not yet evaluated</span>
-                        )}
-                        {p.sentiment && (
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${
-                            sent === 'positive' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
-                            : sent === 'negative' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                          }`}>{p.sentiment}</span>
-                        )}
-                        {p.news_source && p.news_source.toLowerCase() !== p.platform && (
-                          <span className="text-[11px] text-gray-400">{p.news_source}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  );
-                })}
-                {socialView.filtered.length === 0 && socialView.totalLoaded > 0 && (
-                  <div className="p-8 text-center text-sm text-gray-400">No posts match the current sentiment/search filters.</div>
-                )}
-                {socialView.totalLoaded === 0 && (
-                  <div className="p-8 text-center text-sm text-gray-400">No social posts yet. Add Reddit/Bluesky to this brand's collection sources and run a collection cycle.</div>
-                )}
+              {/* Two timelines: Bluesky | Reddit/RSS — each independently filtered + sorted */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {renderSocialColumn('Bluesky', '#0ea5e9', socialView.bsky, bskyFilter, setBskyFilter,
+                  'No Bluesky posts yet. Add Bluesky to this brand’s social monitoring and run a collection cycle.')}
+                {renderSocialColumn('Reddit / RSS', '#f97316', socialView.feed, feedFilter, setFeedFilter,
+                  'No Reddit/RSS posts yet. Add Reddit to this brand’s social monitoring and run a collection cycle.')}
               </div>
             </>
           )}
