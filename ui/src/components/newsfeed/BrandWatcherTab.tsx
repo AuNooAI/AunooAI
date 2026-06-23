@@ -3,12 +3,12 @@
  * Main container for brand intelligence dashboard
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
-  Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer,
+  Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer, Search,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
@@ -67,26 +67,27 @@ interface BrandWatcherTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
 }
 
-type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'opoint_coverage' | 'social';
+type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
     brands, topics, stats, categories, temporalData, articles,
-    comparison, shareOfVoice, opointCoverage, social, config,
+    comparison, shareOfVoice, social, config,
     totalArticles, totalPages,
-    loading, loadingStats, loadingCategories, loadingArticles, loadingOpoint, loadingSocial,
+    loading, loadingStats, loadingCategories, loadingArticles, loadingSocial,
     error,
     updateConfig, clearError, refresh,
-    fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial,
+    fetchComparison, fetchShareOfVoice, fetchSocial,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
     setPrimary,
   } = useBrandWatcher();
 
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
-  const [opointMinRel, setOpointMinRel] = useState(0.4);  // Opoint coverage relevance threshold
-  const [opointExclScholarly, setOpointExclScholarly] = useState(false);  // exclude journals/academic sources
   const [socialSource, setSocialSource] = useState<string>('');  // '' = all, 'reddit', 'bluesky'
   const [socialMinRel, setSocialMinRel] = useState(0);  // social relevance threshold
+  const [socialSentiment, setSocialSentiment] = useState<string>('');  // '' = all, 'positive', 'neutral', 'negative'
+  const [socialSearch, setSocialSearch] = useState('');  // free-text filter over title/summary
+  const [socialSort, setSocialSort] = useState<'recent' | 'oldest' | 'relevance'>('recent');
   const [enablingSocial, setEnablingSocial] = useState(false);
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
@@ -119,6 +120,53 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [suggestingKeywords, setSuggestingKeywords] = useState(false);
   const [setupMonitoring, setSetupMonitoring] = useState(true);
   const [monitoringStatus, setMonitoringStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // --- Social: client-side filtering + analytics derived from the loaded posts ---
+  const SOCIAL_SENTIMENT_COLORS: Record<string, string> = {
+    positive: '#10b981', neutral: '#94a3b8', negative: '#ef4444', unrated: '#d1d5db',
+  };
+  const socialSentimentOf = (s: string | null): 'positive' | 'neutral' | 'negative' | 'unrated' => {
+    const t = (s || '').toLowerCase();
+    if (t.includes('pos')) return 'positive';
+    if (t.includes('neg')) return 'negative';
+    if (t.includes('neu') || t === 'mixed') return 'neutral';
+    return 'unrated';
+  };
+  const socialView = useMemo(() => {
+    if (!social) return null;
+    const posts = social.posts || [];
+    const q = socialSearch.trim().toLowerCase();
+    let filtered = posts.filter(p => {
+      if (socialSentiment && socialSentimentOf(p.sentiment) !== socialSentiment) return false;
+      if (q && !`${p.title || ''} ${p.summary || ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    filtered = [...filtered].sort((a, b) => {
+      if (socialSort === 'relevance') return (b.relevance ?? -1) - (a.relevance ?? -1);
+      const da = a.publication_date || '', db = b.publication_date || '';
+      return socialSort === 'oldest' ? da.localeCompare(db) : db.localeCompare(da);
+    });
+    const sentCounts = { positive: 0, neutral: 0, negative: 0, unrated: 0 };
+    const platCounts: Record<string, number> = {};
+    const byDay: Record<string, any> = {};
+    posts.forEach(p => {
+      const s = socialSentimentOf(p.sentiment);
+      sentCounts[s]++;
+      platCounts[p.platform] = (platCounts[p.platform] || 0) + 1;
+      const d = (p.publication_date || '').slice(0, 10);
+      if (d) {
+        if (!byDay[d]) byDay[d] = { date: d, positive: 0, neutral: 0, negative: 0, unrated: 0 };
+        byDay[d][s]++;
+      }
+    });
+    const scored = sentCounts.positive + sentCounts.neutral + sentCounts.negative;
+    const netSentiment = scored ? Math.round(((sentCounts.positive - sentCounts.negative) / scored) * 100) : null;
+    const sentPie = (['positive', 'neutral', 'negative', 'unrated'] as const)
+      .map(k => ({ name: k, value: sentCounts[k] })).filter(d => d.value > 0);
+    const platPie = Object.entries(platCounts).map(([name, value]) => ({ name, value }));
+    const timeline = Object.values(byDay).sort((a: any, b: any) => a.date.localeCompare(b.date));
+    return { filtered, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
+  }, [social, socialSentiment, socialSearch, socialSort]);
 
   const selectedBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
   const selectedBrand = selectedBrands[0] || undefined;
@@ -162,9 +210,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchComparison();
       fetchShareOfVoice();
     }
-    if (tab === 'opoint_coverage') {
-      fetchOpointCoverage(opointMinRel, opointExclScholarly);
-    }
     if (tab === 'social') {
       fetchSocial(socialMinRel, socialSource || undefined);
     }
@@ -187,7 +232,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error);
       fetchComparison();
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchOpointCoverage, fetchSocial, opointMinRel, opointExclScholarly, socialMinRel, socialSource]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialSource]);
 
   // --- Refresh overview data when brand/period changes ---
   useEffect(() => {
@@ -716,7 +761,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'comparison' as SubTab, label: 'Comparison', icon: Users },
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
-          { id: 'opoint_coverage' as SubTab, label: 'Opoint Coverage', icon: Sparkles },
           { id: 'social' as SubTab, label: 'Social', icon: Users },
         ]).map(tab => (
           <button
@@ -1860,7 +1904,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           </div>
 
-          {/* Source + relevance controls */}
+          {/* Server-side filters (re-fetch): source + min relevance */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Source:</span>
             {([
@@ -1900,14 +1944,57 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             ))}
           </div>
 
+          {/* Client-side filters (no re-fetch): sentiment + search + sort */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Sentiment:</span>
+            {([
+              { label: 'All', val: '' },
+              { label: 'Positive', val: 'positive' },
+              { label: 'Neutral', val: 'neutral' },
+              { label: 'Negative', val: 'negative' },
+            ]).map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => setSocialSentiment(opt.val)}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  socialSentiment === opt.val
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <div className="relative ml-2">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={socialSearch}
+                onChange={e => setSocialSearch(e.target.value)}
+                placeholder="Search posts…"
+                className="text-xs pl-7 pr-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 w-44 focus:outline-none focus:border-blue-400"
+              />
+            </div>
+            <select
+              value={socialSort}
+              onChange={e => setSocialSort(e.target.value as 'recent' | 'oldest' | 'relevance')}
+              className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-blue-400"
+            >
+              <option value="recent">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="relevance">Most relevant</option>
+            </select>
+          </div>
+
           {loadingSocial && (
             <div className="flex items-center justify-center py-12 text-gray-500">
               <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading social posts…
             </div>
           )}
 
-          {!loadingSocial && social && (
+          {!loadingSocial && social && socialView && (
             <>
+              {/* Summary metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Posts</p>
@@ -1920,21 +2007,79 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <p className="text-xs text-gray-400">relevance + sentiment scored</p>
                 </div>
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">By platform</p>
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
-                    {Object.entries(social.by_platform).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}
-                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Net sentiment</p>
+                  <p className={`text-2xl font-bold ${
+                    socialView.netSentiment == null ? 'text-gray-400'
+                    : socialView.netSentiment > 0 ? 'text-green-600 dark:text-green-400'
+                    : socialView.netSentiment < 0 ? 'text-red-600 dark:text-red-400'
+                    : 'text-gray-600 dark:text-gray-300'
+                  }`}>{socialView.netSentiment == null ? '—' : `${socialView.netSentiment > 0 ? '+' : ''}${socialView.netSentiment}`}</p>
+                  <p className="text-xs text-gray-400">% positive − % negative</p>
                 </div>
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Sentiment</p>
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
-                    {Object.entries(social.by_sentiment).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}
-                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Showing</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{socialView.filtered.length.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">of {socialView.totalLoaded.toLocaleString()} loaded</p>
                 </div>
               </div>
 
+              {/* Analysis charts */}
+              {socialView.totalLoaded > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div id="chart-social-sentiment" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment mix</h3>
+                      <ChartDownloadButton targetId="chart-social-sentiment" filename="social-sentiment" />
+                    </div>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie data={socialView.sentPie} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                          {socialView.sentPie.map(d => <Cell key={d.name} fill={SOCIAL_SENTIMENT_COLORS[d.name]} />)}
+                        </Pie>
+                        <Tooltip />
+                        <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div id="chart-social-platform" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Platform mix</h3>
+                      <ChartDownloadButton targetId="chart-social-platform" filename="social-platform" />
+                    </div>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie data={socialView.platPie} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                          {socialView.platPie.map((d, i) => <Cell key={d.name} fill={d.name === 'reddit' ? '#f97316' : d.name === 'bluesky' ? '#0ea5e9' : ['#8b5cf6', '#14b8a6', '#eab308'][i % 3]} />)}
+                        </Pie>
+                        <Tooltip />
+                        <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div id="chart-social-timeline" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Volume by day (sentiment)</h3>
+                      <ChartDownloadButton targetId="chart-social-timeline" filename="social-volume" />
+                    </div>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={socialView.timeline} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="positive" stackId="s" fill={SOCIAL_SENTIMENT_COLORS.positive} />
+                        <Bar dataKey="neutral" stackId="s" fill={SOCIAL_SENTIMENT_COLORS.neutral} />
+                        <Bar dataKey="negative" stackId="s" fill={SOCIAL_SENTIMENT_COLORS.negative} />
+                        <Bar dataKey="unrated" stackId="s" fill={SOCIAL_SENTIMENT_COLORS.unrated} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Posts list (client-filtered + sorted) */}
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
-                {social.posts.map(p => (
+                {socialView.filtered.map(p => (
                   <div key={p.uri} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-750">
                     <div className="flex items-start justify-between gap-3">
                       <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 line-clamp-2">{p.title}</a>
@@ -1961,7 +2106,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     </div>
                   </div>
                 ))}
-                {social.posts.length === 0 && (
+                {socialView.filtered.length === 0 && socialView.totalLoaded > 0 && (
+                  <div className="p-8 text-center text-sm text-gray-400">No posts match the current sentiment/search filters.</div>
+                )}
+                {socialView.totalLoaded === 0 && (
                   <div className="p-8 text-center text-sm text-gray-400">No social posts yet. Add Reddit/Bluesky to this brand's collection sources and run a collection cycle.</div>
                 )}
               </div>
@@ -1970,177 +2118,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
           {!loadingSocial && !social && (
             <div className="text-center py-12 text-gray-400 text-sm">No social data loaded.</div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'opoint_coverage' && (
-        <div className="space-y-6">
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-start gap-2">
-              <Sparkles className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-gray-700 dark:text-gray-300">
-                <span className="font-semibold">Opoint entity coverage.</span> Brand mentions detected by matching Opoint's resolved organization entities (by Wikidata ID) against each tracked brand — disambiguated and precise, independent of substring keyword matching.
-              </div>
-            </div>
-          </div>
-
-          {/* Relevance threshold control — filters out incidental publisher/citation mentions (e.g. journal articles published by the brand) */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Mention strength:</span>
-            {([
-              { label: 'All mentions', val: 0 },
-              { label: 'Substantive ≥0.4', val: 0.4 },
-              { label: 'Strong ≥0.6', val: 0.6 },
-            ]).map(opt => (
-              <button
-                key={opt.val}
-                onClick={() => { setOpointMinRel(opt.val); fetchOpointCoverage(opt.val, opointExclScholarly); }}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  opointMinRel === opt.val
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <button
-              onClick={() => { const v = !opointExclScholarly; setOpointExclScholarly(v); fetchOpointCoverage(opointMinRel, v); }}
-              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                opointExclScholarly
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-              }`}
-              title="Drop academic journals / publishing platforms (publisher & citation mentions, not 3rd-party news)"
-            >
-              {opointExclScholarly ? '✓ ' : ''}Exclude journals
-            </button>
-            <span className="text-xs text-gray-400">Higher strength + Exclude journals = third-party news coverage, not the brand's own/published content.</span>
-            {opointCoverage && opointCoverage.scholarly_excluded ? (
-              <span className="text-xs text-gray-400">({opointCoverage.scholarly_excluded} scholarly articles excluded)</span>
-            ) : null}
-          </div>
-
-          {loadingOpoint && (
-            <div className="flex items-center justify-center py-12 text-gray-500">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading coverage…
-            </div>
-          )}
-
-          {!loadingOpoint && opointCoverage && (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Opoint articles scanned</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointCoverage.opoint_articles_scanned.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">last {opointCoverage.window_days} days</p>
-                </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Brands matched</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointCoverage.coverage.length}</p>
-                </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">High-confidence mentions</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{opointCoverage.coverage.reduce((s, c) => s + c.high_confidence, 0).toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">relevance ≥ 0.5</p>
-                </div>
-              </div>
-
-              {opointCoverage.coverage.length > 0 && (
-                <div id="chart-opoint-coverage" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Articles matched per brand (Opoint entities)</h3>
-                    <ChartDownloadButton targetId="chart-opoint-coverage" filename="opoint-coverage" />
-                  </div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={opointCoverage.coverage} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                      <XAxis dataKey="brand" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="articles_matched" name="Articles matched" fill="#3b82f6" />
-                      <Bar dataKey="high_confidence" name="High confidence" fill="#10b981" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {opointCoverage.coverage.length > 0 && (
-                <div id="chart-opoint-sov" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Share of Voice — article count vs. reach-weighted</h3>
-                    <ChartDownloadButton targetId="chart-opoint-sov" filename="opoint-share-of-voice" />
-                  </div>
-                  <p className="text-xs text-gray-400 mb-4">Reach is weighted by each source's global traffic rank (more-read outlets count more). A reach bar above the article bar means that brand's coverage lands on higher-reach sources.</p>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={opointCoverage.coverage} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                      <XAxis dataKey="brand" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} unit="%" />
-                      <Tooltip formatter={(v: any) => `${v}%`} />
-                      <Legend />
-                      <Bar dataKey="article_sov_pct" name="Article SoV %" fill="#94a3b8" />
-                      <Bar dataKey="reach_sov_pct" name="Reach SoV %" fill="#3b82f6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 overflow-x-auto">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Per-brand coverage</h3>
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className="bg-gray-50 dark:bg-gray-900">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300">Brand</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Articles</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Avg relevance</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">High confidence</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Article SoV</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300">Reach SoV</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300">Wikidata IDs</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {opointCoverage.coverage.map(c => (
-                      <tr key={c.brand} className="hover:bg-gray-50 dark:hover:bg-gray-750">
-                        <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-gray-100">{c.brand}</td>
-                        <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.articles_matched.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.avg_relevance.toFixed(3)}</td>
-                        <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">{c.high_confidence.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-sm text-right text-gray-500 dark:text-gray-400">{c.article_sov_pct}%</td>
-                        <td className="px-4 py-2 text-sm text-right font-semibold text-blue-600 dark:text-blue-400">{c.reach_sov_pct}%</td>
-                        <td className="px-4 py-2 text-xs text-gray-400 font-mono">{(opointCoverage.brand_wikidata[c.brand] || []).join(', ')}</td>
-                      </tr>
-                    ))}
-                    {opointCoverage.coverage.length === 0 && (
-                      <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-400">No Opoint entity matches in this window yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {opointCoverage.samples && opointCoverage.samples.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sample matched articles</h3>
-                  <ul className="space-y-2">
-                    {opointCoverage.samples.map((s: any, i: number) => (
-                      <li key={i} className="text-sm">
-                        <span className="text-gray-800 dark:text-gray-200">{s.title}</span>
-                        <span className="ml-2 text-xs text-gray-400">
-                          {(s.brands || []).map((b: any) => `${b.brand} (${(b.relevance_score ?? 0).toFixed(2)})`).join(', ')}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
-
-          {!loadingOpoint && !opointCoverage && (
-            <div className="text-center py-12 text-gray-400 text-sm">No coverage data loaded.</div>
           )}
         </div>
       )}
