@@ -2961,6 +2961,7 @@ async def get_articles(
                 JOIN bw_brands b ON bac.brand_id = b.id
                 WHERE a.publication_date >= :start AND a.publication_date <= :end
                 AND a.analyzed = true
+                AND a.topic_alignment_score >= 0.4
                 {brand_clause} {cat_clause} {topic_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name,
