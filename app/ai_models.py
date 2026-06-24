@@ -719,6 +719,19 @@ class LiteLLMModel(AIModel):
             logger.debug(f"🎯 Using router with model: {self.model_name}")
             logger.info(f"🚀 Sending request to LiteLLM router for {self.model_name}")
 
+            # GPT-5.x are reasoning models. If a caller doesn't specify a
+            # reasoning_effort they default (server-side) to 'medium' and bill
+            # substantial hidden reasoning tokens. The high-volume mechanical
+            # paths (article analysis, extraction) call us with no kwargs, so
+            # default the gpt-5 family to 'minimal'; callers that genuinely need
+            # deeper reasoning already pass reasoning_effort explicitly and are
+            # left untouched.
+            if (
+                "reasoning_effort" not in call_kwargs
+                and str(self.model_name).startswith("gpt-5")
+            ):
+                call_kwargs["reasoning_effort"] = "minimal"
+
             response = self.router.completion(
                 model=self.model_name,
                 messages=messages,

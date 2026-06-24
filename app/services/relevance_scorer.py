@@ -9,12 +9,27 @@ ensuring only highly relevant articles contribute to the final research report.
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import litellm
 
 logger = logging.getLogger(__name__)
+
+# Router-only aliases (defined in app/config/litellm_config.yaml) mapped to the
+# concrete litellm model strings, so direct litellm.acompletion() calls can
+# resolve them. This lets ops point RELEVANCE_MODEL / RELEVANCE_FALLBACK_MODEL at
+# Bedrock (where AWS credits apply) without any code change. AWS auth + region are
+# read from the same env vars the LiteLLM router uses (AWS_REGION_NAME, etc.).
+_MODEL_ALIASES = {
+    "bedrock-claude-haiku": "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0",
+}
+
+
+def _resolve_model(name: str) -> str:
+    """Translate a router alias to a concrete litellm model string."""
+    return _MODEL_ALIASES.get(name, name)
 
 
 @dataclass
@@ -26,7 +41,12 @@ class RelevanceScoringConfig:
     high_relevance_threshold: float = 0.8  # Score for prioritized articles
 
     # Model settings
-    model: str = "gpt-5.4-mini"  # Fast model for scoring
+    # Env-configurable so ops can route this high-volume path to Bedrock (AWS
+    # credits) without a code change, e.g. RELEVANCE_MODEL=bedrock-claude-haiku.
+    model: str = field(default_factory=lambda: os.getenv("RELEVANCE_MODEL", "gpt-5.4-mini"))
+    # Optional cross-provider fallback used when the primary model errors/times
+    # out (e.g. RELEVANCE_FALLBACK_MODEL=bedrock-claude-haiku for OpenAI outages).
+    fallback_model: Optional[str] = field(default_factory=lambda: os.getenv("RELEVANCE_FALLBACK_MODEL") or None)
     temperature: float = 0.1  # Low temperature for consistent scoring
 
     # Batching
@@ -42,6 +62,43 @@ class RelevanceScorer:
 
     def __init__(self, config: Optional[RelevanceScoringConfig] = None):
         self.config = config or RelevanceScoringConfig()
+
+    async def _acompletion_with_fallback(self, messages: List[Dict]):
+        """Call the primary scoring model; on failure retry on the configured
+        fallback (e.g. Bedrock). Resolves router aliases and only sends params the
+        target provider supports: reasoning_effort='minimal' for the gpt-5 family
+        (so a pure classification call doesn't bill hidden 'medium' reasoning
+        tokens), and native JSON mode only for OpenAI."""
+        models = [self.config.model]
+        if self.config.fallback_model and self.config.fallback_model != self.config.model:
+            models.append(self.config.fallback_model)
+
+        last_err = None
+        for idx, model_name in enumerate(models):
+            resolved = _resolve_model(model_name)
+            kwargs = {
+                "model": resolved,
+                "messages": messages,
+                "temperature": self.config.temperature,
+                "max_tokens": 1000,
+            }
+            if resolved.startswith("gpt-5"):
+                kwargs["reasoning_effort"] = "minimal"
+            if resolved.startswith(("gpt-", "openai/")):
+                kwargs["response_format"] = {"type": "json_object"}
+            try:
+                return await asyncio.wait_for(
+                    litellm.acompletion(**kwargs),
+                    timeout=self.config.timeout_per_batch,
+                )
+            except Exception as e:
+                last_err = e
+                if idx + 1 < len(models):
+                    logger.warning(
+                        f"Relevance model '{model_name}' failed ({e}); "
+                        f"falling back to '{models[idx + 1]}'"
+                    )
+        raise last_err
 
     async def score_articles(
         self,
@@ -198,18 +255,11 @@ Articles to Score:
 Score each article for relevance. Return JSON array with scores."""
 
         try:
-            response = await asyncio.wait_for(
-                litellm.acompletion(
-                    model=self.config.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=self.config.temperature,
-                    max_tokens=1000,
-                    response_format={"type": "json_object"}
-                ),
-                timeout=self.config.timeout_per_batch
+            response = await self._acompletion_with_fallback(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
             )
 
             result_text = response.choices[0].message.content
