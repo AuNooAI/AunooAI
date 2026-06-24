@@ -100,6 +100,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [sentimentTrends, setSentimentTrends] = useState<BWSentimentTrend[]>([]);
   const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
+  const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
@@ -294,6 +295,58 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             <div className="p-6 text-center text-xs text-gray-400">{emptyHint}</div>
           )}
         </div>
+      </div>
+    );
+  };
+
+  // Spike-alert row: expandable to reveal the actual articles driving the spike (with links).
+  const toggleAlert = (cat: string) => setExpandedAlerts(prev => {
+    const next = new Set(prev);
+    if (next.has(cat)) next.delete(cat); else next.add(cat);
+    return next;
+  });
+  const renderAlertRow = (alert: BWAlert) => {
+    const open = expandedAlerts.has(alert.category);
+    const arts = alert.articles || [];
+    return (
+      <div key={alert.category} className={`rounded-lg border ${
+        alert.severity === 'high'
+          ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+          : 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+      }`}>
+        <button onClick={() => toggleAlert(alert.category)} className="w-full flex items-center gap-3 p-2 text-left">
+          <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
+          <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
+          <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{alert.current_count} this week (avg: {alert.average_count})</span>
+          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+            alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
+          }`}>{alert.spike_ratio}x</span>
+        </button>
+        {open && (
+          <div className="px-3 pb-2 pt-1 space-y-1.5 border-t border-black/5 dark:border-white/10">
+            {arts.length === 0 && <p className="text-xs text-gray-400 pt-1.5">No articles available for this spike.</p>}
+            {arts.map(a => (
+              <div key={a.uri} className="flex items-center gap-2 text-xs">
+                <button
+                  onClick={() => onArticleClick?.({ uri: a.uri, title: a.title })}
+                  className="text-blue-600 dark:text-blue-400 hover:underline text-left flex-1 line-clamp-1"
+                  title={a.title}
+                >{a.title}</button>
+                {a.sentiment && (
+                  <span className={`px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                    a.sentiment.toLowerCase().includes('pos') ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                    : a.sentiment.toLowerCase().includes('neg') ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                  }`}>{a.sentiment}</span>
+                )}
+                {a.publication_date && <span className="text-gray-400 flex-shrink-0">{a.publication_date.slice(0, 10)}</span>}
+                <a href={a.uri} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                  className="text-gray-400 hover:text-blue-600 flex-shrink-0" title="Open source"><Eye className="w-3 h-3" /></a>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -1028,26 +1081,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
               </h3>
               <div className="space-y-2">
-                {[...brandAlerts].sort((a, b) => b.spike_ratio - a.spike_ratio).slice(0, 3).map(alert => (
-                  <div key={alert.category}
-                    className={`flex items-center gap-3 p-2 rounded-lg ${
-                      alert.severity === 'high'
-                        ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-                        : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
-                    }`}
-                  >
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
-                    <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
-                    <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
-                      {alert.current_count} this week (avg: {alert.average_count})
-                    </span>
-                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                      alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
-                    }`}>
-                      {alert.spike_ratio}x
-                    </span>
-                  </div>
-                ))}
+                {[...brandAlerts].sort((a, b) => b.spike_ratio - a.spike_ratio).slice(0, 3).map(renderAlertRow)}
               </div>
               {!exportingReport && brandAlerts.length > 3 && (
                 <button onClick={() => handleTabChange('analysis')}
@@ -1918,27 +1952,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
                       </h3>
                       <div className="space-y-2">
-                        {brandAlerts.map(alert => (
-                          <div key={alert.category}
-                            className={`flex items-center gap-3 p-2 rounded-lg ${
-                              alert.severity === 'high'
-                                ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-                                : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
-                            }`}
-                          >
-                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
-                            <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
-                            <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
-                              {alert.current_count} this week (avg: {alert.average_count})
-                            </span>
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                              alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
-                            }`}>
-                              {alert.spike_ratio}x
-                            </span>
-                          </div>
-                        ))}
+                        {brandAlerts.map(renderAlertRow)}
                       </div>
+                      <p className="text-xs text-gray-400 mt-2">Click a spike to see the articles driving it.</p>
                     </div>
                   )}
 

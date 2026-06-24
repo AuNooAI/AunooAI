@@ -2825,7 +2825,37 @@ async def get_brand_alerts(
                     "average_count": round(avg, 1),
                     "spike_ratio": round(count / avg, 1),
                     "severity": "high" if count >= avg * 3 else "medium",
+                    "articles": [],
                 })
+
+        # Attach the actual articles driving each spike so the UI can link to them
+        # (not just show a count). Same window + relevance filter as the spike detection.
+        if alerts:
+            spiking = [a["category"] for a in alerts]
+            ph = ", ".join(f":c{i}" for i in range(len(spiking)))
+            art_params = {"bid": brand_id}
+            for i, c in enumerate(spiking):
+                art_params[f"c{i}"] = c
+            art_rows = conn.execute(text(f"""
+                SELECT bac.category, a.uri, a.title, a.publication_date, a.sentiment, a.news_source
+                FROM bw_article_categories bac
+                JOIN articles a ON bac.article_uri = a.uri
+                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+                AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
+                AND bac.category IN ({ph})
+                ORDER BY a.publication_date DESC
+            """), art_params).fetchall()
+            by_cat: Dict[str, list] = {}
+            for cat, uri, title, pubdate, sentiment, source in art_rows:
+                bucket = by_cat.setdefault(cat, [])
+                if len(bucket) < 12:
+                    bucket.append({
+                        "uri": uri, "title": title,
+                        "publication_date": str(pubdate) if pubdate else None,
+                        "sentiment": sentiment, "news_source": source,
+                    })
+            for a in alerts:
+                a["articles"] = by_cat.get(a["category"], [])
 
         return {"alerts": sorted(alerts, key=lambda a: a["spike_ratio"], reverse=True)}
     except Exception as e:

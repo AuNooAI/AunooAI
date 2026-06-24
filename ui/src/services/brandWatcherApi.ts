@@ -31,12 +31,21 @@ export interface BWSentimentTrend {
   total: number;
 }
 
+export interface BWAlertArticle {
+  uri: string;
+  title: string;
+  publication_date: string | null;
+  sentiment: string | null;
+  news_source: string | null;
+}
+
 export interface BWAlert {
   category: string;
   current_count: number;
   average_count: number;
   spike_ratio: number;
   severity: 'high' | 'medium';
+  articles?: BWAlertArticle[];
 }
 
 export interface BrandCreate {
