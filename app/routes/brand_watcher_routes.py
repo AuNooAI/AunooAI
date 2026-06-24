@@ -1976,6 +1976,15 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
         else:
             topic_filter = ""
 
+        # Social posts (Reddit/Bluesky) are scored by the lightweight social pipeline and
+        # surfaced in the Social tab + the narrative's Social Pulse. They must NOT enter the
+        # news classification (bw_article_categories) — substring brand matches (e.g. "Kohen
+        # Wiley") would otherwise conflate social noise with news coverage.
+        from app.services.social_eval_service import SOCIAL_SOURCES
+        social_excl = "AND NOT (" + " OR ".join(
+            f"LOWER(a.news_source) LIKE :_soc_{i}" for i in range(len(SOCIAL_SOURCES))) + ")"
+        social_excl_params = {f"_soc_{i}": f"%{k}%" for i, k in enumerate(SOCIAL_SOURCES)}
+
         logger.info(f"BW Run {run_id}: {len(brands)} brands, date range {start_date}-{end_date}, topics={topics!r}, run_type={run_type}")
 
         for brand in brands:
@@ -1991,7 +2000,7 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             # Build SQL brand search with word-boundary matching for short terms
             brand_filter, brand_params = _build_brand_filter_sql(search_terms)
 
-            base_params = {"start": start_date, "end": end_date, **brand_params}
+            base_params = {"start": start_date, "end": end_date, **brand_params, **social_excl_params}
             if topics:
                 for i, t in enumerate(topics):
                     base_params[f"topic_{i}"] = t
@@ -2002,6 +2011,7 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     SELECT a.uri, a.title, a.summary FROM articles a
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
                     AND a.analyzed = true
+                    {social_excl}
                     {topic_filter}
                     {brand_filter}
                 """), base_params)
@@ -2013,6 +2023,7 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
                     AND a.analyzed = true
                     AND bac.id IS NULL
+                    {social_excl}
                     {topic_filter}
                     {brand_filter}
                 """), {**base_params, "bid": bid})
