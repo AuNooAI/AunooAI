@@ -196,6 +196,9 @@ NARRATIVE_ANALYSIS_PROMPT = """You are generating an analytical brand intelligen
 **Key Positive Articles:**
 {key_articles}
 
+**Social Pulse (Reddit/Bluesky):**
+{social_signal}
+
 ## Analysis Approach
 
 Your job is to SYNTHESIZE the articles into coherent themes and narratives, not to cherry-pick or list individual articles. Read all the provided articles and identify the underlying patterns, recurring themes, and emerging storylines. When you reference specific articles, use them as evidence supporting a broader theme — not as standalone items.
@@ -224,6 +227,9 @@ YOU MUST use bullet points in this section. Format EXACTLY like this:
 - **Positive Signals**: [Synthesize themes from the positive articles. What recurring patterns of good news exist? Link to representative articles as evidence using [title](url) format.]
 - **Risk Indicators**: [Synthesize themes from the negative articles. What recurring patterns of concern exist? Reference the Brand Risk Assessment level and explain what themes are driving it, linking to representative articles as evidence using [title](url) format. Do NOT speculate — ground every claim in the articles provided.]
 - **Competitive Position**: [How the brand is positioned vs competitors based on coverage themes]
+
+## Social Pulse
+Summarize what social conversation (Reddit/Bluesky) adds beyond the news coverage, using ONLY the Social Pulse data provided. Cover: overall volume and the platform split, net sentiment among on-brand posts, and the dominant themes in the top on-brand posts. Note how social sentiment compares to the news coverage (aligned or diverging). If no social data is provided, say so in one sentence and move on. Keep to 2-4 sentences or bullets. Do NOT invent posts, handles, or numbers — ground every claim in the provided social data.
 
 ## Forward-Looking Concerns
 YOU MUST use bullet points in this section. List 3-5 specific concerns synthesized from patterns across multiple articles:
@@ -2394,7 +2400,7 @@ async def get_stats(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2417,7 +2423,7 @@ async def get_stats(
                 {brand_sub_where}
                 GROUP BY article_uri
             ) cc ON a.uri = cc.article_uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()
@@ -2465,7 +2471,7 @@ async def get_category_distribution(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as count
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2480,7 +2486,7 @@ async def get_category_distribution(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as count
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :prev_start AND a.publication_date < :start
+            WHERE a.publication_date >= :prev_start AND a.publication_date < :start AND a.topic_alignment_score >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), prev_params)
@@ -2534,7 +2540,7 @@ async def get_temporal_data(
                    COUNT(DISTINCT a.uri)
             FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
@@ -2547,7 +2553,7 @@ async def get_temporal_data(
                    bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), bac.category
             ORDER BY month
@@ -2612,7 +2618,7 @@ async def get_brand_comparison(
                 SELECT bac.category, COUNT(DISTINCT bac.article_uri)
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid
+                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY bac.category
@@ -2626,7 +2632,7 @@ async def get_brand_comparison(
                 SELECT COALESCE(a.sentiment, 'Unknown') as sentiment, COUNT(DISTINCT bac.article_uri)
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid
+                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY COALESCE(a.sentiment, 'Unknown')
@@ -2669,7 +2675,7 @@ async def get_share_of_voice(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             JOIN bw_brands b ON bac.brand_id = b.id
-            WHERE a.publication_date >= :start AND a.publication_date <= :end
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
             AND b.enabled = true
             {topic_filter}
             GROUP BY bac.brand_id, b.display_name, b.color
@@ -2720,7 +2726,7 @@ async def get_sentiment_trends(
                    COUNT(*) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
@@ -2780,7 +2786,7 @@ async def get_brand_alerts(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
         """), {"bid": brand_id})
@@ -2791,7 +2797,7 @@ async def get_brand_alerts(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
             AND a.publication_date < (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
@@ -3057,7 +3063,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             SELECT bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             GROUP BY bac.category ORDER BY COUNT(DISTINCT bac.article_uri) DESC
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
@@ -3076,7 +3082,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             art_result = conn.execute(text("""
                 SELECT DISTINCT a.title, a.summary FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
-                WHERE bac.brand_id = :bid
+                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
                 AND a.publication_date >= :start AND a.publication_date <= :end
             """), {"bid": request.brand_id, "start": start_date, "end": end_date})
             for atitle, asumm in art_result.fetchall():
@@ -3098,7 +3104,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                    a.sentiment, COUNT(*) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             GROUP BY week, a.sentiment
@@ -3144,7 +3150,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
         """), {"bid": request.brand_id})
@@ -3154,7 +3160,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
             AND a.publication_date < (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
@@ -3186,7 +3192,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('negative', 'pessimistic', 'concerning',
                                         'concerned', 'critical', 'alarming')
@@ -3214,7 +3220,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('positive', 'optimistic', 'positive development')
             ORDER BY a.publication_date DESC
@@ -3264,6 +3270,65 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         if pos_articles_text:
             key_articles += f"**Recent Positive/Optimistic Articles ({len(pos_articles)} most recent):**\n{pos_articles_text}"
 
+        # --- Social Pulse: Bluesky/Reddit signal for this brand's monitoring topic ---
+        # Social posts bypass news classification (bw_article_categories); they're matched
+        # to the brand by its monitoring topic + a social news_source. relevance =
+        # topic_alignment_score from the lightweight social eval.
+        from app.services.social_eval_service import SOCIAL_SOURCES
+        social_topic = f"Brand Monitoring {brand['display_name']}"
+        _ssrc = "(" + " OR ".join(f"LOWER(a.news_source) LIKE :_ssrc_{i}" for i in range(len(SOCIAL_SOURCES))) + ")"
+        _sparams = {"stopic": social_topic, "start": start_date, "end": end_date}
+        for i, k in enumerate(SOCIAL_SOURCES):
+            _sparams[f"_ssrc_{i}"] = f"%{k}%"
+        social_rows = conn.execute(text(f"""
+            SELECT a.title, a.summary, a.news_source, a.publication_date,
+                   a.topic_alignment_score, a.sentiment
+            FROM articles a
+            WHERE a.topic = :stopic
+              AND a.publication_date >= :start AND a.publication_date <= :end
+              AND {_ssrc}
+            ORDER BY a.publication_date DESC
+        """), _sparams).fetchall()
+
+        social_signal = "No social (Reddit/Bluesky) posts were collected for this brand in the period."
+        social_summary = {"total": 0, "by_platform": {}, "evaluated": 0, "net_sentiment": None, "on_brand": 0}
+        if social_rows:
+            def _splat(ns):
+                s = (ns or "").lower()
+                return "reddit" if "reddit" in s else ("bluesky" if ("bsky" in s or "bluesky" in s) else "social")
+            plat: Dict[str, int] = {}
+            pos = neg = scored = 0
+            on_brand = []
+            for s_title, s_summary, s_ns, s_pub, s_rel, s_sent in social_rows:
+                pl = _splat(s_ns)
+                plat[pl] = plat.get(pl, 0) + 1
+                if s_rel is not None and s_rel >= 0.4:
+                    on_brand.append((s_rel, s_title, s_summary, s_sent, s_pub, pl))
+                    lo = (s_sent or "").lower()
+                    if lo in _POSITIVE_LABELS or "pos" in lo:
+                        pos += 1; scored += 1
+                    elif lo in _NEGATIVE_LABELS or "neg" in lo:
+                        neg += 1; scored += 1
+                    elif s_sent:
+                        scored += 1
+            net = round((pos - neg) / scored * 100) if scored else None
+            on_brand.sort(key=lambda x: x[0], reverse=True)
+            lines = [
+                f"Total social posts: {len(social_rows)} ("
+                + ", ".join(f"{k}: {v}" for k, v in sorted(plat.items(), key=lambda x: -x[1])) + ")",
+                f"On-brand posts (relevance >= 0.4): {len(on_brand)}",
+            ]
+            if net is not None:
+                lines.append(f"Net sentiment among on-brand posts: {'+' if net > 0 else ''}{net}% (positive - negative)")
+            if on_brand:
+                lines.append("Top on-brand posts:")
+                for o_rel, o_title, o_summary, o_sent, o_pub, o_pl in on_brand[:8]:
+                    body = (o_summary or o_title or "")[:160].replace("\n", " ")
+                    lines.append(f"- [{o_pl}] ({str(o_pub)[:10]}) rel {o_rel:.2f}, {o_sent or 'unrated'}: {body}")
+            social_signal = "\n".join(lines)
+            social_summary = {"total": len(social_rows), "by_platform": plat,
+                              "evaluated": scored, "net_sentiment": net, "on_brand": len(on_brand)}
+
         prompt = NARRATIVE_ANALYSIS_PROMPT.format(
             brand_name=brand["display_name"],
             date_range=f"{start_date} to {end_date}",
@@ -3272,6 +3337,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             competitor_breakdown=competitor_breakdown,
             risk_assessment=risk_assessment,
             key_articles=key_articles,
+            social_signal=social_signal,
         )
 
         model = LiteLLMModel.get_instance(request.model)
@@ -3294,6 +3360,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 "high_alerts": high_alerts,
                 "contributing_factors": risk_factors,
             },
+            "social": social_summary,
         }
 
         # Save narrative
@@ -3410,7 +3477,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             SELECT COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND bac.category = :cat
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4 AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
         article_count = count_result.fetchone()[0]
@@ -3420,7 +3487,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             SELECT COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         total = total_result.fetchone()[0] or 1
@@ -3430,7 +3497,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
         sample_result = conn.execute(text("""
             SELECT a.title FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
-            WHERE bac.brand_id = :bid AND bac.category = :cat
+            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4 AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY a.publication_date DESC LIMIT 10
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
