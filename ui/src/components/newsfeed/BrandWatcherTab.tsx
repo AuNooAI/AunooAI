@@ -380,6 +380,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison]);
 
+  // --- Refresh social when the period/topics change (handleTabChange only fires on tab switch) ---
+  useEffect(() => {
+    if (activeTab !== 'social') return;
+    fetchSocial(socialMinRel, undefined, socialInclUneval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.daysBack, config.selectedTopics]);
+
   // --- Click-outside to close export menu ---
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
