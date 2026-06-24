@@ -14,9 +14,11 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
+import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
   generateCategoryInsight, suggestKeywords, setupBrandMonitoring, getSchedules, createSchedule, deleteSchedule,
+  getComparison, getShareOfVoice, getSocialPosts,
   runScheduleNow, getSentimentTrends, getBrandAlerts, exportBrandData, updateBrandConfig,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
@@ -506,6 +508,41 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, config.daysBack, selectedBrand, fetchComparison, fetchShareOfVoice]);
 
+  // --- Interactive HTML report (self-contained, downloadable) ---
+  const handleExportHtmlReport = useCallback(async () => {
+    setExportingReport(true);
+    try {
+      const bid = primarySelectedId;
+      const topicsParam = config.selectedTopics.length ? config.selectedTopics : undefined;
+      const socialTopics = selectedBrand ? [`Brand Monitoring ${selectedBrand.display_name}`] : topicsParam;
+      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD] = await Promise.all([
+        getComparison(config.daysBack, topicsParam).catch(() => comparison),
+        getShareOfVoice(config.daysBack, topicsParam).catch(() => shareOfVoice),
+        getSocialPosts(socialTopics, config.daysBack, 0, undefined, true).catch(() => social),
+        bid ? getSentimentTrends(bid, config.daysBack).then(r => r.trends).catch(() => sentimentTrends) : Promise.resolve([] as typeof sentimentTrends),
+        bid ? getBrandAlerts(bid, config.daysBack).then(r => r.alerts).catch(() => brandAlerts) : Promise.resolve([] as typeof brandAlerts),
+        bid ? getLatestNarrative(bid).catch(() => narrative) : Promise.resolve(null),
+      ]);
+      downloadBrandWatcherReport({
+        brand: selectedBrand,
+        daysBack: config.daysBack,
+        stats, categories,
+        sentimentTrends: trendsD,
+        alerts: alertsD,
+        comparison: comparisonD,
+        shareOfVoice: sovD,
+        narrative: narrativeD,
+        social: socialD,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('HTML report export error:', err);
+    } finally {
+      setExportingReport(false);
+    }
+  }, [primarySelectedId, selectedBrand, config.daysBack, config.selectedTopics, stats, categories,
+      comparison, shareOfVoice, social, sentimentTrends, brandAlerts, narrative]);
+
   // --- Category drill-down ---
   const handleCategoryDrillDown = useCallback((category: string) => {
     setDrillDownCategory(prev => prev === category ? null : category);
@@ -867,7 +904,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               <Download className="w-4 h-4" />
             </button>
             {exportMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+              <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                <button
+                  onClick={() => { setExportMenuOpen(false); handleExportHtmlReport(); }}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 font-medium"
+                >
+                  <BarChart3 className="w-4 h-4 text-purple-500" />
+                  <span>Interactive report <span className="text-[10px] text-gray-400">(HTML)</span></span>
+                </button>
+                <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
                 <button
                   onClick={() => {
                     ExportService.exportBrandWatcherMarkdown({
@@ -1982,7 +2027,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                           return Object.entries(byCat).map(([cat, sents]) => {
                             const total = sents.Positive + sents.Neutral + sents.Negative;
                             return (
-                              <div key={cat} className="flex items-center gap-3">
+                              <button key={cat} onClick={() => handleCategoryDrillDown(cat)}
+                                className="w-full flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors text-left"
+                                title={`View ${cat} articles`}>
                                 <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
                                 <span className="text-xs text-gray-700 dark:text-gray-300 w-36 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
                                 <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
@@ -1996,7 +2043,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                                   })}
                                 </div>
                                 <span className="text-xs text-gray-500 w-8 text-right">{total}</span>
-                              </div>
+                                <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
+                              </button>
                             );
                           });
                         })()}
@@ -2254,12 +2302,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   </ResponsiveContainer>
                   <div className="flex-1 space-y-2">
                     {shareOfVoice.map(sov => (
-                      <div key={sov.brand_id} className="flex items-center gap-3">
+                      <button key={sov.brand_id}
+                        onClick={() => { updateConfig({ selectedBrandIds: [sov.brand_id], selectedCategories: [], page: 1 }); setActiveTab('articles'); }}
+                        className="w-full flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors text-left"
+                        title={`View ${sov.brand_name} articles`}>
                         <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sov.color || '#6b7280' }} />
                         <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{sov.brand_name}</span>
                         <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{sov.percentage.toFixed(1)}%</span>
                         <span className="text-xs text-gray-400 w-20 text-right">{sov.mention_count} articles</span>
-                      </div>
+                        <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
+                      </button>
                     ))}
                   </div>
                 </div>
