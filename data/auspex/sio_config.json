@@ -1,0 +1,5 @@
+{
+  "credibility_threshold": 50,
+  "hours_back": 24,
+  "max_events": 30
+}

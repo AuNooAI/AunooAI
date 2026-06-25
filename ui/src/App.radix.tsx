@@ -394,7 +394,7 @@ export default function App() {
 
         {!loading && !data && (
           <div className="flex flex-col items-center justify-center py-20">
-            <TrendingUp className="h-16 w-16 text-gray-300 mb-4" />
+            <TrendingUp className="h-16 w-16 text-gray-400 mb-4" />
             <h2 className="text-2xl font-semibold text-gray-800 mb-2">Ready to Analyze Trends</h2>
             <p className="text-gray-600 mb-6">Configure your analysis settings to get started</p>
             <Button onClick={() => setIsConfigOpen(true)} size="lg">

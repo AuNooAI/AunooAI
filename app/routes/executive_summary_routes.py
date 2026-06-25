@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/executive-summary", tags=["executive-summary"])
 # Add a separate router for the web page (without API prefix)
 web_router = APIRouter(tags=["executive-summary-web"])
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 # Pydantic Models
 class MarketSignal(BaseModel):
@@ -550,7 +551,7 @@ async def get_ai_impact_timeline_analysis(
         logger.info(f"Generating AI impact timeline analysis for topic: {topic_name}")
         
         # Calculate optimal sample size
-        optimal_sample_size = _calculate_optimal_sample_size(model or 'gpt-4o', sample_size_mode, custom_limit)
+        optimal_sample_size = _calculate_optimal_sample_size(model or 'gpt-5.4', sample_size_mode, custom_limit)
         logger.info(f"Using sample size: {optimal_sample_size} articles for model: {model}")
         
         # Get recent articles for the topic
@@ -717,7 +718,7 @@ Your response must be a properly formatted JSON that matches the template struct
                 'generated_at': datetime.now().isoformat(),
                 'articles_analyzed': len(articles),
                 'timeframe_days': timeframe_days,
-                'model_used': model or 'gpt-4o'
+                'model_used': model or 'gpt-5.4'
             })
             
             logger.info(f"Successfully generated timeline with {len(timeline_data.get('swimlanes', []))} categories")
@@ -741,6 +742,10 @@ def _calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', c
     
     # Context limits for different AI models
     context_limits = {
+        'gpt-5.5': 1000000,
+        'gpt-5.4': 400000,
+        'gpt-5.4-mini': 400000,
+        'gpt-5.4-nano': 400000,
         'gpt-3.5-turbo': 16385,
         'gpt-4': 8192,
         'gpt-4-turbo': 128000,

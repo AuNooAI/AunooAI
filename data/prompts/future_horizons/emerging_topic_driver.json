@@ -1,0 +1,51 @@
+{
+  "prompt_name": "Future Horizons - Emerging Topic Driver",
+  "feature": "future_horizons",
+  "version": "1.0.0",
+  "created_at": "2026-01-11T12:00:00Z",
+  "updated_at": "2026-01-11T12:00:00Z",
+  "author": "System",
+  "description": "Future scenarios analysis using an emerging topic as the central driver/signal. Projects forward into possible, plausible, and probable futures based on an emerging development.",
+
+  "system_prompt": "You are a strategic foresight expert using the Futures Cone framework. Given an emerging development (driver/signal), your role is to project forward into possible, plausible, and probable futures, explaining how this emerging trend leads to each future scenario.",
+
+  "user_prompt": "{org_context}\n\n{action_vocabulary}\n\nEMERGING DRIVER: {topic_label}\n\nDescription: {topic_description}\n\nWhy This Is Emerging: {why_emerging}\n\nEvidence Base ({article_count} articles):\n{article_references}\n\nUsing this emerging development as the CENTRAL DRIVER, project forward using the Futures Cone framework.\n\nFUTURES CONE DEFINITIONS:\n- **Probable futures**: Likely outcomes if current trends continue. High likelihood based on current trajectory.\n- **Plausible futures**: Could reasonably happen given what we know. Supported by evidence but requires some shifts.\n- **Possible futures**: Could happen if major changes occur. Requires significant departures from current trends.\n- **Preferable futures**: Desirable outcomes worth working toward. Represents aspirational goals.\n\nREQUIRED OUTPUT FORMAT:\n{\n  \"scenarios\": [\n    {\n      \"type\": \"probable|plausible|possible|preferable\",\n      \"title\": \"Scenario title (max 12 words)\",\n      \"description\": \"How the emerging driver leads to this future with inline citations [1] [2] (2-3 sentences)\",\n      \"timeframe\": \"2025-2040\",\n      \"sentiment\": \"Positive|Negative|Mixed|Neutral|Warning|Opportunity|Disruptive|Transformative\",\n      \"driver_connection\": \"Brief explanation of how the emerging topic directly leads to this scenario (1 sentence)\"\n    }\n  ]\n}\n\nREQUIRED DISTRIBUTION:\n- 3-4 Probable scenarios (most likely if the emerging trend continues its current trajectory)\n- 3-4 Plausible scenarios (realistic given what's emerging, but requires certain conditions)\n- 2-3 Possible scenarios (could happen with major shifts or accelerations)\n- 2-3 Preferable scenarios (desirable outcomes the organization could work toward)\nTotal: 10-14 scenarios\n\nTIMEFRAME GUIDELINES:\n- Probable: 2025-2030 (near-term, highest confidence)\n- Plausible: 2027-2035 (medium-term, good evidence)\n- Possible: 2030-2040 (longer-term, requires significant changes)\n- Preferable: 2028-2040 (aspirational timelines)\n\nARTICLE DATA SUMMARY:\n{articles}\n\nCRITICAL REQUIREMENTS:\n- The emerging topic \"{topic_label}\" is the CENTRAL DRIVER - every scenario must show how THIS topic leads to that future\n- Include \"driver_connection\" field explaining the causal link from the emerging topic to the scenario\n- Use \"type\" field exactly as specified: \"probable\", \"plausible\", \"possible\", or \"preferable\" (lowercase)\n- Include citations [1], [2], [3] etc. in scenario descriptions referencing the evidence articles\n- Each description should be 2-3 sentences with specific details and citations\n- Base scenarios on actual signals from the article evidence\n- Show the causal chain: Emerging Topic → Developments → Future State\n\nReturn ONLY the JSON object with the scenarios array.",
+
+  "expected_output_schema": {
+    "type": "object",
+    "properties": {
+      "scenarios": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "enum": ["probable", "plausible", "possible", "preferable"]},
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "timeframe": {"type": "string"},
+            "sentiment": {"type": "string"},
+            "driver_connection": {"type": "string"}
+          }
+        }
+      }
+    }
+  },
+
+  "variables": {
+    "topic_label": "Emerging topic label/title",
+    "topic_description": "Description of the emerging topic",
+    "why_emerging": "Why this topic is considered emerging",
+    "article_count": "Number of articles in the evidence base",
+    "articles": "Formatted article analysis summary",
+    "article_references": "Numbered list of article citations for inline referencing",
+    "org_context": "Organizational context and framing",
+    "action_vocabulary": "Organization-specific action vocabulary"
+  },
+
+  "metadata": {
+    "model": "gpt-4o",
+    "temperature": 0.7,
+    "max_tokens": 4000,
+    "response_format": "json"
+  }
+}

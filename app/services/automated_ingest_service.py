@@ -23,14 +23,22 @@ from app.database_query_facade import DatabaseQueryFacade
 from app.services.async_db import AsyncDatabase, get_async_database_instance
 from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator
+from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+from app.services.enrichment_service import get_enrichment_service
+from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel, get_available_models
 import asyncio
+import nest_asyncio
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from app.config.config import load_config, get_topic_description
 import time
+
+# Allow nested event loops (needed when called from FastAPI routes that
+# invoke the sync analyze_article_content -> asyncio.run path).
+nest_asyncio.apply()
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -50,6 +58,10 @@ class AutomatedIngestService:
         self.async_db = get_async_database_instance()
         self.config = config or load_config()
         self.relevance_calculator = None
+        self.hybrid_relevance_service = None  # Lazy-loaded SLM-based relevance
+        self.enrichment_service = None  # Lazy-loaded SLM-based enrichment
+        self.hybrid_enrichment_service = None  # Lazy-loaded adaptive enrichment (GPT -> DeBERTa)
+        self.use_adaptive_enrichment = self.config.get('use_adaptive_enrichment', True)
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
 
@@ -60,10 +72,45 @@ class AutomatedIngestService:
             thread_name_prefix="blocking_io_"
         )
 
+        # Cached Research instances keyed by model_name
+        self._research_cache = {}
+
         # Configure logging
         self.logger = logger
         self.logger.info("AutomatedIngestService initialized with async capabilities and dedicated blocking I/O executor (3 workers)")
-    
+
+    def _get_research(self, model_name: str = None) -> 'Research':
+        """Get a cached Research instance, creating one only on first call per model_name.
+
+        Avoids re-initializing Firecrawl (which counts as a billable API call) and
+        reloading topic configs for every article processed.
+        """
+        from app.research import Research
+        cache_key = model_name or '_default'
+        if cache_key not in self._research_cache:
+            self._research_cache[cache_key] = Research(self.db, model_name=model_name)
+        return self._research_cache[cache_key]
+
+    def get_inference_mode(self) -> str:
+        """
+        Get the inference mode from database settings.
+
+        Returns:
+            'local' - Use local models only (DeBERTa, no LLM fallback)
+            'hybrid' - Use local models with LLM fallback for low confidence (default)
+            'external' - Use LLM for everything
+        """
+        try:
+            from sqlalchemy import text
+            result = self.db.facade._execute_with_rollback(
+                text("SELECT inference_mode FROM keyword_monitor_settings WHERE id = 1")
+            ).fetchone()
+            mode = result[0] if result else 'hybrid'
+            return mode
+        except Exception as e:
+            self.logger.warning(f"Failed to get inference mode, defaulting to hybrid: {e}")
+            return 'hybrid'
+
     def get_llm_client(self, model_override: str = None) -> str:
         """
         Get the LLM model name to use for processing
@@ -92,7 +139,7 @@ class AutomatedIngestService:
         except Exception as e:
             self.logger.warning(f"Could not get LLM settings from database: {e}")
 
-        return "gpt-4o-mini"  # Ultimate fallback
+        return "gpt-5.4-mini"  # Ultimate fallback
     
     def get_llm_parameters(self) -> Dict[str, Any]:
         """
@@ -155,92 +202,165 @@ class AutomatedIngestService:
     
     def analyze_article_content(self, article_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Perform full article analysis including category, sentiment, etc.
-        
+        Perform full article analysis using hybrid SLM + LLM approach.
+
+        SLM handles: sentiment, time_to_impact, driver_type, future_signal (classification)
+        LLM handles: summary, explanations, category, tags (generation)
+
         Args:
             article_data: Article data dictionary
-            
+
         Returns:
             Article data enriched with analysis results
         """
         try:
-            # Initialize article analyzer if not already done
-            if not self.article_analyzer:
-                model_name = self.get_llm_client()
-                ai_model = LiteLLMModel.get_instance(model_name)
-                self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
-            
             # Prepare content for analysis
             article_text = article_data.get('summary', '') or article_data.get('content', '')
             title = article_data.get('title', '')
             source = article_data.get('news_source', '')
             uri = article_data.get('uri', '')
-            
+
             if not article_text or not title:
                 self.logger.warning(f"Insufficient content for analysis: {uri}")
                 return article_data
-            
-            # Get topic from article data (don't use hardcoded default)
+
             topic = article_data.get('topic')
             if not topic:
                 self.logger.error(f"No topic specified for article {uri} - cannot determine ontology")
                 return article_data
-            
-            # Get topic-specific ontology dynamically using Research class
-            from app.research import Research
-            model_name = self.get_llm_client()
-            research = Research(self.db, model_name=model_name)
-            self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
-            
-            # Set topic and get dynamic ontology data
-            research.set_topic(topic)
-            
-            # Check if we're in an event loop context
+
+            # Step 1: Try SLM/Hybrid enrichment for classification fields
+            slm_result = {}
+            slm_fields_used = []
+            enrichment_sources = {}
+
             try:
-                # Try to get the running event loop
+                if self.use_adaptive_enrichment:
+                    # Use adaptive hybrid enrichment (GPT for new topics, DeBERTa for trained)
+                    if not self.hybrid_enrichment_service:
+                        self.hybrid_enrichment_service = get_hybrid_enrichment_service()
+
+                    # Get inference mode to determine if we use local LLM (Qwen) instead of GPT
+                    inference_mode = self.get_inference_mode()
+                    use_local_llm = inference_mode == 'local'
+                    llm_type = "Qwen" if use_local_llm else "GPT"
+
+                    self.logger.info(f"    🔄 Using adaptive enrichment ({llm_type} fallback): {title[:50]}...")
+
+                    # Run async coroutine (nest_asyncio applied at module level)
+                    slm_result = asyncio.run(
+                        self.hybrid_enrichment_service.enrich_article(
+                            title=title,
+                            summary=article_text,
+                            topic=topic,
+                            article_uri=uri,
+                            use_local_llm=use_local_llm,
+                        )
+                    )
+
+                    # Track which fields were handled and by which model
+                    enrichment_sources = slm_result.get('sources', {})
+                    for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                        if field in slm_result and slm_result[field]:
+                            slm_fields_used.append(field)
+
+                    if slm_fields_used:
+                        sources_str = ', '.join(f"{f}={enrichment_sources.get(f, '?')}" for f in slm_fields_used)
+                        self.logger.info(f"    ✅ Adaptive enrichment: {sources_str}")
+
+                    # Record confidence stats for frontend tracking (hybrid enrichment path)
+                    try:
+                        deberta_confidence_scores = {}
+                        for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                            if enrichment_sources.get(field) == 'deberta':
+                                conf = slm_result.get(f'{field}_confidence', 0)
+                                deberta_confidence_scores[field] = conf
+
+                        if deberta_confidence_scores:
+                            from app.routes.training_routes import get_confidence_tracker
+                            tracker = get_confidence_tracker()
+                            tracker.record(topic, deberta_confidence_scores)
+                    except Exception as tracker_err:
+                        self.logger.debug(f"Failed to record confidence stats (hybrid): {tracker_err}")
+
+                else:
+                    # Use standard DeBERTa enrichment service
+                    if not self.enrichment_service:
+                        self.enrichment_service = get_enrichment_service()
+
+                    if self.enrichment_service.is_available():
+                        self.logger.info(f"    🧠 Using SLM for classification: {title[:50]}...")
+                        slm_result = self.enrichment_service.enrich(title=title, summary=article_text)
+
+                        confidence_threshold = 0.6
+                        confidence_scores = {}
+                        for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                            conf = slm_result.get(f'{field}_confidence', 0)
+                            confidence_scores[field] = conf
+                            if field in slm_result and conf >= confidence_threshold:
+                                slm_fields_used.append(field)
+                                enrichment_sources[field] = 'deberta'
+
+                        avg_conf = sum(confidence_scores.values()) / len(confidence_scores) if confidence_scores else 0
+                        conf_str = ', '.join(f"{f[:3]}={c:.2f}" for f, c in confidence_scores.items())
+
+                        try:
+                            from app.routes.training_routes import get_confidence_tracker
+                            tracker = get_confidence_tracker()
+                            tracker.record(topic, confidence_scores)
+                        except Exception as tracker_err:
+                            self.logger.debug(f"Failed to record confidence stats: {tracker_err}")
+
+                        if slm_fields_used:
+                            self.logger.info(f"    ✅ SLM confident for: {', '.join(slm_fields_used)} (avg={avg_conf:.2f}, {conf_str})")
+                        else:
+                            self.logger.info(f"    ⚠️ SLM low confidence (avg={avg_conf:.2f}, {conf_str}), will use LLM for all fields")
+
+            except Exception as e:
+                self.logger.warning(f"Enrichment failed, falling back to LLM: {e}")
+
+            # Step 2: Use LLM for generative fields (summary, explanations) and low-confidence classifications
+            if not self.article_analyzer:
+                model_name = self.get_llm_client()
+                ai_model = LiteLLMModel.get_instance(model_name)
+                self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
+
+            model_name = self.get_llm_client()
+            research = self._get_research(model_name)
+            self.logger.info(f"    🤖 Using LLM ({model_name}) for summary & explanations")
+
+            research.set_topic(topic)
+
+            try:
                 loop = asyncio.get_running_loop()
-                # If we're in an event loop, use thread pool to avoid event loop conflicts
-                
                 def run_async_in_thread(coro_func, *args):
-                    """Helper function to run async function in a new thread with its own event loop"""
                     return asyncio.run(coro_func(*args))
-                
-                # Use a thread pool to run the async methods
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future_categories = executor.submit(run_async_in_thread, research.get_categories, topic)
                     future_signals_f = executor.submit(run_async_in_thread, research.get_future_signals, topic)
                     future_sentiments = executor.submit(run_async_in_thread, research.get_sentiments, topic)
                     future_time_to_impact = executor.submit(run_async_in_thread, research.get_time_to_impact, topic)
                     future_driver_types = executor.submit(run_async_in_thread, research.get_driver_types, topic)
-                    
+
                     categories = future_categories.result()
                     future_signals = future_signals_f.result()
                     sentiment_options = future_sentiments.result()
                     time_to_impact_options = future_time_to_impact.result()
                     driver_types = future_driver_types.result()
-                    
             except RuntimeError:
-                # No event loop running, safe to use asyncio.run
                 categories = asyncio.run(research.get_categories(topic))
                 future_signals = asyncio.run(research.get_future_signals(topic))
                 sentiment_options = asyncio.run(research.get_sentiments(topic))
                 time_to_impact_options = asyncio.run(research.get_time_to_impact(topic))
                 driver_types = asyncio.run(research.get_driver_types(topic))
-            
-            self.logger.debug(f"Using dynamic ontology for topic '{topic}':")
-            self.logger.debug(f"  Categories: {categories}")
-            self.logger.debug(f"  Future signals: {future_signals}")
-            self.logger.debug(f"  Sentiment options: {sentiment_options}")
-            self.logger.debug(f"  Time to impact: {time_to_impact_options}")
-            self.logger.debug(f"  Driver types: {driver_types}")
-            
-            # Perform analysis with dynamic ontology data
+
             analysis_result = self.article_analyzer.analyze_content(
                 article_text=article_text,
                 title=title,
                 source=source,
                 uri=uri,
-                summary_length=50,  # Keep existing summary length
+                summary_length=50,
                 summary_voice="neutral",
                 summary_type="informative",
                 categories=categories,
@@ -249,13 +369,13 @@ class AutomatedIngestService:
                 time_to_impact_options=time_to_impact_options,
                 driver_types=driver_types
             )
-            
-            # Update article data with analysis results
+
+            # Step 3: Merge results - SLM for confident classifications, LLM for rest
             tags = analysis_result.get('tags', [])
             tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
 
-            article_data.update({
-                'summary': analysis_result.get('summary'),  # ✅ CRITICAL: Include AI-generated summary
+            final_result = {
+                'summary': analysis_result.get('summary'),
                 'category': analysis_result.get('category'),
                 'sentiment': analysis_result.get('sentiment'),
                 'future_signal': analysis_result.get('future_signal'),
@@ -266,20 +386,42 @@ class AutomatedIngestService:
                 'driver_type': analysis_result.get('driver_type'),
                 'driver_type_explanation': analysis_result.get('driver_type_explanation'),
                 'tags': tags_str,
-                'analyzed': True
-            })
+                'analyzed': True,
+                '_enrichment_method': 'llm_only'
+            }
 
-            self.logger.debug(f"Analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}, summary_length={len(analysis_result.get('summary', ''))}")
-            
+            # Override with SLM results for high-confidence fields
+            if slm_fields_used:
+                for field in slm_fields_used:
+                    if field in slm_result:
+                        final_result[field] = slm_result[field]
+                final_result['_enrichment_method'] = f"hybrid_slm({','.join(slm_fields_used)})"
+
+            for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                if field not in enrichment_sources:
+                    enrichment_sources[field] = 'gpt'
+
+            final_result['enrichment_sources'] = enrichment_sources
+
+            article_data.update(final_result)
+
+            method = final_result.get('_enrichment_method', 'unknown')
+            self.logger.info(f"    📝 Enriched {uri[:50]}: method={method}, sentiment={final_result.get('sentiment')}, summary_len={len(final_result.get('summary', ''))}")
+
             return article_data
-            
+
         except Exception as e:
             self.logger.error(f"Error analyzing article content: {e}")
             return article_data
     
     def score_article_relevance(self, article_data: Dict[str, Any], topic: str, keywords: List[str]) -> Dict[str, Any]:
         """
-        Score article relevance using the RelevanceCalculator
+        Score article relevance using the Hybrid Relevance Service (SLM + LLM fallback).
+
+        The hybrid approach uses:
+        1. Embedding similarity (fast, works for any topic)
+        2. Fine-tuned classifier (accurate for trained topics)
+        3. LLM fallback (for uncertain scores in 0.3-0.7 range)
 
         Args:
             article_data: Article data dictionary
@@ -290,25 +432,99 @@ class AutomatedIngestService:
             Dictionary containing relevance score and details
         """
         try:
-            # Initialize relevance calculator if not already done
+            # Initialize hybrid relevance service if not already done
+            if not self.hybrid_relevance_service:
+                self.hybrid_relevance_service = get_hybrid_relevance_service()
+                self.hybrid_relevance_service.load_models()
+                self.logger.info("🤖 Initialized Hybrid Relevance Service (embedding + classifier + LLM fallback)")
+
+            # Prepare article text
+            article_full_content = article_data.get('content', '')
+            article_summary = article_data.get('summary', '')
+            article_content = article_full_content or article_summary
+            title = article_data.get('title', '')
+
+            # Log content source for debugging
+            content_source = "full content" if article_full_content else ("summary" if article_summary else "none")
+
+            # Get inference mode to control LLM usage
+            inference_mode = self.get_inference_mode()
+            use_llm_fallback = inference_mode in ('hybrid', 'external')
+            force_llm = inference_mode == 'external'
+
+            mode_label = {'local': '🏠 Local', 'hybrid': '🔄 Hybrid', 'external': '☁️ External'}
+            self.logger.info(f"📊 {mode_label.get(inference_mode, inference_mode)} relevance check using {content_source} ({len(article_content)} chars) for: {title[:60]}...")
+
+            # In local mode, use Qwen for LLM fallback instead of GPT
+            use_local_llm = inference_mode == 'local'
+
+            # Score using hybrid service (embedding + classifier + optional LLM fallback)
+            hybrid_result = self.hybrid_relevance_service.score_relevance(
+                topic=topic,
+                title=title,
+                summary=article_content,
+                threshold=self.get_relevance_threshold(),
+                use_llm_fallback=use_llm_fallback,
+                force_llm=force_llm,
+                use_local_llm=use_local_llm
+            )
+
+            # Map hybrid result to expected pipeline format
+            relevance_result = {
+                "relevance_score": hybrid_result.get("score", 0.0),
+                "topic_alignment_score": hybrid_result.get("score", 0.0),
+                "keyword_relevance_score": hybrid_result.get("embedding_score", 0.0),
+                "confidence_score": 1.0 if hybrid_result.get("confidence") == "high" else 0.5,
+                "overall_match_explanation": f"Hybrid scoring: {hybrid_result.get('method')} (embed={hybrid_result.get('embedding_score') or 0:.2f}, class={hybrid_result.get('classifier_score') or 0:.2f})",
+                "_hybrid_method": hybrid_result.get("method"),
+                "_hybrid_confidence": hybrid_result.get("confidence"),
+                "_embedding_score": hybrid_result.get("embedding_score"),
+                "_classifier_score": hybrid_result.get("classifier_score"),
+                "_llm_score": hybrid_result.get("llm_score"),
+            }
+
+            # Record relevance confidence stats for frontend tracking
+            try:
+                from app.routes.training_routes import get_relevance_confidence_tracker
+                tracker = get_relevance_confidence_tracker()
+                tracker.record(
+                    topic=topic,
+                    score=hybrid_result.get("score", 0.0),
+                    classifier_score=hybrid_result.get("classifier_score"),
+                    embedding_score=hybrid_result.get("embedding_score"),
+                    method=hybrid_result.get("method", "unknown"),
+                    relevant=hybrid_result.get("relevant"),
+                    ce_score=hybrid_result.get("ce_score"),
+                )
+            except Exception as tracker_err:
+                self.logger.debug(f"Failed to record relevance confidence stats: {tracker_err}")
+
+            self.logger.debug(f"Hybrid relevance for {article_data.get('uri')}: score={relevance_result['relevance_score']:.3f}, method={hybrid_result.get('method')}")
+
+            return relevance_result
+
+        except Exception as e:
+            self.logger.error(f"Error in hybrid relevance scoring: {e}")
+            # Fall back to LLM-only scoring if hybrid fails
+            self.logger.info("Falling back to LLM-only relevance scoring...")
+            return self._score_article_relevance_llm_only(article_data, topic, keywords)
+
+    def _score_article_relevance_llm_only(self, article_data: Dict[str, Any], topic: str, keywords: List[str]) -> Dict[str, Any]:
+        """Fallback to full LLM-based relevance scoring if hybrid service fails."""
+        try:
             if not self.relevance_calculator:
                 from app.relevance import RelevanceCalculator
-
-                # Get LLM model and parameters
                 model_name = self.get_llm_client()
-
-                # Initialize RelevanceCalculator with model name
                 self.relevance_calculator = RelevanceCalculator(model_name=model_name)
 
-            # Get topic description from config
             topic_description = get_topic_description(topic)
+            article_full_content = article_data.get('content', '')
+            article_summary = article_data.get('summary', '')
+            article_content = article_full_content or article_summary
+            article_text = f"{article_data.get('title', '')}\n\n{article_content}"
 
-            # Prepare article text for analysis
-            article_text = f"{article_data.get('title', '')} {article_data.get('summary', '')}"
-
-            # Calculate relevance score using correct parameter names
             keywords_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
-            relevance_result = self.relevance_calculator.analyze_relevance(
+            return self.relevance_calculator.analyze_relevance(
                 title=article_data.get('title', ''),
                 source=article_data.get('news_source', ''),
                 content=article_text,
@@ -316,13 +532,8 @@ class AutomatedIngestService:
                 keywords=keywords_str,
                 topic_description=topic_description
             )
-
-            self.logger.debug(f"Relevance score for article {article_data.get('uri')}: {relevance_result}")
-
-            return relevance_result
-
         except Exception as e:
-            self.logger.error(f"Error scoring article relevance: {e}")
+            self.logger.error(f"LLM fallback also failed: {e}")
             return {
                 "relevance_score": 0.0,
                 "topic_alignment_score": 0.0,
@@ -391,9 +602,8 @@ class AutomatedIngestService:
                 self.logger.debug(f"Found existing raw content ({len(existing_raw['raw_markdown'])} chars)")
                 return existing_raw['raw_markdown']
             
-            # Initialize Research class for scraping (reuse existing infrastructure)
-            from app.research import Research
-            research = Research(self.db)
+            # Use cached Research instance for scraping
+            research = self._get_research()
             
             # Scrape the article
             scrape_result = await research.scrape_article(uri)
@@ -608,9 +818,15 @@ class AutomatedIngestService:
         self,
         article: Dict[str, Any],
         topic: str,
-        keywords: List[str]
+        keywords: List[str],
+        relevance_threshold_override: Optional[float] = None
     ) -> Dict[str, Any]:
-        """Process a single article asynchronously with optimized database operations"""
+        """Process a single article asynchronously with optimized database operations.
+
+        relevance_threshold_override: per-group relevance threshold (e.g. a Brand
+        Watch group's min_relevance_threshold). When provided it takes precedence
+        over the global threshold so per-group tuning is honored.
+        """
         article_uri = article.get('uri', 'unknown')
         article_title = article.get('title', 'Unknown Title')
 
@@ -632,7 +848,11 @@ class AutomatedIngestService:
                     article, topic, keywords
                 )
                 quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
-                relevance_threshold = self.get_relevance_threshold()
+                relevance_threshold = (
+                    relevance_threshold_override
+                    if relevance_threshold_override is not None
+                    else self.get_relevance_threshold()
+                )
 
                 self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
 
@@ -933,11 +1153,10 @@ class AutomatedIngestService:
                 article_data['topic'] = topic
             
             # Get topic-specific ontology dynamically using Research class
-            from app.research import Research
             model_name = self.get_llm_client()
-            research = Research(self.db, model_name=model_name)
+            research = self._get_research(model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
-            
+
             # Set topic and get dynamic ontology data asynchronously
             research.set_topic(topic)
             
@@ -1039,7 +1258,7 @@ class AutomatedIngestService:
             self.logger.error(f"Vector database upsert failed: {e}")
             raise
 
-    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False) -> Dict[str, Any]:
+    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False, relevance_threshold_override: float = None) -> Dict[str, Any]:
         """
         Process a batch of articles through the enrichment pipeline
         
@@ -1066,12 +1285,32 @@ class AutomatedIngestService:
             # QUICK FIX: Use concurrent async processing instead of sequential loop
             # This prevents blocking the event loop during auto-ingest
 
-            # Pre-scrape all articles in batch for efficiency
-            article_uris = [article.get('uri') for article in articles if article.get('uri')]
-            self.logger.info(f"🚀 Pre-scraping {len(article_uris)} articles in batch...")
+            # Separate articles that already have content (from collectors like NewsFirehose,
+            # NewsData.io) from those that need Firecrawl scraping
+            articles_needing_scrape = []
+            articles_with_content = {}
 
-            scraped_content = await self.scrape_articles_batch(article_uris)
-            self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+            for article in articles:
+                article_uri = article.get('uri')
+                if not article_uri:
+                    continue
+                existing_content = article.get('content')
+                if existing_content and len(existing_content) > 200:
+                    articles_with_content[article_uri] = existing_content
+                else:
+                    articles_needing_scrape.append(article_uri)
+
+            self.logger.info(f"📊 Content status: {len(articles_with_content)} have collector content, {len(articles_needing_scrape)} need scraping")
+
+            # Only batch scrape articles that don't have content
+            scraped_content = {}
+            if articles_needing_scrape:
+                self.logger.info(f"🚀 Pre-scraping {len(articles_needing_scrape)} articles in batch...")
+                scraped_content = await self.scrape_articles_batch(articles_needing_scrape, topic=topic)
+                self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+
+            # Combine collector content and scraped content
+            all_content = {**articles_with_content, **scraped_content}
 
             # Process articles concurrently using existing async infrastructure
             # This is the KEY FIX: use _process_single_article_async() which properly uses
@@ -1086,7 +1325,7 @@ class AutomatedIngestService:
             for article in articles:
                 # Attach pre-scraped content to article for processing
                 article_uri = article.get('uri', 'unknown')
-                article['_scraped_content'] = scraped_content.get(article_uri)
+                article['_scraped_content'] = all_content.get(article_uri)
                 all_article_data.append(article)
 
             # Process in batches to prevent connection pool exhaustion
@@ -1101,7 +1340,10 @@ class AutomatedIngestService:
                 tasks = []
                 for article in batch:
                     task = asyncio.create_task(
-                        self._process_single_article_async(article, topic, keywords)
+                        self._process_single_article_async(
+                            article, topic, keywords,
+                            relevance_threshold_override=relevance_threshold_override
+                        )
                     )
                     tasks.append(task)
 
@@ -1377,7 +1619,7 @@ class AutomatedIngestService:
                 "topic": topic_id
             }
     
-    async def scrape_articles_batch(self, uris: List[str]) -> Dict[str, Optional[str]]:
+    async def scrape_articles_batch(self, uris: List[str], topic: str = None) -> Dict[str, Optional[str]]:
         """
         Scrape multiple articles using Firecrawl's batch API
         
@@ -1410,21 +1652,36 @@ class AutomatedIngestService:
                 self.logger.info("All articles already scraped, returning existing content")
                 return existing_articles
             
-            # Initialize Research class for Firecrawl access
-            from app.research import Research
-            research = Research(self.db)
-            
+            # Use cached Research instance for Firecrawl access
+            research = self._get_research()
+
             if not research.firecrawl_app:
                 self.logger.warning("Firecrawl not available, falling back to individual scraping")
                 return await self._fallback_individual_scraping(uris)
-            
+
+            self.logger.info(f"Sending {len(uris_to_scrape)} URLs to Firecrawl ({len(existing_articles)} already cached)")
+
             # Use Firecrawl batch API
             batch_result = await self._firecrawl_batch_scrape(research.firecrawl_app, uris_to_scrape)
-            
+
+            # Cache newly scraped content to raw_articles immediately so subsequent
+            # keywords in the same group check get cache hits instead of re-scraping
+            saved_count = 0
+            for uri, content in batch_result.items():
+                if content:
+                    try:
+                        await self.async_db.save_raw_article_async(uri, content, topic)
+                        saved_count += 1
+                    except Exception as e:
+                        self.logger.debug(f"Failed to cache raw content for {uri}: {e}")
+
+            if saved_count > 0:
+                self.logger.info(f"💾 Cached {saved_count} raw articles for future deduplication")
+
             # Combine existing and newly scraped content
             results.update(existing_articles)
             results.update(batch_result)
-            
+
             self.logger.info(f"Batch scraping completed: {len(results)} articles processed")
             return results
             

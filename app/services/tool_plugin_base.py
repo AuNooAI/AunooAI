@@ -240,6 +240,11 @@ class PromptToolHandler(ToolHandler):
         query = params.get('query', '')
         limit = params.get('limit', 50)
 
+        # Handle cross-topic mode: __all__ OR None/empty means search all topics
+        # (topic can be None if it was already converted from '__all__' upstream)
+        is_cross_topic = (topic == '__all__' or not topic)
+        effective_topic = None if is_cross_topic else topic
+
         db = context.get('db')
         vector_search = context.get('vector_store')
         ai_model_getter = context.get('ai_model')
@@ -258,11 +263,18 @@ class PromptToolHandler(ToolHandler):
             try:
                 if action == 'vector_search' and vector_search:
                     # Semantic search
-                    search_query = query or topic
+                    # For cross-topic mode without a query, use a generic search term
+                    if query:
+                        search_query = query
+                    elif is_cross_topic:
+                        search_query = self.definition.name.replace('_', ' ')  # e.g., "partisan analysis"
+                    else:
+                        search_query = topic
+
                     results = vector_search(
                         query=search_query,
                         top_k=limit,
-                        metadata_filter={"topic": topic} if topic else None
+                        metadata_filter={"topic": effective_topic} if effective_topic else None
                     )
                     if results:
                         # Flatten vector search results (they have nested metadata)
@@ -289,9 +301,9 @@ class PromptToolHandler(ToolHandler):
                         }
 
                 elif action == 'db_search' and db:
-                    # Database search
+                    # Database search - use effective_topic (None for cross-topic)
                     db_articles, count = db.search_articles(
-                        topic=topic,
+                        topic=effective_topic,
                         keyword=query,
                         page=1,
                         per_page=limit
@@ -307,18 +319,76 @@ class PromptToolHandler(ToolHandler):
                         }
 
                 elif action == 'sentiment_analysis' and db:
-                    # Get sentiment distribution
-                    sentiment_data = self._get_sentiment_distribution(db, topic, articles)
+                    # Get sentiment distribution - use effective_topic for cross-topic support
+                    sentiment_data = self._get_sentiment_distribution(db, effective_topic, articles)
                     action_results['sentiment'] = sentiment_data
 
                 elif action == 'bias_analysis' and db:
-                    # Get political bias distribution
-                    bias_data = self._get_bias_distribution(db, topic, articles)
-                    action_results['bias'] = bias_data
+                    # For bias analysis, query articles that HAVE bias data directly
+                    # This is much more efficient than looking up bias for each article
+                    try:
+                        fetch_limit = min(limit * 3, 500)
+
+                        # Use facade method to get articles with bias data
+                        bias_articles = db.facade.get_articles_with_bias_data(
+                            topic_name=effective_topic,
+                            limit=fetch_limit,
+                            days_back=30
+                        )
+
+                        self.logger.info(f"Bias analysis: fetched {len(bias_articles)} articles with bias data")
+
+                        if bias_articles:
+                            # Replace articles list with bias-enriched articles for LLM context
+                            articles = bias_articles[:limit]
+
+                            # Calculate bias distribution from the pre-filtered articles
+                            bias_data = self._get_bias_distribution_from_field(bias_articles)
+                            action_results['bias'] = bias_data
+                        else:
+                            self.logger.warning("No articles with bias data found")
+                            action_results['bias'] = {'error': 'No articles with bias data available'}
+
+                    except Exception as e:
+                        self.logger.error(f"Bias analysis query failed: {e}")
+                        # Fallback to original method
+                        bias_data = self._get_bias_distribution(db, effective_topic, articles)
+                        action_results['bias'] = bias_data
+
+                elif action == 'future_impact_analysis' and db:
+                    # For future impact analysis, query articles with future_signal data
+                    try:
+                        # Use the requested limit directly (user may want 300+)
+                        fetch_limit = max(limit, 500)
+
+                        # Use facade method to get articles with future signals
+                        future_articles = db.facade.get_articles_with_future_signals(
+                            topic_name=effective_topic,
+                            limit=fetch_limit,
+                            days_back=60  # Look back further for future predictions
+                        )
+
+                        self.logger.info(f"Future impact analysis: fetched {len(future_articles)} articles with future signals")
+
+                        if future_articles:
+                            # Replace articles list with future-signal articles for LLM context
+                            articles = future_articles[:limit]
+
+                            # Calculate future signal distribution
+                            future_data = self._get_future_signal_distribution(future_articles)
+                            action_results['future_signals'] = future_data
+                        else:
+                            self.logger.warning("No articles with future signal data found")
+                            action_results['future_signals'] = {'error': 'No articles with future signal data available'}
+
+                    except Exception as e:
+                        self.logger.error(f"Future impact analysis query failed: {e}")
+                        action_results['future_signals'] = {'error': str(e)}
 
                 elif action == 'web_search':
                     # Google Programmable Search Engine
-                    web_results = await self._execute_web_search(query or topic, limit)
+                    web_search_query = query if query else (self.definition.name.replace('_', ' ') if is_cross_topic else topic)
+                    web_results = await self._execute_web_search(web_search_query, limit)
                     if web_results:
                         action_results['web_search'] = web_results
 
@@ -340,8 +410,10 @@ class PromptToolHandler(ToolHandler):
                 profile_context = context.get('profile_context', '')
 
                 # Build the full prompt with profile context prepended
+                # Use display-friendly topic name for prompt
+                display_topic = "All Topics" if is_cross_topic else topic
                 base_prompt = self.definition.prompt.format(
-                    topic=topic,
+                    topic=display_topic,
                     query=query,
                     article_count=len(articles),
                     articles=article_context,
@@ -356,7 +428,7 @@ class PromptToolHandler(ToolHandler):
 
                 # Get AI model and execute
                 # ai_model_getter is get_ai_model which requires model_name
-                model_name = self.config.get('model') or context.get('model') or 'gpt-4o-mini'
+                model_name = self.config.get('model') or context.get('model') or 'gpt-5.4-mini'
                 model = ai_model_getter(model_name)
                 if model:
                     llm_response = await self._execute_llm(model, full_prompt, context)
@@ -366,14 +438,23 @@ class PromptToolHandler(ToolHandler):
 
         execution_time = int((time.time() - start_time) * 1000)
 
+        # Generate chart data based on action results
+        chart_data = self._generate_charts_from_actions(action_results)
+
+        result_data = {
+            'analysis': llm_response or self._generate_basic_analysis(action_results, articles),
+            'article_count': len(articles),
+            'actions_performed': list(action_results.keys()),
+            'action_results': action_results
+        }
+
+        if chart_data:
+            result_data['chart_data'] = chart_data
+            self.logger.info(f"Generated {len(chart_data)} charts from action results")
+
         return ToolResult(
             success=True,
-            data={
-                'analysis': llm_response or self._generate_basic_analysis(action_results, articles),
-                'article_count': len(articles),
-                'actions_performed': list(action_results.keys()),
-                'action_results': action_results
-            },
+            data=result_data,
             message=f"Analyzed {len(articles)} articles using {len(action_results)} actions",
             execution_time_ms=execution_time
         )
@@ -395,16 +476,116 @@ class PromptToolHandler(ToolHandler):
             'dominant': sentiments.most_common(1)[0][0] if sentiments else 'Unknown'
         }
 
-    def _get_bias_distribution(self, db, topic: str, articles: List[Dict]) -> Dict:
-        """Calculate political bias distribution from articles."""
+    def _get_bias_distribution_from_field(self, articles: List[Dict]) -> Dict:
+        """Calculate political bias distribution from articles that already have bias field populated.
+
+        This is the fast path - no lookups needed, just count the bias values.
+        """
         from collections import Counter
 
         biases = Counter()
+        sources_by_bias = {}  # Track example sources for each bias category
+
+        for article in articles:
+            bias = article.get('bias', '')
+            if not bias:
+                continue
+
+            # Normalize bias categories
+            bias_lower = bias.lower()
+            if 'left-center' in bias_lower:
+                normalized = 'Center-Left'
+            elif 'right-center' in bias_lower:
+                normalized = 'Center-Right'
+            elif 'least biased' in bias_lower or bias_lower == 'center':
+                normalized = 'Center'
+            elif 'far right' in bias_lower or 'extreme right' in bias_lower:
+                normalized = 'Far-Right'
+            elif 'far left' in bias_lower or 'extreme left' in bias_lower:
+                normalized = 'Far-Left'
+            elif bias_lower == 'right' or bias_lower == 'right biased':
+                normalized = 'Right'
+            elif bias_lower == 'left' or bias_lower == 'left biased':
+                normalized = 'Left'
+            elif 'conspiracy' in bias_lower or 'pseudoscience' in bias_lower:
+                normalized = 'Conspiracy/Pseudoscience'
+            elif 'pro-science' in bias_lower:
+                normalized = 'Pro-Science'
+            else:
+                normalized = bias.title()
+
+            biases[normalized] += 1
+
+            # Track sources for each bias category
+            source = article.get('news_source', '')
+            if source and normalized not in sources_by_bias:
+                sources_by_bias[normalized] = []
+            if source and len(sources_by_bias.get(normalized, [])) < 5:
+                if source not in sources_by_bias[normalized]:
+                    sources_by_bias[normalized].append(source)
+
+        total = sum(biases.values())
+
+        # Standard categories for display
+        display_order = ['Far-Left', 'Left', 'Center-Left', 'Center', 'Center-Right', 'Right', 'Far-Right', 'Pro-Science', 'Conspiracy/Pseudoscience']
+        formatted_dist = {}
+        for cat in display_order:
+            if biases.get(cat, 0) > 0:
+                formatted_dist[cat] = biases[cat]
+        # Add any other categories
+        for k, v in biases.items():
+            if k not in formatted_dist and v > 0:
+                formatted_dist[k] = v
+
+        return {
+            'distribution': formatted_dist,
+            'percentages': {k: round(v/total*100, 1) for k, v in formatted_dist.items()} if total > 0 else {},
+            'total_articles': total,
+            'dominant': biases.most_common(1)[0][0] if biases else 'Unknown',
+            'sources_by_bias': sources_by_bias
+        }
+
+    def _get_bias_distribution(self, db, topic: str, articles: List[Dict]) -> Dict:
+        """Calculate political bias distribution from articles.
+
+        If articles don't have bias data, looks it up from the MediaBias module.
+        """
+        from collections import Counter
+
+        # Try to load MediaBias for source lookups
+        media_bias = None
+        try:
+            from app.models.media_bias import MediaBias
+            from app.database import get_database_instance
+            media_bias_db = get_database_instance()
+            media_bias = MediaBias(media_bias_db)
+        except Exception as e:
+            self.logger.warning(f"Could not load MediaBias module: {e}")
+
+        biases = Counter()
         bias_scores = []
+        source_to_bias = {}  # Cache source lookups
 
         for article in articles:
             # Check for bias fields (from media_bias enrichment)
-            bias = article.get('political_bias') or article.get('bias') or article.get('media_bias', 'Unknown')
+            bias = article.get('political_bias') or article.get('bias') or article.get('media_bias')
+
+            # If no bias data, look it up from news_source
+            if not bias and media_bias:
+                source = article.get('news_source', '')
+                if source:
+                    if source not in source_to_bias:
+                        # Look up bias for this source
+                        bias_info = media_bias.get_bias_for_source(source)
+                        if bias_info:
+                            source_to_bias[source] = bias_info.get('bias', 'Unknown')
+                        else:
+                            source_to_bias[source] = 'Unknown'
+                    bias = source_to_bias.get(source, 'Unknown')
+
+            if not bias:
+                bias = 'Unknown'
+
             biases[bias] += 1
 
             # Collect numeric bias scores if available
@@ -415,13 +596,166 @@ class PromptToolHandler(ToolHandler):
         total = sum(biases.values())
         avg_score = sum(bias_scores) / len(bias_scores) if bias_scores else None
 
+        # Format for display
+        bias_categories = ['Left', 'Center-Left', 'Center', 'Center-Right', 'Right', 'Unknown']
+        formatted_dist = {cat: biases.get(cat, 0) for cat in bias_categories}
+        # Add any other bias categories found
+        for k, v in biases.items():
+            if k not in formatted_dist:
+                formatted_dist[k] = v
+
         return {
-            'distribution': dict(biases),
-            'percentages': {k: round(v/total*100, 1) for k, v in biases.items()} if total > 0 else {},
+            'distribution': formatted_dist,
+            'percentages': {k: round(v/total*100, 1) for k, v in formatted_dist.items() if v > 0} if total > 0 else {},
             'total_articles': total,
             'average_bias_score': round(avg_score, 2) if avg_score else None,
-            'dominant': biases.most_common(1)[0][0] if biases else 'Unknown'
+            'dominant': biases.most_common(1)[0][0] if biases else 'Unknown',
+            'sources_looked_up': len(source_to_bias)
         }
+
+    def _get_future_signal_distribution(self, articles: List[Dict]) -> Dict:
+        """Calculate future signal and time-to-impact distribution from articles.
+
+        Analyzes articles for their future predictions and impact timelines.
+        """
+        from collections import Counter
+
+        future_signals = Counter()
+        time_to_impact = Counter()
+        sentiments = Counter()
+
+        for article in articles:
+            # Count future signals
+            signal = article.get('future_signal', '')
+            if signal and signal != 'None':
+                future_signals[signal] += 1
+
+            # Count time to impact
+            impact_time = article.get('time_to_impact', '')
+            if impact_time and impact_time != '':
+                time_to_impact[impact_time] += 1
+
+            # Count sentiment (strong sentiments are more predictive)
+            sentiment = article.get('sentiment', '')
+            if sentiment:
+                sentiments[sentiment] += 1
+
+        total = len(articles)
+
+        return {
+            'future_signals': {
+                'distribution': dict(future_signals),
+                'top_signals': future_signals.most_common(5),
+                'total': sum(future_signals.values())
+            },
+            'time_to_impact': {
+                'distribution': dict(time_to_impact),
+                'percentages': {k: round(v/total*100, 1) for k, v in time_to_impact.items()} if total > 0 else {}
+            },
+            'sentiment': {
+                'distribution': dict(sentiments),
+                'strong_sentiment_count': sentiments.get('Negative', 0) + sentiments.get('Positive', 0) + sentiments.get('Critical', 0)
+            },
+            'total_articles': total
+        }
+
+    def _generate_charts_from_actions(self, action_results: Dict) -> Dict:
+        """Generate Plotly-compatible charts from action results."""
+        charts = {}
+
+        # Bias chart (pie + bar)
+        if 'bias' in action_results and not action_results['bias'].get('error'):
+            bias_data = action_results['bias']
+            dist = bias_data.get('distribution', {})
+
+            if dist:
+                # Color mapping for bias categories
+                bias_colors = {
+                    'Far-Left': '#1e40af', 'Left': '#2563eb', 'Center-Left': '#60a5fa',
+                    'Center': '#9ca3af', 'Center-Right': '#f87171', 'Right': '#dc2626',
+                    'Far-Right': '#7f1d1d', 'Pro-Science': '#059669', 'Conspiracy/Pseudoscience': '#7c3aed',
+                    'Unknown': '#d1d5db'
+                }
+
+                labels = list(dist.keys())
+                values = list(dist.values())
+                colors = [bias_colors.get(label, '#999') for label in labels]
+
+                charts['bias_distribution'] = {
+                    "data": [{
+                        "labels": labels,
+                        "values": values,
+                        "type": "pie",
+                        "hole": 0.4,
+                        "marker": {"colors": colors},
+                        "textinfo": "label+percent",
+                        "textposition": "outside",
+                        "sort": False
+                    }],
+                    "layout": {
+                        "title": "Political Bias Distribution",
+                        "showlegend": True,
+                        "legend": {"orientation": "h", "y": -0.1}
+                    }
+                }
+
+        # Sentiment chart (pie)
+        if 'sentiment' in action_results:
+            sent_data = action_results['sentiment']
+            dist = sent_data.get('distribution', {})
+
+            if dist:
+                sentiment_colors = {
+                    'Positive': '#28a745', 'Negative': '#dc3545', 'Neutral': '#6c757d',
+                    'Mixed': '#ffc107', 'Critical': '#fb923c', 'Unknown': '#9ca3af'
+                }
+
+                labels = list(dist.keys())
+                values = list(dist.values())
+                colors = [sentiment_colors.get(label, '#999') for label in labels]
+
+                charts['sentiment_distribution'] = {
+                    "data": [{
+                        "labels": labels,
+                        "values": values,
+                        "type": "pie",
+                        "hole": 0.4,
+                        "marker": {"colors": colors},
+                        "textinfo": "label+percent",
+                        "textposition": "outside"
+                    }],
+                    "layout": {
+                        "title": "Sentiment Distribution",
+                        "showlegend": True,
+                        "legend": {"orientation": "h", "y": -0.1}
+                    }
+                }
+
+        # Future signals chart (bar)
+        if 'future_signals' in action_results and not action_results['future_signals'].get('error'):
+            future_data = action_results['future_signals']
+            signals = future_data.get('future_signals', {}).get('distribution', {})
+
+            if signals:
+                labels = list(signals.keys())
+                values = list(signals.values())
+
+                charts['future_signals'] = {
+                    "data": [{
+                        "x": values,
+                        "y": labels,
+                        "type": "bar",
+                        "orientation": "h",
+                        "marker": {"color": "#8b5cf6"}
+                    }],
+                    "layout": {
+                        "title": "Future Impact Signals",
+                        "xaxis": {"title": "Article Count"},
+                        "yaxis": {"title": "Signal Type", "autorange": "reversed"}
+                    }
+                }
+
+        return charts
 
     def _format_articles_for_prompt(self, articles: List[Dict], max_chars: int = 50000) -> str:
         """Format articles for LLM context with URLs for citation."""
@@ -435,9 +769,9 @@ class PromptToolHandler(ToolHandler):
             self.logger.info(f"First article uri field: {articles[0].get('uri', 'NO URI FIELD')}")
 
         for i, article in enumerate(articles, 1):
-            title = article.get('title', 'Untitled')
-            summary = article.get('summary', '')[:300]
-            source = article.get('news_source', 'Unknown')
+            title = article.get('title', 'Untitled') or 'Untitled'
+            summary = (article.get('summary') or '')[:300]
+            source = article.get('news_source', 'Unknown') or 'Unknown'
             url = article.get('url') or article.get('uri', '')
             date = article.get('publication_date', '')
             sentiment = article.get('sentiment', '')

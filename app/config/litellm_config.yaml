@@ -24,6 +24,47 @@ model_list:
       model: openai/gpt-4.1-nano
       api_key: "os.environ/OPENAI_API_KEY"
 
+  # OpenAI GPT-5 series — used by the Wiley bundle supervisor pipeline
+  # ("Ask David" pattern). gpt-5 for narrative/synthesis agents, gpt-5-mini
+  # for supervisor routing decisions, gpt-5-nano for cheap retrieval steps.
+  - model_name: gpt-5
+    litellm_params:
+      model: openai/gpt-5
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5-nano
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  # OpenAI GPT-5.4 / 5.5 — current models. The gpt-5 snapshots above are
+  # deprecated (API shutdown 2026-12-10). gpt-5.4 = standard, mini/nano cheaper,
+  # gpt-5.5 = flagship reasoning. These are the repoint targets monolith-wide.
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5.4
+    litellm_params:
+      model: openai/gpt-5.4
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5.4-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-5.4-nano
+    litellm_params:
+      model: openai/gpt-5.4-nano
+      api_key: "os.environ/OPENAI_API_KEY"
+
   # Hugging Face
   - model_name: mixtral-8x7b
     litellm_params:
@@ -59,6 +100,21 @@ model_list:
       model: gemini/gemini-2.0-flash-exp
       api_key: "os.environ/GEMINI_API_KEY"
 
+  # Local Ollama gemma3:4b — cheap high-volume social-post relevance + sentiment.
+  # Requires `ollama serve` + `ollama pull gemma3:4b` (default port 11434).
+  - model_name: gemma3:4b
+    litellm_params:
+      model: ollama/gemma3:4b
+      api_base: "os.environ/OLLAMA_BASE_URL"
+
+  # AWS Bedrock — alternative for the social eval (no local serving needed).
+  # Requires AWS creds in env (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION_NAME
+  # or AWS_BEARER_TOKEN_BEDROCK). Swap the model id for whatever is enabled in the account.
+  - model_name: bedrock-claude-haiku
+    litellm_params:
+      model: bedrock/anthropic.claude-3-5-haiku-20241022-v1:0
+      aws_region_name: "os.environ/AWS_REGION_NAME"
+
 fallbacks:
   - gpt-4.1:
       - qwen3:14b
@@ -66,5 +122,11 @@ fallbacks:
       - qwen3:14b
   - gpt-4.1-mini:
       - qwen3:14b
+  - gpt-5:
+      - gpt-4.1
+  - gpt-5-mini:
+      - gpt-4.1-mini
+  - gpt-5-nano:
+      - gpt-4.1-nano
 
 routing_strategy: least-busy

@@ -1,0 +1,561 @@
+/**
+ * Narrative Insights Section - Article Theme Display
+ * Shows AI-identified narrative patterns, themes, and article clustering
+ */
+
+import { useState, useRef, useEffect } from 'react';
+import {
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Search,
+  RefreshCw,
+  Tag,
+  Lightbulb,
+  Loader2,
+  Calendar,
+  FileText,
+  MessageSquare,
+  Settings2,
+  Download,
+  Table,
+  Share2,
+  MoreVertical,
+  Bookmark,
+} from 'lucide-react';
+import { openAuspexWithQuery } from '../../utils/auspexEvents';
+import { type ArticleTheme, type ThemeArticle } from '../../services/narrativeExplorerApi';
+import { type NewsArticle } from '../../services/newsFeedApi';
+import { Button } from '../ui/button';
+import { Skeleton } from '../ui/skeleton';
+import { ExportService } from '../../services/exportService';
+import { ShareModal, type ShareNarrativeData } from '../ShareModal';
+
+interface NarrativeInsightsSectionProps {
+  themes: ArticleTheme[];
+  loading?: boolean;
+  onArticleClick?: (article: NewsArticle) => void;
+  currentTopic?: string;
+  onOpenConfig?: () => void;
+  model?: string;
+  savedNarrativeNames?: string[];
+  onSaveNarrative?: (narrativeName: string) => void;
+  onUnsaveNarrative?: (narrativeName: string) => void;
+}
+
+// Convert ThemeArticle to NewsArticle for detail panel
+function themeArticleToNewsArticle(article: ThemeArticle): NewsArticle {
+  // Use short_summary (from backend) or summary as fallback
+  const summaryText = article.short_summary || article.summary || '';
+  return {
+    uri: article.uri,
+    title: article.title,
+    summary: summaryText,
+    url: article.uri, // Use uri as fallback URL
+    publication_date: article.publication_date,
+    source: {
+      name: article.news_source || 'Unknown Source',
+    },
+    tags: [],
+  };
+}
+
+export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic, onOpenConfig, model, savedNarrativeNames = [], onSaveNarrative, onUnsaveNarrative }: NarrativeInsightsSectionProps) {
+  const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState<ShareNarrativeData | null>(null);
+
+  const displayedThemes = showAll ? themes : themes.slice(0, 6);
+
+  // Share handler for narratives
+  const handleShareNarrative = (theme: ArticleTheme) => {
+    // Map articles to the share format
+    const shareArticles = theme.articles?.slice(0, 8).map(article => ({
+      title: article.title,
+      source: article.news_source,
+      url: article.uri,
+      summary: article.short_summary || article.summary,
+      date: article.publication_date,
+    }));
+
+    setShareData({
+      type: 'narrative',
+      narrative_name: theme.theme_name || (theme as any).name || 'Untitled Narrative',
+      description: theme.theme_summary || theme.description,
+      key_points: theme.research_suggestions || (theme as any).key_points,
+      topic: currentTopic,
+      sentiment: theme.sentiment,
+      confidence: theme.confidence,
+      article_count: theme.article_count,
+      source_count: theme.source_count,
+      key_entities: theme.key_entities,
+      articles: shareArticles,
+    });
+    setShowShareModal(true);
+  };
+
+  const toggleExpand = (index: number) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  // Empty state - simple inline text
+  if (!themes.length && !loading) {
+    return (
+      <section className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <Brain className="w-5 h-5 text-indigo-500" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Narratives</h2>
+          <div className="flex-1" />
+          {onOpenConfig && (
+            <button
+              onClick={onOpenConfig}
+              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Configure Narratives"
+            >
+              <Settings2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+            </button>
+          )}
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-300">No recent narratives, click refresh</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-8">
+      {/* Section Header */}
+      <div className="flex items-center gap-2 mb-4">
+        <Brain className="w-5 h-5 text-indigo-500" />
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Narratives</h2>
+        <span className="text-sm text-gray-600 dark:text-gray-300 ml-2">
+          {themes.length} theme{themes.length !== 1 ? 's' : ''} identified
+        </span>
+        <div className="flex-1" />
+
+        {/* Download Button */}
+        {themes.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Download narratives"
+            >
+              <Download className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+            </button>
+
+            {showDownloadDropdown && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowDownloadDropdown(false)}
+                />
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => {
+                      ExportService.exportNarrativesMarkdown(themes, currentTopic, model);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <span>Export as Markdown</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      ExportService.exportNarrativesCSV(themes);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  >
+                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <span>Export as CSV</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Share Button - shares first narrative as representative */}
+        {themes.length > 0 && (
+          <button
+            onClick={() => handleShareNarrative(themes[0])}
+            className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Share top narrative via email"
+          >
+            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+          </button>
+        )}
+
+        {onOpenConfig && (
+          <button
+            onClick={onOpenConfig}
+            className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Configure Narratives"
+          >
+            <Settings2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+          </button>
+        )}
+      </div>
+
+      {/* Loading State */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-64 rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* Themes Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedThemes.map((theme, i) => {
+              const themeName = theme.theme_name || (theme as any).name || 'Untitled Narrative';
+              const isSaved = savedNarrativeNames.includes(themeName);
+              return (
+                <ThemeCard
+                  key={i}
+                  theme={theme}
+                  expanded={expandedCards.has(i)}
+                  onToggleExpand={() => toggleExpand(i)}
+                  onArticleClick={onArticleClick}
+                  currentTopic={currentTopic}
+                  isSaved={isSaved}
+                  onSave={onSaveNarrative}
+                  onUnsave={onUnsaveNarrative}
+                  onShare={() => handleShareNarrative(theme)}
+                />
+              );
+            })}
+          </div>
+
+          {/* Show More/Less Button */}
+          {themes.length > 6 && (
+            <div className="mt-4 text-center">
+              <Button
+                variant="ghost"
+                onClick={() => setShowAll(!showAll)}
+                className="gap-2"
+              >
+                {showAll ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" />
+                    Show Less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" />
+                    Show {themes.length - 6} More Narratives
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={shareData}
+        />
+      )}
+    </section>
+  );
+}
+
+interface ThemeCardProps {
+  theme: ArticleTheme;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onArticleClick?: (article: NewsArticle) => void;
+  currentTopic?: string;
+  isSaved?: boolean;
+  onSave?: (narrativeName: string) => void;
+  onUnsave?: (narrativeName: string) => void;
+  onShare?: () => void;
+}
+
+function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTopic, isSaved = false, onSave, onUnsave, onShare }: ThemeCardProps) {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  const themeName = theme.theme_name || (theme as any).name || 'Untitled Narrative';
+
+  const handleMenuAction = (action: string) => {
+    setShowMenu(false);
+    if (action === 'save') {
+      if (isSaved) {
+        onUnsave?.(themeName);
+      } else {
+        onSave?.(themeName);
+      }
+    } else if (action === 'share') {
+      onShare?.();
+    } else if (action === 'export-md') {
+      ExportService.exportNarrativesMarkdown([theme], currentTopic);
+    } else if (action === 'export-csv') {
+      ExportService.exportNarrativesCSV([theme]);
+    }
+  };
+  // Build Auspex research prompt
+  const buildResearchPrompt = () => {
+    const topicArea = currentTopic || 'AI and Machine Learning';
+    const detailedArticles = theme.articles?.slice(0, 15).map((article, idx) => {
+      const date = article.publication_date
+        ? new Date(article.publication_date).toLocaleDateString()
+        : 'Unknown date';
+      const brief = (article.summary || '').slice(0, 140).replace(/\n+/g, ' ');
+      return `${idx + 1}. ${article.title} (${article.news_source || 'Unknown'}, ${date})\n   URI: ${article.uri}\n   Brief: ${brief}${brief.length >= 140 ? '...' : ''}`;
+    }).join('\n') || '(no articles in theme)';
+
+    const additionalUris = theme.articles?.slice(15, 50).map(a => `- ${a.title} — ${a.uri}`).join('\n') || '';
+    const keyEntitiesText = theme.key_entities?.length
+      ? `Key Entities: ${theme.key_entities.slice(0, 10).join(', ')}`
+      : '';
+
+    return `Conduct comprehensive analysis of the theme "${theme.theme_name}" identified from recent ${topicArea} articles.
+
+THEME METADATA:
+${theme.sentiment ? `Sentiment: ${theme.sentiment}` : ''}
+${theme.confidence ? `Confidence: ${Math.round(theme.confidence)}%` : ''}
+${theme.article_count ? `Articles: ${theme.article_count}` : ''}
+${theme.source_count ? `Sources: ${theme.source_count}` : ''}
+${keyEntitiesText}
+
+CONTEXT FROM ARTICLE ANALYSIS:
+This theme emerged from AI analysis of recent articles in the news feed.
+
+DATASET CONTEXT (top matches):
+${detailedArticles}
+
+Additional relevant articles (compact list):
+${additionalUris}
+
+RESEARCH FOCUS: "${theme.theme_name}"
+TOPIC AREA: "${topicArea}"
+
+Please use your tools to:
+1. Start with the dataset items above; synthesize cross-article findings and cite URIs.
+2. Consider the theme sentiment (${theme.sentiment || 'unknown'}) and ${keyEntitiesText ? 'key entities' : 'entities involved'}.
+3. Identify trends, relationships, and implications grounded in the dataset.
+4. Suggest exactly 2-3 follow-up questions users could ask to expand analysis.
+5. Provide strategic recommendations for decision-makers.
+
+Write follow-up questions as natural language that users would ask, not as technical function calls.`;
+  };
+
+  return (
+    <div className={`transition-all ${expanded ? 'bg-gray-50 dark:bg-gray-800/50' : ''}`}>
+      {/* Header: Articles label + Saved badge + Menu + See More/Less toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-300">
+            Articles
+          </span>
+          {isSaved && (
+            <span className="flex items-center gap-1 text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
+              <Bookmark className="w-3 h-3 fill-current" />
+              Saved
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {/* Kebab menu */}
+          <div ref={menuRef} className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            >
+              <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-300" />
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                <button
+                  onClick={() => handleMenuAction('save')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-300'}`} />
+                  {isSaved ? 'Unsave' : 'Save'}
+                </button>
+                <button
+                  onClick={() => handleMenuAction('share')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  Share
+                </button>
+                <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+                <button
+                  onClick={() => handleMenuAction('export-md')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  Export Markdown
+                </button>
+                <button
+                  onClick={() => handleMenuAction('export-csv')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  Export CSV
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onToggleExpand}
+            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex items-center gap-1"
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="w-4 h-4" />
+                See Less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4" />
+                See More
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Theme Name */}
+      <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base mb-2 mt-3">
+        {themeName}
+      </h3>
+
+      {/* Theme Summary / Description */}
+      <p className={`text-sm text-gray-700 dark:text-gray-300 ${!expanded ? 'line-clamp-4' : ''}`}>
+        {theme.theme_summary || theme.description}
+      </p>
+
+      {/* Expanded: Articles in Theme */}
+      {expanded && theme.articles && theme.articles.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 pb-3 border-b border-gray-300 dark:border-gray-600">
+            Articles in Theme
+          </h4>
+          <div>
+            {theme.articles.slice(0, 8).map((article, i) => (
+              <div key={i} className="border-b border-gray-300 dark:border-gray-600 last:border-b-0">
+                <ThemeArticleRow
+                  article={article}
+                  onClick={onArticleClick ? () => onArticleClick(themeArticleToNewsArticle(article)) : undefined}
+                />
+              </div>
+            ))}
+          </div>
+          {theme.articles.length > 8 && (
+            <p className="text-sm text-gray-600 dark:text-gray-300 pt-3">
+              +{theme.articles.length - 8} more articles
+            </p>
+          )}
+
+          {/* Ask Auspex button for the whole theme */}
+          <button
+            onClick={() => openAuspexWithQuery(buildResearchPrompt())}
+            className="mt-4 inline-flex items-center gap-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium"
+          >
+            <MessageSquare className="w-4 h-4" />
+            Ask Auspex about this theme
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// New article row component matching mockup design
+function ThemeArticleRow({
+  article,
+  onClick
+}: {
+  article: ThemeArticle;
+  onClick?: () => void;
+}) {
+  // Format date as DD.MM.YYYY
+  const formattedDate = article.publication_date
+    ? (() => {
+        const d = new Date(article.publication_date);
+        const day = d.getDate().toString().padStart(2, '0');
+        const month = (d.getMonth() + 1).toString().padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}.${month}.${year}`;
+      })()
+    : null;
+
+  return (
+    <div className="py-3 first:pt-0">
+      {/* Date row with external link icon on right */}
+      <div className="flex items-center justify-between mb-1">
+        {formattedDate && (
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-gray-700 dark:text-gray-300 dark:text-gray-300" />
+            <span className="text-xs text-gray-600 dark:text-gray-300">{formattedDate}</span>
+          </div>
+        )}
+        <a
+          href={article.uri}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:text-gray-300 dark:hover:text-blue-400"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="w-4 h-4" />
+        </a>
+      </div>
+
+      {/* Title */}
+      <p
+        className="text-sm text-gray-900 dark:text-gray-100 font-medium cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+        onClick={onClick}
+      >
+        {article.title}
+      </p>
+
+      {/* Source link */}
+      <a
+        href={article.uri}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {article.news_source || 'Source'}
+      </a>
+    </div>
+  );
+}
+

@@ -2,64 +2,424 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Signal Dashboard design tokens */
+:root {
+  --aunoo-red:         #E24B4A;
+  --aunoo-red-subtle:  #FCEBEB;
+  --aunoo-red-text:    #A32D2D;
+  --aunoo-amber:       #EF9F27;
+  --aunoo-amber-subtle:#FAEEDA;
+  --aunoo-amber-text:  #854F0B;
+  --aunoo-green-subtle:#EAF3DE;
+  --aunoo-green-text:  #3B6D11;
+  --aunoo-muted-bg:    #F1EFE8;
+  --aunoo-muted-text:  #5F5E5A;
+  --aunoo-border:      rgba(0,0,0,0.12);
+  --aunoo-border-hover:rgba(0,0,0,0.25);
+  --aunoo-surface:     #FFFFFF;
+  --aunoo-surface-secondary: #F7F6F2;
+  --aunoo-font:        "DM Sans", "Inter", system-ui, sans-serif;
+  --aunoo-radius-sm:   6px;
+  --aunoo-radius-md:   10px;
+  --aunoo-radius-lg:   14px;
+}
+
+html.dark {
+  --aunoo-red-subtle:  #501313;
+  --aunoo-red-text:    #F09595;
+  --aunoo-amber-subtle:#412402;
+  --aunoo-amber-text:  #FAC775;
+  --aunoo-green-subtle:#173404;
+  --aunoo-green-text:  #C0DD97;
+  --aunoo-muted-bg:    #2C2C2A;
+  --aunoo-muted-text:  #B4B2A9;
+  --aunoo-border:      rgba(255,255,255,0.10);
+  --aunoo-border-hover:rgba(255,255,255,0.22);
+  --aunoo-surface:     #1C1C1A;
+  --aunoo-surface-secondary: #222220;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --aunoo-red-subtle:  #501313;
+    --aunoo-red-text:    #F09595;
+    --aunoo-amber-subtle:#412402;
+    --aunoo-amber-text:  #FAC775;
+    --aunoo-green-subtle:#173404;
+    --aunoo-green-text:  #C0DD97;
+    --aunoo-muted-bg:    #2C2C2A;
+    --aunoo-muted-text:  #B4B2A9;
+    --aunoo-border:      rgba(255,255,255,0.10);
+    --aunoo-border-hover:rgba(255,255,255,0.22);
+    --aunoo-surface:     #1C1C1A;
+    --aunoo-surface-secondary: #222220;
+  }
+}
+
+/* Comprehensive Leaflet fix for Tailwind compatibility
+   Tailwind's Preflight applies max-width: 100% to images which breaks Leaflet tile rendering.
+   This must override Tailwind's base styles with higher specificity. */
+@layer base {
+  .leaflet-container img,
+  .leaflet-container .leaflet-tile-pane img,
+  .leaflet-container .leaflet-marker-pane img,
+  .leaflet-container .leaflet-shadow-pane img,
+  .leaflet-container .leaflet-overlay-pane img,
+  .leaflet-container .leaflet-overlay-pane svg,
+  .leaflet-container img.leaflet-image-layer,
+  .leaflet-container img.leaflet-tile {
+    max-width: none !important;
+    max-height: none !important;
+    width: auto;
+    height: auto;
+  }
+
+  /* Reset any inherited styles that could affect tiles */
+  .leaflet-tile-pane,
+  .leaflet-tile {
+    position: absolute;
+    max-width: none !important;
+    max-height: none !important;
+  }
+
+  /* Ensure the map container itself isn't affected by Tailwind resets */
+  .leaflet-container {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+/* Base dark mode styles for html and body */
+@layer base {
+  html {
+    @apply bg-white text-gray-900;
+  }
+  html.dark {
+    @apply bg-gray-950 text-gray-100;
+  }
+  body {
+    @apply bg-inherit text-inherit;
+  }
+}
+
+/* Override Bootstrap's !important bg-white in dark mode - using Radix mauve for consistency */
+html.dark .bg-white,
+.dark .bg-white,
+html.dark [class*="bg-white"],
+.dark [class*="bg-white"] {
+  background-color: #232326 !important; /* Radix mauve-3 dark */
+}
+html.dark .bg-gray-50,
+.dark .bg-gray-50 {
+  background-color: #1c1c1f !important; /* Radix mauve-2 dark */
+}
+html.dark .bg-gray-100,
+.dark .bg-gray-100 {
+  background-color: #232326 !important; /* Radix mauve-3 dark */
+}
+html.dark .border-gray-200,
+.dark .border-gray-200 {
+  border-color: #35353a !important; /* Radix mauve-6 dark */
+}
+html.dark .text-gray-700,
+.dark .text-gray-700 {
+  color: #a09fa6 !important; /* Radix mauve-11 dark */
+}
+html.dark .text-gray-800,
+.dark .text-gray-800 {
+  color: #ededef !important; /* Radix mauve-12 dark */
+}
+html.dark .text-gray-900,
+.dark .text-gray-900 {
+  color: #ededef !important; /* Radix mauve-12 dark */
+}
+html.dark .text-gray-950,
+.dark .text-gray-950 {
+  color: #ededef !important; /* Radix mauve-12 dark */
+}
+html.dark .text-gray-600,
+.dark .text-gray-600 {
+  color: #7e7d86 !important; /* Radix mauve-10 dark */
+}
+html.dark .text-gray-500,
+.dark .text-gray-500 {
+  color: #706f78 !important; /* Radix mauve-9 dark */
+}
+html.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-50:hover {
+  background-color: #28282c !important; /* Radix mauve-4 dark */
+}
+html.dark thead.bg-gray-50,
+.dark thead.bg-gray-50 {
+  background-color: #1c1c1f !important; /* Radix mauve-2 dark */
+}
+
+/* Card component dark mode */
+html.dark [data-slot="card"],
+.dark [data-slot="card"] {
+  background-color: #232326 !important; /* Radix mauve-3 dark */
+  border-color: #35353a !important; /* Radix mauve-6 dark */
+}
+html.dark [data-slot="card-header"],
+.dark [data-slot="card-header"] {
+  color: #ededef !important; /* Radix mauve-12 dark */
+}
+html.dark [data-slot="card-title"],
+.dark [data-slot="card-title"] {
+  color: #ededef !important; /* Radix mauve-12 dark */
+}
+html.dark [data-slot="card-description"],
+.dark [data-slot="card-description"] {
+  color: #a09fa6 !important; /* Radix mauve-11 dark */
+}
+html.dark [data-slot="card-content"],
+.dark [data-slot="card-content"] {
+  color: #ededef !important; /* Radix mauve-12 dark */
+}
+
+/* Focus Group specific overrides */
+html.dark .bg-indigo-50,
+.dark .bg-indigo-50 {
+  background-color: rgba(79, 70, 229, 0.2) !important; /* indigo-900/20 */
+}
+html.dark .bg-indigo-100,
+.dark .bg-indigo-100 {
+  background-color: rgba(79, 70, 229, 0.3) !important; /* indigo-900/30 */
+}
+html.dark .bg-blue-50,
+.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.2) !important; /* blue-900/20 */
+}
+html.dark .bg-green-50,
+.dark .bg-green-50 {
+  background-color: rgba(34, 197, 94, 0.2) !important; /* green-900/20 */
+}
+html.dark .bg-red-50,
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.2) !important; /* red-900/20 */
+}
+html.dark .bg-yellow-50,
+.dark .bg-yellow-50 {
+  background-color: rgba(234, 179, 8, 0.2) !important; /* yellow-900/20 */
+}
+html.dark .bg-orange-50,
+.dark .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.2) !important; /* orange-900/20 */
+}
+html.dark .bg-purple-50,
+.dark .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.2) !important; /* purple-900/20 */
+}
+html.dark .bg-pink-50,
+.dark .bg-pink-50 {
+  background-color: rgba(236, 72, 153, 0.2) !important; /* pink-900/20 */
+}
+html.dark .bg-rose-50,
+.dark .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.2) !important; /* rose-900/20 */
+}
+html.dark .bg-amber-50,
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.2) !important; /* amber-900/20 */
+}
+
+/* Text color fixes for dark mode */
+html.dark .text-indigo-600,
+.dark .text-indigo-600 {
+  color: #a5b4fc !important; /* indigo-300 */
+}
+html.dark .text-green-700,
+.dark .text-green-700 {
+  color: #86efac !important; /* green-300 */
+}
+html.dark .text-red-700,
+.dark .text-red-700 {
+  color: #fca5a5 !important; /* red-300 */
+}
+html.dark .text-blue-700,
+.dark .text-blue-700 {
+  color: #93c5fd !important; /* blue-300 */
+}
+
+/* Thin scrollbar styling */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280;
+}
+
+/* Hidden scrollbar - scroll without visible bar (like HUD view) */
+.scrollbar-hide {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Apply Inter font globally */
 * {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
 }
 
+/* Apply Open Sans for headings (per Figma spec) */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
 :root {
   --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
-  --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
+  --radius: 0.625rem;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
+
+  /* Radix Pink (Primary) */
+  --pink-1: #fffcfe;
+  --pink-2: #fff7fc;
+  --pink-3: #feeef8;
+  --pink-4: #fce5f3;
+  --pink-5: #f9d8ec;
+  --pink-6: #f3c6e2;
+  --pink-7: #ecadd4;
+  --pink-8: #e38ec3;
+  --pink-9: #d6409f;
+  --pink-10: #cf3897;
+  --pink-11: #c2298a;
+  --pink-12: #651249;
+
+  /* Radix Mauve (Neutral) */
+  --mauve-1: #fdfcfd;
+  --mauve-2: #faf9fb;
+  --mauve-3: #f2eff3;
+  --mauve-4: #eae7ec;
+  --mauve-5: #e3dfe6;
+  --mauve-6: #dbd8e0;
+  --mauve-7: #d0cdd7;
+  --mauve-8: #bcbac7;
+  --mauve-9: #8e8c99;
+  --mauve-10: #84828e;
+  --mauve-11: #65636d;
+  --mauve-12: #211f26;
+
+  /* Radix Green (Success) */
+  --green-9: #30a46c;
+  --green-11: #18794e;
+
+  /* Radix Amber (Warning) */
+  --amber-9: #ffb224;
+  --amber-11: #ad5700;
+
+  /* Radix Red (Error) */
+  --red-9: #e5484d;
+  --red-11: #cd2b31;
+
+  /* Radix Blue (Info) */
+  --blue-9: #0091ff;
+  --blue-11: #006adc;
+
+  /* Semantic tokens */
+  --background: var(--mauve-1);
+  --foreground: var(--mauve-12);
+  --card: #ffffff;
+  --card-foreground: var(--mauve-12);
+  --popover: #ffffff;
+  --popover-foreground: var(--mauve-12);
+  --primary: var(--pink-9);
+  --primary-foreground: #ffffff;
+  --secondary: var(--mauve-3);
+  --secondary-foreground: var(--mauve-12);
+  --muted: var(--mauve-4);
+  --muted-foreground: var(--mauve-11);
+  --accent: var(--pink-4);
+  --accent-foreground: var(--pink-11);
+  --destructive: var(--red-9);
+  --destructive-foreground: #ffffff;
+  --success: var(--green-9);
+  --success-foreground: #ffffff;
+  --warning: var(--amber-9);
+  --warning-foreground: var(--mauve-12);
+  --info: var(--blue-9);
+  --info-foreground: #ffffff;
+  --border: var(--mauve-6);
+  --input: var(--mauve-5);
+  --input-background: var(--mauve-3);
+  --switch-background: var(--mauve-8);
+  --ring: var(--pink-8);
+  --chart-1: var(--pink-9);
+  --chart-2: var(--green-9);
+  --chart-3: var(--blue-9);
+  --chart-4: var(--amber-9);
+  --chart-5: var(--red-9);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  /* Radix Pink Dark */
+  --pink-1: #1f121b;
+  --pink-2: #271421;
+  --pink-3: #3a1a2e;
+  --pink-4: #451f37;
+  --pink-5: #512541;
+  --pink-6: #62304e;
+  --pink-7: #7e3d63;
+  --pink-8: #a84c7d;
+  --pink-9: #d6409f;
+  --pink-10: #e34ba9;
+  --pink-11: #f65cb6;
+  --pink-12: #fedbf0;
+
+  /* Radix Mauve Dark */
+  --mauve-1: #161618;
+  --mauve-2: #1c1c1f;
+  --mauve-3: #232326;
+  --mauve-4: #28282c;
+  --mauve-5: #2e2e32;
+  --mauve-6: #35353a;
+  --mauve-7: #424248;
+  --mauve-8: #555459;
+  --mauve-9: #706f78;
+  --mauve-10: #7e7d86;
+  --mauve-11: #a09fa6;
+  --mauve-12: #ededef;
+
+  /* Semantic tokens - dark */
+  --background: var(--mauve-1);
+  --foreground: var(--mauve-12);
+  --card: var(--mauve-2);
+  --card-foreground: var(--mauve-12);
+  --popover: var(--mauve-2);
+  --popover-foreground: var(--mauve-12);
+  --primary: var(--pink-9);
+  --primary-foreground: #ffffff;
+  --secondary: var(--mauve-4);
+  --secondary-foreground: var(--mauve-12);
+  --muted: var(--mauve-4);
+  --muted-foreground: var(--mauve-11);
+  --accent: var(--pink-5);
+  --accent-foreground: var(--pink-11);
+  --destructive: var(--red-9);
+  --destructive-foreground: #ffffff;
+  --border: var(--mauve-6);
+  --input: var(--mauve-5);
+  --ring: var(--pink-8);
 }
 
 /* Toast Notifications */
@@ -132,4 +492,19 @@
 .toast span {
   flex: 1;
   line-height: 1.4;
+}
+
+
+/* News Ticker Animation */
+@keyframes scroll-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-scroll-left {
+  animation: scroll-left linear infinite;
 }

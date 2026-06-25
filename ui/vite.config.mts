@@ -57,6 +57,10 @@
         input: {
           main: path.resolve(__dirname, 'index.html'),
           operations: path.resolve(__dirname, 'index-operations.html'),
+          gather: path.resolve(__dirname, 'index-gather.html'),
+          newsfeed: path.resolve(__dirname, 'index-newsfeed.html'),
+          pam: path.resolve(__dirname, 'index-pam.html'),
+          submitArticles: path.resolve(__dirname, 'index-submit-articles.html'),
         },
       },
     },

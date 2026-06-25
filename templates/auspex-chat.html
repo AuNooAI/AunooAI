@@ -154,12 +154,20 @@
                     <select id="floatingModelSelect" class="form-select form-select-sm" style="width: 120px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Choose AI model">
                         <option value="">Select model...</option>
                     </select>
-                    <select id="floatingSampleSizeMode" class="form-select form-select-sm sampling-select" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Article sampling strategy">
+                    <select id="floatingSampleSizeMode" class="form-select form-select-sm sampling-select" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Article count mode">
                         <option value="auto">Auto-size</option>
                         <option value="balanced">Balanced</option>
                         <option value="comprehensive">Comprehensive</option>
                         <option value="focused">Focused</option>
                         <option value="custom">Custom</option>
+                    </select>
+                    <select id="floatingSamplingStrategy" class="form-select form-select-sm" style="width: 130px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Article selection strategy">
+                        <option value="auto">Auto Strategy</option>
+                        <option value="recency_diversity">Recent + Diverse</option>
+                        <option value="quality_first">Quality First</option>
+                        <option value="latest">Latest Only</option>
+                        <option value="diverse">Max Diversity</option>
+                        <option value="balanced_topics">Topic Balanced</option>
                     </select>
                     <input type="number" id="floatingCustomLimit" class="form-control form-control-sm custom-limit-input" min="10" max="500" value="50" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Custom article count (also used for citations)">
                     <div class="context-info" id="contextInfo" style="display: none;">

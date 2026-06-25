@@ -24,8 +24,7 @@ triggers:
     priority: medium
 
 actions:
-  - vector_search
-  - db_search
+  - future_impact_analysis
 
 prompt: |
   CRITICAL: All citations must include clickable markdown links: [Article Title](URL)
@@ -33,16 +32,36 @@ prompt: |
 
   You are an expert futures analyst. Based on the following {article_count} articles about "{topic}", provide a comprehensive future impact analysis.
 
-  ARTICLES:
+  FUTURE SIGNALS DATA (from article analysis):
+  {future_signals}
+
+  ARTICLES (all have future predictions/signals):
   {articles}
 
   Provide your analysis in the following format (cite with markdown links throughout):
 
   ## Future Impact Analysis: {topic}
 
-  ### Key Predictions (Next 6-12 months)
-  - List 3-5 specific predictions based on current trends
-  - Include confidence level (High/Medium/Low) for each
+  ### Predictions by Time Horizon
+
+  #### Immediate (0-6 months)
+  - List specific predictions with High/Medium/Low confidence
+  - Cite articles: [Title](URL)
+
+  #### Short-term (6-18 months)
+  - List specific predictions with confidence levels
+  - Cite articles: [Title](URL)
+
+  #### Mid-term (18-60 months)
+  - List specific predictions with confidence levels
+  - Cite articles: [Title](URL)
+
+  #### Long-term (60+ months)
+  - List specific predictions with confidence levels
+  - Cite articles: [Title](URL)
+
+  ### Dominant Future Signals
+  Use the FUTURE SIGNALS DATA above to identify the most common predictions being made across sources.
 
   ### Emerging Opportunities
   - Identify potential opportunities arising from current developments

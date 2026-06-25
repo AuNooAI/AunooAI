@@ -109,6 +109,19 @@ DOCKER_HUB_DEPLOYMENT.md
 .gitlab-ci.yml
 .travis.yml
 
+# ML model weights - only ship final trained models, exclude checkpoints/training data
+models/*/checkpoint-*
+models/*/training_*
+models/*/wandb/
+models/comparison_test/
+models/*.md
+models/*.tar.gz
+local-models-package.tar.gz
+
+# Virtual envs inside subdirectories
+scripts/.venv/
+**/.venv/
+
 # Misc
 *.bak
 *.tmp

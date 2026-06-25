@@ -80,6 +80,8 @@ from app.routes.user_management_routes import router as user_management_router  
 from app.routes.prompt_management_routes import router as prompt_management_router  # Prompt management API
 from app.routes.market_signals_routes import router as market_signals_router  # Market Signals & Strategic Risks
 from app.routes.notification_routes import router as notification_router  # Notification system (Added 2025-11-08)
+from app.routes.focus_group_routes import router as focus_group_router  # Synthetic Focus Group Generator
+from app.routes.executive_briefing_routes import router as executive_briefing_router  # Executive Briefing Generator
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -133,6 +135,8 @@ app.include_router(prompt_management_router)  # Prompt management API (Added 202
 app.include_router(market_signals_router)  # Market Signals & Strategic Risks (Added 2025-01-06)
 app.include_router(notification_router)  # Notification system (Added 2025-11-08)
 app.include_router(saved_dashboard_router)  # Saved Dashboards API (Added 2025-11-13)
+app.include_router(focus_group_router)  # Synthetic Focus Group Generator
+app.include_router(executive_briefing_router)  # Executive Briefing Generator
 
 class ArticleData(BaseModel):
     title: str
@@ -169,6 +173,13 @@ class RemoveModelRequest(BaseModel):
         protected_namespaces = ()
 
 class NewsAPIConfig(BaseModel):
+    api_key: str = Field(..., min_length=1)
+
+    class Config:
+        alias_generator = lambda string: string.lower()
+        populate_by_name = True
+
+class OpointConfig(BaseModel):
     api_key: str = Field(..., min_length=1)
 
     class Config:
@@ -279,7 +290,7 @@ async def root(
             "session": session  # Add session to template context
         })
         
-        return templates.TemplateResponse("index.html", context)
+        return templates.TemplateResponse("operations_react.html", context)
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -785,7 +796,7 @@ async def remove_model(model_data: RemoveModelRequest):
                 
             key_name = line_stripped.split('=')[0]
             
-            # Handle models with dots in the name (like gpt-3.5-turbo)
+            # Handle models with dots in the name (like gpt-5.4-mini)
             # Create a few common patterns to match against
             env_var_prefix = f"{provider}_API_KEY_"
             
@@ -1547,6 +1558,105 @@ async def remove_newsapi_config():
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/config/opoint")
+async def save_opoint_config(config: OpointConfig):
+    """Save Opoint configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'PROVIDER_OPOINT_API_KEY'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[env_var_name] = config.api_key
+
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Opoint configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving Opoint configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/opoint")
+async def get_opoint_config():
+    """Get Opoint configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+
+        opoint_key = os.getenv('PROVIDER_OPOINT_API_KEY') or os.getenv('OPOINT_API_KEY')
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(opoint_key),
+                "message": "Opoint is configured" if opoint_key else "Opoint is not configured"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking Opoint configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/opoint")
+async def remove_opoint_config():
+    """Remove Opoint configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_OPOINT_API_KEY=') or
+            line.startswith('PROVIDER_OPOINT_KEY=') or
+            line.startswith('OPOINT_API_KEY=')
+        )]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        for var in ('PROVIDER_OPOINT_API_KEY', 'PROVIDER_OPOINT_KEY', 'OPOINT_API_KEY'):
+            if var in os.environ:
+                del os.environ[var]
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+
+        return {"message": "Opoint configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing Opoint configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/create_topic", response_class=HTMLResponse)
 async def create_topic_page(request: Request, session=Depends(verify_session)):
     config = load_config()
@@ -1661,7 +1771,7 @@ async def bulk_research_endpoint(
             "urls": ["https://example.com/article1", "https://example.com/article2"],
             "topic": "AI and Machine Learning",
             "summary_type": "curious_ai",
-            "model_name": "gpt-4",
+            "model_name": "gpt-5.4",
             "summary_length": "medium",
             "summary_voice": "neutral"
         }]
@@ -1672,7 +1782,7 @@ async def bulk_research_endpoint(
         results = await bulk_research.analyze_bulk_urls(
             urls=data.get("urls", []),
             summary_type=data.get("summary_type", "curious_ai"),
-            model_name=data.get("model_name", "gpt-4"),
+            model_name=data.get("model_name", "gpt-5.4"),
             summary_length=data.get("summary_length", "medium"),
             summary_voice=data.get("summary_voice", "neutral"),
             topic=data.get("topic")
@@ -3519,11 +3629,11 @@ async def debug_topics():
     topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
     return topics
 
-@app.get("/submit-article", response_class=HTMLResponse)
-async def submit_article_page(request: Request, session=Depends(verify_session)):
+@app.get("/submit-articles", response_class=HTMLResponse)
+async def submit_articles_page(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse(
-        "submit_article.html", 
-        get_template_context(request)
+        "submit_articles_react.html",
+        {"request": request, "session": session}
     )
 
 # Removed auspex-status route and test routes - no longer needed

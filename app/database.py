@@ -157,6 +157,63 @@ def get_database_instance():
         _db_instance = Database()
     return _db_instance
 
+
+class AutoClosingConnection:
+    """
+    Wrapper around SQLAlchemy connection that auto-closes when garbage collected.
+
+    This prevents connection pool exhaustion from code that forgets to close connections.
+    The connection is returned to the pool when:
+    - close() is called explicitly
+    - The object is garbage collected (via __del__)
+    - Used as a context manager (with statement)
+    """
+
+    def __init__(self, connection):
+        self._connection = connection
+        self._closed = False
+
+    def __del__(self):
+        """Auto-close on garbage collection."""
+        self._safe_close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._safe_close()
+        return False
+
+    def _safe_close(self):
+        """Safely close the connection, ignoring errors."""
+        if not self._closed and self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._closed = True
+
+    def close(self):
+        """Explicitly close the connection."""
+        self._safe_close()
+
+    def execute(self, *args, **kwargs):
+        return self._connection.execute(*args, **kwargs)
+
+    def commit(self):
+        return self._connection.commit()
+
+    def rollback(self):
+        return self._connection.rollback()
+
+    def begin(self):
+        return self._connection.begin()
+
+    def __getattr__(self, name):
+        """Proxy all other attributes to the underlying connection."""
+        return getattr(self._connection, name)
+
+
 class Database:
     
     # Connection pool settings
@@ -206,81 +263,75 @@ class Database:
             self._facade = DatabaseQueryFacade(self, logger)
         return self._facade
 
-    # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
-    def _temp_get_connection(self):
-        thread_id = threading.get_ident()
+    # Class-level PostgreSQL engine (shared across all Database instances)
+    _pg_engine_lock = threading.Lock()
+    _pg_engine_instance = None
 
-        # TODO: TEMPORARY PATCH FOR REPLACING DIRECT sqlite CONNECTIONS WITH SQLALCHEMY
-        # TODO: FOR PGSL OR OTHER TYPES OF ENGINES RE-USE EXISTING CONNECTIONS TO AVOID EXHAUSTING RESOURCES!!!
-        # TODO: MUST INCLUDE DEFAULT TABLE VALUES IN MIGRATIONS, SEE GIT COMMITS FOR WHAT HAS BEEN REMOVED!!!!!
+    # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
+    def _temp_get_connection(self, max_retries=3):
+        thread_id = threading.get_ident()
+        import os
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+
+        # For PostgreSQL, always get a fresh connection from pool (pool_pre_ping handles health checks)
+        # This avoids stale cached connections that can die between health check and actual query
+        if db_type == 'postgresql':
+            for attempt in range(max_retries):
+                try:
+                    # Create engine once using double-checked locking (thread-safe)
+                    if Database._pg_engine_instance is None:
+                        with Database._pg_engine_lock:
+                            if Database._pg_engine_instance is None:
+                                from sqlalchemy import create_engine
+                                from app.config.settings import db_settings
+                                database_url = db_settings.get_sync_database_url()
+                                logger.info(f"Creating PostgreSQL connection pool: {db_settings.DB_NAME}")
+                                Database._pg_engine_instance = create_engine(
+                                    database_url,
+                                    echo=False,
+                                    pool_pre_ping=True,  # Check connection health on checkout
+                                    pool_recycle=300,     # Recycle every 5 min
+                                    pool_size=20,
+                                    max_overflow=10,
+                                    pool_timeout=30
+                                )
+
+                    # Get fresh connection from pool, wrapped for auto-close
+                    raw_connection = Database._pg_engine_instance.connect()
+                    return AutoClosingConnection(raw_connection)
+                except Exception as e:
+                    logger.warning(f"PostgreSQL connection attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt == max_retries - 1:
+                        raise
+                    import time
+                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+
+        # SQLite: use thread-cached connections (original behavior)
         if thread_id not in self._sqlalchemy_connections:
             logger.debug(f"Creating new SQLAlchemy connection for thread {thread_id}")
             from sqlalchemy import create_engine
-            import os
 
-            # Check DB_TYPE environment variable to support PostgreSQL
-            db_type = os.getenv('DB_TYPE', 'sqlite').lower()
-
-            if db_type == 'postgresql':
-                # Use PostgreSQL connection
-                from app.config.settings import db_settings
-                database_url = db_settings.get_sync_database_url()
-                logger.info(f"Creating PostgreSQL connection: {db_settings.DB_NAME}")
-                engine = create_engine(
-                    database_url,
-                    echo=False,  # Disable SQL query logging for production
-                    pool_pre_ping=True,  # Check connection health on checkout
-                    pool_recycle=3600,    # Recycle connections after 1 hour (before they go stale)
-                    pool_size=20,         # Increased from 10 to support background processing
-                    max_overflow=10,      # Increased from 5 for peak loads
-                    pool_timeout=30       # Timeout waiting for connection from pool
-                )
-            else:
-                # Use SQLite connection (default)
-                logger.debug(f"Creating SQLite connection: {self.db_path}")
-                engine = create_engine(
-                    f"sqlite:///{self.db_path}",
-                    echo=False,  # Disable SQL query logging for production
-                    connect_args={"check_same_thread": False}
-                )
+            logger.debug(f"Creating SQLite connection: {self.db_path}")
+            engine = create_engine(
+                f"sqlite:///{self.db_path}",
+                echo=False,
+                connect_args={"check_same_thread": False}
+            )
 
             connection = engine.connect()
-
-            # TODO: Rename this to a less verbose name.
             self._sqlalchemy_connections[thread_id] = connection
             logger.debug(f"Created SQLAlchemy connection for thread {thread_id}")
-
-            # from sqlalchemy import select
-            #
-            # import database_models
-            # select_stmt = select(database_models.t_users)
-            # result = connection.execute(select_stmt)
-            #
-            # import pprint
-            # pprint.pp([user for user in result])
-            # TODO: END TEMPORARY PATCH
         else:
-            logger.debug(f"Reusing existing SQLAlchemy connection for thread {thread_id}")
-            # CRITICAL FIX: Always rollback any pending invalid transactions
-            # Per SQLAlchemy docs: "When a connection is invalidated, any Transaction
-            # that was in progress is now in an invalid state, and must be explicitly
-            # rolled back in order to remove it from the Connection"
-            # Reference: https://docs.sqlalchemy.org/en/20/errors.html
             conn = self._sqlalchemy_connections[thread_id]
             try:
-                # Always rollback to ensure clean state, especially after connection invalidation
+                conn.execute(text("SELECT 1"))
                 conn.rollback()
-                logger.debug(f"Rolled back any pending transaction on connection for thread {thread_id}")
-            except Exception as e:
-                logger.error(f"Error rolling back transaction: {e}")
-                # If rollback fails, the connection is likely unusable - recreate it
-                logger.warning(f"Recreating connection due to rollback failure for thread {thread_id}")
+            except Exception:
                 try:
                     conn.close()
                 except:
                     pass
                 del self._sqlalchemy_connections[thread_id]
-                # Recursively call to create a new connection
                 return self._temp_get_connection()
         return self._sqlalchemy_connections[thread_id]
 
@@ -1339,21 +1390,36 @@ Remember to cite your sources and provide actionable insights where possible."""
             conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
-    def save_signal_instruction(self, name: str, description: str, instruction: str, topic: str = None, is_active: bool = True) -> bool:
+    def save_signal_instruction(self, name: str, description: str, instruction: str, topic: str = None,
+                                is_active: bool = True, generate_report: bool = False,
+                                report_prompt: str = None, config: dict = None) -> bool:
         """Save a custom signal instruction for threat hunting."""
+        import json
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # NOTE: signal_instructions table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
 
-                # Insert or replace signal instruction
+                # Serialize config to JSON
+                config_json = json.dumps(config) if config else None
+
+                # Insert or update signal instruction (PostgreSQL ON CONFLICT)
                 cursor.execute("""
-                    INSERT OR REPLACE INTO signal_instructions 
-                    (name, description, instruction, topic, is_active, updated_at)
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, description, instruction, topic, is_active))
-                
+                    INSERT INTO signal_instructions
+                    (name, description, instruction, topic, is_active, generate_report, report_prompt, config, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT (name) DO UPDATE SET
+                        description = EXCLUDED.description,
+                        instruction = EXCLUDED.instruction,
+                        topic = EXCLUDED.topic,
+                        is_active = EXCLUDED.is_active,
+                        generate_report = EXCLUDED.generate_report,
+                        report_prompt = EXCLUDED.report_prompt,
+                        config = EXCLUDED.config,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (name, description, instruction, topic, is_active, generate_report, report_prompt, config_json))
+
                 conn.commit()
                 logger.info(f"Saved signal instruction: {name}")
                 return True
@@ -1365,46 +1431,59 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def get_signal_instructions(self, topic: str = None, active_only: bool = True) -> List[Dict]:
         """Get signal instructions, optionally filtered by topic."""
+        import json
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # NOTE: signal_instructions table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
 
-                # Query signal instructions
+                # Query signal instructions with new report fields
                 if topic:
                     if active_only:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             WHERE (topic = ? OR topic IS NULL) AND is_active = TRUE
                             ORDER BY updated_at DESC
                         """, (topic,))
                     else:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             WHERE (topic = ? OR topic IS NULL)
                             ORDER BY updated_at DESC
                         """, (topic,))
                 else:
                     if active_only:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             WHERE is_active = TRUE
                             ORDER BY updated_at DESC
                         """)
                     else:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             ORDER BY updated_at DESC
                         """)
-                
+
                 results = cursor.fetchall()
                 instructions = []
                 for row in results:
+                    config_data = row[10] if len(row) > 10 else None
+                    # Parse config JSON if it's a string
+                    if isinstance(config_data, str):
+                        try:
+                            config_data = json.loads(config_data)
+                        except:
+                            config_data = None
+
                     instructions.append({
                         'id': row[0],
                         'name': row[1],
@@ -1413,9 +1492,12 @@ Remember to cite your sources and provide actionable insights where possible."""
                         'topic': row[4],
                         'is_active': bool(row[5]),
                         'created_at': row[6],
-                        'updated_at': row[7]
+                        'updated_at': row[7],
+                        'generate_report': bool(row[8]) if len(row) > 8 else False,
+                        'report_prompt': row[9] if len(row) > 9 else None,
+                        'config': config_data
                     })
-                
+
                 return instructions
             except Exception as e:
                 logger.error(f"Error getting signal instructions: {e}")
@@ -1436,27 +1518,33 @@ Remember to cite your sources and provide actionable insights where possible."""
                 logger.error(f"Error deleting signal instruction: {e}")
                 return False
 
-    def save_signal_alert(self, article_uri: str, instruction_id: int, instruction_name: str, 
-                         confidence: float, threat_level: str, summary: str, detected_at: str = None) -> bool:
+    def save_signal_alert(self, article_uri: str, instruction_id: int, instruction_name: str,
+                         confidence: float, threat_level: str, summary: str, detected_at: str = None,
+                         reasoning: str = None) -> bool:
         """Save a signal alert when an article matches a signal instruction."""
         from datetime import datetime
-        
+
         if not detected_at:
             detected_at = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # NOTE: signal_alerts table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
 
-                # Insert or replace alert
+                # Insert or update alert (PostgreSQL ON CONFLICT)
                 cursor.execute("""
-                    INSERT OR REPLACE INTO signal_alerts 
-                    (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at))
-                
+                    INSERT INTO signal_alerts
+                    (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at, reasoning)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
+                        confidence = EXCLUDED.confidence,
+                        threat_level = EXCLUDED.threat_level,
+                        summary = EXCLUDED.summary,
+                        reasoning = EXCLUDED.reasoning
+                """, (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at, reasoning))
+
                 conn.commit()
                 logger.info(f"Saved signal alert for article {article_uri} with instruction {instruction_name}")
                 return True
@@ -1478,53 +1566,53 @@ Remember to cite your sources and provide actionable insights where possible."""
                 if topic:
                     # If topic filter is specified, use JOIN
                     query = """
-                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
+                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
                            sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-                           sa.is_acknowledged, sa.acknowledged_at,
+                           sa.is_acknowledged, sa.acknowledged_at, sa.reasoning,
                            a.title, a.news_source, a.publication_date
                     FROM signal_alerts sa
                     LEFT JOIN articles a ON sa.article_uri = a.uri
                     WHERE 1=1
                     """
                     params = []
-                    
+
                     if instruction_id:
                         query += " AND sa.instruction_id = ?"
                         params.append(instruction_id)
-                    
+
                     if acknowledged is not None:
                         query += " AND sa.is_acknowledged = ?"
                         # Convert Python boolean to SQLite integer (0/1)
                         params.append(1 if acknowledged else 0)
-                    
+
                     query += " AND (a.topic = ? OR a.title LIKE ? OR a.summary LIKE ?)"
                     topic_pattern = f"%{topic}%"
                     params.extend([topic, topic_pattern, topic_pattern])
-                    
+
                     query += " ORDER BY sa.detected_at DESC LIMIT ?"
                     params.append(limit)
                 else:
                     # If no topic filter, still JOIN to get article details
                     query = """
-                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
+                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
                            sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-                           sa.is_acknowledged, sa.acknowledged_at,
+                           sa.is_acknowledged, sa.acknowledged_at, sa.reasoning,
                            a.title, a.news_source, a.publication_date
                     FROM signal_alerts sa
                     LEFT JOIN articles a ON sa.article_uri = a.uri
                     WHERE 1=1
                     """
                     params = []
-                    
+
                     if instruction_id:
                         query += " AND sa.instruction_id = ?"
                         params.append(instruction_id)
-                    
+
                     if acknowledged is not None:
                         query += " AND sa.is_acknowledged = ?"
                         # Convert Python boolean to SQLite integer (0/1)
                         params.append(1 if acknowledged else 0)
-                    
+
                     query += " ORDER BY sa.detected_at DESC LIMIT ?"
                     params.append(limit)
                 
@@ -1557,9 +1645,10 @@ Remember to cite your sources and provide actionable insights where possible."""
                         'detected_at': row[7],
                         'is_acknowledged': bool(row[8]),
                         'acknowledged_at': row[9],
-                        'article_title': row[10],
-                        'article_source': row[11],
-                        'article_publication_date': row[12]
+                        'reasoning': row[10],
+                        'article_title': row[11],
+                        'article_source': row[12],
+                        'article_publication_date': row[13]
                     })
                 
                 return alerts
@@ -1641,12 +1730,16 @@ Remember to cite your sources and provide actionable insights where possible."""
             try:
                 # Create table if it doesn't exist
                 self.create_incident_status_table()
-                
+
+                # PostgreSQL upsert syntax
                 cursor.execute("""
-                    INSERT OR REPLACE INTO incident_status (incident_name, topic, status, updated_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                """, (incident_name, topic, status))
-                
+                    INSERT INTO incident_status (incident_name, topic, status, updated_at)
+                    VALUES (:incident_name, :topic, :status, CURRENT_TIMESTAMP)
+                    ON CONFLICT (incident_name, topic) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        updated_at = CURRENT_TIMESTAMP
+                """, {"incident_name": incident_name, "topic": topic, "status": status})
+
                 conn.commit()
                 logger.info(f"Updated incident status: {incident_name} -> {status}")
                 return True
@@ -1662,17 +1755,56 @@ Remember to cite your sources and provide actionable insights where possible."""
             try:
                 # Create table if it doesn't exist
                 self.create_incident_status_table()
-                
+
                 cursor.execute("""
-                    SELECT incident_name, status FROM incident_status 
-                    WHERE topic = ? AND status != 'deleted'
-                """, (topic,))
-                
+                    SELECT incident_name, status FROM incident_status
+                    WHERE topic = :topic AND status != 'deleted'
+                """, {"topic": topic})
+
                 results = cursor.fetchall()
                 return {row[0]: row[1] for row in results}
             except Exception as e:
                 logger.error(f"Error getting incident status: {e}")
                 return {}
+
+    def get_user_preference(self, username: str, preference_key: str) -> Optional[dict]:
+        """Get a user preference value by key."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT config_value FROM user_preferences
+                    WHERE username = :username AND preference_key = :preference_key
+                """, {"username": username, "preference_key": preference_key})
+                result = cursor.fetchone()
+                if result:
+                    import json
+                    return json.loads(result[0]) if isinstance(result[0], str) else result[0]
+                return None
+            except Exception as e:
+                logger.error(f"Error getting user preference: {e}")
+                return None
+
+    def set_user_preference(self, username: str, preference_key: str, value: dict) -> bool:
+        """Set a user preference value."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                import json
+                json_value = json.dumps(value)
+                cursor.execute("""
+                    INSERT INTO user_preferences (username, preference_key, config_value, created_at, updated_at)
+                    VALUES (:username, :preference_key, :config_value, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (username, preference_key) DO UPDATE SET
+                        config_value = EXCLUDED.config_value,
+                        updated_at = CURRENT_TIMESTAMP
+                """, {"username": username, "preference_key": preference_key, "config_value": json_value})
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error setting user preference: {e}")
+                conn.rollback()
+                return False
 
     def search_articles(
         self,
@@ -3018,8 +3150,8 @@ Remember to cite your sources and provide actionable insights where possible."""
                 if self.db_type == 'postgresql':
                     cursor.execute("""
                         SELECT table_name FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name = %s;
-                    """, (table_name,))
+                        WHERE table_schema = 'public' AND table_name = :table_name;
+                    """, {"table_name": table_name})
                 else:
                     cursor.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",

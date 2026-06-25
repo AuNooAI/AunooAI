@@ -48,7 +48,7 @@
 .consensus-card-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1f2937;
+  color: #232326;
   margin: 0 0 4px 0;
 }
 
@@ -76,7 +76,7 @@
 
 .expand-arrow {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
   transition: transform 0.3s ease;
 }
 
@@ -228,7 +228,7 @@
 
 .metric-label {
   font-size: 11px;
-  color: #9ca3af;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
@@ -238,7 +238,7 @@
 .metric-value {
   font-size: 16px;
   font-weight: 700;
-  color: #1f2937;
+  color: #232326;
 }
 
 .metric-badge {
@@ -310,7 +310,7 @@
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: #1f2937;
+  color: #232326;
 }
 
 .section-content-small {
@@ -348,7 +348,7 @@
 }
 
 .decision-window.urgency-low {
-  border-left-color: #9ca3af;
+  border-left-color: #6b7280;
   background: #f9fafb;
 }
 
@@ -362,7 +362,7 @@
 .decision-action {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: #232326;
 }
 
 .urgency-badge {
@@ -389,7 +389,7 @@
 }
 
 .urgency-low {
-  background: #9ca3af;
+  background: #6b7280;
   color: #fff;
 }
 
@@ -403,7 +403,7 @@
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* ===== Content Sections ===== */
@@ -414,7 +414,7 @@
 .section-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: #232326;
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -444,7 +444,7 @@
 
 .timeframe-label {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
@@ -484,7 +484,7 @@
 .milestone-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1f2937;
+  color: #232326;
   margin-bottom: 4px;
 }
 
@@ -520,7 +520,7 @@
   font-weight: 600;
   margin-bottom: 8px;
   font-size: 14px;
-  color: #1f2937;
+  color: #232326;
 }
 
 .outlier-details {
@@ -532,7 +532,7 @@
 
 .outlier-reference {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
   font-style: italic;
 }
 
@@ -553,7 +553,7 @@
 .article-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1f2937;
+  color: #232326;
   margin-bottom: 4px;
 }
 
@@ -588,4 +588,205 @@
   color: #1d4ed8;
   background-color: #eff6ff;
   text-decoration: underline;
+}
+
+/* ===== Dark Mode Styles ===== */
+.dark .consensus-card-simple {
+  background: #232326;
+  border-color: #35353a;
+}
+
+.dark .consensus-card-simple:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-color: #4b5563;
+}
+
+.dark .consensus-card-simple.expanded {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dark .consensus-card-title {
+  color: #f3f4f6;
+}
+
+.dark .consensus-card-subtitle {
+  color: #6b7280;
+}
+
+.dark .expand-arrow {
+  color: #6b7280;
+}
+
+.dark .consensus-card-expanded-content {
+  border-top-color: #35353a;
+}
+
+.dark .consensus-metrics {
+  background: #1c1c1f;
+}
+
+.dark .metric-label {
+  color: #6b7280;
+}
+
+.dark .metric-value {
+  color: #f3f4f6;
+}
+
+.dark .badge-strong {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.dark .badge-moderate {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+}
+
+.dark .badge-emerging {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+.dark .strategic-implications-box {
+  background: rgba(59, 130, 246, 0.1);
+  border-left-color: #60a5fa;
+}
+
+.dark .section-title-small {
+  color: #f3f4f6;
+}
+
+.dark .section-content-small {
+  color: #d1d5db;
+}
+
+.dark .decision-window {
+  background: #1c1c1f;
+  border-color: #35353a;
+}
+
+.dark .decision-window.urgency-critical {
+  background: rgba(239, 68, 68, 0.1);
+  border-left-color: #f87171;
+}
+
+.dark .decision-window.urgency-high {
+  background: rgba(245, 158, 11, 0.1);
+  border-left-color: #fbbf24;
+}
+
+.dark .decision-window.urgency-medium {
+  background: rgba(59, 130, 246, 0.1);
+  border-left-color: #60a5fa;
+}
+
+.dark .decision-window.urgency-low {
+  background: rgba(156, 163, 175, 0.1);
+  border-left-color: #6b7280;
+}
+
+.dark .decision-action {
+  color: #f3f4f6;
+}
+
+.dark .decision-rationale {
+  color: #6b7280;
+}
+
+.dark .decision-meta {
+  color: #6b7280;
+}
+
+.dark .section-title {
+  color: #f3f4f6;
+}
+
+.dark .section-content {
+  color: #d1d5db;
+}
+
+.dark .timeframe-box {
+  background: #1c1c1f;
+  border-color: #35353a;
+}
+
+.dark .timeframe-label {
+  color: #6b7280;
+}
+
+.dark .timeframe-content {
+  color: #d1d5db;
+}
+
+.dark .milestone-year {
+  color: #60a5fa;
+}
+
+.dark .milestone-title {
+  color: #f3f4f6;
+}
+
+.dark .milestone-significance {
+  color: #6b7280;
+}
+
+.dark .outlier-card {
+  border-color: #35353a;
+}
+
+.dark .outlier-card.optimistic {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: #059669;
+}
+
+.dark .outlier-card.pessimistic {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #dc2626;
+}
+
+.dark .outlier-scenario {
+  color: #f3f4f6;
+}
+
+.dark .outlier-details {
+  color: #6b7280;
+}
+
+.dark .outlier-reference {
+  color: #6b7280;
+}
+
+.dark .article-item {
+  background: #1c1c1f;
+  border-left-color: #60a5fa;
+}
+
+.dark .article-title {
+  color: #f3f4f6;
+}
+
+.dark .article-title a {
+  color: #60a5fa;
+}
+
+.dark .article-summary {
+  color: #6b7280;
+}
+
+.dark .citation-link {
+  color: #60a5fa;
+}
+
+.dark .citation-link:hover {
+  color: #93c5fd;
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+.dark .year-label {
+  color: #6b7280;
+}
+
+.dark .timeline-thin-line {
+  background: linear-gradient(90deg, #35353a 0%, #4b5563 50%, #35353a 100%);
 }

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 # Setup templates
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ class DeleteTopicRequest(BaseModel):
 @router.get("/topics")
 async def get_topics_unified(
     with_articles: bool = False,
-    include_config: bool = True
+    include_config: bool = True,
+    include_tracked: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Unified topic endpoint that combines config.json and database information.
@@ -35,6 +37,12 @@ async def get_topics_unified(
         with_articles: If True, only return topics that have articles in the database
         include_config: If True, include full topic configuration (categories, signals, etc.)
                        If False, return only name and description
+        include_tracked: If True, also include wizard-created topics from
+                       forecast_topic_metadata that aren't in config.json. These
+                       are deck-named topics whose corpus lives under source_topics
+                       (e.g. "Quantum Advantage" → seeded from "Quantum Computing").
+                       Their article_count reflects the source_topics' combined
+                       count so the selector still shows a meaningful number.
 
     Returns:
         List of topic objects with requested information
@@ -45,12 +53,14 @@ async def get_topics_unified(
         all_topics = config.get('topics', [])
 
         # If filtering to topics with articles, get database topics
-        if with_articles:
+        db_topics_info: Dict[str, Any] = {}
+        if with_articles or include_tracked:
             db = Database()
             facade = DatabaseQueryFacade(db, logger)
             db_topics_info = facade.get_topics_with_article_counts()
             db_topic_names = set(db_topics_info.keys())
 
+        if with_articles:
             # Filter to only topics that exist in database
             all_topics = [t for t in all_topics if t['name'] in db_topic_names]
 
@@ -61,14 +71,52 @@ async def get_topics_unified(
                     topic['article_count'] = db_topics_info[topic_name]['article_count']
                     topic['last_article_date'] = db_topics_info[topic_name]['last_article_date']
 
+        if include_tracked:
+            # Merge in wizard-created topics (decoupled deck names like
+            # "Quantum Advantage") so the selector can reach them.
+            from sqlalchemy import text as sa_text
+            db = Database()
+            facade = DatabaseQueryFacade(db, logger)
+            existing = {t['name'] for t in all_topics}
+            tracked = facade._execute_with_rollback(sa_text("""
+                SELECT topic, display_name, description, source_topics
+                FROM forecast_topic_metadata
+                WHERE COALESCE(status, 'active') != 'archived'
+            """)).fetchall()
+            for r in tracked:
+                m = r._mapping
+                name = m['topic']
+                if name in existing:
+                    continue
+                src = m['source_topics'] or []
+                count = 0
+                last_date = None
+                if isinstance(src, list):
+                    for s in src:
+                        info = db_topics_info.get(s, {})
+                        count += int(info.get('article_count') or 0)
+                        d = info.get('last_article_date')
+                        if d and (last_date is None or str(d) > str(last_date)):
+                            last_date = d
+                all_topics.append({
+                    'name': name,
+                    'display_name': m.get('display_name') or name,
+                    'description': m.get('description') or '',
+                    'article_count': count,
+                    'last_article_date': last_date,
+                    'source_topics': list(src) if isinstance(src, list) else [],
+                    'is_tracked_only': True,
+                })
+
         # If not including full config, return minimal information
         if not include_config:
             return [
                 {
                     "name": t['name'],
                     "description": t.get('description', ''),
-                    **({"article_count": t.get('article_count', 0)} if with_articles else {}),
-                    **({"last_article_date": t.get('last_article_date')} if with_articles else {})
+                    **({"article_count": t.get('article_count', 0)} if (with_articles or include_tracked) else {}),
+                    **({"last_article_date": t.get('last_article_date')} if (with_articles or include_tracked) else {}),
+                    **({"is_tracked_only": True} if t.get('is_tracked_only') else {}),
                 }
                 for t in all_topics
             ]

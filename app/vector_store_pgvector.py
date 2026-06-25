@@ -264,7 +264,7 @@ def search_articles(
     """Semantic search in the pgvector index.
 
     Args:
-        query: Search query text
+        query: Search query text (use "*" for all articles)
         top_k: Number of results to return
         metadata_filter: Optional filters (e.g., {"topic": "AI"})
 
@@ -273,51 +273,125 @@ def search_articles(
     """
     logger.info("Vector search: query='%s', top_k=%d, filters=%s", query, top_k, metadata_filter)
 
+    # Handle wildcard query - return all articles (with filters) without vector similarity
+    is_wildcard = query.strip() in ('*', '')
+
     conn = None
     try:
-        # Generate query embedding
-        embeddings = _embed_texts([query])
-        query_embedding = embeddings[0]
+        query_embedding = None
+        if not is_wildcard:
+            # Generate query embedding for semantic search
+            embeddings = _embed_texts([query])
+            query_embedding = embeddings[0]
 
         # Build SQL query with filters
         db = get_database_instance()
         conn = db._temp_get_connection()
 
-        # Convert embedding to PostgreSQL format
-        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
-
         # Build WHERE clause for filters
         where_clauses = ["embedding IS NOT NULL"]
-        params = {"query_embedding": embedding_str, "limit": top_k}
+        params = {"limit": top_k}
 
         if metadata_filter:
-            for key, value in metadata_filter.items():
-                where_clauses.append(f"{key} = :{key}")
-                params[key] = value
+            # Handle complex $and filters from auspex_service.py
+            if "$and" in metadata_filter:
+                param_idx = 0
+                for condition in metadata_filter["$and"]:
+                    for key, value in condition.items():
+                        if isinstance(value, dict):
+                            # Handle comparison operators like {"$gte": "2025-01-01"}
+                            for op, op_value in value.items():
+                                param_name = f"param_{param_idx}"
+                                if op == "$gte":
+                                    where_clauses.append(f"{key} >= :{param_name}")
+                                elif op == "$lte":
+                                    where_clauses.append(f"{key} <= :{param_name}")
+                                elif op == "$gt":
+                                    where_clauses.append(f"{key} > :{param_name}")
+                                elif op == "$lt":
+                                    where_clauses.append(f"{key} < :{param_name}")
+                                else:
+                                    where_clauses.append(f"{key} = :{param_name}")
+                                params[param_name] = op_value
+                                param_idx += 1
+                        else:
+                            # Simple equality
+                            param_name = f"param_{param_idx}"
+                            where_clauses.append(f"{key} = :{param_name}")
+                            params[param_name] = value
+                            param_idx += 1
+            else:
+                # Handle simple {key: value} or {key: {$gte: value}} filters
+                for key, value in metadata_filter.items():
+                    if isinstance(value, dict):
+                        # Handle comparison operators
+                        for op, op_value in value.items():
+                            if op == "$gte":
+                                where_clauses.append(f"{key} >= :{key}")
+                            elif op == "$lte":
+                                where_clauses.append(f"{key} <= :{key}")
+                            elif op == "$gt":
+                                where_clauses.append(f"{key} > :{key}")
+                            elif op == "$lt":
+                                where_clauses.append(f"{key} < :{key}")
+                            else:
+                                where_clauses.append(f"{key} = :{key}")
+                            params[key] = op_value
+                    else:
+                        where_clauses.append(f"{key} = :{key}")
+                        params[key] = value
 
         where_clause = " AND ".join(where_clauses)
 
-        # Use cosine distance operator (<=>)
-        # Lower distance = more similar (0 = identical, 2 = opposite)
-        stmt = text(f"""
-            SELECT
-                uri as id,
-                (embedding <=> CAST(:query_embedding AS vector)) as score,
-                title,
-                news_source,
-                category,
-                future_signal,
-                sentiment,
-                time_to_impact,
-                topic,
-                publication_date,
-                tags,
-                summary
-            FROM articles
-            WHERE {where_clause}
-            ORDER BY embedding <=> CAST(:query_embedding AS vector)
-            LIMIT :limit
-        """)
+        if is_wildcard:
+            # Wildcard query - return all articles matching filters, ordered by date
+            stmt = text(f"""
+                SELECT
+                    uri as id,
+                    0.0 as score,
+                    title,
+                    news_source,
+                    category,
+                    future_signal,
+                    sentiment,
+                    time_to_impact,
+                    topic,
+                    publication_date,
+                    tags,
+                    summary,
+                    user_preference
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY publication_date DESC NULLS LAST
+                LIMIT :limit
+            """)
+        else:
+            # Convert embedding to PostgreSQL format
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+            params["query_embedding"] = embedding_str
+
+            # Use cosine distance operator (<=>)
+            # Lower distance = more similar (0 = identical, 2 = opposite)
+            stmt = text(f"""
+                SELECT
+                    uri as id,
+                    (embedding <=> CAST(:query_embedding AS vector)) as score,
+                    title,
+                    news_source,
+                    category,
+                    future_signal,
+                    sentiment,
+                    time_to_impact,
+                    topic,
+                    publication_date,
+                    tags,
+                    summary,
+                    user_preference
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY embedding <=> CAST(:query_embedding AS vector)
+                LIMIT :limit
+            """)
 
         result = conn.execute(stmt, params)
 
@@ -338,6 +412,7 @@ def search_articles(
                     "tags": row.get("tags"),
                     "summary": row.get("summary"),
                     "uri": row["id"],
+                    "user_preference": row.get("user_preference"),
                 }
             })
 
@@ -384,16 +459,61 @@ async def search_articles_async(
         embeddings = _embed_texts([query])
         query_embedding = embeddings[0]
 
-        # Build WHERE clause for filters
+        # Build WHERE clause for filters (asyncpg uses positional params $1, $2, etc.)
         where_clauses = ["embedding IS NOT NULL"]
-        params = {"limit": top_k}
+        param_values = []  # Will be built as we process filters
+        param_idx = 2  # Start at 2 since $1 is the embedding
 
         if metadata_filter:
-            for key, value in metadata_filter.items():
-                where_clauses.append(f"{key} = ${len(params) + 1}")
-                params[key] = value
+            # Handle complex $and filters from auspex_service.py
+            if "$and" in metadata_filter:
+                for condition in metadata_filter["$and"]:
+                    for key, value in condition.items():
+                        if isinstance(value, dict):
+                            # Handle comparison operators like {"$gte": "2025-01-01"}
+                            for op, op_value in value.items():
+                                if op == "$gte":
+                                    where_clauses.append(f"{key} >= ${param_idx}")
+                                elif op == "$lte":
+                                    where_clauses.append(f"{key} <= ${param_idx}")
+                                elif op == "$gt":
+                                    where_clauses.append(f"{key} > ${param_idx}")
+                                elif op == "$lt":
+                                    where_clauses.append(f"{key} < ${param_idx}")
+                                else:
+                                    where_clauses.append(f"{key} = ${param_idx}")
+                                param_values.append(op_value)
+                                param_idx += 1
+                        else:
+                            # Simple equality
+                            where_clauses.append(f"{key} = ${param_idx}")
+                            param_values.append(value)
+                            param_idx += 1
+            else:
+                # Handle simple {key: value} or {key: {$gte: value}} filters
+                for key, value in metadata_filter.items():
+                    if isinstance(value, dict):
+                        # Handle comparison operators
+                        for op, op_value in value.items():
+                            if op == "$gte":
+                                where_clauses.append(f"{key} >= ${param_idx}")
+                            elif op == "$lte":
+                                where_clauses.append(f"{key} <= ${param_idx}")
+                            elif op == "$gt":
+                                where_clauses.append(f"{key} > ${param_idx}")
+                            elif op == "$lt":
+                                where_clauses.append(f"{key} < ${param_idx}")
+                            else:
+                                where_clauses.append(f"{key} = ${param_idx}")
+                            param_values.append(op_value)
+                            param_idx += 1
+                    else:
+                        where_clauses.append(f"{key} = ${param_idx}")
+                        param_values.append(value)
+                        param_idx += 1
 
         where_clause = " AND ".join(where_clauses)
+        limit_param_idx = param_idx
 
         # CRITICAL FIX: Use global singleton AsyncDatabase instance to avoid creating new connection pools
         from app.services.async_db import get_async_database_instance
@@ -420,16 +540,13 @@ async def search_articles_async(
                 FROM articles
                 WHERE {where_clause}
                 ORDER BY embedding <=> $1::vector
-                LIMIT ${len(params) + 1}
+                LIMIT ${limit_param_idx}
             """
 
-            # Build params list for asyncpg (positional)
-            param_values = [embedding_str]
-            if metadata_filter:
-                param_values.extend(metadata_filter.values())
-            param_values.append(top_k)
+            # Build final params list: embedding, filter values, limit
+            final_params = [embedding_str] + param_values + [top_k]
 
-            rows = await conn.fetch(query_sql, *param_values)
+            rows = await conn.fetch(query_sql, *final_params)
 
             docs = []
             for row in rows:
@@ -613,6 +730,130 @@ async def similar_articles_async(uri: str, top_k: int = 5) -> List[Dict[str, Any
         return await loop.run_in_executor(None, similar_articles, uri, top_k)
 
 
+def cluster_articles_by_similarity(
+    article_uris: List[str],
+    similarity_threshold: float = 0.3,
+    max_cluster_size: int = 4
+) -> List[Dict[str, Any]]:
+    """Cluster articles by semantic similarity using pgvector.
+
+    Groups related articles together based on embedding similarity.
+    Returns clusters where the first article is the "primary" and others are related.
+
+    Args:
+        article_uris: List of article URIs to cluster
+        similarity_threshold: Maximum cosine distance to consider articles related (lower = more similar)
+        max_cluster_size: Maximum articles per cluster (including primary)
+
+    Returns:
+        List of clusters, each containing:
+        - primary: The main article dict
+        - related: List of related article dicts with similarity scores
+    """
+    if not article_uris:
+        return []
+
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Fetch all articles with their embeddings
+        placeholders = ", ".join([f":uri_{i}" for i in range(len(article_uris))])
+        params = {f"uri_{i}": uri for i, uri in enumerate(article_uris)}
+
+        stmt = text(f"""
+            SELECT
+                uri, title, summary, news_source, publication_date,
+                category, topic, sentiment, time_to_impact, tags,
+                bias, factual_reporting, mbfc_credibility_rating,
+                embedding
+            FROM articles
+            WHERE uri IN ({placeholders})
+            AND embedding IS NOT NULL
+            ORDER BY publication_date DESC
+        """)
+
+        result = conn.execute(stmt, params)
+        articles = []
+        for row in result.mappings():
+            articles.append(dict(row))
+
+        if not articles:
+            return []
+
+        # Track which articles have been assigned to clusters
+        assigned = set()
+        clusters = []
+
+        # Process articles in order (newest first)
+        for article in articles:
+            if article['uri'] in assigned:
+                continue
+
+            # Start a new cluster with this article as primary
+            cluster = {
+                'primary': {k: v for k, v in article.items() if k != 'embedding'},
+                'related': []
+            }
+            assigned.add(article['uri'])
+
+            if article['embedding'] is None:
+                clusters.append(cluster)
+                continue
+
+            # Find similar articles from remaining unassigned articles
+            ref_embedding = str(article['embedding'])
+
+            for candidate in articles:
+                if candidate['uri'] in assigned:
+                    continue
+                if candidate['embedding'] is None:
+                    continue
+                if len(cluster['related']) >= max_cluster_size - 1:
+                    break
+
+                # Calculate similarity using pgvector
+                sim_stmt = text("""
+                    SELECT (CAST(:emb1 AS vector) <=> CAST(:emb2 AS vector)) as distance
+                """)
+                sim_result = conn.execute(sim_stmt, {
+                    'emb1': ref_embedding,
+                    'emb2': str(candidate['embedding'])
+                })
+                distance = sim_result.scalar()
+
+                # Lower distance = more similar
+                if distance is not None and distance < similarity_threshold:
+                    related_article = {k: v for k, v in candidate.items() if k != 'embedding'}
+                    related_article['similarity_score'] = 1.0 - float(distance)  # Convert to similarity
+                    cluster['related'].append(related_article)
+                    assigned.add(candidate['uri'])
+
+            # Sort related by similarity
+            cluster['related'].sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+            clusters.append(cluster)
+
+        # Add any remaining unassigned articles as single-article clusters
+        for article in articles:
+            if article['uri'] not in assigned:
+                clusters.append({
+                    'primary': {k: v for k, v in article.items() if k != 'embedding'},
+                    'related': []
+                })
+
+        logger.info(f"Clustered {len(article_uris)} articles into {len(clusters)} clusters")
+        return clusters
+
+    except Exception as exc:
+        logger.error(f"Error clustering articles: {exc}")
+        # Fallback: return each article as its own cluster
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def get_vectors_by_metadata(
     limit: Optional[int] = None,
     where: Optional[Dict[str, Any]] = None
@@ -636,11 +877,25 @@ def get_vectors_by_metadata(
         # Build WHERE clause
         where_clauses = ["embedding IS NOT NULL"]
         params = {}
+        param_counter = 0
 
         if where:
             for key, value in where.items():
-                where_clauses.append(f"{key} = :{key}")
-                params[key] = value
+                if isinstance(value, dict) and "$in" in value:
+                    # Handle $in operator (ChromaDB-style filter)
+                    in_values = value["$in"]
+                    if in_values:
+                        placeholders = []
+                        for i, v in enumerate(in_values):
+                            param_name = f"in_{param_counter}_{i}"
+                            placeholders.append(f":{param_name}")
+                            params[param_name] = v
+                        where_clauses.append(f"{key} IN ({', '.join(placeholders)})")
+                    param_counter += 1
+                else:
+                    # Simple equality filter
+                    where_clauses.append(f"{key} = :{key}")
+                    params[key] = value
 
         if limit:
             params["limit"] = limit
@@ -835,6 +1090,81 @@ async def get_by_ids_async(
     """
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, get_by_ids, ids, include)
+
+
+def delete_embeddings(ids: List[str]) -> int:
+    """Delete embeddings for articles by their URIs.
+
+    This sets the embedding column to NULL rather than deleting the article,
+    matching the original ChromaDB behavior where deleting from the vector
+    store didn't affect the relational database.
+
+    Args:
+        ids: List of article URIs to delete embeddings for
+
+    Returns:
+        Number of articles affected
+    """
+    if not ids:
+        return 0
+
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+        params = {f"id{i}": uri for i, uri in enumerate(ids)}
+
+        stmt = text(f"""
+            UPDATE articles
+            SET embedding = NULL
+            WHERE uri IN ({placeholders})
+        """)
+
+        result = conn.execute(stmt, params)
+        conn.commit()
+
+        affected = result.rowcount
+        logger.info("Deleted embeddings for %d articles", affected)
+        return affected
+
+    except Exception as exc:
+        logger.error("delete_embeddings failed: %s", exc)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
+def count_embeddings() -> int:
+    """Count the number of articles with embeddings.
+
+    Returns:
+        Number of articles with non-null embeddings
+    """
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM articles WHERE embedding IS NOT NULL"
+        ))
+        count = result.scalar() or 0
+        return count
+
+    except Exception as exc:
+        logger.error("count_embeddings failed: %s", exc)
+        return 0
+    finally:
+        if conn:
+            conn.close()
 
 
 def check_pgvector_health() -> Dict[str, Any]:

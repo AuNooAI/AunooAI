@@ -242,7 +242,7 @@ class TTSPodcastRequest(BaseModel):
     article_uris: Optional[List[str]] = None
 
     # Prompt / LLM configuration
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     duration: str = "medium"  # short | medium | long
     length_per_article: int = 90  # Target seconds per article (45-150)
     article_count: Optional[int] = None  # Number of articles
@@ -253,7 +253,7 @@ class TTSPodcastRequest(BaseModel):
 
     # Speaker / voices
     host_name: Optional[str] = "Aunoo"
-    host_voice_id: str
+    host_voice_id: str = DEFAULT_VOICE_ID
     guest_voice_id: Optional[str] = None
     guest_title: Optional[str] = None
     guest_name: Optional[str] = None
@@ -359,22 +359,63 @@ async def generate_podcast_script(
     try:
         logger.info(f"Generating podcast script for {request.podcast_name} - {request.episode_title}")
         
-        # Prepare article content
+        # Prepare article content - use detailed_report when available for richer scripts
         article_texts = []
         for article in request.articles:
-            article_text = [
-                f"Title: {article['title']}",
-                f"Summary: {article['summary']}",
-                f"Category: {article.get('category', 'N/A')}",
-                f"Future Signal: {article.get('future_signal', 'N/A')}",
-                f"Future Signal Explanation: {article.get('future_signal_explanation', 'N/A')}",
-                f"Sentiment: {article.get('sentiment', 'N/A')}",
-                f"Sentiment Explanation: {article.get('sentiment_explanation', 'N/A')}",
-                f"Time to Impact: {article.get('time_to_impact', 'N/A')}",
-                f"Time to Impact Explanation: {article.get('time_to_impact_explanation', 'N/A')}",
-                f"Driver Type: {article.get('driver_type', 'N/A')}",
-                f"Driver Type Explanation: {article.get('driver_type_explanation', 'N/A')}"
-            ]
+            detailed_report = article.get('detailed_report')
+
+            if detailed_report and not detailed_report.get('error'):
+                # Use rich detailed report data for better podcast content
+                key_facts = detailed_report.get('key_facts', [])
+                notable_quotes = detailed_report.get('notable_quotes', [])
+                talking_points = detailed_report.get('talking_points', [])
+                background_context = detailed_report.get('background_context', '')
+                implications = detailed_report.get('implications', '')
+
+                article_text = [
+                    f"Title: {article.get('title', 'Untitled')}",
+                    f"Source: {article.get('source', 'N/A')}",
+                    f"Category: {article.get('category', 'N/A')}",
+                    f"Executive Takeaway: {article.get('executive_takeaway', article.get('summary', 'N/A'))}",
+                    f"Strategic Relevance: {article.get('strategic_relevance', 'N/A')}",
+                ]
+
+                if key_facts:
+                    article_text.append(f"Key Facts: {'; '.join(key_facts[:5])}")
+
+                if notable_quotes:
+                    article_text.append(f"Notable Quotes: {'; '.join(notable_quotes[:3])}")
+
+                if background_context:
+                    article_text.append(f"Background Context: {background_context[:500]}")
+
+                if implications:
+                    article_text.append(f"Implications: {implications[:400]}")
+
+                if talking_points:
+                    article_text.append(f"Talking Points: {'; '.join(talking_points[:5])}")
+
+                # Also include signal metadata
+                article_text.extend([
+                    f"Time Horizon: {article.get('time_horizon', 'N/A')}",
+                    f"Risk/Opportunity: {article.get('risk_opportunity', 'N/A')}",
+                    f"Signal Strength: {article.get('signal_strength', 'N/A')}",
+                ])
+            else:
+                # Fallback to basic summary when detailed_report not available
+                article_text = [
+                    f"Title: {article['title']}",
+                    f"Summary: {article['summary']}",
+                    f"Category: {article.get('category', 'N/A')}",
+                    f"Future Signal: {article.get('future_signal', 'N/A')}",
+                    f"Future Signal Explanation: {article.get('future_signal_explanation', 'N/A')}",
+                    f"Sentiment: {article.get('sentiment', 'N/A')}",
+                    f"Sentiment Explanation: {article.get('sentiment_explanation', 'N/A')}",
+                    f"Time to Impact: {article.get('time_to_impact', 'N/A')}",
+                    f"Time to Impact Explanation: {article.get('time_to_impact_explanation', 'N/A')}",
+                    f"Driver Type: {article.get('driver_type', 'N/A')}",
+                    f"Driver Type Explanation: {article.get('driver_type_explanation', 'N/A')}"
+                ]
             article_texts.append("\n".join(article_text))
         
         combined_articles = "\n\n---\n\n".join(article_texts)
@@ -426,7 +467,7 @@ async def generate_podcast_script(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": combined_articles}
         ]
-        response = model.generate_response(messages)
+        response = await model.agenerate_response(messages)
         if not response:
             logger.error("Model returned empty response")
             raise HTTPException(
@@ -964,16 +1005,17 @@ async def list_podcasts(session=Depends(verify_session)):
         podcasts = []
         for row in (DatabaseQueryFacade(get_database_instance(), logger)).get_all_podcasts():
             # Handle null values and ensure proper JSON encoding
+            # Row is a mapping (dict-like) so access by column name
             podcast = {
-                "podcast_id": row[0],
-                "title": row[1],
-                "status": row[2],
-                "audio_url": row[3],
-                "created_at": row[4],
-                "completed_at": row[5],
-                "error": row[6],
-                "transcript": row[7] if row[7] else "",
-                "metadata": json.loads(row[8]) if row[8] else {}
+                "podcast_id": row["id"],
+                "title": row["title"],
+                "status": row["status"],
+                "audio_url": row["audio_url"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+                "error": row["error"],
+                "transcript": row["transcript"] if row["transcript"] else "",
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
             podcasts.append(podcast)
 
@@ -1223,22 +1265,63 @@ def _generate_script_from_articles(
     endpoint so that we can auto‑generate the script before TTS.
     """
 
-    # Prepare article blocks
+    # Prepare article blocks - use detailed_report when available for richer content
     article_blocks: List[str] = []
     for art in articles:
-        block = [
-            f"Title: {art.get('title')}",
-            f"Summary: {art.get('summary')}",
-            f"Category: {art.get('category', 'N/A')}",
-            f"Future Signal: {art.get('future_signal', 'N/A')}",
-            f"Future Signal Explanation: {art.get('future_signal_explanation', 'N/A')}",
-            f"Sentiment: {art.get('sentiment', 'N/A')}",
-            f"Sentiment Explanation: {art.get('sentiment_explanation', 'N/A')}",
-            f"Time to Impact: {art.get('time_to_impact', 'N/A')}",
-            f"Time to Impact Explanation: {art.get('time_to_impact_explanation', 'N/A')}",
-            f"Driver Type: {art.get('driver_type', 'N/A')}",
-            f"Driver Type Explanation: {art.get('driver_type_explanation', 'N/A')}" ,
-        ]
+        detailed_report = art.get('detailed_report')
+
+        if detailed_report and not detailed_report.get('error'):
+            # Use rich detailed report data for better podcast content
+            key_facts = detailed_report.get('key_facts', [])
+            notable_quotes = detailed_report.get('notable_quotes', [])
+            talking_points = detailed_report.get('talking_points', [])
+            background_context = detailed_report.get('background_context', '')
+            implications = detailed_report.get('implications', '')
+
+            block = [
+                f"Title: {art.get('title')}",
+                f"Source: {art.get('source', 'N/A')}",
+                f"Category: {art.get('category', 'N/A')}",
+                f"Executive Takeaway: {art.get('executive_takeaway', art.get('summary', 'N/A'))}",
+                f"Strategic Relevance: {art.get('strategic_relevance', 'N/A')}",
+            ]
+
+            if key_facts:
+                block.append(f"Key Facts: {'; '.join(key_facts[:5])}")
+
+            if notable_quotes:
+                block.append(f"Notable Quotes: {'; '.join(notable_quotes[:3])}")
+
+            if background_context:
+                block.append(f"Background Context: {background_context[:500]}")
+
+            if implications:
+                block.append(f"Implications: {implications[:400]}")
+
+            if talking_points:
+                block.append(f"Talking Points: {'; '.join(talking_points[:5])}")
+
+            # Also include signal metadata
+            block.extend([
+                f"Time Horizon: {art.get('time_horizon', 'N/A')}",
+                f"Risk/Opportunity: {art.get('risk_opportunity', 'N/A')}",
+                f"Signal Strength: {art.get('signal_strength', 'N/A')}",
+            ])
+        else:
+            # Fallback to basic summary when detailed_report not available
+            block = [
+                f"Title: {art.get('title')}",
+                f"Summary: {art.get('summary')}",
+                f"Category: {art.get('category', 'N/A')}",
+                f"Future Signal: {art.get('future_signal', 'N/A')}",
+                f"Future Signal Explanation: {art.get('future_signal_explanation', 'N/A')}",
+                f"Sentiment: {art.get('sentiment', 'N/A')}",
+                f"Sentiment Explanation: {art.get('sentiment_explanation', 'N/A')}",
+                f"Time to Impact: {art.get('time_to_impact', 'N/A')}",
+                f"Time to Impact Explanation: {art.get('time_to_impact_explanation', 'N/A')}",
+                f"Driver Type: {art.get('driver_type', 'N/A')}",
+                f"Driver Type Explanation: {art.get('driver_type_explanation', 'N/A')}",
+            ]
         article_blocks.append("\n".join(block))
 
     combined_articles = "\n\n---\n\n".join(article_blocks)
@@ -1467,7 +1550,7 @@ class DiaPodcastRequest(BaseModel):
     output_format: str = "mp3"
 
     # Script generation fallback extras
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     duration: str = "medium"
     host_name: Optional[str] = "Aunoo"
     guest_name: Optional[str] = "Auspex"

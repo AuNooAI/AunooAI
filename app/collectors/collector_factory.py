@@ -6,6 +6,10 @@ from .thenewsapi_collector import TheNewsAPICollector
 from .bluesky_collector import BlueskyCollector
 from .newsdata_collector import NewsdataCollector
 from .semantic_scholar_collector import SemanticScholarCollector
+from .rss_collector import RSSCollector
+from .newsfirehose_collector import NewsFirehoseCollector
+from .opoint_collector import OpointCollector
+from .reddit_collector import RedditCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -17,7 +21,11 @@ class CollectorFactory:
         'thenewsapi': TheNewsAPICollector,
         'bluesky': BlueskyCollector,
         'newsdata': NewsdataCollector,
-        'semantic_scholar': SemanticScholarCollector
+        'semantic_scholar': SemanticScholarCollector,
+        'rss': RSSCollector,
+        'newsfirehose': NewsFirehoseCollector,
+        'opoint': OpointCollector,
+        'reddit': RedditCollector
     }
 
     @classmethod
@@ -85,6 +93,24 @@ class CollectorFactory:
             if source == "bluesky":
                 return os.getenv("PROVIDER_BLUESKY_USERNAME") and os.getenv(
                     "PROVIDER_BLUESKY_PASSWORD"
+                )
+
+            if source == "newsfirehose":
+                return any(
+                    os.getenv(env)
+                    for env in (
+                        "PROVIDER_NEWSFIREHOSE_API_KEY",
+                        "NEWSFIREHOSE_API_KEY",
+                    )
+                )
+
+            if source == "opoint":
+                return any(
+                    os.getenv(env)
+                    for env in (
+                        "PROVIDER_OPOINT_API_KEY",
+                        "OPOINT_API_KEY",
+                    )
                 )
 
             # arxiv and others do not require credentials

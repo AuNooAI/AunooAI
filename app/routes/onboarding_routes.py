@@ -790,6 +790,28 @@ Each topic has specific characteristics:
 
 For the keywords section, return a JSON object with these keys: companies, technologies, general, people, exclusions. For companies, technologies, and people, ONLY include real, verifiable entities that are relevant to the topic. If you cannot verify a real company, technology, or person, leave the list empty. Do NOT invent names. For exclusions, include only common spam, scam, or misinformation terms relevant to the topic, or leave blank if none are known.
 
+IMPORTANT - KEYWORD FORMAT RULES (for news API compatibility):
+1. Use SIMPLE, SINGLE-WORD or TWO-WORD keywords only (e.g., "artificial intelligence", "OpenAI")
+2. NO Boolean operators (AND, OR, NOT) - just plain terms
+3. NO parentheses, brackets, or special characters
+4. NO quoted phrases - just plain text
+5. Keep each keyword under 30 characters
+6. For exclusions, prefix with minus sign: -scam, -spam, -unrelated
+7. For companies/people, use the most common name: "OpenAI" not "OpenAI Inc."
+
+Examples of GOOD keywords:
+- companies: ["OpenAI", "Microsoft", "Google DeepMind"]
+- technologies: ["machine learning", "neural networks", "GPT-4"]
+- general: ["artificial intelligence", "automation", "chatbots"]
+- people: ["Sam Altman", "Demis Hassabis"]
+- exclusions: ["-cryptocurrency", "-scam", "-gaming"]
+
+Examples of BAD keywords (DO NOT USE):
+- "(AI OR ML)" - no parentheses or boolean operators
+- "AI AND robotics" - no boolean operators
+- "\"machine learning\"" - no quotes
+- "OpenAI, Inc." - use simple names
+
 IMPORTANT: You must respond with VALID JSON only. No explanations, no markdown formatting, no additional text.
 
 Format your response EXACTLY as follows:
@@ -893,7 +915,12 @@ Format your response EXACTLY as follows:
             suggestions["future_signals"] = cleaned_signals[:5]
             # --- KEYWORD STRUCTURE FIX ---
             suggestions["keywords"] = ensure_structured_keywords(suggestions.get("keywords", {}), topic_name)
-            
+
+            # --- NORMALIZE KEYWORDS FOR API COMPATIBILITY ---
+            from app.utils.keyword_normalizer import normalize_keywords_batch
+            suggestions["keywords"] = normalize_keywords_batch(suggestions["keywords"])
+            logger.debug(f"Normalized keywords for API compatibility: {suggestions['keywords']}")
+
             # Only use fallback if we have empty keyword lists
             has_any_keywords = any(
                 len(suggestions["keywords"].get(cat, [])) > 0 
@@ -1083,9 +1110,14 @@ async def save_topic(
                 group_id = (DatabaseQueryFacade(db, logger)).create_group(topic_data["name"], topic_data["name"])
                 logger.info(f"Created new keyword group with ID {group_id}")
 
+            # Normalize keywords before saving
+            from app.utils.keyword_normalizer import normalize_keyword_list
+            normalized_keywords = normalize_keyword_list(keywords)
+            logger.info(f"Normalized {len(keywords)} keywords to {len(normalized_keywords)} for API compatibility")
+
             # Add keywords
-            logger.info(f"Adding {len(keywords)} keywords to group {group_id}")
-            for keyword in keywords:
+            logger.info(f"Adding {len(normalized_keywords)} keywords to group {group_id}")
+            for keyword in normalized_keywords:
                 (DatabaseQueryFacade(db, logger)).add_keywords_to_group(group_id, keyword)
                 logger.info(f"Added keyword: {keyword}")
 

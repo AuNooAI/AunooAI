@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from fastapi import APIRouter, HTTPException, Query, Depends, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
@@ -19,9 +19,19 @@ from app.database_query_facade import DatabaseQueryFacade
 from app.services.auspex_service import get_auspex_service
 from app.services.prompt_loader import PromptLoader
 from app.analyzers.prompt_manager import PromptManager, PromptManagerError
+from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
 
 # Context limits for different AI models (copied from futures cone)
 CONTEXT_LIMITS = {
+    # OpenAI flagship — gpt-5.4 is the current customer-facing recommendation
+    # (the Wiley bundle supervisor pipeline already runs on it).
+    'gpt-5': 400000,
+    'gpt-5-mini': 400000,
+    'gpt-5-nano': 400000,
+    'gpt-5.5': 1000000,
+    'gpt-5.4': 400000,
+    'gpt-5.4-mini': 400000,
+    'gpt-5.4-nano': 400000,
     'gpt-3.5-turbo': 16385,
     'gpt-3.5-turbo-16k': 16385,
     'gpt-4': 8192,
@@ -60,6 +70,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 # Pydantic models for organizational profiles
 class OrganizationalProfile(BaseModel):
@@ -95,6 +106,7 @@ class ProfileCreateRequest(BaseModel):
     competitive_landscape: List[str] = []
     regulatory_environment: List[str] = []
     custom_context: Optional[str] = None
+    monitored_brands: List[str] = []  # Brand names to track in PAM analysis
 
 def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', custom_limit: int = None) -> int:
     """Calculate optimal sample size based on model capabilities and mode"""
@@ -517,32 +529,74 @@ def _preprocess_response(response: str) -> str:
 
 @router.get("/api/trend-convergence/models")
 async def get_trend_convergence_models():
-    """Get available AI models for trend convergence analysis"""
+    """Get available AI models for trend convergence analysis.
+
+    Ordered with the flagship (gpt-5.4 family) first so the UI hook's
+    ``modelsData[0]`` default selection picks the flagship by default.
+    """
     try:
-        # Import AI models
-        from app.ai_models import list_available_models
+        from app.ai_models import get_available_models
 
-        # Get available models
-        models = list_available_models()
+        # Returns a list of ``{'name', 'provider'}`` dicts.
+        models = get_available_models() or []
 
-        # Format for frontend with context limits
-        formatted_models = []
-        for model_id, model_name in models.items():
-            context_limit = CONTEXT_LIMITS.get(model_id, CONTEXT_LIMITS['default'])
-            formatted_models.append({
-                'id': model_id,
-                'name': model_name,
-                'context_limit': context_limit
-            })
+        # Friendly display labels for known flagship + mid-tier models.
+        DISPLAY = {
+            'gpt-5.5':       'GPT-5.5 (flagship)',
+            'gpt-5.4':       'GPT-5.4',
+            'gpt-5.4-mini':  'GPT-5.4 Mini',
+            'gpt-5.4-nano':  'GPT-5.4 Nano',
+            'gpt-5':         'GPT-5 (legacy)',
+            'gpt-5-mini':    'GPT-5 Mini (legacy)',
+            'gpt-4.1':       'GPT-4.1',
+            'gpt-5-nano':    'GPT-5 Nano (legacy)',
+            'gpt-4o':        'GPT-4o',
+            'gpt-4.1-mini':  'GPT-4.1 Mini',
+            'gpt-4.1-nano':  'GPT-4.1 Nano',
+            'gpt-4o-mini':   'GPT-4o Mini',
+            'claude-4-sonnet-latest':   'Claude 4 Sonnet',
+            'claude-3-7-sonnet-latest': 'Claude 3.7 Sonnet',
+            'claude-3-5-sonnet-latest': 'Claude 3.5 Sonnet',
+        }
+        # Stable preference order — gpt-5.4 first (flagship, reasoning).
+        # The Topic Reports re-run path wires reasoning_effort + max_completion_tokens.
+        PREF = [
+            'gpt-5.4', 'gpt-5.4-mini',
+            'gpt-5.4', 'gpt-5.4',
+            'claude-4-sonnet-latest', 'claude-3-7-sonnet-latest',
+            'gpt-5.4-mini', 'gpt-5.4-mini',
+            'claude-3-5-sonnet-latest',
+            'gpt-5.4-nano', 'gpt-5.4-nano',
+        ]
+        seen = {m['name']: m for m in models if isinstance(m, dict) and m.get('name')}
 
-        return formatted_models
+        formatted = []
+        for mid in PREF:
+            if mid in seen:
+                formatted.append({
+                    'id': mid,
+                    'name': DISPLAY.get(mid, mid),
+                    'context_limit': CONTEXT_LIMITS.get(mid, CONTEXT_LIMITS['default']),
+                })
+        # Append any other configured models we didn't enumerate.
+        for mid in seen:
+            if not any(f['id'] == mid for f in formatted):
+                formatted.append({
+                    'id': mid,
+                    'name': DISPLAY.get(mid, mid),
+                    'context_limit': CONTEXT_LIMITS.get(mid, CONTEXT_LIMITS['default']),
+                })
+        return formatted
     except Exception as e:
         logger.error(f"Error fetching models: {str(e)}")
-        # Return default models as fallback
         return [
-            {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
-            {'id': 'gpt-4.1-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
-            {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000}
+            {'id': 'gpt-5.4', 'name': 'GPT-5 (flagship)', 'context_limit': 400000},
+            {'id': 'gpt-5.4-mini', 'name': 'GPT-5 Mini', 'context_limit': 400000},
+            {'id': 'gpt-5.4', 'name': 'GPT-4.1', 'context_limit': 1000000},
+            {'id': 'gpt-5.4', 'name': 'GPT-4o', 'context_limit': 128000},
+            {'id': 'gpt-5.4-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
+            {'id': 'gpt-5.4-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
+            {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000},
         ]
 
 @router.get("/api/trend-convergence/{topic}")
@@ -560,11 +614,12 @@ async def generate_trend_convergence(
     cache_duration_hours: int = Query(24, description="Cache validity period"),
     profile_id: int = Query(None, description="Organizational profile ID for context"),
     tab: str = Query(None, description="Specific tab to generate: consensus, strategic, signals, timeline, horizons, or None for all"),
+    cache_only: bool = Query(False, description="Return cached data only, never generate new analysis"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):
     """Generate trend convergence analysis with improved consistency and tab-specific generation"""
-    
+
     try:
         logger.info(f"Generating trend convergence analysis for topic: {topic}, model: {model}, consistency: {consistency_mode.value}")
 
@@ -577,6 +632,28 @@ async def generate_trend_convergence(
             topic, timeframe_days, model, source_quality, sample_size_mode,
             custom_limit, profile_id, consistency_mode, persona, customer_type, tab
         )
+
+        # cache_only mode: return any cached result regardless of age, never generate
+        if cache_only:
+            facade = DatabaseQueryFacade(db, logger)
+            # Try exact cache key first, then fall back to any recent analysis for this topic
+            result = facade.get_cached_trend_analysis(cache_key)
+            if not result:
+                result = facade.get_latest_cached_trend_analysis_for_topic(topic)
+            if result:
+                analysis_data = json.loads(result['version_data'])
+                raw_created = result['created_at']
+                created_at = raw_created if isinstance(raw_created, datetime) else datetime.fromisoformat(raw_created)
+                age_hours = (datetime.now() - created_at).total_seconds() / 3600
+                analysis_data['_cache_info'] = {
+                    'cached': True,
+                    'age_hours': round(age_hours, 2),
+                    'cache_key': cache_key,
+                    'created_at': created_at.isoformat(),
+                    'last_updated': created_at.strftime('%d.%m.%Y')
+                }
+                return analysis_data
+            raise HTTPException(status_code=404, detail="No cached analysis available")
 
         # Try to get cached result first if caching is enabled
         if enable_caching:
@@ -634,6 +711,21 @@ async def generate_trend_convergence(
         # Filter by source quality if specified
         filtered_articles = filter_articles_by_source_quality(articles, source_quality)
         logger.info(f"After source quality filter ({source_quality}): {len(filtered_articles)} articles")
+
+        # Rerank the filtered pool against the trend-convergence framing so the
+        # heuristic weighting + deterministic selection below pick from the most
+        # semantically relevant slice. No-op when RERANK_ENABLED is false.
+        if rerank_is_enabled() and len(filtered_articles) > optimal_sample_size:
+            rerank_query = f"{topic} emerging trends convergence strategic signals"
+            filtered_articles = await rerank(
+                query=rerank_query,
+                candidates=filtered_articles,
+                text_fn=lambda a: f"{a.get('title', '')}. {a.get('summary', '')}",
+                top_k=min(len(filtered_articles), optimal_sample_size * 2),
+            )
+            logger.info(
+                f"Reranked pool to top {len(filtered_articles)} for trend-convergence framing"
+            )
 
         if not filtered_articles:
             if source_quality == 'high_quality':
@@ -2159,6 +2251,107 @@ def generate_future_horizons_prompt(
     return f"{system_prompt}\n\n{user_prompt}"
 
 
+def generate_intelligence_brief_prompt(
+    topic: str,
+    org_context: str,
+    organizational_profile: Dict = None
+) -> str:
+    """
+    Generate specialized prompt for Strategic Intelligence Oracle (SIO) tab.
+    Focus on comprehensive 24-hour news scan with BBC/Wiley quality standards.
+    """
+
+    # Get organization-specific context
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+
+    system_prompt = """You are a senior intelligence editor producing strategic intelligence briefs for decision-makers. Your role is to synthesize multiple event analyses into a coherent, actionable intelligence product that meets BBC/Wiley editorial standards.
+
+## Quality Standards
+
+- **Verification**: All factual claims must be cross-referenced against multiple credible sources
+- **Attribution**: Every claim must cite its source with credibility assessment
+- **Balance**: Present multiple perspectives where they exist
+- **Transparency**: Clearly distinguish between confirmed facts, analysis, and speculation
+- **Confidence Levels**: Assign explicit confidence ratings to all assessments"""
+
+    user_prompt = f"""## Intelligence Brief Request
+
+**Topic Focus:** {topic}
+
+{org_context}
+
+**Organization:** {org_name} ({org_type})
+
+## Your Task
+
+Generate a comprehensive 24-hour Strategic Intelligence Brief that:
+
+1. **Prioritizes and Ranks Events**
+   - Order events by strategic importance to {org_name}
+   - Identify the 5 most critical items for executive summary
+   - Group related events where connections exist
+   - Separate confirmed intelligence from emerging signals
+
+2. **Synthesizes Across Events**
+   - Identify patterns across multiple events
+   - Note cross-event connections and implications
+   - Highlight emerging trends relevant to {org_type} organizations
+   - Flag potential cascade effects
+
+3. **Applies Quality Gates**
+   - Ensure all claims are properly sourced
+   - Verify confidence levels are appropriate
+   - Check for balanced perspectives
+   - Document any limitations
+
+## Output Structure
+
+### 1. Executive Summary
+- Top 5 critical items in bullet form
+- Overall assessment of the intelligence landscape
+- Key uncertainties and watch items (2-3 paragraphs max)
+
+### 2. Critical Events
+For each critical/high importance event:
+- **Headline** (clear, specific)
+- **Summary** (2-3 sentences)
+- **Key Facts** (bulleted, with confidence indicators)
+- **Implications** (strategic significance for {org_name})
+- **Sources** (with credibility notes)
+- **Confidence Level** (with explanation)
+
+### 3. Emerging Signals
+- Weak signals worth monitoring
+- Developing stories not yet confirmed
+- Potential future developments
+- Each with confidence assessment
+
+### 4. Confidence Assessment
+- Overall confidence in the brief
+- Per-event confidence breakdown
+- Factors affecting confidence
+
+### 5. Methodology & Audit Trail
+- Time window covered
+- Articles analyzed
+- AI models used
+- Human review requirements
+
+## Confidence Indicators
+- 🟢 **HIGH CONFIDENCE** (0.85+): Verified by multiple credible sources
+- 🟡 **MEDIUM CONFIDENCE** (0.70-0.84): Partially verified, some uncertainty
+- 🔴 **LOW CONFIDENCE** (<0.70): Unverified or conflicting reports
+
+## Importance Markers
+- 🔴 **CRITICAL**: Immediate strategic impact
+- 🟠 **HIGH**: Significant development
+- 🟡 **MEDIUM**: Noteworthy
+- ⚪ **MONITORING**: Emerging signal"""
+
+    return f"{system_prompt}\n\n{user_prompt}"
+
+
 # ============================================================================
 # END TAB-SPECIFIC PROMPT FUNCTIONS
 # ============================================================================
@@ -2484,7 +2677,8 @@ async def create_organizational_profile(
             json.dumps(profile_data.stakeholder_focus),
             json.dumps(profile_data.competitive_landscape),
             json.dumps(profile_data.regulatory_environment),
-            profile_data.custom_context
+            profile_data.custom_context,
+            json.dumps(profile_data.monitored_brands) if profile_data.monitored_brands else None
         ))
         
         return {"success": True, "profile_id": profile_id, "message": "Profile created successfully"}
@@ -2531,6 +2725,7 @@ async def update_organizational_profile(
             json.dumps(profile_data.competitive_landscape),
             json.dumps(profile_data.regulatory_environment),
             profile_data.custom_context,
+            json.dumps(profile_data.monitored_brands) if profile_data.monitored_brands else None,
             profile_id
         ))
         
@@ -2959,7 +3154,8 @@ ORGANIZATIONAL CONTEXT:
                 "timeline": "impact_timeline",
                 "impact-timeline": "impact_timeline",
                 "horizons": "future_horizons",
-                "future-horizons": "future_horizons"
+                "future-horizons": "future_horizons",
+                "intelligence-brief": "intelligence_brief"
             }
             prompt_type = prompt_type_mapping.get(tab_name, "strategic_recommendations")
             prompt_template = prompt_manager.get_version(prompt_type, "current")
@@ -3008,7 +3204,8 @@ ORGANIZATIONAL CONTEXT:
             "timeline": "impact-timeline",
             "impact-timeline": "impact-timeline",
             "horizons": "future-horizons",
-            "future-horizons": "future-horizons"
+            "future-horizons": "future-horizons",
+            "intelligence-brief": "intelligence-brief"
         }
 
         normalized_tab = tab_mapping.get(tab_name, tab_name)
@@ -3051,6 +3248,12 @@ ORGANIZATIONAL CONTEXT:
                 org_context=org_context,
                 organizational_profile=organizational_profile
             )
+        elif normalized_tab == "intelligence-brief":
+            prompt = generate_intelligence_brief_prompt(
+                topic=topic,
+                org_context=org_context,
+                organizational_profile=organizational_profile
+            )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown tab name: {tab_name} (normalized: {normalized_tab})")
 
@@ -3076,6 +3279,34 @@ ORGANIZATIONAL CONTEXT:
 
             expected_output_schema = prompt_template.get('expected_output_schema')
             variables = prompt_template.get('variables', {})
+        elif normalized_tab == "intelligence-brief":
+            # For intelligence-brief, extract template from the hardcoded prompt
+            # The prompt is formatted as "system_prompt\n\nuser_prompt"
+            if "\n\n" in prompt:
+                parts = prompt.split("\n\n", 1)
+                # Find where the system prompt ends (after "## Quality Standards" section)
+                system_end_marker = "- **Confidence Levels**: Assign explicit confidence ratings to all assessments"
+                if system_end_marker in prompt:
+                    system_end_idx = prompt.index(system_end_marker) + len(system_end_marker)
+                    template_system_prompt = prompt[:system_end_idx].strip()
+                    template_user_prompt = prompt[system_end_idx:].strip()
+                else:
+                    template_system_prompt = parts[0]
+                    template_user_prompt = parts[1] if len(parts) > 1 else ""
+            else:
+                template_user_prompt = prompt
+
+            # Extract output format section
+            if "## Output Structure" in template_user_prompt:
+                instruction_end = template_user_prompt.index("## Output Structure")
+                template_output_format = template_user_prompt[instruction_end:]
+                template_user_prompt = template_user_prompt[:instruction_end].strip()
+
+            variables = {
+                "topic": topic,
+                "org_name": organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization',
+                "org_type": organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+            }
 
         return {
             "success": True,
@@ -3222,3 +3453,391 @@ async def restore_default_tune_prompt(
     except Exception as e:
         logger.error(f"Unexpected error restoring prompt: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to restore prompt: {str(e)}")
+
+
+# ============================================================================
+# Future Horizons Executive Summary Endpoints
+# ============================================================================
+
+class HorizonsExecutiveSummaryRequest(BaseModel):
+    """Request model for generating executive summary from horizons scenarios"""
+    scenarios: List[Dict[str, Any]]
+    topic: str
+    model: str = "gpt-5.4"
+    profile_id: Optional[int] = None
+
+
+@router.post("/api/trend-convergence/horizons/{analysis_id}/executive-summary")
+async def generate_horizons_executive_summary(
+    analysis_id: str,
+    request: HorizonsExecutiveSummaryRequest,
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Generate horizon-anchored executive summary from Future Horizons scenarios.
+
+    Each summary is explicitly tied to a horizon position (H1/H2/H3),
+    with counter-signals from other horizons and decision forks framed
+    as horizon transitions.
+    """
+    try:
+        logger.info(f"Generating executive summary for horizons analysis {analysis_id}, topic: {request.topic}")
+
+        # Validate scenarios
+        if not request.scenarios:
+            raise HTTPException(
+                status_code=400,
+                detail="No scenarios provided. Please generate Future Horizons analysis first."
+            )
+
+        # Load the executive summary prompt
+        prompt_data = PromptLoader.load_prompt("future_horizons", "executive_summary")
+
+        # Prepare scenarios JSON
+        scenarios_json = json.dumps(request.scenarios, indent=2)
+
+        # Get organizational profile if profile_id provided
+        organizational_profile = "No specific organizational context provided."
+        if request.profile_id:
+            facade = DatabaseQueryFacade(db, logger)
+            profile = facade.get_organisational_profile(request.profile_id)
+            if profile:
+                profile_parts = []
+                if profile.get('name'):
+                    profile_parts.append(f"Organization: {profile['name']}")
+                if profile.get('industry'):
+                    profile_parts.append(f"Industry: {profile['industry']}")
+                if profile.get('organization_type'):
+                    profile_parts.append(f"Organization Type: {profile['organization_type']}")
+                if profile.get('region'):
+                    profile_parts.append(f"Region: {profile['region']}")
+                if profile.get('key_concerns'):
+                    profile_parts.append(f"Key Concerns: {profile['key_concerns']}")
+                if profile.get('strategic_priorities'):
+                    profile_parts.append(f"Strategic Priorities: {profile['strategic_priorities']}")
+                if profile.get('competitive_landscape'):
+                    profile_parts.append(f"Competitive Landscape: {profile['competitive_landscape']}")
+                if profile.get('regulatory_environment'):
+                    profile_parts.append(f"Regulatory Environment: {profile['regulatory_environment']}")
+                if profile.get('custom_context'):
+                    profile_parts.append(f"Additional Context: {profile['custom_context']}")
+                organizational_profile = "\n".join(profile_parts)
+
+        # Fill prompt template variables
+        system_prompt, user_prompt = PromptLoader.get_prompt_template(
+            prompt_data,
+            {
+                "topic": request.topic,
+                "scenarios_json": scenarios_json,
+                "organizational_profile": organizational_profile
+            }
+        )
+
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+
+        # Get Auspex service for AI generation
+        auspex = get_auspex_service()
+
+        # Create a temporary chat session
+        user_from_session = session.get('user')
+        user_id = None
+        if user_from_session and not isinstance(user_from_session, dict):
+            user_id = user_from_session
+
+        chat_id = await auspex.create_chat_session(
+            topic=request.topic,
+            user_id=user_id,
+            title=f"Executive Summary: {request.topic}"
+        )
+
+        try:
+            # Generate the executive summary
+            response_chunks = []
+            async for chunk in auspex.chat_with_tools(
+                chat_id=chat_id,
+                message=full_prompt,
+                model=request.model,
+                limit=10,
+                tools_config={"search_articles": False, "get_sentiment_analysis": False}
+            ):
+                response_chunks.append(chunk)
+
+            full_response = "".join(response_chunks)
+
+            # Parse JSON from response
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', full_response, re.DOTALL)
+            if json_match:
+                summary_data = json.loads(json_match.group(1))
+            else:
+                # Try to find JSON without code blocks
+                json_start = full_response.find('{')
+                json_end = full_response.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    summary_data = json.loads(full_response[json_start:json_end])
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="No valid JSON found in AI response"
+                    )
+
+            # Add metadata
+            summary_data['generated_at'] = datetime.now().isoformat()
+            summary_data['topic'] = request.topic
+            summary_data['analysis_id'] = analysis_id
+
+            # Cache the executive summary in the database
+            facade = DatabaseQueryFacade(db, logger)
+            facade.save_horizons_executive_summary(
+                analysis_id=analysis_id,
+                topic=request.topic,
+                summary_data=summary_data
+            )
+
+            return {
+                "success": True,
+                "analysis_id": analysis_id,
+                "executive_summary": summary_data
+            }
+
+        finally:
+            # Clean up the temporary chat session
+            auspex.delete_chat_session(chat_id)
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to parse AI response as JSON: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error generating executive summary: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate executive summary: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/horizons/{analysis_id}/executive-summary")
+async def get_horizons_executive_summary(
+    analysis_id: str,
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Retrieve a cached executive summary for a Future Horizons analysis.
+    Returns null if no summary has been generated yet.
+    """
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        summary_data = facade.get_horizons_executive_summary(analysis_id)
+
+        if not summary_data:
+            return {
+                "success": True,
+                "analysis_id": analysis_id,
+                "executive_summary": None,
+                "message": "No executive summary found. Generate one first."
+            }
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "executive_summary": summary_data
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving executive summary for {analysis_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve executive summary: {str(e)}"
+        )
+
+
+# ── Interactive HTML downloads for the Future Horizons + Consensus tabs ─
+
+@router.get("/api/trend-convergence/horizons/{analysis_id}/download.html")
+async def download_horizons_html(
+    analysis_id: str,
+    db: Database = Depends(get_database_instance),
+):
+    """Render a Future Horizons analysis as a standalone interactive HTML
+    document — scenarios + Executive Summary cards (the React tab's
+    `ExecutiveSummaryCard` content).
+
+    Reads from ``future_horizons_runs`` (scenarios) + the cached
+    executive-summary row keyed ``horizons_exec_summary_{analysis_id}``.
+    The cards are rendered if present; otherwise the section is omitted.
+    """
+    from fastapi.responses import Response
+    from app.services.horizons_html import build_horizons_html
+
+    facade = DatabaseQueryFacade(db, logger)
+    run = facade.get_future_horizons_analysis(analysis_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Forecast run {analysis_id} not found")
+
+    raw = run.get("raw_output") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if isinstance(raw, str):  # double-encoded edge case
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    scenarios = (raw or {}).get("scenarios") or []
+    topic = (run.get("topic") or raw.get("topic") or "—")
+
+    summary_payload = facade.get_horizons_executive_summary(analysis_id) or {}
+    summaries = summary_payload.get("summaries") or []
+
+    generated_at = run.get("created_at") or raw.get("generated_at")
+    if hasattr(generated_at, "isoformat"):
+        generated_at = generated_at.isoformat()
+    model_used = run.get("model_used") or raw.get("model_used")
+
+    # Numbered article references — resolve the corpus the LLM was given
+    # so the [1], [2] citation markers in scenario descriptions actually
+    # link to a real source.
+    articles: list = []
+    try:
+        from sqlalchemy import text as sa_text
+        sql = sa_text("""
+            SELECT a.uri, a.title, a.news_source, a.publication_date
+            FROM future_horizon_articles fha
+            JOIN articles a ON a.uri = fha.article_uri
+            WHERE fha.horizon_id = :run_id
+            ORDER BY fha.id ASC
+        """)
+        rows = facade._execute_with_rollback(sql, {"run_id": analysis_id}).fetchall()
+        for r in rows:
+            d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            if (d.get("title") or "").strip():
+                articles.append({
+                    "title":  d.get("title"),
+                    "url":    d.get("uri"),
+                    "source": d.get("news_source"),
+                    "date":   (d.get("publication_date") or "")[:10],
+                })
+    except Exception as e:
+        logger.warning("horizons HTML: article refs lookup failed for %s: %s",
+                       analysis_id, e)
+
+    # Fallback: older runs (and Topic-Reports reruns made before the fha
+    # write was added) carry no future_horizon_articles rows. Reconstruct
+    # the same numbered list the prompt builder used so [N] still resolves
+    # — same SELECT / ORDER BY as ``_rerun_future_horizons_for_topic`` and
+    # the canonical Future Horizons prompt builder. Best-effort: if the
+    # article corpus has shifted since the run, the numbering may drift.
+    if not articles:
+        try:
+            from app.routes.trend_convergence_routes import calculate_optimal_sample_size
+            sample_size = calculate_optimal_sample_size(
+                model_used or "gpt-5.4", sample_size_mode="auto"
+            )
+            from sqlalchemy import text as sa_text
+            sql = sa_text(f"""
+                SELECT uri, title, news_source, publication_date
+                FROM articles
+                WHERE topic = :topic
+                  AND analyzed = TRUE
+                  AND topic_alignment_score IS NOT NULL
+                  AND topic_alignment_score > 0.7
+                ORDER BY topic_alignment_score DESC, publication_date DESC
+                LIMIT {int(sample_size)}
+            """)
+            rows = facade._execute_with_rollback(sql, {"topic": topic}).fetchall()
+            for r in rows:
+                d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                if (d.get("title") or "").strip():
+                    articles.append({
+                        "title":  d.get("title"),
+                        "url":    d.get("uri"),
+                        "source": d.get("news_source"),
+                        "date":   (d.get("publication_date") or "")[:10],
+                    })
+            if articles:
+                logger.info("horizons HTML: rebuilt %d-article ref list for %s from "
+                            "on-topic SELECT (no fha rows persisted)",
+                            len(articles), analysis_id)
+        except Exception as e:
+            logger.warning("horizons HTML: fallback ref rebuild failed for %s: %s",
+                           analysis_id, e)
+
+    # Resolve any Google News redirect URIs to the publisher's real URL
+    # so the references list's hover/click targets are short and clear.
+    try:
+        from app.services.html_report_common import resolve_google_news_uris
+        resolve_google_news_uris(articles)
+    except Exception as e:
+        logger.warning("horizons HTML: redirect resolution failed: %s", e)
+
+    blob = build_horizons_html(
+        topic, scenarios, summaries,
+        generated_at=generated_at, model_used=model_used,
+        articles=articles,
+    )
+    filename = f"future-horizons-{topic.lower().replace(' ', '-')[:60]}.html"
+    return Response(
+        content=blob,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+    )
+
+
+@router.get("/api/trend-convergence/consensus/{analysis_id}/download.html")
+async def download_consensus_html(
+    analysis_id: str,
+    db: Database = Depends(get_database_instance),
+):
+    """Render a Consensus Analysis run as a standalone interactive HTML
+    document — categories with consensus summaries, sentiment distribution
+    bars, outliers, strategic implications, plus cross-category key
+    insight quotes.
+    """
+    from fastapi.responses import Response
+    from app.services.consensus_html import build_consensus_html
+
+    facade = DatabaseQueryFacade(db, logger)
+    run = facade.get_consensus_analysis(analysis_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Consensus run {analysis_id} not found")
+
+    raw = run.get("raw_output") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    topic = (run.get("topic") or raw.get("topic") or "—")
+    generated_at = run.get("created_at") or raw.get("generated_at")
+    if hasattr(generated_at, "isoformat"):
+        generated_at = generated_at.isoformat()
+    model_used = run.get("model_used") or raw.get("model_used")
+
+    blob = build_consensus_html(
+        topic, raw or {},
+        generated_at=generated_at, model_used=model_used,
+    )
+    filename = f"consensus-analysis-{topic.lower().replace(' ', '-')[:60]}.html"
+    return Response(
+        content=blob,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+    )

@@ -1,8 +1,290 @@
 {
   "topics": [
     {
+      "name": "U.S. Federal R&D Pullback",
+      "description": "Tracking U.S. federal research and development funding changes and policy shifts",
+      "categories": [
+        "Policy Changes",
+        "Budget Cuts",
+        "Agency Restructuring",
+        "Research Priorities",
+        "Other"
+      ],
+      "future_signals": [
+        "Significant funding reduction",
+        "Program cancellation",
+        "Policy reversal",
+        "Budget restoration"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Open Science Transition Uncertainty",
+      "description": "Tracking the transition to open science practices and associated uncertainties",
+      "categories": [
+        "Open Access",
+        "Data Sharing",
+        "Preprints",
+        "Policy Changes",
+        "Publisher Response",
+        "Other"
+      ],
+      "future_signals": [
+        "Widespread adoption",
+        "Resistance from publishers",
+        "Hybrid models emerge",
+        "Regulatory mandates"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "University Grants & Science Infrastructure Impact",
+      "description": "Tracking impacts on university grants and scientific infrastructure",
+      "categories": [
+        "Grant Funding",
+        "Infrastructure Investment",
+        "Research Facilities",
+        "Equipment",
+        "Staffing",
+        "Other"
+      ],
+      "future_signals": [
+        "Funding increase",
+        "Funding decrease",
+        "Infrastructure modernization",
+        "Facility closures"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Compensatory R&D Investment Abroad",
+      "description": "Tracking R&D investment shifts to foreign markets compensating for domestic changes",
+      "categories": [
+        "Foreign Investment",
+        "Relocation",
+        "Partnerships",
+        "Talent Migration",
+        "Other"
+      ],
+      "future_signals": [
+        "Investment surge abroad",
+        "Talent exodus",
+        "Return of investment",
+        "New research hubs"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Attacks on Expertise & Peer Review",
+      "description": "Tracking challenges to scientific expertise and the peer review process",
+      "categories": [
+        "Misinformation",
+        "Policy Attacks",
+        "Peer Review Criticism",
+        "Expert Credibility",
+        "Other"
+      ],
+      "future_signals": [
+        "Increased skepticism",
+        "Reform movements",
+        "Alternative review systems",
+        "Expert rehabilitation"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Publishing & Integrity Organizations Watch List",
+      "description": "Monitoring publishing integrity organizations and their activities",
+      "categories": [
+        "Retractions",
+        "Misconduct",
+        "Policy Updates",
+        "Standards",
+        "Other"
+      ],
+      "future_signals": [
+        "New standards adopted",
+        "Major retractions",
+        "Organization changes",
+        "Industry consolidation"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Scientific Publishers - General Monitoring",
+      "description": "General monitoring of scientific publishing industry trends and developments",
+      "categories": [
+        "Market Trends",
+        "Mergers & Acquisitions",
+        "Business Models",
+        "Technology",
+        "Other"
+      ],
+      "future_signals": [
+        "Industry consolidation",
+        "New entrants",
+        "Business model shifts",
+        "Technology disruption"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Patent Cliffs",
+      "description": "Tracking pharmaceutical and technology patent expirations and their market impact",
+      "categories": [
+        "Pharmaceutical",
+        "Technology",
+        "Generic Entry",
+        "Market Impact",
+        "Other"
+      ],
+      "future_signals": [
+        "Major expirations",
+        "Generic launches",
+        "Market disruption",
+        "Innovation response"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
       "name": "AI and Machine Learning",
-      "description": "Comprehensive coverage of artificial intelligence and machine learning developments, including research breakthroughs, commercial applications, ethical considerations, regulatory frameworks, and societal impacts. This topic encompasses AI in various sectors including business, healthcare, education, law, science, and the arts, as well as the broader implications for employment, trust, security, and the path toward artificial general intelligence (AGI).",
+      "description": "Tracking developments in artificial intelligence and machine learning",
       "categories": [
         "AI Warbots",
         "AI Business",
@@ -29,47 +311,213 @@
         "Other"
       ],
       "future_signals": [
-        "AI is hype",
-        "AI has plateaued",
-        "AI will evolve gradually",
-        "AI will accelerate",
-        "AI is a bubble"
+        "Breakthrough discovery",
+        "Widespread adoption",
+        "Regulatory framework",
+        "Ethical concerns addressed"
       ],
       "sentiment": [
-        "Hyperbolic",
         "Positive",
-        "Neutral",
         "Negative",
-        "Critical"
+        "Neutral"
       ],
       "time_to_impact": [
-        "Immediate",
-        "Short-term",
-        "Mid-term",
-        "Long-term"
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
       ],
       "driver_types": [
-        "Accelerator",
-        "Delayer",
-        "Blocker",
         "Initiator",
-        "Terminator",
-        "Unknown",
-        "Catalyst"
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
       ]
     },
     {
-      "name": "Trend Monitoring",
-      "description": "Track emerging trends across various domains, monitoring adoption patterns, market dynamics, and public sentiment. This topic helps identify whether trends are gaining momentum, stagnating, declining, or being overhyped, providing insights into technology adoption curves, market maturity, and strategic opportunities.",
+      "name": "Geopolitical Hotspots",
+      "description": "Monitoring geopolitical tensions and conflicts worldwide",
       "categories": [
-        "Category 1",
-        "Category 2"
+        "Regional Conflicts",
+        "Trade Disputes",
+        "Diplomatic Relations",
+        "Sanctions",
+        "Military Activity",
+        "Other"
       ],
       "future_signals": [
-        "Adoption is rising",
-        "Adoption is declining",
-        "Adoption is stagnating",
-        "Adoption is overhyped"
+        "Escalation",
+        "De-escalation",
+        "New alliances",
+        "Economic impact"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Trump Administration Tracker",
+      "description": "Tracking executive actions, policy changes, and institutional impacts of the Trump administration. Monitors actions affecting democratic norms, federal institutions, civil rights, science policy, education, information control, and foreign policy. Based on taxonomy from trumpactiontracker.info.",
+      "categories": [
+        "Undermining Democracy",
+        "Hollowing State",
+        "Suppressing Dissent",
+        "Controlling Information",
+        "Attacking Science",
+        "Attacking Education",
+        "Weakening Civil Rights",
+        "Corruption",
+        "Foreign Policy",
+        "Nationalism & Immigration"
+      ],
+      "future_signals": [
+        "Democratic norm violation",
+        "Institutional weakening",
+        "Rights rollback",
+        "Policy reversal",
+        "International tension",
+        "Accountability action"
+      ],
+      "sentiment": [
+        "Alarming",
+        "Concerning",
+        "Neutral",
+        "Positive Development"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Executive Order",
+        "Policy Change",
+        "Personnel Action",
+        "Legal Action",
+        "Legislative Push",
+        "Regulatory Change",
+        "Other"
+      ],
+      "keywords": [
+        "Trump",
+        "executive order",
+        "Trump administration",
+        "DOGE",
+        "Elon Musk government",
+        "federal workforce",
+        "government efficiency",
+        "deportation",
+        "immigration enforcement",
+        "ICE raids",
+        "birthright citizenship",
+        "tariffs",
+        "trade war",
+        "NATO",
+        "Ukraine aid",
+        "DOJ",
+        "Department of Justice",
+        "FBI",
+        "inspector general",
+        "whistleblower",
+        "civil service",
+        "federal employees",
+        "government shutdown",
+        "Schedule F",
+        "politicization",
+        "loyalty test",
+        "pardons",
+        "January 6",
+        "insurrection",
+        "election denial",
+        "voter fraud claims",
+        "press freedom",
+        "journalist",
+        "media access",
+        "disinformation",
+        "misinformation",
+        "propaganda",
+        "CDC",
+        "FDA",
+        "NIH",
+        "scientific integrity",
+        "climate denial",
+        "EPA",
+        "environmental rollback",
+        "university funding",
+        "DEI",
+        "diversity equity inclusion",
+        "critical race theory",
+        "book bans",
+        "curriculum",
+        "Title IX",
+        "transgender rights",
+        "LGBTQ",
+        "abortion",
+        "reproductive rights",
+        "voting rights",
+        "civil rights rollback",
+        "emoluments",
+        "conflict of interest",
+        "corruption",
+        "nepotism",
+        "self-dealing",
+        "foreign policy",
+        "alliance",
+        "NATO withdrawal",
+        "Russia",
+        "Putin",
+        "China tariffs",
+        "border wall",
+        "mass deportation",
+        "denaturalization",
+        "asylum",
+        "refugee",
+        "Muslim ban",
+        "travel ban"
+      ]
+    },
+    {
+      "name": "Brand Monitoring Wiley",
+      "description": "Brand monitoring topic for Wiley. Tracks brand mentions, sentiment, competitive positioning, and reputation across news articles.",
+      "categories": [
+        "Product & Innovation",
+        "Financial Performance",
+        "Leadership & Governance",
+        "Brand Sentiment & Perception",
+        "Competitive Landscape",
+        "Legal & Regulatory",
+        "Partnerships & Alliances",
+        "ESG & Social Responsibility",
+        "Customer & Product Issues",
+        "Market Strategy & Expansion",
+        "Media & Advertising"
+      ],
+      "future_signals": [
+        "Brand gaining momentum",
+        "Brand losing momentum",
+        "Reputation risk emerging",
+        "Competitive threat detected",
+        "Market opportunity identified",
+        "Crisis developing",
+        "Positive PR wave",
+        "Regulatory action pending"
       ],
       "sentiment": [
         "Optimistic",
@@ -93,91 +541,6 @@
         "Terminator",
         "Unknown"
       ]
-    },
-    {
-      "name": "Competitor Analysis",
-      "description": "Monitor competitive landscape, tracking competitor activities, market positioning, financial performance, strategic moves, and business developments. This includes M&A activity, product launches, expansion plans, pivots, market share changes, and other signals that indicate competitive dynamics and market shifts.",
-      "categories": [
-        "Competitor 1",
-        "Competitor 2",
-        "Competitor 3"
-      ],
-      "future_signals": [
-        "Hypergrowth",
-        "M&A",
-        "Pivot",
-        "Expansion",
-        "Sales Decline",
-        "Large Loss"
-      ],
-      "sentiment": [
-        "Positive",
-        "Neutral",
-        "Negative"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Blocker",
-        "Accelerator",
-        "Catalyst",
-        "Initiator",
-        "Delayer",
-        "Inhibitor"
-      ]
-    },
-    {
-      "name": "Religion, Magic and Occultism",
-      "description": "Religion, Magic and Occultism",
-      "categories": [
-        "Christian Theology",
-        "Catholic Church",
-        "Protestant Churches",
-        "Orthodox Christianity",
-        "Interfaith Relations",
-        "Religious Studies",
-        "Spirituality and Mysticism",
-        "Occultism and Esoteric Practices",
-        "Religious Ethics and Philosophy",
-        "Religious Education",
-        "Religious Freedom and Rights",
-        "Religious Extremism",
-        "Other"
-      ],
-      "future_signals": [
-        "Religious Revival",
-        "Secularization Accelerating",
-        "Interfaith Cooperation Growing",
-        "Religious Conflict Intensifying",
-        "Spiritual Practices Evolving"
-      ],
-      "sentiment": [
-        "Positive",
-        "Neutral",
-        "Negative",
-        "Critical",
-        "Optimistic"
-      ],
-      "time_to_impact": [
-        "Immediate",
-        "Short-term",
-        "Mid-term",
-        "Long-term"
-      ],
-      "driver_types": [
-        "Catalyst",
-        "Accelerator",
-        "Delayer",
-        "Blocker",
-        "Initiator",
-        "Terminator",
-        "Unknown"
-      ],
-      "keywords": []
     }
   ],
   "ai_models": [
@@ -252,6 +615,14 @@
     {
       "name": "mistral-small3.1",
       "provider": "ollama"
+    },
+    {
+      "name": "gemma3:4b",
+      "provider": "ollama"
+    },
+    {
+      "name": "bedrock-claude-haiku",
+      "provider": "bedrock"
     }
   ],
   "providers": [
@@ -361,27 +732,6 @@
           "label": "Dia Base URL",
           "placeholder": "http://localhost:8000/v1/tts",
           "type": "text"
-        }
-      ]
-    },
-    {
-      "name": "google_pse",
-      "display_name": "Google Programmable Search",
-      "config_type": "api_key",
-      "description": "Web search using Google Programmable Search Engine for external research",
-      "enabled": true,
-      "api_key_required": true,
-      "api_key_name": "GOOGLE_API_KEY",
-      "api_key_description": "Your Google Cloud API key with Custom Search API enabled",
-      "api_key_placeholder": "Enter your Google API key",
-      "api_key_help": "Get your API key from https://console.cloud.google.com/apis/credentials",
-      "extra_fields": [
-        {
-          "field": "GOOGLE_CSE_ID",
-          "label": "Search Engine ID",
-          "placeholder": "Enter your Custom Search Engine ID",
-          "type": "text",
-          "help": "Create at https://programmablesearchengine.google.com/"
         }
       ]
     }

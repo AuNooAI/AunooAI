@@ -129,7 +129,9 @@ Article text:
             if self.use_cache:
                 logger.debug(f"Cache check enabled for model {self.model_name}")
                 content_hash = self._compute_content_hash(article_text)
-                cache_key = f"{uri}_{self.model_name}"
+                # Include categories hash in cache key to prevent cross-topic cache pollution
+                categories_hash = hashlib.md5(','.join(sorted(categories)).encode()).hexdigest()[:8]
+                cache_key = f"{uri}_{self.model_name}_{categories_hash}"
                 logger.debug(f"Checking cache with key: {cache_key}, content_hash: {content_hash}")
                 cached_result = self.cache.get(cache_key, content_hash, model_info, template_hash)
                 
@@ -191,7 +193,9 @@ Article text:
             if self.use_cache:
                 try:
                     content_hash = self._compute_content_hash(article_text)
-                    cache_key = f"{uri}_{self.ai_model.model_name}"
+                    # Include categories hash in cache key to prevent cross-topic cache pollution
+                    categories_hash = hashlib.md5(','.join(sorted(categories)).encode()).hexdigest()[:8]
+                    cache_key = f"{uri}_{self.ai_model.model_name}_{categories_hash}"
                     self.cache.set(cache_key, content_hash, result, model_info, template_hash)
                 except CacheError as e:
                     logger.warning(f"Failed to cache analysis: {str(e)}")

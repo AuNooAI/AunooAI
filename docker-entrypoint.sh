@@ -4,7 +4,7 @@ set -e
 echo "Starting Aunoo AI application..."
 echo "Instance: ${INSTANCE:-unknown}"
 echo "Environment: ${ENVIRONMENT:-unknown}"
-echo "Port: ${PORT:-5000}"
+echo "Port: ${PORT:-10001}"
 echo "Database Type: ${DB_TYPE:-postgresql}"
 
 # Set up persistent .env file using volume
@@ -43,7 +43,12 @@ if [ "$DB_TYPE" = "postgresql" ]; then
     # Update admin password from environment variable
     if [ -n "$ADMIN_PASSWORD" ]; then
         echo "Setting up admin user with password from ADMIN_PASSWORD..."
-        python3 /app/app/utils/update_admin.py || echo "Warning: Admin password setup failed"
+        python3 /app/app/utils/update_admin_postgres.py \
+            --host "${DB_HOST:-postgres}" \
+            --database "${DB_NAME:-aunoo_db}" \
+            --user "${DB_USER:-aunoo_user}" \
+            --db-password "${DB_PASSWORD}" \
+            --admin-password "${ADMIN_PASSWORD}" || echo "Warning: Admin password setup failed"
     fi
 
     # Initialize media bias data

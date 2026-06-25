@@ -175,47 +175,6 @@
             font-size: 0.875rem;
         }
 
-        /* Dark Mode Toggle */
-        .toggle-switch {
-            width: 2.5rem;
-            height: 1.25rem;
-            background-color: var(--colors-neutral-4);
-            border-radius: var(--radius-5);
-            position: relative;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            margin-left: auto;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            top: 0.125rem;
-            left: 0.125rem;
-            width: 1rem;
-            height: 1rem;
-            background-color: var(--colors-white);
-            border-radius: 50%;
-            transition: transform 0.2s;
-        }
-
-        .toggle-switch input:checked + .toggle-slider {
-            transform: translateX(1.25rem);
-        }
-
-        .toggle-switch input:checked ~ {
-            background-color: var(--colors-accent-8);
-        }
-
-        #dark-mode-toggle:has(input:checked) .toggle-switch {
-            background-color: var(--colors-accent-8);
-        }
-
         /* User Profile Footer */
         .shared-nav-footer {
             padding: var(--spacing-4);
@@ -552,13 +511,13 @@
                         </a>
                     </li>
                     <li class="shared-nav-item">
-                        <a href="/news-feed-v2" class="shared-nav-link {% if current_page == 'investigate' %}shared-nav-active{% endif %}">
+                        <a href="/explore" class="shared-nav-link {% if current_page == 'investigate' %}shared-nav-active{% endif %}">
                             <i class="fas fa-search"></i>
                             <span>Explore</span>
                         </a>
                     </li>
                     <li class="shared-nav-item">
-                        <a href="/keyword-alerts" class="shared-nav-link {% if current_page == 'gather' %}shared-nav-active{% endif %}">
+                        <a href="/gather" class="shared-nav-link {% if current_page == 'gather' %}shared-nav-active{% endif %}">
                             <i class="fas fa-download"></i>
                             <span>Gather</span>
                         </a>
@@ -596,16 +555,6 @@
                             <li><a href="https://discord.gg/hEUNYDm5KH" target="_blank" class="nav-submenu-link"><i class="fab fa-discord"></i> Discord Community</a></li>
                             <li><a href="https://chromewebstore.google.com/detail/aunoo-ai-chrome-browser-e/fjgiomiceklnoaefnhliablhgoodceji" target="_blank" class="nav-submenu-link"><i class="fab fa-chrome"></i> Chrome Extension</a></li>
                         </ul>
-                    </li>
-                    <li class="shared-nav-item">
-                        <a href="#" class="shared-nav-link" id="dark-mode-toggle">
-                            <i class="fas fa-moon"></i>
-                            <span>Dark Mode</span>
-                            <div class="toggle-switch">
-                                <input type="checkbox" id="dark-mode-checkbox">
-                                <span class="toggle-slider"></span>
-                            </div>
-                        </a>
                     </li>
                 </ul>
             </nav>
@@ -655,21 +604,6 @@
                     }
                 });
             });
-
-            // Dark mode toggle
-            const darkModeToggle = document.getElementById('dark-mode-toggle');
-            const darkModeCheckbox = document.getElementById('dark-mode-checkbox');
-
-            if (darkModeToggle && darkModeCheckbox) {
-                darkModeToggle.addEventListener('click', function(e) {
-                    if (e.target.tagName !== 'INPUT') {
-                        e.preventDefault();
-                        darkModeCheckbox.checked = !darkModeCheckbox.checked;
-                    }
-                    // Add dark mode implementation here if needed
-                    console.log('Dark mode:', darkModeCheckbox.checked);
-                });
-            }
 
             // Auto-expand submenu if current page is in it
             const activeSubmenuLink = document.querySelector('.nav-submenu-link.active');

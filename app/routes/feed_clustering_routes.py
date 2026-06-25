@@ -161,15 +161,15 @@ async def perform_thematic_clustering(items: List[Dict[str, Any]]) -> List[Dict[
     """
     
     try:
-        ai_model = LiteLLMModel.get_instance("gpt-4o-mini")
-        response = ai_model.generate_response([
+        ai_model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        response = await ai_model.agenerate_response([
             {"role": "user", "content": prompt}
         ])
-        
+
         # Parse LLM response with robust JSON extraction
         import json
         import re
-        
+
         # Handle both clean JSON and markdown code blocks
         json_match = re.search(r'```json\s*(\[.*?\])\s*```|```(\[.*?\])```|(\[.*?\])', response, re.DOTALL)
         if json_match:
@@ -292,10 +292,10 @@ async def perform_sentiment_clustering(items: List[Dict[str, Any]]) -> Dict[str,
         ]
     }}
     """
-    
+
     try:
-        ai_model = LiteLLMModel.get_instance("gpt-4o-mini")
-        response = ai_model.generate_response([
+        ai_model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        response = await ai_model.agenerate_response([
             {"role": "user", "content": prompt}
         ])
         
@@ -396,10 +396,10 @@ async def perform_temporal_clustering(
         ]
     }}
     """
-    
+
     try:
-        ai_model = LiteLLMModel.get_instance("gpt-4o-mini")
-        response = ai_model.generate_response([
+        ai_model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        response = await ai_model.agenerate_response([
             {"role": "user", "content": prompt}
         ])
         

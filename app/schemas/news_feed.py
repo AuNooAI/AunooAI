@@ -98,7 +98,7 @@ class NewsFeedRequest(BaseModel):
     topic: Optional[str] = None
     max_articles: int = Field(default=50, ge=10, le=10000)  # Increased from 200 to 10000 to match route limits
     include_bias_analysis: bool = True
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
     profile_id: Optional[int] = None  # Organizational profile for contextualized analysis
     persona: Optional[str] = Field(default="CEO", description="Target persona: CEO, CMO, CTO, CISO, or Custom")
     article_count: int = Field(default=6, ge=1, le=8, description="Number of articles to select (1-8)")

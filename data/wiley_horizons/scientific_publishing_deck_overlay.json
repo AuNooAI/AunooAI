@@ -1,0 +1,101 @@
+{
+  "topic": "Scientific Publishers - General Monitoring",
+  "display_name": "Scientific Publishing",
+  "source_deck": "Wiley Horizons Final (Feb 2026), slide 11 + per-domain deep dives",
+  "source_run_id": "8c2664de-c58e-4579-b1e0-4c6dd7f61f75",
+  "description": "Maps DB-stored scenarios from a Three Horizons run on 'Scientific Publishing' (Wiley-deck framing) onto the 5 curated deck scenarios shown to Wiley leadership: AI/digital transformation, Diamond OA + subscription erosion, hybrid publishing models, integrity + peer review reform, and Asia-pacific market expansion. Populate ``source_run_id`` once the fresh horizons run is generated; the tracker matches by topic, so the overlay starts working as soon as both topic strings agree.",
+
+  "deck_scenarios": {
+    "digital_transformation_ai": {
+      "deck_scenario_name": "AI-Driven Digital Transformation of Publishing",
+      "horizon": "h2",
+      "consensus_pct": 85,
+      "primary_signal": "AI integration into manuscript workflows, peer review tooling, and editorial decision support becomes the dominant operational story by 2030 — large publishers reallocate up to a third of editorial spend toward AI augmentation.",
+      "minority_view": "A minority warns of a bubble in AI publishing infrastructure and a backlash against over-automation of editorial judgment.",
+      "decision_fork": {
+        "favorable": "If governance frameworks and human oversight scale alongside the tooling: leading publishers (Wiley, Elsevier, Springer Nature) capture efficiency + quality gains and entrench moats.",
+        "adverse": "If AI deployment outpaces oversight: legitimacy crises, retraction spikes, and regulatory backlash slow adoption and fragment standards across geographies."
+      },
+      "action_windows": {
+        "0_6_months": "Audit AI tools already in editorial workflows; baseline error / acceptance rates",
+        "6_18_months": "Pilot AI-assisted review in 2-3 journal families with explicit transparency commitments"
+      }
+    },
+    "diamond_oa_subscription_erosion": {
+      "deck_scenario_name": "Diamond Open Access & Subscription Model Erosion",
+      "horizon": "h1_h2",
+      "consensus_pct": 80,
+      "primary_signal": "Diamond Open Access models (no author or reader fees, funded by institutions and consortia) scale rapidly across the global south and parts of Europe, eroding traditional subscription and APC revenue streams.",
+      "minority_view": "Some expect Diamond OA's sustainability problems to limit growth and preserve subscription dominance through 2030.",
+      "decision_fork": {
+        "favorable": "If Wiley pilots Diamond OA partnerships with library consortia and national funders: it builds a credible role in the post-subscription world.",
+        "adverse": "If Wiley defends subscription terms: it loses share to platforms (OASPA-aligned, cOAlition S, regional Diamond initiatives) that move faster."
+      },
+      "action_windows": {
+        "0_6_months": "Map current Diamond OA pilots and identify 2-3 consortium partnership candidates",
+        "6_18_months": "Launch a Diamond OA pilot on one mid-tier journal family"
+      }
+    },
+    "hybrid_decentralized_publishing": {
+      "deck_scenario_name": "Hybrid Publishing Models & Platform Disintermediation",
+      "horizon": "h2_h3",
+      "consensus_pct": 70,
+      "primary_signal": "Hybrid models combining open commentary, automated checks, and decentralised collaboration test new trust mechanisms — researchers and funders increasingly bypass legacy gatekeepers for preprints, overlay journals, and platform-native peer review.",
+      "minority_view": "A subset expects regulatory capture and proprietary standards to preserve legacy publisher dominance.",
+      "decision_fork": {
+        "favorable": "If Wiley invests in interoperable platforms and overlay-journal infrastructure: it stays the layer where trust + curation accrue.",
+        "adverse": "If Wiley defends the closed-platform model: researchers migrate to open infrastructure and the disintermediation accelerates."
+      },
+      "action_windows": {
+        "0_6_months": "Map overlay-journal and decentralised peer-review pilots Wiley could partner with",
+        "6_18_months": "Pilot interoperability between a Wiley journal and a major preprint server"
+      }
+    },
+    "integrity_peer_review_reform": {
+      "deck_scenario_name": "Publishing Integrity & Peer Review Reform",
+      "horizon": "h1_h2",
+      "consensus_pct": 78,
+      "primary_signal": "Mounting concerns over retractions, paper mills, and reviewer fatigue drive structural reforms — transparency requirements, registered reports, and AI-assisted fraud detection become mandatory at leading journals by 2028.",
+      "minority_view": "A minority expects inertia and review fatigue to deepen before reforms catch up, with credibility crises spreading through the late 2020s.",
+      "decision_fork": {
+        "favorable": "If Wiley leads on transparency standards (registered reports, mandatory data, AI fraud screening): it becomes the credibility anchor in a crowded marketplace.",
+        "adverse": "If reforms are partial or performative: retractions accelerate, brand damage compounds, and authors / funders look elsewhere."
+      },
+      "action_windows": {
+        "0_6_months": "Audit current retraction + integrity-incident exposure across the portfolio",
+        "6_18_months": "Roll out a portfolio-wide registered-reports option and AI fraud-screening tooling"
+      }
+    },
+    "asia_market_expansion": {
+      "deck_scenario_name": "Asia-Pacific Market Expansion & Regional Power Shift",
+      "horizon": "h2_h3",
+      "consensus_pct": 72,
+      "primary_signal": "Over 50% of sources forecast a regional power shift by 2027 — China, India, and Southeast Asia capture a growing share of authorship, citation, and editorial decision-making, with Asian publishers and platforms taking dominant positions in their domestic markets.",
+      "minority_view": "Some forecasters expect persistent language, IP, and policy barriers to slow the shift through 2030.",
+      "decision_fork": {
+        "favorable": "If Wiley invests in regional editorial offices, local-language tooling, and joint ventures with Asian institutions: it captures a meaningful share of the growth.",
+        "adverse": "If Wiley defends its established Western footprint: it cedes the growth markets to regional players and Open Science platforms."
+      },
+      "action_windows": {
+        "0_6_months": "Quantify authorship + revenue exposure by region; identify 2-3 priority Asia-Pacific markets",
+        "6_18_months": "Open or expand editorial presence in a priority Asia-Pacific market"
+      }
+    }
+  },
+
+  "scenario_title_to_deck_key": {
+    "Reliance on Traditional Peer Review Faces Erosion": "integrity_peer_review_reform",
+    "Fragmentation of Scientific Integrity Oversight": "integrity_peer_review_reform",
+    "Escalating Incidence of Publishing Misconduct": "integrity_peer_review_reform",
+    "Regulatory Pressure on Publishing Ethics Intensifies": "integrity_peer_review_reform",
+    "Business-as-Usual Business Models Under Strain": "diamond_oa_subscription_erosion",
+    "Rise of Independent Integrity Monitoring Platforms": "hybrid_decentralized_publishing",
+    "Emergence of Automated Fraud Detection Systems": "digital_transformation_ai",
+    "Strategic Partnerships to Strengthen Publishing Ethics": "integrity_peer_review_reform",
+    "Executive-Led Open Science Policy Initiatives": "diamond_oa_subscription_erosion",
+    "Acceleration of Regulatory-Driven Reforms": "integrity_peer_review_reform",
+    "Unified Global Integrity Standards Realized": "integrity_peer_review_reform",
+    "AI-Driven, Real-Time Peer Review Ecosystems": "digital_transformation_ai",
+    "Transparent, Decentralized Publishing Networks": "hybrid_decentralized_publishing"
+  }
+}

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session
-from typing import Optional
+from app.security.session import verify_session, verify_session_api
+from typing import Optional, List, Dict
 import logging
 from datetime import datetime, timedelta
 import json
@@ -78,7 +78,7 @@ async def generate_daily_news_feed(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format, defaults to today"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(50, ge=10, le=200, description="Maximum articles to analyze"),
-    model: str = Query("gpt-4.1-mini", description="AI model to use for generation"),
+    model: str = Query("gpt-5.4-mini", description="AI model to use for generation"),
     include_bias_analysis: bool = Query(True, description="Include bias and factuality analysis"),
     db: Database = Depends(get_database_instance)
 ):
@@ -124,7 +124,7 @@ async def get_news_articles_only(
     date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(1000, ge=10, le=10000),
-    model: str = Query("gpt-4.1-mini"),
+    model: str = Query("gpt-5.4-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
@@ -156,8 +156,9 @@ async def get_news_articles_only(
         )
 
         # Calculate SQL pagination parameters
-        offset = (page - 1) * per_page
-        limit = per_page
+        # For grouping by category, fetch all articles up to max_articles (not just per_page)
+        offset = 0
+        limit = max_articles
 
         logger.info(f"[NEWS FEED API] Calling _get_articles_for_date_range with offset={offset}, limit={limit}")
 
@@ -206,13 +207,182 @@ async def get_news_articles_only(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+@router.get("/articles/clustered")
+async def get_clustered_articles(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    category: Optional[str] = Query(None, description="Optional category filter"),
+    max_articles: int = Query(100, ge=10, le=500),
+    similarity_threshold: float = Query(0.3, ge=0.1, le=0.8, description="Max cosine distance for clustering (lower = stricter)"),
+    max_cluster_size: int = Query(4, ge=2, le=8, description="Max articles per cluster"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get articles clustered by semantic similarity.
+
+    Groups related articles together based on vector embedding similarity.
+    Returns clusters where each has a primary article and related articles.
+    """
+    from app.vector_store import cluster_articles_by_similarity
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Get articles using the news feed service
+        news_feed_service = get_news_feed_service(db)
+        articles_data = await news_feed_service._get_articles_for_date_range(
+            date_range or "7d",
+            max_articles,
+            topic,
+            None  # custom_date
+        )
+
+        if not articles_data:
+            return {"clusters": [], "total_articles": 0, "total_clusters": 0}
+
+        # Filter by category if specified
+        if category:
+            articles_data = [a for a in articles_data if a.get('category') == category]
+
+        if not articles_data:
+            return {"clusters": [], "total_articles": 0, "total_clusters": 0}
+
+        # Extract URIs for clustering
+        article_uris = [a.get('uri') for a in articles_data if a.get('uri')]
+
+        # Run clustering in thread pool (it's a sync function)
+        clusters = await run_in_threadpool(
+            cluster_articles_by_similarity,
+            article_uris,
+            similarity_threshold,
+            max_cluster_size
+        )
+
+        # Transform clusters to include full article data with proper field mapping
+        transformed_clusters = []
+        for cluster in clusters:
+            primary = cluster.get('primary', {})
+            related = cluster.get('related', [])
+
+            transformed_cluster = {
+                'primary': {
+                    'uri': primary.get('uri'),
+                    'title': primary.get('title'),
+                    'summary': primary.get('summary'),
+                    'news_source': primary.get('news_source'),
+                    'publication_date': primary.get('publication_date'),
+                    'category': primary.get('category'),
+                    'topic': primary.get('topic'),
+                    'sentiment': primary.get('sentiment'),
+                    'time_to_impact': primary.get('time_to_impact'),
+                    'tags': primary.get('tags'),
+                    'bias': primary.get('bias'),
+                    'factual_reporting': primary.get('factual_reporting'),
+                    'mbfc_credibility_rating': primary.get('mbfc_credibility_rating'),
+                },
+                'related': [
+                    {
+                        'uri': r.get('uri'),
+                        'title': r.get('title'),
+                        'summary': r.get('summary'),
+                        'news_source': r.get('news_source'),
+                        'publication_date': r.get('publication_date'),
+                        'similarity_score': r.get('similarity_score'),
+                        'bias': r.get('bias'),
+                        'factual_reporting': r.get('factual_reporting'),
+                    }
+                    for r in related
+                ],
+                'article_count': 1 + len(related)
+            }
+            transformed_clusters.append(transformed_cluster)
+
+        return {
+            "clusters": transformed_clusters,
+            "total_articles": len(article_uris),
+            "total_clusters": len(transformed_clusters)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting clustered articles: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/articles/list")
+async def get_articles_list(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    page: int = Query(1, ge=1, description="Page number for pagination"),
+    per_page: int = Query(25, ge=1, le=100, description="Items per page"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get articles as a flat list sorted by publication date (newest first).
+
+    Unlike the clustered view, this returns articles in a simple chronological list
+    sorted by when they were published, without any grouping or clustering.
+    Only returns enriched articles (those with category and sentiment set).
+    """
+    try:
+        # Get DB facade
+        db_facade = DatabaseQueryFacade(db, logger)
+
+        # Calculate date range parameters
+        now = datetime.now()
+        if date_range == "24h":
+            start_date = now - timedelta(days=1)
+        elif date_range == "7d":
+            start_date = now - timedelta(days=7)
+        elif date_range == "30d":
+            start_date = now - timedelta(days=30)
+        elif date_range == "3m":
+            start_date = now - timedelta(days=90)
+        elif date_range == "1y":
+            start_date = now - timedelta(days=365)
+        elif date_range == "all":
+            start_date = None
+        else:
+            start_date = now - timedelta(days=7)  # Default to 7d
+
+        # Calculate offset for pagination
+        offset = (page - 1) * per_page
+
+        # Get articles sorted chronologically by publication date
+        # Use 'T' format for end_date to match ISO format in database (e.g., '2026-01-28T14:25:03+00:00')
+        articles_data = db_facade.get_news_feed_articles_chronological(
+            start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+            end_date=now.strftime('%Y-%m-%dT23:59:59'),
+            topic=topic,
+            offset=offset,
+            limit=per_page
+        )
+
+        # Get total count for pagination
+        total_count = db_facade.get_news_feed_articles_chronological_count(
+            start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+            end_date=now.strftime('%Y-%m-%dT23:59:59'),
+            topic=topic
+        )
+
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
+
+        return {
+            "articles": articles_data,
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting articles list: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
 @router.get("/six-articles")
 async def get_six_articles_report(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
     date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(50, ge=20, le=200),
-    model: str = Query("gpt-4.1-mini"),
+    model: str = Query("gpt-5.4-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
@@ -227,6 +397,7 @@ async def get_six_articles_report(
     try:
         # Get user_id from session for loading custom config
         user_id = session.get("user_id")
+        username = session.get('user', {}).get('username')
 
         # Parse date if provided
         target_date = None
@@ -242,6 +413,20 @@ async def get_six_articles_report(
             starred_uris = [uri.strip() for uri in starred_articles.split(',') if uri.strip()]
             logger.info(f"Received {len(starred_uris)} starred articles for six articles generation")
 
+        # Get user's hidden briefings to exclude from generation
+        hidden_headlines = []
+        if username:
+            try:
+                from app.database_query_facade import DatabaseQueryFacade
+                facade = DatabaseQueryFacade(db, logger)
+                hidden_list = facade.get_user_preference(username, 'hidden_briefings') or []
+                if isinstance(hidden_list, list):
+                    hidden_headlines = [h.lower().strip() for h in hidden_list if isinstance(h, str)]
+                    if hidden_headlines:
+                        logger.info(f"Excluding {len(hidden_headlines)} hidden briefing headlines from generation")
+            except Exception as e:
+                logger.warning(f"Could not load hidden briefings: {e}")
+
         # Create request with user_id
         request = NewsFeedRequest(
             date=target_date,
@@ -255,7 +440,7 @@ async def get_six_articles_report(
             starred_articles=starred_uris,
             user_id=user_id
         )
-        
+
         # Generate only six articles report
         news_feed_service = get_news_feed_service(db)
         articles_data = await news_feed_service._get_articles_for_date_range(
@@ -264,10 +449,24 @@ async def get_six_articles_report(
             topic,
             target_date
         )
-        
+
         if not articles_data:
             # Return empty result instead of 404
             return {"six_articles": []}
+
+        # Filter out articles matching hidden headlines (case-insensitive partial match)
+        if hidden_headlines:
+            original_count = len(articles_data)
+            articles_data = [
+                article for article in articles_data
+                if not any(
+                    hidden in (article.get('title') or '').lower()
+                    for hidden in hidden_headlines
+                )
+            ]
+            filtered_count = original_count - len(articles_data)
+            if filtered_count > 0:
+                logger.info(f"Filtered out {filtered_count} articles matching hidden briefing headlines")
         
         if force_regenerate:
             # Generate fresh and update caches implicitly via cached method write path
@@ -318,6 +517,16 @@ async def news_feed_v2_page(request: Request, session=Depends(verify_session)):
         "request": request,
         "page_title": "News Narrator v2 - Proof of Concept",
         "show_share_button": True,
+        "session": session,
+        "current_page": "investigate"
+    })
+
+
+@page_router.get("/explore", response_class=HTMLResponse)
+async def explore_page(request: Request, session=Depends(verify_session)):
+    """Render the Explore page (React-based news feed)"""
+    return templates.TemplateResponse("explore_react.html", {
+        "request": request,
         "session": session,
         "current_page": "investigate"
     })
@@ -377,7 +586,7 @@ async def get_overview_markdown(
             date=target_date,
             topic=topic,
             max_articles=30,
-            model="gpt-4.1-mini"
+            model="gpt-5.4-mini"
         )
         
         # Generate overview
@@ -427,7 +636,7 @@ async def get_six_articles_markdown(
             date=target_date,
             topic=topic,
             max_articles=50,
-            model="gpt-4.1-mini"
+            model="gpt-5.4-mini"
         )
         
         # Generate six articles report
@@ -465,7 +674,12 @@ async def get_six_articles_config(
     Returns user-specific config or defaults if none exists
     """
     try:
-        username = session.get("user")
+        # Extract username from session (handles both nested and OAuth formats)
+        user = session.get("user")
+        if user and isinstance(user, dict):
+            username = user.get("username")
+        else:
+            username = user
 
         # Try to load user-specific config from database
         config = db.facade.get_six_articles_config(username)
@@ -519,7 +733,12 @@ async def save_six_articles_config(
     Stored per-user in database
     """
     try:
-        username = session.get("user")
+        # Extract username from session (handles both nested and OAuth formats)
+        user = session.get("user")
+        if user and isinstance(user, dict):
+            username = user.get("username")
+        else:
+            username = user
 
         # Validate config structure
         if "personas" in config:
@@ -742,7 +961,7 @@ async def create_shared_feed(
             date=target_date,
             topic=topic,
             max_articles=50 if feed_type == "six-articles" else 30,
-            model="gpt-4.1-mini"
+            model="gpt-5.4-mini"
         )
         
         news_feed_service = get_news_feed_service(db)
@@ -1113,4 +1332,1374 @@ async def generate_category_icon(
 
     except Exception as e:
         logger.error(f"Error generating category icon: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category-counts")
+async def get_category_counts(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get total article counts per category from database.
+
+    Returns a dictionary mapping category names to their total article counts,
+    applying the same filters as the main news feed.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Calculate date range
+        now = datetime.now()
+
+        if date_range == '24h':
+            start_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '72h':
+            start_date = (now - timedelta(days=3)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '7d':
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '30d':
+            start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '3m':
+            start_date = (now - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '1y':
+            start_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == 'all':
+            start_date = None
+            end_date = None
+        else:
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Build the query with same filters as news feed
+        if start_date and end_date:
+            date_filter = f"AND publication_date >= '{start_date}' AND publication_date <= '{end_date}'"
+        else:
+            date_filter = ""
+
+        topic_filter = ""
+        if topic:
+            # Handle topic filter - escape single quotes
+            safe_topic = topic.replace("'", "''")
+            topic_filter = f"""
+            AND (
+                topic = '{safe_topic}'
+                OR title LIKE '%{safe_topic}%'
+                OR summary LIKE '%{safe_topic}%'
+            )
+            """
+
+        query = f"""
+            SELECT category, COUNT(*) as count
+            FROM articles
+            WHERE category IS NOT NULL
+            AND category != ''
+            AND sentiment IS NOT NULL
+            AND publication_date IS NOT NULL
+            {date_filter}
+            {topic_filter}
+            AND title NOT LIKE '%Call@%'
+            AND title NOT LIKE '%+91%'
+            AND title NOT LIKE '%best%agency%'
+            AND title NOT LIKE '%#1%'
+            AND summary NOT LIKE '%Call@%'
+            AND summary NOT LIKE '%phone%number%'
+            AND news_source NOT LIKE '%medium.com/@%'
+            GROUP BY category
+            ORDER BY count DESC
+        """
+
+        results = await run_in_threadpool(db.fetch_all, query)
+
+        # Convert to dictionary
+        category_counts = {}
+        for row in results:
+            category_counts[row['category']] = row['count']
+
+        logger.info(f"Category counts: {len(category_counts)} categories, date_range={date_range}, topic={topic}")
+
+        return {"category_counts": category_counts}
+
+    except Exception as e:
+        logger.error(f"Error getting category counts: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category/{category}/articles")
+async def get_category_articles(
+    category: str,
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(50, ge=10, le=200, description="Articles per page"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get paginated articles for a specific category.
+
+    Returns articles for the specified category with full article data.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Calculate date range
+        now = datetime.now()
+
+        if date_range == '24h':
+            start_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '72h':
+            start_date = (now - timedelta(days=3)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '7d':
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '30d':
+            start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '3m':
+            start_date = (now - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '1y':
+            start_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == 'all':
+            start_date = None
+            end_date = None
+        else:
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Build filters
+        if start_date and end_date:
+            date_filter = f"AND publication_date >= '{start_date}' AND publication_date <= '{end_date}'"
+        else:
+            date_filter = ""
+
+        topic_filter = ""
+        if topic:
+            safe_topic = topic.replace("'", "''")
+            topic_filter = f"""
+            AND (
+                topic = '{safe_topic}'
+                OR title LIKE '%{safe_topic}%'
+                OR summary LIKE '%{safe_topic}%'
+            )
+            """
+
+        # Escape category for query
+        safe_category = category.replace("'", "''")
+
+        # Get total count first
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM articles
+            WHERE category = '{safe_category}'
+            AND sentiment IS NOT NULL
+            AND publication_date IS NOT NULL
+            {date_filter}
+            {topic_filter}
+            AND title NOT LIKE '%Call@%'
+            AND title NOT LIKE '%+91%'
+            AND title NOT LIKE '%best%agency%'
+            AND title NOT LIKE '%#1%'
+            AND summary NOT LIKE '%Call@%'
+            AND summary NOT LIKE '%phone%number%'
+            AND news_source NOT LIKE '%medium.com/@%'
+        """
+
+        count_result = await run_in_threadpool(db.fetch_one, count_query)
+        total_count = count_result['total'] if count_result else 0
+
+        # Calculate pagination
+        offset = (page - 1) * per_page
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
+
+        # Get articles
+        query = f"""
+            SELECT
+                uri, title, summary, news_source, publication_date,
+                category, topic, sentiment, sentiment_explanation,
+                time_to_impact, time_to_impact_explanation, tags,
+                bias, factual_reporting, mbfc_credibility_rating,
+                bias_country, future_signal, future_signal_explanation
+            FROM articles
+            WHERE category = '{safe_category}'
+            AND sentiment IS NOT NULL
+            AND publication_date IS NOT NULL
+            {date_filter}
+            {topic_filter}
+            AND title NOT LIKE '%Call@%'
+            AND title NOT LIKE '%+91%'
+            AND title NOT LIKE '%best%agency%'
+            AND title NOT LIKE '%#1%'
+            AND summary NOT LIKE '%Call@%'
+            AND summary NOT LIKE '%phone%number%'
+            AND news_source NOT LIKE '%medium.com/@%'
+            ORDER BY publication_date DESC
+            LIMIT {per_page} OFFSET {offset}
+        """
+
+        results = await run_in_threadpool(db.fetch_all, query)
+
+        # Transform to article format (flat structure for frontend compatibility)
+        articles = []
+        for row in results:
+            articles.append({
+                'uri': row['uri'],
+                'title': row['title'],
+                'summary': row['summary'],
+                'news_source': row['news_source'],
+                'bias': row['bias'],
+                'factual_reporting': row['factual_reporting'],
+                'mbfc_credibility_rating': row['mbfc_credibility_rating'],
+                'bias_country': row['bias_country'],
+                'publication_date': row['publication_date'],
+                'category': row['category'],
+                'topic': row['topic'],
+                'sentiment': row['sentiment'],
+                'sentiment_explanation': row['sentiment_explanation'],
+                'time_to_impact': row['time_to_impact'],
+                'time_to_impact_explanation': row['time_to_impact_explanation'],
+                'tags': row['tags'] if row['tags'] else '',
+                'future_signal': row['future_signal'],
+                'future_signal_explanation': row['future_signal_explanation']
+            })
+
+        logger.info(f"Category articles: {len(articles)} of {total_count} for '{category}', page {page}")
+
+        return {
+            "articles": articles,
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "category": category
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting category articles: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# ============================================================================
+# Dashboard Schedule Routes
+# ============================================================================
+
+from pydantic import BaseModel, Field
+
+class DashboardScheduleSettings(BaseModel):
+    """Settings for scheduled dashboard generation."""
+    schedule_enabled: Optional[bool] = None
+    schedule_type: Optional[str] = None  # 'interval' or 'daily'
+    check_interval: Optional[int] = Field(None, ge=1, le=168)
+    interval_unit: Optional[str] = None
+    schedule_time: Optional[str] = None  # HH:MM format for daily schedules
+    generate_briefing: Optional[bool] = None
+    generate_highlights: Optional[bool] = None
+    generate_narratives: Optional[bool] = None
+    persona: Optional[str] = None
+
+
+@router.get("/dashboard/schedule/status")
+async def get_dashboard_schedule_status(
+    session=Depends(verify_session)
+):
+    """Get current dashboard schedule and monitor status."""
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        # Get settings
+        settings_result = conn.execute(text("""
+            SELECT
+                schedule_enabled, schedule_type, check_interval, interval_unit, schedule_time,
+                generate_briefing, generate_highlights, generate_narratives,
+                persona, model, topic_filter
+            FROM newsfeed_dashboard_settings
+            WHERE id = 1
+        """))
+        settings = settings_result.mappings().first()
+
+        # Get status
+        status_result = conn.execute(text("""
+            SELECT
+                last_run_time, next_run_time, last_run_status,
+                last_error, is_running, run_count
+            FROM newsfeed_dashboard_monitor_status
+            WHERE id = 1
+        """))
+        status = status_result.mappings().first()
+
+        conn.close()
+
+        return {
+            "settings": dict(settings) if settings else None,
+            "status": dict(status) if status else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting schedule status: {e}")
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dashboard/schedule/settings")
+async def update_dashboard_schedule_settings(
+    request: DashboardScheduleSettings,
+    session=Depends(verify_session)
+):
+    """Update dashboard schedule settings."""
+    from sqlalchemy import text
+    from datetime import datetime, timedelta
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        updates = []
+        params = {}
+
+        if request.schedule_enabled is not None:
+            updates.append("schedule_enabled = :schedule_enabled")
+            params["schedule_enabled"] = request.schedule_enabled
+        if request.schedule_type is not None:
+            updates.append("schedule_type = :schedule_type")
+            params["schedule_type"] = request.schedule_type
+        if request.check_interval is not None:
+            updates.append("check_interval = :check_interval")
+            params["check_interval"] = request.check_interval
+        if request.interval_unit is not None:
+            updates.append("interval_unit = :interval_unit")
+            params["interval_unit"] = request.interval_unit
+        if request.schedule_time is not None:
+            updates.append("schedule_time = :schedule_time")
+            # Convert HH:MM string to time
+            from datetime import time as dt_time
+            try:
+                hour, minute = map(int, request.schedule_time.split(':'))
+                params["schedule_time"] = dt_time(hour, minute)
+            except:
+                params["schedule_time"] = dt_time(9, 0)  # Default to 9:00
+        if request.generate_briefing is not None:
+            updates.append("generate_briefing = :generate_briefing")
+            params["generate_briefing"] = request.generate_briefing
+        if request.generate_highlights is not None:
+            updates.append("generate_highlights = :generate_highlights")
+            params["generate_highlights"] = request.generate_highlights
+        if request.generate_narratives is not None:
+            updates.append("generate_narratives = :generate_narratives")
+            params["generate_narratives"] = request.generate_narratives
+        if request.persona is not None:
+            updates.append("persona = :persona")
+            params["persona"] = request.persona
+
+        updates.append("updated_at = NOW()")
+
+        if updates:
+            conn.execute(text(f"""
+                UPDATE newsfeed_dashboard_settings
+                SET {', '.join(updates)}
+                WHERE id = 1
+            """), params)
+
+        # Update next_run_time in status if schedule is being enabled
+        if request.schedule_enabled:
+            schedule_type = request.schedule_type or 'interval'
+
+            if schedule_type == 'daily' and request.schedule_time:
+                # For daily schedule, calculate next occurrence of the time
+                from datetime import time as dt_time
+                try:
+                    hour, minute = map(int, request.schedule_time.split(':'))
+                    schedule_time = dt_time(hour, minute)
+                except:
+                    schedule_time = dt_time(9, 0)
+
+                now = datetime.now()
+                next_run = now.replace(hour=schedule_time.hour, minute=schedule_time.minute, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run += timedelta(days=1)
+            else:
+                # For interval schedule
+                interval = request.check_interval or 24
+                unit = request.interval_unit or 'hours'
+
+                if unit == 'hours':
+                    next_run = datetime.now() + timedelta(hours=interval)
+                else:
+                    next_run = datetime.now() + timedelta(days=interval)
+
+            conn.execute(text("""
+                UPDATE newsfeed_dashboard_monitor_status
+                SET next_run_time = :next_run, updated_at = NOW()
+                WHERE id = 1
+            """), {"next_run": next_run})
+
+        conn.commit()
+        conn.close()
+
+        return {"success": True, "message": "Settings updated"}
+
+    except Exception as e:
+        logger.error(f"Error updating schedule settings: {e}")
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dashboard/schedule/run-now")
+async def run_dashboard_generation_now(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session)
+):
+    """Trigger immediate dashboard generation."""
+    from app.tasks.newsfeed_dashboard_monitor import run_dashboard_generation_now
+
+    try:
+        db = get_database_instance()
+        result = await run_dashboard_generation_now(db, topic_filter=topic)
+
+        return {
+            "success": result.get("success", False),
+            "briefing_generated": result.get("briefing_generated", False),
+            "highlights_generated": result.get("highlights_generated", False),
+            "narratives_generated": result.get("narratives_generated", False),
+            "error": result.get("error"),
+        }
+    except Exception as e:
+        logger.error(f"Failed to run dashboard generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Internal functions for scheduled generation
+async def _generate_six_articles_internal(
+    persona: str = "CEO",
+    model: str = "gpt-5.4-mini",
+    topic: Optional[str] = None
+) -> Optional[List[Dict]]:
+    """
+    Internal function to generate six articles briefing for scheduler.
+
+    Returns:
+        List of generated article dicts, or None if generation failed
+    """
+    from app.services.news_feed_service import get_news_feed_service
+    from app.schemas.news_feed import NewsFeedRequest
+
+    db = get_database_instance()
+    news_feed_service = get_news_feed_service(db)
+
+    # Build request
+    request = NewsFeedRequest(
+        topic=topic,
+        max_articles=50,
+        model=model,
+        persona=persona
+    )
+
+    # Get articles using the correct async method
+    articles_data = await news_feed_service._get_articles_for_date_range(
+        date_range="24h",
+        max_articles=50,
+        topic=topic
+    )
+
+    if not articles_data:
+        logger.warning("No articles found for briefing generation")
+        return None
+
+    # Generate (forces fresh generation, bypassing cache)
+    target_date = datetime.now()
+    six_articles = await news_feed_service._generate_six_articles_with_political_analysis(
+        articles_data, target_date, request
+    )
+    logger.info(f"Six articles briefing generated successfully ({len(six_articles) if six_articles else 0} articles)")
+    return six_articles
+
+
+async def _regenerate_highlights_internal(topic: Optional[str] = None):
+    """Internal function to regenerate highlights for scheduler.
+    Calls the incident tracking API to generate and cache incidents.
+    """
+    from app.routes.vector_routes import analyze_incidents, _IncidentTrackingRequest
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    logger.info(f"Highlights regeneration requested for topic: {topic}")
+
+    try:
+        # Get all topics if none specified
+        if not topic:
+            db = get_database_instance()
+            conn = db._temp_get_connection()
+            result = conn.execute(text("SELECT DISTINCT topic FROM keyword_groups WHERE topic IS NOT NULL LIMIT 25"))
+            topics_list = [row[0] for row in result.fetchall()]
+            conn.close()
+        else:
+            topics_list = [topic]
+
+        if not topics_list:
+            logger.warning("No topics found for highlights generation")
+            return None
+
+        # Calculate date range (last 7 days by default)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+
+        # Create request for incident tracking
+        request = _IncidentTrackingRequest(
+            topics=topics_list,
+            days_limit=7,
+            start_date=start_date.strftime('%Y-%m-%d'),
+            end_date=end_date.strftime('%Y-%m-%d'),
+            max_articles=100,
+            model='gpt-5.4-mini',
+            force_regenerate=True  # Force regenerate to ensure fresh data is cached
+        )
+
+        # Call the incident tracking endpoint (will save to cache)
+        result = await analyze_incidents(request, session=None)
+
+        logger.info(f"Highlights generated: {len(result.get('incidents', []))} incidents")
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate highlights: {e}", exc_info=True)
+        raise
+
+
+async def _regenerate_narratives_internal(topic: Optional[str] = None):
+    """Internal function to regenerate narratives for scheduler.
+    Calls the article insights API to generate and cache narratives.
+    """
+    from app.routes.dashboard_routes import get_article_insights, ArticleInsightsRequest
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    logger.info(f"Narratives regeneration requested for topic: {topic}")
+
+    try:
+        db = get_database_instance()
+
+        # Get all topics if none specified
+        if not topic:
+            conn = db._temp_get_connection()
+            result = conn.execute(text("SELECT DISTINCT topic FROM keyword_groups WHERE topic IS NOT NULL LIMIT 25"))
+            topics_list = [row[0] for row in result.fetchall()]
+            conn.close()
+        else:
+            topics_list = [topic]
+
+        if not topics_list:
+            logger.warning("No topics found for narratives generation")
+            return None
+
+        # Calculate date range (last 7 days by default)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+
+        all_themes = []
+
+        # Generate narratives for each topic
+        for topic_name in topics_list:
+            try:
+                # Create request for article insights
+                request = ArticleInsightsRequest(
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d'),
+                    days_limit=7,
+                    force_regenerate=True,  # Force regenerate to ensure fresh data is cached
+                    model='gpt-5.4-mini'
+                )
+
+                # Create a mock session dict for the endpoint
+                mock_session = {'user_id': 'scheduler', 'role': 'admin'}
+
+                # Call the article insights endpoint (will save to cache)
+                themes = await get_article_insights(
+                    topic_name=topic_name,
+                    request=request,
+                    db=db,
+                    session=mock_session
+                )
+
+                if themes:
+                    all_themes.extend(themes)
+                    logger.info(f"Generated {len(themes)} themes for topic: {topic_name}")
+
+            except HTTPException as http_err:
+                # Expected errors like "not enough articles"
+                logger.info(f"Skipping narratives for topic {topic_name}: {http_err.detail}")
+            except Exception as e:
+                logger.warning(f"Failed to generate narratives for topic {topic_name}: {e}")
+
+        logger.info(f"Narratives generated: {len(all_themes)} total themes")
+        return all_themes
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate narratives: {e}", exc_info=True)
+        raise
+
+
+# ============================================================================
+# Dashboard Snapshot Functions - For persisting auto-generated dashboard state
+# ============================================================================
+
+def save_dashboard_snapshot(
+    topic: Optional[str],
+    persona: str,
+    model: str,
+    briefing_articles: Optional[List[Dict]] = None,
+    highlights_data: Optional[Dict] = None,
+    narratives_data: Optional[Dict] = None,
+    articles_analyzed: Optional[int] = None,
+    generation_duration: Optional[float] = None,
+    error_message: Optional[str] = None
+) -> Optional[int]:
+    """
+    Save a dashboard snapshot to the database.
+    Replaces any existing snapshot for the same topic.
+
+    Returns the snapshot ID if successful, None otherwise.
+    """
+    from sqlalchemy import text, delete, insert
+    from app.database import get_database_instance
+    import json
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        # Delete existing snapshot for this topic
+        conn.execute(text("""
+            DELETE FROM newsfeed_dashboard_snapshots
+            WHERE topic IS NOT DISTINCT FROM :topic
+        """), {"topic": topic})
+
+        # Insert new snapshot
+        result = conn.execute(text("""
+            INSERT INTO newsfeed_dashboard_snapshots (
+                topic, persona, model,
+                briefing_articles, briefing_generated,
+                highlights_data, highlights_generated,
+                narratives_data, narratives_generated,
+                articles_analyzed, generation_duration_seconds, error_message,
+                generated_at
+            ) VALUES (
+                :topic, :persona, :model,
+                :briefing_articles, :briefing_generated,
+                :highlights_data, :highlights_generated,
+                :narratives_data, :narratives_generated,
+                :articles_analyzed, :generation_duration, :error_message,
+                NOW()
+            )
+            RETURNING id
+        """), {
+            "topic": topic,
+            "persona": persona,
+            "model": model,
+            "briefing_articles": json.dumps(briefing_articles) if briefing_articles else None,
+            "briefing_generated": briefing_articles is not None and len(briefing_articles) > 0,
+            "highlights_data": json.dumps(highlights_data) if highlights_data else None,
+            "highlights_generated": highlights_data is not None,
+            "narratives_data": json.dumps(narratives_data) if narratives_data else None,
+            "narratives_generated": narratives_data is not None,
+            "articles_analyzed": articles_analyzed,
+            "generation_duration": generation_duration,
+            "error_message": error_message,
+        })
+
+        row = result.fetchone()
+        conn.commit()
+
+        snapshot_id = row[0] if row else None
+        logger.info(f"Saved dashboard snapshot (ID: {snapshot_id}) for topic: {topic}")
+        return snapshot_id
+
+    except Exception as e:
+        logger.error(f"Error saving dashboard snapshot: {e}", exc_info=True)
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
+
+
+def get_latest_dashboard_snapshot(topic: Optional[str] = None) -> Optional[Dict]:
+    """
+    Get the latest dashboard snapshot for a topic.
+
+    Args:
+        topic: Topic filter, or None for all-topics snapshot
+
+    Returns:
+        Snapshot dict with briefing_articles, highlights_data, narratives_data, etc.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        result = conn.execute(text("""
+            SELECT
+                id, topic, generated_at, persona, model,
+                briefing_articles, briefing_generated,
+                highlights_data, highlights_generated,
+                narratives_data, narratives_generated,
+                articles_analyzed, generation_duration_seconds, error_message
+            FROM newsfeed_dashboard_snapshots
+            WHERE topic IS NOT DISTINCT FROM :topic
+            ORDER BY generated_at DESC
+            LIMIT 1
+        """), {"topic": topic})
+
+        row = result.mappings().first()
+        if not row:
+            return None
+
+        return dict(row)
+
+    except Exception as e:
+        logger.error(f"Error getting dashboard snapshot: {e}", exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+
+@router.get("/dashboard/snapshot/latest")
+async def get_latest_snapshot(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session_api)
+):
+    """
+    Get the latest auto-generated dashboard snapshot.
+
+    Returns the most recent snapshot with briefing articles, highlights, and narratives
+    that were auto-generated by the scheduler.
+    """
+    snapshot = get_latest_dashboard_snapshot(topic)
+
+    if not snapshot:
+        return {
+            "success": True,
+            "has_snapshot": False,
+            "snapshot": None,
+            "message": "No auto-generated dashboard found. Enable scheduling to auto-generate dashboards."
+        }
+
+    return {
+        "success": True,
+        "has_snapshot": True,
+        "snapshot": {
+            "id": snapshot["id"],
+            "topic": snapshot["topic"],
+            "generated_at": snapshot["generated_at"].isoformat() if snapshot["generated_at"] else None,
+            "persona": snapshot["persona"],
+            "model": snapshot["model"],
+            "briefing_articles": snapshot["briefing_articles"],
+            "briefing_generated": snapshot["briefing_generated"],
+            "highlights_data": snapshot["highlights_data"],
+            "highlights_generated": snapshot["highlights_generated"],
+            "narratives_data": snapshot["narratives_data"],
+            "narratives_generated": snapshot["narratives_generated"],
+            "articles_analyzed": snapshot["articles_analyzed"],
+            "generation_duration_seconds": snapshot["generation_duration_seconds"],
+        }
+    }
+
+
+# ============================================================================
+# Saved Incidents and Narratives - Persistent Storage
+# ============================================================================
+
+@router.get("/saved/incidents")
+async def get_saved_incidents(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Get all saved incidents for the current user."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        logger.info(f"[get_saved_incidents] Fetching incidents for topic: {topic}, user_id: {user_id}")
+        conn = db._temp_get_connection()
+
+        if topic:
+            result = conn.execute(text("""
+                SELECT id, incident_name, topic, incident_data, saved_at
+                FROM saved_incidents
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                AND topic = :topic
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id, "topic": topic})
+        else:
+            result = conn.execute(text("""
+                SELECT id, incident_name, topic, incident_data, saved_at
+                FROM saved_incidents
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id})
+
+        rows = result.mappings().all()
+        conn.close()
+
+        logger.info(f"[get_saved_incidents] Found {len(rows)} rows for topic: {topic}")
+
+        incidents = []
+        for row in rows:
+            # Handle JSONB - might be dict or might need parsing
+            raw_data = row["incident_data"]
+            if raw_data is None:
+                incident_data = {}
+            elif isinstance(raw_data, str):
+                # If it's a string, parse it
+                import json as json_module
+                incident_data = json_module.loads(raw_data)
+            else:
+                # Already a dict from JSONB
+                incident_data = dict(raw_data) if raw_data else {}
+
+            incident_data["_saved_id"] = row["id"]
+            incident_data["_saved_at"] = row["saved_at"].isoformat() if row["saved_at"] else None
+            incidents.append(incident_data)
+            logger.info(f"[get_saved_incidents] Incident: {incident_data.get('name')} topic: {incident_data.get('topic')}")
+
+        logger.info(f"[get_saved_incidents] Returning {len(incidents)} incidents")
+        return {
+            "success": True,
+            "incidents": incidents,
+            "count": len(incidents)
+        }
+    except Exception as e:
+        logger.error(f"Error getting saved incidents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/incidents")
+async def save_incident(
+    incident_data: dict,
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Save an incident with full data."""
+    from sqlalchemy import text
+    import json
+
+    try:
+        user_id = session.get("user_id")
+        incident_name = incident_data.get("name") or incident_data.get("title")
+        topic = incident_data.get("topic", "")
+        logger.info(f"[save_incident] Saving incident: {incident_name}, topic: {topic}, user_id: {user_id}")
+
+        if not incident_name:
+            raise HTTPException(status_code=400, detail="Incident name is required")
+
+        conn = db._temp_get_connection()
+
+        # Handle upsert manually to deal with NULL user_id (NULL != NULL in unique constraints)
+        # First try to update existing row
+        if user_id is not None:
+            update_result = conn.execute(text("""
+                UPDATE saved_incidents
+                SET incident_data = :data, updated_at = NOW()
+                WHERE incident_name = :name AND topic = :topic AND user_id = :user_id
+            """), {
+                "name": incident_name,
+                "topic": topic,
+                "user_id": user_id,
+                "data": json.dumps(incident_data)
+            })
+        else:
+            update_result = conn.execute(text("""
+                UPDATE saved_incidents
+                SET incident_data = :data, updated_at = NOW()
+                WHERE incident_name = :name AND topic = :topic AND user_id IS NULL
+            """), {
+                "name": incident_name,
+                "topic": topic,
+                "data": json.dumps(incident_data)
+            })
+
+        # If no rows updated, insert new row
+        if update_result.rowcount == 0:
+            logger.info(f"[save_incident] No existing row found, inserting new incident")
+            conn.execute(text("""
+                INSERT INTO saved_incidents (incident_name, topic, user_id, incident_data, updated_at)
+                VALUES (:name, :topic, :user_id, :data, NOW())
+            """), {
+                "name": incident_name,
+                "topic": topic,
+                "user_id": user_id,
+                "data": json.dumps(incident_data)
+            })
+        else:
+            logger.info(f"[save_incident] Updated existing incident row")
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Saved incident: {incident_name} for topic: {topic}")
+        return {"success": True, "message": f"Incident '{incident_name}' saved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/saved/incidents/{incident_name}")
+async def delete_saved_incident(
+    incident_name: str,
+    topic: str = Query(..., description="Topic of the incident"),
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Delete a saved incident."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        result = conn.execute(text("""
+            DELETE FROM saved_incidents
+            WHERE incident_name = :name AND topic = :topic
+            AND (user_id = :user_id OR user_id IS NULL)
+        """), {"name": incident_name, "topic": topic, "user_id": user_id})
+
+        conn.commit()
+        deleted = result.rowcount > 0
+        conn.close()
+
+        if deleted:
+            logger.info(f"Deleted saved incident: {incident_name}")
+            return {"success": True, "message": f"Incident '{incident_name}' removed"}
+        else:
+            raise HTTPException(status_code=404, detail="Incident not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/incidents/{incident_name}/articles")
+async def add_article_to_incident(
+    incident_name: str,
+    request_body: dict,
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Add an article to an existing saved incident."""
+    from sqlalchemy import text
+    import json
+
+    try:
+        user_id = session.get("user_id")
+        topic = request_body.get("topic", "")
+        article_uri = request_body.get("article_uri")
+
+        if not article_uri:
+            raise HTTPException(status_code=400, detail="article_uri is required")
+
+        conn = db._temp_get_connection()
+
+        # First, fetch the existing incident
+        result = conn.execute(text("""
+            SELECT id, incident_data
+            FROM saved_incidents
+            WHERE incident_name = :name AND topic = :topic
+            AND (user_id = :user_id OR user_id IS NULL)
+        """), {"name": incident_name, "topic": topic, "user_id": user_id})
+
+        row = result.mappings().fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        # Parse existing incident data
+        incident_data = row["incident_data"] if row["incident_data"] else {}
+
+        # Ensure article_uris list exists
+        if "article_uris" not in incident_data:
+            incident_data["article_uris"] = []
+
+        # Check if article is already in the incident
+        if article_uri in incident_data["article_uris"]:
+            conn.close()
+            return {
+                "success": True,
+                "message": "Article already in incident",
+                "updated_incident": incident_data
+            }
+
+        # Add the new article URI
+        incident_data["article_uris"].append(article_uri)
+
+        # Optionally add article metadata if provided
+        if "article_metadata" in request_body:
+            if "article_metadata" not in incident_data:
+                incident_data["article_metadata"] = []
+            incident_data["article_metadata"].append(request_body["article_metadata"])
+
+        # Update the incident in the database
+        conn.execute(text("""
+            UPDATE saved_incidents
+            SET incident_data = :data, updated_at = NOW()
+            WHERE incident_name = :name AND topic = :topic
+            AND (user_id = :user_id OR user_id IS NULL)
+        """), {
+            "data": json.dumps(incident_data),
+            "name": incident_name,
+            "topic": topic,
+            "user_id": user_id
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Added article to incident: {incident_name}")
+        return {
+            "success": True,
+            "message": f"Article added to incident '{incident_name}'",
+            "updated_incident": incident_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding article to incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/incidents/{incident_name}/notes")
+async def add_note_to_incident(
+    incident_name: str,
+    request_body: dict,
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Add an analyst note to an existing saved incident."""
+    from sqlalchemy import text
+    import json
+    from datetime import datetime
+
+    try:
+        user_id = session.get("user_id")
+        topic = request_body.get("topic", "")
+        analyst = request_body.get("analyst", "")
+        comment = request_body.get("comment", "")
+        saved_id = request_body.get("saved_id")  # Unique database ID
+
+        if not analyst or not comment:
+            raise HTTPException(status_code=400, detail="analyst and comment are required")
+
+        conn = db._temp_get_connection()
+
+        # Fetch the existing incident - prefer saved_id if provided for precise targeting
+        if saved_id:
+            result = conn.execute(text("""
+                SELECT id, incident_data
+                FROM saved_incidents
+                WHERE id = :saved_id
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"saved_id": saved_id, "user_id": user_id})
+        else:
+            result = conn.execute(text("""
+                SELECT id, incident_data
+                FROM saved_incidents
+                WHERE incident_name = :name AND topic = :topic
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"name": incident_name, "topic": topic, "user_id": user_id})
+
+        row = result.mappings().fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        incident_db_id = row["id"]
+
+        # Parse existing incident data
+        incident_data = row["incident_data"] if row["incident_data"] else {}
+
+        # Create the new note
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        note = {
+            "id": f"{int(now.timestamp() * 1000)}",  # Timestamp-based ID
+            "timestamp": now.isoformat().replace('+00:00', 'Z'),  # Proper ISO 8601 with Z suffix
+            "analyst": analyst,
+            "comment": comment
+        }
+
+        # Ensure analyst_notes list exists
+        if "analyst_notes" not in incident_data:
+            incident_data["analyst_notes"] = []
+
+        # Add the new note at the beginning (most recent first)
+        incident_data["analyst_notes"].insert(0, note)
+
+        # Update the incident in the database using the unique ID
+        conn.execute(text("""
+            UPDATE saved_incidents
+            SET incident_data = :data, updated_at = NOW()
+            WHERE id = :incident_id
+        """), {
+            "data": json.dumps(incident_data),
+            "incident_id": incident_db_id
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Added note to incident: {incident_name} (id={incident_db_id}) by {analyst}")
+        return {
+            "success": True,
+            "note": note,
+            "updated_incident": incident_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding note to incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/saved/narratives")
+async def get_saved_narratives(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Get all saved narratives for the current user."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        if topic:
+            result = conn.execute(text("""
+                SELECT id, narrative_name, topic, narrative_data, saved_at
+                FROM saved_narratives
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                AND topic = :topic
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id, "topic": topic})
+        else:
+            result = conn.execute(text("""
+                SELECT id, narrative_name, topic, narrative_data, saved_at
+                FROM saved_narratives
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id})
+
+        rows = result.mappings().all()
+        conn.close()
+
+        narratives = []
+        for row in rows:
+            narrative_data = row["narrative_data"] if row["narrative_data"] else {}
+            narrative_data["_saved_id"] = row["id"]
+            narrative_data["_saved_at"] = row["saved_at"].isoformat() if row["saved_at"] else None
+            narratives.append(narrative_data)
+
+        return {
+            "success": True,
+            "narratives": narratives,
+            "count": len(narratives)
+        }
+    except Exception as e:
+        logger.error(f"Error getting saved narratives: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/narratives")
+async def save_narrative(
+    narrative_data: dict,
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Save a narrative with full data."""
+    from sqlalchemy import text
+    import json
+
+    try:
+        user_id = session.get("user_id")
+        narrative_name = narrative_data.get("name") or narrative_data.get("theme_name")
+        topic = narrative_data.get("topic", "")
+
+        if not narrative_name:
+            raise HTTPException(status_code=400, detail="Narrative name is required")
+
+        conn = db._temp_get_connection()
+
+        # Upsert - insert or update on conflict
+        conn.execute(text("""
+            INSERT INTO saved_narratives (narrative_name, topic, user_id, narrative_data, updated_at)
+            VALUES (:name, :topic, :user_id, :data, NOW())
+            ON CONFLICT (narrative_name, topic, user_id)
+            DO UPDATE SET narrative_data = :data, updated_at = NOW()
+        """), {
+            "name": narrative_name,
+            "topic": topic,
+            "user_id": user_id,
+            "data": json.dumps(narrative_data)
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Saved narrative: {narrative_name} for topic: {topic}")
+        return {"success": True, "message": f"Narrative '{narrative_name}' saved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving narrative: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/saved/narratives/{narrative_name}")
+async def delete_saved_narrative(
+    narrative_name: str,
+    topic: Optional[str] = Query(None, description="Topic of the narrative"),
+    session=Depends(verify_session_api),
+    db: Database = Depends(get_database_instance)
+):
+    """Delete a saved narrative."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        if topic:
+            result = conn.execute(text("""
+                DELETE FROM saved_narratives
+                WHERE narrative_name = :name AND topic = :topic
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"name": narrative_name, "topic": topic, "user_id": user_id})
+        else:
+            result = conn.execute(text("""
+                DELETE FROM saved_narratives
+                WHERE narrative_name = :name
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"name": narrative_name, "user_id": user_id})
+
+        conn.commit()
+        deleted = result.rowcount > 0
+        conn.close()
+
+        if deleted:
+            logger.info(f"Deleted saved narrative: {narrative_name}")
+            return {"success": True, "message": f"Narrative '{narrative_name}' removed"}
+        else:
+            raise HTTPException(status_code=404, detail="Narrative not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting narrative: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/filter-options")
+async def get_filter_options(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get available filter options (sources, factuality levels) for article list.
+
+    Returns distinct sources and factuality levels from articles matching
+    the current date range and topic filters.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Calculate date range
+        now = datetime.now()
+
+        if date_range == '24h':
+            start_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '72h':
+            start_date = (now - timedelta(days=3)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '7d':
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '30d':
+            start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '3m':
+            start_date = (now - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '1y':
+            start_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == 'all':
+            start_date = None
+            end_date = None
+        else:
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Use facade to get filter options
+        db_facade = DatabaseQueryFacade(db, logger)
+        result = await run_in_threadpool(
+            db_facade.get_article_filter_options,
+            start_date,
+            end_date,
+            topic
+        )
+
+        logger.info(f"Filter options: {len(result['sources'])} sources, {len(result['factuality'])} factuality levels, {len(result['bias'])} bias levels")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting filter options: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/topic/{topic_name}/categories")
+async def get_topic_categories(
+    topic_name: str,
+):
+    """Get the configured categories for a specific topic.
+
+    Returns the categories defined in config.json for the given topic.
+    """
+    from app.config.config import load_config
+
+    try:
+        config = load_config()
+        topic_configs = {t['name']: t for t in config.get('topics', [])}
+
+        if topic_name not in topic_configs:
+            raise HTTPException(status_code=404, detail=f"Topic '{topic_name}' not found")
+
+        topic_config = topic_configs[topic_name]
+        categories = topic_config.get('categories', [])
+
+        return {
+            "topic": topic_name,
+            "categories": categories
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting topic categories: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

@@ -479,7 +479,24 @@
                     <div class="step" id="step3">
                         <h4>Step 3: Set Up Keywords</h4>
                         <p class="text-muted">Add keywords to monitor for your topic</p>
-                        
+
+                        <!-- Keyword Format Guidance -->
+                        <div class="alert alert-info mb-3" style="font-size: 0.875rem;">
+                            <div class="d-flex align-items-start">
+                                <i class="fas fa-info-circle me-2 mt-1"></i>
+                                <div>
+                                    <strong>Keyword Format Tips:</strong>
+                                    <ul class="mb-0 mt-1 ps-3">
+                                        <li>Use simple terms: <code>artificial intelligence</code> not <code>(AI OR ML)</code></li>
+                                        <li>No special characters, quotes, or boolean operators (AND, OR, NOT)</li>
+                                        <li>For exclusions, prefix with minus: <code>-scam</code>, <code>-spam</code></li>
+                                        <li>Keep each keyword under 30 characters</li>
+                                        <li>Use common names: <code>OpenAI</code> not <code>OpenAI, Inc.</code></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="mb-4">
                             <label class="form-label">Keywords</label>
                             <p class="text-muted">Enter keywords to monitor. You can separate multiple keywords with commas.</p>
@@ -1823,9 +1840,9 @@ async function completeOnboarding() {
         if (response.ok) {
             showSuccessMessage("Onboarding completed successfully!");
 
-            // Redirect to keyword alerts page after a short delay
+            // Redirect to gather page after a short delay
             setTimeout(() => {
-                window.location.href = '/keyword-alerts';
+                window.location.href = '/gather';
             }, 2000);
         } else {
             const error = await response.json();

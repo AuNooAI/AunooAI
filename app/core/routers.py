@@ -1,7 +1,10 @@
 """Router registration for the application."""
 
+import importlib
 import logging
 from fastapi import FastAPI
+
+from app.core.modules import get_enabled_modules
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +39,31 @@ def register_routers(app: FastAPI):
     from app.routes.executive_summary_routes import router as executive_summary_router, web_router as executive_summary_web_router
     from app.routes.futures_cone_routes import router as futures_cone_router
     from app.routes.trend_convergence_routes import router as trend_convergence_router
+    from app.routes.forecast_assessment_routes import router as forecast_assessment_router
+    from app.routes.topic_report_routes import router as topic_report_router
+    from app.routes.wiley_candidates_routes import router as wiley_candidates_router
+    from app.routes.docs_routes import router as docs_router
+    from app.routes.admin_diagnostics_routes import router as admin_diagnostics_router
     from app.routes.feed_routes import router as feed_router
     from app.routes.feed_clustering_routes import router as feed_clustering_router
     from app.routes.filter_routes import router as filter_router
     from app.routes.news_feed_routes import router as news_feed_router, page_router as news_feed_page_router
     from app.routes.health_routes import router as health_router
+    from app.routes.sio_routes import router as sio_router
+    from app.routes.eos_routes import router as eos_router
+    from app.routes.newsletter_routes import router as newsletter_router
+    from app.routes.focus_group_routes import router as focus_group_router
+    from app.routes.executive_briefing_routes import router as executive_briefing_router
+    from app.routes.sampling_routes import router as sampling_router
+    from app.routes.gather_routes import router as gather_router
+    from app.routes.pam_routes import router as pam_router
+    from app.routes.email_routes import router as email_router
+    from app.routes.emerging_topics_routes import router as emerging_topics_router
+    from app.routes.rss_feeds_routes import router as rss_feeds_router
+    from app.routes.module_routes import router as module_routes_router
+    from app.routes.daily_reports_routes import router as desk_briefings_router
+    from app.routes.slm_routes import router as slm_router
+    from app.routes.training_routes import router as training_router
 
     # Register database routes
     app.include_router(database.router)
@@ -115,6 +138,11 @@ def register_routers(app: FastAPI):
     
     # Trend convergence routes
     app.include_router(trend_convergence_router)
+    app.include_router(forecast_assessment_router)
+    app.include_router(topic_report_router)
+    app.include_router(wiley_candidates_router)
+    app.include_router(docs_router)
+    app.include_router(admin_diagnostics_router)
     
     # Feed system routes
     app.include_router(feed_router)
@@ -131,5 +159,60 @@ def register_routers(app: FastAPI):
 
     # Health check routes
     app.include_router(health_router)
+
+    # Strategic Intelligence Oracle routes
+    app.include_router(sio_router)
+
+    # Extreme Outlier Scenarios routes
+    app.include_router(eos_router)
+
+    # Newsletter Generator routes
+    app.include_router(newsletter_router)
+
+    # Focus Group routes
+    app.include_router(focus_group_router)
+
+    # Executive Briefing routes
+    app.include_router(executive_briefing_router)
+
+    # Sampling & Filtering framework routes
+    app.include_router(sampling_router)
+
+    # Gather page routes (React-based keyword monitoring)
+    app.include_router(gather_router)
+
+    # Power, Attention & Money (PAM) dashboard routes
+    app.include_router(pam_router)
+
+    # Email sharing routes
+    app.include_router(email_router, prefix="/api")
+
+    # Emerging Topics detection routes
+    app.include_router(emerging_topics_router)
+
+    # RSS Feed management routes
+    app.include_router(rss_feeds_router)
+
+    # Module metadata API (always-on)
+    app.include_router(module_routes_router)
+
+    # Dynamically register enabled analysis modules
+    for module in get_enabled_modules():
+        try:
+            mod = importlib.import_module(module.route_module)
+            router = getattr(mod, module.route_attr)
+            app.include_router(router)
+            logger.info(f"Registered module: {module.name}")
+        except Exception as e:
+            logger.error(f"Failed to register module '{module.id}': {e}")
+
+    # Desk Briefings (Briefing Desk feature)
+    app.include_router(desk_briefings_router)
+
+    # SLM (Small Language Model) routes for relevance, summarization, enrichment
+    app.include_router(slm_router)
+
+    # Adaptive Classification Training routes
+    app.include_router(training_router)
 
     logger.info("All routers registered successfully")

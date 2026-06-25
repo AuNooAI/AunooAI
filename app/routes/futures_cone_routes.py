@@ -13,6 +13,10 @@ from app.ai_models import get_ai_model
 
 # Context limits for different AI models (copied from consensus analysis)
 CONTEXT_LIMITS = {
+    'gpt-5.5': 1000000,
+    'gpt-5.4': 400000,
+    'gpt-5.4-mini': 400000,
+    'gpt-5.4-nano': 400000,
     'gpt-3.5-turbo': 16385,
     'gpt-3.5-turbo-16k': 16385,
     'gpt-4': 8192,
@@ -44,6 +48,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 def filter_articles_by_source_quality(articles: List, source_quality: str) -> List:
     """Filter articles based on source quality setting"""

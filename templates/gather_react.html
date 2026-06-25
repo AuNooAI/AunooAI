@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gather - AuNoo AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- React App CSS -->
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-CTn6vUl0.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/NotificationBell-8Ks6Rxty.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/gather-8ghqohxR.css">
+    <!-- Plotly for Auspex charts -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- Inject user session data for React app -->
+    <script>
+      window.userSession = {
+        {% if session.get('user') %}
+        username: {{ session.get('user', {}).get('username', 'User') | tojson | safe }},
+        email: {{ session.get('user', {}).get('email', '') | tojson | safe }}
+        {% else %}
+        username: null,
+        email: null
+        {% endif %}
+      };
+    </script>
+    <script type="module" crossorigin src="/static/trend-convergence/assets/gather-Im8A5UbQ.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-Otn2wnhI.js">
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!-- Bootstrap Bundle (includes Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>

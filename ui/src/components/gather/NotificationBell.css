@@ -1,0 +1,193 @@
+/**
+ * NotificationBell Component Styles
+ * Extracted from gather.css to avoid global CSS conflicts
+ */
+
+/* Wrapper for notification bell and other top bar items */
+.gather-top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Bell button styling */
+.gather-top-bar-icon-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.gather-top-bar-icon-btn:hover {
+  background: #fdf2f8;
+  color: #ec4899;
+}
+
+/* Setup topic button styling */
+.gather-top-bar-setup-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-decoration: none;
+}
+
+.gather-top-bar-setup-btn:hover {
+  background: #e5e7eb;
+}
+
+/* Notification count badge */
+.gather-notification-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #ef4444;
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.4);
+}
+
+/* Notification Sheet (slide-out panel) */
+.gather-notification-sheet {
+  width: 400px !important;
+  max-width: 100vw !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.gather-notification-sheet-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.gather-notification-sheet-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.gather-notification-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.gather-notification-sheet-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gather-notification-sheet-item:hover {
+  background: #f9fafb;
+}
+
+.gather-notification-sheet-item.unread {
+  background: #eff6ff;
+}
+
+.gather-notification-sheet-item.unread:hover {
+  background: #dbeafe;
+}
+
+.gather-notification-sheet-item-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gather-notification-sheet-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.gather-notification-sheet-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.gather-notification-sheet-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.gather-notification-unread-dot {
+  width: 8px;
+  height: 8px;
+  background: #3b82f6;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gather-notification-sheet-item-message {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin: 0 0 6px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.gather-notification-sheet-item-time {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.gather-notification-sheet-item-link {
+  color: #6b7280;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.gather-notification-sheet-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 12px;
+}
+
+.gather-notification-sheet-footer button {
+  flex: 1;
+}

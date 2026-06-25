@@ -31,10 +31,10 @@ RUN apt-get update \
         libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
-COPY requirements.txt .
+# Copy and install Python dependencies (CPU-only PyTorch for smaller image)
+COPY requirements-docker.txt .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir --prefix=/install -r requirements.txt
+    && pip install --no-cache-dir --prefix=/install -r requirements-docker.txt
 
 # ==============================================================================
 # Stage 3: Runtime - Final minimal image
@@ -66,6 +66,9 @@ RUN apt-get update \
 # Copy Python packages from python-builder
 COPY --from=python-builder /install /usr/local
 
+# Download NLTK data required by the application
+RUN python -m nltk.downloader -d /usr/local/nltk_data stopwords
+
 # Create necessary directories
 RUN mkdir -p \
     app/data \
@@ -91,6 +94,9 @@ COPY setup.py .
 COPY .env.template .
 COPY docker-entrypoint.sh /entrypoint.sh
 
+# Copy trained SLM models (final weights only, checkpoints excluded via .dockerignore)
+COPY models/ models/
+
 # Copy built React UI from node-builder
 COPY --from=node-builder /ui-build/build/ /app/static/trend-convergence/
 
@@ -107,11 +113,11 @@ VOLUME /app/app/config
 RUN chmod -R 777 /app/app/data /app/reports /app/static/audio /app/tmp
 
 # Expose the port the app runs on
-EXPOSE ${PORT}
+EXPOSE 10001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+    CMD curl -f http://localhost:${PORT:-10001}/health || exit 1
 
 # Command to run the application
 CMD ["/entrypoint.sh"]

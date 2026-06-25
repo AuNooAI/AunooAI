@@ -1,22 +1,29 @@
 from typing import Optional, Dict, Any, List
 import logging
+from datetime import datetime
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
 from pathlib import Path
 import os
 import urllib.parse
 
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
+import uuid
+import threading
 
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
     upsert_article,
     similar_articles,
-    _get_collection as _vector_collection,
-    get_chroma_client,
+)
+from app.vector_store_pgvector import (
+    get_vectors_by_metadata,
+    get_by_ids,
+    delete_embeddings,
+    count_embeddings,
 )
 from app.database import Database, get_database_instance
 
@@ -28,6 +35,55 @@ from app.database import Database, get_database_instance
 router = APIRouter(prefix="/api", tags=["vector-search"])
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Signal run tracking for background tasks
+# ---------------------------------------------------------------------------
+_signal_runs: Dict[str, Dict[str, Any]] = {}
+_signal_runs_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Dependency availability checks (run at module load to warn early)
+# ---------------------------------------------------------------------------
+_SKLEARN_AVAILABLE = False
+_UMAP_AVAILABLE = False
+
+try:
+    import sklearn
+    _SKLEARN_AVAILABLE = True
+except ImportError:
+    logger.warning(
+        "scikit-learn is not installed. Some vector analysis features "
+        "(patterns, anomaly detection, clustering) will be limited. "
+        "Install with: pip install scikit-learn"
+    )
+
+try:
+    import umap
+    _UMAP_AVAILABLE = True
+except ImportError:
+    logger.warning(
+        "umap-learn is not installed. UMAP dimensionality reduction will "
+        "fall back to PCA. Install with: pip install umap-learn"
+    )
+
+
+@router.get("/vector-dependencies")
+def check_vector_dependencies():
+    """Check availability of optional dependencies for vector analysis."""
+    return {
+        "sklearn": {
+            "available": _SKLEARN_AVAILABLE,
+            "message": None if _SKLEARN_AVAILABLE else "Install with: pip install scikit-learn",
+            "affects": ["patterns", "anomaly detection", "clustering"]
+        },
+        "umap": {
+            "available": _UMAP_AVAILABLE,
+            "message": None if _UMAP_AVAILABLE else "Install with: pip install umap-learn",
+            "affects": ["UMAP dimensionality reduction (will fallback to PCA)"]
+        },
+        "all_available": _SKLEARN_AVAILABLE and _UMAP_AVAILABLE
+    }
 
 
 @router.get("/vector-search")
@@ -180,29 +236,10 @@ def _fetch_vectors(
     """Return `(vectors, metadatas, ids)` truncated to *limit* items.
 
     Vectors are returned as an ``np.ndarray`` of shape ``(n, dim)`` to
-    allow efficient downstream numeric work.  We always request
-    *embeddings* and *metadatas* so callers can build richer responses.
+    allow efficient downstream numeric work.  Uses pgvector for storage.
     """
-    import numpy as np  # Local import to avoid module-level dependency
-
-    collection = _vector_collection()
-    try:
-        kw = {"include": ["embeddings", "metadatas"]}
-        if limit:
-            kw["limit"] = limit  # type: ignore[assignment]
-        if where:
-            kw["where"] = where  # type: ignore[assignment]
-        res = collection.get(**kw)  # type: ignore[arg-type]
-    except Exception as exc:  # Fallback – corrupted records without embeddings
-        logging.getLogger(__name__).error(
-            "Chroma get() failed: %s", exc
-        )
-        return np.empty((0, 0), dtype=np.float32), [], []
-
-    vectors = np.asarray(res.get("embeddings", []), dtype=np.float32)
-    metadatas = res.get("metadatas", [])
-    ids = res.get("ids", [])
-    return vectors, metadatas, ids
+    # Delegate to pgvector implementation
+    return get_vectors_by_metadata(limit=limit, where=where)
 
 
 @router.get("/embedding_projection")
@@ -249,8 +286,8 @@ def embedding_projection(
     
     try:
         logger.info(f"Embedding projection called with query: {q or 'None'}")
-        
-        # Build metadata filter 
+
+        # Build metadata filter from URL params
         where = None
         if any([topic, category, sentiment, news_source, future_signal]):
             where = {}
@@ -264,36 +301,40 @@ def embedding_projection(
                 where["news_source"] = news_source
             if future_signal:
                 where["future_signal"] = future_signal
-        
-        # Handle pipe operators through executor if present
-        if q and "|" in q:
+
+        # Parse KISSQL for all queries to apply filters and limits consistently
+        # This ensures the visualization matches the search results
+        kissql_limit = None
+        if q:
             from app.kissql.parser import parse_full_query
             from app.kissql.executor import execute_query
-            
-            logger.info("Query contains pipe operators")
-            
+
+            logger.info(f"Parsing KISSQL query: {q}")
+
             # Parse and execute the query with KISSQL
             query_obj = parse_full_query(q)
             result = execute_query(query_obj, top_k=top_k)
-            
+
             # Extract IDs from the filtered results
             filtered_results = result.get("results", [])
             filtered_ids = [r["id"] for r in filtered_results]
-            
+
             # Handle case with no results after filtering
             if not filtered_ids:
-                logger.warning("No results after pipe filtering")
+                logger.warning("No results after KISSQL filtering")
                 return {"points": [], "explain": {}, "centroids": {}}
-                
-            # Add URI filter to where clause
+
+            # Add URI filter to where clause to match exact search results
             if where is None:
                 where = {}
             where["uri"] = {"$in": filtered_ids}
-            
-            logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
 
-        # Get vectors from Chroma – fetch a bit more than requested but cap at 10k
-        fetch_limit = min(max(top_k * 2, 5000), 10000)
+            # Respect the KISSQL result count as the limit
+            kissql_limit = len(filtered_ids)
+            logger.info(f"Applied KISSQL filtering: {kissql_limit} results")
+
+        # Use KISSQL limit if available, otherwise use the top_k parameter
+        fetch_limit = kissql_limit if kissql_limit else min(max(top_k * 2, 5000), 10000)
 
         vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
         logger.info(f"📦 Fetched {len(vecs) if vecs.size > 0 else 0} vectors from database")
@@ -341,33 +382,39 @@ def embedding_projection(
             from sklearn.decomposition import PCA
             reducer = PCA(n_components=dims, random_state=42)
         else:  # default UMAP
-            import umap
-            logger.info("🎯 Starting UMAP dimensionality reduction...")
-            
-            # Enable numba logging to match working version
-            import os
-            os.environ['NUMBA_ENABLE_CUDASIM'] = '0'  # Ensure CUDA sim is off
-            
-            # Set numba logging to match working version behavior
-            numba_logger = logging.getLogger('numba')
-            numba_logger.setLevel(logging.DEBUG)
-            
-            # Clear numba cache to avoid compilation issues
-            try:
-                import numba
-                logger.info("🧹 Clearing numba cache to avoid compilation conflicts...")
-                # Force fresh compilation
-                os.environ['NUMBA_CACHE_DIR'] = ''  # Disable cache temporarily
-            except Exception as e:
-                logger.warning(f"Could not configure numba cache: {e}")
-            
-            # Use simple UMAP configuration like working version
-            reducer = umap.UMAP(
-                n_components=dims,
-                metric="cosine",
-                random_state=42,
-            )
-            logger.info("⚙️ UMAP initialized, starting fit_transform...")
+            if not _UMAP_AVAILABLE:
+                # Fall back to PCA if UMAP not installed
+                logger.warning("UMAP not available, falling back to PCA")
+                from sklearn.decomposition import PCA
+                reducer = PCA(n_components=dims, random_state=42)
+            else:
+                import umap
+                logger.info("🎯 Starting UMAP dimensionality reduction...")
+
+                # Enable numba logging to match working version
+                import os
+                os.environ['NUMBA_ENABLE_CUDASIM'] = '0'  # Ensure CUDA sim is off
+
+                # Set numba logging to match working version behavior
+                numba_logger = logging.getLogger('numba')
+                numba_logger.setLevel(logging.DEBUG)
+
+                # Clear numba cache to avoid compilation issues
+                try:
+                    import numba
+                    logger.info("🧹 Clearing numba cache to avoid compilation conflicts...")
+                    # Force fresh compilation
+                    os.environ['NUMBA_CACHE_DIR'] = ''  # Disable cache temporarily
+                except Exception as e:
+                    logger.warning(f"Could not configure numba cache: {e}")
+
+                # Use simple UMAP configuration like working version
+                reducer = umap.UMAP(
+                    n_components=dims,
+                    metric="cosine",
+                    random_state=42,
+                )
+                logger.info("⚙️ UMAP initialized, starting fit_transform...")
         
         # Do dimensionality reduction with timeout monitoring
         import time
@@ -791,9 +838,32 @@ def patterns_endpoint(
         # Process articles to extract patterns
         from collections import Counter, defaultdict
         import re
-        from sklearn.feature_extraction import text as _sk_text
-    
-        STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
+
+        # Try to use sklearn stop words, fallback to a basic set if not available
+        try:
+            from sklearn.feature_extraction import text as _sk_text
+            STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
+        except ImportError:
+            # Fallback stop words if sklearn is not installed
+            STOP_WORDS = {
+                "a", "an", "and", "are", "as", "at", "be", "been", "being",
+                "but", "by", "can", "could", "do", "does", "doing", "done",
+                "for", "from", "had", "has", "have", "having", "he", "her",
+                "here", "him", "his", "how", "i", "if", "in", "into", "is",
+                "it", "its", "just", "me", "might", "more", "most", "my",
+                "no", "not", "now", "of", "on", "or", "our", "out", "own",
+                "said", "same", "she", "should", "so", "some", "such", "than",
+                "that", "the", "their", "them", "then", "there", "these",
+                "they", "this", "those", "through", "to", "too", "under",
+                "up", "very", "was", "we", "were", "what", "when", "where",
+                "which", "while", "who", "whom", "why", "will", "with",
+                "would", "you", "your", "about", "after", "all", "also",
+                "any", "because", "before", "between", "both", "each",
+                "few", "first", "get", "got", "http", "https", "www", "com",
+                "new", "news", "like", "make", "many", "may", "one", "only",
+                "other", "over", "say", "says", "see", "since", "still",
+                "take", "think", "time", "two", "use", "using", "way", "well"
+            }
         unigram_counts = Counter()
         bigram_counts = Counter()
         cooc_mat = defaultdict(Counter)
@@ -993,15 +1063,34 @@ def statistics_endpoint(
 
 @router.post("/clean_collection")
 async def clean_collection(session=Depends(verify_session)):
-    """Delete and rebuild the collection.
+    """Clear all embeddings from the articles table.
 
-    This is a helper endpoint to clean up completely.  It deletes the
-    collection and then re-indexes all articles.
+    This removes all vector embeddings but does not delete the articles.
+    To rebuild embeddings, use /api/vector-reindex afterwards.
     """
-    client = get_chroma_client()
-    # Drop only the vector index (does not touch relational DB)
-    client.delete_collection("articles")
-    # To rebuild, hit /api/vector-reindex afterwards
+    from sqlalchemy import text
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Clear all embeddings
+        result = conn.execute(text("UPDATE articles SET embedding = NULL"))
+        conn.commit()
+        affected = result.rowcount
+
+        return {
+            "success": True,
+            "message": f"Cleared embeddings from {affected} articles",
+            "next_step": "Use /api/vector-reindex to rebuild embeddings"
+        }
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 # Tag metadata ingestion lives in ``app/vector_store._build_metadata``.
 # Anomaly-detection helpers should sit in a dedicated module.
@@ -1090,16 +1179,24 @@ def embedding_anomalies(
         vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
         if vecs.size == 0:
             return []
-    
-        # Run anomaly detection
-        from sklearn.ensemble import IsolationForest
+
         import numpy as np
-    
-        iso = IsolationForest(contamination=0.02, random_state=42)
-        anomaly_score = -iso.fit(vecs).decision_function(vecs)
-    
+
+        # Run anomaly detection - try sklearn first, fallback to distance-based
+        try:
+            from sklearn.ensemble import IsolationForest
+            iso = IsolationForest(contamination=0.02, random_state=42)
+            anomaly_score = -iso.fit(vecs).decision_function(vecs)
+        except ImportError:
+            # Fallback: Use distance from centroid as anomaly score
+            # Articles far from the mean embedding are considered anomalies
+            logger.info("sklearn not available, using distance-based anomaly detection")
+            centroid = np.mean(vecs, axis=0)
+            # Euclidean distance from centroid
+            anomaly_score = np.linalg.norm(vecs - centroid, axis=1)
+
         idx_sorted = np.argsort(anomaly_score)[::-1][:top_k]
-    
+
         anomaly_results = [
             {
                 "id": ids[i],
@@ -1108,7 +1205,7 @@ def embedding_anomalies(
             }
             for i in idx_sorted
         ]
-        
+
         logger.info(f"Generated {len(anomaly_results)} anomaly results")
         return anomaly_results
     except Exception as e:
@@ -1223,8 +1320,8 @@ async def vector_summary(
     import litellm
     logger = logging.getLogger(__name__)
 
-    # Use provided model or default to gpt-4o-mini (lightweight)
-    model_name = req.model or "gpt-4o-mini"
+    # Use provided model or default to gpt-5.4-mini (lightweight)
+    model_name = req.model or "gpt-5.4-mini"
     
     logger.info(f"Vector summary requested with model: {model_name}")
 
@@ -1377,7 +1474,7 @@ async def vector_summary_raw(
     joined = "\n\n".join(blocks)
 
     # 2) Prompt selection
-    model_name = req.model or "gpt-4o-mini"
+    model_name = req.model or "gpt-5.4-mini"
     is_single_article = len(metas) == 1
 
     if is_single_article:
@@ -1502,7 +1599,7 @@ async def article_insights(
     joined = "\n".join(lines)
 
     # 3) Prompt and LLM call
-    model_name = req.model or "gpt-4o-mini"
+    model_name = req.model or "gpt-5.4-mini"
     is_single_article = len(metas) == 1
 
     if is_single_article:
@@ -1663,12 +1760,12 @@ async def article_insights(
 class _IncidentTrackingRequest(BaseModel):
     """Request for incident tracking analysis."""
     topic: Optional[str] = Field(None, description="Single topic (DEPRECATED - use topics)")
-    topics: Optional[List[str]] = Field(default=None, description="List of topics to analyze for incidents (max 10)")
+    topics: Optional[List[str]] = Field(default=None, description="List of topics to analyze for incidents (max 25)")
     days_limit: int = Field(14, ge=1, le=90, description="Days back to analyze")
     start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
     max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
-    model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
+    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
     domain: Optional[str] = Field(
         None,
@@ -1676,6 +1773,12 @@ class _IncidentTrackingRequest(BaseModel):
     )
     profile_id: Optional[int] = Field(None, description="Organizational profile ID for contextualized analysis")
     test_articles: Optional[List[Dict]] = Field(None, description="Optional test articles to analyze instead of database query")
+    # Custom configuration fields (optional - if not provided, use defaults)
+    system_prompt: Optional[str] = Field(None, description="Custom system prompt template")
+    user_prompt: Optional[str] = Field(None, description="Custom user prompt template")
+    base_ontology: Optional[str] = Field(None, description="Custom ontology definition")
+    analysis_instructions: Optional[str] = Field(None, description="Custom analysis instructions")
+    quality_guidelines: Optional[str] = Field(None, description="Custom quality guidelines")
 
     @field_validator('topic', mode='before')
     @classmethod
@@ -1698,8 +1801,8 @@ class _IncidentTrackingRequest(BaseModel):
         # Sanitize each topic
         sanitized = [re.sub(r'\s+', ' ', topic.strip()) for topic in v if topic and isinstance(topic, str) and topic.strip()]
         # Enforce max limit
-        if len(sanitized) > 10:
-            raise ValueError("Maximum 10 topics allowed")
+        if len(sanitized) > 25:
+            raise ValueError("Maximum 25 topics allowed")
         return sanitized if sanitized else None
 
     def get_topics_list(self) -> List[str]:
@@ -1954,12 +2057,9 @@ ANALYSIS INSTRUCTIONS:
             except Exception as e:
                 logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
 
-        # Try to get custom configuration from request or use defaults
-        # TODO: In future, load saved configuration from database
-        # For now, use the enhanced default configuration
-        
+        # Use custom configuration from request if provided, otherwise use defaults
         # Default analysis instructions (AI Guidance)
-        analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
+        default_analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
 
 1. Material business impacts and strategic changes (layoffs, restructuring, major funding changes)
 2. Regulatory actions and compliance issues (government policies, regulatory warnings)
@@ -1971,7 +2071,7 @@ ANALYSIS INSTRUCTIONS:
 
 Classification Guidelines:
 - INCIDENT: Events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures)
-- EVENT: Significant announcements and developments (product launches, funding rounds, partnerships, strategic initiatives)  
+- EVENT: Significant announcements and developments (product launches, funding rounds, partnerships, strategic initiatives)
 - ENTITY: Organizations, people, or products being tracked (companies mentioned, key executives, new technologies)
 - EXPERTISE: Expert analysis, predictions, or authoritative insights from recognized industry leaders
 - INFORMED_INSIDER: Insider perspectives, leaked information, or privileged insights
@@ -1981,7 +2081,7 @@ Classification Guidelines:
 Be inclusive rather than restrictive - if an article discusses something newsworthy, classify it appropriately."""
 
         # Default quality guidelines (AI Guidance)
-        quality_guidelines = """Credibility Assessment:
+        default_quality_guidelines = """Credibility Assessment:
 - High credibility: Major news outlets, verified sources, multiple independent confirmations
 - Mixed credibility: Single source reporting, unverified claims, industry blogs
 - Low credibility: Social media rumors, fringe sources, extraordinary claims without evidence
@@ -1991,45 +2091,107 @@ Extraordinary Claims Protocol:
 - Require independent verification for significant technical achievements
 - Down-rank significance for self-reported successes without third-party validation"""
 
-        # Create incident tracking prompt with AI Guidance integration
-        system_prompt = f"""
-        You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
+        # Use custom config if provided, otherwise defaults
+        analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions
+        quality_guidelines = req.quality_guidelines if req.quality_guidelines else default_quality_guidelines
 
-        IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
-        Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
+        # Build dynamic topic label and focus based on topic and org profile
+        # This is computed first so it can be used in both custom and default prompts
+        topic_label = "the selected topics"  # Default generic label
+        topic_focus = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
 
-        {profile_context}
+        if req.topic:
+            # Use topic name as the label
+            topic_label = req.topic
+            # Map common topics to focus descriptions
+            topic_focus_map = {
+                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+                "Technology": "technological developments, digital transformation, and innovation",
+                "Business": "market dynamics, competitive landscape, and business strategy",
+                "Finance": "financial markets, investment trends, and economic indicators",
+                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+                "Energy": "energy markets, sustainability initiatives, and industry transitions",
+                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+            }
+            topic_focus = topic_focus_map.get(req.topic, f"{req.topic.lower()} developments, trends, and strategic implications")
+        elif topics_list:
+            # Multiple topics selected
+            topic_label = ', '.join(topics_list[:3]) + ('...' if len(topics_list) > 3 else '')
 
-        {analysis_instructions}
+        # If org profile exists, use its context for more specific focus
+        if req.profile_id and profile_context:
+            # Extract key concerns and priorities from profile for topic focus
+            try:
+                from app.database_query_facade import DatabaseQueryFacade
+                profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
+                if profile_row:
+                    import json
+                    key_concerns = json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else []
+                    strategic_priorities = json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else []
+                    org_focus = key_concerns + strategic_priorities
+                    if org_focus:
+                        topic_focus = ', '.join(org_focus[:5])  # Limit to top 5
+                    # Use industry for topic label if no specific topic
+                    if not req.topic and profile_row.get('industry'):
+                        topic_label = f"{profile_row['industry']} news and developments"
+            except Exception as e:
+                logger.warning(f"Could not extract org profile focus: {e}")
 
-        {quality_guidelines}
+        # Check if custom system prompt provided
+        if req.system_prompt:
+            # Use custom system prompt with placeholder replacement
+            system_prompt = req.system_prompt.replace('{topic}', req.topic or 'the selected topics')
+            system_prompt = system_prompt.replace('{topic_label}', topic_label)
+            system_prompt = system_prompt.replace('{topic_focus}', topic_focus)
+            system_prompt = system_prompt.replace('{profile_context}', profile_context)
+            system_prompt = system_prompt.replace('{analysis_instructions}', analysis_instructions)
+            system_prompt = system_prompt.replace('{quality_guidelines}', quality_guidelines)
+            system_prompt = system_prompt.replace('{ontology_text}', ontology_text)
+            logger.info(f"Using custom system prompt for incident tracking on {topic_label}")
+        else:
+            # Default system prompt
+            system_prompt = f"""You are a threat intelligence analyst tracking incidents, entities, and events in {topic_label}, with focus on {topic_focus}.
 
-        {ontology_text}
+IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
+Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
 
-        Required fields for each item:
-        - name
-        - type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
-        - subtype: from the allowed list for the chosen type
-        - description
-        - article_uris
-        - timeline
-        - significance: low | medium | high (reduce if credibility concerns exist)
-        - investigation_leads
-        - related_entities
-        - plausibility: likely | questionable | implausible
-        - source_quality: high | mixed | low
-        - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
-        - credibility_summary: 1-2 sentence rationale
-        - organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives
+{profile_context}
 
-        Devil's Advocate Smell Test:
-        - Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
-        - Use label "Hyperbolic Claim" when applicable.
+{analysis_instructions}
 
-        Output a pure JSON array only.
-        """
-        
-        user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
+{quality_guidelines}
+
+{ontology_text}
+
+Required fields for each item:
+- name: concise, factual headline (what happened)
+- type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
+- subtype: from the allowed list for the chosen type
+- description: FACTUAL summary of what happened/is happening - include who, what, when, where. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
+- article_uris
+- timeline
+- significance: low | medium | high (reduce if credibility concerns exist)
+- investigation_leads
+- related_entities
+- plausibility: likely | questionable | implausible
+- source_quality: high | mixed | low
+- misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
+- credibility_summary: 1-2 sentence rationale
+- organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives (THIS is where organizational context belongs, NOT in description)
+
+Devil's Advocate Smell Test:
+- Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
+- Use label "Hyperbolic Claim" when applicable.
+
+Output a pure JSON array only."""
+
+        # Check if custom user prompt provided
+        if req.user_prompt:
+            user_prompt = req.user_prompt.replace('{topic}', req.topic or 'the selected topics')
+            user_prompt = user_prompt.replace('{articles_text}', articles_text)
+            logger.info(f"Using custom user prompt for incident tracking on {req.topic}")
+        else:
+            user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
         
         # Generate analysis
         from app.ai_models import LiteLLMModel
@@ -2336,28 +2498,719 @@ Extraordinary Claims Protocol:
 @router.post("/incident-status/{incident_name}")
 async def update_incident_status(
     incident_name: str,
-    status: str = Query(..., description="New status: seen, deleted, or active"),
+    status: str = Query(..., description="New status: seen, deleted, active, or saved"),
     topic: str = Query(..., description="Topic the incident belongs to"),
     session=Depends(verify_session),
 ):
-    """Update incident status (seen/deleted/active)."""
+    """Update incident status (seen/deleted/active/saved)."""
     try:
         from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        if status not in ['seen', 'deleted', 'active', 'saved']:
+            raise HTTPException(status_code=400, detail="Invalid status. Must be 'seen', 'deleted', 'active', or 'saved'")
+
         db = get_database_instance()
-        
-        if status not in ['seen', 'deleted', 'active']:
-            raise HTTPException(status_code=400, detail="Invalid status. Must be 'seen', 'deleted', or 'active'")
-        
-        success = db.update_incident_status(incident_name, topic, status)
-        
+        facade = DatabaseQueryFacade(db, logger)
+        success = facade.update_incident_status(incident_name, topic, status)
+
         if success:
             return {"success": True, "message": f"Incident status updated to {status}"}
         else:
             raise HTTPException(status_code=500, detail="Failed to update incident status")
-            
+
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Error updating incident status: %s", exc)
         raise HTTPException(status_code=500, detail="Incident status update error")
+
+
+@router.get("/incidents/saved")
+async def get_saved_incidents(
+    topic: str = Query(..., description="Topic to get saved incidents for"),
+    session=Depends(verify_session),
+):
+    """Get list of saved incident names for a topic."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        statuses = facade.get_incident_statuses(topic)
+        saved_incidents = [name for name, status in statuses.items() if status == 'saved']
+
+        return {"saved_incidents": saved_incidents}
+
+    except Exception as exc:
+        logger.error("Error getting saved incidents: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving saved incidents")
+
+
+class _IncidentPreferenceRequest(BaseModel):
+    """Request model for recording incident preferences."""
+    incident_name: str
+    preference: str  # 'more' or 'less'
+    incident_data: dict = {}  # Extended data for fine-tuning
+
+
+class _ClearIncidentPreferenceRequest(BaseModel):
+    """Request model for clearing an incident preference."""
+    incident_name: str
+
+
+@router.post("/incident-preference")
+async def record_incident_preference(
+    request: _IncidentPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Record more/less like this preference for an incident."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        if request.preference not in ['more', 'less']:
+            raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more' or 'less'")
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'incident_preferences') or {}
+
+        # Ensure we have proper list structure (handle legacy data)
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove any existing preference for this incident (allows toggling)
+        # Handle both dict entries and legacy non-dict entries
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+
+        # Build preference entry from incident data - extended for fine-tuning
+        pref_entry = {
+            'incident_name': request.incident_name,
+            'timestamp': datetime.now().isoformat()
+        }
+        # Basic fields
+        if request.incident_data.get('type'):
+            pref_entry['type'] = request.incident_data['type']
+        if request.incident_data.get('topic'):
+            pref_entry['topic'] = request.incident_data['topic']
+        if request.incident_data.get('entities'):
+            pref_entry['entities'] = request.incident_data['entities'][:10]  # Expanded from 3 to 10
+
+        # Enhanced fields for fine-tuning
+        if request.incident_data.get('summary'):
+            pref_entry['summary'] = request.incident_data['summary'][:2000]  # Limit length
+        if request.incident_data.get('article_urls'):
+            pref_entry['article_urls'] = request.incident_data['article_urls'][:10]
+        if request.incident_data.get('article_titles'):
+            pref_entry['article_titles'] = request.incident_data['article_titles'][:10]
+        if request.incident_data.get('significance'):
+            pref_entry['significance'] = request.incident_data['significance']
+        if request.incident_data.get('velocity'):
+            pref_entry['velocity'] = request.incident_data['velocity']
+        if request.incident_data.get('browsing_topic'):
+            pref_entry['browsing_topic'] = request.incident_data['browsing_topic']
+
+        # Add to appropriate list
+        target_list = 'more_like' if request.preference == 'more' else 'less_like'
+        current_prefs[target_list].append(pref_entry)
+
+        # Keep only last 500 preferences per category (increased from 50 for fine-tuning)
+        current_prefs['more_like'] = current_prefs['more_like'][-500:]
+        current_prefs['less_like'] = current_prefs['less_like'][-500:]
+
+        # Save updated preferences
+        try:
+            success = facade.set_user_preference(username, 'incident_preferences', current_prefs)
+        except Exception as db_err:
+            import traceback
+            logger.error(f"Database error saving preference: {db_err}\n{traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
+
+        if success:
+            return {"success": True, "message": f"Preference '{request.preference}' recorded"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save preference (returned False)")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        logger.error("Error recording incident preference: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error recording preference: {str(exc)}")
+
+
+@router.delete("/incident-preference")
+async def clear_incident_preference(
+    request: _ClearIncidentPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Clear a preference for an incident (toggle off)."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'incident_preferences') or {}
+
+        # Ensure we have proper list structure (handle legacy data)
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove the incident from both lists
+        original_more_count = len(current_prefs['more_like'])
+        original_less_count = len(current_prefs['less_like'])
+
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+
+        removed = (
+            original_more_count != len(current_prefs['more_like']) or
+            original_less_count != len(current_prefs['less_like'])
+        )
+
+        # Save updated preferences
+        try:
+            success = facade.set_user_preference(username, 'incident_preferences', current_prefs)
+        except Exception as db_err:
+            import traceback
+            logger.error(f"Database error clearing preference: {db_err}\n{traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
+
+        if success:
+            if removed:
+                return {"success": True, "message": "Preference cleared"}
+            else:
+                return {"success": True, "message": "No preference found to clear"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clear preference (returned False)")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        logger.error("Error clearing incident preference: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error clearing preference: {str(exc)}")
+
+
+@router.get("/incident-preferences")
+async def get_incident_preferences(
+    session=Depends(verify_session),
+):
+    """Get user's incident preferences for AI ranking."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        prefs = facade.get_user_preference(username, 'incident_preferences') or {}
+
+        # Ensure we return proper structure with only valid dict entries
+        result = {
+            'more_like': [
+                p for p in (prefs.get('more_like') or [])
+                if isinstance(p, dict) and p.get('incident_name')
+            ],
+            'less_like': [
+                p for p in (prefs.get('less_like') or [])
+                if isinstance(p, dict) and p.get('incident_name')
+            ]
+        }
+
+        return result
+
+    except Exception as exc:
+        logger.error("Error getting incident preferences: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving preferences")
+
+
+# ------------------------------------------------------------------
+# Briefing preference endpoints (more/less like this)
+# ------------------------------------------------------------------
+
+class _BriefingPreferenceData(BaseModel):
+    """Extended data for briefing preferences (for fine-tuning)."""
+    summary: Optional[str] = None
+    category: Optional[str] = None
+    executive_takeaway: Optional[str] = None
+    strategic_relevance: Optional[str] = None
+    signal_strength: Optional[str] = None
+    risk_opportunity: Optional[str] = None
+    time_horizon: Optional[str] = None
+    source: Optional[str] = None
+    url: Optional[str] = None
+
+
+class _BriefingPreferenceRequest(BaseModel):
+    """Request model for recording briefing preferences."""
+    headline: str
+    preference: str  # 'more' or 'less'
+    briefing_data: Optional[_BriefingPreferenceData] = None
+
+
+class _ClearBriefingPreferenceRequest(BaseModel):
+    """Request model for clearing a briefing preference."""
+    headline: str
+
+
+class _HideBriefingRequest(BaseModel):
+    """Request model for hiding a briefing story."""
+    headline: str
+
+
+@router.post("/briefing-preference")
+async def record_briefing_preference(
+    request: _BriefingPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Record more/less like this preference for a briefing story."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        if request.preference not in ['more', 'less']:
+            raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more' or 'less'")
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'briefing_preferences') or {}
+
+        # Ensure we have proper list structure
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove any existing preference for this briefing (allows toggling)
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+
+        # Build new preference entry with enriched data
+        new_entry = {
+            'headline': request.headline,
+            'timestamp': datetime.now().isoformat(),
+        }
+        if request.briefing_data:
+            data = request.briefing_data
+            if data.summary:
+                new_entry['summary'] = data.summary
+            if data.category:
+                new_entry['category'] = data.category
+            if data.executive_takeaway:
+                new_entry['executive_takeaway'] = data.executive_takeaway
+            if data.strategic_relevance:
+                new_entry['strategic_relevance'] = data.strategic_relevance
+            if data.signal_strength:
+                new_entry['signal_strength'] = data.signal_strength
+            if data.risk_opportunity:
+                new_entry['risk_opportunity'] = data.risk_opportunity
+            if data.time_horizon:
+                new_entry['time_horizon'] = data.time_horizon
+            if data.source:
+                new_entry['source'] = data.source
+            if data.url:
+                new_entry['url'] = data.url
+
+        # Add to appropriate list
+        if request.preference == 'more':
+            current_prefs['more_like'].append(new_entry)
+        else:
+            current_prefs['less_like'].append(new_entry)
+
+        # Save updated preferences
+        facade.set_user_preference(username, 'briefing_preferences', current_prefs)
+
+        return {"success": True, "message": f"Briefing preference '{request.preference}' recorded"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error recording briefing preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error recording preference")
+
+
+@router.delete("/briefing-preference")
+async def clear_briefing_preference(
+    request: _ClearBriefingPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Clear a preference for a briefing story (toggle off)."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'briefing_preferences') or {}
+
+        # Ensure we have proper list structure
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove the briefing from both lists
+        original_more_count = len(current_prefs['more_like'])
+        original_less_count = len(current_prefs['less_like'])
+
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+
+        removed = (original_more_count - len(current_prefs['more_like'])) + \
+                  (original_less_count - len(current_prefs['less_like']))
+
+        if removed > 0:
+            facade.set_user_preference(username, 'briefing_preferences', current_prefs)
+            return {"success": True, "message": "Briefing preference cleared"}
+        else:
+            return {"success": True, "message": "No preference found to clear"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error clearing briefing preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error clearing preference")
+
+
+@router.get("/briefing-preferences")
+async def get_briefing_preferences(
+    session=Depends(verify_session),
+):
+    """Get user's briefing preferences for AI ranking."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        prefs = facade.get_user_preference(username, 'briefing_preferences') or {}
+
+        # Ensure we return proper structure with only valid dict entries
+        result = {
+            'more_like': [
+                p for p in (prefs.get('more_like') or [])
+                if isinstance(p, dict) and p.get('headline')
+            ],
+            'less_like': [
+                p for p in (prefs.get('less_like') or [])
+                if isinstance(p, dict) and p.get('headline')
+            ]
+        }
+
+        return result
+
+    except Exception as exc:
+        logger.error("Error getting briefing preferences: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving preferences")
+
+
+# ------------------------------------------------------------------
+# Briefing hide endpoint
+# ------------------------------------------------------------------
+
+@router.post("/briefing-hide")
+async def hide_briefing(
+    request: _HideBriefingRequest,
+    session=Depends(verify_session),
+):
+    """Hide a briefing story from future display."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        # Get current hidden briefings
+        hidden = facade.get_user_preference(username, 'hidden_briefings') or []
+        if not isinstance(hidden, list):
+            hidden = []
+
+        # Add if not already hidden
+        if request.headline not in hidden:
+            hidden.append(request.headline)
+            facade.set_user_preference(username, 'hidden_briefings', hidden)
+            return {"success": True, "message": "Briefing hidden"}
+        else:
+            return {"success": True, "message": "Briefing already hidden"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error hiding briefing: %s", exc)
+        raise HTTPException(status_code=500, detail="Error hiding briefing")
+
+
+@router.delete("/briefing-hide")
+async def unhide_briefing(
+    request: _HideBriefingRequest,
+    session=Depends(verify_session),
+):
+    """Unhide a briefing story."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        # Get current hidden briefings
+        hidden = facade.get_user_preference(username, 'hidden_briefings') or []
+        if not isinstance(hidden, list):
+            hidden = []
+
+        # Remove if present
+        if request.headline in hidden:
+            hidden.remove(request.headline)
+            facade.set_user_preference(username, 'hidden_briefings', hidden)
+            return {"success": True, "message": "Briefing unhidden"}
+        else:
+            return {"success": True, "message": "Briefing was not hidden"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error unhiding briefing: %s", exc)
+        raise HTTPException(status_code=500, detail="Error unhiding briefing")
+
+
+@router.get("/hidden-briefings")
+async def get_hidden_briefings(
+    session=Depends(verify_session),
+):
+    """Get list of hidden briefing headlines."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        hidden = facade.get_user_preference(username, 'hidden_briefings') or []
+        if not isinstance(hidden, list):
+            hidden = []
+
+        return {"hidden_briefings": hidden}
+
+    except Exception as exc:
+        logger.error("Error getting hidden briefings: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving hidden briefings")
+
+
+# ------------------------------------------------------------------
+# Article preference endpoints (more/less like this)
+# ------------------------------------------------------------------
+
+class _ArticlePreferenceRequest(BaseModel):
+    """Request model for recording article preferences."""
+    uri: str
+    preference: str  # 'more', 'less', or 'clear'
+
+
+@router.post("/article-preference")
+async def record_article_preference(
+    request: _ArticlePreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Record more/less like this preference for an article.
+
+    Also stores in user_relevance_feedback table for relevance model training.
+    """
+    conn = None
+    try:
+        from app.database import get_database_instance
+        from sqlalchemy import text
+        import json
+
+        if request.preference not in ['more', 'less', 'clear']:
+            raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more', 'less', or 'clear'")
+
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        if request.preference == 'clear':
+            # Clear the preference from articles table
+            conn.execute(text(
+                "UPDATE articles SET user_preference = NULL, preference_date = NULL WHERE uri = :uri"
+            ), {"uri": request.uri})
+
+            # Also remove from training feedback table
+            conn.execute(text(
+                "DELETE FROM user_relevance_feedback WHERE article_uri = :uri"
+            ), {"uri": request.uri})
+            conn.commit()
+        else:
+            # Set the preference on articles table
+            conn.execute(text(
+                "UPDATE articles SET user_preference = :pref, preference_date = :date WHERE uri = :uri"
+            ), {"pref": request.preference, "date": datetime.now(), "uri": request.uri})
+            conn.commit()
+
+            # Also store in user_relevance_feedback for training
+            # First get article context
+            result = conn.execute(text(
+                """SELECT topic, title, category, news_source, keyword_relevance_score
+                   FROM articles WHERE uri = :uri"""
+            ), {"uri": request.uri})
+            article = result.fetchone()
+
+            if article:
+                topic = article[0] or "unknown"
+                feedback_type = "more_like_this" if request.preference == "more" else "less_like_this"
+                metadata = json.dumps({
+                    "title": article[1],
+                    "category": article[2],
+                    "source": article[3],
+                })
+
+                # Upsert into training feedback table
+                conn.execute(text("""
+                    INSERT INTO user_relevance_feedback
+                        (article_uri, topic, user_id, feedback_type, relevance_score, article_metadata)
+                    VALUES (:uri, :topic, :user_id, :feedback_type, :relevance_score, CAST(:metadata AS jsonb))
+                    ON CONFLICT (article_uri, user_id)
+                    DO UPDATE SET
+                        feedback_type = EXCLUDED.feedback_type,
+                        relevance_score = EXCLUDED.relevance_score,
+                        article_metadata = EXCLUDED.article_metadata,
+                        created_at = NOW()
+                """), {
+                    "uri": request.uri,
+                    "topic": topic,
+                    "user_id": None,
+                    "feedback_type": feedback_type,
+                    "relevance_score": article[4],
+                    "metadata": metadata,
+                })
+                conn.commit()
+
+        return {"success": True, "message": f"Article preference '{request.preference}' recorded"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        logger.error("Error recording article preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error recording article preference")
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/article-preferences")
+async def get_article_preferences(
+    limit: int = Query(100, description="Max number of articles to return"),
+    preference: Optional[str] = Query(None, description="Filter by preference type: 'more' or 'less'"),
+    session=Depends(verify_session),
+):
+    """Get articles with user preferences set."""
+    try:
+        from app.database import get_database_instance
+
+        db = get_database_instance()
+
+        if preference:
+            if preference not in ['more', 'less']:
+                raise HTTPException(status_code=400, detail="Invalid preference filter. Must be 'more' or 'less'")
+            results = db.execute(
+                "SELECT uri, title, news_source, topic, user_preference, preference_date FROM articles WHERE user_preference = %s ORDER BY preference_date DESC LIMIT %s",
+                (preference, limit)
+            ).fetchall()
+        else:
+            results = db.execute(
+                "SELECT uri, title, news_source, topic, user_preference, preference_date FROM articles WHERE user_preference IS NOT NULL ORDER BY preference_date DESC LIMIT %s",
+                (limit,)
+            ).fetchall()
+
+        articles = []
+        for row in results:
+            articles.append({
+                "uri": row[0],
+                "title": row[1],
+                "news_source": row[2],
+                "topic": row[3],
+                "preference": row[4],
+                "preference_date": row[5].isoformat() if row[5] else None
+            })
+
+        return {"articles": articles, "count": len(articles)}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting article preferences: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving article preferences")
+
 
 # ------------------------------------------------------------------
 # Signal instructions endpoints for threat hunting
@@ -2370,6 +3223,42 @@ class _SignalInstructionRequest(BaseModel):
     instruction: str = Field(..., description="LLM instruction for detecting this signal")
     topic: Optional[str] = Field(None, description="Topic to apply this signal to")
     is_active: bool = Field(True, description="Whether this signal is active")
+    generate_report: bool = Field(False, description="Whether to generate reports when matches are found")
+    report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+    config: Optional[dict] = Field(None, description="Additional config (e.g., model selection)")
+    # Scheduling fields
+    schedule_enabled: bool = Field(False, description="Whether scheduling is enabled")
+    schedule_type: Optional[str] = Field('interval', description="Schedule type: 'interval' or 'daily'")
+    schedule_interval: Optional[int] = Field(None, description="Interval value")
+    schedule_unit: Optional[str] = Field('hours', description="Interval unit: 'minutes', 'hours', 'days'")
+    schedule_time: Optional[str] = Field(None, description="Time for daily schedules (HH:MM)")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
+
+class _UpdateSignalInstructionRequest(BaseModel):
+    """Request for updating signal instructions."""
+    name: Optional[str] = Field(None, description="Name of the signal instruction")
+    description: Optional[str] = Field(None, description="Description of what this signal watches for")
+    instruction: Optional[str] = Field(None, description="LLM instruction for detecting this signal")
+    topic: Optional[str] = Field(None, description="Topic to apply this signal to")
+    is_active: Optional[bool] = Field(None, description="Whether this signal is active")
+    generate_report: Optional[bool] = Field(None, description="Whether to generate reports")
+    report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+    config: Optional[dict] = Field(None, description="Additional config (e.g., model selection)")
+    # Scheduling fields
+    schedule_enabled: Optional[bool] = Field(None, description="Whether scheduling is enabled")
+    schedule_type: Optional[str] = Field(None, description="Schedule type: 'interval' or 'daily'")
+    schedule_interval: Optional[int] = Field(None, description="Interval value")
+    schedule_unit: Optional[str] = Field(None, description="Interval unit: 'minutes', 'hours', 'days'")
+    schedule_time: Optional[str] = Field(None, description="Time for daily schedules (HH:MM)")
 
     @field_validator('topic')
     @classmethod
@@ -2396,17 +3285,66 @@ async def save_signal_instruction(
             description=req.description,
             instruction=req.instruction,
             topic=req.topic,
-            is_active=req.is_active
+            is_active=req.is_active,
+            generate_report=req.generate_report,
+            report_prompt=req.report_prompt,
+            config=req.config,
+            schedule_enabled=req.schedule_enabled,
+            schedule_type=req.schedule_type,
+            schedule_interval=req.schedule_interval,
+            schedule_unit=req.schedule_unit,
+            schedule_time=req.schedule_time
         )
-        
+
         if success:
             return {"success": True, "message": f"Signal instruction '{req.name}' saved successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to save signal instruction")
-            
+
     except Exception as exc:
         logger.error("Error saving signal instruction: %s", exc)
         raise HTTPException(status_code=500, detail="Signal instruction save error")
+
+
+@router.put("/signal-instructions/{instruction_id}")
+async def update_signal_instruction(
+    instruction_id: int,
+    req: _UpdateSignalInstructionRequest,
+    session=Depends(verify_session),
+):
+    """Update a signal instruction by ID."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        success = db.facade.update_signal_instruction(
+            instruction_id=instruction_id,
+            name=req.name,
+            description=req.description,
+            instruction=req.instruction,
+            topic=req.topic,
+            is_active=req.is_active,
+            generate_report=req.generate_report,
+            report_prompt=req.report_prompt,
+            config=req.config,
+            schedule_enabled=req.schedule_enabled,
+            schedule_type=req.schedule_type,
+            schedule_interval=req.schedule_interval,
+            schedule_unit=req.schedule_unit,
+            schedule_time=req.schedule_time
+        )
+
+        if success:
+            return {"success": True, "message": "Signal instruction updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Signal instruction not found")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error updating signal instruction: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal instruction update error")
 
 @router.get("/signal-instructions")
 async def get_signal_instructions(
@@ -2465,7 +3403,7 @@ class _RealTimeSignalsRequest(BaseModel):
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
     max_articles: int = Field(50, ge=10, le=200, description="Maximum articles to analyze")
     instruction_ids: Optional[List[int]] = Field(None, description="Specific signal instruction IDs to use")
-    model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
+    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
 
     @field_validator('topic')
@@ -2805,8 +3743,11 @@ class _RunSignalRequest(BaseModel):
     topic: Optional[str] = Field(None, description="Topic filter for articles")
     days_back: int = Field(7, ge=1, le=30, description="Days back to analyze")
     max_articles: int = Field(100, ge=10, le=500, description="Maximum articles to analyze")
-    model: str = Field("gpt-4o-mini", description="AI model to use")
+    model: str = Field("gpt-5.4-mini", description="AI model to use")
     tag_flagged_articles: bool = Field(True, description="Tag articles that match signals")
+    generate_report: bool = Field(False, description="Generate a report from matches")
+    report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+    report_name: Optional[str] = Field(None, description="Name for the generated report")
 
     @field_validator('topic')
     @classmethod
@@ -2820,22 +3761,63 @@ class _RunSignalRequest(BaseModel):
 @router.post("/run-signals")
 async def run_signal_instructions(
     req: _RunSignalRequest,
+    background_tasks: BackgroundTasks,
     session=Depends(verify_session),
+    run_in_background: bool = Query(default=True, description="Run in background and return immediately"),
 ):
-    """Run specific signal instructions against recent articles independently."""
+    """Run specific signal instructions against recent articles independently.
+
+    When run_in_background=True (default), returns immediately with a run_id
+    that can be used to poll for status via GET /api/signal-run-status/{run_id}
+    """
     logger = logging.getLogger(__name__)
+
+    # Generate run ID for tracking
+    run_id = str(uuid.uuid4())[:8]
+
     try:
         from app.database import get_database_instance
         from datetime import datetime, timedelta
 
         db = get_database_instance()
-        
+
         # Get the specific signal instructions
         all_instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=False)
         instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
-        
+
         if not instructions:
             return {"success": False, "message": "No active signal instructions found with provided IDs"}
+
+        # If running in background, queue the task and return immediately
+        if run_in_background:
+            instruction_names = [inst['name'] for inst in instructions]
+            with _signal_runs_lock:
+                _signal_runs[run_id] = {
+                    "status": "running",
+                    "started_at": datetime.now().isoformat(),
+                    "instruction_ids": req.instruction_ids,
+                    "instruction_names": instruction_names,
+                    "progress": 0,
+                    "total_instructions": len(instructions),
+                    "result": None,
+                    "error": None
+                }
+
+            # Queue background task
+            background_tasks.add_task(
+                _run_signals_background,
+                run_id,
+                req,
+                session
+            )
+
+            return {
+                "success": True,
+                "status": "running",
+                "run_id": run_id,
+                "message": f"Started processing {len(instructions)} observer agent(s) in background",
+                "instruction_names": instruction_names
+            }
         
         # Get articles for the specified time range
         end_date_dt = datetime.now()
@@ -2845,7 +3827,8 @@ async def run_signal_instructions(
         # NOTE: publication_date is stored as TEXT in format 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'
         # We use strftime() to match the database format for TEXT comparison
         query = """
-        SELECT uri, title, summary, news_source, publication_date, category, sentiment
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+               tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
         AND category IS NOT NULL AND sentiment IS NOT NULL
@@ -2880,111 +3863,724 @@ async def run_signal_instructions(
         if not ai_model:
             raise HTTPException(status_code=500, detail=f"Failed to initialize model {req.model}")
         
+        # Helper function to format articles for LLM
+        def get_field(article, field, default=''):
+            val = article.get(field) if hasattr(article, 'get') else article.get(field, default)
+            return val if val else default
+
+        def format_articles_for_llm(article_batch):
+            return "\n\n".join([
+                f"Article {i+1}:\n"
+                f"Title: {get_field(article, 'title')}\n"
+                f"Source: {get_field(article, 'news_source')}\n"
+                f"Date: {get_field(article, 'publication_date')}\n"
+                f"Category: {get_field(article, 'category', 'Unknown')}\n"
+                f"Sentiment: {get_field(article, 'sentiment', 'Unknown')}\n"
+                f"Tags: {get_field(article, 'tags', 'None')}\n"
+                f"Topics: {get_field(article, 'extracted_article_topics', 'None')}\n"
+                f"Keywords: {get_field(article, 'extracted_article_keywords', 'None')}\n"
+                f"Summary: {get_field(article, 'summary')}\n"
+                f"URI: {get_field(article, 'uri')}"
+                for i, article in enumerate(article_batch)
+            ])
+
         # Run each signal instruction
         alerts_created = []
         total_matches = 0
-        
+
         for instruction in instructions:
             logger.info(f"Running signal instruction: {instruction['name']} (ID: {instruction['id']})")
-            
-            # Prepare articles for this instruction
-            articles_text = "\n\n".join([
-                f"Article {i+1}:\n"
-                f"Title: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
-                f"Source: {article.get('news_source') if hasattr(article, 'get') else article['news_source']}\n"
-                f"Date: {article.get('publication_date') if hasattr(article, 'get') else article['publication_date']}\n"
-                f"Summary: {article.get('summary') if hasattr(article, 'get') else article['summary']}\n"
-                f"URI: {article.get('uri') if hasattr(article, 'get') else article['uri']}"
-                for i, article in enumerate(articles[:50])  # Limit to 50 articles per instruction
-            ])
-            
-            # Create analysis prompt
+
+            # Get search strategy from instruction config
+            config = instruction.get('config') or {}
+            search_strategy = config.get('search_strategy', 'recent')
+            max_articles_config = config.get('max_articles', 100)
+
+            # Select articles based on search strategy
+            if search_strategy == 'semantic':
+                # Use vector search to find relevant articles
+                try:
+                    from app.vector_store import search_articles as vector_search_articles
+
+                    # Build search query from instruction + entities
+                    search_query = f"{instruction['name']} {instruction['instruction']}"
+                    entities = config.get('entities_to_monitor', [])
+                    if entities:
+                        search_query += " " + " ".join(entities[:5])
+                    search_query = search_query[:500]  # Limit query length
+
+                    metadata_filter = {"topic": req.topic} if req.topic else None
+
+                    # Get more articles from vector search
+                    vector_results = vector_search_articles(
+                        query=search_query,
+                        top_k=min(max_articles_config, 200),
+                        metadata_filter=metadata_filter
+                    )
+
+                    # Convert vector results to article format
+                    articles_to_analyze = []
+                    for result in vector_results or []:
+                        metadata = result.get('metadata', {})
+                        articles_to_analyze.append({
+                            'uri': metadata.get('uri'),
+                            'title': metadata.get('title', ''),
+                            'summary': metadata.get('summary', ''),
+                            'news_source': metadata.get('news_source', ''),
+                            'publication_date': metadata.get('publication_date', ''),
+                            'category': metadata.get('category', ''),
+                            'sentiment': metadata.get('sentiment', ''),
+                            'tags': metadata.get('tags', ''),
+                            'extracted_article_topics': metadata.get('extracted_article_topics', ''),
+                            'extracted_article_keywords': metadata.get('extracted_article_keywords', ''),
+                        })
+
+                    logger.info(f"Semantic search found {len(articles_to_analyze)} relevant articles for {instruction['name']}")
+                except Exception as vs_error:
+                    logger.error(f"Vector search failed, falling back to recent: {vs_error}")
+                    articles_to_analyze = articles[:min(50, max_articles_config)]
+            else:
+                # Use fetched articles (recent or chunked will process them differently)
+                articles_to_analyze = articles[:max_articles_config]
+
+            # Determine batch processing based on strategy
+            BATCH_SIZE = 50
+            if search_strategy == 'chunked' and len(articles_to_analyze) > BATCH_SIZE:
+                # Process in chunks
+                article_batches = [articles_to_analyze[i:i+BATCH_SIZE] for i in range(0, len(articles_to_analyze), BATCH_SIZE)]
+                logger.info(f"Chunked processing: {len(article_batches)} batches of {BATCH_SIZE} articles for {instruction['name']}")
+            else:
+                # Single batch (recent or semantic with <= BATCH_SIZE)
+                article_batches = [articles_to_analyze[:BATCH_SIZE]]
+
+            instruction_matches = []
+
+            # Build entities section once per instruction (outside batch loop)
+            entities = config.get('entities_to_monitor', [])
+            entities_section = ""
+            if entities:
+                entities_text = ", ".join(entities)
+                entities_section = f"""
+
+            ENTITIES TO MONITOR:
+            {entities_text}
+
+            IMPORTANT: Prioritize articles that mention any of these specific entities. If an entity appears in an article, flag it with higher confidence and explicitly mention which entity was found in your reasoning.
+            """
+
+            # Build system prompt once per instruction
             system_prompt = f"""
             You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
-            
+
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
             INSTRUCTION: {instruction['instruction']}
-            
+            {entities_section}
+            Each article includes: Title, Source, Date, Category, Sentiment, Tags, Topics, Keywords, and Summary.
+            Use ALL of these fields when evaluating matches - Tags, Topics, and Keywords are especially useful for entity matching.
+
             For EACH article that matches the signal, return a separate JSON object:
             {{
                 "article_uri": "exact_uri_from_input",
                 "signal_detected": true,
                 "confidence": 0.0-1.0,
-                "summary": "Why this article matches the signal",
+                "summary": "Brief summary of what was detected",
+                "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
                 "threat_level": "low"|"medium"|"high",
                 "recommended_action": "What analysts should do"
             }}
-            
+
+            IMPORTANT: The "reasoning" field should explain WHY this article is relevant - what specific content,
+            entities, tags, keywords, or patterns in the article triggered the match. Reference the specific Tags/Keywords that matched.
+
             Return a JSON array of all matching articles: [{{}}, {{}}, ...]
             If no articles match, return an empty array: []
             """
-            
-            user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
-            
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-            
-            try:
-                response_str = await run_in_threadpool(ai_model.generate_response, messages)
-                
-                if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
-                    try:
-                        import re
-                        import json as json_module
-                        
-                        # Look for JSON array
-                        json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
-                        if json_match:
-                            matches = json_module.loads(json_match.group())
-                            
-                            # Process each match
-                            for match in matches:
-                                if isinstance(match, dict) and match.get('signal_detected'):
-                                    article_uri = match.get('article_uri')
-                                    confidence = match.get('confidence', 0.5)
-                                    threat_level = match.get('threat_level', 'medium')
-                                    summary = match.get('summary', 'Signal detected')
-                                    
-                                    # Save alert to database
-                                    alert_saved = db.facade.save_signal_alert(
-                                        article_uri=article_uri,
-                                        instruction_id=instruction['id'],
-                                        instruction_name=instruction['name'],
-                                        confidence=confidence,
-                                        threat_level=threat_level,
-                                        summary=summary
-                                    )
-                                    
-                                    if alert_saved:
-                                        alerts_created.append({
-                                            'article_uri': article_uri,
-                                            'instruction_name': instruction['name'],
-                                            'confidence': confidence,
-                                            'threat_level': threat_level,
-                                            'summary': summary
-                                        })
-                                        total_matches += 1
-                                        
-                                        # Tag the article if requested
-                                        if req.tag_flagged_articles:
-                                            tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
-                                            db.add_article_tag(article_uri, tag_name, "signal")
-                            
-                            logger.info(f"Signal '{instruction['name']}' found {len(matches)} matches")
-                        else:
-                            logger.warning(f"No JSON array found in response for {instruction['name']}")
-                            
-                    except json_module.JSONDecodeError as je:
-                        logger.error(f"Failed to parse signal response for {instruction['name']}: {je}")
-                else:
-                    logger.warning(f"LLM returned error for signal {instruction['name']}: {response_str[:100]}...")
-                    
-            except Exception as signal_error:
-                logger.error(f"Error running signal {instruction['name']}: {signal_error}")
+
+            # Process each batch of articles
+            for batch_idx, article_batch in enumerate(article_batches):
+                if not article_batch:
+                    continue
+
+                logger.info(f"Processing batch {batch_idx + 1}/{len(article_batches)} ({len(article_batch)} articles)")
+
+                articles_text = format_articles_for_llm(article_batch)
+                user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
+
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+
+                try:
+                    response_str = await run_in_threadpool(ai_model.generate_response, messages)
+
+                    if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
+                        try:
+                            import re
+                            import json as json_module
+
+                            # Look for JSON array
+                            json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
+                            if json_match:
+                                matches = json_module.loads(json_match.group())
+
+                                # Process each match
+                                for match in matches:
+                                    if isinstance(match, dict) and match.get('signal_detected'):
+                                        article_uri = match.get('article_uri')
+                                        confidence = match.get('confidence', 0.5)
+                                        threat_level = match.get('threat_level', 'medium')
+                                        summary = match.get('summary', 'Signal detected')
+                                        reasoning = match.get('reasoning', '')
+
+                                        # Save alert to database
+                                        alert_saved = db.facade.save_signal_alert(
+                                            article_uri=article_uri,
+                                            instruction_id=instruction['id'],
+                                            instruction_name=instruction['name'],
+                                            confidence=confidence,
+                                            threat_level=threat_level,
+                                            summary=summary,
+                                            reasoning=reasoning
+                                        )
+
+                                        if alert_saved:
+                                            alert_data = {
+                                                'article_uri': article_uri,
+                                                'instruction_name': instruction['name'],
+                                                'instruction_id': instruction['id'],
+                                                'confidence': confidence,
+                                                'threat_level': threat_level,
+                                                'summary': summary,
+                                                'reasoning': reasoning
+                                            }
+                                            alerts_created.append(alert_data)
+                                            instruction_matches.append(alert_data)
+                                            total_matches += 1
+
+                                            # Tag the article if requested
+                                            if req.tag_flagged_articles:
+                                                tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
+                                                db.add_article_tag(article_uri, tag_name, "signal")
+
+                                            # Star the article if enabled in agent config (adds STARRED tag)
+                                            if config.get('star_flagged_articles'):
+                                                db.add_article_tag(article_uri, "STARRED", "signal")
+
+                                logger.info(f"Batch {batch_idx + 1}: Signal '{instruction['name']}' found {len(matches)} matches")
+                            else:
+                                logger.warning(f"No JSON array found in response for {instruction['name']} batch {batch_idx + 1}")
+
+                        except json_module.JSONDecodeError as je:
+                            logger.error(f"Failed to parse signal response for {instruction['name']} batch {batch_idx + 1}: {je}")
+                    else:
+                        logger.warning(f"LLM returned error for signal {instruction['name']} batch {batch_idx + 1}")
+
+                except Exception as signal_error:
+                    logger.error(f"Error running signal {instruction['name']} batch {batch_idx + 1}: {signal_error}")
+
+            # Log total matches for this instruction
+            logger.info(f"Signal '{instruction['name']}' completed: {len(instruction_matches)} total matches across {len(article_batches)} batch(es)")
         
+        # Generate report if requested (from request or from agent settings) and matches found
+        report_data = None
+
+        # Check if any of the run instructions have generate_report=true
+        instructions_with_report = [inst for inst in instructions if inst.get('generate_report', False)]
+        should_generate_report = req.generate_report or len(instructions_with_report) > 0
+
+        if should_generate_report and alerts_created:
+            try:
+                logger.info(f"Generating signal report for {len(alerts_created)} matches")
+
+                # Get instruction details for report
+                instruction_names = list(set(a['instruction_name'] for a in alerts_created))
+                instruction_ids = list(set(a['instruction_id'] for a in alerts_created))
+
+                # Build default report prompt if not provided
+                default_prompt = """
+Analyze the following signal matches and create a comprehensive intelligence report.
+
+## Your Task
+1. Summarize the key findings across all matched articles
+2. Identify common themes and patterns
+3. Assess the overall significance and urgency
+4. Provide actionable recommendations
+5. Note any gaps or areas requiring further investigation
+
+Format your response as a structured markdown report with clear sections.
+"""
+                # Use report_prompt from request, or from first instruction with report enabled, or default
+                report_prompt = req.report_prompt
+                if not report_prompt and instructions_with_report:
+                    report_prompt = instructions_with_report[0].get('report_prompt')
+                if not report_prompt:
+                    report_prompt = default_prompt
+
+                # Build article summaries for report
+                alerts_summary = "\n\n".join([
+                    f"### Match {i+1}: {a['instruction_name']}\n"
+                    f"**Article URI:** {a['article_uri']}\n"
+                    f"**Threat Level:** {a['threat_level']}\n"
+                    f"**Confidence:** {a['confidence']}\n"
+                    f"**Summary:** {a['summary']}\n"
+                    f"**Reasoning:** {a['reasoning']}"
+                    for i, a in enumerate(alerts_created)
+                ])
+
+                full_prompt = f"""
+{report_prompt}
+
+## Signal Instructions Analyzed
+{', '.join(instruction_names)}
+
+## Matched Articles ({len(alerts_created)} matches)
+{alerts_summary}
+"""
+
+                report_messages = [
+                    {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
+                    {"role": "user", "content": full_prompt}
+                ]
+
+                report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+
+                if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                    # Generate report name if not provided
+                    from datetime import datetime
+                    report_name = req.report_name or f"Signal Report - {instruction_names[0]} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+                    # Save the report
+                    report_id = db.facade.create_saved_signal_report(
+                        instruction_id=instruction_ids[0] if len(instruction_ids) == 1 else None,
+                        instruction_name=', '.join(instruction_names),
+                        name=report_name,
+                        topic=req.topic,
+                        description=f"Auto-generated report from {len(alerts_created)} signal matches",
+                        report_prompt=report_prompt,
+                        report_content=report_content,
+                        alerts_data=alerts_created,
+                        article_uris=[a['article_uri'] for a in alerts_created],
+                        articles_used=len(alerts_created),
+                        config={'days_back': req.days_back, 'max_articles': req.max_articles},
+                        model_used=req.model
+                    )
+
+                    report_data = {
+                        'id': report_id,
+                        'name': report_name,
+                        'content': report_content,
+                        'articles_used': len(alerts_created)
+                    }
+                    logger.info(f"Generated signal report ID: {report_id}")
+                else:
+                    logger.warning("Report generation returned empty or error response")
+
+            except Exception as report_error:
+                logger.error(f"Error generating signal report: {report_error}")
+                # Don't fail the whole operation if report generation fails
+
+        # Process additional actions from instruction config (deep_research, send_email, podcast)
+        deep_research_results = []
+        podcast_summaries = []
+        email_sent = False
+
+        # If unified report was requested for multi-agent run, we'll send ONE email after the loop
+        # instead of individual emails for each agent
+        # Note: Don't require report_data here - skip individual emails if user requested unified report
+        unified_report_requested = req.generate_report and len(instructions) > 1
+        unified_email_recipients = set()  # Collect unique recipients for unified email
+
+        logger.info(f"Run signals: generate_report={req.generate_report}, instructions={len(instructions)}, unified_report_requested={unified_report_requested}")
+
+        for instruction in instructions:
+            config = instruction.get('config') or {}
+            instruction_alerts = [a for a in alerts_created if a.get('instruction_id') == instruction['id']]
+
+            if not instruction_alerts:
+                continue  # No matches for this instruction, skip actions
+
+            # Check alert threshold for notifications
+            alert_threshold = config.get('alert_threshold', 1)
+            meets_threshold = len(instruction_alerts) >= alert_threshold
+
+            # Deep Research Action
+            if config.get('deep_research') and instruction_alerts:
+                try:
+                    from app.vector_store import search_articles as vector_search_articles
+
+                    logger.info(f"Running deep research for instruction: {instruction['name']}")
+
+                    # Build search query from matched articles
+                    search_terms = []
+                    for alert in instruction_alerts[:5]:  # Use top 5 matches
+                        if alert.get('summary'):
+                            search_terms.append(alert['summary'])
+
+                    if search_terms:
+                        search_query = " ".join(search_terms[:3])[:500]  # Limit query length
+                        metadata_filter = {"topic": req.topic} if req.topic else None
+
+                        # Search for related articles
+                        related_articles = vector_search_articles(
+                            query=search_query,
+                            top_k=20,
+                            metadata_filter=metadata_filter
+                        )
+
+                        # Filter out articles already matched
+                        matched_uris = {a.get('article_uri') for a in instruction_alerts}
+                        new_related = []
+                        for result in related_articles or []:
+                            metadata = result.get('metadata', {})
+                            uri = metadata.get('uri')
+                            if uri and uri not in matched_uris:
+                                new_related.append({
+                                    'uri': uri,
+                                    'title': metadata.get('title', 'Unknown'),
+                                    'summary': metadata.get('summary', ''),
+                                    'news_source': metadata.get('news_source', 'Unknown'),
+                                    'similarity_score': result.get('score', 0)
+                                })
+
+                        if new_related:
+                            deep_research_results.append({
+                                'instruction_id': instruction['id'],
+                                'instruction_name': instruction['name'],
+                                'related_articles': new_related[:10],
+                                'total_found': len(new_related)
+                            })
+                            logger.info(f"Deep research found {len(new_related)} related articles for {instruction['name']}")
+
+                except Exception as dr_error:
+                    logger.error(f"Error in deep research for {instruction['name']}: {dr_error}")
+
+            # Generate Podcast Summary Action
+            if config.get('generate_podcast') and instruction_alerts:
+                try:
+                    logger.info(f"Generating podcast summary for instruction: {instruction['name']}")
+
+                    # Build podcast-friendly summary of matches
+                    alerts_summary = "\n\n".join([
+                        f"Story {i+1}: {a['summary']}\n"
+                        f"Threat Level: {a['threat_level']}\n"
+                        f"Key Details: {a['reasoning'][:300]}..."
+                        for i, a in enumerate(instruction_alerts[:10])  # Limit to top 10 for podcast
+                    ])
+
+                    # Use custom podcast prompt if configured, otherwise use default
+                    custom_podcast_prompt = config.get('podcast_prompt')
+                    if custom_podcast_prompt:
+                        podcast_prompt = f"""{custom_podcast_prompt}
+
+SIGNAL: {instruction['name']}
+TOPIC: {req.topic or 'General Intelligence'}
+MATCHES FOUND: {len(instruction_alerts)}
+
+KEY FINDINGS:
+{alerts_summary}
+
+Write the complete podcast script:
+"""
+                    else:
+                        podcast_prompt = f"""
+Create a podcast-style audio script summarizing these intelligence findings. Write it as if you're a host delivering a briefing to listeners.
+
+SIGNAL: {instruction['name']}
+TOPIC: {req.topic or 'General Intelligence'}
+MATCHES FOUND: {len(instruction_alerts)}
+
+KEY FINDINGS:
+{alerts_summary}
+
+REQUIREMENTS:
+1. Start with a brief, engaging intro (e.g., "Welcome to today's intelligence briefing...")
+2. Summarize the most important findings in conversational, easy-to-follow language
+3. Highlight threat levels and urgency where relevant
+4. Connect related stories if patterns emerge
+5. End with key takeaways and recommended actions
+6. Keep the tone professional but accessible
+7. Target length: 2-3 minutes when read aloud (approximately 400-500 words)
+
+Write the complete podcast script:
+"""
+
+                    podcast_messages = [
+                        {"role": "system", "content": "You are a professional intelligence briefing host creating engaging podcast content from signal detection data."},
+                        {"role": "user", "content": podcast_prompt}
+                    ]
+
+                    podcast_content = await run_in_threadpool(ai_model.generate_response, podcast_messages)
+
+                    if podcast_content and not ("⚠️" in podcast_content or "unavailable" in podcast_content.lower()):
+                        # Generate audio from script using configured voice
+                        audio_url = None
+                        voice_id = config.get('podcast_voice_id')
+
+                        if voice_id:
+                            try:
+                                import re
+                                from datetime import datetime
+                                from elevenlabs import ElevenLabs
+                                from app.utils.audio import AUDIO_DIR, ensure_audio_directory
+
+                                ELEVENLABS_API_KEY = os.getenv('PROVIDER_ELEVENLABS_API_KEY') or os.getenv('ELEVENLABS_API_KEY')
+
+                                if ELEVENLABS_API_KEY:
+                                    logger.info(f"Generating podcast audio for {instruction['name']} with voice {voice_id}")
+
+                                    # Clean the script for TTS
+                                    def clean_text_for_tts(raw: str) -> str:
+                                        text = raw
+                                        text = re.sub(r"\[(?:[^\]]*(music|sound|sfx|fade)[^\]]*)\]", "", text, flags=re.IGNORECASE)
+                                        text = re.sub(r"\((?:[^)]*(music|sound|sfx|fade)[^)]*)\)", "", text, flags=re.IGNORECASE)
+                                        text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text, flags=re.MULTILINE)
+                                        text = re.sub(r"^\*\*[\w\s\-]+:\*\*\s*", "", text, flags=re.MULTILINE)
+                                        text = re.sub(r"^\*\*[\w\s\-]+\*\*:\s*", "", text, flags=re.MULTILINE)
+                                        cleaned_lines = []
+                                        for ln in text.splitlines():
+                                            lowered = ln.lower()
+                                            if any(kw in lowered for kw in ["intro music", "music fades", "sound effect", "sfx", "fade in", "fade out"]):
+                                                continue
+                                            if "podcast script" in lowered or ln.strip().startswith("#"):
+                                                continue
+                                            if ln.strip():
+                                                cleaned_lines.append(ln.strip())
+                                        return " ".join(cleaned_lines)
+
+                                    cleaned_script = clean_text_for_tts(podcast_content)
+
+                                    if cleaned_script:
+                                        client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
+                                        # Generate audio
+                                        audio_generator = client.text_to_speech.convert(
+                                            voice_id=voice_id,
+                                            text=cleaned_script,
+                                            model_id="eleven_multilingual_v2",
+                                            output_format="mp3_44100_128"
+                                        )
+
+                                        audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
+
+                                        if audio_bytes:
+                                            if not ensure_audio_directory():
+                                                raise RuntimeError("Could not create audio directory")
+
+                                            podcast_id = str(uuid.uuid4())[:8]
+                                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                            output_filename = f"signal_podcast_{podcast_id}_{timestamp}.mp3"
+                                            output_path = AUDIO_DIR / output_filename
+
+                                            with open(output_path, 'wb') as f:
+                                                f.write(audio_bytes)
+
+                                            audio_url = f"/static/audio/{output_filename}"
+                                            logger.info(f"Generated podcast audio: {audio_url} ({len(audio_bytes)} bytes)")
+                                else:
+                                    logger.warning("ElevenLabs API key not configured - skipping audio generation")
+
+                            except Exception as tts_error:
+                                logger.error(f"Error generating podcast audio: {tts_error}")
+
+                        podcast_summaries.append({
+                            'instruction_id': instruction['id'],
+                            'instruction_name': instruction['name'],
+                            'content': podcast_content,
+                            'matches_count': len(instruction_alerts),
+                            'topic': req.topic,
+                            'voice_id': voice_id,
+                            'audio_url': audio_url  # Include audio URL if generated
+                        })
+                        logger.info(f"Generated podcast summary for {instruction['name']} ({len(podcast_content)} chars)")
+
+                        # Update saved report to include podcast link if report exists and audio was generated
+                        if report_data and audio_url and instruction.get('generate_report'):
+                            try:
+                                domain = os.getenv("DOMAIN", "localhost:10015")
+                                protocol = "https" if "localhost" not in domain else "http"
+                                base_url = f"{protocol}://{domain}"
+                                full_podcast_url = f"{base_url}{audio_url}" if audio_url.startswith('/') else audio_url
+
+                                # Append podcast section to report content
+                                updated_content = report_data.get('content', '')
+                                updated_content += f"\n\n---\n\n## 🎙️ Audio Briefing\n\nListen to an AI-generated podcast summary of this report:\n\n**[▶️ Play Audio Briefing]({full_podcast_url})**"
+
+                                # Update the saved report in the database
+                                db.facade.update_saved_signal_report_content(
+                                    report_id=report_data['id'],
+                                    report_content=updated_content
+                                )
+
+                                # Also update report_data so email gets the updated content
+                                report_data['content'] = updated_content
+                                logger.info(f"Updated report {report_data['id']} with podcast link")
+                            except Exception as update_error:
+                                logger.error(f"Error updating report with podcast link: {update_error}")
+                    else:
+                        logger.warning(f"Podcast generation returned empty response for {instruction['name']}")
+
+                except Exception as podcast_error:
+                    logger.error(f"Error generating podcast for {instruction['name']}: {podcast_error}")
+
+            # Send Email Action (only if threshold is met)
+            if config.get('send_email') and instruction_alerts and meets_threshold:
+                # Get recipient from config or use default
+                recipient = config.get('email_recipient')
+                if not recipient:
+                    # Try to get user's email from session if available
+                    user_info = session.get('user', {}) if isinstance(session, dict) else {}
+                    recipient = user_info.get('email')
+
+                if recipient:
+                    # If unified report requested, collect recipients and skip individual emails
+                    if unified_report_requested:
+                        unified_email_recipients.add(recipient)
+                        logger.info(f"Unified report requested - skipping individual email for {instruction['name']}, will send combined email")
+                    else:
+                        # Send individual email for this instruction
+                        try:
+                            from app.services.email_service import get_email_service
+
+                            email_service = get_email_service()
+                            if email_service.is_available():
+                                # Check if this instruction has a podcast with audio
+                                podcast_audio_url = None
+                                for ps in podcast_summaries:
+                                    if ps.get('instruction_id') == instruction['id'] and ps.get('audio_url'):
+                                        podcast_audio_url = ps['audio_url']
+                                        break
+
+                                # Include report content if this instruction has generate_report enabled
+                                # IMPORTANT: For multi-agent runs, generate per-instruction reports
+                                # to avoid sending combined report in all emails
+                                email_report_content = None
+                                email_report_id = None
+                                if instruction.get('generate_report') and instruction_alerts:
+                                    # If running multiple instructions, generate per-instruction report
+                                    if len(instructions) > 1:
+                                        try:
+                                            # Generate a quick report for this instruction only
+                                            instruction_report_prompt = instruction.get('report_prompt') or """
+Analyze the following signal matches and create a brief intelligence summary.
+Summarize key findings, significance, and any recommended actions.
+Format as a concise markdown report.
+"""
+                                            alerts_summary = "\n\n".join([
+                                                f"**Article:** {a['article_uri']}\n"
+                                                f"**Threat Level:** {a['threat_level']}\n"
+                                                f"**Summary:** {a['summary']}\n"
+                                                f"**Reasoning:** {a['reasoning']}"
+                                                for a in instruction_alerts[:10]  # Limit to 10 for email
+                                            ])
+                                            per_inst_prompt = f"""
+{instruction_report_prompt}
+
+## Signal: {instruction['name']}
+{instruction.get('instruction', '')}
+
+## Matched Articles ({len(instruction_alerts)} matches)
+{alerts_summary}
+"""
+                                            per_inst_messages = [
+                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports."},
+                                                {"role": "user", "content": per_inst_prompt}
+                                            ]
+                                            per_inst_report = await run_in_threadpool(ai_model.generate_response, per_inst_messages)
+                                            if per_inst_report and not ("⚠️" in per_inst_report or "unavailable" in per_inst_report.lower()):
+                                                email_report_content = per_inst_report
+                                                logger.info(f"Generated per-instruction report for email: {instruction['name']}")
+                                        except Exception as per_inst_error:
+                                            logger.error(f"Error generating per-instruction report for {instruction['name']}: {per_inst_error}")
+                                    elif report_data:
+                                        # Single instruction run - use the shared report
+                                        email_report_content = report_data.get('content')
+                                        email_report_id = report_data.get('id')
+
+                                success = email_service.send_signal_alert_email(
+                                    to_address=recipient,
+                                    instruction_name=instruction['name'],
+                                    matches=instruction_alerts,
+                                    topic=req.topic,
+                                    report_content=email_report_content,
+                                    podcast_url=None,  # No longer sent separately - now embedded in report
+                                    report_id=email_report_id
+                                )
+                                if success:
+                                    email_sent = True
+                                    logger.info(f"Email notification sent to {recipient} for {instruction['name']} ({len(instruction_alerts)} matches >= threshold {alert_threshold})")
+                            else:
+                                logger.warning("Email service not configured - skipping email notification")
+
+                        except Exception as email_error:
+                            logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+                else:
+                    logger.warning(f"No email recipient configured for {instruction['name']}")
+            elif config.get('send_email') and instruction_alerts and not meets_threshold:
+                logger.info(f"Email notification skipped for {instruction['name']}: {len(instruction_alerts)} matches < threshold {alert_threshold}")
+
+            # Bluesky DM Action (only if threshold is met)
+            if config.get('bluesky_dm') and instruction_alerts and meets_threshold:
+                try:
+                    from app.services.bluesky_notification_service import get_bluesky_notification_service
+
+                    bluesky_service = get_bluesky_notification_service()
+                    if bluesky_service.is_available():
+                        recipient = config.get('bluesky_recipient')
+                        if recipient:
+                            success = bluesky_service.send_signal_alert_dm(
+                                recipient_handle=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=req.topic
+                            )
+                            if success:
+                                logger.info(f"Bluesky DM sent to {recipient} for {instruction['name']} ({len(instruction_alerts)} matches >= threshold {alert_threshold})")
+                        else:
+                            logger.warning(f"No Bluesky recipient configured for {instruction['name']}")
+                    else:
+                        logger.warning("Bluesky notification service not configured - skipping DM")
+
+                except Exception as bluesky_error:
+                    logger.error(f"Error sending Bluesky DM for {instruction['name']}: {bluesky_error}")
+            elif config.get('bluesky_dm') and instruction_alerts and not meets_threshold:
+                logger.info(f"Bluesky DM skipped for {instruction['name']}: {len(instruction_alerts)} matches < threshold {alert_threshold}")
+
+        # Send unified email if requested (after processing all instructions)
+        if unified_report_requested and unified_email_recipients and alerts_created:
+            try:
+                from app.services.email_service import get_email_service
+
+                email_service = get_email_service()
+                if email_service.is_available():
+                    # Build list of instruction names that had matches
+                    instruction_names_with_matches = list(set(a['instruction_name'] for a in alerts_created))
+                    unified_instruction_name = f"Unified Report: {', '.join(instruction_names_with_matches[:3])}"
+                    if len(instruction_names_with_matches) > 3:
+                        unified_instruction_name += f" (+{len(instruction_names_with_matches) - 3} more)"
+
+                    # Get report content if available
+                    report_content = report_data.get('content') if report_data else None
+                    report_id = report_data.get('id') if report_data else None
+
+                    for recipient in unified_email_recipients:
+                        success = email_service.send_signal_alert_email(
+                            to_address=recipient,
+                            instruction_name=unified_instruction_name,
+                            matches=alerts_created,  # All alerts from all agents
+                            topic=req.topic,
+                            report_content=report_content,
+                            podcast_url=None,
+                            report_id=report_id
+                        )
+                        if success:
+                            email_sent = True
+                            logger.info(f"Unified report email sent to {recipient} with {len(alerts_created)} total matches from {len(instruction_names_with_matches)} agents")
+
+            except Exception as unified_email_error:
+                logger.error(f"Error sending unified report email: {unified_email_error}")
+
         return {
             "success": True,
             "message": f"Analyzed {len(articles)} articles with {len(instructions)} signal instructions",
@@ -2992,12 +4588,576 @@ async def run_signal_instructions(
             "total_matches": total_matches,
             "instructions_run": len(instructions),
             "articles_analyzed": len(articles),
-            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"
+            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
+            "report": report_data,
+            "podcast_summaries": podcast_summaries if podcast_summaries else None,
+            "deep_research": deep_research_results if deep_research_results else None,
+            "email_sent": email_sent
         }
-        
+
     except Exception as exc:
         logger.error("Error in run signal instructions: %s", exc)
         raise HTTPException(status_code=500, detail="Signal runner error")
+
+
+async def _run_signals_background(
+    run_id: str,
+    req: _RunSignalRequest,
+    session: dict
+):
+    """Background task to run signal instructions.
+
+    Updates _signal_runs with progress and results.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"[{run_id}] Starting background signal run for {len(req.instruction_ids)} instruction(s)")
+
+    try:
+        from app.database import get_database_instance
+        from datetime import datetime, timedelta
+
+        db = get_database_instance()
+
+        # Get the specific signal instructions
+        all_instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=False)
+        instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
+
+        if not instructions:
+            with _signal_runs_lock:
+                _signal_runs[run_id]["status"] = "completed"
+                _signal_runs[run_id]["result"] = {"success": False, "message": "No active instructions found"}
+            return
+
+        # Get articles for the specified time range
+        end_date_dt = datetime.now()
+        start_date_dt = end_date_dt - timedelta(days=req.days_back)
+
+        query = """
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+               tags, extracted_article_topics, extracted_article_keywords
+        FROM articles
+        WHERE publication_date >= ? AND publication_date <= ?
+        AND category IS NOT NULL AND sentiment IS NOT NULL
+        """
+        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+
+        if req.topic:
+            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+            topic_pattern = f"%{req.topic}%"
+            params.extend([req.topic, topic_pattern, topic_pattern])
+
+        query += " ORDER BY publication_date DESC LIMIT ?"
+        params.append(req.max_articles)
+
+        articles = db.fetch_all(query, params)
+
+        if not articles:
+            with _signal_runs_lock:
+                _signal_runs[run_id]["status"] = "completed"
+                _signal_runs[run_id]["result"] = {
+                    "success": False,
+                    "message": f"No articles found for analysis in the last {req.days_back} days"
+                }
+            return
+
+        # Initialize LLM
+        from app.ai_models import LiteLLMModel
+
+        ai_model = LiteLLMModel.get_instance(req.model)
+        if not ai_model:
+            with _signal_runs_lock:
+                _signal_runs[run_id]["status"] = "failed"
+                _signal_runs[run_id]["error"] = f"Failed to initialize model {req.model}"
+            return
+
+        # Process each instruction
+        alerts_created = []
+        total_matches = 0
+        processed_count = 0
+
+        for instruction in instructions:
+            try:
+                # Run using internal function
+                result = await _run_signal_instruction_internal(
+                    instruction_id=instruction['id'],
+                    days_back=req.days_back,
+                    tag_articles=req.tag_flagged_articles,
+                    model=req.model
+                )
+                if result.get('success'):
+                    total_matches += result.get('alerts_created', 0)
+
+                processed_count += 1
+                with _signal_runs_lock:
+                    _signal_runs[run_id]["progress"] = processed_count
+                    _signal_runs[run_id]["current_instruction"] = instruction['name']
+
+            except Exception as inst_error:
+                logger.error(f"[{run_id}] Error processing instruction {instruction['name']}: {inst_error}")
+
+        # Mark as completed
+        with _signal_runs_lock:
+            _signal_runs[run_id]["status"] = "completed"
+            _signal_runs[run_id]["completed_at"] = datetime.now().isoformat()
+            _signal_runs[run_id]["result"] = {
+                "success": True,
+                "total_matches": total_matches,
+                "instructions_run": len(instructions),
+                "articles_analyzed": len(articles)
+            }
+
+        logger.info(f"[{run_id}] Background signal run completed: {total_matches} matches from {len(instructions)} instructions")
+
+    except Exception as exc:
+        logger.error(f"[{run_id}] Error in background signal run: {exc}", exc_info=True)
+        with _signal_runs_lock:
+            _signal_runs[run_id]["status"] = "failed"
+            _signal_runs[run_id]["error"] = str(exc)
+
+
+@router.get("/signal-run-status/{run_id}")
+async def get_signal_run_status(
+    run_id: str,
+    session=Depends(verify_session_optional),
+):
+    """Get status of a background signal run."""
+    with _signal_runs_lock:
+        if run_id not in _signal_runs:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        return _signal_runs[run_id]
+
+
+async def _run_signal_instruction_internal(
+    instruction_id: int,
+    days_back: int = 7,
+    tag_articles: bool = True,
+    model: str = "gpt-5.4-mini"
+) -> Dict[str, Any]:
+    """
+    Internal function to run a single signal instruction.
+    Used by the observer agent scheduler.
+
+    Args:
+        instruction_id: The ID of the signal instruction to run
+        days_back: Number of days to look back for articles
+        tag_articles: Whether to tag matching articles
+        model: LLM model to use
+
+    Returns:
+        Dict with success status and alerts_created count
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from app.database import get_database_instance
+        from datetime import datetime, timedelta
+
+        db = get_database_instance()
+
+        # Get the specific instruction
+        all_instructions = db.facade.get_signal_instructions(topic=None, active_only=False)
+        instruction = next((inst for inst in all_instructions if inst['id'] == instruction_id), None)
+
+        if not instruction:
+            return {"success": False, "alerts_created": 0, "error": f"Instruction {instruction_id} not found"}
+
+        if not instruction.get('is_active'):
+            return {"success": False, "alerts_created": 0, "error": f"Instruction {instruction_id} is not active"}
+
+        # Get articles for the specified time range
+        end_date_dt = datetime.now()
+        start_date_dt = end_date_dt - timedelta(days=days_back)
+
+        # Get instruction topic
+        topic = instruction.get('topic')
+
+        config = instruction.get('config') or {}
+        max_articles = config.get('max_articles', 100)
+        search_strategy = config.get('search_strategy', 'recent')
+
+        # Initialize LLM
+        from app.ai_models import LiteLLMModel
+        from fastapi.concurrency import run_in_threadpool
+
+        ai_model = LiteLLMModel.get_instance(model)
+        if not ai_model:
+            return {"success": False, "alerts_created": 0, "error": f"Failed to initialize model {model}"}
+
+        # Helper function to format articles
+        def get_field(article, field, default=''):
+            val = article.get(field) if hasattr(article, 'get') else article.get(field, default)
+            return val if val else default
+
+        def format_articles_for_llm(article_batch):
+            return "\n\n".join([
+                f"Article {i+1}:\n"
+                f"Title: {get_field(article, 'title')}\n"
+                f"Source: {get_field(article, 'news_source')}\n"
+                f"Date: {get_field(article, 'publication_date')}\n"
+                f"Category: {get_field(article, 'category', 'Unknown')}\n"
+                f"Sentiment: {get_field(article, 'sentiment', 'Unknown')}\n"
+                f"Tags: {get_field(article, 'tags', 'None')}\n"
+                f"Topics: {get_field(article, 'extracted_article_topics', 'None')}\n"
+                f"Keywords: {get_field(article, 'extracted_article_keywords', 'None')}\n"
+                f"Summary: {get_field(article, 'summary')}\n"
+                f"URI: {get_field(article, 'uri')}"
+                for i, article in enumerate(article_batch)
+            ])
+
+        # Select articles based on search strategy (matching inline runner logic)
+        if search_strategy == 'semantic':
+            # Use vector search to find relevant articles
+            try:
+                from app.vector_store import search_articles as vector_search_articles
+
+                search_query = f"{instruction['name']} {instruction['instruction']}"
+                entities = config.get('entities_to_monitor', [])
+                if entities:
+                    search_query += " " + " ".join(entities[:5])
+                search_query = search_query[:500]
+
+                metadata_filter = {"topic": topic} if topic else None
+
+                vector_results = vector_search_articles(
+                    query=search_query,
+                    top_k=min(max_articles, 200),
+                    metadata_filter=metadata_filter
+                )
+
+                articles = []
+                for result in vector_results or []:
+                    metadata = result.get('metadata', {})
+                    articles.append({
+                        'uri': metadata.get('uri'),
+                        'title': metadata.get('title', ''),
+                        'summary': metadata.get('summary', ''),
+                        'news_source': metadata.get('news_source', ''),
+                        'publication_date': metadata.get('publication_date', ''),
+                        'category': metadata.get('category', ''),
+                        'sentiment': metadata.get('sentiment', ''),
+                        'tags': metadata.get('tags', ''),
+                        'extracted_article_topics': metadata.get('extracted_article_topics', ''),
+                        'extracted_article_keywords': metadata.get('extracted_article_keywords', ''),
+                    })
+
+                logger.info(f"Semantic search found {len(articles)} relevant articles for {instruction['name']}")
+
+                # Also do text search for entities to catch articles not in vector store
+                entities = config.get('entities_to_monitor', [])
+                if entities:
+                    seen_uris = {a['uri'] for a in articles}
+                    entity_conditions = " OR ".join(["title ILIKE ? OR summary ILIKE ?" for _ in entities])
+                    entity_params = []
+                    for entity in entities:
+                        pattern = f"%{entity}%"
+                        entity_params.extend([pattern, pattern])
+
+                    entity_query = f"""
+                    SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+                           tags, extracted_article_topics, extracted_article_keywords
+                    FROM articles
+                    WHERE ({entity_conditions})
+                    AND publication_date >= ? AND publication_date <= ?
+                    AND category IS NOT NULL AND sentiment IS NOT NULL
+                    ORDER BY publication_date DESC LIMIT ?
+                    """
+                    entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
+                    entity_articles = db.fetch_all(entity_query, entity_params)
+
+                    added = 0
+                    for ea in entity_articles:
+                        uri = ea.get('uri') if hasattr(ea, 'get') else ea['uri']
+                        if uri and uri not in seen_uris:
+                            articles.append(dict(ea))
+                            seen_uris.add(uri)
+                            added += 1
+                    if added:
+                        logger.info(f"Entity text search added {added} more articles for {instruction['name']}")
+
+            except Exception as vs_error:
+                logger.error(f"Vector search failed, falling back to recent: {vs_error}")
+                search_strategy = 'recent'  # Fall through to date query below
+
+        if search_strategy != 'semantic':
+            # Standard date-range query
+            query = """
+            SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+                   tags, extracted_article_topics, extracted_article_keywords
+            FROM articles
+            WHERE publication_date >= ? AND publication_date <= ?
+            AND category IS NOT NULL AND sentiment IS NOT NULL
+            """
+            params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+
+            if topic:
+                query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+                topic_pattern = f"%{topic}%"
+                params.extend([topic, topic_pattern, topic_pattern])
+
+            query += " ORDER BY publication_date DESC LIMIT ?"
+            params.append(max_articles)
+
+            articles = db.fetch_all(query, params)
+
+        if not articles:
+            logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
+            return {"success": True, "alerts_created": 0, "message": "No articles found"}
+
+        # Build entities section (matching inline runner)
+        entities = config.get('entities_to_monitor', [])
+        entities_section = ""
+        if entities:
+            entities_text = ", ".join(entities)
+            entities_section = f"""
+ENTITIES TO MONITOR:
+{entities_text}
+
+IMPORTANT: Prioritize articles that mention any of these specific entities. If an entity appears in an article, flag it with higher confidence and explicitly mention which entity was found in your reasoning.
+"""
+
+        # Process in batches
+        BATCH_SIZE = 50
+        if search_strategy == 'chunked' and len(articles) > BATCH_SIZE:
+            article_batches = [articles[i:i+BATCH_SIZE] for i in range(0, len(articles), BATCH_SIZE)]
+        else:
+            article_batches = [articles[:BATCH_SIZE]] if search_strategy != 'semantic' else [articles[i:i+BATCH_SIZE] for i in range(0, len(articles), BATCH_SIZE)]
+
+        alerts_created = 0
+        created_alert_details = []
+
+        # Build article lookup by URI for later
+        article_lookup = {get_field(a, 'uri'): a for a in articles}
+
+        for batch_articles in article_batches:
+            if not batch_articles:
+                continue
+            articles_text = format_articles_for_llm(batch_articles)
+
+            system_prompt = f"""You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+
+SIGNAL: {instruction['name']}
+DESCRIPTION: {instruction.get('description', 'No description')}
+INSTRUCTION: {instruction['instruction']}
+{entities_section}
+Each article includes: Title, Source, Date, Category, Sentiment, Tags, Topics, Keywords, and Summary.
+Use ALL of these fields when evaluating matches - Tags, Topics, and Keywords are especially useful for entity matching.
+
+For EACH article that matches the signal, return a separate JSON object:
+{{
+    "article_uri": "exact_uri_from_input",
+    "signal_detected": true,
+    "confidence": 0.0-1.0,
+    "summary": "Brief summary of what was detected",
+    "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
+    "threat_level": "low"|"medium"|"high",
+    "recommended_action": "What analysts should do"
+}}
+
+IMPORTANT: The "reasoning" field should explain WHY this article is relevant - what specific content,
+entities, tags, keywords, or patterns in the article triggered the match. Reference the specific Tags/Keywords that matched.
+
+Return a JSON array of all matching articles: [{{}}, {{}}, ...]
+If no articles match, return an empty array: []"""
+
+            user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
+
+            try:
+                # Use generate_response which returns content directly (not a dict)
+                content = await run_in_threadpool(
+                    ai_model.generate_response,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+
+                if content:
+                    # Parse JSON response
+                    import json
+                    import re
+
+                    json_match = re.search(r'\[[\s\S]*\]', content)
+                    if json_match:
+                        matches = json.loads(json_match.group())
+                        for match in matches:
+                            if isinstance(match, dict) and match.get('signal_detected'):
+                                article_uri = match.get('article_uri')
+                                if not article_uri:
+                                    continue
+                                # Create alert in database
+                                try:
+                                    confidence = match.get('confidence', 0.5)
+                                    threat_level = match.get('threat_level', 'medium')
+                                    summary = match.get('summary', '')
+                                    reasoning = match.get('reasoning', '')
+
+                                    db.facade.save_signal_alert(
+                                        article_uri=article_uri,
+                                        instruction_id=instruction_id,
+                                        instruction_name=instruction['name'],
+                                        confidence=confidence,
+                                        threat_level=threat_level,
+                                        summary=summary,
+                                        reasoning=reasoning
+                                    )
+                                    alerts_created += 1
+
+                                    # Track alert details for THIS instruction's notifications
+                                    article = article_lookup.get(article_uri, {})
+                                    created_alert_details.append({
+                                        'article_uri': article_uri,
+                                        'instruction_id': instruction_id,
+                                        'instruction_name': instruction['name'],
+                                        'confidence': confidence,
+                                        'summary': summary,
+                                        'threat_level': threat_level,
+                                        'reasoning': reasoning,
+                                        'article_title': get_field(article, 'title', 'Unknown'),
+                                        'article_source': get_field(article, 'news_source', 'Unknown'),
+                                        'article_publication_date': get_field(article, 'publication_date', ''),
+                                    })
+                                except Exception as alert_error:
+                                    logger.warning(f"Failed to create alert: {alert_error}")
+
+            except Exception as batch_error:
+                logger.error(f"Error processing batch for {instruction['name']}: {batch_error}")
+
+        logger.info(f"Instruction {instruction['name']} completed: {alerts_created} alerts created from {len(articles)} articles")
+
+        # Send notifications if configured and alerts were created
+        email_sent = False
+        bluesky_sent = False
+
+        if alerts_created > 0:
+            # Check alert threshold
+            alert_threshold = config.get('alert_threshold', 1)
+            meets_threshold = alerts_created >= alert_threshold
+
+            # Use the alerts we tracked during processing (not from DB query)
+            instruction_alerts = created_alert_details
+
+            # Generate report if instruction has generate_report enabled
+            report_content = None
+            report_id = None
+            if instruction.get('generate_report') and instruction_alerts:
+                try:
+                    report_prompt = instruction.get('report_prompt') or """
+Analyze the following signal matches and create a brief intelligence summary.
+Summarize key findings, significance, and any recommended actions.
+Format as a concise markdown report.
+"""
+                    alerts_summary = "\n\n".join([
+                        f"**Article:** {a['article_uri']}\n"
+                        f"**Threat Level:** {a['threat_level']}\n"
+                        f"**Confidence:** {a.get('confidence', 0.5)}\n"
+                        f"**Summary:** {a['summary']}\n"
+                        f"**Reasoning:** {a.get('reasoning', '')}"
+                        for a in instruction_alerts[:10]
+                    ])
+                    full_prompt = f"""
+{report_prompt}
+
+## Signal: {instruction['name']}
+{instruction.get('instruction', '')}
+
+## Matched Articles ({len(instruction_alerts)} matches)
+{alerts_summary}
+"""
+                    report_messages = [
+                        {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
+                        {"role": "user", "content": full_prompt}
+                    ]
+                    report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+
+                    if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                        from datetime import datetime as dt_now
+                        report_name = f"Signal Report - {instruction['name']} - {dt_now.now().strftime('%Y-%m-%d %H:%M')}"
+                        report_id = db.facade.create_saved_signal_report(
+                            instruction_id=instruction_id,
+                            instruction_name=instruction['name'],
+                            name=report_name,
+                            topic=topic,
+                            description=f"Auto-generated report from {len(instruction_alerts)} signal matches",
+                            report_prompt=report_prompt,
+                            report_content=report_content,
+                            alerts_data=instruction_alerts,
+                            article_uris=[a['article_uri'] for a in instruction_alerts],
+                            articles_used=len(instruction_alerts),
+                            config={'days_back': days_back},
+                            model_used=model
+                        )
+                        logger.info(f"Generated signal report ID: {report_id} for {instruction['name']}")
+                    else:
+                        report_content = None
+                        logger.warning(f"Report generation returned empty response for {instruction['name']}")
+                except Exception as report_error:
+                    report_content = None
+                    logger.error(f"Error generating report for {instruction['name']}: {report_error}")
+
+            # Send Email if configured
+            if config.get('send_email') and instruction_alerts and meets_threshold:
+                try:
+                    from app.services.email_service import get_email_service
+
+                    email_service = get_email_service()
+                    if email_service.is_available():
+                        recipient = config.get('email_recipient')
+                        # Fallback to default observer email from env if not configured
+                        if not recipient:
+                            recipient = os.environ.get('DEFAULT_OBSERVER_EMAIL')
+                            if recipient:
+                                logger.info(f"Using DEFAULT_OBSERVER_EMAIL fallback for {instruction['name']}")
+                        if recipient:
+                            success = email_service.send_signal_alert_email(
+                                to_address=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=topic,
+                                report_content=report_content,
+                                podcast_url=None,
+                                report_id=report_id
+                            )
+                            if success:
+                                email_sent = True
+                                logger.info(f"Email sent to {recipient} for {instruction['name']} ({alerts_created} alerts)")
+                        else:
+                            logger.warning(f"No email recipient configured for {instruction['name']} (set email_recipient in config or DEFAULT_OBSERVER_EMAIL env var)")
+                except Exception as email_error:
+                    logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+
+            # Send Bluesky DM if configured
+            if config.get('bluesky_dm') and instruction_alerts and meets_threshold:
+                try:
+                    from app.services.bluesky_notification_service import get_bluesky_notification_service
+
+                    bluesky_service = get_bluesky_notification_service()
+                    if bluesky_service.is_available():
+                        recipient = config.get('bluesky_recipient')
+                        if recipient:
+                            success = bluesky_service.send_signal_alert_dm(
+                                recipient_handle=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=topic
+                            )
+                            if success:
+                                bluesky_sent = True
+                                logger.info(f"Bluesky DM sent to {recipient} for {instruction['name']}")
+                except Exception as bluesky_error:
+                    logger.error(f"Error sending Bluesky DM for {instruction['name']}: {bluesky_error}")
+
+        return {
+            "success": True,
+            "alerts_created": alerts_created,
+            "articles_analyzed": len(articles),
+            "email_sent": email_sent,
+            "bluesky_sent": bluesky_sent
+        }
+
+    except Exception as e:
+        logger.error(f"Error in _run_signal_instruction_internal: {e}", exc_info=True)
+        return {"success": False, "alerts_created": 0, "error": str(e)}
+
 
 @router.get("/signal-alerts")
 async def get_signal_alerts(
@@ -3068,6 +5228,110 @@ async def acknowledge_alert(
     except Exception as exc:
         logger.error("Error acknowledging alert: %s", exc)
         raise HTTPException(status_code=500, detail="Alert acknowledgment error")
+
+# ------------------------------------------------------------------
+# Signal Reports endpoints
+# ------------------------------------------------------------------
+
+@router.get("/signal-reports")
+async def get_signal_reports(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    instruction_id: Optional[int] = Query(None, description="Filter by instruction ID"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum reports to return"),
+    session=Depends(verify_session_optional),
+):
+    """Get saved signal reports."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        reports = db.facade.get_saved_signal_reports(
+            topic=topic,
+            instruction_id=instruction_id,
+            limit=limit
+        )
+
+        return {
+            "success": True,
+            "reports": reports,
+            "total": len(reports)
+        }
+
+    except Exception as exc:
+        logger.error("Error getting signal reports: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal reports retrieval error")
+
+
+@router.get("/signal-reports/{report_id}")
+async def get_signal_report_by_id(
+    report_id: int,
+    session=Depends(verify_session_optional),
+):
+    """Get a specific signal report by ID."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        report = db.facade.get_saved_signal_report_by_id(report_id)
+
+        if report:
+            return {"success": True, "report": report}
+        else:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting signal report: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal report retrieval error")
+
+
+@router.delete("/signal-reports/{report_id}")
+async def delete_signal_report(
+    report_id: int,
+    session=Depends(verify_session),
+):
+    """Delete a signal report."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        success = db.facade.delete_saved_signal_report(report_id)
+
+        if success:
+            return {"success": True, "message": "Report deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error deleting signal report: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal report deletion error")
+
+
+@router.get("/signal-reports-count")
+async def get_signal_reports_count(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    session=Depends(verify_session_optional),
+):
+    """Get count of signal reports."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        count = db.facade.get_signal_report_count(topic=topic)
+
+        return {"success": True, "count": count}
+
+    except Exception as exc:
+        logger.error("Error getting signal report count: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal report count error")
+
 
 # ------------------------------------------------------------------
 # Analysis cache endpoints
@@ -3235,12 +5499,11 @@ async def article_deep_dive(
             " strategic/sentiment breakdown, notable examples, conclusion, and final thoughts. Limit 900–1200 words."
         )
 
-    # Fetch document + metadata for the article
-    collection = _vector_collection()
+    # Fetch document + metadata for the article using pgvector
     try:
-        res = collection.get(ids=req.ids[:1], include=["metadatas", "documents"])  # type: ignore[arg-type]
+        res = get_by_ids(ids=req.ids[:1], include=["metadatas", "documents"])
     except Exception as exc:
-        logger.error("Chroma get failed for article-deep-dive: %s", exc)
+        logger.error("pgvector get failed for article-deep-dive: %s", exc)
         raise HTTPException(status_code=500, detail="Vector store error")
 
     metas: list[dict] = res.get("metadatas", [])
@@ -3278,7 +5541,7 @@ async def article_deep_dive(
 
     article_block = "\n".join(context_header) + "\n\n" + _truncate(doc)
 
-    model_name = req.model or "gpt-4o-mini"
+    model_name = req.model or "gpt-5.4-mini"
     system_msg = (
         "You are Auspex – an expert strategic analyst. Follow the provided template strictly;"
         " ground every point in the article content. Do not invent data."
@@ -3398,14 +5661,14 @@ async def delete_article_from_vector(
     article_id: str,
     session=Depends(verify_session),
 ):
-    """Delete an article from the vector database.
-    
-    This removes the article from the ChromaDB collection but does not affect
-    the relational database. Use this when you want to remove articles from
+    """Delete an article's embedding from the vector database.
+
+    This removes the embedding from the article but does not delete the article
+    itself from the database. Use this when you want to remove articles from
     vector search results while keeping them in the main database.
     """
     logger = logging.getLogger(__name__)
-    
+
     # Decode the article_id in case it's URL encoded
     try:
         decoded_id = urllib.parse.unquote(article_id)
@@ -3414,26 +5677,17 @@ async def delete_article_from_vector(
     except Exception as e:
         logger.warning(f"Could not decode article_id: {e}")
         decoded_id = article_id
-    
+
     try:
-        collection = _vector_collection()
-        
-        # First, let's try a broader search to find the article
-        # by searching for articles that contain the domain or part of the URL
+        # Try both the original and decoded versions
+        article_ids_to_try = [decoded_id, article_id] if article_id != decoded_id else [article_id]
         found_id = None
-        
-        # Try both the original and decoded versions first
-        article_ids_to_try = [article_id, decoded_id]
-        if article_id != decoded_id:
-            article_ids_to_try = [decoded_id, article_id]  # Try decoded first
-        else:
-            article_ids_to_try = [article_id]
-        
-        # Try direct ID lookup first
+
+        # Try direct ID lookup first using pgvector
         for try_id in article_ids_to_try:
             try:
                 logger.info(f"Checking if article exists with ID: {try_id}")
-                result = collection.get(ids=[try_id], include=["metadatas"])
+                result = get_by_ids(ids=[try_id], include=["metadatas"])
                 if result.get("ids") and try_id in result["ids"]:
                     found_id = try_id
                     logger.info(f"Found article with direct ID lookup: {found_id}")
@@ -3441,122 +5695,81 @@ async def delete_article_from_vector(
                 else:
                     logger.info(f"Article not found with ID: {try_id}")
             except Exception as e:
-                logger.warning(
-                    f"Error checking article with ID '{try_id}': {e}"
-                )
+                logger.warning(f"Error checking article with ID '{try_id}': {e}")
                 continue
-        
+
         # If direct lookup failed, try searching by metadata
         if not found_id:
             logger.info("Direct ID lookup failed, trying metadata search")
             try:
-                # Extract domain and path for searching
                 if "://" in decoded_id:
-                    # Try to find by searching for the URL in metadata
-                    # Get a larger sample to search through
-                    all_results = collection.get(
-                        limit=1000, 
-                        include=["metadatas"],
-                        where=None
-                    )
-                    ids = all_results.get("ids", [])
-                    metadatas = all_results.get("metadatas", [])
-                    
+                    # Get articles with embeddings to search through
+                    vectors, metadatas, ids = get_vectors_by_metadata(limit=1000)
+
                     logger.info(f"Searching through {len(ids)} articles for match")
-                    
-                    # Look for exact matches or close matches
-                    for i, (stored_id, metadata) in enumerate(zip(ids, metadatas)):
+
+                    for stored_id, metadata in zip(ids, metadatas):
                         # Check if the stored ID matches our target
                         if stored_id == decoded_id or stored_id == article_id:
                             found_id = stored_id
                             logger.info(f"Found exact match: {found_id}")
                             break
-                        
-                        # Check if URI in metadata matches
-                        stored_uri = metadata.get("uri", "")
-                        if stored_uri == decoded_id or stored_uri == article_id:
-                            found_id = stored_id
-                            logger.info(f"Found by URI metadata: {found_id}")
-                            break
-                        
-                        # Check for partial URL matches (domain + path)
-                        if (decoded_id in stored_id or stored_id in decoded_id or
-                            decoded_id in stored_uri or stored_uri in decoded_id):
+
+                        # Check for partial URL matches
+                        if (decoded_id in stored_id or stored_id in decoded_id):
                             found_id = stored_id
                             logger.info(f"Found by partial match: {found_id}")
                             break
-                    
-                    # Log some debug info about what we found
-                    if not found_id:
-                        domain = decoded_id.split("://")[1].split("/")[0]
-                        domain_matches = [
-                            id for id in ids if domain in id
-                        ]
-                        logger.info(f"No exact match found. Found {len(domain_matches)} articles from {domain}")
-                        if domain_matches:
-                            logger.info(f"Sample {domain} articles: {domain_matches[:3]}")
-                            
+
             except Exception as search_e:
                 logger.warning(f"Error during metadata search: {search_e}")
-        
+
         if not found_id:
-            # Get some debug info about what IDs actually exist
-            try:
-                sample_results = collection.get(limit=10, include=["metadatas"])
-                existing_ids = sample_results.get("ids", [])
-                logger.info(f"Vector DB contains articles, sample IDs: {existing_ids[:3]}")
-                
-                # Count total
-                total_count = collection.count()
-                logger.info(f"Total articles in vector DB: {total_count}")
-                
-            except Exception as debug_e:
-                logger.warning(f"Could not get debug info: {debug_e}")
-            
+            total_count = count_embeddings()
+            logger.info(f"Total articles with embeddings: {total_count}")
+
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=(
                     f"Article not found in vector database. "
                     f"Searched for: {article_ids_to_try}. "
-                    f"The article appears in search results but cannot be found "
-                    f"for deletion. This might indicate an ID format mismatch. "
                     f"Try running a vector reindex to sync the databases."
                 )
             )
-        
-        # Delete the article from the vector database
+
+        # Delete the embedding from the article
         try:
-            collection.delete(ids=[found_id])
-            logger.info(
-                f"Successfully deleted article '{found_id}' from vector "
-                f"database"
-            )
-            
-            return {
-                "success": True,
-                "message": "Article deleted from vector database",
-                "deleted_id": found_id,
-                "original_id": article_id,
-                "search_method": "direct" if found_id in article_ids_to_try else "metadata_search"
-            }
-            
-        except Exception as e:
-            logger.error("Error deleting article from vector database: %s", e)
-            raise HTTPException(
-                status_code=500, 
-                detail=(
-                    "Failed to delete article from vector database: "
-                    f"{str(e)}"
+            affected = delete_embeddings([found_id])
+            if affected > 0:
+                logger.info(f"Successfully deleted embedding for article '{found_id}'")
+                return {
+                    "success": True,
+                    "message": "Article embedding deleted from vector database",
+                    "deleted_id": found_id,
+                    "original_id": article_id,
+                    "search_method": "direct" if found_id in article_ids_to_try else "metadata_search"
+                }
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Delete operation returned 0 affected rows"
                 )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Error deleting embedding: %s", e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete embedding: {str(e)}"
             )
-            
+
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error("Unexpected error in delete_article_from_vector: %s", e)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Internal server error while deleting article"
         )
 
@@ -3567,25 +5780,21 @@ async def vector_debug_info(
 ):
     """Debug endpoint to check what articles exist in the vector database."""
     logger = logging.getLogger(__name__)
-    
+
     try:
-        collection = _vector_collection()
-        
-        # Get all articles (limited to 100 for debugging)
-        result = collection.get(limit=100, include=["metadatas"])
-        ids = result.get("ids", [])
-        metadatas = result.get("metadatas", [])
-        
-        # Count total articles
-        total_count = collection.count()
-        
+        # Get articles with embeddings using pgvector
+        vectors, metadatas, ids = get_vectors_by_metadata(limit=100)
+
+        # Count total articles with embeddings
+        total_count = count_embeddings()
+
         # Group by domain
         domain_counts = {}
         for article_id in ids:
             if "://" in article_id:
                 domain = article_id.split("://")[1].split("/")[0]
                 domain_counts[domain] = domain_counts.get(domain, 0) + 1
-        
+
         return {
             "total_articles": total_count,
             "sample_articles": [
@@ -3599,7 +5808,7 @@ async def vector_debug_info(
             "domain_counts": domain_counts,
             "message": f"Showing first 10 of {len(ids)} articles retrieved (total: {total_count})"
         }
-        
+
     except Exception as e:
         logger.error("Error in vector debug: %s", e)
         return {
@@ -3903,4 +6112,225 @@ Do not include any explanatory text outside the JSON array.""",
             "profileContextTemplate": default_profile_context_template,
             "enableProfileIntegration": True
         }
-        } 
+        }
+
+
+# ---------------------------------------------------------------------------
+# Analyze Article for Incident - Single article analysis for incident promotion
+# ---------------------------------------------------------------------------
+
+class _AnalyzeArticleForIncidentRequest(BaseModel):
+    """Request model for analyzing a single article for incident creation."""
+    article_uri: str = Field(..., description="URI of the article to analyze")
+    topic: Optional[str] = Field(None, description="Topic context for analysis")
+    profile_id: Optional[int] = Field(None, description="Organizational profile ID for context")
+    model: Optional[str] = Field(None, description="Model to use for analysis (uses first available if not specified)")
+
+
+@router.post("/analyze-article-for-incident")
+async def analyze_article_for_incident(
+    req: _AnalyzeArticleForIncidentRequest,
+    session=Depends(verify_session),
+):
+    """Analyze a single article to suggest incident classification for promotion.
+
+    Returns AI-suggested incident data that can be edited before saving.
+    """
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Fetch the article by URI
+        article = facade.get_article_by_uri(req.article_uri)
+
+        if not article:
+            raise HTTPException(status_code=404, detail="Article not found")
+
+        # Convert to dict for easier handling
+        article_dict = dict(article)
+
+        # Build article metadata for response
+        article_metadata = {
+            "uri": article_dict.get("uri"),
+            "title": article_dict.get("title"),
+            "summary": article_dict.get("summary"),
+            "source": article_dict.get("news_source"),
+            "publication_date": str(article_dict.get("publication_date")) if article_dict.get("publication_date") else None,
+            "category": article_dict.get("category"),
+            "sentiment": article_dict.get("sentiment"),
+            "topic": article_dict.get("topic") or req.topic,
+            "bias": article_dict.get("bias"),
+            "factual_reporting": article_dict.get("factual_reporting"),
+            "mbfc_credibility_rating": article_dict.get("mbfc_credibility_rating"),
+        }
+
+        # Prepare article text for LLM analysis
+        def _norm(value):
+            return (value or '').strip() if isinstance(value, str) else (value or '')
+
+        article_text = (
+            f"Article:\n"
+            f"Title: {article_dict.get('title')}\n"
+            f"Source: {article_dict.get('news_source')}\n"
+            f"Date: {article_dict.get('publication_date')}\n"
+            f"Category: {article_dict.get('category')} | Sentiment: {article_dict.get('sentiment')}\n"
+            f"Credibility: factual_reporting={_norm(article_dict.get('factual_reporting')) or 'unknown'}, "
+            f"mbfc={_norm(article_dict.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(article_dict.get('bias')) or 'unknown'}\n"
+            f"Summary: {article_dict.get('summary')}\n"
+            f"URI: {article_dict.get('uri')}"
+        )
+
+        # Get organizational profile context if provided
+        profile_context = ""
+        if req.profile_id:
+            try:
+                profile_row = facade.get_organisational_profile(req.profile_id)
+                if profile_row:
+                    profile = {
+                        'name': profile_row['name'],
+                        'industry': profile_row['industry'],
+                        'organization_type': profile_row['organization_type'],
+                        'region': profile_row['region'],
+                        'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
+                        'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
+                        'risk_tolerance': profile_row['risk_tolerance'],
+                        'innovation_appetite': profile_row['innovation_appetite'],
+                        'decision_making_style': profile_row['decision_making_style'],
+                        'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
+                        'competitive_landscape': json.loads(profile_row['competitive_landscape']) if profile_row['competitive_landscape'] else [],
+                        'regulatory_environment': json.loads(profile_row['regulatory_environment']) if profile_row['regulatory_environment'] else [],
+                        'custom_context': profile_row['custom_context']
+                    }
+
+                    key_concerns = ', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'
+                    strategic_priorities = ', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'
+                    stakeholder_focus = ', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'
+                    competitive_landscape = ', '.join(profile['competitive_landscape']) if profile['competitive_landscape'] else 'Industry competitors'
+                    regulatory_environment = ', '.join(profile['regulatory_environment']) if profile['regulatory_environment'] else 'Standard regulations'
+
+                    profile_context = f"""
+ORGANIZATIONAL CONTEXT:
+Organization: {profile['name']} ({profile.get('organization_type', 'Organization')} in {profile.get('industry', 'General')})
+Region: {profile.get('region', 'Not specified')}
+Risk Tolerance: {profile.get('risk_tolerance', 'Medium')} | Innovation Appetite: {profile.get('innovation_appetite', 'Moderate')}
+Decision Making: {profile.get('decision_making_style', 'Collaborative')}
+
+Key Concerns: {key_concerns}
+Strategic Priorities: {strategic_priorities}
+Key Stakeholders: {stakeholder_focus}
+Competitive Landscape: {competitive_landscape}
+Regulatory Environment: {regulatory_environment}
+
+Custom Context: {profile.get('custom_context', 'No additional context specified')}
+"""
+                    logger.info(f"Using organizational profile: {profile['name']} ({profile.get('industry', 'General')})")
+            except Exception as e:
+                logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
+
+        # Build the LLM prompt
+        topic_label = req.topic or article_dict.get('topic') or 'general news'
+
+        system_prompt = f"""You are a strategic intelligence analyst classifying a news article as a potential incident for tracking.
+
+{profile_context}
+
+Analyze the article and suggest appropriate classification. Return a single JSON object (not an array) with these fields:
+- name: concise, factual headline (what happened)
+- type: incident | event | entity | expertise | informed_insider | trend_signal | strategic_shift
+- subtype: from the allowed list for the chosen type
+  - incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change, market_disruption
+  - event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result, pilot_program
+  - entity: company, person, product, dataset, venue, regulator, research_institution, government_agency
+  - expertise: industry_analysis, market_prediction, technical_assessment, strategic_forecast, expert_warning, research_finding
+  - informed_insider: leaked_strategy, internal_memo, insider_trading, confidential_roadmap, private_meeting, executive_communication
+  - trend_signal: adoption_trend, market_shift, behavioral_change, technology_uptake, regulatory_momentum, competitive_dynamic
+  - strategic_shift: policy_pivot, strategic_realignment, market_repositioning, technology_focus_change, regulatory_approach_change
+- significance: low | medium | high
+- description: FACTUAL summary of what happened/is happening - include who, what, when, where
+- entities: array of named entities mentioned (companies, people, products)
+- timeline: string describing when this happened/is happening
+- plausibility: likely | questionable | implausible
+- source_quality: high | mixed | low (based on credibility indicators)
+- investigation_leads: array of suggested follow-up questions or areas to investigate
+- organizational_relevance: 1-2 sentences explaining why this is relevant to the organization (if profile provided)
+
+Output a single JSON object only, no explanation text."""
+
+        user_prompt = f"Classify this article for incident tracking in the context of {topic_label}:\n\n{article_text}"
+
+        # Generate analysis
+        from app.ai_models import LiteLLMModel, get_available_models
+        from fastapi.concurrency import run_in_threadpool
+
+        # Get model name - use specified or first available
+        model_name = req.model
+        if not model_name:
+            available_models = get_available_models()
+            if not available_models:
+                raise HTTPException(status_code=500, detail="No AI models configured")
+            model_name = available_models[0]['name']
+
+        ai_model = LiteLLMModel.get_instance(model_name)
+        if not ai_model:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize model {model_name}")
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        response_str = await run_in_threadpool(ai_model.generate_response, messages)
+
+        # Check for error messages from AI model
+        if response_str and ("⚠️" in response_str or "unavailable" in response_str.lower()):
+            logger.error(f"LLM returned error message for article analysis: {response_str}")
+            raise HTTPException(status_code=500, detail=response_str)
+
+        # Parse response
+        suggested_incident = {}
+        if response_str:
+            try:
+                import re
+                # Try to extract JSON object
+                json_match = re.search(r'\{.*\}', response_str, re.DOTALL)
+                if json_match:
+                    suggested_incident = json.loads(json_match.group())
+            except json.JSONDecodeError as je:
+                logger.error(f"Failed to parse article analysis response: {je}")
+                # Provide default structure
+                suggested_incident = {
+                    "name": article_dict.get('title', ''),
+                    "type": "event",
+                    "subtype": "general",
+                    "significance": "medium",
+                    "description": article_dict.get('summary', ''),
+                    "entities": [],
+                    "timeline": str(article_dict.get('publication_date', '')),
+                    "plausibility": "likely",
+                    "source_quality": "mixed",
+                    "investigation_leads": [],
+                    "organizational_relevance": ""
+                }
+
+        # Add article URIs to the suggested incident
+        suggested_incident["article_uris"] = [req.article_uri]
+        suggested_incident["article_metadata"] = [article_metadata]
+
+        # Ensure topic is set
+        if not suggested_incident.get("topic"):
+            suggested_incident["topic"] = req.topic or article_dict.get('topic', '')
+
+        return {
+            "success": True,
+            "suggested_incident": suggested_incident,
+            "article_metadata": article_metadata
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing article for incident: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 

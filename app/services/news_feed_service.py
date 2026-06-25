@@ -76,44 +76,40 @@ class NewsFeedService:
             end_date = target_date + timedelta(days=1)
             date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # publication_date is stored as ISO format (e.g., '2026-01-28T14:25:03+00:00')
+            # Use end of day for end_date to include all of today's articles
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '72h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=3)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '7d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=7)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '30d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=30)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '3m':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=90)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '1y':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=365)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == 'all':
             date_params = []
             start_date = None
             end_date = now
         else:
-            # Default to last 24 hours - use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # Default to last 24 hours
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
 
         logger.info(f"Getting articles for date range: {start_date.isoformat() if start_date else 'all time'} to {end_date.isoformat()}")
 
@@ -191,42 +187,38 @@ class NewsFeedService:
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
             date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # publication_date is stored as ISO format (e.g., '2026-01-28T14:25:03+00:00')
+            # Use end of day for end_date to include all of today's articles
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '72h':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=3)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '7d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=7)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '30d':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=30)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '3m':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=90)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == '1y':
-            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=365)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
         elif date_range == 'all':
             date_params = []
         else:
-            # Default to last 24 hours - use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            # Default to last 24 hours
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%dT23:59:59')]
 
         try:
             # Use database_query_facade method for PostgreSQL compatibility
@@ -540,7 +532,8 @@ class NewsFeedService:
                 org_profile,
                 persona=request.persona,
                 article_count=request.article_count,
-                starred_articles=request.starred_articles
+                starred_articles=request.starred_articles,
+                topic=request.topic
             )
             logger.info("Successfully built six articles prompt")
         except Exception as e:
@@ -754,13 +747,20 @@ Please try again and return ONLY articles with URIs from this list."""}
     async def _generate_six_articles_report_cached(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles report with caching and enhanced political analysis"""
 
-        # Create cache key including persona, article count, and user_id to ensure cache invalidation when these change
+        # Create cache key including persona, article count, user_id, and starred articles to ensure cache invalidation
+        # v6: Added starred_articles hash to cache key - fixes bug where unstarring didn't invalidate cache
         # v5: Added user_id to cache key to prevent cross-user cache pollution with custom configs
         # v4: Fixed cache key to include persona and article_count (previous v3 had cache invalidation bug)
         persona = getattr(request, 'persona', 'CEO') or 'CEO'
         article_count = getattr(request, 'article_count', 6) or 6
         user_id = getattr(request, 'user_id', None) or 'default'
-        cache_key = f"six_articles_v5_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{persona}_{article_count}_{user_id}"
+        # Include starred articles in cache key so changes invalidate the cache
+        starred_hash = ''
+        if request.starred_articles and len(request.starred_articles) > 0:
+            import hashlib
+            starred_str = ','.join(sorted(request.starred_articles))
+            starred_hash = hashlib.md5(starred_str.encode()).hexdigest()[:8]
+        cache_key = f"six_articles_v6_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{persona}_{article_count}_{user_id}_{starred_hash}"
         
         # Check database cache first (more persistent)
         try:
@@ -840,53 +840,40 @@ Please try again and return ONLY articles with URIs from this list."""}
     async def _generate_six_articles_with_political_analysis(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles with enhanced political analysis based on related articles"""
 
-        # Filter articles if starred articles are provided
-        if request.starred_articles and len(request.starred_articles) > 0:
-            logger.info(f"Filtering articles to only starred URIs: {len(request.starred_articles)} articles")
-            logger.info(f"Starred URIs from request: {request.starred_articles[:3] if len(request.starred_articles) > 3 else request.starred_articles}")
-            logger.info(f"Sample article URIs from dataset: {[article.get('uri', 'NO_URI')[:100] for article in articles_data[:3]]}")
+        # Track starred articles - only those within the current timeframe (already in articles_data)
+        starred_uris_set = set(request.starred_articles) if request.starred_articles else set()
+        starred_articles_data = []
 
-            # First try to find starred articles in the current dataset
+        if starred_uris_set:
+            logger.info(f"Looking for {len(starred_uris_set)} starred articles within timeframe")
+
+            # Only use starred articles that are in the current dataset (respects date filter)
             starred_articles_data = [
                 article for article in articles_data
-                if article.get('uri') in request.starred_articles
+                if article.get('uri') in starred_uris_set
             ]
 
-            # If we didn't find all starred articles, fetch them directly from DB by URI
-            if len(starred_articles_data) < len(request.starred_articles):
-                logger.info(f"Only found {len(starred_articles_data)}/{len(request.starred_articles)} starred articles in current dataset")
-                logger.info(f"Fetching missing starred articles directly from database by URI")
+            # Cap starred articles at article_count
+            if len(starred_articles_data) > request.article_count:
+                logger.info(f"Capping starred articles from {len(starred_articles_data)} to {request.article_count}")
+                starred_articles_data = starred_articles_data[:request.article_count]
 
-                from starlette.concurrency import run_in_threadpool
+            logger.info(f"Found {len(starred_articles_data)} starred articles within timeframe")
 
-                # Fetch starred articles directly by their URIs (bypassing date filters)
-                missing_starred = await run_in_threadpool(
-                    self.facade.get_articles_by_uris,
-                    request.starred_articles
-                )
+            # Update starred_uris_set to only include articles we actually found
+            starred_uris_set = {article.get('uri') for article in starred_articles_data}
 
-                if missing_starred:
-                    logger.info(f"Found {len(missing_starred)} starred articles from database")
-                    # Convert to list of dicts and merge with existing starred articles
-                    starred_articles_data = list(starred_articles_data) + list(missing_starred)
-                    # Remove duplicates by URI
-                    seen_uris = set()
-                    unique_starred = []
-                    for article in starred_articles_data:
-                        uri = article.get('uri')
-                        if uri and uri not in seen_uris:
-                            seen_uris.add(uri)
-                            unique_starred.append(article)
-                    starred_articles_data = unique_starred
-                    logger.info(f"Total unique starred articles after DB fetch: {len(starred_articles_data)}")
+            # Combine starred articles with non-starred articles
+            # Starred articles go first, then fill with non-starred
+            non_starred_articles = [
+                article for article in articles_data
+                if article.get('uri') not in starred_uris_set
+            ]
 
-            if starred_articles_data:
-                logger.info(f"Using {len(starred_articles_data)} starred articles for analysis")
-                articles_data = starred_articles_data
-            else:
-                logger.warning(f"No starred articles found. Using all {len(articles_data)} articles.")
-                logger.warning(f"First starred URI: {request.starred_articles[0] if request.starred_articles else 'None'}")
-                logger.warning(f"First dataset URI: {articles_data[0].get('uri', 'None') if articles_data else 'None'}")
+            # Combine: starred first, then non-starred to fill up the corpus
+            combined_articles = starred_articles_data + non_starred_articles
+            logger.info(f"Combined corpus: {len(starred_articles_data)} starred + {len(non_starred_articles)} non-starred = {len(combined_articles)} total")
+            articles_data = combined_articles
 
         # Group articles by news source and bias to find related articles with political leanings
         articles_by_source = {}
@@ -907,6 +894,8 @@ Please try again and return ONLY articles with URIs from this list."""}
         org_profile = await self._get_organizational_profile(request.profile_id)
 
         # Enhanced prompt that considers related articles and political leanings
+        # Pass only the starred articles that were found within the timeframe
+        filtered_starred = list(starred_uris_set) if starred_uris_set else None
         prompt = self._build_enhanced_six_articles_analyst_prompt(
             articles_data,
             articles_with_bias,
@@ -915,8 +904,9 @@ Please try again and return ONLY articles with URIs from this list."""}
             org_profile,
             persona=request.persona,
             article_count=request.article_count,
-            starred_articles=request.starred_articles,
-            user_id=request.user_id
+            starred_articles=filtered_starred,
+            user_id=request.user_id,
+            topic=request.topic
         )
         
         try:
@@ -1094,14 +1084,253 @@ Please try again and return ONLY articles with URIs from this list."""}
             if not result_articles:
                 logger.info("No valid articles created from parsed data in cached version, using fallback articles")
                 return await self._create_fallback_six_articles(articles_data, date)
-            
+
+            # Enrich articles with deep analysis (fetch full content + detailed reports)
+            persona = getattr(request, 'persona', 'CEO') or 'CEO'
+            result_articles = await self._enrich_articles_with_deep_analysis(
+                result_articles,
+                org_profile=org_profile,
+                persona=persona
+            )
+
             return result_articles
             
         except Exception as e:
             logger.error(f"Error generating enhanced six articles report: {e}")
             # Fallback to original method
             return await self._generate_six_articles_report(articles_data, date, request)
-    
+
+    async def _fetch_article_content(self, uri: str) -> Optional[str]:
+        """
+        Fetch full article content using existing scraping infrastructure.
+        Reuses the scrape_article_content from AutomatedIngestService.
+
+        Args:
+            uri: Article URI to fetch content for
+
+        Returns:
+            Full article content or None if fetch failed
+        """
+        try:
+            from app.services.automated_ingest_service import AutomatedIngestService
+
+            # Create ingest service instance with database connection
+            ingest_service = AutomatedIngestService(db=self.db)
+
+            # Scrape article content (checks cache first, then fetches if needed)
+            content = await ingest_service.scrape_article_content(uri)
+
+            if content:
+                logger.debug(f"Fetched {len(content)} chars of content for {uri}")
+                return content
+            else:
+                logger.warning(f"No content fetched for {uri}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching article content for {uri}: {e}", exc_info=True)
+            return None
+
+    async def _analyze_article_deeply(
+        self,
+        article: Dict,
+        content: str,
+        org_profile: Optional[Dict] = None,
+        persona: str = "CEO"
+    ) -> Dict:
+        """
+        Generate detailed analysis report for a single article using its full content.
+
+        Args:
+            article: Article metadata (title, summary, etc.)
+            content: Full article content text
+            org_profile: Optional organizational profile for context
+            persona: Target persona (e.g., CEO, CTO)
+
+        Returns:
+            Detailed analysis report dict with key_facts, notable_quotes, etc.
+        """
+        try:
+            import litellm
+
+            # Build organizational context if available
+            org_context = ""
+            if org_profile:
+                org_context = f"""
+Target Audience Context:
+- Organization: {org_profile.get('name', 'Unknown')} ({org_profile.get('organization_type', 'General')})
+- Industry: {org_profile.get('industry', 'General')}
+- Risk Tolerance: {org_profile.get('risk_tolerance', 'medium')}
+- Strategic Priorities: {', '.join(org_profile.get('strategic_priorities', []))}
+"""
+
+            # Truncate content if too long (max ~15K chars for context)
+            max_content_chars = 15000
+            truncated_content = content[:max_content_chars] if len(content) > max_content_chars else content
+            if len(content) > max_content_chars:
+                truncated_content += "\n\n[Content truncated for analysis...]"
+
+            system_prompt = f"""You are a strategic intelligence analyst extracting detailed insights from news articles for a {persona}.
+
+{org_context}
+
+Analyze the article content provided and extract:
+1. key_facts: 3-5 specific facts, figures, data points, or statistics mentioned
+2. notable_quotes: 1-3 direct quotes from sources with attribution
+3. background_context: Historical or industry context that helps understand the significance
+4. implications: What this development means for the sector/industry
+5. talking_points: 3-5 bullet points suitable for executive discussion
+
+Return ONLY valid JSON in this exact format:
+{{
+    "key_facts": ["Fact 1 with specific numbers or details", "Fact 2", ...],
+    "notable_quotes": ["\\"Quote text\\" - Source Name", ...],
+    "background_context": "Paragraph explaining relevant history and context...",
+    "implications": "What this means for businesses and the industry...",
+    "talking_points": ["Point 1", "Point 2", ...]
+}}"""
+
+            user_prompt = f"""Article Title: {article.get('title', 'Untitled')}
+Source: {article.get('source', 'Unknown')}
+
+Executive Takeaway: {article.get('executive_takeaway', 'N/A')}
+Strategic Relevance: {article.get('strategic_relevance', 'N/A')}
+
+FULL ARTICLE CONTENT:
+{truncated_content}
+
+Extract detailed strategic intelligence from this article."""
+
+            response = await litellm.acompletion(
+                model="gpt-5.4-mini",  # Use faster model for per-article analysis
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1500
+            )
+
+            response_text = response.choices[0].message.content.strip()
+
+            # Parse JSON response
+            import json
+            # Handle markdown code blocks
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                response_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+            detailed_report = json.loads(response_text)
+
+            # Add excerpt from full content for reference
+            detailed_report['full_content_excerpt'] = content[:2000] if content else ""
+
+            logger.info(f"Generated detailed report for: {article.get('title', 'Untitled')[:50]}")
+            return detailed_report
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse detailed analysis JSON: {e}")
+            return {
+                "key_facts": [],
+                "notable_quotes": [],
+                "background_context": "",
+                "implications": "",
+                "talking_points": [],
+                "full_content_excerpt": content[:2000] if content else "",
+                "error": "Analysis parsing failed"
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing article deeply: {e}")
+            return {
+                "key_facts": [],
+                "notable_quotes": [],
+                "background_context": "",
+                "implications": "",
+                "talking_points": [],
+                "full_content_excerpt": content[:2000] if content else "",
+                "error": str(e)
+            }
+
+    async def _enrich_articles_with_deep_analysis(
+        self,
+        articles: List[Dict],
+        org_profile: Optional[Dict] = None,
+        persona: str = "CEO"
+    ) -> List[Dict]:
+        """
+        Enrich a list of articles with detailed reports by fetching full content
+        and performing deep analysis on each.
+
+        Args:
+            articles: List of article dicts from six articles generation
+            org_profile: Optional organizational profile
+            persona: Target persona
+
+        Returns:
+            Articles enriched with 'detailed_report' field
+        """
+        if not articles:
+            return articles
+
+        logger.info(f"Enriching {len(articles)} articles with deep analysis")
+
+        # Step 1: Fetch content for all articles in parallel
+        content_tasks = []
+        for article in articles:
+            uri = article.get('uri') or article.get('url', '')
+            content_tasks.append(self._fetch_article_content(uri))
+
+        contents = await asyncio.gather(*content_tasks, return_exceptions=True)
+
+        # Step 2: Analyze each article with its content in parallel
+        analysis_tasks = []
+        articles_with_content = []
+
+        for article, content in zip(articles, contents):
+            if isinstance(content, Exception):
+                logger.warning(f"Content fetch failed for {article.get('title', 'Unknown')}: {content}")
+                content = None
+
+            if content:
+                analysis_tasks.append(
+                    self._analyze_article_deeply(article, content, org_profile, persona)
+                )
+                articles_with_content.append(article)
+            else:
+                # No content available - add empty detailed_report
+                article['detailed_report'] = {
+                    "key_facts": [],
+                    "notable_quotes": [],
+                    "background_context": "",
+                    "implications": "",
+                    "talking_points": [],
+                    "full_content_excerpt": "",
+                    "error": "Content fetch failed"
+                }
+
+        # Execute all analyses in parallel
+        if analysis_tasks:
+            detailed_reports = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+            # Merge results back into articles
+            for article, report in zip(articles_with_content, detailed_reports):
+                if isinstance(report, Exception):
+                    logger.warning(f"Analysis failed for {article.get('title', 'Unknown')}: {report}")
+                    article['detailed_report'] = {
+                        "key_facts": [],
+                        "notable_quotes": [],
+                        "background_context": "",
+                        "implications": "",
+                        "talking_points": [],
+                        "full_content_excerpt": "",
+                        "error": str(report)
+                    }
+                else:
+                    article['detailed_report'] = report
+
+        logger.info(f"Completed deep analysis enrichment for {len(articles)} articles")
+        return articles
+
     def _build_overview_prompt(self, articles_data: List[Dict], date: datetime) -> str:
         """Build AI prompt for daily overview generation"""
         
@@ -1143,11 +1372,12 @@ Focus on stories with:
 
 Return ONLY the JSON response."""
     
-    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
+    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None, topic: Optional[str] = None) -> str:
         """Build AI prompt for six articles detailed analysis with organizational context and custom config"""
 
-        # Prepare all articles for comprehensive analysis
-        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
+        # Prepare all articles for comprehensive analysis, marking starred ones
+        starred_uris_set = set(starred_articles) if starred_articles else None
+        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50, starred_uris=starred_uris_set)
 
         # Load custom configuration if user_id provided
         custom_config = None
@@ -1227,8 +1457,45 @@ Return ONLY the JSON response."""
         if starred_articles and len(starred_articles) > 0:
             starred_instruction = f"""
 
-⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
-The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
+⭐ **STARRED ARTICLES - MANDATORY OUTPUT**:
+The user has starred {len(starred_articles)} article(s) marked with ⭐ in the corpus below.
+CRITICAL: Your JSON output array MUST include ALL starred articles - they are required.
+- First, include all {len(starred_articles)} starred article(s) in your JSON response
+- Then add {article_count - len(starred_articles)} more articles to reach exactly {article_count} total
+- Return exactly {article_count} articles in your JSON array"""
+
+        # Build dynamic topic label and interests based on topic and org_profile
+        # This is computed first so it can be used in both custom and default prompts
+        topic_label = "Articles"  # Default generic label
+        topic_interests = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
+
+        if topic:
+            # Use topic name as the label
+            topic_label = f"{topic} Articles"
+            # Map common topics to interest descriptions
+            topic_interest_map = {
+                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+                "Technology": "technological developments, digital transformation, and innovation",
+                "Business": "market dynamics, competitive landscape, and business strategy",
+                "Finance": "financial markets, investment trends, and economic indicators",
+                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+                "Energy": "energy markets, sustainability initiatives, and industry transitions",
+                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+            }
+            topic_interests = topic_interest_map.get(topic, f"{topic.lower()} developments, trends, and strategic implications")
+
+        if org_profile:
+            # Override with org-specific focus if available
+            org_interests = []
+            if org_profile.get('strategic_priorities'):
+                org_interests.extend(org_profile.get('strategic_priorities', []))
+            if org_profile.get('key_concerns'):
+                org_interests.extend(org_profile.get('key_concerns', []))
+            if org_interests:
+                topic_interests = ', '.join(org_interests[:5])  # Limit to top 5 interests
+            # Add industry context if available
+            if org_profile.get('industry'):
+                topic_label = f"{org_profile.get('industry', 'Industry')} Articles"
 
         # Use custom prompt template if provided, otherwise use default
         if custom_config and custom_config.get('systemPrompt'):
@@ -1236,6 +1503,8 @@ The user has pre-selected {len(starred_articles)} articles by starring them. You
             custom_prompt = custom_config['systemPrompt']
             custom_prompt = custom_prompt.replace('{persona}', persona_info['title'])
             custom_prompt = custom_prompt.replace('{article_count}', str(article_count))
+            custom_prompt = custom_prompt.replace('{topic_label}', topic_label)
+            custom_prompt = custom_prompt.replace('{topic_interests}', topic_interests)
             custom_prompt = custom_prompt.replace('{persona_description}', persona_info['description'])
             custom_prompt = custom_prompt.replace('{persona_focus}', persona_info['focus'])
             custom_prompt = custom_prompt.replace('{starred_instruction}', starred_instruction)
@@ -1245,9 +1514,9 @@ The user has pre-selected {len(starred_articles)} articles by starring them. You
             return custom_prompt
 
         # Default prompt template
-        return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
+        return f"""🎯 {persona_info['title']} Daily Top-{article_count} {topic_label} — Analyst Prompt
 
-You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in {topic_interests}, with specific focus on {persona_info['focus']}.
 {starred_instruction}
 
 {audience_profile}
@@ -1426,11 +1695,12 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
         return profile_text
 
-    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
+    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None, topic: Optional[str] = None) -> str:
         """Build enhanced AI prompt that considers related articles and political leanings with custom config"""
 
-        # Prepare all articles for analysis
-        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
+        # Prepare all articles for analysis, marking starred ones
+        starred_uris_set = set(starred_articles) if starred_articles else None
+        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50, starred_uris=starred_uris_set)
 
         # Prepare bias analysis context
         bias_context = ""
@@ -1532,8 +1802,45 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
         if starred_articles and len(starred_articles) > 0:
             starred_instruction = f"""
 
-⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
-The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
+⭐ **STARRED ARTICLES - MANDATORY OUTPUT**:
+The user has starred {len(starred_articles)} article(s) marked with ⭐ in the corpus below.
+CRITICAL: Your JSON output array MUST include ALL starred articles - they are required.
+- First, include all {len(starred_articles)} starred article(s) in your JSON response
+- Then add {article_count - len(starred_articles)} more articles to reach exactly {article_count} total
+- Return exactly {article_count} articles in your JSON array"""
+
+        # Build dynamic topic label and interests based on topic and org_profile
+        # This is computed first so it can be used in both custom and default prompts
+        topic_label = "Articles"  # Default generic label
+        topic_interests = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
+
+        if topic:
+            # Use topic name as the label
+            topic_label = f"{topic} Articles"
+            # Map common topics to interest descriptions
+            topic_interest_map = {
+                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+                "Technology": "technological developments, digital transformation, and innovation",
+                "Business": "market dynamics, competitive landscape, and business strategy",
+                "Finance": "financial markets, investment trends, and economic indicators",
+                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+                "Energy": "energy markets, sustainability initiatives, and industry transitions",
+                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+            }
+            topic_interests = topic_interest_map.get(topic, f"{topic.lower()} developments, trends, and strategic implications")
+
+        if org_profile:
+            # Override with org-specific focus if available
+            org_interests = []
+            if org_profile.get('strategic_priorities'):
+                org_interests.extend(org_profile.get('strategic_priorities', []))
+            if org_profile.get('key_concerns'):
+                org_interests.extend(org_profile.get('key_concerns', []))
+            if org_interests:
+                topic_interests = ', '.join(org_interests[:5])  # Limit to top 5 interests
+            # Add industry context if available
+            if org_profile.get('industry'):
+                topic_label = f"{org_profile.get('industry', 'Industry')} Articles"
 
         # Use custom prompt template if provided, otherwise use default
         if custom_config and custom_config.get('systemPrompt'):
@@ -1541,6 +1848,8 @@ The user has pre-selected {len(starred_articles)} articles by starring them. You
             custom_prompt = custom_config['systemPrompt']
             custom_prompt = custom_prompt.replace('{persona}', persona_info['title'])
             custom_prompt = custom_prompt.replace('{article_count}', str(article_count))
+            custom_prompt = custom_prompt.replace('{topic_label}', topic_label)
+            custom_prompt = custom_prompt.replace('{topic_interests}', topic_interests)
             custom_prompt = custom_prompt.replace('{persona_description}', persona_info['description'])
             custom_prompt = custom_prompt.replace('{persona_focus}', persona_info['focus'])
             custom_prompt = custom_prompt.replace('{starred_instruction}', starred_instruction)
@@ -1552,9 +1861,9 @@ The user has pre-selected {len(starred_articles)} articles by starring them. You
             return custom_prompt
 
         # Default enhanced prompt template
-        return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
+        return f"""🎯 {persona_info['title']} Daily Top-{article_count} {topic_label} — Analyst Prompt
 
-You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in {topic_interests}, with specific focus on {persona_info['focus']}.
 {starred_instruction}
 
 {audience_profile}
@@ -1667,17 +1976,21 @@ executive_takeaway, strategic_relevance, time_horizon, risk_opportunity, signal_
 
 START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
-    def _prepare_articles_for_prompt(self, articles_data: List[Dict], max_articles: int = 50) -> str:
-        """Prepare articles data for AI prompt"""
-        
+    def _prepare_articles_for_prompt(self, articles_data: List[Dict], max_articles: int = 50, starred_uris: Optional[set] = None) -> str:
+        """Prepare articles data for AI prompt, optionally marking starred articles"""
+
         articles_text = []
         for i, article in enumerate(articles_data[:max_articles]):
             bias_info = f"Bias: {article.get('bias', 'Unknown')}" if article.get('bias') else ""
             factuality_info = f"Factuality: {article.get('factual_reporting', 'Unknown')}" if article.get('factual_reporting') else ""
-            
+
+            # Mark starred articles with ⭐
+            article_uri = article.get('uri', '')
+            starred_marker = "⭐ STARRED - " if starred_uris and article_uri in starred_uris else ""
+
             article_text = f"""
-Article {i+1}:
-URI: {article.get('uri', '')}
+{starred_marker}Article {i+1}:
+URI: {article_uri}
 Title: {article.get('title', '')}
 Source: {article.get('news_source', '')} {bias_info} {factuality_info}
 Published: {article.get('publication_date', '')}
@@ -1688,7 +2001,7 @@ Time to Impact: {article.get('time_to_impact', '')}
 Tags: {article.get('tags', '')}
 """
             articles_text.append(article_text.strip())
-        
+
         return "\n\n".join(articles_text)
     
     def _parse_overview_response(self, response_text: str) -> Dict[str, Any]:

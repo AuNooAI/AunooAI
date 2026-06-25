@@ -4,8 +4,10 @@ import logging
 import os
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.middleware.setup import setup_middleware
 from app.core.templates import setup_templates
@@ -24,6 +26,23 @@ async def lifespan(app: FastAPI):
     try:
         # Use the new centralized application initialization
         from app.startup import initialize_application
+
+        # ── Optional: override the default thread-pool executor ───────
+        # Python defaults to ``min(32, cpu_count+4)`` workers for the
+        # executor used by asyncio.to_thread / loop.run_in_executor(None).
+        # On the 20-core production box that's 24 — usually fine. Set
+        # SERVICE_EXECUTOR_MAX_WORKERS only if you actually need to
+        # shrink (under-resourced box) or grow (very many background
+        # services hammering it). Leaving unset preserves Python's default.
+        import os, asyncio
+        _ex_override = os.getenv("SERVICE_EXECUTOR_MAX_WORKERS")
+        if _ex_override:
+            from concurrent.futures import ThreadPoolExecutor
+            loop = asyncio.get_running_loop()
+            loop.set_default_executor(
+                ThreadPoolExecutor(max_workers=int(_ex_override),
+                                   thread_name_prefix="aunoo_pool_")
+            )
 
         # Configure logging
         logging.basicConfig(
@@ -79,6 +98,144 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_keyword_monitor_start())
         logger.info("Scheduled keyword monitor to start in 5 seconds")
 
+        # Start the emerging topics monitor background task with a delay
+        async def delayed_emerging_topics_monitor_start():
+            """Start emerging topics monitor after keyword monitor"""
+            await asyncio.sleep(10)  # Wait 10 seconds after startup
+            try:
+                from app.tasks.emerging_topics_monitor import run_emerging_topics_monitor
+                logger.info("Starting emerging topics monitor background task...")
+                asyncio.create_task(run_emerging_topics_monitor())
+                logger.info("Emerging topics monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start emerging topics monitor: {str(e)}")
+
+        asyncio.create_task(delayed_emerging_topics_monitor_start())
+        logger.info("Scheduled emerging topics monitor to start in 10 seconds")
+
+        # Start the observer agent monitor background task with a delay
+        async def delayed_observer_agent_monitor_start():
+            """Start observer agent monitor after other monitors"""
+            await asyncio.sleep(15)  # Wait 15 seconds after startup
+            try:
+                from app.tasks.observer_agent_monitor import run_observer_agent_monitor
+                logger.info("Starting observer agent monitor background task...")
+                asyncio.create_task(run_observer_agent_monitor())
+                logger.info("Observer agent monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start observer agent monitor: {str(e)}")
+
+        asyncio.create_task(delayed_observer_agent_monitor_start())
+        logger.info("Scheduled observer agent monitor to start in 15 seconds")
+
+        # Start the newsfeed dashboard monitor background task with a delay
+        async def delayed_newsfeed_dashboard_monitor_start():
+            """Start newsfeed dashboard monitor after other monitors"""
+            await asyncio.sleep(20)  # Wait 20 seconds after startup
+            try:
+                from app.tasks.newsfeed_dashboard_monitor import run_newsfeed_dashboard_monitor
+                logger.info("Starting newsfeed dashboard monitor background task...")
+                asyncio.create_task(run_newsfeed_dashboard_monitor())
+                logger.info("Newsfeed dashboard monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start newsfeed dashboard monitor: {str(e)}")
+
+        asyncio.create_task(delayed_newsfeed_dashboard_monitor_start())
+        logger.info("Scheduled newsfeed dashboard monitor to start in 20 seconds")
+
+        # Start the RSS feed monitor background task with a delay
+        async def delayed_rss_feed_monitor_start():
+            """Start RSS feed monitor after other monitors"""
+            await asyncio.sleep(25)  # Wait 25 seconds after startup
+            try:
+                from app.tasks.rss_feed_monitor import run_rss_feed_monitor
+                logger.info("Starting RSS feed monitor background task...")
+                asyncio.create_task(run_rss_feed_monitor())
+                logger.info("RSS feed monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start RSS feed monitor: {str(e)}")
+
+        asyncio.create_task(delayed_rss_feed_monitor_start())
+        logger.info("Scheduled RSS feed monitor to start in 25 seconds")
+
+        # Event-loop health monitor. Always on — overhead is one sleep+timestamp
+        # every 5s. Logs WARNING when scheduling lag exceeds 1s; samples
+        # available at GET /api/admin/event-loop-status.
+        async def delayed_event_loop_monitor_start():
+            await asyncio.sleep(3)
+            try:
+                from app.utils.event_loop_monitor import run_event_loop_monitor
+                logger.info("Starting event-loop monitor background task...")
+                asyncio.create_task(run_event_loop_monitor())
+            except Exception as e:
+                logger.error(f"Failed to start event-loop monitor: {e}")
+
+        asyncio.create_task(delayed_event_loop_monitor_start())
+
+        # Forecast tracker auto-reassessment. Gated by FORECAST_TRACKER_AUTO_RUN
+        # env flag — the monitor exits immediately if it's not set, so it's
+        # safe to always register here.
+        async def delayed_forecast_tracker_monitor_start():
+            await asyncio.sleep(30)
+            try:
+                from app.tasks.forecast_tracker_monitor import run_forecast_tracker_monitor
+                logger.info("Starting forecast tracker monitor background task...")
+                asyncio.create_task(run_forecast_tracker_monitor())
+                logger.info("Forecast tracker monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start forecast tracker monitor: {e}")
+
+        asyncio.create_task(delayed_forecast_tracker_monitor_start())
+        logger.info("Scheduled forecast tracker monitor to start in 30 seconds")
+
+        # Weekly Wiley candidate-discovery scan (+ daily snooze sweeper).
+        # Gated by WILEY_CANDIDATE_SCAN_ENABLED env (default on). Honest
+        # cost: one HDBSCAN run on the corpus + N LLM calls per scan, once
+        # a week. Sleeps 24h between ticks; sweeper runs every tick.
+        async def delayed_wiley_candidate_scheduler_start():
+            await asyncio.sleep(45)
+            try:
+                from app.tasks.wiley_candidate_scheduler import (
+                    run_wiley_candidate_scheduler,
+                )
+                logger.info("Starting Wiley candidate scheduler background task...")
+                asyncio.create_task(run_wiley_candidate_scheduler())
+                logger.info("Wiley candidate scheduler background task started")
+            except Exception as e:
+                logger.error(f"Failed to start Wiley candidate scheduler: {e}")
+
+        asyncio.create_task(delayed_wiley_candidate_scheduler_start())
+        logger.info("Scheduled Wiley candidate scheduler to start in 45 seconds")
+
+        # Dynamically schedule background tasks for enabled analysis modules
+        import importlib
+        from app.core.modules import get_enabled_modules
+
+        def _schedule_module_task(task_module, task_function, delay, label):
+            async def delayed_start():
+                await asyncio.sleep(delay)
+                try:
+                    mod = importlib.import_module(task_module)
+                    func = getattr(mod, task_function)
+                    logger.info(f"Starting {label} background task...")
+                    asyncio.create_task(func())
+                    logger.info(f"{label} background task started successfully")
+                except Exception as e:
+                    logger.error(f"Failed to start {label}: {e}")
+            asyncio.create_task(delayed_start())
+
+        for module in get_enabled_modules():
+            if module.task_module and module.task_function:
+                _schedule_module_task(
+                    module.task_module, module.task_function,
+                    module.task_delay, module.name)
+                logger.info(f"Scheduled {module.name} monitor to start in {module.task_delay}s")
+                for extra in module.extra_tasks:
+                    _schedule_module_task(
+                        extra.module, extra.function,
+                        extra.delay, f"{module.name} ({extra.function})")
+                    logger.info(f"Scheduled {module.name} extra task to start in {extra.delay}s")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise
@@ -129,7 +286,28 @@ def create_app() -> FastAPI:
 
     # Initialize FastAPI app with lifespan management
     app = FastAPI(title="AuNoo AI", lifespan=lifespan)
-    
+
+    # Add validation error handler for debugging
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        logger.error(f"Validation error on {request.url.path}: {exc.errors()}")
+        # Convert errors to JSON-serializable format (handle ValueError objects etc.)
+        errors = []
+        for err in exc.errors():
+            error_dict = dict(err)
+            # Convert any non-serializable objects to strings
+            if 'ctx' in error_dict and error_dict['ctx']:
+                ctx = error_dict['ctx']
+                if isinstance(ctx, dict):
+                    for key, value in ctx.items():
+                        if isinstance(value, Exception):
+                            ctx[key] = str(value)
+            errors.append(error_dict)
+        return JSONResponse(
+            status_code=422,
+            content={"detail": errors}
+        )
+
     # Setup middleware
     setup_middleware(app)
     

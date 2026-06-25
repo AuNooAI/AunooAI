@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import Dict, List, Optional, AsyncGenerator
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -16,171 +17,398 @@ from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
 from app.services.chart_service import ChartService
 from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
+from app.services.article_stats import compute_article_stats
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model
+from app.retrieval.reranker import rerank, overfetch_limit
+
+# Import sampling framework for strategy-based article selection
+from app.services.sampling import get_registry, SamplingContext
+
+# Import URL detection and lookup services
+from app.services.url_detector import detect_urls, is_url_query
+from app.services.url_lookup_service import lookup_urls_in_message, get_url_lookup_service
+
+# Import conversation compaction
+from app.services.conversation_compactor import (
+    needs_compaction,
+    compact_conversation,
+    get_compaction_status,
+    estimate_messages_tokens
+)
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+
+def _llm_call_kwargs(model: str, *, output_tokens: int,
+                     temperature: float = 0.7) -> dict:
+    """Build per-model completion kwargs for a litellm call.
+
+    GPT-5 is a reasoning model: it burns the output-token budget on
+    internal reasoning before emitting any user-visible text, so a
+    naive ``max_tokens=N`` + ``temperature=0.7`` call returns an empty
+    string for any non-trivial JSON-output prompt — which then trips the
+    "No valid JSON found in AI response" path.
+
+    For gpt-5.4* models we therefore pass ``reasoning_effort='minimal'``
+    + ``max_completion_tokens`` (NOT ``max_tokens``) with ~4× the
+    headroom so the structured JSON has room to land after the
+    reasoning step, and drop the ``temperature`` kwarg (gpt-5.4 doesn't
+    accept it). All other models keep the existing semantics.
+    """
+    if (model or "").startswith("gpt-5"):
+        # Reasoning + JSON share the same output budget. Give the model
+        # plenty of room (≥4× the caller's hint, clamped to gpt-5.4's real
+        # 128k cap) so the JSON tail doesn't get truncated by the
+        # reasoning preamble — the original 4096-token default cut the
+        # Consensus Analysis JSON at ~17k chars mid-document.
+        completion = max(output_tokens * 4, 16000)
+        completion = min(completion, 128000)
+        return {
+            "reasoning_effort": "minimal",
+            "max_completion_tokens": completion,
+        }
+    return {"max_tokens": output_tokens, "temperature": temperature}
+
+
+# =============================================================================
+# QUERY DEPTH CLASSIFICATION
+# =============================================================================
+
+# Quick response patterns - brief factual queries
+QUICK_PATTERNS = [
+    r'^what\s+is\s+the\s+sentiment',
+    r'^any\s+news\s+(about|on)',
+    r'^is\s+there\s+coverage',
+    r'^how\s+many\s+articles',
+    r'^what\s+sources',
+    r'^latest\s+on',
+    r'^quick\s+(overview|summary)',
+]
+QUICK_KEYWORDS = ['quickly', 'briefly', 'short', 'simple', 'just tell me', 'tldr']
+
+# Deep response patterns - thorough analysis
+DEEP_PATTERNS = [
+    r'analyze\s+(trends?|patterns?|shifts?)',
+    r'compare\s+.+\s+(vs?\.?|versus|and|to)',
+    r'what\s+are\s+the\s+implications',
+    r'strategic\s+(assessment|analysis)',
+    r'comprehensive',
+    r'in[\-\s]?depth',
+    r'detailed\s+analysis',
+    r'how\s+has\s+.+\s+evolved',
+    r'cross[\-\s]?reference',
+]
+DEEP_KEYWORDS = ['comprehensive', 'thorough', 'detailed', 'in-depth', 'deep dive',
+                 'implications', 'strategic', 'compare', 'contrast', 'evolve']
+
+
+def classify_query_depth(query: str) -> str:
+    """Classify query into 'quick', 'standard', or 'deep' for response formatting."""
+    query_lower = query.lower().strip()
+
+    # Check quick patterns first
+    for pattern in QUICK_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'quick'
+    if any(kw in query_lower for kw in QUICK_KEYWORDS):
+        return 'quick'
+
+    # Check deep patterns
+    for pattern in DEEP_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'deep'
+    if any(kw in query_lower for kw in DEEP_KEYWORDS):
+        return 'deep'
+
+    # Long complex questions suggest deep analysis
+    word_count = len(query.split())
+    if word_count > 25 or (query.count('?') > 1) or (query.count(' and ') >= 2):
+        return 'deep'
+
+    return 'standard'
+
+DEFAULT_MODEL = "gpt-5.4-mini"
 
 # Citation depth configuration
 DEFAULT_CITATION_LIMIT = 25      # Default number of articles to include in detailed context
 MIN_CITATION_LIMIT = 5           # Minimum useful citation count
 MAX_CITATION_LIMIT = 300         # Maximum to prevent context overflow
 
-# Default system prompt for Auspex
-DEFAULT_AUSPEX_PROMPT = """You are Auspex, an advanced AI research assistant specialized in analyzing news trends, sentiment patterns, and providing strategic insights using AuNoo's strategic-foresight methodology.
+# =============================================================================
+# MODULAR PROMPT SYSTEM
+# =============================================================================
 
-## Core Research Principles
+# Core prompt - always included (~45 lines)
+AUSPEX_CORE_PROMPT = """You are Auspex, a news research assistant that extracts insights from article databases.
 
-**Your Role:** Conduct rigorous, evidence-based research and analysis using AuNoo's tools and databases. Synthesize findings into clear, actionable insights while maintaining intellectual honesty about limitations and uncertainties.
+## Response Priorities
+1. **SPECIFIC DATA** - Numbers, percentages, dates, names, quotes from articles
+2. **INLINE CITATIONS** - Every claim links to source: [Article Title](URL)
+3. **CONCISE** - No filler phrases, no restating the question
 
-**ALWAYS CITE SOURCES INLINE:** When you reference a specific finding, data point, claim, or event, immediately cite the source article using markdown format: **[Article Title](URL)**
+## Citation Format (MANDATORY)
+Every factual claim needs a source. Use markdown links inline:
+- "Coverage increased 340% in December ([Reuters](url))"
+- "[WSJ](url) reports 67% of companies now use AI diagnostics"
+- "The CEO stated 'we expect 50% growth' ([TechCrunch](url))"
 
-Examples:
-- "Turkey deployed disaster relief teams to Gaza ([Turkey sends aid to Gaza](https://example.com/article1))"
-- "According to [AI Regulation Update](https://example.com/article2), the EU AI Act negotiations continue"
-- "Venture capital AI investment dropped 23% quarter-over-quarter - Source: [VC Trends Report](https://example.com/article3)"
+## What NOT to Include
+- Dataset statistics (shown in Insights panel automatically)
+- Generic observations ("coverage is varied", "sources have different views")
+- Recommendations unless explicitly asked
 
-**Response Style:**
-- Write naturally and adapt your structure to the query type
-- Use inline citations throughout (not just a list at the end)
-- Provide specific data: numbers, percentages, names, dates, amounts
-- Focus on "why" and "so what" - implications matter more than descriptions
-- Be concise but substantive - avoid filler and generic statements
-- Note gaps, limitations, and areas of uncertainty
+## Extraction Targets
+From articles, extract and cite:
+- **NUMBERS**: percentages, dollar amounts, counts, growth rates
+- **QUOTES**: notable statements from sources or executives
+- **NAMES**: companies, people, organizations mentioned
+- **DATES**: when events occurred or will occur
+- **PATTERNS**: surprising correlations, emerging trends
 
-**Optional Structural Elements:**
-You may include these elements when they add value (not required for every response):
-- Statistical summaries (article counts, distributions)
-- Tables for comparative analysis
-- Bulleted key takeaways
-- Separate article references section (in addition to inline citations)
+## Research Standards
+- If no articles found, clearly state this - never hallucinate
+- When asked about specific entities, verify they're actually mentioned
+- Distinguish database articles from real-time web search results
+"""
 
-Adapt your format to match the query type - exploratory questions need different structures than specific fact-finding queries.
+# Quick format - brief factual responses (~15 lines)
+AUSPEX_QUICK_FORMAT = """
+## Response Format: BRIEF
+This is a quick factual query. Provide a direct answer in 2-4 sentences.
 
-## AuNoo Strategic Foresight Framework
+Structure:
+- Lead with the direct answer
+- Support with 1-2 key data points with citations
+- No headers or bullet lists needed
 
-Analyze articles across multiple dimensions to identify patterns and implications:
+Example:
+Query: "What's the sentiment on AI regulation?"
+Response: "Coverage is predominantly cautious - 67% neutral-to-negative across 45 articles. [Financial Times](url) highlights regulatory uncertainty, while [TechCrunch](url) notes startup concerns about compliance costs."
+"""
 
-**Key Dimensions:**
-- **Categories**: Thematic sub-clusters (e.g., "AI in Healthcare", "AI Policy")
-- **Future Signals**: Weak Signal, Emerging Trend, Established Trend, Disruption
-- **Sentiments**: Positive, Neutral, Critical, Negative
-- **Time to Impact**: Immediate (0-6mo), Short-term (6-18mo), Mid-term (18-36mo), Long-term (3y+)
-- **Driver Types**: Technology, Policy, Economic, Social, Environmental
+# Standard format - balanced analysis (~20 lines)
+AUSPEX_STANDARD_FORMAT = """
+## Response Format: STANDARD
+Provide a balanced analysis with key findings. Target: 150-300 words.
 
-**Analysis Approach:**
-1. Identify dominant patterns across dimensions
-2. Cross-reference signals, sentiment, and timing
-3. Note outliers and unexpected combinations
-4. Extract strategic implications from patterns
-5. Assess source diversity and representativeness
+Structure:
+1. **Opening insight** - Most interesting finding (1-2 sentences)
+2. **Supporting evidence** - 3-5 specific data points with citations
+3. **Notable patterns** - What stands out or surprises
+4. **Follow-up questions** - 2-3 natural questions to explore further (optional)
 
-## Available Research Tools
+Example Opening:
+"AI in healthcare is accelerating faster than predicted - [NEJM](url) reports 78% of US hospitals now use AI diagnostics, up from 34% two years ago. The shift is being driven by..."
+"""
 
-You have access to sophisticated search and analysis tools. Use them strategically:
+# Deep format - comprehensive analysis (~25 lines)
+AUSPEX_DEEP_FORMAT = """
+## Response Format: DEEP ANALYSIS
+Provide comprehensive analysis with structured findings. Target: 400-800 words.
 
-**Primary Search Tool:**
-- `enhanced_database_search(query, topic, limit)` - Your default for most queries. Combines semantic vector search with intelligent fallback to keyword search. Automatically detects date patterns like "last 7 days" and applies temporal filters.
+Structure:
+1. **Key Finding** - Single most significant insight (1-2 sentences)
+2. **Evidence by Theme** - Group findings with citations:
+   - Theme 1: [data point + citation], [data point + citation]
+   - Theme 2: [data point + citation], [data point + citation]
+3. **Patterns & Anomalies** - What stands out, what conflicts, what's missing
+4. **Source Assessment** - Coverage gaps, potential bias, date ranges
 
-**Specialized Tools:**
-- `search_news(query, max_results, days_back)` - For breaking news or very recent content (<24 hours)
-- `get_topic_articles(topic, limit, days_back)` - Broad overview of all articles in a topic
-- `analyze_sentiment_trends(topic, time_period)` - Sentiment distribution analysis
-- `get_article_categories(topic)` - Category breakdown for topic planning
-- `search_articles_by_categories(categories, topic, limit)` - Category-specific deep dives
-- `search_articles_by_keywords(keywords, topic, limit)` - Precise keyword matching
-- `follow_up_query(original_query, follow_up, topic, context)` - Iterative exploration
+Data Extraction Checklist (aim to include):
+- At least 3 specific companies/organizations named
+- At least 2 specific numbers/percentages quoted
+- Citations from at least 3 different publications
+- Date ranges of the coverage noted
+"""
 
-**Tool Selection Strategy:**
-- Default to `enhanced_database_search()` - it's smart and adapts automatically
-- Use `search_news()` only when user explicitly asks for "latest" or "breaking" news
-- Use category/keyword tools when you need precision over semantic understanding
-- Use `follow_up_query()` for iterative, conversational analysis
 
-## Search Strategy Best Practices
+def get_format_block(query_depth: str) -> str:
+    """Return the appropriate format block for the query depth."""
+    return {
+        'quick': AUSPEX_QUICK_FORMAT,
+        'standard': AUSPEX_STANDARD_FORMAT,
+        'deep': AUSPEX_DEEP_FORMAT
+    }.get(query_depth, AUSPEX_STANDARD_FORMAT)
 
-**Query Formulation:**
-- Include explicit time references: "last 7 days", "past month", "recent"
-- Be specific with concepts but natural in language
-- Mention categories when relevant
-- State the analysis goal clearly
 
-**Result Validation:**
-- Check article count (optimal: 25-100 for focused analysis)
-- Verify source diversity (aim for 10-20 unique sources)
-- Confirm date range matches query intent
-- Note any gaps or biases in coverage
+def build_system_prompt(query: str = None, query_depth: str = None) -> str:
+    """Build the complete system prompt based on query depth."""
+    if query_depth is None and query:
+        query_depth = classify_query_depth(query)
+    elif query_depth is None:
+        query_depth = 'standard'
 
-**Iterative Analysis:**
-Treat research as a conversation - start broad, then drill down based on findings.
+    format_block = get_format_block(query_depth)
+    return AUSPEX_CORE_PROMPT + format_block
 
-## Critical Research Standards
 
-**NEVER HALLUCINATE:**
-- If no articles found, clearly state this
-- Don't create fictional analysis or connections
-- Note limitations and gaps honestly
+# Legacy compatibility - default to standard format
+DEFAULT_AUSPEX_PROMPT = AUSPEX_CORE_PROMPT + AUSPEX_STANDARD_FORMAT
 
-**VERIFY ENTITY MENTIONS:**
-- When asked about specific companies/entities, only analyze articles that actually mention them
-- Report exact counts: "X of Y articles mention [entity]"
-- Don't conflate general topic coverage with entity-specific coverage
+# =============================================================================
+# VERSATILE PROMPT SYSTEM
+# =============================================================================
 
-**SOURCE EVERYTHING:**
-- Cite inline using markdown: [Article Title](URL)
-- Every specific claim, statistic, or quote needs a citation
-- Examples:
-  - "Investment increased 45% ([VC Report Q4](https://example.com))"
-  - "According to [EU AI Act Update](https://example.com), negotiations continue"
-  - "Turkey deployed aid teams - Source: [Relief Efforts](https://example.com)"
+# Query intent patterns for classification
+CASUAL_PATTERNS = [
+    r'^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening))[\s!.,]*$',
+    r'^how\s+are\s+you',
+    r'^what\'?s\s+up',
+    r'^thanks?(\s+you)?[\s!.,]*$',
+    r'^(bye|goodbye|see\s+you)[\s!.,]*$',
+]
 
-**DISTINGUISH DATA SOURCES:**
-- Clearly label database articles vs real-time news
-- Note time windows and coverage periods
-- Indicate when mixing historical and recent data
+SYSTEM_PATTERNS = [
+    r'(can|do)\s+you\s+(help|assist|do)',
+    r'what\s+(can|do)\s+you\s+do',
+    r'how\s+do\s+(i|you)\s+use',
+    r'explain\s+(your|the)\s+(features?|capabilities)',
+    r'what\s+are\s+your\s+(features?|capabilities)',
+    r'(tell|show)\s+me\s+about\s+(yourself|your\s+features)',
+]
 
-## Analysis Quality Standards
+RESEARCH_PATTERNS = [
+    r'(what|how|why|when|where|who)\s+.*(article|news|report|coverage|data|trend)',
+    r'(search|find|look\s*up|analyze|summarize)',
+    r'(sentiment|trend|pattern|theme|topic)',
+    r'(compare|contrast|difference|between)',
+    r'(latest|recent|new|current)\s+(news|article|coverage|development)',
+]
 
-**Provide Specific Data:**
-- Use exact numbers, percentages, and counts
-- Name companies, organizations, countries, people
-- Quote key figures and statistics
-- Reference concrete examples from articles
 
-**Show Your Work:**
-- Report article counts and distributions when relevant
-- Note source diversity (number of unique sources)
-- Indicate time windows and date ranges
-- Acknowledge gaps and limitations
+def classify_query_intent(query: str) -> str:
+    """
+    Classify query intent for response style adjustment.
 
-**Focus on Implications:**
-- Don't just describe what's happening - explain why it matters
-- Identify strategic implications for decision-makers
-- Note emerging patterns and potential inflection points
-- Provide actionable insights, not just summaries
+    Returns: 'casual', 'system', 'research', or 'general'
 
-**Maintain Intellectual Honesty:**
-- Acknowledge conflicting evidence when present
-- Note areas of uncertainty
-- Distinguish speculation from evidence
-- Recommend further research when appropriate
+    Note: This affects response STYLE, not database search behavior.
+    Database tools are always available regardless of intent.
+    """
+    query_lower = query.lower().strip()
 
-## Formatting Guidelines
+    # Check casual patterns (greetings, etc.)
+    for pattern in CASUAL_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'casual'
 
-Use markdown effectively but don't over-structure:
-- **Bold** for emphasis and key metrics
-- Bullet points for lists and breakdowns
-- Tables when comparing multiple dimensions (optional, use when it adds clarity)
-- > Block quotes for important article quotes
-- [Article Title](URL) for all inline citations
+    # Check system/feature question patterns
+    for pattern in SYSTEM_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'system'
 
-**Follow-up Suggestions:**
-If you offer follow-up questions, limit to 2-3 high-priority natural language questions. Write them as a user would ask: "What are the latest developments in AI safety regulations?" NOT as technical function calls.
+    # Check research patterns
+    for pattern in RESEARCH_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'research'
 
-Remember: You are a strategic research assistant. Focus on extracting meaning and implications from data, not just reporting what you found. Every claim should be sourced with inline citations."""
+    return 'general'
+
+
+# Versatile core prompt - conversational but data-focused
+AUSPEX_VERSATILE_CORE = """You are Auspex, an AI research assistant that helps users explore and understand news article databases.
+
+## Current Date Context
+Today's date is: {current_date}
+
+IMPORTANT: Your training data has a knowledge cutoff. The articles in this database contain CURRENT information. You MUST:
+- Trust article content over your training data for current events
+- Do not "correct" or question article descriptions of current political situations, people in office, or recent events
+- If articles describe someone as current president/leader, accept that as fact
+- Report what articles say, even if it seems to conflict with your prior knowledge
+
+## Your Approach
+1. **Always search the database** for relevant information, even for general questions
+2. **Be conversational** but stay grounded in data
+3. **Clearly distinguish** what comes from the database vs your general knowledge
+
+## Response Guidelines
+- For data-backed claims: Use citations like [Article Title](URL)
+- For opinions or analysis: Clearly state "Based on my analysis..." or "From what I observe..."
+- When no data found: Explicitly say "I didn't find any articles on this topic in the database"
+- For casual conversation: Respond briefly but offer to help with research
+
+## Citation Requirements
+Every factual claim about the articles must include a source:
+- "Sentiment is 67% positive ([Reuters](url), [WSJ](url))"
+- "[TechCrunch](url) reports the acquisition closed for $2B"
+
+## What You Do
+- Search and analyze article databases
+- Extract specific data points, quotes, and trends
+- Provide sentiment analysis and pattern recognition
+- Compare coverage across sources and time periods
+"""
+
+# Data integrity block - always included
+AUSPEX_DATA_INTEGRITY = """
+## Data Integrity Standards
+1. **Database First**: Always search the database before answering questions about topics
+2. **Source Attribution**: Every factual claim must cite its source article
+3. **Clear Boundaries**: Distinguish between:
+   - "The database shows..." (data-based)
+   - "Based on my knowledge..." (general knowledge)
+   - "I couldn't find data on this..." (no matches)
+4. **No Hallucination**: Never invent article titles, URLs, or quotes
+"""
+
+# System mode block - for feature questions
+AUSPEX_SYSTEM_MODE = """
+## Answering Questions About Your Capabilities
+When users ask about what you can do:
+- Briefly explain your research capabilities
+- Offer to demonstrate with a sample search
+- Keep explanations concise
+
+You can:
+- Search article databases by topic, keyword, or semantic meaning
+- Analyze sentiment and trends across articles
+- Extract specific data points, quotes, and statistics
+- Compare coverage across sources and time periods
+- Generate visualizations like sentiment charts
+"""
+
+# Casual mode block - for greetings
+AUSPEX_CASUAL_MODE = """
+## Casual Conversation Style
+For greetings and casual messages:
+- Respond briefly and warmly
+- Offer to help with research
+- Don't over-explain your capabilities unless asked
+"""
+
+
+def build_versatile_prompt(query: str) -> str:
+    """
+    Build a versatile system prompt based on query intent.
+
+    The prompt always includes data integrity requirements.
+    Style varies based on intent but database search is always available.
+    """
+    intent = classify_query_intent(query)
+
+    # Inject current date into the core prompt
+    from datetime import datetime
+    current_date = datetime.now().strftime("%B %d, %Y")
+    core_with_date = AUSPEX_VERSATILE_CORE.format(current_date=current_date)
+
+    # Always start with versatile core and data integrity
+    prompt_parts = [core_with_date, AUSPEX_DATA_INTEGRITY]
+
+    # Add intent-specific guidance
+    if intent == 'system':
+        prompt_parts.append(AUSPEX_SYSTEM_MODE)
+    elif intent == 'casual':
+        prompt_parts.append(AUSPEX_CASUAL_MODE)
+    elif intent == 'research':
+        # For research, add the appropriate format block
+        query_depth = classify_query_depth(query)
+        prompt_parts.append(get_format_block(query_depth))
+
+    return "\n".join(prompt_parts)
+
 
 class OptimizedContextManager:
     """Manages context window optimization for Auspex."""
@@ -377,49 +605,17 @@ class OptimizedContextManager:
         # Strategy 3: Fill remaining with highest-scoring articles
         remaining_articles = [a for a in articles if a not in selected]
         remaining_articles.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
-        
+
         while len(selected) < target_count and remaining_articles:
             selected.append(remaining_articles.pop(0))
-        
-        # Strategy 4: If we still need more articles and have a large target (mega-context models)
-        # Duplicate high-value articles with different perspectives to fill the context
+
+        # Note: We no longer duplicate articles to reach target count.
+        # Duplicating the same articles doesn't add analytical value and can skew results.
+        # If fewer unique articles are available, we return what we have.
         if len(selected) < target_count:
-            logger.info(f"Scaling up articles to reach target {target_count} (currently have {len(selected)} from {len(articles)} original)")
-            
-            # Create additional copies of top articles with different analytical angles
-            all_articles_sorted = sorted(articles, key=lambda x: x.get("similarity_score", 0), reverse=True)
-            duplication_rounds = 0
-            max_rounds = 10  # Prevent infinite loops
-            
-            while len(selected) < target_count and duplication_rounds < max_rounds:
-                articles_added_this_round = 0
-                
-                for i, source_article in enumerate(all_articles_sorted):
-                    if len(selected) >= target_count:
-                        break
-                        
-                    # Create enhanced copy with different analytical focus
-                    enhanced_copy = source_article.copy()
-                    enhanced_copy["id"] = f"{source_article.get('id', 'unknown')}_r{duplication_rounds}_i{i}"
-                    
-                    # Add different analytical perspectives
-                    perspectives = [
-                        "trend_analysis", "impact_assessment", "stakeholder_analysis", 
-                        "risk_evaluation", "opportunity_identification", "comparative_analysis"
-                    ]
-                    enhanced_copy["analysis_focus"] = perspectives[duplication_rounds % len(perspectives)]
-                    enhanced_copy["duplication_round"] = duplication_rounds
-                    
-                    selected.append(enhanced_copy)
-                    articles_added_this_round += 1
-                
-                duplication_rounds += 1
-                logger.info(f"Duplication round {duplication_rounds}: added {articles_added_this_round} articles, total: {len(selected)}")
-                
-                if articles_added_this_round == 0:
-                    break  # Prevent infinite loop if no articles were added
-        
-        logger.info(f"Final diverse selection: {len(selected)} articles (target was {target_count})")
+            logger.info(f"Returning {len(selected)} unique articles (target was {target_count}, but only {len(articles)} available)")
+        else:
+            logger.info(f"Final diverse selection: {len(selected)} articles (target was {target_count})")
         return selected[:target_count]
     
     def cluster_similar_articles(self, articles: List[Dict], max_clusters: int = 8) -> List[Dict]:
@@ -575,6 +771,534 @@ class OptimizedContextManager:
         
         return context
 
+
+class QueryRouter:
+    """Smart query router that selects optimal data retrieval strategy based on query type.
+
+    Routes queries to different strategies:
+    - temporal_analysis: SQL date-based fetch (like newsletter) - for trends, patterns, recent
+    - semantic_search: Vector search with optional LLM query expansion
+    - cross_topic_semantic: Parallel per-topic vector searches
+    - entity_focused: Keyword + vector hybrid for specific entities
+    """
+
+    # Keywords that indicate temporal/trend analysis queries
+    TEMPORAL_KEYWORDS = [
+        'trend', 'trends', 'trending', 'pattern', 'patterns',
+        'over time', 'recent', 'latest', 'last week', 'last month',
+        'past 7 days', 'past 30 days', 'developments', 'evolution',
+        'changing', 'shift', 'shifting', 'emerging'
+    ]
+
+    # Keywords that indicate semantic/conceptual queries
+    SEMANTIC_INDICATORS = [
+        'about', 'regarding', 'related to', 'impact of', 'effect of',
+        'what is', 'how does', 'explain', 'why is', 'implications',
+        'consequences', 'connection between', 'relationship'
+    ]
+
+    # Time period patterns for extraction
+    TIME_PATTERNS = {
+        'last 7 days': 7, 'past 7 days': 7, 'last week': 7, 'past week': 7,
+        'last 14 days': 14, 'past 14 days': 14, 'last two weeks': 14,
+        'last 30 days': 30, 'past 30 days': 30, 'last month': 30, 'past month': 30,
+        'last 90 days': 90, 'past 90 days': 90, 'last quarter': 90,
+        'last 365 days': 365, 'past year': 365, 'last year': 365,
+    }
+
+    # Minimum articles per topic for cross-topic allocation
+    MIN_PER_TOPIC = 10
+
+    def __init__(self, db, analyze_db=None):
+        self.db = db
+        self.analyze_db = analyze_db or AnalyzeDB(db)
+        self.logger = logging.getLogger(__name__)
+
+    def classify_query(self, query: str) -> str:
+        """Classify query into routing category.
+
+        Returns one of: 'temporal_analysis', 'semantic_search', 'entity_focused', 'comprehensive'
+        """
+        query_lower = query.lower()
+
+        # Check for temporal/trend indicators first (highest priority)
+        if any(keyword in query_lower for keyword in self.TEMPORAL_KEYWORDS):
+            return 'temporal_analysis'
+
+        # Check for entity-focused queries (specific companies, people, products)
+        if self._has_entity_focus(query):
+            return 'entity_focused'
+
+        # Check for semantic/conceptual queries
+        if any(indicator in query_lower for indicator in self.SEMANTIC_INDICATORS):
+            return 'semantic_search'
+
+        # Default to comprehensive
+        return 'comprehensive'
+
+    def _has_entity_focus(self, query: str) -> bool:
+        """Detect if query is focused on a specific entity."""
+        import re
+
+        # Common analysis terms that look like names but aren't entities
+        ANALYSIS_TERMS = {
+            'sentiment analysis', 'trend analysis', 'market analysis',
+            'impact analysis', 'risk analysis', 'deep dive', 'all topics',
+            'executive summary', 'key insights', 'comprehensive analysis',
+            'pattern recognition', 'signal detection', 'future signals'
+        }
+
+        query_lower = query.lower()
+        # Skip entity detection if query contains common analysis terms
+        if any(term in query_lower for term in ANALYSIS_TERMS):
+            return False
+
+        # Company patterns (OpenAI, Microsoft Corp, etc.)
+        company_pattern = r'\b[A-Z][a-zA-Z]*(?:AI|ML|Inc|Corp|Ltd|LLC|Labs?|Tech)\b'
+        # Person name patterns (two capitalized words, but more restrictive)
+        # Require 3+ letter words to avoid "AI Day", "US Civil", etc.
+        person_pattern = r'\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b'
+
+        if re.search(company_pattern, query):
+            return True
+        if re.search(person_pattern, query):
+            return True
+        return False
+
+    def extract_time_period(self, query: str) -> int:
+        """Extract time period in days from query. Default is 7 days."""
+        query_lower = query.lower()
+        for pattern, days in self.TIME_PATTERNS.items():
+            if pattern in query_lower:
+                return days
+        # Default to 7 days for trend queries
+        return 7
+
+    def calculate_topic_allocations(self, topics: Dict[str, int], limit: int) -> Dict[str, int]:
+        """Calculate per-topic article allocations using min+proportional strategy.
+
+        Args:
+            topics: Dict mapping topic name to article count
+            limit: Total articles to allocate
+
+        Returns:
+            Dict mapping topic name to allocated article count
+        """
+        if not topics:
+            return {}
+
+        num_topics = len(topics)
+
+        # Handle case where limit is too small for min allocation
+        if limit < num_topics * self.MIN_PER_TOPIC:
+            # Just divide equally
+            per_topic = max(1, limit // num_topics)
+            return {topic: per_topic for topic in topics}
+
+        # Base allocation: MIN_PER_TOPIC per topic
+        allocations = {topic: self.MIN_PER_TOPIC for topic in topics}
+        allocated = self.MIN_PER_TOPIC * num_topics
+
+        # Remaining to distribute proportionally
+        remaining = limit - allocated
+        if remaining > 0:
+            total_articles = sum(topics.values())
+            if total_articles > 0:
+                for topic, count in topics.items():
+                    proportion = count / total_articles
+                    extra = int(remaining * proportion)
+                    allocations[topic] += extra
+
+        return allocations
+
+    async def route(self, query: str, topic: str, limit: int,
+                    citation_limit: Optional[int] = None) -> Dict:
+        """Route query to appropriate data retrieval strategy.
+
+        Args:
+            query: User's search query
+            topic: Topic name or None for cross-topic
+            limit: Maximum articles to return
+            citation_limit: Optional citation limit override
+
+        Returns:
+            Dict with 'articles', 'search_method', 'metadata'
+        """
+        query_type = self.classify_query(query)
+        is_cross_topic = (topic is None or topic == '__all__')
+        effective_topic = None if is_cross_topic else topic
+
+        self.logger.info(f"QueryRouter: type={query_type}, cross_topic={is_cross_topic}, query='{query[:50]}...'")
+
+        if query_type == 'temporal_analysis':
+            # Use newsletter-style SQL fetch for trend queries
+            return await self._temporal_fetch(query, effective_topic, limit)
+
+        elif is_cross_topic and query_type in ('semantic_search', 'comprehensive'):
+            # Parallel per-topic vector searches for cross-topic semantic queries
+            return await self._cross_topic_semantic_search(query, limit, citation_limit)
+
+        elif query_type == 'entity_focused':
+            # Use existing entity search logic (keyword + vector hybrid)
+            return await self._entity_search(query, effective_topic, limit)
+
+        else:
+            # Single-topic semantic search with optional query expansion
+            return await self._smart_vector_search(query, effective_topic, limit, citation_limit)
+
+    async def _temporal_fetch(self, query: str, topic: str, limit: int) -> Dict:
+        """Fetch articles by date range (newsletter-style) for temporal queries."""
+        days_back = self.extract_time_period(query)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+
+        self.logger.info(f"Temporal fetch: {days_back} days, topic={topic}")
+
+        # Fetch more articles than needed, then sample
+        fetch_limit = min(limit * 4, 2000)
+
+        articles = self.db.facade.get_recent_articles_by_topic(
+            topic_name=topic,  # None for cross-topic
+            limit=fetch_limit,
+            start_date=start_date.strftime('%Y-%m-%d'),
+            end_date=end_date.strftime('%Y-%m-%d')
+        )
+
+        if not articles:
+            return {
+                'articles': [],
+                'search_method': 'temporal_sql_fetch',
+                'metadata': {
+                    'query_type': 'temporal_analysis',
+                    'days_back': days_back,
+                    'topic': topic,
+                    'total_found': 0
+                }
+            }
+
+        # For cross-topic, apply topic-balanced sampling
+        if topic is None:
+            sampled = self._sample_topic_balanced(articles, limit)
+        else:
+            sampled = articles[:limit]
+
+        return {
+            'articles': sampled,
+            'search_method': 'temporal_sql_fetch',
+            'metadata': {
+                'query_type': 'temporal_analysis',
+                'days_back': days_back,
+                'topic': topic or 'All Topics',
+                'total_found': len(articles),
+                'sampled': len(sampled)
+            }
+        }
+
+    def _sample_topic_balanced(self, articles: List[Dict], limit: int) -> List[Dict]:
+        """Sample articles with balanced topic representation."""
+        if len(articles) <= limit:
+            return articles
+
+        # Group by topic
+        by_topic = defaultdict(list)
+        for article in articles:
+            t = article.get('topic', 'Unknown')
+            by_topic[t].append(article)
+
+        # Calculate allocations
+        topic_counts = {t: len(arts) for t, arts in by_topic.items()}
+        allocations = self.calculate_topic_allocations(topic_counts, limit)
+
+        # Sample from each topic
+        sampled = []
+        for topic_name, allocation in allocations.items():
+            topic_articles = by_topic.get(topic_name, [])
+            # Sort by recency (assume publication_date is sortable)
+            topic_articles.sort(key=lambda x: x.get('publication_date', ''), reverse=True)
+            sampled.extend(topic_articles[:allocation])
+
+        # Sort final result by date
+        sampled.sort(key=lambda x: x.get('publication_date', ''), reverse=True)
+        return sampled[:limit]
+
+    async def _cross_topic_semantic_search(self, query: str, limit: int,
+                                           citation_limit: Optional[int] = None) -> Dict:
+        """Run parallel vector searches per topic, then combine results."""
+        # Get topics with article counts
+        topics_data = self.db.facade.get_topics_with_article_counts()
+
+        if not topics_data:
+            self.logger.warning("No topics found for cross-topic search")
+            return {
+                'articles': [],
+                'search_method': 'cross_topic_parallel_vector',
+                'metadata': {'error': 'No topics found'}
+            }
+
+        topic_counts = {topic: data['article_count'] for topic, data in topics_data.items()}
+        self.logger.info(f"Cross-topic search across {len(topic_counts)} topics: {topic_counts}")
+
+        # Calculate per-topic allocations
+        search_limit = citation_limit if citation_limit and citation_limit > limit else limit
+        allocations = self.calculate_topic_allocations(topic_counts, search_limit)
+
+        # Run parallel vector searches
+        tasks = [
+            self._vector_search_topic(query, topic_name, allocation)
+            for topic_name, allocation in allocations.items()
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Combine results
+        all_articles = []
+        per_topic_counts = {}
+
+        for topic_name, result in zip(allocations.keys(), results):
+            if isinstance(result, Exception):
+                self.logger.error(f"Search failed for topic {topic_name}: {result}")
+                per_topic_counts[topic_name] = 0
+                continue
+
+            articles = result.get('articles', [])
+            per_topic_counts[topic_name] = len(articles)
+            all_articles.extend(articles)
+
+        # Deduplicate by URI
+        seen_uris = set()
+        unique_articles = []
+        for article in all_articles:
+            uri = article.get('uri', '')
+            if uri and uri not in seen_uris:
+                seen_uris.add(uri)
+                unique_articles.append(article)
+
+        # Sort by similarity score then date
+        unique_articles.sort(
+            key=lambda x: (x.get('similarity_score', 0), x.get('publication_date', '')),
+            reverse=True
+        )
+
+        final_articles = unique_articles[:limit]
+
+        return {
+            'articles': final_articles,
+            'search_method': 'cross_topic_parallel_vector',
+            'metadata': {
+                'query_type': 'cross_topic_semantic',
+                'topics_searched': len(allocations),
+                'allocations': allocations,
+                'per_topic_results': per_topic_counts,
+                'total_found': len(all_articles),
+                'unique_after_dedup': len(unique_articles),
+                'final_count': len(final_articles)
+            }
+        }
+
+    async def _vector_search_topic(self, query: str, topic: str, limit: int) -> Dict:
+        """Run vector search for a single topic."""
+        try:
+            metadata_filter = {"topic": topic}
+
+            fetch_k = overfetch_limit(limit)
+            results = vector_search_articles(
+                query=query,
+                top_k=fetch_k,
+                metadata_filter=metadata_filter
+            )
+
+            articles = []
+            for result in results or []:
+                metadata = result.get('metadata', {})
+                if not metadata:
+                    continue
+
+                articles.append({
+                    'uri': metadata.get('uri', ''),
+                    'url': metadata.get('url') or metadata.get('link') or metadata.get('uri', ''),
+                    'title': metadata.get('title', 'Unknown Title'),
+                    'summary': metadata.get('summary', ''),
+                    'category': metadata.get('category', 'Uncategorized'),
+                    'sentiment': metadata.get('sentiment', 'Neutral'),
+                    'future_signal': metadata.get('future_signal', 'None'),
+                    'time_to_impact': metadata.get('time_to_impact', 'Unknown'),
+                    'publication_date': metadata.get('publication_date', ''),
+                    'news_source': metadata.get('news_source', 'Unknown'),
+                    'topic': topic,
+                    'similarity_score': result.get('score', 0.0)
+                })
+
+            articles = await rerank(
+                query=query,
+                candidates=articles,
+                text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
+                top_k=limit,
+            )
+
+            return {'articles': articles, 'topic': topic}
+
+        except Exception as e:
+            self.logger.error(f"Vector search failed for topic {topic}: {e}")
+            return {'articles': [], 'topic': topic, 'error': str(e)}
+
+    async def _entity_search(self, query: str, topic: str, limit: int) -> Dict:
+        """Search for entity-focused queries using keyword + vector hybrid."""
+        # For now, delegate to smart vector search
+        # The existing entity detection in _original_chat_database_logic handles this
+        return await self._smart_vector_search(query, topic, limit)
+
+    async def _smart_vector_search(self, query: str, topic: str, limit: int,
+                                   citation_limit: Optional[int] = None) -> Dict:
+        """Smart vector search with optional LLM query expansion for complex queries."""
+        search_limit = citation_limit if citation_limit and citation_limit > limit else limit
+
+        # For simple queries, just do direct vector search
+        if len(query.split()) <= 5 or self._is_simple_query(query):
+            return await self._direct_vector_search(query, topic, search_limit)
+
+        # For complex queries, use LLM to generate multiple search queries
+        generated_queries = await self._generate_search_queries(query, topic)
+
+        if not generated_queries or len(generated_queries) <= 1:
+            # Fallback to direct search
+            return await self._direct_vector_search(query, topic, search_limit)
+
+        # Run searches for each generated query
+        all_articles = []
+        per_query = max(10, search_limit // len(generated_queries))
+
+        for gen_query in generated_queries:
+            result = await self._direct_vector_search(gen_query, topic, per_query)
+            all_articles.extend(result.get('articles', []))
+
+        # Deduplicate and rank
+        seen_uris = set()
+        unique_articles = []
+        for article in all_articles:
+            uri = article.get('uri', '')
+            if uri and uri not in seen_uris:
+                seen_uris.add(uri)
+                unique_articles.append(article)
+
+        # Sort by rerank score when available, else fall back to cosine similarity.
+        unique_articles.sort(
+            key=lambda x: x.get('rerank_score', x.get('similarity_score', 0)),
+            reverse=True,
+        )
+
+        return {
+            'articles': unique_articles[:limit],
+            'search_method': 'smart_vector_expanded',
+            'metadata': {
+                'query_type': 'semantic_search',
+                'original_query': query,
+                'generated_queries': generated_queries,
+                'total_found': len(all_articles),
+                'unique_after_dedup': len(unique_articles)
+            }
+        }
+
+    def _is_simple_query(self, query: str) -> bool:
+        """Check if query is simple enough to skip LLM expansion."""
+        # Simple queries: short, no complex structure
+        if len(query) < 50:
+            return True
+        # Queries with clear search terms
+        if not any(word in query.lower() for word in ['and', 'or', 'between', 'compare', 'versus']):
+            return True
+        return False
+
+    async def _direct_vector_search(self, query: str, topic: str, limit: int) -> Dict:
+        """Direct vector search without query expansion."""
+        metadata_filter = {"topic": topic} if topic else {}
+
+        try:
+            fetch_k = overfetch_limit(limit)
+            results = vector_search_articles(
+                query=query,
+                top_k=fetch_k,
+                metadata_filter=metadata_filter
+            )
+
+            articles = []
+            for result in results or []:
+                metadata = result.get('metadata', {})
+                if not metadata:
+                    continue
+
+                articles.append({
+                    'uri': metadata.get('uri', ''),
+                    'url': metadata.get('url') or metadata.get('link') or metadata.get('uri', ''),
+                    'title': metadata.get('title', 'Unknown Title'),
+                    'summary': metadata.get('summary', ''),
+                    'category': metadata.get('category', 'Uncategorized'),
+                    'sentiment': metadata.get('sentiment', 'Neutral'),
+                    'future_signal': metadata.get('future_signal', 'None'),
+                    'time_to_impact': metadata.get('time_to_impact', 'Unknown'),
+                    'publication_date': metadata.get('publication_date', ''),
+                    'news_source': metadata.get('news_source', 'Unknown'),
+                    'topic': topic or metadata.get('topic', 'Unknown'),
+                    'similarity_score': result.get('score', 0.0)
+                })
+
+            articles = await rerank(
+                query=query,
+                candidates=articles,
+                text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
+                top_k=limit,
+            )
+
+            return {
+                'articles': articles,
+                'search_method': 'direct_vector',
+                'metadata': {'query': query, 'topic': topic}
+            }
+
+        except Exception as e:
+            self.logger.error(f"Direct vector search failed: {e}")
+            return {'articles': [], 'search_method': 'direct_vector', 'error': str(e)}
+
+    async def _generate_search_queries(self, query: str, topic: str) -> List[str]:
+        """Generate multiple targeted search queries using LLM (for complex queries only)."""
+        try:
+            # Get topic context for better query generation
+            topic_context = self.analyze_db.get_topic_options(topic) if topic else {}
+            categories = topic_context.get('categories', [])[:10]
+
+            prompt = f"""Generate 3-5 focused search queries to find articles relevant to this user question.
+Each query should target a different aspect or angle of the topic.
+
+User question: "{query}"
+Topic: {topic or 'All Topics'}
+Available categories: {', '.join(categories) if categories else 'Various'}
+
+Return ONLY a JSON array of search query strings, nothing else.
+Example: ["AI healthcare diagnosis", "machine learning medical imaging", "AI drug discovery"]
+
+Search queries:"""
+
+            ai_model = get_ai_model('gpt-5.4-mini')
+            response = ai_model.generate_response([
+                {"role": "system", "content": "You are a search query optimizer. Return only valid JSON arrays."},
+                {"role": "user", "content": prompt}
+            ])
+
+            # Parse response
+            import re
+            # Find JSON array in response
+            match = re.search(r'\[.*?\]', response, re.DOTALL)
+            if match:
+                queries = json.loads(match.group())
+                if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
+                    self.logger.info(f"Generated {len(queries)} search queries: {queries}")
+                    return queries[:5]  # Max 5 queries
+
+        except Exception as e:
+            self.logger.warning(f"Query generation failed: {e}")
+
+        # Fallback: return original query
+        return [query]
+
+
 class AuspexService:
     """Enhanced Auspex service with MCP integration and chat persistence."""
 
@@ -591,6 +1315,12 @@ class AuspexService:
         # Initialize context optimization manager with a reasonable default
         # This will be updated dynamically based on the actual model used
         self.context_manager = OptimizedContextManager(model_context_limit=128000)  # Default to GPT-4o limit
+
+        # Initialize smart query router for intelligent data retrieval
+        self.query_router = QueryRouter(self.db)
+
+        # Cache for last fetched articles - used for chart generation to avoid duplicate searches
+        self._last_chat_articles: List[Dict] = []
 
         self._ensure_default_prompt()
     
@@ -917,10 +1647,18 @@ class AuspexService:
         logger.info(f"Using default citation limit: {limit} (available: {total_articles})")
         return limit
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None, include_charts: bool = False) -> AsyncGenerator[str, None]:
-        """Chat with Auspex with optional tool usage and custom system prompt override."""
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None, include_charts: bool = False, sampling_strategy: str = None) -> AsyncGenerator[str, None]:
+        """Chat with Auspex with optional tool usage and custom system prompt override.
+
+        Args:
+            sampling_strategy: Optional sampling strategy preset name (e.g., 'recency_diversity', 'quality_first').
+                              If None, uses intelligent defaults based on context.
+        """
         if not model:
             model = DEFAULT_MODEL
+
+        # Clear cached articles from previous requests
+        self._last_chat_articles = []
 
         # Update context manager for the specific model being used
         self._update_context_manager_for_model(model)
@@ -929,9 +1667,42 @@ class AuspexService:
             # Get chat history
             messages = self.db.get_auspex_messages(chat_id)
 
+            # Get chat for topic context
+            chat = self.db.get_auspex_chat(chat_id)
+            current_topic = chat.get('topic') if chat else None
+
+            # Check if conversation needs compaction
+            conversation_for_compaction = [
+                {"role": msg['role'], "content": msg['content']}
+                for msg in messages if msg['role'] != 'system'
+            ]
+
+            compaction_applied = False
+            compaction_summary = None
+            if needs_compaction(conversation_for_compaction):
+                logger.info(f"Conversation {chat_id} needs compaction, applying...")
+                compacted = await compact_conversation(
+                    conversation_for_compaction,
+                    recent_turns_to_keep=6,
+                    topic_context=current_topic
+                )
+                conversation_for_compaction = compacted.messages
+                compaction_applied = compacted.metrics.compaction_applied
+                compaction_summary = compacted.summary_context
+
+                # Store compaction metrics in chat metadata
+                if compaction_applied:
+                    try:
+                        self.db.update_auspex_chat_metadata(
+                            chat_id,
+                            {"last_compaction": get_compaction_status(compacted.metrics)}
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not save compaction metadata: {e}")
+
             # Build conversation history for LLM
             conversation = []
-            for msg in messages:
+            for msg in conversation_for_compaction:
                 if msg['role'] != 'system':  # Skip system messages in conversation
                     conversation.append({
                         "role": msg['role'],
@@ -951,6 +1722,28 @@ class AuspexService:
                 content=message
             )
 
+            # URL Detection and Lookup
+            # Skip URL detection when tools are disabled (e.g. trend convergence analysis prompts)
+            # These prompts contain article data with many embedded URLs that are not user queries
+            url_context = None
+            skip_url_detection = tools_config and tools_config.get("search_articles") is False
+            url_query_detected, urls_found = (False, []) if skip_url_detection else is_url_query(message)
+            if url_query_detected and urls_found:
+                logger.info(f"URL query detected with {len(urls_found)} URL(s): {urls_found}")
+                try:
+                    # Look up URLs in database and externally
+                    topic_for_lookup = current_topic if current_topic and current_topic != '__all__' else None
+                    url_context = await lookup_urls_in_message(
+                        urls_found,
+                        current_topic=topic_for_lookup,
+                        include_external=True,
+                        include_firecrawl=True
+                    )
+                    logger.info(f"URL lookup completed, context length: {len(url_context) if url_context else 0}")
+                except Exception as e:
+                    logger.warning(f"URL lookup failed: {e}")
+                    url_context = None
+
             # Update chat session with profile_id if provided
             if profile_id:
                 try:
@@ -965,7 +1758,8 @@ class AuspexService:
                 system_prompt_content = custom_prompt
             else:
                 # Get system prompt and enhance it with topic information and profile context
-                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config)
+                # Pass include_charts to let Auspex know it can use chart visualizations
+                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config, include_charts, query=message)
                 system_prompt_content = system_prompt['content']
 
             # Prepare messages with system prompt
@@ -973,25 +1767,35 @@ class AuspexService:
                 {"role": "system", "content": system_prompt_content},
                 *conversation
             ]
-            
+
+            # Inject URL lookup context if URLs were detected
+            if url_context:
+                llm_messages.append({
+                    "role": "assistant",
+                    "content": f"[URL LOOKUP RESULTS]\n{url_context}\n[END URL LOOKUP]"
+                })
+                logger.info("Injected URL lookup context into conversation")
+
             # Check if we need to use tools based on the message content and tools_config
             use_tools = tools_config and any(tools_config.values()) if tools_config else True
             needs_tools = use_tools and await self._should_use_tools(message)
 
-            # Check for chart request - either from message keywords or include_charts toggle
+            # Check for explicit chart request in message (e.g., "show me a chart")
+            # Note: include_charts toggle is handled AFTER plugin tools, to avoid duplicating
+            # when plugins like Trend Analysis already generate their own charts
             chart_type = self._detect_chart_request(message)
-            # If charts are enabled via toggle and no specific chart type detected, default to sentiment_donut
-            if include_charts and not chart_type:
-                chart_type = "sentiment_donut"
-                logger.info(f"Charts enabled via toggle - using default chart type: {chart_type}")
             chart_marker = None
             logger.info(f"Chart detection result for message '{message}': chart_type={chart_type}, include_charts={include_charts}")
 
             plugin_final_response = None
+            plugin_chart_markers = []  # Store chart markers from plugin tools - initialize outside if block
             if needs_tools:
                 # First check for plugin tools that might handle this query
                 chat = self.db.get_auspex_chat(chat_id)
                 topic = chat['topic'] if chat else ""
+                # Handle cross-topic mode: __all__ means search all topics
+                if topic == '__all__':
+                    topic = None  # Set to None to skip topic filtering in tools
 
                 plugin_results, is_final_response = await self._check_plugin_tools(message, topic, chat_id)
                 if plugin_results:
@@ -1005,11 +1809,17 @@ class AuspexService:
                             "role": "assistant",
                             "content": plugin_results
                         })
+                        # Extract chart markers from plugin results to yield directly to user
+                        import re
+                        chart_pattern = r'<!-- CHART_DATA:.*?:END_CHART -->'
+                        plugin_chart_markers = re.findall(chart_pattern, plugin_results, re.DOTALL)
+                        if plugin_chart_markers:
+                            logger.info(f"Extracted {len(plugin_chart_markers)} chart markers from plugin results")
 
                 # Only use additional tools if plugin didn't produce a final response
                 if not plugin_final_response:
                     # Use standard tools to gather information with citation limit
-                    tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit)
+                    tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit, sampling_strategy)
                     if tool_results:
                         # Add tool results as assistant context to avoid overriding system instructions
                         llm_messages.append({
@@ -1017,13 +1827,28 @@ class AuspexService:
                             "content": f"[TOOLS] {tool_results}"
                         })
 
+                    # Only generate a chart if explicitly requested in the user's message
+                    # The include_charts toggle affects the system prompt to tell Auspex it CAN use charts,
+                    # but doesn't auto-generate them. Plugin tools generate their own charts.
                     # If chart request detected, generate chart from articles
-                    if chart_type and topic:
-                        logger.info(f"Chart request detected: generating {chart_type} chart for topic '{topic}'")
-                        chart_articles = await self._get_articles_for_chart(topic, limit)
-                        logger.info(f"Retrieved {len(chart_articles)} articles for chart generation")
+                    # For cross-topic mode (topic=None), we can still generate charts
+                    if chart_type:
+                        chart_topic_label = topic if topic else "All Topics"
+                        logger.info(f"Chart request detected: generating {chart_type} chart for topic '{chart_topic_label}'")
+
+                        # Use cached articles from the main query (same articles used for LLM context)
+                        # This avoids a duplicate vector search and ensures chart matches the analysis
+                        if self._last_chat_articles:
+                            chart_articles = self._last_chat_articles
+                            logger.info(f"Using {len(chart_articles)} cached articles for chart generation (same as LLM context)")
+                        else:
+                            # Fallback to separate search if cache is empty (shouldn't happen normally)
+                            logger.warning("No cached articles available, falling back to separate search")
+                            chart_articles = await self._get_articles_for_chart(topic, limit)
+                            logger.info(f"Retrieved {len(chart_articles)} articles for chart generation via fallback")
+
                         if chart_articles:
-                            chart_title = f"Sentiment Distribution for {topic}" if chart_type == "sentiment_donut" else None
+                            chart_title = f"Sentiment Distribution for {chart_topic_label}" if chart_type == "sentiment_donut" else None
                             chart_marker = self._generate_chart_for_articles(chart_articles, chart_type, chart_title)
                             logger.info(f"Generated chart marker for {chart_type}: {len(chart_marker) if chart_marker else 0} chars")
                         else:
@@ -1032,7 +1857,27 @@ class AuspexService:
             # Generate response using LLM or return plugin response directly
             full_response = ""
 
-            # If we have a chart, yield it first as a special marker
+            # Add plugin tool chart markers to chart_marker
+            for marker in plugin_chart_markers:
+                if chart_marker:
+                    chart_marker += "\n" + marker
+                else:
+                    chart_marker = marker
+
+            # Compute and emit article stats before content if we have articles
+            # This goes to the Insights panel, not the main chat
+            if self._last_chat_articles:
+                try:
+                    article_stats = compute_article_stats(self._last_chat_articles)
+                    stats_json = json.dumps(article_stats)
+                    stats_marker = f"<!-- ARTICLE_STATS:{stats_json}:END_STATS -->\n\n"
+                    full_response += stats_marker
+                    yield stats_marker
+                    logger.info(f"Emitted article stats for {article_stats.get('total_articles', 0)} articles")
+                except Exception as e:
+                    logger.warning(f"Could not compute article stats: {e}")
+
+            # If we have a chart, yield it as a special marker
             if chart_marker:
                 full_response += chart_marker + "\n\n"
                 yield chart_marker + "\n\n"
@@ -1073,11 +1918,36 @@ class AuspexService:
             except:
                 pass
 
-    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None) -> Dict:
-        """Get enhanced system prompt with topic-specific information and organizational profile."""
+    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None, include_charts: bool = False, query: str = None) -> Dict:
+        """Get enhanced system prompt with topic-specific information and organizational profile.
+
+        Args:
+            chat_id: The chat ID to get context for
+            tools_config: Optional tools configuration
+            include_charts: If True, tells Auspex it can request chart visualizations
+            query: Optional user query to adapt prompt format (quick/standard/deep)
+        """
         try:
-            # Get base prompt
-            base_prompt = self.get_system_prompt()
+            # Determine query intent and build versatile prompt
+            query_intent = classify_query_intent(query) if query else 'general'
+            query_depth = classify_query_depth(query) if query else 'standard'
+
+            # Use versatile prompt for general/casual/system queries
+            # Use data-focused prompt for research queries
+            if query_intent in ('casual', 'system', 'general'):
+                base_content = build_versatile_prompt(query or '')
+            else:
+                # Research queries - use the original data-focused prompt
+                base_content = build_system_prompt(query, query_depth)
+
+            logger.info(f"Query intent: {query_intent}, depth: {query_depth} for query: {query[:50] if query else 'None'}...")
+
+            # Create base prompt dict
+            base_prompt = {
+                "name": "default",
+                "title": "Default Auspex Assistant",
+                "content": base_content
+            }
             
             # Get chat info to determine topic and profile
             chat = self.db.get_auspex_chat(chat_id)
@@ -1085,6 +1955,10 @@ class AuspexService:
                 return base_prompt
                 
             topic = chat['topic']
+            # Handle cross-topic mode: __all__ means search all topics
+            is_cross_topic = (topic == '__all__')
+            topic_display = "All Topics" if is_cross_topic else topic
+            topic_for_query = None if is_cross_topic else topic
             # Support both new schema (column) and old schema (metadata.profile_id)
             profile_id = chat.get('profile_id') or ((chat.get('metadata') or {}).get('profile_id'))
             
@@ -1141,11 +2015,11 @@ When analyzing sentiment patterns, trends, or providing insights, ALWAYS conside
             # Get topic options from database
             try:
                 analyze_db = AnalyzeDB(self.db)
-                topic_options = analyze_db.get_topic_options(topic)
+                topic_options = analyze_db.get_topic_options(topic_for_query)
 
                 # Add null check for topic_options
                 if not topic_options:
-                    logger.warning(f"No topic options found for topic: {topic}")
+                    logger.warning(f"No topic options found for topic: {topic_display}")
                     topic_options = {
                         'categories': [],
                         'sentiments': [],
@@ -1171,7 +2045,7 @@ When analyzing sentiment patterns, trends, or providing insights, ALWAYS conside
 
 {base_content[insertion_point:]}
 
-TOPIC-SPECIFIC CONTEXT FOR {topic.upper()}:
+TOPIC-SPECIFIC CONTEXT FOR {topic_display.upper()}:
 
 Available Categories in this topic:
 {', '.join(topic_options.get('categories', []))}
@@ -1188,19 +2062,45 @@ Available Time to Impact Options:
 TOOLS STATUS: {self._format_tools_status(tools_config)}
 
 CURRENT SESSION CONTEXT:
-- Topic: {topic}
+- Topic: {topic_display}
 - Profile: {profile.get('name', 'None') if profile_id else 'None'}
 - Tools: {self._format_active_tools(tools_config)}
-- Focus: Apply strategic foresight methodology specific to {topic} with organizational context"""
+- Charts: {'ENABLED - Charts are automatically generated in the Charts panel. Do NOT use markdown image syntax like ![name](url) in your response - just describe the data trends and findings in text. The system will generate interactive charts separately.' if include_charts else 'Not enabled'}
+- Focus: {'Cross-topic analysis using strategic foresight methodology' if is_cross_topic else f'Apply strategic foresight methodology specific to {topic_display}'} with organizational context
+
+CRITICAL - CONTENT SEPARATION REQUIREMENTS:
+
+DO NOT include dataset overview statistics at the start of your response. The following are AUTOMATICALLY computed and displayed in the Insights panel:
+- Total article counts ("I analyzed X articles...")
+- Category distribution and percentages
+- Sentiment breakdown (positive/neutral/negative percentages)
+- Source counts and lists
+- Date ranges
+
+YOUR RESPONSE SHOULD FOCUS ON:
+- Summarizing the most interesting and significant findings
+- Extracting key datapoints: specific numbers, percentages, names, quotes
+- Highlighting surprising patterns or notable trends
+- Supporting evidence with inline citations
+
+DO NOT add generic recommendations or strategic advice. Just summarize what you found.
+
+BAD (do not start like this):
+"I analyzed 47 articles across 5 categories. The sentiment breakdown shows: 45% positive, 30% neutral, 25% negative..."
+
+GOOD (start directly with findings):
+"AI in healthcare is seeing rapid adoption - [Reuters](url) reports 67% of hospitals now use AI diagnostics, up from 23% last year..."
+
+If your analysis requires tables or comparison matrices (e.g., strategic assessments, trend comparisons), include them inline - these are analysis outputs, not dataset statistics."""
 
                 return {
-                    "name": f"enhanced_{topic.lower().replace(' ', '_')}",
-                    "title": f"Enhanced Auspex for {topic}",
+                    "name": f"enhanced_{topic_display.lower().replace(' ', '_')}",
+                    "title": f"Enhanced Auspex for {topic_display}",
                     "content": enhanced_content
                 }
                 
             except Exception as e:
-                logger.warning(f"Could not get topic options for {topic}: {e}")
+                logger.warning(f"Could not get topic options for {topic_display}: {e}")
                 # Fallback: still inject organizational profile context even without topic options
                 try:
                     base_content = base_prompt['content']
@@ -1215,8 +2115,8 @@ CURRENT SESSION CONTEXT:
 
 {base_content[insertion_point:]}"""
                         return {
-                            "name": f"enhanced_{topic.lower().replace(' ', '_')}",
-                            "title": f"Enhanced Auspex for {topic}",
+                            "name": f"enhanced_{topic_display.lower().replace(' ', '_')}",
+                            "title": f"Enhanced Auspex for {topic_display}",
                             "content": enhanced_content
                         }
                 except Exception:
@@ -1228,25 +2128,36 @@ CURRENT SESSION CONTEXT:
             return self.get_system_prompt()
 
     async def _should_use_tools(self, message: str) -> bool:
-        """Determine if message requires tool usage."""
-        tool_keywords = [
-            "search", "find", "latest", "recent", "news", "articles", "trends",
-            "sentiment", "analyze", "data", "statistics", "categories", "compare",
-            "what's happening", "current", "update", "insights", "patterns",
-            "comprehensive", "detailed", "deep", "thorough", "analysis", "themes",
-            "follow up", "more", "details", "expand", "elaborate", "investigate",
-            "chart", "graph", "pie", "visualization", "visualize", "plot", "donut"
-        ]
-        
-        message_lower = message.lower()
-        should_use = any(keyword in message_lower for keyword in tool_keywords)
-        
-        logger.info(f"Tool detection for message '{message}': {should_use}")
-        if should_use:
-            found_keywords = [kw for kw in tool_keywords if kw in message_lower]
-            logger.info(f"Found keywords: {found_keywords}")
+        """
+        Determine if message requires tool usage.
 
-        return should_use
+        Per the versatile prompt philosophy:
+        - Database tools are ALWAYS available (never skip completely)
+        - Only pure greetings with no question skip tool usage
+        - This ensures data is always searched, even for general questions
+        """
+        message_lower = message.lower().strip()
+
+        # Pure greeting patterns that don't need tools
+        # Only skip tools for these very specific patterns
+        pure_greeting_patterns = [
+            r'^(hi|hello|hey|greetings)[\s!.,]*$',
+            r'^good\s+(morning|afternoon|evening|day)[\s!.,]*$',
+            r'^thanks?(\s+you)?[\s!.,]*$',
+            r'^(bye|goodbye|see\s+you|take\s+care)[\s!.,]*$',
+            r'^(ok|okay|sure|got\s+it|understood)[\s!.,]*$',
+        ]
+
+        # Check if this is a pure greeting (no tools needed)
+        for pattern in pure_greeting_patterns:
+            if re.search(pattern, message_lower):
+                logger.info(f"Pure greeting detected, skipping tools: '{message}'")
+                return False
+
+        # For everything else, use tools - database should always be searched
+        # This is the key change: we default to using tools rather than requiring keywords
+        logger.info(f"Tool usage enabled for message: '{message}' (versatile mode)")
+        return True
 
     def _detect_chart_request(self, message: str) -> Optional[str]:
         """
@@ -1327,19 +2238,21 @@ CURRENT SESSION CONTEXT:
             logger.error(f"Error generating chart: {e}")
             return None
 
-    async def _get_articles_for_chart(self, topic: str, limit: int = 100) -> List[Dict]:
+    async def _get_articles_for_chart(self, topic: str = None, limit: int = 100) -> List[Dict]:
         """
         Get articles for chart generation.
 
         Uses vector search to get articles with sentiment data for the given topic.
+        If topic is None (cross-topic mode), searches across all topics.
         """
         try:
-            # Build metadata filter for topic
-            metadata_filter = {"topic": topic}
+            # Build metadata filter for topic (skip for cross-topic mode)
+            metadata_filter = {"topic": topic} if topic else {}
 
             # Use vector search to get articles
+            search_query = f"articles about {topic}" if topic else "recent news articles trends analysis"
             vector_results = vector_search_articles(
-                query=f"articles about {topic}",
+                query=search_query,
                 top_k=limit,
                 metadata_filter=metadata_filter
             )
@@ -1484,7 +2397,23 @@ PRIORITIZE insights relevant to these concerns and tailor analysis to this organ
                     # This is an LLM-generated response - return directly
                     is_final = True
                     logger.info(f"Plugin tool {best_tool.name} produced final LLM response ({len(analysis)} chars)")
-                    return analysis, is_final
+
+                    # Append chart markers if chart_data exists
+                    response = analysis
+                    if 'chart_data' in result.data:
+                        import json
+                        chart_data = result.data['chart_data']
+                        for chart_name, chart_config in chart_data.items():
+                            chart_marker = {
+                                "type": chart_name,
+                                "format": "json",
+                                "title": chart_config.get("layout", {}).get("title", chart_name.replace("_", " ").title()),
+                                "data": chart_config
+                            }
+                            response += f"\n\n<!-- CHART_DATA:{json.dumps(chart_marker)}:END_CHART -->"
+                        logger.info(f"Appended {len(chart_data)} chart markers to final response")
+
+                    return response, is_final
 
                 # Format result for inclusion in LLM context
                 return self._format_plugin_result(best_tool.name, result), is_final
@@ -1538,6 +2467,19 @@ PRIORITIZE insights relevant to these concerns and tailor analysis to this organ
 
         output_parts.append(f"\nExecution time: {result.execution_time_ms}ms")
         output_parts.append("[/TOOL]\n")
+
+        # Add chart markers if chart_data is present
+        if "chart_data" in data:
+            import json
+            chart_data = data["chart_data"]
+            for chart_name, chart_config in chart_data.items():
+                chart_marker = {
+                    "type": chart_name,
+                    "format": "json",  # Must be 'json' to match frontend check
+                    "title": chart_config.get("layout", {}).get("title", chart_name.replace("_", " ").title()),
+                    "data": chart_config
+                }
+                output_parts.append(f"\n<!-- CHART_DATA:{json.dumps(chart_marker)}:END_CHART -->")
 
         return "\n".join(output_parts)
 
@@ -1605,7 +2547,7 @@ User message:
 Extracted search query (respond with ONLY the query, no explanation):"""
 
             response = litellm.completion(
-                model="gpt-4.1-mini",  # Fast and cheap model for extraction
+                model="gpt-5.4-mini",  # Fast and cheap model for extraction
                 messages=[
                     {"role": "user", "content": extraction_prompt.format(message=message[:3000])}  # Limit to 3000 chars to avoid huge costs
                 ],
@@ -1621,9 +2563,9 @@ Extracted search query (respond with ONLY the query, no explanation):"""
             logger.error(f"Error extracting search query: {e}. Using original message.")
             return message
 
-    async def _use_mcp_tools(self, message: str, chat_id: int, limit: int, tools_config: Dict = None, citation_limit: Optional[int] = None) -> Optional[str]:
+    async def _use_mcp_tools(self, message: str, chat_id: int, limit: int, tools_config: Dict = None, citation_limit: Optional[int] = None, sampling_strategy: str = None) -> Optional[str]:
         """Use the original sophisticated database navigation logic from chat_routes.py"""
-        logger.info(f"_use_mcp_tools called for message: '{message}', chat_id: {chat_id}, citation_limit: {citation_limit}")
+        logger.info(f"_use_mcp_tools called for message: '{message}', chat_id: {chat_id}, citation_limit: {citation_limit}, sampling_strategy: {sampling_strategy}")
 
         try:
             # Get chat info to determine topic
@@ -1633,10 +2575,16 @@ Extracted search query (respond with ONLY the query, no explanation):"""
                 return None
 
             topic = chat['topic']
-            logger.info(f"Chat topic: {topic}")
+            # Handle cross-topic mode: __all__ means search all topics
+            is_cross_topic = (topic == '__all__')
+            if is_cross_topic:
+                logger.info("Chat mode: Cross-topic (searching all topics)")
+                topic = None  # Set to None to skip topic filtering
+            else:
+                logger.info(f"Chat topic: {topic}")
 
-            # Use the original sophisticated search logic
-            return await self._original_chat_database_logic(message, topic, limit, citation_limit)
+            # Use the original sophisticated search logic with sampling strategy
+            return await self._original_chat_database_logic(message, topic, limit, citation_limit, sampling_strategy)
 
         except Exception as e:
             logger.error(f"Error in _use_mcp_tools: {e}")
@@ -1678,7 +2626,7 @@ Extracted search query (respond with ONLY the query, no explanation):"""
         active_descriptions = [tool_descriptions.get(tool, tool) for tool in enabled_tools]
         return f"Active: {', '.join(active_descriptions)}"
 
-    async def _original_chat_database_logic(self, message: str, topic: str, limit: int, citation_limit: Optional[int] = None) -> Optional[str]:
+    async def _original_chat_database_logic(self, message: str, topic: str, limit: int, citation_limit: Optional[int] = None, sampling_strategy: str = None) -> Optional[str]:
         # Initialize topic_options outside try block to ensure it's available in exception handler
         topic_options = {
             'categories': [],
@@ -1691,10 +2639,10 @@ Extracted search query (respond with ONLY the query, no explanation):"""
             analyze_db = AnalyzeDB(self.db)
             ai_model = get_ai_model(DEFAULT_MODEL)
 
-            # Validate inputs
-            if not message or not topic or not limit:
+            # Validate inputs (topic can be None for cross-topic search)
+            if not message or not limit:
                 logger.error(f"Invalid inputs: message='{message}', topic='{topic}', limit={limit}")
-                return f"## Search Error\nInvalid search parameters. Please ensure you have selected a topic and entered a message."
+                return f"## Search Error\nInvalid search parameters. Please ensure you have entered a message."
 
             # Get available options for this topic (original logic)
             try:
@@ -1708,127 +2656,170 @@ Extracted search query (respond with ONLY the query, no explanation):"""
             if not topic_options or not any(topic_options.values()):
                 logger.warning(f"Using default empty topic options for topic: {topic}")
 
+            # Extract the actual search query from complex messages (e.g., custom prompts)
+            search_query = await self._extract_search_query(message)
+            logger.info(f"Using search query: '{search_query}' (original message length: {len(message)} chars)")
+
+            # NEW: Use QueryRouter for intelligent data retrieval
+            # This handles temporal queries (SQL-based) and cross-topic parallel searches
+            query_type = self.query_router.classify_query(search_query)
+            is_cross_topic = (topic is None or topic == '__all__')
+
+            # Use QueryRouter for temporal queries OR cross-topic semantic queries
+            use_smart_routing = (
+                query_type == 'temporal_analysis' or
+                (is_cross_topic and query_type in ('semantic_search', 'comprehensive'))
+            )
+
+            if use_smart_routing:
+                logger.info(f"Using QueryRouter: type={query_type}, cross_topic={is_cross_topic}")
+                effective_topic = None if is_cross_topic else topic
+
+                router_result = await self.query_router.route(
+                    query=search_query,
+                    topic=effective_topic,
+                    limit=limit,
+                    citation_limit=citation_limit
+                )
+
+                vector_articles = router_result.get('articles', [])
+                search_method = router_result.get('search_method', 'query_router')
+                router_metadata = router_result.get('metadata', {})
+
+                logger.info(f"QueryRouter returned {len(vector_articles)} articles via {search_method}")
+                logger.info(f"Router metadata: {router_metadata}")
+
+                # Skip the old vector search logic since QueryRouter handled it
+                # Jump to the context optimization and response generation below
+
+            else:
+                # Fall back to original vector search logic for single-topic queries
+                logger.info(f"Using original vector search logic: type={query_type}, topic={topic}")
+
             # Enhanced search strategy: Use both SQL and vector search (original logic)
             # First, try vector search for semantic understanding
-            vector_articles = []
-            try:
-                # Extract the actual search query from complex messages (e.g., custom prompts)
-                search_query = await self._extract_search_query(message)
-                logger.info(f"Using search query: '{search_query}' (original message length: {len(message)} chars)")
+            # NOTE: This block only runs if use_smart_routing is False
+            if not use_smart_routing:
+                vector_articles = []
+                explicit_days_back = None  # Initialize for use in fallback filtering
+                try:
+                    # If citation_limit is specified and higher than limit, use it for vector search
+                    # This ensures we fetch enough articles to meet the citation requirement
+                    search_limit = limit
+                    if citation_limit and citation_limit > limit:
+                        search_limit = min(citation_limit, 500)  # Cap at 500 to prevent excessive searches
+                        logger.info(f"Increasing search limit from {limit} to {search_limit} to meet citation_limit of {citation_limit}")
 
-                # If citation_limit is specified and higher than limit, use it for vector search
-                # This ensures we fetch enough articles to meet the citation requirement
-                search_limit = limit
-                if citation_limit and citation_limit > limit:
-                    search_limit = min(citation_limit, 500)  # Cap at 500 to prevent excessive searches
-                    logger.info(f"Increasing search limit from {limit} to {search_limit} to meet citation_limit of {citation_limit}")
+                    # Build metadata filter for vector search (skip topic filter for cross-topic mode)
+                    metadata_filter = {"topic": topic} if topic else {}
 
-                # Build metadata filter for vector search
-                metadata_filter = {"topic": topic}
-
-                # EXPLICIT CHECK for common date patterns (safety net)
-                # Use the extracted search query for pattern matching
-                explicit_date_patterns = {
-                    "trends from the last 7 days": 7,
-                    "trends from the past 7 days": 7,
-                    "trends in the last 7 days": 7,
-                    "trends over the last 7 days": 7,
-                    "trends past 7 days": 7,
-                    "last 7 days": 7,
-                    "past 7 days": 7,
-                    "last week": 7,
-                    "past week": 7,
-                    "last month": 30,
-                    "past month": 30,
-                    "last 30 days": 30,
-                    "past 30 days": 30,
-                }
-
-                # Use search_query (not original message) for date pattern detection
-                search_query_lower = search_query.lower()
-                explicit_days_back = None
-                for pattern, days in explicit_date_patterns.items():
-                    if pattern in search_query_lower:
-                        explicit_days_back = days
-                        logger.info(f"EXPLICIT DATE PATTERN MATCH: '{pattern}' -> {days} days")
-                        break
-
-                if explicit_days_back:
-                    cutoff_datetime = datetime.now() - timedelta(days=explicit_days_back)
-                    # Format as date string to match publication_date column format (YYYY-MM-DD HH:MM:SS)
-                    cutoff_date_str = cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')
-                    # Use string comparison with publication_date (text column)
-                    metadata_filter = {
-                        "$and": [
-                            {"topic": topic},
-                            {"publication_date": {"$gte": cutoff_date_str}}
-                        ]
+                    # EXPLICIT CHECK for common date patterns (safety net)
+                    # Use the extracted search query for pattern matching
+                    explicit_date_patterns = {
+                        "trends from the last 7 days": 7,
+                        "trends from the past 7 days": 7,
+                        "trends in the last 7 days": 7,
+                        "trends over the last 7 days": 7,
+                        "trends past 7 days": 7,
+                        "last 7 days": 7,
+                        "past 7 days": 7,
+                        "last week": 7,
+                        "past week": 7,
+                        "last month": 30,
+                        "past month": 30,
+                        "last 30 days": 30,
+                        "past 30 days": 30,
                     }
-                    logger.info(f"EXPLICIT date filter applied: publication_date >= '{cutoff_date_str}'")
-                    logger.info(f"Final metadata_filter: {metadata_filter}")
-                else:
-                    metadata_filter = {"topic": topic}
 
-                # Use extracted search_query (not original message) for vector search
-                vector_results = vector_search_articles(
-                    query=search_query,
-                    top_k=search_limit,  # Use search_limit which may be increased by citation_limit
-                    metadata_filter=metadata_filter
-                )
-                
-                # Convert vector results to article format with comprehensive null checks
-                if vector_results and isinstance(vector_results, list):
-                    for result in vector_results:
-                        if not result or not isinstance(result, dict):
-                            continue
-                            
-                        metadata = result.get("metadata")
-                        if not metadata or not isinstance(metadata, dict):
-                            continue
-                            
-                        # Only add articles with valid URI
-                        uri = metadata.get("uri")
-                        if not uri:
-                            continue
-                            
-                        vector_articles.append({
-                            "uri": uri,
-                            "title": metadata.get("title", "Unknown Title"),
-                            "url": metadata.get("url") or metadata.get("link") or uri,  # Use uri as fallback
-                            "summary": metadata.get("summary", "No summary available"),
-                            "category": metadata.get("category", "Uncategorized"),
-                            "sentiment": metadata.get("sentiment", "Neutral"),
-                            "future_signal": metadata.get("future_signal", "None"),
-                            "time_to_impact": metadata.get("time_to_impact", "Unknown"),
-                            "publication_date": metadata.get("publication_date", "Unknown"),
-                            "news_source": metadata.get("news_source", "Unknown"),
-                            "tags": metadata.get("tags", "").split(",") if metadata.get("tags") else [],
-                            "similarity_score": result.get("score", 0.0)
-                        })
-                
-                logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+                    # Use search_query (not original message) for date pattern detection
+                    search_query_lower = search_query.lower()
+                    for pattern, days in explicit_date_patterns.items():
+                        if pattern in search_query_lower:
+                            explicit_days_back = days
+                            logger.info(f"EXPLICIT DATE PATTERN MATCH: '{pattern}' -> {days} days")
+                            break
 
-                # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
-                # SKIP entity filtering for system-generated thematic category queries
-                # Use search_query (not original message) for entity detection
-                is_thematic_query = "comprehensive consensus analysis" in search_query.lower() or "comprehensive analysis" in search_query.lower()
-                detected_entities = self._extract_entity_names(search_query) if not is_thematic_query else []
-                if detected_entities:
-                    logger.info(f"Detected entity-specific query. Entities: {detected_entities}")
-                    vector_articles_before_filter = len(vector_articles)
-                    vector_articles = self._filter_articles_by_entity_content(vector_articles, detected_entities)
-                    logger.info(f"Entity filtering: {vector_articles_before_filter} -> {len(vector_articles)} articles")
-                    
-                    # If no articles contain the specific entity, validate with SQL database before giving up
-                    if len(vector_articles) == 0:
-                        logger.info(f"No articles found in vector search for entities: {detected_entities}")
-                        logger.info("Performing comprehensive SQL database validation...")
-                        
-                        # Perform comprehensive SQL search to validate entity existence
-                        sql_articles_found = self._validate_entity_in_sql_database(detected_entities, topic)
-                        
-                        if sql_articles_found == 0:
-                            return f"""## No Articles Found for Specific Entity
+                    if explicit_days_back:
+                        cutoff_datetime = datetime.now() - timedelta(days=explicit_days_back)
+                        # Format as date string to match publication_date column format (YYYY-MM-DD HH:MM:SS)
+                        cutoff_date_str = cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')
+                        # Use string comparison with publication_date (text column)
+                        # For cross-topic mode (topic=None), only filter by date
+                        if topic:
+                            metadata_filter = {
+                                "$and": [
+                                    {"topic": topic},
+                                    {"publication_date": {"$gte": cutoff_date_str}}
+                                ]
+                            }
+                        else:
+                            metadata_filter = {"publication_date": {"$gte": cutoff_date_str}}
+                        logger.info(f"EXPLICIT date filter applied: publication_date >= '{cutoff_date_str}'")
+                        logger.info(f"Final metadata_filter: {metadata_filter}")
+                    else:
+                        # No date filter - use topic filter if available, empty dict for cross-topic
+                        metadata_filter = {"topic": topic} if topic else {}
+
+                    # Use extracted search_query (not original message) for vector search
+                    vector_results = vector_search_articles(
+                        query=search_query,
+                        top_k=search_limit,  # Use search_limit which may be increased by citation_limit
+                        metadata_filter=metadata_filter
+                    )
+
+                    # Convert vector results to article format with comprehensive null checks
+                    if vector_results and isinstance(vector_results, list):
+                        for result in vector_results:
+                            if not result or not isinstance(result, dict):
+                                continue
+
+                            metadata = result.get("metadata")
+                            if not metadata or not isinstance(metadata, dict):
+                                continue
+
+                            # Only add articles with valid URI
+                            uri = metadata.get("uri")
+                            if not uri:
+                                continue
+
+                            vector_articles.append({
+                                "uri": uri,
+                                "title": metadata.get("title", "Unknown Title"),
+                                "url": metadata.get("url") or metadata.get("link") or uri,  # Use uri as fallback
+                                "summary": metadata.get("summary", "No summary available"),
+                                "category": metadata.get("category", "Uncategorized"),
+                                "sentiment": metadata.get("sentiment", "Neutral"),
+                                "future_signal": metadata.get("future_signal", "None"),
+                                "time_to_impact": metadata.get("time_to_impact", "Unknown"),
+                                "publication_date": metadata.get("publication_date", "Unknown"),
+                                "news_source": metadata.get("news_source", "Unknown"),
+                                "tags": metadata.get("tags", "").split(",") if metadata.get("tags") else [],
+                                "similarity_score": result.get("score", 0.0)
+                            })
+
+                    logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+
+                    # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
+                    # SKIP entity filtering for system-generated thematic category queries
+                    # Use search_query (not original message) for entity detection
+                    is_thematic_query = "comprehensive consensus analysis" in search_query.lower() or "comprehensive analysis" in search_query.lower()
+                    detected_entities = self._extract_entity_names(search_query) if not is_thematic_query else []
+                    if detected_entities:
+                        logger.info(f"Detected entity-specific query. Entities: {detected_entities}")
+                        vector_articles_before_filter = len(vector_articles)
+                        vector_articles = self._filter_articles_by_entity_content(vector_articles, detected_entities)
+                        logger.info(f"Entity filtering: {vector_articles_before_filter} -> {len(vector_articles)} articles")
+
+                        # If no articles contain the specific entity, validate with SQL database before giving up
+                        if len(vector_articles) == 0:
+                            logger.info(f"No articles found in vector search for entities: {detected_entities}")
+                            logger.info("Performing comprehensive SQL database validation...")
+
+                            # Perform comprehensive SQL search to validate entity existence
+                            sql_articles_found = self._validate_entity_in_sql_database(detected_entities, topic)
+
+                            if sql_articles_found == 0:
+                                return f"""## No Articles Found for Specific Entity
 
 I searched both the vector database and SQL database for articles mentioning **{', '.join(detected_entities)}** in the topic "{topic}" but found **0 articles** that actually reference this entity.
 
@@ -1849,68 +2840,96 @@ I searched both the vector database and SQL database for articles mentioning **{
 - Search for broader terms related to this entity's industry or function
 
 I cannot provide analysis about "{', '.join(detected_entities)}" because no articles in the database actually mention this entity."""
-                        else:
-                            logger.warning(f"SQL database found {sql_articles_found} articles but vector search found none. This suggests a vector/SQL sync issue.")
-                            logger.info("Attempting to retrieve articles from SQL database as fallback...")
-                            
-                            # Try to get the actual articles from SQL database
-                            sql_articles = self._get_entity_articles_from_sql(detected_entities, topic, limit)
-                            if sql_articles:
-                                logger.info(f"Retrieved {len(sql_articles)} articles from SQL database as fallback")
-                                vector_articles = sql_articles  # Use SQL articles instead of empty vector results
                             else:
-                                logger.warning("SQL database validation found articles but couldn't retrieve them")
-                
-                # Fallback date filtering for articles that might lack timestamp metadata
-                if explicit_days_back and len(vector_articles) > 0:
-                    cutoff_date = datetime.now() - timedelta(days=explicit_days_back)
-                    original_count = len(vector_articles)
-                    
-                    # Filter articles by publication_date string (fallback for articles without timestamp)
-                    filtered_vector_articles = []
-                    for article in vector_articles:
-                        article_date_str = article.get('publication_date', '')
-                        if article_date_str:
-                            try:
-                                if ' ' in article_date_str:
-                                    date_part = article_date_str.split(' ')[0]
+                                logger.warning(f"SQL database found {sql_articles_found} articles but vector search found none. This suggests a vector/SQL sync issue.")
+                                logger.info("Attempting to retrieve articles from SQL database as fallback...")
+
+                                # Try to get the actual articles from SQL database
+                                sql_articles = self._get_entity_articles_from_sql(detected_entities, topic, limit)
+                                if sql_articles:
+                                    logger.info(f"Retrieved {len(sql_articles)} articles from SQL database as fallback")
+                                    vector_articles = sql_articles  # Use SQL articles instead of empty vector results
                                 else:
-                                    date_part = article_date_str[:10]
-                                
-                                article_date = datetime.strptime(date_part, '%Y-%m-%d')
-                                if article_date >= cutoff_date:
-                                    filtered_vector_articles.append(article)
-                                else:
-                                    logger.debug(f"Fallback filter: excluded article from {date_part}: {article.get('title', 'Unknown')[:50]}...")
-                            except Exception as e:
-                                logger.warning(f"Could not parse date '{article_date_str}' for article {article.get('uri', 'unknown')}: {e}")
-                                filtered_vector_articles.append(article)  # Include on error
+                                    logger.warning("SQL database validation found articles but couldn't retrieve them")
+
+                    # Fallback date filtering for articles that might lack timestamp metadata
+                    if explicit_days_back and len(vector_articles) > 0:
+                        cutoff_date = datetime.now() - timedelta(days=explicit_days_back)
+                        original_count = len(vector_articles)
+
+                        # Filter articles by publication_date string (fallback for articles without timestamp)
+                        filtered_vector_articles = []
+                        for article in vector_articles:
+                            article_date_str = article.get('publication_date', '')
+                            if article_date_str:
+                                try:
+                                    if ' ' in article_date_str:
+                                        date_part = article_date_str.split(' ')[0]
+                                    else:
+                                        date_part = article_date_str[:10]
+
+                                    article_date = datetime.strptime(date_part, '%Y-%m-%d')
+                                    if article_date >= cutoff_date:
+                                        filtered_vector_articles.append(article)
+                                    else:
+                                        logger.debug(f"Fallback filter: excluded article from {date_part}: {article.get('title', 'Unknown')[:50]}...")
+                                except Exception as e:
+                                    logger.warning(f"Could not parse date '{article_date_str}' for article {article.get('uri', 'unknown')}: {e}")
+                                    filtered_vector_articles.append(article)  # Include on error
+                            else:
+                                filtered_vector_articles.append(article)  # Include articles without dates
+
+                        if original_count != len(filtered_vector_articles):
+                            logger.info(f"Fallback date filtering: {original_count} -> {len(filtered_vector_articles)} articles (past {explicit_days_back} days, cutoff: {cutoff_date.strftime('%Y-%m-%d')})")
+                            vector_articles = filtered_vector_articles
                         else:
-                            filtered_vector_articles.append(article)  # Include articles without dates
-                    
-                    if original_count != len(filtered_vector_articles):
-                        logger.info(f"Fallback date filtering: {original_count} -> {len(filtered_vector_articles)} articles (past {explicit_days_back} days, cutoff: {cutoff_date.strftime('%Y-%m-%d')})")
-                        vector_articles = filtered_vector_articles
-                    else:
-                        logger.info(f"Fallback date filtering: No articles filtered out (all {original_count} articles are recent)")
-                
-            except Exception as e:
-                logger.warning(f"Vector search failed, falling back to SQL search: {e}")
-                vector_articles = []
+                            logger.info(f"Fallback date filtering: No articles filtered out (all {original_count} articles are recent)")
+
+                except Exception as e:
+                    logger.warning(f"Vector search failed, falling back to SQL search: {e}")
+                    vector_articles = []
 
             # If vector search found good results, use them with optimization
             if len(vector_articles) >= 10:
+                # Apply sampling strategy if specified (pre-filter before context optimization)
+                articles_for_optimization = vector_articles
+                strategy_applied = None
+                if sampling_strategy:
+                    try:
+                        registry = get_registry()
+                        pipeline = registry.create_pipeline_from_preset(sampling_strategy)
+                        if pipeline:
+                            # Create context for sampling
+                            sampling_context = SamplingContext(topic=topic)
+                            sampling_context.update_stats(vector_articles)
+                            # Store similarity scores
+                            for article in vector_articles:
+                                sim = article.get('similarity_score')
+                                if sim is not None:
+                                    article_id = str(article.get('id') or article.get('uri', ''))
+                                    sampling_context.similarity_scores[article_id] = sim
+                            # Apply the pipeline with a generous limit (actual limit applied by context manager)
+                            articles_for_optimization = pipeline.execute(vector_articles, limit * 3, sampling_context)
+                            strategy_applied = sampling_strategy
+                            logger.info(f"Applied sampling strategy '{sampling_strategy}': {len(vector_articles)} -> {len(articles_for_optimization)} articles")
+                    except Exception as e:
+                        logger.warning(f"Failed to apply sampling strategy '{sampling_strategy}': {e}. Using default selection.")
+
                 # Apply advanced context optimization
                 query_type = self.context_manager.determine_query_type(message)
                 budget = self.context_manager.allocate_context_budget(query_type)
                 logger.info(f"Context budget allocation: {budget}")
-                logger.info(f"Articles budget: {budget['articles']} tokens for {len(vector_articles)} vector articles")
-                
+                logger.info(f"Articles budget: {budget['articles']} tokens for {len(articles_for_optimization)} articles")
+
                 # Use optimized article selection with user limit
                 optimized_articles = self.context_manager.optimize_article_selection(
-                    vector_articles, message, budget["articles"], user_limit=limit
+                    articles_for_optimization, message, budget["articles"], user_limit=limit
                 )
-                
+
+                # Cache articles for chart generation (avoid duplicate searches)
+                self._last_chat_articles = optimized_articles
+                logger.info(f"Cached {len(optimized_articles)} articles for potential chart generation")
+
                 # Format with optimized context
                 optimized_context = self.context_manager.format_optimized_context(
                     optimized_articles, message, query_type
@@ -2635,14 +3654,17 @@ Article Details (First {detail_limit}):
             max_tokens = max(500, max_tokens)
             
             logger.info(f"Model: {model}, Context limit: {context_limit}, Max output limit: {max_output_tokens}, Estimated input tokens: {estimated_input_tokens}, Final max_tokens: {max_tokens}")
-            
-            # Create the streaming response
+
+            # Create the streaming response. gpt-5.4 needs ``reasoning_effort``
+            # + ``max_completion_tokens`` instead of ``max_tokens`` /
+            # ``temperature`` — otherwise it emits 0 chars and JSON parsing
+            # downstream fails with "No valid JSON found in AI response".
+            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens)
             response_stream = await litellm.acompletion(
                 model=model,
                 messages=messages,
                 stream=True,
-                temperature=0.7,
-                max_tokens=max_tokens
+                **call_kwargs,
             )
             
             # Handle the async generator properly
@@ -2667,7 +3689,7 @@ Article Details (First {detail_limit}):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str = "gpt-4",
+        model: str = "gpt-5.4",
         temperature: float = 0.7,
         max_tokens: int = 3000
     ) -> str:
@@ -2697,14 +3719,20 @@ Article Details (First {detail_limit}):
                 {"role": "user", "content": user_prompt}
             ]
 
-            # Use litellm completion with JSON mode if supported
+            # Use litellm completion with JSON mode if supported. Wire
+            # gpt-5.4 reasoning kwargs so the model has room to emit JSON
+            # after its internal reasoning step (the consensus analysis
+            # path hits this — without reasoning_effort + max_completion_
+            # tokens, gpt-5.4 returns 0 chars and the route raises 500
+            # "No valid JSON found in AI response").
+            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens,
+                                           temperature=temperature)
             try:
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"}  # Force JSON output
+                    response_format={"type": "json_object"},
+                    **call_kwargs,
                 )
             except Exception as e:
                 # Fallback without JSON mode if not supported
@@ -2712,8 +3740,7 @@ Article Details (First {detail_limit}):
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens
+                    **call_kwargs,
                 )
 
             # Extract content from response
@@ -2895,6 +3922,15 @@ Article Details (First {detail_limit}):
             "gpt-4.1": 1000000,  # 1M context window
             "gpt-4.1-mini": 1000000,  # 1M context window
             "gpt-4.1-nano": 1000000,  # 1M context window
+            # GPT-5 family. The "gpt-5.4" base-model key match below covers
+            # gpt-5.4/gpt-5-mini/gpt-5-nano — all share the 400k context.
+            "gpt-5": 400000,
+            "gpt-5-mini": 400000,
+            "gpt-5-nano": 400000,
+            "gpt-5.5": 1000000,
+            "gpt-5.4": 400000,
+            "gpt-5.4-mini": 400000,
+            "gpt-5.4-nano": 400000,
             "claude-3-opus": 200000,
             "claude-3-sonnet": 200000,
             "claude-3-haiku": 200000,
@@ -2930,6 +3966,17 @@ Article Details (First {detail_limit}):
             "gpt-4.1": 32768,    # GPT-4.1 max output tokens
             "gpt-4.1-mini": 32768,
             "gpt-4.1-nano": 32768,
+            # GPT-5 reasoning models. The output budget is shared with
+            # the (hidden) reasoning step, so we need plenty of room or
+            # JSON outputs get truncated mid-document (saw the consensus
+            # analysis cut at char ~17k with the old 4096 default).
+            "gpt-5": 128000,
+            "gpt-5-mini": 128000,
+            "gpt-5-nano": 128000,
+            "gpt-5.5": 128000,
+            "gpt-5.4": 128000,
+            "gpt-5.4-mini": 128000,
+            "gpt-5.4-nano": 128000,
             "gpt-3.5-turbo": 4096,  # GPT-3.5 max output tokens
             "gpt-3.5-turbo-16k": 4096,
             # For other models, use reasonable defaults based on their context size

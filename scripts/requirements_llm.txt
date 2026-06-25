@@ -1,0 +1,12 @@
+# Requirements for LLM fine-tuning with QLoRA
+# Install with: pip install -r scripts/requirements_llm.txt
+
+torch>=2.0.0
+transformers>=4.40.0
+datasets>=2.14.0
+accelerate>=0.25.0
+peft>=0.10.0
+trl>=0.8.0
+bitsandbytes>=0.43.0
+scipy
+sentencepiece

@@ -15,6 +15,106 @@ from app.services.tool_plugin_base import ToolHandler, ToolResult
 class TrendAnalysisHandler(ToolHandler):
     """Handler for trend analysis tool."""
 
+    # Color palettes for charts
+    SIGNAL_COLORS = {
+        "emerging technology": "#3b82f6",      # Blue
+        "market disruption": "#f97316",        # Orange
+        "regulatory change": "#ef4444",        # Red
+        "industry shift": "#8b5cf6",           # Purple
+        "competitive threat": "#dc2626",       # Dark red
+        "innovation opportunity": "#22c55e",   # Green
+        "consumer trend": "#ec4899",           # Pink
+        "economic indicator": "#eab308",       # Yellow
+        "policy impact": "#14b8a6",            # Teal
+        "strategic development": "#6366f1",    # Indigo
+    }
+
+    TIME_COLORS = {
+        "immediate": "#ef4444",     # Red - urgent
+        "days": "#f97316",          # Orange
+        "weeks": "#eab308",         # Yellow
+        "1-3 months": "#22c55e",    # Green
+        "3-6 months": "#14b8a6",    # Teal
+        "6-12 months": "#3b82f6",   # Blue
+        "1-2 years": "#6366f1",     # Indigo
+        "2-5 years": "#8b5cf6",     # Purple
+        "5+ years": "#a855f7",      # Violet
+        "ongoing": "#6b7280",       # Gray
+    }
+
+    # Keywords for signal category detection
+    SIGNAL_KEYWORDS = {
+        "emerging technology": ["emerging", "new tech", "innovation", "breakthrough", "advancement", "cutting-edge", "novel"],
+        "market disruption": ["disruption", "disrupt", "market shift", "industry change", "transformation", "upheaval"],
+        "regulatory change": ["regula", "policy", "legislation", "law", "government", "compliance", "legal", "mandate"],
+        "industry shift": ["industry", "sector", "shift", "pivot", "transition", "restructur"],
+        "competitive threat": ["competitive", "threat", "competitor", "rivalry", "challenge", "pressure"],
+        "innovation opportunity": ["opportunity", "potential", "growth", "expansion", "adoption", "promising"],
+        "consumer trend": ["consumer", "customer", "demand", "trend", "preference", "behavior", "buying"],
+        "economic indicator": ["economic", "financial", "market", "investment", "growth", "recession", "inflation"],
+        "policy impact": ["policy", "impact", "effect", "consequence", "reform", "change"],
+        "strategic development": ["strategic", "development", "milestone", "achievement", "progress", "launch"],
+    }
+
+    def _normalize_signal_to_category(self, signal: str) -> str:
+        """Map a future signal value to a standard category for color lookup."""
+        if not signal:
+            return "unknown"
+
+        signal_lower = signal.lower()
+
+        # First try exact match
+        if signal_lower in self.SIGNAL_COLORS:
+            return signal_lower
+
+        # Then try keyword matching
+        for category, keywords in self.SIGNAL_KEYWORDS.items():
+            if any(kw in signal_lower for kw in keywords):
+                return category
+
+        return "unknown"
+
+    def _normalize_time_period(self, period: str) -> str:
+        """Normalize a time-to-impact value for color lookup."""
+        if not period:
+            return "unknown"
+
+        period_lower = period.lower().strip()
+
+        # Direct match
+        if period_lower in self.TIME_COLORS:
+            return period_lower
+
+        # Handle common variations
+        normalizations = [
+            (["immediate", "now", "today", "urgent"], "immediate"),
+            (["day", "days", "24 hour", "24h"], "days"),
+            (["week", "weeks", "7 day"], "weeks"),
+            (["1-3 month", "1 month", "2 month", "3 month", "quarter", "q1", "q2", "q3", "q4"], "1-3 months"),
+            (["3-6 month", "4 month", "5 month", "6 month", "half year"], "3-6 months"),
+            (["6-12 month", "6 month", "year", "annual", "12 month"], "6-12 months"),
+            (["1-2 year", "1 year", "2 year", "next year"], "1-2 years"),
+            (["2-5 year", "3 year", "4 year", "5 year", "medium term"], "2-5 years"),
+            (["5+ year", "5 year", "long term", "long-term", "decade", "10 year"], "5+ years"),
+            (["ongoing", "continuous", "permanent", "indefinite"], "ongoing"),
+        ]
+
+        for keywords, normalized in normalizations:
+            if any(kw in period_lower for kw in keywords):
+                return normalized
+
+        return "unknown"
+
+    def _get_signal_color(self, signal: str) -> str:
+        """Get color for a future signal value."""
+        category = self._normalize_signal_to_category(signal)
+        return self.SIGNAL_COLORS.get(category, "#6b7280")
+
+    def _get_time_color(self, period: str) -> str:
+        """Get color for a time-to-impact value."""
+        normalized = self._normalize_time_period(period)
+        return self.TIME_COLORS.get(normalized, "#6b7280")
+
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         """
         Execute trend analysis on articles.
@@ -123,27 +223,40 @@ class TrendAnalysisHandler(ToolHandler):
     def _fetch_articles(self, db, topic: str, start_date: datetime) -> List[Dict]:
         """Fetch articles from database for the given topic and time range."""
         try:
-            # Use the database facade to get articles
-            articles = db.facade.get_articles_by_topic(
-                topic=topic,
-                start_date=start_date.isoformat(),
-                limit=1000  # Get substantial sample for trend analysis
+            # Use the database facade's get_recent_articles_by_topic with date filtering
+            # topic=None means cross-topic (All Topics) mode
+            topic_for_query = topic if topic and topic != '__all__' else None
+            articles = db.facade.get_recent_articles_by_topic(
+                topic_name=topic_for_query,
+                limit=1000,  # Get substantial sample for trend analysis
+                start_date=start_date.strftime('%Y-%m-%d')
             )
             return articles if articles else []
         except Exception as e:
-            self.logger.error(f"Failed to fetch articles: {e}")
-            # Fallback: try direct query
+            self.logger.error(f"Failed to fetch articles via facade: {e}")
+            # Fallback: try direct query with correct column name
             try:
-                query = """
-                    SELECT * FROM articles
-                    WHERE topic = :topic
-                    AND pub_date >= :start_date
-                    ORDER BY pub_date DESC
-                    LIMIT 1000
-                """
-                result = db.execute_query(query, {"topic": topic, "start_date": start_date})
+                if topic and topic != '__all__':
+                    query = """
+                        SELECT * FROM articles
+                        WHERE topic = :topic
+                        AND publication_date >= :start_date
+                        ORDER BY publication_date DESC
+                        LIMIT 1000
+                    """
+                    result = db.execute_query(query, {"topic": topic, "start_date": start_date.strftime('%Y-%m-%d')})
+                else:
+                    # Cross-topic mode: no topic filter
+                    query = """
+                        SELECT * FROM articles
+                        WHERE publication_date >= :start_date
+                        ORDER BY publication_date DESC
+                        LIMIT 1000
+                    """
+                    result = db.execute_query(query, {"start_date": start_date.strftime('%Y-%m-%d')})
                 return [dict(row) for row in result] if result else []
-            except:
+            except Exception as e2:
+                self.logger.error(f"Fallback query also failed: {e2}")
                 return []
 
     def _analyze_sentiment_trends(self, articles: List[Dict]) -> Dict:
@@ -155,12 +268,15 @@ class TrendAnalysisHandler(ToolHandler):
             sentiment = article.get("sentiment", "neutral")
             sentiment_counts[sentiment] += 1
 
-            # Group by week
-            pub_date = article.get("pub_date")
+            # Group by week - check both pub_date and publication_date for compatibility
+            pub_date = article.get("publication_date") or article.get("pub_date")
             if pub_date:
                 if isinstance(pub_date, str):
                     try:
-                        pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        if 'T' in pub_date:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        else:
+                            pub_date = datetime.strptime(pub_date[:10], '%Y-%m-%d')
                     except:
                         continue
                 week_key = pub_date.strftime("%Y-W%W")
@@ -203,11 +319,14 @@ class TrendAnalysisHandler(ToolHandler):
             category = article.get("category", "Uncategorized")
             category_counts[category] += 1
 
-            pub_date = article.get("pub_date")
+            pub_date = article.get("publication_date") or article.get("pub_date")
             if pub_date:
                 if isinstance(pub_date, str):
                     try:
-                        pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        if 'T' in pub_date:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        else:
+                            pub_date = datetime.strptime(pub_date[:10], '%Y-%m-%d')
                     except:
                         continue
                 week_key = pub_date.strftime("%Y-W%W")
@@ -261,16 +380,22 @@ class TrendAnalysisHandler(ToolHandler):
         }
 
     def _analyze_signal_trends(self, articles: List[Dict]) -> Dict:
-        """Analyze future signal distribution."""
+        """Analyze future signal and time to impact distribution."""
         signal_counts = defaultdict(int)
+        time_to_impact_counts = defaultdict(int)
 
         for article in articles:
             signal = article.get("future_signal", "No Signal")
             signal_counts[signal] += 1
 
+            time_impact = article.get("time_to_impact", "")
+            if time_impact and time_impact.strip():
+                time_to_impact_counts[time_impact] += 1
+
         return {
             "distribution": dict(signal_counts),
-            "top_signals": sorted(signal_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            "top_signals": sorted(signal_counts.items(), key=lambda x: x[1], reverse=True)[:5],
+            "time_to_impact": dict(time_to_impact_counts)
         }
 
     def _generate_time_series(self, articles: List[Dict], days: int) -> Dict:
@@ -279,11 +404,14 @@ class TrendAnalysisHandler(ToolHandler):
         daily_sentiment = defaultdict(lambda: defaultdict(int))
 
         for article in articles:
-            pub_date = article.get("pub_date")
+            pub_date = article.get("publication_date") or article.get("pub_date")
             if pub_date:
                 if isinstance(pub_date, str):
                     try:
-                        pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        if 'T' in pub_date:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        else:
+                            pub_date = datetime.strptime(pub_date[:10], '%Y-%m-%d')
                     except:
                         continue
                 date_key = pub_date.strftime("%Y-%m-%d")
@@ -294,7 +422,14 @@ class TrendAnalysisHandler(ToolHandler):
         # Fill in missing dates
         dates = []
         counts = []
-        sentiments = {"positive": [], "negative": [], "neutral": [], "mixed": []}
+
+        # Dynamically capture all sentiment categories from the data
+        all_sentiments = set()
+        for day_data in daily_sentiment.values():
+            all_sentiments.update(day_data.keys())
+        # Ensure we always have the basic ones even if no data
+        all_sentiments.update({"positive", "negative", "neutral", "mixed", "critical"})
+        sentiments = {sent: [] for sent in all_sentiments}
 
         current = datetime.now() - timedelta(days=days)
         while current <= datetime.now():
@@ -373,7 +508,9 @@ class TrendAnalysisHandler(ToolHandler):
             "positive": "#28a745",
             "negative": "#dc3545",
             "neutral": "#6c757d",
-            "mixed": "#ffc107"
+            "mixed": "#ffc107",
+            "critical": "#fb923c",
+            "unknown": "#9ca3af"
         })
 
         # Coverage over time chart
@@ -395,28 +532,149 @@ class TrendAnalysisHandler(ToolHandler):
             }
         }
 
-        # Sentiment stacked area chart
+        # Sentiment pie chart - show overall distribution
+        sentiment_counts = analysis.get("sentiment", {}).get("counts", {})
+        sentiment_labels = []
+        sentiment_values = []
+        sentiment_colors = []
+
+        for sent, count in sentiment_counts.items():
+            if sent is not None and count > 0:
+                sentiment_labels.append(sent.capitalize() if sent else "Unknown")
+                sentiment_values.append(count)
+                # Convert to lowercase for color lookup since DB stores capitalized sentiments
+                sentiment_colors.append(colors.get(sent.lower() if sent else "unknown", "#999"))
+
         sentiment_chart = {
             "data": [
                 {
-                    "x": time_series["dates"],
-                    "y": time_series["sentiment_series"].get(sent, []),
-                    "type": "scatter",
-                    "mode": "lines",
-                    "stackgroup": "one",
-                    "name": sent.capitalize(),
-                    "line": {"color": colors.get(sent, "#999")}
+                    "labels": sentiment_labels,
+                    "values": sentiment_values,
+                    "type": "pie",
+                    "hole": 0.4,  # Makes it a donut chart
+                    "marker": {"colors": sentiment_colors},
+                    "textinfo": "label+percent",
+                    "textposition": "outside"
                 }
-                for sent in ["positive", "neutral", "negative", "mixed"]
             ],
             "layout": {
-                "title": "Sentiment Distribution Over Time",
-                "xaxis": {"title": "Date"},
-                "yaxis": {"title": "Articles"}
+                "title": "Sentiment Distribution",
+                "showlegend": True,
+                "legend": {"orientation": "h", "y": -0.1}
             }
         }
 
-        return {
+        charts = {
             "coverage": coverage_chart,
             "sentiment": sentiment_chart
         }
+
+        # Category distribution chart (horizontal bar)
+        category_data = analysis.get("categories", {})
+        top_categories = category_data.get("top_categories", [])
+        if top_categories:
+            # Colors for categories - use a gradient palette
+            category_colors = [
+                "#3b82f6", "#8b5cf6", "#ec4899", "#f97316", "#eab308",
+                "#22c55e", "#14b8a6", "#06b6d4", "#6366f1", "#a855f7"
+            ]
+            cat_labels = [cat[0] for cat in top_categories[:10]]
+            cat_values = [cat[1] for cat in top_categories[:10]]
+            cat_colors = category_colors[:len(cat_labels)]
+
+            charts["categories"] = {
+                "data": [
+                    {
+                        "x": cat_values,
+                        "y": cat_labels,
+                        "type": "bar",
+                        "orientation": "h",
+                        "marker": {"color": cat_colors}
+                    }
+                ],
+                "layout": {
+                    "title": "Top Categories",
+                    "xaxis": {"title": "Article Count"},
+                    "yaxis": {"autorange": "reversed"},
+                    "margin": {"l": 150}
+                }
+            }
+
+        # Future signals distribution chart (pie)
+        signals_data = analysis.get("signals", {})
+        signal_distribution = signals_data.get("distribution", {})
+        if signal_distribution:
+            # Filter out "No Signal" and empty values
+            filtered_signals = {k: v for k, v in signal_distribution.items()
+                              if k and k != "No Signal" and v > 0}
+            if filtered_signals:
+                sig_labels = list(filtered_signals.keys())
+                sig_values = list(filtered_signals.values())
+                # Use normalization to map actual signal values to color categories
+                sig_colors = [self._get_signal_color(s) for s in sig_labels]
+
+                charts["future_signals"] = {
+                    "data": [
+                        {
+                            "labels": sig_labels,
+                            "values": sig_values,
+                            "type": "pie",
+                            "hole": 0.4,
+                            "marker": {"colors": sig_colors},
+                            "textinfo": "label+percent",
+                            "textposition": "outside"
+                        }
+                    ],
+                    "layout": {
+                        "title": "Future Signals Distribution",
+                        "showlegend": True,
+                        "legend": {"orientation": "h", "y": -0.1}
+                    }
+                }
+
+        # Time to Impact chart (horizontal bar)
+        time_to_impact_data = signals_data.get("time_to_impact", {})
+        if time_to_impact_data:
+            # Define order for time horizons (short-term to long-term)
+            time_order = [
+                "Immediate", "Days", "Weeks", "1-3 Months", "3-6 Months",
+                "6-12 Months", "1-2 Years", "2-5 Years", "5+ Years", "Ongoing"
+            ]
+
+            # Sort by time horizon order
+            sorted_times = []
+            for t in time_order:
+                for key, value in time_to_impact_data.items():
+                    if key.lower() == t.lower() and value > 0:
+                        sorted_times.append((key, value))
+                        break
+            # Add any not in our predefined order
+            for key, value in time_to_impact_data.items():
+                if value > 0 and not any(k.lower() == key.lower() for k, _ in sorted_times):
+                    sorted_times.append((key, value))
+
+            if sorted_times:
+                tti_labels = [t[0] for t in sorted_times]
+                tti_values = [t[1] for t in sorted_times]
+                # Use normalization to handle variations in time period strings
+                tti_colors = [self._get_time_color(t[0]) for t in sorted_times]
+
+                charts["time_to_impact"] = {
+                    "data": [
+                        {
+                            "x": tti_values,
+                            "y": tti_labels,
+                            "type": "bar",
+                            "orientation": "h",
+                            "marker": {"color": tti_colors}
+                        }
+                    ],
+                    "layout": {
+                        "title": "Time to Impact Distribution",
+                        "xaxis": {"title": "Article Count"},
+                        "yaxis": {"autorange": "reversed"},
+                        "margin": {"l": 120}
+                    }
+                }
+
+        return charts

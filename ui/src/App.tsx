@@ -2,18 +2,26 @@
  * Trend Convergence Dashboard - Figma Design Implementation
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTrendConvergence } from './hooks/useTrendConvergence';
 import { SharedNavigation } from './components/SharedNavigation';
-import { TabNavigation } from './components/TabNavigation';
+import { TabNavigation, TabSettingsDropdown } from './components/TabNavigation';
 import { TimelineBar } from './components/TimelineBar';
 import { ConvergenceCard } from './components/ConvergenceCard';
 import ConsensusCategoryCard from './components/ConsensusCategoryCard';
 import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
+import { ForecastAssessmentTab } from './components/ForecastAssessment';
+import { AllTopicsForecastView } from './components/AllTopicsForecastView';
+import { TopicsDashboard } from './components/TopicsDashboard';
+import { TopicReportsPanel } from './components/TopicReportsPanel';
+import { AddTopicWizard } from './components/AddTopicWizard';
+import { DocViewer } from './components/DocViewer';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap } from 'lucide-react';
+import { Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
+import { NotificationBell } from './components/gather/NotificationBell';
+import './components/gather/NotificationBell.css';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './components/ui/dialog';
@@ -23,11 +31,32 @@ import { Label } from './components/ui/label';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert';
 import { calculateContextInfo, type ContextInfo } from './utils/contextCalculation';
-import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw, listDashboardsForTopic, loadDashboard, saveDashboard, deleteDashboard } from './services/api';
+import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw, listDashboardsForTopic, loadDashboard, saveDashboard, deleteDashboard, generateHorizonsExecutiveSummary, getHorizonsExecutiveSummary } from './services/api';
+import { TopicExecutiveSummary, FutureHorizonsExportOptions } from './types/horizonsExecutiveSummary';
 import { ExportService } from './services/exportService';
 import { ArticleCitations } from './components/ArticleCitations';
 import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
 import { renderCitationsAsLinks } from './utils/citationRenderer';
+import { IntelligenceBrief } from './components/IntelligenceBrief';
+import { useStrategicIntelligence } from './hooks/useStrategicIntelligence';
+import { SIOTuneModal } from './components/SIOTuneModal';
+import { ExtremeOutliers } from './components/ExtremeOutliers';
+import { useExtremeOutliers } from './hooks/useExtremeOutliers';
+import { EOSTuneModal } from './components/EOSTuneModal';
+import { FHTuneModal } from './components/FHTuneModal';
+import { Newsletter } from './components/Newsletter';
+import { useNewsletter } from './hooks/useNewsletter';
+import { NewsletterTuneModal } from './components/NewsletterTuneModal';
+import { PAMDashboard } from './components/pam';
+import { usePAM, PAM_STAGES } from './hooks/usePAM';
+import { PAMTuneModal } from './components/PAMTuneModal';
+import { FocusGroup } from './components/FocusGroup';
+import { useFocusGroup } from './hooks/useFocusGroup';
+import { FGTuneModal } from './components/FGTuneModal';
+import { ExecutiveBriefing } from './components/ExecutiveBriefing';
+import { useExecutiveBriefing } from './hooks/useExecutiveBriefing';
+import { EBTuneModal } from './components/EBTuneModal';
+import { AuspexChat } from './components/auspex';
 
 function App() {
   const {
@@ -39,12 +68,19 @@ function App() {
     config,
     loading,
     error,
+    needsGeneration,
     generateAnalysis,
+    loadCached,
     updateConfig,
     clearError,
   } = useTrendConvergence();
 
   const [activeTab, setActiveTab] = useState('strategic-recommendations');
+  // Add-topic wizard modal — opened from Topics dashboard CTA or
+  // "Review overlay" links on other surfaces. Topic + step state is also
+  // persisted in localStorage by the wizard itself.
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardInitial, setWizardInitial] = useState<{ topic?: string; step?: number }>({});
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -74,6 +110,259 @@ function App() {
 
   // All available topics
   const [allTopics, setAllTopics] = useState<string[]>([]);
+
+  // Strategic Intelligence Oracle (SIO) state - lifted from IntelligenceBrief
+  const sio = useStrategicIntelligence();
+  const [sioHoursBack, setSioHoursBack] = useState(24);
+  const [sioMaxEvents, setSioMaxEvents] = useState(30);
+  const [sioCredibilityThreshold, setSioCredibilityThreshold] = useState(60);
+  const [isSioTuneOpen, setIsSioTuneOpen] = useState(false);
+  const [showSioRawModal, setShowSioRawModal] = useState(false);
+  const [showSioReferencesModal, setShowSioReferencesModal] = useState(false);
+  const [showSioSaveDialog, setShowSioSaveDialog] = useState(false);
+  const [sioSaveName, setSioSaveName] = useState('');
+  const [sioSaveDescription, setSioSaveDescription] = useState('');
+
+  // Extreme Outlier Scenarios (EOS) state - lifted from ExtremeOutliers
+  const eos = useExtremeOutliers();
+  const [eosScenarioCount, setEosScenarioCount] = useState(5);
+  const [eosIncludeBlackSwans, setEosIncludeBlackSwans] = useState(true);
+  const [eosIncludeContrarian, setEosIncludeContrarian] = useState(true);
+  const [eosIncludeWildCards, setEosIncludeWildCards] = useState(true);
+  const [eosTimeHorizon, setEosTimeHorizon] = useState<'near' | 'mid' | 'long'>('mid');
+  const [isEosTuneOpen, setIsEosTuneOpen] = useState(false);
+  const [showEosRawModal, setShowEosRawModal] = useState(false);
+  const [showEosReferencesModal, setShowEosReferencesModal] = useState(false);
+
+  // Future Horizons Executive Summary state
+  const [horizonsExecutiveSummary, setHorizonsExecutiveSummary] = useState<TopicExecutiveSummary[] | null>(null);
+  const [horizonsExecSummaryGeneratedAt, setHorizonsExecSummaryGeneratedAt] = useState<string | null>(null);
+  const [isLoadingHorizonsExecSummary, setIsLoadingHorizonsExecSummary] = useState(false);
+  const [horizonsExecSummaryError, setHorizonsExecSummaryError] = useState<string | null>(null);
+  const [isFhTuneOpen, setIsFhTuneOpen] = useState(false);
+
+  // Fallback for topics whose Three Horizons run came from the Add-Topic
+  // wizard (stored in future_horizons_runs) rather than a trend-convergence
+  // analysis. When the tab has no scenarios for the topic, load the latest
+  // stored run by topic so the wizard's scenarios surface here.
+  const [fallbackHorizons, setFallbackHorizons] =
+    useState<{ scenarios: any[]; analysisId: string } | null>(null);
+
+  // Newsletter state - lifted from Newsletter component
+  const newsletter = useNewsletter();
+  const [newsletterDaysBack, setNewsletterDaysBack] = useState(7);
+  const [newsletterDeepDiveTopic, setNewsletterDeepDiveTopic] = useState('');
+  const [newsletterTitle, setNewsletterTitle] = useState('Intelligence Newsletter');
+  const [newsletterIntro, setNewsletterIntro] = useState('');
+  const [isNewsletterTuneOpen, setIsNewsletterTuneOpen] = useState(false);
+  const [showNewsletterSaveDialog, setShowNewsletterSaveDialog] = useState(false);
+
+  // Focus Group state - lifted from FocusGroup component
+  const focusGroup = useFocusGroup();
+  const [fgMaxPersonas, setFgMaxPersonas] = useState(6);
+  const [fgMinEvidenceThreshold, setFgMinEvidenceThreshold] = useState(2);
+  const [fgIncludeDemographics, setFgIncludeDemographics] = useState(true);
+  const [fgIncludePsychographics, setFgIncludePsychographics] = useState(true);
+  const [fgIncludeVoice, setFgIncludeVoice] = useState(true);
+  const [isFgTuneOpen, setIsFgTuneOpen] = useState(false);
+  const [showFgReferencesModal, setShowFgReferencesModal] = useState(false);
+  const [showFgSaveDialog, setShowFgSaveDialog] = useState(false);
+
+  // Executive Briefing state - lifted from ExecutiveBriefing component
+  const executiveBriefing = useExecutiveBriefing();
+  const [ebPersona, setEbPersona] = useState('ceo');
+  const [ebArticleCount, setEbArticleCount] = useState(6);
+  const [ebDaysBack, setEbDaysBack] = useState(7);
+  const [ebIncludePodcastScript, setEbIncludePodcastScript] = useState(false);
+  const [ebPodcastDuration, setEbPodcastDuration] = useState<'short' | 'medium' | 'long'>('short');
+  const [isEbTuneOpen, setIsEbTuneOpen] = useState(false);
+  const [showEbPodcastModal, setShowEbPodcastModal] = useState(false);
+
+  // PAM (Power, Attention & Money) state - lifted from PAMDashboard component
+  const pam = usePAM();
+  const [pamAnalysisType, setPamAnalysisType] = useState<'comprehensive' | 'power' | 'attention' | 'money'>('comprehensive');
+  const [pamTimeHorizon, setPamTimeHorizon] = useState<'current' | '6_months' | '1_year' | '5_years' | '2030'>('1_year');
+  const [pamTrendFocus, setPamTrendFocus] = useState<string[]>(['T1', 'T2', 'T3', 'T4', 'T5']);
+  const [pamDaysBack, setPamDaysBack] = useState(90);
+  const [pamArticleLimit, setPamArticleLimit] = useState(100);
+  const [isPamTuneOpen, setIsPamTuneOpen] = useState(false);
+  const [pamActiveView, setPamActiveView] = useState<'executive' | 'power' | 'attention' | 'money' | 'scenarios'>('executive');
+
+  // Tab visibility state with localStorage persistence
+  const HIDDEN_TABS_KEY = 'anticipate_hiddenTabs';
+  const TAB_ORDER_KEY = 'anticipate_tabOrder';
+
+  const [hiddenTabs, setHiddenTabs] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(HIDDEN_TABS_KEY);
+      if (saved) {
+        return new Set(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn('Failed to load hidden tabs from localStorage:', e);
+    }
+    return new Set();
+  });
+
+  const [tabOrder, setTabOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(TAB_ORDER_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Failed to load tab order from localStorage:', e);
+    }
+    return [];
+  });
+
+  // Persist hidden tabs to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(HIDDEN_TABS_KEY, JSON.stringify([...hiddenTabs]));
+    } catch (e) {
+      console.warn('Failed to save hidden tabs to localStorage:', e);
+    }
+  }, [hiddenTabs]);
+
+  // Persist tab order to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(tabOrder));
+    } catch (e) {
+      console.warn('Failed to save tab order to localStorage:', e);
+    }
+  }, [tabOrder]);
+
+  // Toggle tab visibility
+  const toggleTabVisibility = (tabId: string) => {
+    setHiddenTabs(prev => {
+      const next = new Set(prev);
+      if (next.has(tabId)) {
+        next.delete(tabId);
+      } else {
+        // Don't hide the currently active tab
+        if (tabId !== activeTab) {
+          next.add(tabId);
+        }
+      }
+      return next;
+    });
+  };
+
+  // Reorder tabs
+  const reorderTabs = (newOrder: string[]) => {
+    setTabOrder(newOrder);
+  };
+
+  // Deferred tab config loading — only fetch when the relevant tab is active
+  const sioConfigLoaded = useRef(false);
+  const eosConfigLoaded = useRef(false);
+  const newsletterConfigLoaded = useRef(false);
+  const fgConfigLoaded = useRef(false);
+  const ebConfigLoaded = useRef(false);
+
+  useEffect(() => {
+    if (activeTab === 'intelligence-brief' && !sioConfigLoaded.current) {
+      sioConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/sio/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setSioCredibilityThreshold(cfg.credibility_threshold ?? 60);
+            setSioHoursBack(cfg.hours_back ?? 24);
+            setSioMaxEvents(cfg.max_events ?? 30);
+          }
+        } catch (err) {
+          console.error('Failed to load SIO config:', err);
+        }
+      })();
+    }
+
+    if (activeTab === 'extreme-outliers' && !eosConfigLoaded.current) {
+      eosConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/eos/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setEosScenarioCount(cfg.scenario_count ?? 5);
+            setEosIncludeBlackSwans(cfg.include_black_swans ?? true);
+            setEosIncludeContrarian(cfg.include_contrarian ?? true);
+            setEosIncludeWildCards(cfg.include_wild_cards ?? true);
+            setEosTimeHorizon(cfg.time_horizon ?? 'mid');
+          }
+        } catch (err) {
+          console.error('Failed to load EOS config:', err);
+        }
+      })();
+    }
+
+    if (activeTab === 'newsletter' && !newsletterConfigLoaded.current) {
+      newsletterConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/newsletter/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setNewsletterTitle(cfg.title ?? 'Intelligence Newsletter');
+            setNewsletterIntro(cfg.intro ?? '');
+            setNewsletterDaysBack(cfg.days_back ?? 7);
+            setNewsletterDeepDiveTopic(cfg.deep_dive_topic ?? '');
+          }
+        } catch (err) {
+          console.error('Failed to load Newsletter config:', err);
+        }
+      })();
+    }
+
+    if (activeTab === 'focus-group' && !fgConfigLoaded.current) {
+      fgConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/focus-groups/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setFgMaxPersonas(cfg.max_personas ?? 6);
+            setFgMinEvidenceThreshold(cfg.min_evidence_threshold ?? 2);
+            setFgIncludeDemographics(cfg.include_demographics ?? true);
+            setFgIncludePsychographics(cfg.include_psychographics ?? true);
+            setFgIncludeVoice(cfg.include_voice ?? true);
+          }
+        } catch (err) {
+          console.error('Failed to load Focus Group config:', err);
+        }
+      })();
+    }
+
+    if (activeTab === 'executive-briefing' && !ebConfigLoaded.current) {
+      ebConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/executive-briefing/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setEbPersona(cfg.default_persona ?? 'ceo');
+            setEbArticleCount(cfg.default_article_count ?? 6);
+          }
+        } catch (err) {
+          console.error('Failed to load Executive Briefing config:', err);
+        }
+      })();
+    }
+  }, [activeTab]);
+
+  // Load PAM definitions and cached report when PAM tab is selected
+  useEffect(() => {
+    if (activeTab === 'pam') {
+      pam.loadDefinitions();
+      // Auto-load cached report if no data is currently loaded
+      if (!pam.data && !pam.isGenerating && !pam.isLoadingCache) {
+        pam.loadCachedReport();
+      }
+    }
+  }, [activeTab, pam.loadDefinitions, pam.loadCachedReport, pam.data, pam.isGenerating, pam.isLoadingCache]);
 
   // Fetch prompt preview when Tune modal opens
   useEffect(() => {
@@ -155,7 +444,7 @@ function App() {
     }
   }, []);
 
-  // Sync active tab to config and auto-load data if not cached
+  // Sync active tab to config and load cached data (never auto-generates)
   useEffect(() => {
     // Map UI tab names to backend tab parameter values
     const tabMap: { [key: string]: string } = {
@@ -163,25 +452,61 @@ function App() {
       'strategic-recommendations': 'strategic',
       'impact-timeline': 'timeline',
       'market-signals': 'signals',
-      'future-horizons': 'horizons'
+      'future-horizons': 'horizons',
+      // Forecast Tracker piggybacks on the horizons data so we get the horizons run_id
+      'forecast-tracker': 'horizons',
     };
 
     const backendTab = tabMap[activeTab];
     if (backendTab) {
       updateConfig({ tab: backendTab });
 
-      // Check if we have cached data for this tab
+      // Check if we have cached data for this tab in localStorage
       const tabKey = `trendConvergence_data_${backendTab}`;
       const cachedData = localStorage.getItem(tabKey);
 
-      // If no cached data and we have a topic, auto-generate
-      // BUT: Don't auto-generate if there's already an error (prevents infinite loop)
+      // If no localStorage data and we have a topic, try backend cache (never generates)
       if (!cachedData && config.topic && !loading && !error) {
-        console.log(`No cached data for ${backendTab} tab, auto-generating...`);
-        generateAnalysis();
+        console.log(`No localStorage data for ${backendTab} tab, checking backend cache...`);
+        loadCached();
       }
     }
-  }, [activeTab, updateConfig, config.topic, loading, error, generateAnalysis]);
+  }, [activeTab, updateConfig, config.topic, loading, error, loadCached]);
+
+  // Discovery bridge: when the Future Horizons tab has no scenarios for the
+  // current topic (e.g. the run came from the Add-Topic wizard, not a
+  // trend-convergence analysis), load the latest stored run by topic.
+  useEffect(() => {
+    if (activeTab !== 'future-horizons' || !config.topic) {
+      setFallbackHorizons(null);
+      return;
+    }
+    if (data?.scenarios && data.scenarios.length) {
+      setFallbackHorizons(null); // trend-convergence data wins
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const lr = await fetch(
+          `/api/forecast/topics/${encodeURIComponent(config.topic)}/latest-run`,
+        );
+        if (!lr.ok || cancelled) return;
+        const { run_id } = await lr.json();
+        if (!run_id) return;
+        const raw = await getFutureHorizonsRaw(run_id);
+        let ro: any = raw?.raw_output;
+        if (typeof ro === 'string') { try { ro = JSON.parse(ro); } catch { ro = null; } }
+        const scenarios = ro?.scenarios || [];
+        if (!cancelled && scenarios.length) {
+          setFallbackHorizons({ scenarios, analysisId: run_id });
+        }
+      } catch {
+        // No stored run for this topic — tab shows its usual empty state.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, config.topic, data?.scenarios]);
 
   // Calculate context info when model or sample size changes
   useEffect(() => {
@@ -233,7 +558,7 @@ function App() {
   useEffect(() => {
     async function fetchTopics() {
       try {
-        const response = await fetch('/api/topics?include_config=false&with_articles=true');
+        const response = await fetch('/api/topics?include_config=false&with_articles=true&include_tracked=true');
         if (response.ok) {
           const topics = await response.json();
           setAllTopics(topics.map((t: any) => t.name));
@@ -251,6 +576,13 @@ function App() {
       loadSavedDashboardsForTopic(config.topic);
     }
   }, [config.topic]);
+
+  // Sync Configure modal timeframe with Executive Briefing days back
+  useEffect(() => {
+    if (config.timeframe_days > 0) {
+      setEbDaysBack(config.timeframe_days);
+    }
+  }, [config.timeframe_days]);
 
   // Saved Dashboards handlers
   async function loadSavedDashboardsForTopic(topic: string, autoLoad: boolean = false) {
@@ -285,15 +617,50 @@ function App() {
     // Get current profile
     const currentProfile = profiles.find(p => p.id === config.profile_id);
 
+    // Gather ALL tab data from localStorage and current state
+    const tabDataKeys = ['consensus', 'strategic', 'timeline', 'signals', 'horizons'];
+    const tabData: Record<string, any> = {};
+
+    tabDataKeys.forEach(key => {
+      const storageKey = `trendConvergence_data_${key}`;
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        try {
+          tabData[key] = JSON.parse(cached);
+        } catch (e) {
+          console.error(`Failed to parse ${key} data:`, e);
+        }
+      }
+    });
+
+    // Override with current active tab's live data
+    const activeTabKey = activeTab === 'strategic-recommendations' ? 'strategic' :
+                         activeTab === 'impact-timeline' ? 'timeline' :
+                         activeTab === 'market-signals' ? 'signals' :
+                         activeTab === 'future-horizons' ? 'horizons' :
+                         'consensus';
+    if (data) {
+      tabData[activeTabKey] = data;
+    }
+
+    // Include executive summary in horizons data if available
+    if (horizonsExecutiveSummary) {
+      tabData.horizons = {
+        ...(tabData.horizons || {}),
+        executive_summary: {
+          summaries: horizonsExecutiveSummary,
+          generated_at: horizonsExecSummaryGeneratedAt
+        }
+      };
+    }
+
     const request = {
       topic: config.topic,
       name: dashboardName,
       description: dashboardDescription || undefined,
       config: config,
       article_uris: articleUris,
-      tab_data: {
-        [activeTab]: data
-      },
+      tab_data: tabData,
       profile_snapshot: currentProfile,
     };
 
@@ -337,6 +704,21 @@ function App() {
           localStorage.setItem(storageKey, JSON.stringify(dashboard[backendKey]));
         }
       });
+
+      // Restore executive summary if saved with horizons data
+      if (dashboard.horizons_data?.executive_summary) {
+        const execSummary = dashboard.horizons_data.executive_summary;
+        if (execSummary.summaries && execSummary.summaries.length > 0) {
+          setHorizonsExecutiveSummary(execSummary.summaries);
+          setHorizonsExecSummaryGeneratedAt(execSummary.generated_at || null);
+          setHorizonsExecSummaryError(null);
+        }
+      } else {
+        // Clear executive summary if not in saved dashboard
+        setHorizonsExecutiveSummary(null);
+        setHorizonsExecSummaryGeneratedAt(null);
+        setHorizonsExecSummaryError(null);
+      }
 
       // Get the data key for current active tab
       const currentDataKey = tabDataMap[activeTab];
@@ -401,8 +783,29 @@ function App() {
     setIsConfigOpen(false);
   };
 
+  const handleConfigSave = () => {
+    setIsConfigOpen(false);
+    // Clear localStorage for current tab so loadCached re-checks backend with new config
+    if (config.tab) {
+      localStorage.removeItem(`trendConvergence_data_${config.tab}`);
+    }
+    // Trigger cache load for the (possibly new) config
+    loadCached();
+  };
+
   const handleViewRaw = async () => {
-    // Get analysis_id from data
+    // Handle focus-group tab separately - uses focusGroup.result not data
+    if (activeTab === 'focus-group') {
+      if (!focusGroup.result) {
+        alert('No focus group data found. Please generate a focus group first.');
+        return;
+      }
+      setRawAnalysisData(focusGroup.result);
+      setShowRawModal(true);
+      return;
+    }
+
+    // Get analysis_id from data for other tabs
     const analysisId = data?.analysis_id;
     if (!analysisId) {
       alert('No analysis ID found. Please generate an analysis first.');
@@ -443,6 +846,99 @@ function App() {
       setLoadingRaw(false);
     }
   };
+
+  // Future Horizons Executive Summary handlers
+  const handleGenerateHorizonsExecSummary = async () => {
+    // Wizard-built topics surface horizons via ``fallbackHorizons`` (the
+    // discovery-bridge effect populates this when ``data`` is empty for a
+    // topic that has a stored run). Fall back to it so the exec-summary
+    // button works whether the topic was opened through the Trends
+    // pipeline or built via the Add-Topic wizard.
+    const analysisId = data?.analysis_id || fallbackHorizons?.analysisId;
+    const scenarios = (data?.scenarios && data.scenarios.length)
+      ? data.scenarios
+      : fallbackHorizons?.scenarios;
+    if (!analysisId || !scenarios || !scenarios.length) {
+      setHorizonsExecSummaryError('No horizons analysis available. Please generate Future Horizons first.');
+      return;
+    }
+
+    setIsLoadingHorizonsExecSummary(true);
+    setHorizonsExecSummaryError(null);
+
+    try {
+      const result = await generateHorizonsExecutiveSummary(
+        analysisId,
+        scenarios,
+        config.topic,
+        config.model
+      );
+
+      if (result.success && result.executive_summary?.summaries) {
+        setHorizonsExecutiveSummary(result.executive_summary.summaries);
+        setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || new Date().toISOString());
+      } else {
+        throw new Error(result.message || 'Failed to generate executive summary');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate horizons executive summary:', err);
+      setHorizonsExecSummaryError(err.message || 'Failed to generate executive summary');
+    } finally {
+      setIsLoadingHorizonsExecSummary(false);
+    }
+  };
+
+  const handleHorizonsExport = async (options: FutureHorizonsExportOptions) => {
+    if (!data?.scenarios) {
+      throw new Error('No scenarios available to export');
+    }
+
+    // Interactive HTML download needs the server run id so the endpoint
+    // can fetch raw_output + cached executive summary cards. Fall back
+    // to the wizard-discovery analysis id when the topic was opened via
+    // the Add-Topic wizard rather than the Trends pipeline.
+    const runId = data?.analysis_id || fallbackHorizons?.analysisId || undefined;
+
+    await ExportService.exportFutureHorizons(
+      { ...options, runId },
+      data.scenarios,
+      horizonsExecutiveSummary,
+      config.topic
+    );
+  };
+
+  // Load cached executive summary when horizons data is available (no auto-generation)
+  useEffect(() => {
+    const loadCachedExecSummary = async () => {
+      // Same fallback as the manual generator: use the wizard-discovery
+      // run id when ``data.analysis_id`` is empty (topic opened via
+      // Add-Topic wizard rather than the Trends pipeline).
+      const analysisId = data?.analysis_id || fallbackHorizons?.analysisId;
+      const haveScenarios = (data?.scenarios?.length || 0) > 0 ||
+                            (fallbackHorizons?.scenarios?.length || 0) > 0;
+      if (activeTab === 'future-horizons' && analysisId && haveScenarios && !horizonsExecutiveSummary && !isLoadingHorizonsExecSummary) {
+        try {
+          const result = await getHorizonsExecutiveSummary(analysisId);
+          if (result.success && result.executive_summary?.summaries) {
+            setHorizonsExecutiveSummary(result.executive_summary.summaries);
+            setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || null);
+          }
+        } catch (err) {
+          // No cached summary — user can generate via the button in ExecutiveSummarySection
+          console.log('No cached executive summary found');
+        }
+      }
+    };
+
+    loadCachedExecSummary();
+  }, [activeTab, data?.analysis_id, data?.scenarios?.length, fallbackHorizons?.analysisId, fallbackHorizons?.scenarios?.length]);
+
+  // Clear executive summary when topic changes
+  useEffect(() => {
+    setHorizonsExecutiveSummary(null);
+    setHorizonsExecSummaryGeneratedAt(null);
+    setHorizonsExecSummaryError(null);
+  }, [config.topic]);
 
   const handleExport = async (format: 'json' | 'markdown' | 'pdf' | 'image') => {
     if (!data) {
@@ -551,20 +1047,21 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 dark:bg-gray-950 overflow-auto">
+      <div className="flex min-h-full min-w-[1064px]">
       {/* Shared Navigation */}
       <SharedNavigation currentPage="anticipate" />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-screen">
         {/* Top Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb and Dashboard Selector */}
-          <div className="flex items-center gap-4 text-sm text-gray-700">
+          <div className="flex items-center gap-4 text-sm text-gray-700 dark:text-gray-400">
             <div className="flex items-center gap-2">
               <span>Explore</span>
               <span>/</span>
-              <span className="font-medium text-gray-950">Strategic Recommendations</span>
+              <span className="font-medium text-gray-950 dark:text-gray-100">Strategic Recommendations</span>
               <span>•</span>
               <span>Current indicators and potential disruption scenarios</span>
             </div>
@@ -572,16 +1069,21 @@ function App() {
           </div>
 
           {/* Right Icons */}
-          <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-gray-100 rounded-md">
-              <Bell className="w-5 h-5 text-gray-700" />
-            </button>
+          <div className="gather-top-bar-right">
+            <TabSettingsDropdown
+              hiddenTabs={hiddenTabs}
+              onToggleTabVisibility={toggleTabVisibility}
+              tabOrder={tabOrder}
+              onReorderTabs={reorderTabs}
+              activeTab={activeTab}
+            />
+            <NotificationBell />
             <button
               onClick={() => setIsOnboardingOpen(true)}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-950"
+              className="gather-top-bar-setup-btn"
             >
               Set up topic
-              <span className="text-gray-500">+</span>
+              <Plus className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -607,6 +1109,7 @@ function App() {
                           <SelectValue placeholder="Cloud Repatriation" />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="__all__">ALL Topics</SelectItem>
                           {topics.map((topic) => (
                             <SelectItem key={topic.name} value={topic.name}>
                               {topic.display_name}
@@ -616,9 +1119,9 @@ function App() {
                       </Select>
                     </div>
 
-                    {/* Analysis Timeframe */}
+                    {/* Data Range */}
                     <div>
-                      <label className="text-sm font-semibold mb-2 block">Analysis Timeframe</label>
+                      <label className="text-sm font-semibold mb-2 block">Data Range (Days Back)</label>
                       <Select
                         value={config.timeframe_days.toString()}
                         onValueChange={(value) => updateConfig({ timeframe_days: parseInt(value) })}
@@ -627,11 +1130,13 @@ function App() {
                           <SelectValue placeholder="All Time" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="0">All Time</SelectItem>
+                          <SelectItem value="1">Last 24 hours</SelectItem>
+                          <SelectItem value="7">Last 7 days</SelectItem>
                           <SelectItem value="30">Last 30 days</SelectItem>
                           <SelectItem value="90">Last 90 days</SelectItem>
                           <SelectItem value="180">Last 180 days</SelectItem>
                           <SelectItem value="365">Last year</SelectItem>
+                          <SelectItem value="0">All Time</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -641,7 +1146,7 @@ function App() {
                       <label className="text-sm font-semibold mb-2 block">AI Model</label>
                       <Select value={config.model} onValueChange={(value) => updateConfig({ model: value })}>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="gpt-4.1-mini" />
+                          <SelectValue placeholder="gpt-5.4" />
                         </SelectTrigger>
                         <SelectContent>
                           {models.map((model) => (
@@ -700,9 +1205,9 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Article Sample Size */}
+                    {/* Article Limit */}
                     <div>
-                      <label className="text-sm font-semibold mb-2 block">Article Sample Size</label>
+                      <label className="text-sm font-semibold mb-2 block">Article Limit</label>
                       <Select
                         value={config.custom_limit?.toString() || 'auto'}
                         onValueChange={(value) => {
@@ -750,6 +1255,13 @@ function App() {
                 {/* Action Buttons */}
                 <div className="flex justify-end gap-3 mt-8">
                   <Button
+                    variant="outline"
+                    onClick={handleConfigSave}
+                    className="px-6"
+                  >
+                    Save
+                  </Button>
+                  <Button
                     onClick={handleGenerate}
                     disabled={loading || !config.topic}
                     className="px-6 bg-pink-500 hover:bg-pink-600"
@@ -757,11 +1269,11 @@ function App() {
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Loading...
+                        Generating...
                       </>
                     ) : (
                       <>
-                        Load analysis
+                        Generate Analysis
                         <span className="ml-2">▶</span>
                       </>
                     )}
@@ -771,12 +1283,17 @@ function App() {
             </Dialog>
 
         {/* Sub-header with tabs */}
-        <div className="bg-white px-6 py-4">
-          <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+        <div className="bg-white dark:bg-gray-900 px-6 py-4">
+          <TabNavigation
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            hiddenTabs={hiddenTabs}
+            tabOrder={tabOrder}
+          />
         </div>
 
         {/* Topic and Controls */}
-        <div className="bg-white px-6 py-4 border-b border-gray-200">
+        <div className="bg-white dark:bg-gray-900 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {/* Topic Selector */}
@@ -788,6 +1305,7 @@ function App() {
                   <SelectValue placeholder="Select Topic" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__all__">ALL Topics</SelectItem>
                   {allTopics.map((topic) => (
                     <SelectItem key={topic} value={topic}>
                       {topic}
@@ -853,7 +1371,7 @@ function App() {
                                 e.preventDefault();
                                 openDeleteConfirmation(dashboard.id, dashboard.name);
                               }}
-                              className="p-1 hover:bg-red-100 rounded text-gray-400 hover:text-red-600 transition-colors flex-shrink-0"
+                              className="p-1 hover:bg-red-100 rounded text-gray-500 hover:text-red-600 transition-colors flex-shrink-0"
                               title="Delete dashboard"
                               aria-label={`Delete ${dashboard.name}`}
                             >
@@ -874,111 +1392,716 @@ function App() {
                 {data?._cache_info?.last_updated || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
               </span>
               <button
-                onClick={() => generateAnalysis(true)}
-                disabled={loading}
+                onClick={() => {
+                  if (activeTab === 'intelligence-brief') {
+                    sio.startScan({
+                      topic: config.topic || undefined,
+                      hours_back: sioHoursBack,
+                      max_events: sioMaxEvents,
+                      credibility_threshold: sioCredibilityThreshold,
+                      profile_id: config.profile_id,
+                    });
+                  } else if (activeTab === 'extreme-outliers') {
+                    eos.startGeneration({
+                      topic: config.topic || '',
+                      scenario_count: eosScenarioCount,
+                      include_black_swans: eosIncludeBlackSwans,
+                      include_contrarian: eosIncludeContrarian,
+                      include_wild_cards: eosIncludeWildCards,
+                      time_horizon: eosTimeHorizon,
+                    });
+                  } else if (activeTab === 'focus-group') {
+                    focusGroup.startGeneration({
+                      topic: config.topic || '',
+                      max_personas: fgMaxPersonas,
+                      min_evidence_threshold: fgMinEvidenceThreshold,
+                      include_demographics: fgIncludeDemographics,
+                      include_psychographics: fgIncludePsychographics,
+                      include_voice: fgIncludeVoice,
+                    });
+                  } else if (activeTab === 'executive-briefing') {
+                    executiveBriefing.startGeneration({
+                      topic: config.topic === '__all__' ? '' : (config.topic || ''),
+                      persona: ebPersona,
+                      article_count: ebArticleCount,
+                      days_back: ebDaysBack,
+                      include_synthesis: true,
+                      include_podcast_script: ebIncludePodcastScript,
+                      podcast_duration: ebPodcastDuration,
+                    });
+                  } else if (activeTab === 'newsletter') {
+                    newsletter.startGeneration({
+                      topic: config.topic || 'AI',
+                      days_back: newsletterDaysBack,
+                      deep_dive_topic: newsletterDeepDiveTopic || undefined,
+                      model: config.model,
+                    });
+                  } else if (activeTab === 'pam') {
+                    // PAM searches across ALL topics using trend-specific semantic queries
+                    pam.startGeneration({
+                      topic: '', // Empty = search all topics
+                      analysisType: pamAnalysisType,
+                      entityType: 'publisher', // Publisher perspective by default
+                      timeHorizon: pamTimeHorizon,
+                      trendFocus: pamTrendFocus as ('T1' | 'T2' | 'T3' | 'T4' | 'T5')[],
+                      daysBack: pamDaysBack,
+                      articleLimit: pamArticleLimit,
+                      model: config.model, // Use global model from Configure
+                    });
+                  } else {
+                    generateAnalysis(true);
+                  }
+                }}
+                disabled={loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating || pam.isGenerating}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Refresh analysis (bypass cache)"
+                title={activeTab === 'intelligence-brief' ? 'Generate situation assessment' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'focus-group' ? 'Generate focus group personas' : activeTab === 'executive-briefing' ? 'Generate executive briefing' : activeTab === 'newsletter' ? 'Generate newsletter' : activeTab === 'pam' ? 'Generate PAM analysis' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating || pam.isGenerating) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="bg-white px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+        <div className="bg-white dark:bg-gray-900 px-6 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsConfigOpen(true)}
-              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Configure
-            </button>
+            {/* Configure button - hidden for PAM since it has its own complete Tune modal */}
+            {activeTab !== 'pam' && (
+              <button
+                onClick={() => setIsConfigOpen(true)}
+                className="px-4 py-2 text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/30 rounded-md text-sm font-medium flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Configure
+              </button>
+            )}
             <button
               onClick={() => {
                 console.log('🔧 Tune button clicked');
-                setIsPromptEditorOpen(true);
+                if (activeTab === 'intelligence-brief') {
+                  setIsSioTuneOpen(true);
+                } else if (activeTab === 'extreme-outliers') {
+                  setIsEosTuneOpen(true);
+                } else if (activeTab === 'newsletter') {
+                  setIsNewsletterTuneOpen(true);
+                } else if (activeTab === 'focus-group') {
+                  setIsFgTuneOpen(true);
+                } else if (activeTab === 'executive-briefing') {
+                  setIsEbTuneOpen(true);
+                } else if (activeTab === 'pam') {
+                  setIsPamTuneOpen(true);
+                } else if (activeTab === 'future-horizons') {
+                  setIsFhTuneOpen(true);
+                } else {
+                  setIsPromptEditorOpen(true);
+                }
               }}
-              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/30 rounded-md text-sm font-medium flex items-center gap-2"
             >
               <FileText className="w-4 h-4" />
               Tune
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleExport('pdf')}
-              disabled={!data}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              PDF
-            </button>
-            <button
-              onClick={() => handleExport('image')}
-              disabled={!data}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ImageIcon className="w-4 h-4" />
-              PNG
-            </button>
-            <button
-              onClick={handleViewRaw}
-              disabled={!data?.analysis_id || loadingRaw}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Code className="w-4 h-4" />
-              {loadingRaw ? 'Loading...' : 'Raw'}
-            </button>
-            {data?.analysis_id && (
-              <div className="reference-articles-button-wrapper">
-                <ArticleCitations
-                  dashboardType={
-                    activeTab === 'consensus' ? 'consensus' :
-                    activeTab === 'strategic-recommendations' ? 'strategic' :
-                    activeTab === 'market-signals' ? 'market-signals' :
-                    activeTab === 'impact-timeline' ? 'timeline' :
-                    activeTab === 'future-horizons' ? 'horizons' :
-                    'consensus'
-                  }
-                  analysisId={data.analysis_id}
-                  topic={config.topic}
-                />
-              </div>
+            {/* Export/Raw/References buttons for Situation Assessment tab */}
+            {activeTab === 'intelligence-brief' && sio.briefContent && !sio.isScanning && (
+              <>
+                <button
+                  onClick={async () => {
+                    // Export as PDF using ExportService
+                    const timestamp = Date.now();
+                    const baseFilename = `situation-assessment-${config.topic.toLowerCase().replace(/\s+/g, '-')}-${timestamp}`;
+                    try {
+                      await ExportService.exportPDF('dashboard-content', baseFilename);
+                    } catch (error) {
+                      console.error('PDF export failed:', error);
+                      alert('Failed to export as PDF. Please try again.');
+                    }
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={async () => {
+                    // Export as PNG using ExportService
+                    const timestamp = Date.now();
+                    const baseFilename = `situation-assessment-${config.topic.toLowerCase().replace(/\s+/g, '-')}-${timestamp}`;
+                    try {
+                      await ExportService.exportImage('dashboard-content', baseFilename);
+                    } catch (error) {
+                      console.error('PNG export failed:', error);
+                      alert('Failed to export as PNG. Please try again.');
+                    }
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={() => {
+                    // Export brief as markdown file
+                    const blob = new Blob([sio.briefContent], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `situation-assessment-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowSioRawModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Code className="w-4 h-4" />
+                  Raw
+                </button>
+                <button
+                  onClick={() => setShowSioReferencesModal(true)}
+                  disabled={!sio.scanResult?.articles?.length}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  References
+                </button>
+                <button
+                  onClick={() => setShowSioSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+              </>
             )}
+            {/* Export/Raw/References buttons for Extreme Outliers tab */}
+            {activeTab === 'extreme-outliers' && eos.result && !eos.isGenerating && (
+              <>
+                <button
+                  onClick={() => {
+                    // Export as text-based PDF with all scenario details
+                    ExportService.exportEOSTextPDF(
+                      eos.scenarios,
+                      config.topic || 'scenarios',
+                      eos.result?.metadata
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => {
+                    // Export as Markdown with all scenario details
+                    ExportService.exportEOSMarkdown(
+                      eos.scenarios,
+                      config.topic || 'scenarios',
+                      eos.result?.metadata
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <FileText className="w-4 h-4" />
+                  Markdown
+                </button>
+                <button
+                  onClick={() => {
+                    // Export scenarios as JSON file
+                    const blob = new Blob([JSON.stringify(eos.result, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `extreme-outliers-${config.topic || 'scenarios'}-${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowEosRawModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Code className="w-4 h-4" />
+                  Raw
+                </button>
+                <button
+                  onClick={() => setShowEosReferencesModal(true)}
+                  disabled={!eos.result?.articles?.length}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  References
+                </button>
+              </>
+            )}
+            {/* Action buttons for Newsletter tab */}
+            {activeTab === 'newsletter' && newsletter.newsletterContent && !newsletter.isGenerating && (
+              <>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => handleExport('image')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={() => {
+                    // Export newsletter as markdown file
+                    const content = newsletter.isEditing ? newsletter.editedContent : newsletter.newsletterContent;
+                    const blob = new Blob([content], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `newsletter-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowNewsletterSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+              </>
+            )}
+            {/* Export/Raw/Save buttons for Executive Briefing tab */}
+            {activeTab === 'executive-briefing' && executiveBriefing.result && !executiveBriefing.isGenerating && (
+              <>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => handleExport('image')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={() => {
+                    // Export briefing as markdown file
+                    const lines = [
+                      `# Executive Briefing: ${config.topic}`,
+                      '',
+                      `**Persona:** ${ebPersona}`,
+                      `**Generated:** ${new Date().toISOString()}`,
+                      `**Articles:** ${executiveBriefing.articles.length}`,
+                      '',
+                      '## Executive Summary',
+                      '',
+                      executiveBriefing.briefingSummary || 'No summary available.',
+                      '',
+                      '## Articles',
+                      '',
+                    ];
+                    for (const article of executiveBriefing.articles) {
+                      lines.push(`### ${article.title}`);
+                      lines.push('');
+                      lines.push(`**Source:** ${article.source} | **Date:** ${article.date}`);
+                      lines.push('');
+                      lines.push(`**Takeaway:** ${article.executive_takeaway}`);
+                      lines.push('');
+                      lines.push('---');
+                      lines.push('');
+                    }
+                    const content = lines.join('\n');
+                    const blob = new Blob([content], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `executive-briefing-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => {
+                    // Export as JSON (Raw)
+                    const content = JSON.stringify(executiveBriefing.result, null, 2);
+                    const blob = new Blob([content], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `executive-briefing-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Code className="w-4 h-4" />
+                  Raw
+                </button>
+                <button
+                  onClick={() => setShowSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+                <button
+                  onClick={() => setShowEbPodcastModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Mic className="w-4 h-4" />
+                  Podcast
+                </button>
+              </>
+            )}
+            {/* Export buttons - hidden for Situation Assessment, Newsletter, Extreme Outliers, Focus Group, and Executive Briefing tabs (they have custom buttons) */}
+            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && activeTab !== 'extreme-outliers' && activeTab !== 'focus-group' && activeTab !== 'executive-briefing' && (
+              <>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  disabled={!data}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => handleExport('image')}
+                  disabled={!data}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={handleViewRaw}
+                  disabled={!data?.analysis_id || loadingRaw}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Code className="w-4 h-4" />
+                  {loadingRaw ? 'Loading...' : 'Raw'}
+                </button>
+                {/* References button - for standard dashboards */}
+                {data?.analysis_id && (
+                  <div className="reference-articles-button-wrapper">
+                    <ArticleCitations
+                      dashboardType={
+                        activeTab === 'consensus' ? 'consensus' :
+                        activeTab === 'strategic-recommendations' ? 'strategic' :
+                        activeTab === 'market-signals' ? 'market-signals' :
+                        activeTab === 'impact-timeline' ? 'timeline' :
+                        activeTab === 'future-horizons' ? 'horizons' :
+                        'consensus'
+                      }
+                      analysisId={data.analysis_id}
+                      topic={config.topic}
+                    />
+                  </div>
+                )}
 
-            {/* Save Dashboard Button */}
-            <button
-              onClick={() => setShowSaveDialog(true)}
-              disabled={!data}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="w-4 h-4" />
-              Save
-            </button>
+                {/* Save Dashboard Button */}
+                <button
+                  onClick={() => setShowSaveDialog(true)}
+                  disabled={!data}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+              </>
+            )}
+            {/* Focus Group export buttons - text-based PDF and Markdown */}
+            {activeTab === 'focus-group' && focusGroup.result && !focusGroup.isGenerating && (
+              <>
+                <button
+                  onClick={() => {
+                    ExportService.exportFocusGroupTextPDF(
+                      focusGroup.result,
+                      config.topic || 'focus-group'
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => {
+                    ExportService.exportFocusGroupMarkdown(
+                      focusGroup.result,
+                      config.topic || 'focus-group'
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <FileText className="w-4 h-4" />
+                  Markdown
+                </button>
+                <button
+                  onClick={handleViewRaw}
+                  disabled={loadingRaw}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Code className="w-4 h-4" />
+                  {loadingRaw ? 'Loading...' : 'Raw'}
+                </button>
+                <button
+                  onClick={() => setShowFgReferencesModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <FileText className="w-4 h-4" />
+                  References
+                </button>
+                <button
+                  onClick={() => setShowFgSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
 
-            {/* Delete Dashboard Button - Only shown when a dashboard is loaded */}
-            {currentDashboardId && (
-              <button
-                onClick={() => {
-                  const dashboard = savedDashboards.find(d => d.id === currentDashboardId);
-                  if (dashboard) {
-                    openDeleteConfirmation(currentDashboardId, dashboard.name);
-                  }
-                }}
-                className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-red-500"
-                title="Delete Dashboard"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+                {/* Delete Dashboard Button - Only shown when a dashboard is loaded */}
+                {currentDashboardId && (
+                  <button
+                    onClick={() => {
+                      const dashboard = savedDashboards.find(d => d.id === currentDashboardId);
+                      if (dashboard) {
+                        openDeleteConfirmation(currentDashboardId, dashboard.name);
+                      }
+                    }}
+                    className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-red-500"
+                    title="Delete Dashboard"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
 
         {/* Main Scrollable Content */}
         <div id="dashboard-content" className="flex-1 overflow-y-auto px-6 py-6">
-          {loading ? (
+          {/* Situation Assessment Tab - State lifted to App.tsx for header button integration */}
+          {activeTab === 'intelligence-brief' ? (
+            <IntelligenceBrief
+              topic={config.topic}
+              profileId={config.profile_id}
+              isScanning={sio.isScanning}
+              currentStage={sio.currentStage}
+              stageProgress={sio.stageProgress}
+              overallProgress={sio.overallProgress}
+              briefContent={sio.briefContent}
+              scanResult={sio.scanResult}
+              error={sio.error}
+              articlesCollected={sio.articlesCollected}
+              articlesScreened={sio.articlesScreened}
+              eventsIdentified={sio.eventsIdentified}
+              eventsAnalyzed={sio.eventsAnalyzed}
+              currentEvent={sio.currentEvent}
+              articles={sio.scanResult?.articles}
+              hoursBack={sioHoursBack}
+              maxEvents={sioMaxEvents}
+              credibilityThreshold={sioCredibilityThreshold}
+              onHoursBackChange={setSioHoursBack}
+              onMaxEventsChange={setSioMaxEvents}
+              onCredibilityThresholdChange={setSioCredibilityThreshold}
+              onClearError={sio.clearError}
+              onClearResults={sio.clearResults}
+            />
+          ) : activeTab === 'extreme-outliers' ? (
+            <ExtremeOutliers
+              topic={config.topic}
+              isGenerating={eos.isGenerating}
+              currentStage={eos.currentStage}
+              stageProgress={eos.stageProgress}
+              overallProgress={eos.overallProgress}
+              scenarios={eos.scenarios}
+              result={eos.result}
+              error={eos.error}
+              signalsDetected={eos.signalsDetected}
+              pathwaysIdentified={eos.pathwaysIdentified}
+              scenariosGenerated={eos.scenariosGenerated}
+              articles={eos.result?.articles}
+              scenarioCount={eosScenarioCount}
+              includeBlackSwans={eosIncludeBlackSwans}
+              includeContrarian={eosIncludeContrarian}
+              includeWildCards={eosIncludeWildCards}
+              timeHorizon={eosTimeHorizon}
+              onScenarioCountChange={setEosScenarioCount}
+              onIncludeBlackSwansChange={setEosIncludeBlackSwans}
+              onIncludeContrarianChange={setEosIncludeContrarian}
+              onIncludeWildCardsChange={setEosIncludeWildCards}
+              onTimeHorizonChange={setEosTimeHorizon}
+              onClearError={eos.clearError}
+              onClearResults={eos.clearResults}
+              onLoadEOS={eos.loadResult}
+            />
+          ) : activeTab === 'focus-group' ? (
+            <FocusGroup
+              topic={config.topic}
+              isGenerating={focusGroup.isGenerating}
+              currentStage={focusGroup.currentStage}
+              stageProgress={focusGroup.stageProgress}
+              overallProgress={focusGroup.overallProgress}
+              personas={focusGroup.personas}
+              focusGroupSummary={focusGroup.focusGroupSummary}
+              interactionDynamics={focusGroup.interactionDynamics}
+              result={focusGroup.result}
+              error={focusGroup.error}
+              mentionsFound={focusGroup.mentionsFound}
+              clustersFormed={focusGroup.clustersFormed}
+              personasCreated={focusGroup.personasCreated}
+              savedFocusGroups={focusGroup.savedFocusGroups}
+              isSaving={focusGroup.isSaving}
+              isLoadingSaved={focusGroup.isLoadingSaved}
+              maxPersonas={fgMaxPersonas}
+              minEvidenceThreshold={fgMinEvidenceThreshold}
+              includeDemographics={fgIncludeDemographics}
+              includePsychographics={fgIncludePsychographics}
+              includeVoice={fgIncludeVoice}
+              onMaxPersonasChange={setFgMaxPersonas}
+              onMinEvidenceThresholdChange={setFgMinEvidenceThreshold}
+              onIncludeDemographicsChange={setFgIncludeDemographics}
+              onIncludePsychographicsChange={setFgIncludePsychographics}
+              onIncludeVoiceChange={setFgIncludeVoice}
+              onClearError={focusGroup.clearError}
+              onClearResults={focusGroup.clearResults}
+              onUpdatePersona={focusGroup.updatePersona}
+              onSaveFocusGroup={focusGroup.saveFocusGroup}
+              onLoadSavedFocusGroups={focusGroup.loadSavedFocusGroups}
+              onLoadSavedFocusGroup={focusGroup.loadSavedFocusGroup}
+              onDeleteSavedFocusGroup={focusGroup.deleteSavedFocusGroup}
+              showSaveDialog={showFgSaveDialog}
+              onShowSaveDialogChange={setShowFgSaveDialog}
+            />
+          ) : activeTab === 'executive-briefing' ? (
+            <ExecutiveBriefing
+              topic={config.topic}
+              isGenerating={executiveBriefing.isGenerating}
+              currentStage={executiveBriefing.currentStage}
+              stageProgress={executiveBriefing.stageProgress}
+              overallProgress={executiveBriefing.overallProgress}
+              articles={executiveBriefing.articles}
+              briefingSummary={executiveBriefing.briefingSummary}
+              themes={executiveBriefing.themes}
+              priorityActions={executiveBriefing.priorityActions}
+              riskSummary={executiveBriefing.riskSummary}
+              opportunitySummary={executiveBriefing.opportunitySummary}
+              focusAreas={executiveBriefing.focusAreas}
+              podcastScript={executiveBriefing.podcastScript}
+              result={executiveBriefing.result}
+              error={executiveBriefing.error}
+              articlesSelected={executiveBriefing.articlesSelected}
+              articlesAnalyzed={executiveBriefing.articlesAnalyzed}
+              currentArticle={executiveBriefing.currentArticle}
+              currentArticleTitle={executiveBriefing.currentArticleTitle}
+              savedBriefings={executiveBriefing.savedBriefings}
+              isSaving={executiveBriefing.isSaving}
+              isLoadingSaved={executiveBriefing.isLoadingSaved}
+              persona={ebPersona}
+              articleCount={ebArticleCount}
+              daysBack={ebDaysBack}
+              includePodcastScript={ebIncludePodcastScript}
+              podcastDuration={ebPodcastDuration}
+              onPersonaChange={setEbPersona}
+              onArticleCountChange={setEbArticleCount}
+              onDaysBackChange={setEbDaysBack}
+              onIncludePodcastScriptChange={setEbIncludePodcastScript}
+              onPodcastDurationChange={setEbPodcastDuration}
+              onPodcastScriptChange={executiveBriefing.setPodcastScript}
+              onClearError={executiveBriefing.clearError}
+              onClearResults={executiveBriefing.clearResults}
+              onUpdateArticle={executiveBriefing.updateArticle}
+              onSaveBriefing={executiveBriefing.saveBriefing}
+              onLoadSavedBriefings={executiveBriefing.loadSavedBriefings}
+              onLoadSavedBriefing={executiveBriefing.loadSavedBriefing}
+              onDeleteSavedBriefing={executiveBriefing.deleteSavedBriefing}
+              showPodcastModal={showEbPodcastModal}
+              onPodcastModalChange={setShowEbPodcastModal}
+            />
+          ) : activeTab === 'newsletter' ? (
+            <Newsletter
+              topic={config.topic}
+              isGenerating={newsletter.isGenerating}
+              currentStage={newsletter.currentStage}
+              stageProgress={newsletter.stageProgress}
+              overallProgress={newsletter.overallProgress}
+              newsletterContent={newsletter.newsletterContent}
+              editedContent={newsletter.editedContent}
+              isEditing={newsletter.isEditing}
+              availableArticles={newsletter.availableArticles}
+              selectedArticles={newsletter.selectedArticles}
+              result={newsletter.result}
+              error={newsletter.error}
+              articlesFetched={newsletter.articlesFetched}
+              articlesCategorized={newsletter.articlesCategorized}
+              daysBack={newsletterDaysBack}
+              deepDiveTopic={newsletterDeepDiveTopic}
+              newsletterTitle={newsletterTitle}
+              newsletterIntro={newsletterIntro}
+              onDaysBackChange={setNewsletterDaysBack}
+              onDeepDiveTopicChange={setNewsletterDeepDiveTopic}
+              onNewsletterTitleChange={setNewsletterTitle}
+              onNewsletterIntroChange={setNewsletterIntro}
+              onStartEditing={newsletter.startEditing}
+              onSaveEdits={newsletter.saveEdits}
+              onDiscardEdits={newsletter.discardEdits}
+              onUpdateEditedContent={newsletter.updateEditedContent}
+              onToggleArticleSelection={newsletter.toggleArticleSelection}
+              onUpdateArticleAnnotation={newsletter.updateArticleAnnotation}
+              onAddSelectedToNewsletter={newsletter.addSelectedToNewsletter}
+              onClearError={newsletter.clearError}
+              onClearResults={newsletter.clearResults}
+              onLoadNewsletter={newsletter.loadContent}
+              showSaveDialog={showNewsletterSaveDialog}
+              onSaveDialogChange={setShowNewsletterSaveDialog}
+            />
+          ) : activeTab === 'pam' ? (
+            <PAMDashboard
+              topic={config.topic}
+              isGenerating={pam.isGenerating}
+              currentStage={pam.currentStage}
+              stageProgress={pam.stageProgress}
+              data={pam.data}
+              error={pam.error}
+              activeView={pamActiveView}
+              onViewChange={setPamActiveView}
+              onClearError={pam.clearError}
+            />
+          ) : loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <Loader2 className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-4" />
@@ -989,16 +2112,30 @@ function App() {
                 </p>
               </div>
             </div>
-          ) : !data ? (
+          ) : (!data && !(activeTab === 'future-horizons' && fallbackHorizons)) ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
-                <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
-                <Button onClick={() => setIsConfigOpen(true)}>
-                  <Settings className="w-4 h-4 mr-2" />
-                  Configure Analysis
-                </Button>
+                {needsGeneration && config.topic ? (
+                  <>
+                    <TrendingUp className="w-16 h-16 text-pink-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-950 mb-2">No analysis available for "{config.topic}"</h3>
+                    <p className="text-gray-600 mb-4">This will analyze articles and generate insights (30-60s)</p>
+                    <Button onClick={() => generateAnalysis()}>
+                      <Zap className="w-4 h-4 mr-2" />
+                      Generate Analysis
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
+                    <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
+                    <Button onClick={() => setIsConfigOpen(true)}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Configure Analysis
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -1007,8 +2144,8 @@ function App() {
               {activeTab === 'impact-timeline' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Impact Timeline:</strong> Visualize key impacts and developments over time to understand when changes will occur.
                     </p>
                   </div>
@@ -1036,10 +2173,10 @@ function App() {
 
                   {/* Key Insights from Evidence Synthesis */}
                   {data.key_insights && data.key_insights.length > 0 && (
-                    <div className="mt-8 bg-cyan-50 border border-cyan-200 rounded-xl p-6">
+                    <div className="mt-8 bg-cyan-50 dark:bg-cyan-900/30 border border-cyan-200 dark:border-cyan-800 rounded-xl p-6">
                       <div className="flex items-center gap-2 mb-4">
-                        <FileText className="w-5 h-5 text-cyan-600" />
-                        <h2 className="text-xl font-bold">Key Insights from Evidence Synthesis</h2>
+                        <FileText className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Key Insights from Evidence Synthesis</h2>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         {data.key_insights.map((insight, idx) => {
@@ -1050,10 +2187,10 @@ function App() {
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
                               <div className="flex-1">
-                                <div className="text-sm font-semibold text-gray-950 mb-1">
+                                <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700 mb-2">
+                                <div className="text-xs text-gray-700 dark:text-gray-400 mb-2">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                                 {/* Article Citations for Key Insight (supports both single and multiple citations) */}
@@ -1068,7 +2205,7 @@ function App() {
                                   if (citationList.length === 0) return null;
 
                                   return (
-                                    <div className="text-xs mt-1 pt-1 border-t border-gray-300">
+                                    <div className="text-xs mt-1 pt-1 border-t border-gray-300 dark:border-gray-600">
                                       <div className="space-y-1">
                                         {citationList.map((citation: any, idx: number) => (
                                           <a
@@ -1076,7 +2213,7 @@ function App() {
                                             href={citation.url}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-cyan-700 hover:underline flex items-center gap-1"
+                                            className="text-cyan-700 dark:text-cyan-400 hover:underline flex items-center gap-1"
                                           >
                                             <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -1216,28 +2353,28 @@ function App() {
               {activeTab === 'market-signals' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-purple-50 border-l-4 border-purple-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/30 border-l-4 border-purple-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Market Signals & Strategic Risks:</strong> Identify emerging trends, disruption scenarios, and strategic opportunities to stay ahead of market changes.
                     </p>
                   </div>
 
                   {/* Future Signal Table */}
-                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
                     <table className="w-full">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Future Signal</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Impact</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Timeline</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Confidence</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Future Signal</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Impact</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Timeline</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Confidence</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                         {('future_signals' in data ? data.future_signals : []).map((signal: any, idx: number) => {
                           const html = renderCitationsAsLinks(signal.description || '', articleList);
                           return (
-                            <tr key={idx} className="hover:bg-gray-50">
+                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                               <td className="px-6 py-4">
                                 <div className="text-sm font-medium text-gray-950">{signal.signal}</div>
                                 <div className="text-xs text-gray-600 mt-1" dangerouslySetInnerHTML={{ __html: html }} />
@@ -1411,11 +2548,43 @@ function App() {
               {/* Consensus Analysis Tab */}
               {activeTab === 'consensus' && (
                 <>
-                  {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
-                      <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
-                    </p>
+                  {/* Dashboard Description + Interactive HTML download */}
+                  <div className="mb-6 flex items-start gap-3">
+                    <div className="flex-1 p-4 bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 rounded-r-lg">
+                      <p className="text-sm text-gray-700 dark:text-gray-200">
+                        <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
+                      </p>
+                    </div>
+                    {(data?.analysis_id) && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const resp = await fetch(`/api/trend-convergence/consensus/${encodeURIComponent(data.analysis_id)}/download.html`);
+                            if (!resp.ok) {
+                              const body = await resp.text();
+                              throw new Error(`${resp.status} ${body || resp.statusText}`);
+                            }
+                            const blob = await resp.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `consensus-analysis-${(config.topic || 'topic').toLowerCase().replace(/\s+/g, '-')}.html`;
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                          } catch (e: any) {
+                            // eslint-disable-next-line no-alert
+                            alert(`HTML download failed: ${e?.message || e}`);
+                          }
+                        }}
+                        title="Download a standalone, interactive HTML view of this Consensus Analysis"
+                        className="shrink-0 inline-flex items-center gap-2 text-sm px-3 py-2 border border-green-300 dark:border-green-700 text-green-800 dark:text-green-200 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-md"
+                      >
+                        <Download className="w-4 h-4" />
+                        Interactive HTML
+                      </button>
+                    )}
                   </div>
 
                   {/* Consensus Category Cards (New Auspex Structure) */}
@@ -1468,10 +2637,10 @@ function App() {
 
                   {/* Key Insights from Evidence Synthesis */}
                   {data.key_insights && data.key_insights.length > 0 && (
-                    <div className="mt-8 bg-cyan-50 border border-cyan-200 rounded-xl p-6">
+                    <div className="mt-8 bg-cyan-50 dark:bg-cyan-900/30 border border-cyan-200 dark:border-cyan-800 rounded-xl p-6">
                       <div className="flex items-center gap-2 mb-4">
-                        <FileText className="w-5 h-5 text-cyan-600" />
-                        <h2 className="text-xl font-bold">Key Insights from Evidence Synthesis</h2>
+                        <FileText className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Key Insights from Evidence Synthesis</h2>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         {data.key_insights.map((insight, idx) => {
@@ -1482,10 +2651,10 @@ function App() {
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
                               <div>
-                                <div className="text-sm font-semibold text-gray-950 mb-1">
+                                <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700">
+                                <div className="text-xs text-gray-700 dark:text-gray-400">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                               </div>
@@ -1508,8 +2677,8 @@ function App() {
               {activeTab === 'strategic-recommendations' && (
               <>
                 {/* Dashboard Description */}
-                <div className="mb-6 p-4 bg-pink-50 border-l-4 border-pink-500 rounded-r-lg">
-                  <p className="text-sm text-gray-700">
+                <div className="mb-6 p-4 bg-pink-50 dark:bg-pink-900/30 border-l-4 border-pink-500 rounded-r-lg">
+                  <p className="text-sm text-gray-700 dark:text-gray-200">
                     <strong>Strategic Recommendations:</strong> Actionable strategic insights across near, mid, and long-term horizons to guide decision-making.
                   </p>
                 </div>
@@ -1518,15 +2687,15 @@ function App() {
                 <div>
                 <div className="grid grid-cols-3 gap-6">
                   {/* Near-term */}
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="bg-green-50 p-6 border-b border-green-100">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-green-50 dark:bg-green-900/30 p-6 border-b border-green-100 dark:border-green-800">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                          <Clock className="w-4 h-4 text-green-700" />
+                        <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-800 flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-green-700 dark:text-green-300" />
                         </div>
-                        <h3 className="font-bold text-sm text-gray-900">NEAR-TERM</h3>
+                        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">NEAR-TERM</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-400">
                         {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
                       </div>
                     </div>
@@ -1536,7 +2705,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-400 leading-relaxed flex gap-2">
                               <span className="text-green-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -1550,15 +2719,15 @@ function App() {
                   </div>
 
                   {/* Mid-term */}
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="bg-amber-50 p-6 border-b border-amber-100">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-amber-50 dark:bg-amber-900/30 p-6 border-b border-amber-100 dark:border-amber-800">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                          <TrendingUp className="w-4 h-4 text-amber-700" />
+                        <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-800 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 text-amber-700 dark:text-amber-300" />
                         </div>
-                        <h3 className="font-bold text-sm text-gray-900">MID-TERM</h3>
+                        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">MID-TERM</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-400">
                         {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
                       </div>
                     </div>
@@ -1568,7 +2737,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-400 leading-relaxed flex gap-2">
                               <span className="text-amber-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -1582,15 +2751,15 @@ function App() {
                   </div>
 
                   {/* Long-term */}
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="bg-rose-50 p-6 border-b border-rose-100">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-rose-50 dark:bg-rose-900/30 p-6 border-b border-rose-100 dark:border-rose-800">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center">
-                          <Target className="w-4 h-4 text-rose-700" />
+                        <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-800 flex items-center justify-center">
+                          <Target className="w-4 h-4 text-rose-700 dark:text-rose-300" />
                         </div>
-                        <h3 className="font-bold text-sm text-gray-900">LONG-TERM (2032+)</h3>
+                        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">LONG-TERM (2032+)</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-400">
                         {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
                       </div>
                     </div>
@@ -1600,7 +2769,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-400 leading-relaxed flex gap-2">
                               <span className="text-rose-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -1692,25 +2861,106 @@ function App() {
               {activeTab === 'future-horizons' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 border-l-4 border-indigo-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Future Horizons:</strong> Explore long-term scenarios and future possibilities to prepare for what's ahead.
                     </p>
                   </div>
 
-                  <FutureHorizons scenarios={data.scenarios || []} articleList={articleList} />
+                  <FutureHorizons
+                    scenarios={(data?.scenarios && data.scenarios.length ? data.scenarios : fallbackHorizons?.scenarios) || []}
+                    articleList={articleList}
+                    analysisId={data?.analysis_id || fallbackHorizons?.analysisId}
+                    topic={config.topic}
+                    executiveSummary={horizonsExecutiveSummary}
+                    executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
+                    isLoadingExecutiveSummary={isLoadingHorizonsExecSummary}
+                    executiveSummaryError={horizonsExecSummaryError}
+                    onGenerateExecutiveSummary={handleGenerateHorizonsExecSummary}
+                    onExport={handleHorizonsExport}
+                  />
 
                   {/* AI Disclosure Footer */}
                   <AIDisclosureFooter
                     {...dashboardFooterConfigs.horizons}
-                    modelUsed={data.model_used}
+                    modelUsed={data?.model_used}
                   />
                 </>
+              )}
+
+              {/* Topics Dashboard Tab */}
+              {activeTab === 'topics' && (
+                <TopicsDashboard
+                  onSelectTopic={(t) => {
+                    updateConfig({ topic: t });
+                    setActiveTab('forecast-tracker');
+                  }}
+                  onAddTopic={() => { setWizardInitial({}); setWizardOpen(true); }}
+                  onPromotionComplete={(t) => {
+                    // Candidate just finished promotion — open the wizard
+                    // at step 3 (overlay review) for the newly created
+                    // topic. The wizard's effect fetches the .proposed
+                    // overlay file the pipeline already wrote.
+                    setWizardInitial({ topic: t, step: 3 });
+                    setWizardOpen(true);
+                  }}
+                />
+              )}
+
+              {/* Forecast Tracker Tab */}
+              {activeTab === 'forecast-tracker' && (
+                config.topic === '__all__' ? (
+                  <AllTopicsForecastView
+                    onSelectTopic={(t) => updateConfig({ topic: t })}
+                  />
+                ) : (
+                  <ForecastAssessmentTab
+                    runId={data.analysis_id || null}
+                    topic={config.topic}
+                    forecastGeneratedAt={data.generated_at || data.created_at || null}
+                  />
+                )
+              )}
+
+              {/* Topic Reports Tab — on-demand long-form PPTX */}
+              {activeTab === 'topic-reports' && (
+                <TopicReportsPanel />
+              )}
+
+              {/* Changelog & Roadmap tabs — markdown docs served by /api/docs */}
+              {activeTab === 'changelog' && (
+                <DocViewer name="changelog" title="Changelog" />
+              )}
+              {activeTab === 'roadmap' && (
+                <DocViewer name="roadmap" title="Roadmap" />
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Add-topic wizard — opened from Topics dashboard "+ Add topic" CTA */}
+      <AddTopicWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        initialTopic={wizardInitial.topic}
+        initialStep={wizardInitial.step}
+        onCompleted={(t) => {
+          // Drop the user into the Forecast Tracker for the new topic
+          updateConfig({ topic: t });
+          setActiveTab('forecast-tracker');
+        }}
+        onNavigateToHorizons={(t) => {
+          setWizardOpen(false);
+          updateConfig({ topic: t });
+          setActiveTab('future-horizons');
+        }}
+        onNavigateToTracker={(t) => {
+          setWizardOpen(false);
+          updateConfig({ topic: t });
+          setActiveTab('forecast-tracker');
+        }}
+      />
 
       {/* Organizational Profile Modal */}
       <OrganizationalProfileModal
@@ -1733,6 +2983,364 @@ function App() {
         }}
       />
 
+      {/* SIO Raw Output Modal */}
+      {showSioRawModal && (
+        <Dialog open={showSioRawModal} onOpenChange={setShowSioRawModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Situation Assessment - Raw Data</DialogTitle>
+              <DialogDescription>
+                Complete scan output and audit trail
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {sio.scanResult && (
+                <>
+                  <div className="mb-4 text-sm text-gray-600 space-y-1">
+                    <p><strong>Scan ID:</strong> {sio.scanResult.scan_id}</p>
+                    <p><strong>Articles Collected:</strong> {sio.scanResult.metadata.articles_collected}</p>
+                    <p><strong>Articles Screened:</strong> {sio.scanResult.metadata.articles_screened}</p>
+                    <p><strong>Events Analyzed:</strong> {sio.scanResult.metadata.events_analyzed}</p>
+                    <p><strong>Duration:</strong> {Math.round(sio.scanResult.metadata.duration_seconds)}s</p>
+                    {sio.scanResult.metadata.generated_at && (
+                      <p><strong>Generated:</strong> {new Date(sio.scanResult.metadata.generated_at).toLocaleString()}</p>
+                    )}
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-[400px] overflow-y-auto">
+                    <pre className="text-xs whitespace-pre-wrap break-all">
+                      {JSON.stringify({
+                        scan_id: sio.scanResult.scan_id,
+                        metadata: sio.scanResult.metadata,
+                        audit_trail: sio.scanResult.audit_trail,
+                        articles_count: sio.scanResult.articles?.length || 0
+                      }, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(sio.scanResult, null, 2));
+                        alert('Copied to clipboard!');
+                      }}
+                    >
+                      Copy to Clipboard
+                    </Button>
+                    <Button onClick={() => setShowSioRawModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* SIO References Modal */}
+      {showSioReferencesModal && (
+        <Dialog open={showSioReferencesModal} onOpenChange={setShowSioReferencesModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reference Articles</DialogTitle>
+              <DialogDescription>
+                Articles analyzed for this situation assessment ({sio.scanResult?.articles?.length || 0} total)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {sio.scanResult?.articles && sio.scanResult.articles.length > 0 ? (
+                <>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {sio.scanResult.articles.map((article, idx) => (
+                      <div key={article.id || idx} className="p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            {article.uri ? (
+                              <a
+                                href={article.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline block truncate"
+                              >
+                                {idx + 1}. {article.title}
+                              </a>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">
+                                {idx + 1}. {article.title}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                              <span>{article.source}</span>
+                              {article.credibility_score !== undefined && (
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  article.credibility_score >= 80 ? 'bg-green-100 text-green-700' :
+                                  article.credibility_score >= 60 ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {article.credibility_score}%
+                                </span>
+                              )}
+                              {article.published_at && (
+                                <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Download as TXT
+                        let txt = `Reference Articles - Situation Assessment\n`;
+                        txt += `Total: ${sio.scanResult?.articles?.length || 0}\n`;
+                        txt += `Generated: ${new Date().toLocaleString()}\n\n`;
+                        txt += '='.repeat(80) + '\n\n';
+                        sio.scanResult?.articles?.forEach((a, i) => {
+                          txt += `${i + 1}. ${a.title}\n`;
+                          txt += `   Source: ${a.source}\n`;
+                          if (a.credibility_score) txt += `   Credibility: ${a.credibility_score}%\n`;
+                          if (a.published_at) txt += `   Published: ${new Date(a.published_at).toLocaleDateString()}\n`;
+                          if (a.uri) txt += `   URL: ${a.uri}\n`;
+                          txt += '\n';
+                        });
+                        const blob = new Blob([txt], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `references-intelligence-brief-${Date.now()}.txt`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as TXT
+                    </Button>
+                    <Button onClick={() => setShowSioReferencesModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No reference articles available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Focus Group References Modal */}
+      {showFgReferencesModal && (
+        <Dialog open={showFgReferencesModal} onOpenChange={setShowFgReferencesModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reference Articles</DialogTitle>
+              <DialogDescription>
+                Articles analyzed for this focus group ({focusGroup.result?.articles?.length || 0} total)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {focusGroup.result?.articles && focusGroup.result.articles.length > 0 ? (
+                <>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {focusGroup.result.articles.map((article, idx) => (
+                      <div key={idx} className="p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            {article.uri ? (
+                              <a
+                                href={article.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline block truncate"
+                              >
+                                {idx + 1}. {article.title}
+                              </a>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">
+                                {idx + 1}. {article.title}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                              <span>{article.source}</span>
+                              {article.published_at && (
+                                <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Download as TXT
+                        let txt = `Reference Articles - Focus Group\n`;
+                        txt += `Total: ${focusGroup.result?.articles?.length || 0}\n`;
+                        txt += `Generated: ${new Date().toLocaleString()}\n\n`;
+                        txt += '='.repeat(80) + '\n\n';
+                        focusGroup.result?.articles?.forEach((a, i) => {
+                          txt += `${i + 1}. ${a.title}\n`;
+                          txt += `   Source: ${a.source}\n`;
+                          if (a.published_at) txt += `   Published: ${new Date(a.published_at).toLocaleDateString()}\n`;
+                          if (a.uri) txt += `   URL: ${a.uri}\n`;
+                          txt += '\n';
+                        });
+                        const blob = new Blob([txt], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `references-focus-group-${Date.now()}.txt`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as TXT
+                    </Button>
+                    <Button onClick={() => setShowFgReferencesModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No reference articles available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* EOS Raw Modal */}
+      {showEosRawModal && (
+        <Dialog open={showEosRawModal} onOpenChange={setShowEosRawModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Extreme Outliers Raw Output</DialogTitle>
+              <DialogDescription>
+                Raw scenario data and metadata
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {eos.result ? (
+                <>
+                  <div className="mb-4 text-sm text-gray-600 space-y-1">
+                    <p><strong>Scan ID:</strong> {eos.result.scan_id}</p>
+                    <p><strong>Topic:</strong> {eos.result.metadata?.topic}</p>
+                    <p><strong>Scenarios Generated:</strong> {eos.result.scenarios?.length}</p>
+                    <p><strong>Articles Used:</strong> {eos.result.articles?.length || 0}</p>
+                    {eos.result.metadata?.generated_at && (
+                      <p><strong>Generated:</strong> {new Date(eos.result.metadata.generated_at).toLocaleString()}</p>
+                    )}
+                  </div>
+                  <div className="bg-slate-100 p-4 rounded-md overflow-auto max-h-[400px]">
+                    <pre className="text-xs text-slate-700 whitespace-pre-wrap">
+                      {JSON.stringify({
+                        scan_id: eos.result.scan_id,
+                        metadata: eos.result.metadata,
+                        scenarios_count: eos.result.scenarios?.length || 0,
+                        articles_count: eos.result.articles?.length || 0
+                      }, null, 2)}
+                    </pre>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No data available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* EOS References Modal */}
+      {showEosReferencesModal && (
+        <Dialog open={showEosReferencesModal} onOpenChange={setShowEosReferencesModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reference Articles</DialogTitle>
+              <DialogDescription>
+                Articles used for extreme outlier analysis ({eos.result?.articles?.length || 0} total)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {eos.result?.articles && eos.result.articles.length > 0 ? (
+                <>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {eos.result.articles.map((article, idx) => (
+                      <div key={article.id || idx} className="p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            {article.uri ? (
+                              <a
+                                href={article.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline block truncate"
+                              >
+                                {idx + 1}. {article.title}
+                              </a>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">
+                                {idx + 1}. {article.title}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                              <span>{article.source}</span>
+                              {article.published_at && (
+                                <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Download as TXT
+                        let txt = `Reference Articles - Extreme Outliers\n`;
+                        txt += `Total: ${eos.result?.articles?.length || 0}\n`;
+                        txt += `Generated: ${new Date().toLocaleString()}\n\n`;
+                        txt += '='.repeat(80) + '\n\n';
+                        eos.result?.articles?.forEach((a, i) => {
+                          txt += `${i + 1}. ${a.title}\n`;
+                          txt += `   Source: ${a.source}\n`;
+                          if (a.published_at) txt += `   Published: ${new Date(a.published_at).toLocaleDateString()}\n`;
+                          if (a.uri) txt += `   URL: ${a.uri}\n`;
+                          txt += '\n';
+                        });
+                        const blob = new Blob([txt], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `references-extreme-outliers-${Date.now()}.txt`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as TXT
+                    </Button>
+                    <Button onClick={() => setShowEosReferencesModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No reference articles available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Raw Analysis Modal */}
       {showRawModal && (
         <Dialog open={showRawModal} onOpenChange={setShowRawModal}>
@@ -1740,22 +3348,36 @@ function App() {
             <DialogHeader>
               <DialogTitle>Raw Analysis Output</DialogTitle>
               <DialogDescription>
-                Stored analysis data from database
+                {rawAnalysisData?.scan_id ? 'Focus Group data' : 'Stored analysis data from database'}
               </DialogDescription>
             </DialogHeader>
             <div className="mt-4">
               {rawAnalysisData && (
                 <>
                   <div className="mb-4 text-sm text-gray-600">
-                    <p><strong>Analysis ID:</strong> {rawAnalysisData.analysis_id}</p>
-                    <p><strong>Topic:</strong> {rawAnalysisData.topic}</p>
-                    <p><strong>Model:</strong> {rawAnalysisData.model_used}</p>
-                    <p><strong>Created:</strong> {rawAnalysisData.created_at}</p>
-                    <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
+                    {/* Focus Group data format */}
+                    {rawAnalysisData.scan_id ? (
+                      <>
+                        <p><strong>Scan ID:</strong> {rawAnalysisData.scan_id}</p>
+                        <p><strong>Topic:</strong> {rawAnalysisData.metadata?.topic}</p>
+                        <p><strong>Generated:</strong> {rawAnalysisData.metadata?.generated_at}</p>
+                        <p><strong>Personas:</strong> {rawAnalysisData.metadata?.personas_generated}</p>
+                        <p><strong>Articles Analyzed:</strong> {rawAnalysisData.metadata?.articles_analyzed}</p>
+                      </>
+                    ) : (
+                      /* Standard dashboard data format */
+                      <>
+                        <p><strong>Analysis ID:</strong> {rawAnalysisData.analysis_id}</p>
+                        <p><strong>Topic:</strong> {rawAnalysisData.topic}</p>
+                        <p><strong>Model:</strong> {rawAnalysisData.model_used}</p>
+                        <p><strong>Created:</strong> {rawAnalysisData.created_at}</p>
+                        <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
+                      </>
+                    )}
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <pre className="text-xs overflow-y-auto whitespace-pre-wrap break-all">
-                      {JSON.stringify(rawAnalysisData.raw_output, null, 2)}
+                    <pre className="text-xs overflow-y-auto whitespace-pre-wrap break-all max-h-[50vh]">
+                      {JSON.stringify(rawAnalysisData.scan_id ? rawAnalysisData : rawAnalysisData.raw_output, null, 2)}
                     </pre>
                   </div>
                   <div className="mt-4 flex gap-2">
@@ -2095,6 +3717,186 @@ function App() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Situation Assessment Save Dialog */}
+      <Dialog open={showSioSaveDialog} onOpenChange={setShowSioSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Situation Assessment</DialogTitle>
+            <DialogDescription>
+              Save this assessment for later reference.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="sio-save-name">Name</Label>
+              <Input
+                id="sio-save-name"
+                placeholder="e.g., Morning Brief Nov 30"
+                value={sioSaveName}
+                onChange={(e) => setSioSaveName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="sio-save-description">Description (optional)</Label>
+              <Textarea
+                id="sio-save-description"
+                placeholder="Add notes about this assessment..."
+                value={sioSaveDescription}
+                onChange={(e) => setSioSaveDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500">
+              <div>Topic: <strong>{config.topic}</strong></div>
+              <div>Articles: <strong>{sio.scanResult?.articles?.length || 0}</strong></div>
+              <div>Events Analyzed: <strong>{sio.scanResult?.metadata?.events_analyzed || 0}</strong></div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSioSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={async () => {
+              try {
+                // Save as a JSON file for now (can be enhanced with backend API later)
+                const saveData = {
+                  name: sioSaveName,
+                  description: sioSaveDescription,
+                  topic: config.topic,
+                  briefContent: sio.briefContent,
+                  scanResult: sio.scanResult,
+                  savedAt: new Date().toISOString()
+                };
+                const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `situation-assessment-${sioSaveName.toLowerCase().replace(/\s+/g, '-') || 'unnamed'}-${new Date().toISOString().slice(0, 10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setShowSioSaveDialog(false);
+                setSioSaveName('');
+                setSioSaveDescription('');
+              } catch (error) {
+                console.error('Failed to save:', error);
+                alert('Failed to save assessment. Please try again.');
+              }
+            }}>
+              Save Assessment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SIO Tune Modal - Multi-step prompt editor for Situation Assessment */}
+      <SIOTuneModal
+        open={isSioTuneOpen}
+        onOpenChange={setIsSioTuneOpen}
+        credibilityThreshold={sioCredibilityThreshold}
+        hoursBack={sioHoursBack}
+        maxEvents={sioMaxEvents}
+        onCredibilityThresholdChange={setSioCredibilityThreshold}
+        onHoursBackChange={setSioHoursBack}
+        onMaxEventsChange={setSioMaxEvents}
+      />
+
+      {/* EOS Tune Modal - Multi-step prompt editor for Extreme Outliers */}
+      <EOSTuneModal
+        open={isEosTuneOpen}
+        onOpenChange={setIsEosTuneOpen}
+        scenarioCount={eosScenarioCount}
+        includeBlackSwans={eosIncludeBlackSwans}
+        includeContrarian={eosIncludeContrarian}
+        includeWildCards={eosIncludeWildCards}
+        timeHorizon={eosTimeHorizon}
+        onScenarioCountChange={setEosScenarioCount}
+        onIncludeBlackSwansChange={setEosIncludeBlackSwans}
+        onIncludeContrarianChange={setEosIncludeContrarian}
+        onIncludeWildCardsChange={setEosIncludeWildCards}
+        onTimeHorizonChange={setEosTimeHorizon}
+      />
+
+      {/* FH Tune Modal - Settings for Future Horizons Executive Summary */}
+      <FHTuneModal
+        open={isFhTuneOpen}
+        onOpenChange={setIsFhTuneOpen}
+        executiveSummary={horizonsExecutiveSummary}
+        executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
+        isGenerating={isLoadingHorizonsExecSummary}
+        selectedProfileId={config.profile_id}
+        selectedModel={config.model}
+        onProfileChange={(profileId) => updateConfig({ profile_id: profileId })}
+        onModelChange={(model) => updateConfig({ model })}
+        onRegenerateExecutiveSummary={handleGenerateHorizonsExecSummary}
+        profiles={profiles}
+      />
+
+      {/* Newsletter Tune Modal - Configuration editor for Newsletter Generator */}
+      <NewsletterTuneModal
+        open={isNewsletterTuneOpen}
+        onOpenChange={setIsNewsletterTuneOpen}
+        daysBack={newsletterDaysBack}
+        deepDiveTopic={newsletterDeepDiveTopic}
+        newsletterTitle={newsletterTitle}
+        newsletterIntro={newsletterIntro}
+        onDaysBackChange={setNewsletterDaysBack}
+        onDeepDiveTopicChange={setNewsletterDeepDiveTopic}
+        onNewsletterTitleChange={setNewsletterTitle}
+        onNewsletterIntroChange={setNewsletterIntro}
+      />
+
+      {/* FG Tune Modal - Multi-step prompt editor for Focus Group */}
+      <FGTuneModal
+        open={isFgTuneOpen}
+        onOpenChange={setIsFgTuneOpen}
+        maxPersonas={fgMaxPersonas}
+        minEvidenceThreshold={fgMinEvidenceThreshold}
+        includeDemographics={fgIncludeDemographics}
+        includePsychographics={fgIncludePsychographics}
+        includeVoice={fgIncludeVoice}
+        onMaxPersonasChange={setFgMaxPersonas}
+        onMinEvidenceThresholdChange={setFgMinEvidenceThreshold}
+        onIncludeDemographicsChange={setFgIncludeDemographics}
+        onIncludePsychographicsChange={setFgIncludePsychographics}
+        onIncludeVoiceChange={setFgIncludeVoice}
+      />
+
+      {/* EB Tune Modal - Multi-step prompt editor for Executive Briefing */}
+      <EBTuneModal
+        open={isEbTuneOpen}
+        onOpenChange={setIsEbTuneOpen}
+        persona={ebPersona}
+        articleCount={ebArticleCount}
+        onPersonaChange={setEbPersona}
+        onArticleCountChange={setEbArticleCount}
+      />
+
+      {/* PAM Tune Modal - Configuration for Power, Attention & Money analysis */}
+      <PAMTuneModal
+        isOpen={isPamTuneOpen}
+        onOpenChange={setIsPamTuneOpen}
+        analysisType={pamAnalysisType}
+        onAnalysisTypeChange={setPamAnalysisType}
+        timeHorizon={pamTimeHorizon}
+        onTimeHorizonChange={setPamTimeHorizon}
+        trendFocus={pamTrendFocus}
+        onTrendFocusChange={setPamTrendFocus}
+        daysBack={pamDaysBack}
+        onDaysBackChange={setPamDaysBack}
+        articleLimit={pamArticleLimit}
+        onArticleLimitChange={setPamArticleLimit}
+      />
+      </div>
+
+      {/* Auspex AI Chat */}
+      <AuspexChat />
     </div>
   );
 }

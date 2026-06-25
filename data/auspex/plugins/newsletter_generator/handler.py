@@ -1,18 +1,19 @@
 """
-Newsletter Generator Tool Handler v2.1
+Newsletter Generator Tool Handler v3.0
 
-Multi-step newsletter generation that:
-1. Fetches a large corpus of articles (100-200)
-2. Categorizes articles by newsletter section
+Dynamic newsletter generation that:
+1. Fetches ALL articles from the date range (no artificial limits)
+2. Uses LLM to propose thematic sections based on actual content
 3. Prioritizes by recency, source quality, and relevance
-4. Detects metatrends across the corpus
-5. Generates deep dive with consensus/credibility analysis (separate agent call)
-6. Generates each section with proper article coverage
-7. Ensures no article duplication across sections
+4. Generates deep dive with consensus/credibility analysis
+5. Generates newsletter using LLM-proposed sections
+6. Ensures no article duplication across sections
 """
 
 import asyncio
+import json
 import logging
+import re
 from collections import defaultdict, Counter
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -34,56 +35,6 @@ MEDIUM_QUALITY_SOURCES = {
     "the register", "information", "protocol", "semafor", "axios", "politico"
 }
 
-# Keywords for categorizing articles by section
-SECTION_KEYWORDS = {
-    "policy_regulation": [
-        "regulation", "policy", "law", "legal", "government", "congress", "eu",
-        "legislation", "compliance", "gdpr", "act", "bill", "senate", "fcc",
-        "ftc", "sec", "antitrust", "privacy", "ban", "restrict", "mandate"
-    ],
-    "models_research": [
-        "model", "gpt", "llm", "claude", "gemini", "llama", "research", "paper",
-        "benchmark", "training", "parameter", "architecture", "transformer",
-        "neural", "deep learning", "machine learning", "algorithm", "dataset",
-        "arxiv", "breakthrough", "sota", "state-of-the-art", "release"
-    ],
-    "enterprise_adoption": [
-        "enterprise", "business", "company", "corporate", "deploy", "implement",
-        "adopt", "integration", "productivity", "workflow", "automation",
-        "customer", "revenue", "cost", "roi", "efficiency", "scale"
-    ],
-    "market_funding": [
-        "funding", "raise", "series", "investment", "ipo", "acquisition",
-        "merger", "m&a", "valuation", "billion", "million", "venture",
-        "startup", "seed", "deal", "buy", "acquire", "partnership"
-    ],
-    "risk_trust": [
-        "risk", "safety", "security", "threat", "vulnerability", "attack",
-        "bias", "fairness", "ethics", "trust", "hallucination", "misinformation",
-        "deepfake", "fraud", "scam", "abuse", "harm", "danger", "concern"
-    ],
-    "weird_unusual": [
-        "bizarre", "strange", "weird", "unusual", "unexpected", "surprising",
-        "viral", "controversy", "backlash", "outrage", "debate", "chaos",
-        "failure", "error", "mistake", "bug", "glitch", "unintended", "funny",
-        "ironic", "absurd", "curious", "odd", "wtf"
-    ]
-}
-
-# Keywords for metatrend detection
-METATREND_THEMES = {
-    "consolidation": ["merger", "acquisition", "consolidat", "buyout", "acquire"],
-    "regulation_pressure": ["regulation", "ban", "restrict", "compliance", "lawsuit", "antitrust"],
-    "open_source_momentum": ["open source", "open-source", "llama", "mistral", "hugging face"],
-    "enterprise_adoption": ["enterprise", "deploy", "adoption", "pilot", "production"],
-    "safety_concerns": ["safety", "alignment", "risk", "harm", "ethics", "bias"],
-    "cost_reduction": ["cheaper", "cost", "efficient", "optimize", "reduce"],
-    "multimodal_expansion": ["multimodal", "vision", "audio", "video", "image"],
-    "agent_evolution": ["agent", "autonomous", "agentic", "tool use", "function calling"],
-    "geopolitical_tension": ["china", "export", "chip", "nvidia", "restriction", "eu", "regulation"],
-    "talent_war": ["hire", "talent", "poach", "team", "researcher", "scientist"]
-}
-
 
 class NewsletterGeneratorHandler(ToolHandler):
     """Handler for multi-step newsletter generation."""
@@ -92,17 +43,44 @@ class NewsletterGeneratorHandler(ToolHandler):
         super().__init__(definition, config)
         self.logger = logging.getLogger("tool.newsletter_generator")
 
+    def _get_agent_config(self, agent_name: str) -> Dict[str, Any]:
+        """Get model configuration for a specific agent.
+
+        Checks newsletter_config.json first, then falls back to defaults.
+        """
+        import json
+        from pathlib import Path
+
+        defaults = {
+            "deep_dive": {"model": "gpt-4.1", "temperature": 0.3, "max_tokens": 6000},
+            "main_newsletter": {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 16000}
+        }
+
+        # Try to load from newsletter_config.json
+        config_file = Path(__file__).parent.parent.parent / "newsletter_config.json"
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    user_config = json.load(f)
+                    agents_config = user_config.get("agents", {})
+                    if agent_name in agents_config:
+                        # Merge with defaults
+                        return {**defaults.get(agent_name, {}), **agents_config[agent_name]}
+            except Exception as e:
+                self.logger.warning(f"Failed to load newsletter config: {e}")
+
+        return defaults.get(agent_name, {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 4000})
+
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         """
-        Execute multi-step newsletter generation.
+        Execute dynamic newsletter generation.
 
         Steps:
-        1. Fetch large article corpus
-        2. Categorize by section
-        3. Detect metatrends
-        4. Prioritize and select best articles per section
-        5. Generate deep dive analysis (separate LLM call)
-        6. Generate full newsletter with LLM
+        1. Fetch ALL articles from date range (no artificial limits)
+        2. Score and rank articles by quality/recency
+        3. LLM proposes thematic sections based on content
+        4. Generate deep dive analysis
+        5. Generate newsletter using LLM-proposed sections
         """
         import time
         start_time = time.time()
@@ -142,13 +120,16 @@ class NewsletterGeneratorHandler(ToolHandler):
         if not db:
             return ToolResult(success=False, error="Database not available")
 
+        if not ai_model_getter:
+            return ToolResult(success=False, error="AI model not available for dynamic section generation")
+
         # Log date range info
         if start_date and end_date:
             self.logger.info(f"Newsletter for {topic}: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
         else:
             self.logger.info(f"Newsletter for {topic}: last {days_back} days")
 
-        # Step 1: Fetch large article corpus
+        # Step 1: Fetch ALL articles (no artificial limit)
         articles = await self._fetch_article_corpus(
             db, vector_search, topic, days_back,
             start_date_override=start_date,
@@ -163,55 +144,69 @@ class NewsletterGeneratorHandler(ToolHandler):
 
         self.logger.info(f"Fetched {len(articles)} total articles")
 
-        # Step 2: Categorize articles by section
-        categorized = self._categorize_articles(articles)
-        for section, section_articles in categorized.items():
-            self.logger.info(f"Section '{section}': {len(section_articles)} articles")
+        # Step 2: Score and rank all articles
+        scored_articles = []
+        for article in articles:
+            score = self._score_article(article)
+            scored_articles.append((score, article))
+        scored_articles.sort(key=lambda x: x[0], reverse=True)
 
-        # Step 3: Detect metatrends across the corpus
-        metatrends = self._detect_metatrends(articles)
-        self.logger.info(f"Detected metatrends: {metatrends}")
+        # Use all articles, but prioritize by score
+        ranked_articles = [art for score, art in scored_articles]
+        self.logger.info(f"Ranked {len(ranked_articles)} articles by quality/recency")
 
-        # Step 4: Prioritize and select best articles per section
-        selected = self._select_articles_per_section(categorized)
+        # Step 3: LLM proposes sections based on content
+        proposed_sections = await self._propose_sections(
+            ranked_articles, topic, ai_model_getter, context
+        )
 
-        # Step 5: Select deep dive topic and related articles
-        deep_dive_topic, deep_dive_articles = self._select_deep_dive_topic(
-            articles, categorized, metatrends
+        if not proposed_sections:
+            self.logger.warning("LLM section proposal failed, using fallback")
+            # Fallback: create simple sections
+            proposed_sections = self._fallback_section_proposal(ranked_articles)
+
+        # Limit each section to best 4-7 articles based on corpus size
+        proposed_sections = self._limit_section_articles(proposed_sections, len(ranked_articles))
+
+        self.logger.info(f"Proposed {len(proposed_sections)} sections")
+        for section in proposed_sections:
+            self.logger.info(f"  Section '{section['name']}': {len(section.get('articles', []))} articles")
+
+        # Step 4: Select deep dive topic from largest/most interesting section
+        deep_dive_topic, deep_dive_articles = self._select_deep_dive_from_sections(
+            proposed_sections, ranked_articles
         )
         self.logger.info(f"Deep dive topic: {deep_dive_topic} ({len(deep_dive_articles)} articles)")
 
-        # Step 6: Generate deep dive analysis (separate LLM call for quality)
+        # Step 5: Generate deep dive analysis
         deep_dive_analysis = None
-        if ai_model_getter and deep_dive_articles:
+        if deep_dive_articles:
             deep_dive_analysis = await self._generate_deep_dive_analysis(
                 deep_dive_topic, deep_dive_articles, ai_model_getter, context
             )
 
-        # Step 7: Generate full newsletter
-        newsletter_content = None
-        if ai_model_getter:
-            newsletter_content = await self._generate_newsletter(
-                selected, topic, ai_model_getter, context,
-                metatrends=metatrends,
-                deep_dive_analysis=deep_dive_analysis,
-                deep_dive_topic=deep_dive_topic
-            )
+        # Step 6: Generate newsletter using proposed sections
+        newsletter_content = await self._generate_newsletter_dynamic(
+            proposed_sections, ranked_articles, topic, ai_model_getter, context,
+            deep_dive_analysis=deep_dive_analysis,
+            deep_dive_topic=deep_dive_topic
+        )
 
         execution_time = int((time.time() - start_time) * 1000)
-        total_used = sum(len(arts) for arts in selected.values())
+        total_used = sum(len(s.get('articles', [])) for s in proposed_sections)
+        section_counts = {s['name']: len(s.get('articles', [])) for s in proposed_sections}
 
         return ToolResult(
             success=True,
             data={
-                "analysis": newsletter_content or self._generate_fallback(selected, topic),
+                "analysis": newsletter_content or self._generate_fallback_dynamic(proposed_sections, topic),
                 "article_count": len(articles),
                 "articles_used": total_used,
-                "section_counts": {k: len(v) for k, v in selected.items()},
-                "metatrends": metatrends,
+                "section_counts": section_counts,
+                "sections": [s['name'] for s in proposed_sections],
                 "deep_dive_topic": deep_dive_topic
             },
-            message=f"Generated newsletter from {len(articles)} articles ({total_used} used)",
+            message=f"Generated newsletter from {len(articles)} articles ({total_used} used across {len(proposed_sections)} sections)",
             execution_time_ms=execution_time
         )
 
@@ -364,17 +359,23 @@ Write 300-400 words of analysis in a clear, analytical voice (Atlantic/Strateche
 Be skeptical, evidence-based, and focused on what matters for decision-makers."""
 
         try:
-            model_name = self.config.get('model') or context.get('model') or 'gpt-4o'
+            # Get per-agent config for deep_dive
+            agent_config = self._get_agent_config("deep_dive")
+            model_name = agent_config.get('model') or self.config.get('model') or context.get('model') or 'gpt-4.1'
+            max_tokens = agent_config.get('max_tokens', 4000)
+
+            self.logger.info(f"Deep dive using model={model_name}, max_tokens={max_tokens}")
+
             model = ai_model_getter(model_name)
 
             if model:
                 if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
-                    response = await model.generate(prompt)
+                    response = await model.generate(prompt, max_tokens=max_tokens)
                     if hasattr(response, 'message') and hasattr(response.message, 'content'):
                         return response.message.content
                     return str(response)
                 elif hasattr(model, 'acomplete'):
-                    response = await model.acomplete(prompt)
+                    response = await model.acomplete(prompt, max_tokens=max_tokens)
                     return response.text if hasattr(response, 'text') else str(response)
         except Exception as e:
             self.logger.error(f"Deep dive analysis failed: {e}")
@@ -455,12 +456,12 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
 
         self.logger.info(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 
-        # Strategy 1: Get recent articles by date from database
+        # Strategy 1: Get ALL recent articles by date from database (no artificial limit)
         try:
             if hasattr(db, 'facade') and hasattr(db.facade, 'get_recent_articles_by_topic'):
                 db_articles = db.facade.get_recent_articles_by_topic(
                     topic_name=topic,
-                    limit=200,
+                    limit=2000,  # High limit to get all articles
                     start_date=start_date.strftime('%Y-%m-%d'),
                     end_date=end_date.strftime('%Y-%m-%d')
                 )
@@ -472,7 +473,7 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
                             articles.append(art)
                     self.logger.info(f"DB date range search: {len(db_articles)} articles")
             elif hasattr(db, 'facade') and hasattr(db.facade, 'get_articles_by_topic'):
-                db_articles = db.facade.get_articles_by_topic(topic=topic, limit=200)
+                db_articles = db.facade.get_articles_by_topic(topic=topic, limit=2000)
                 if db_articles:
                     for art in db_articles:
                         uri = art.get('uri') or art.get('id')
@@ -714,17 +715,23 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
         )
 
         try:
-            model_name = self.config.get('model') or context.get('model') or 'gpt-4o'
+            # Get per-agent config for main_newsletter
+            agent_config = self._get_agent_config("main_newsletter")
+            model_name = agent_config.get('model') or self.config.get('model') or context.get('model') or 'gpt-4.1'
+            max_tokens = agent_config.get('max_tokens', 8000)
+
+            self.logger.info(f"Main newsletter using model={model_name}, max_tokens={max_tokens}")
+
             model = ai_model_getter(model_name)
 
             if model:
                 if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
-                    response = await model.generate(prompt)
+                    response = await model.generate(prompt, max_tokens=max_tokens)
                     if hasattr(response, 'message') and hasattr(response.message, 'content'):
                         return response.message.content
                     return str(response)
                 elif hasattr(model, 'acomplete'):
-                    response = await model.acomplete(prompt)
+                    response = await model.acomplete(prompt, max_tokens=max_tokens)
                     return response.text if hasattr(response, 'text') else str(response)
         except Exception as e:
             self.logger.error(f"LLM generation failed: {e}")
@@ -916,6 +923,471 @@ House Rules:
             parts.append(f"\n## {section_name}\n")
 
             for article in articles[:5]:
+                title = article.get('title', 'Untitled')
+                source = article.get('news_source', 'Unknown')
+                url = article.get('url') or article.get('uri', '')
+                date = article.get('pub_date') or article.get('publication_date', '')
+
+                if date and isinstance(date, str) and len(date) > 10:
+                    date = date[:10]
+
+                if url:
+                    parts.append(f"- **[{title}]({url})** ({source}, {date})")
+                else:
+                    parts.append(f"- **{title}** ({source}, {date})")
+
+        return "\n".join(parts)
+
+    # =========================================================================
+    # NEW DYNAMIC SECTION METHODS
+    # =========================================================================
+
+    async def _propose_sections(
+        self,
+        articles: List[Dict],
+        topic: str,
+        ai_model_getter,
+        context: Dict
+    ) -> List[Dict]:
+        """Have LLM analyze articles and propose thematic sections dynamically."""
+
+        # Format articles as numbered list with key info
+        articles_summary = self._format_articles_for_section_proposal(articles)
+
+        prompt = f"""Analyze these {len(articles)} articles about "{topic}" from the past week.
+
+Propose 5-8 thematic sections that best organize this week's news into a compelling newsletter.
+
+For each section, provide:
+- name: A catchy 2-4 word title (e.g., "Regulatory Reckoning", "Funding Frenzy", "The Weird & Wonderful")
+- description: One sentence on what this section covers
+- article_indices: List of article numbers (1-indexed) that belong in this section
+
+## ARTICLES TO ORGANIZE:
+
+{articles_summary}
+
+## GUIDELINES:
+
+1. Every article should be assigned to exactly ONE section (no duplicates)
+2. Create sections based on what's ACTUALLY in the articles - don't force categories
+3. Include a section for unusual/surprising/funny stories if any exist
+4. Include a market/deals section if there are funding, M&A, or partnership articles
+5. Balance sections reasonably - aim for 5-15 articles per section, but don't force it
+6. If an article doesn't fit well anywhere, put it in a "Notable Mentions" or "Quick Hits" section
+7. Section names should be engaging and specific to the content (not generic like "Tech News")
+
+## OUTPUT FORMAT:
+
+Return ONLY valid JSON array, no other text:
+[
+  {{"name": "Section Name", "description": "What this section covers", "article_indices": [1, 2, 5, 8]}},
+  {{"name": "Another Section", "description": "Description here", "article_indices": [3, 4, 6, 7]}}
+]
+
+Ensure ALL articles (1 through {len(articles)}) are assigned to exactly one section."""
+
+        try:
+            agent_config = self._get_agent_config("main_newsletter")
+            model_name = agent_config.get('model') or 'gpt-4.1'
+
+            self.logger.info(f"Section proposal using model={model_name}")
+
+            model = ai_model_getter(model_name)
+
+            if model:
+                if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
+                    response = await model.generate(prompt, max_tokens=4000)
+                    if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                        response_text = response.message.content
+                    else:
+                        response_text = str(response)
+                elif hasattr(model, 'acomplete'):
+                    response = await model.acomplete(prompt, max_tokens=4000)
+                    response_text = response.text if hasattr(response, 'text') else str(response)
+                else:
+                    return None
+
+                # Parse JSON response
+                sections = self._parse_section_proposal(response_text, articles)
+                return sections
+
+        except Exception as e:
+            self.logger.error(f"Section proposal failed: {e}")
+
+        return None
+
+    def _format_articles_for_section_proposal(self, articles: List[Dict], max_articles: int = 200) -> str:
+        """Format articles as numbered list for section proposal."""
+        lines = []
+
+        # Limit to top articles by score to avoid token limits
+        for i, article in enumerate(articles[:max_articles], 1):
+            title = article.get('title', 'Untitled')
+            source = article.get('news_source', 'Unknown')
+            date = article.get('pub_date') or article.get('publication_date', '')
+            summary = (article.get('summary') or '')[:150]
+
+            if date and isinstance(date, str) and len(date) > 10:
+                date = date[:10]
+
+            line = f"{i}. [{source}] {title}"
+            if summary:
+                line += f" — {summary}"
+            lines.append(line)
+
+        if len(articles) > max_articles:
+            lines.append(f"\n... and {len(articles) - max_articles} more articles")
+
+        return "\n".join(lines)
+
+    def _parse_section_proposal(self, response_text: str, articles: List[Dict]) -> List[Dict]:
+        """Parse LLM response into section structure with article assignments."""
+
+        # Try to extract JSON from response
+        try:
+            # Look for JSON array in response
+            json_match = re.search(r'\[[\s\S]*\]', response_text)
+            if json_match:
+                sections_data = json.loads(json_match.group())
+            else:
+                self.logger.warning("No JSON array found in section proposal response")
+                return None
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse section proposal JSON: {e}")
+            return None
+
+        # Convert to our format with actual article objects
+        sections = []
+        used_indices = set()
+
+        for section_data in sections_data:
+            name = section_data.get('name', 'Untitled Section')
+            description = section_data.get('description', '')
+            indices = section_data.get('article_indices', [])
+
+            # Filter to valid, unused indices
+            valid_indices = []
+            section_articles = []
+
+            for idx in indices:
+                if isinstance(idx, int) and 1 <= idx <= len(articles) and idx not in used_indices:
+                    valid_indices.append(idx)
+                    used_indices.add(idx)
+                    section_articles.append(articles[idx - 1])  # Convert to 0-indexed
+
+            if section_articles:
+                sections.append({
+                    'name': name,
+                    'description': description,
+                    'article_indices': valid_indices,
+                    'articles': section_articles
+                })
+
+        # Check for unassigned articles and add to "Notable Mentions"
+        all_indices = set(range(1, len(articles) + 1))
+        unassigned = all_indices - used_indices
+
+        if unassigned and len(unassigned) <= len(articles) * 0.3:  # If less than 30% unassigned
+            unassigned_articles = [articles[i - 1] for i in sorted(unassigned)]
+            sections.append({
+                'name': 'Notable Mentions',
+                'description': 'Other noteworthy stories from this week',
+                'article_indices': sorted(unassigned),
+                'articles': unassigned_articles
+            })
+        elif unassigned:
+            self.logger.warning(f"{len(unassigned)} articles not assigned to any section")
+
+        return sections if sections else None
+
+    def _limit_section_articles(
+        self,
+        sections: List[Dict],
+        total_articles: int
+    ) -> List[Dict]:
+        """Limit each section to best 4-7 articles based on score.
+
+        Scales the limit based on total corpus size:
+        - <30 articles: 4 per section
+        - <60 articles: 5 per section
+        - <100 articles: 6 per section
+        - 100+ articles: 7 per section
+        """
+        # Dynamic limit based on total corpus size
+        if total_articles < 30:
+            max_per_section = 4
+        elif total_articles < 60:
+            max_per_section = 5
+        elif total_articles < 100:
+            max_per_section = 6
+        else:
+            max_per_section = 7
+
+        self.logger.info(f"Limiting sections to {max_per_section} articles each (corpus size: {total_articles})")
+
+        limited_sections = []
+        for section in sections:
+            articles = section.get('articles', [])
+
+            if len(articles) <= max_per_section:
+                # Keep all if under limit
+                limited_sections.append(section)
+            else:
+                # Score and keep top N
+                scored = [(self._score_article(a), a) for a in articles]
+                scored.sort(key=lambda x: x[0], reverse=True)
+                top_articles = [a for _, a in scored[:max_per_section]]
+
+                limited_sections.append({
+                    'name': section['name'],
+                    'description': section.get('description', ''),
+                    'articles': top_articles
+                })
+                self.logger.debug(f"Section '{section['name']}': {len(articles)} -> {len(top_articles)} articles")
+
+        return limited_sections
+
+    def _fallback_section_proposal(self, articles: List[Dict]) -> List[Dict]:
+        """Create simple sections when LLM proposal fails."""
+
+        # Simple grouping by article category field
+        category_groups = defaultdict(list)
+
+        for i, article in enumerate(articles):
+            category = article.get('category') or 'General'
+            category_groups[category].append((i + 1, article))
+
+        sections = []
+        for category, indexed_articles in category_groups.items():
+            sections.append({
+                'name': category.title(),
+                'description': f'Articles in {category} category',
+                'article_indices': [idx for idx, _ in indexed_articles],
+                'articles': [art for _, art in indexed_articles]
+            })
+
+        return sections if sections else [{
+            'name': 'This Week\'s News',
+            'description': 'All articles from this week',
+            'article_indices': list(range(1, len(articles) + 1)),
+            'articles': articles
+        }]
+
+    def _select_deep_dive_from_sections(
+        self,
+        sections: List[Dict],
+        articles: List[Dict]
+    ) -> Tuple[str, List[Dict]]:
+        """Select deep dive topic from the most interesting section."""
+
+        if not sections:
+            return "Key Developments", articles[:10]
+
+        # Find section with most high-quality articles
+        best_section = None
+        best_score = 0
+
+        for section in sections:
+            # Skip generic sections
+            if section['name'].lower() in ('notable mentions', 'quick hits', 'other'):
+                continue
+
+            section_articles = section.get('articles', [])
+            if not section_articles:
+                continue
+
+            # Score by source quality
+            score = 0
+            for art in section_articles:
+                source = (art.get('news_source') or '').lower()
+                if any(hs in source for hs in HIGH_QUALITY_SOURCES):
+                    score += 3
+                elif any(ms in source for ms in MEDIUM_QUALITY_SOURCES):
+                    score += 1
+                else:
+                    score += 0.5
+
+            # Bonus for having more articles (but diminishing returns)
+            score += min(len(section_articles), 10) * 0.5
+
+            if score > best_score:
+                best_score = score
+                best_section = section
+
+        if best_section:
+            return best_section['name'], best_section['articles'][:10]
+
+        # Fallback to first section
+        return sections[0]['name'], sections[0].get('articles', [])[:10]
+
+    async def _generate_newsletter_dynamic(
+        self,
+        sections: List[Dict],
+        all_articles: List[Dict],
+        topic: str,
+        ai_model_getter,
+        context: Dict,
+        deep_dive_analysis: str = None,
+        deep_dive_topic: str = None
+    ) -> str:
+        """Generate newsletter using LLM-proposed sections."""
+
+        # Format sections for prompt
+        sections_context = self._format_dynamic_sections_for_prompt(sections)
+        profile_context = context.get('profile_context', '')
+        total_articles = sum(len(s.get('articles', [])) for s in sections)
+
+        org_context_section = ""
+        if profile_context:
+            org_context_section = f"""
+---
+
+## ORGANIZATIONAL CONTEXT (Tailor content to this audience!)
+
+{profile_context}
+
+---
+"""
+
+        deep_dive_section = ""
+        if deep_dive_analysis:
+            deep_dive_section = f"""
+## PRE-GENERATED DEEP DIVE ANALYSIS
+
+Topic: {deep_dive_topic}
+
+{deep_dive_analysis}
+
+**USE THIS ANALYSIS AS-IS for The Deep Dive section. Do not regenerate it.**
+"""
+
+        # Build section instructions dynamically
+        section_instructions = ""
+        for section in sections:
+            name = section['name']
+            desc = section.get('description', '')
+            count = len(section.get('articles', []))
+            section_instructions += f"\n## {name}\n{desc}\nYou have {count} articles for this section. Include the most important ones with citations.\n"
+
+        prompt = f"""{org_context_section}CRITICAL INSTRUCTION - URLS ARE MANDATORY:
+Format ALL citations as markdown links: **[Headline](URL)** (Source, Date)
+Apply to EVERY section.
+
+---
+
+Role & Voice: Analyst for pragmatic decision-makers. Atlantic/Stratechery vibes. Techno-realist, skeptical of hype.
+
+Dataset: {total_articles} curated articles organized into {len(sections)} sections. Use only these sources. ALWAYS CITE WITH MARKDOWN LINKS.
+
+## SOURCE ARTICLES BY SECTION
+
+{sections_context}
+
+{deep_dive_section}
+
+---
+
+## OUTPUT FORMAT (Markdown)
+
+Write a newsletter with the following sections. Each section should include relevant articles with proper citations.
+
+{section_instructions}
+
+## The Deep Dive — {deep_dive_topic or 'Key Development'}
+
+{"USE THE PRE-GENERATED ANALYSIS ABOVE. Copy it directly into this section." if deep_dive_analysis else '''
+Select the most significant story and analyze using MULTIPLE articles:
+- What happened, why now, broader context (200-300 words)
+- Consensus vs outlier takes (cite multiple sources)
+- Credibility assessment: what's well-supported vs speculative?
+- **Strategic Insight**: 4 bullets for enterprises/policymakers/investors/citizens
+'''}
+
+---
+
+House Rules:
+- Every citation = markdown link with URL
+- No article repetition across sections
+- Geographic diversity where possible
+- Skeptical of hype, focused on substance
+- Don't include sections with no relevant articles"""
+
+        try:
+            agent_config = self._get_agent_config("main_newsletter")
+            model_name = agent_config.get('model') or self.config.get('model') or context.get('model') or 'gpt-4.1'
+            max_tokens = agent_config.get('max_tokens', 16000)
+
+            self.logger.info(f"Newsletter generation using model={model_name}, max_tokens={max_tokens}")
+
+            model = ai_model_getter(model_name)
+
+            if model:
+                if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
+                    response = await model.generate(prompt, max_tokens=max_tokens)
+                    if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                        return response.message.content
+                    return str(response)
+                elif hasattr(model, 'acomplete'):
+                    response = await model.acomplete(prompt, max_tokens=max_tokens)
+                    return response.text if hasattr(response, 'text') else str(response)
+        except Exception as e:
+            self.logger.error(f"Newsletter generation failed: {e}")
+
+        return self._generate_fallback_dynamic(sections, topic)
+
+    def _format_dynamic_sections_for_prompt(self, sections: List[Dict]) -> str:
+        """Format LLM-proposed sections for the newsletter prompt."""
+        output = []
+
+        for section in sections:
+            name = section['name']
+            desc = section.get('description', '')
+            articles = section.get('articles', [])
+
+            section_text = f"\n### {name.upper()}"
+            if desc:
+                section_text += f"\n({desc})"
+            section_text += f"\n({len(articles)} articles)\n"
+
+            for i, article in enumerate(articles, 1):
+                title = article.get('title', 'Untitled')
+                source = article.get('news_source', 'Unknown')
+                url = article.get('url') or article.get('uri', '')
+                date = article.get('pub_date') or article.get('publication_date', '')
+                summary = (article.get('summary') or '')[:400]
+
+                if date and isinstance(date, str) and len(date) > 10:
+                    date = date[:10]
+
+                section_text += f"\n{i}. **{title}**\n"
+                section_text += f"   Source: {source}"
+                if date:
+                    section_text += f" | Date: {date}"
+                section_text += f"\n"
+                if url:
+                    section_text += f"   URL: {url}\n"
+                if summary:
+                    section_text += f"   Summary: {summary}\n"
+
+            output.append(section_text)
+
+        return "\n".join(output)
+
+    def _generate_fallback_dynamic(self, sections: List[Dict], topic: str) -> str:
+        """Generate basic newsletter when LLM is unavailable (dynamic sections version)."""
+        parts = [f"# {topic} Weekly Newsletter\n"]
+
+        for section in sections:
+            name = section.get('name', 'News')
+            articles = section.get('articles', [])
+
+            if not articles:
+                continue
+
+            parts.append(f"\n## {name}\n")
+
+            for article in articles[:10]:
                 title = article.get('title', 'Untitled')
                 source = article.get('news_source', 'Unknown')
                 url = article.get('url') or article.get('uri', '')
