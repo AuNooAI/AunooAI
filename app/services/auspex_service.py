@@ -65,8 +65,9 @@ def _llm_call_kwargs(model: str, *, output_tokens: int,
         # Consensus Analysis JSON at ~17k chars mid-document.
         completion = max(output_tokens * 4, 16000)
         completion = min(completion, 128000)
+        from app.ai_models import minimal_reasoning_effort
         return {
-            "reasoning_effort": "minimal",
+            "reasoning_effort": minimal_reasoning_effort(model),
             "max_completion_tokens": completion,
         }
     return {"max_tokens": output_tokens, "temperature": temperature}

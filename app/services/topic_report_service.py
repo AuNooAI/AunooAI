@@ -399,7 +399,8 @@ async def generate_executive_summary_for_run(
         "caching": False,
     }
     if model.startswith("gpt-5"):
-        call_kwargs["reasoning_effort"] = "minimal"
+        from app.ai_models import minimal_reasoning_effort
+        call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
     else:
         call_kwargs["max_tokens"] = 8000
@@ -529,7 +530,8 @@ async def _rerun_future_horizons_for_topic(
         "caching": False,
     }
     if model.startswith("gpt-5"):
-        call_kwargs["reasoning_effort"] = "minimal"
+        from app.ai_models import minimal_reasoning_effort
+        call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
     else:
         call_kwargs["max_tokens"] = 8000

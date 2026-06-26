@@ -83,7 +83,8 @@ class RelevanceScorer:
                 "max_tokens": 1000,
             }
             if resolved.startswith("gpt-5"):
-                kwargs["reasoning_effort"] = "minimal"
+                from app.ai_models import minimal_reasoning_effort
+                kwargs["reasoning_effort"] = minimal_reasoning_effort(resolved)
             if resolved.startswith(("gpt-", "openai/")):
                 kwargs["response_format"] = {"type": "json_object"}
             try:

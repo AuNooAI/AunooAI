@@ -39,8 +39,9 @@ def _llm_token_kwargs(model: str, *, output_tokens: int) -> dict:
     ``max_tokens`` shape; ``temperature`` continues to apply.
     """
     if (model or "").startswith("gpt-5"):
+        from app.ai_models import minimal_reasoning_effort
         return {
-            "reasoning_effort": "minimal",
+            "reasoning_effort": minimal_reasoning_effort(model),
             "max_completion_tokens": max(output_tokens * 4, 4000),
         }
     return {"max_tokens": output_tokens}

@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import time
 import asyncio
@@ -25,6 +26,24 @@ from litellm import (
 from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
 from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
+
+
+def minimal_reasoning_effort(model_name: str) -> str:
+    """Smallest ``reasoning_effort`` the given gpt-5 model actually accepts.
+
+    The gpt-5.0/5.1 family used ``'minimal'``; gpt-5.4+ removed it and rejects
+    it with a 400 (``Unsupported value: 'reasoning_effort' does not support
+    'minimal'``), exposing ``'none'`` as the new floor. Parse the version so the
+    cost-saving "lowest effort" default keeps working across the family instead
+    of breaking the call.
+    """
+    name = str(model_name or "").split("/")[-1]  # tolerate a 'provider/' prefix
+    m = re.match(r"gpt-(\d+)(?:\.(\d+))?", name)
+    if m:
+        major, minor = int(m.group(1)), int(m.group(2) or 0)
+        if major > 5 or (major == 5 and minor >= 4):
+            return "none"
+    return "minimal"
 
 
 # ── Global LLM concurrency gate ───────────────────────────────────────────
@@ -730,7 +749,7 @@ class LiteLLMModel(AIModel):
                 "reasoning_effort" not in call_kwargs
                 and str(self.model_name).startswith("gpt-5")
             ):
-                call_kwargs["reasoning_effort"] = "minimal"
+                call_kwargs["reasoning_effort"] = minimal_reasoning_effort(self.model_name)
 
             response = self.router.completion(
                 model=self.model_name,
