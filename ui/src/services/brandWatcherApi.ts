@@ -147,6 +147,18 @@ export async function getOpointPoV(brandId: number, daysBack: number = 90): Prom
   return res.json();
 }
 
+export interface BWSocialMeta {
+  platform?: string;
+  external_id?: string;
+  author?: string;
+  thumbnail?: string | null;
+  likes?: number | null;
+  reposts?: number | null;
+  comments?: number | null;
+  plays?: number | null;
+  subreddit?: string | null;
+}
+
 export interface BWSocialPost {
   uri: string;
   title: string;
@@ -157,6 +169,7 @@ export interface BWSocialPost {
   relevance: number | null;
   sentiment: string | null;
   topic: string | null;
+  social_meta?: BWSocialMeta | null;
 }
 
 export interface BWSocialResponse {

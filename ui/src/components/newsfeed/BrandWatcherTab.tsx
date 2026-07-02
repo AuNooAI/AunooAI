@@ -9,12 +9,18 @@ import {
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer, Search,
+  AtSign, UserCircle, Tag, BadgeCheck,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
+import {
+  buildAccountProfile, getAccountProfile, listAccountProfiles, setAccountTags, setAccountAnnotation,
+  deepDiveAccount, deleteAccountProfile, type BWAccountProfile, type BWAccountDeepDive,
+} from '../../services/socialProfileApi';
+import { downloadAccountReport } from '../../services/socialProfileReportHtml';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
   generateCategoryInsight, suggestKeywords, setupBrandMonitoring, getSchedules, createSchedule, deleteSchedule,
@@ -69,7 +75,7 @@ interface BrandWatcherTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
 }
 
-type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social';
+type SubTab = 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -87,10 +93,25 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
   const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
   const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
-  // Each social timeline column (Bluesky | Reddit/RSS) is filtered + sorted independently.
-  const [bskyFilter, setBskyFilter] = useState<{ sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' }>({ sentiment: '', search: '', sort: 'recent' });
-  const [feedFilter, setFeedFilter] = useState<{ sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' }>({ sentiment: '', search: '', sort: 'recent' });
+  // Each social lane picks its own network + is filtered/sorted independently (lane A / lane B).
+  const [bskyFilter, setBskyFilter] = useState<{ platforms: string[]; sentiments: string[]; search: string; sort: 'recent' | 'oldest' | 'relevance' }>({ platforms: [], sentiments: [], search: '', sort: 'recent' });
+  const [feedFilter, setFeedFilter] = useState<{ platforms: string[]; sentiments: string[]; search: string; sort: 'recent' | 'oldest' | 'relevance' }>({ platforms: [], sentiments: [], search: '', sort: 'recent' });
+  // --- Accounts (per-account xpoz profiles) ---
+  const [accountsList, setAccountsList] = useState<BWAccountProfile[]>([]);
+  const [accountProfile, setAccountProfile] = useState<BWAccountProfile | null>(null);
+  const [accSearch, setAccSearch] = useState<{ platform: string; handle: string }>({ platform: 'twitter', handle: '' });
+  const [accLoading, setAccLoading] = useState(false);
+  const [accError, setAccError] = useState<string | null>(null);
+  const [accTagInput, setAccTagInput] = useState('');
+  const [accNoteInput, setAccNoteInput] = useState('');
+  const [accDeepDive, setAccDeepDive] = useState<BWAccountDeepDive | null>(null);
+  const [accDeepLoading, setAccDeepLoading] = useState(false);
   const [enablingSocial, setEnablingSocial] = useState(false);
+  // The social intro/onboarding banner should not nag forever: it auto-hides once
+  // posts have been collected, and can be dismissed manually (remembered per browser).
+  const [socialIntroDismissed, setSocialIntroDismissed] = useState<boolean>(() => {
+    try { return localStorage.getItem('bw_social_intro_dismissed') === '1'; } catch { return false; }
+  });
   const [showBrandConfig, setShowBrandConfig] = useState(false);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyRunId, setClassifyRunId] = useState<number | null>(null);
@@ -128,6 +149,19 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const SOCIAL_SENTIMENT_COLORS: Record<string, string> = {
     positive: '#10b981', neutral: '#94a3b8', negative: '#ef4444', unrated: '#d1d5db',
   };
+  // Per-network brand colors + display labels (news_source 'xpoz:twitter' -> platform 'twitter' -> 'X').
+  const PLATFORM_COLORS: Record<string, string> = {
+    twitter: '#0f172a', bluesky: '#0ea5e9', reddit: '#f97316',
+    instagram: '#d6249f', tiktok: '#ff0050', social: '#6b7280',
+  };
+  const PLATFORM_LABELS: Record<string, string> = {
+    twitter: 'X', bluesky: 'Bluesky', reddit: 'Reddit',
+    instagram: 'Instagram', tiktok: 'TikTok', social: 'Other',
+  };
+  const PLATFORM_ORDER = ['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok', 'social'];
+  const platColor = (p: string) => PLATFORM_COLORS[p] || PLATFORM_COLORS.social;
+  const platLabel = (p: string) => PLATFORM_LABELS[p] || p;
+  const fmtCount = (n?: number | null) => n == null ? null : (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`);
   const socialSentimentOf = (s: string | null): 'positive' | 'neutral' | 'negative' | 'unrated' => {
     const t = (s || '').toLowerCase();
     if (t.includes('pos')) return 'positive';
@@ -147,11 +181,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     return stripped || (p.title || '').trim() || '(no text)';
   };
   // Apply a column's sentiment/search/sort filter to a platform-split post list.
-  const filterSortSocial = (posts: any[], f: { sentiment: string; search: string; sort: string }) => {
+  const filterSortSocial = (posts: any[], f: { platforms?: string[]; sentiments?: string[]; search: string; sort: string }) => {
     const q = f.search.trim().toLowerCase();
+    const plats = f.platforms || [];
+    const sents = f.sentiments || [];
     const out = posts.filter(p => {
-      if (f.sentiment && socialSentimentOf(p.sentiment) !== f.sentiment) return false;
-      if (q && !`${p.title || ''} ${p.summary || ''}`.toLowerCase().includes(q)) return false;
+      if (plats.length && !plats.includes(p.platform)) return false;
+      if (sents.length && !sents.includes(socialSentimentOf(p.sentiment))) return false;
+      if (q && !`${p.title || ''} ${p.summary || ''} ${p.social_meta?.author || ''}`.toLowerCase().includes(q)) return false;
       return true;
     });
     return out.sort((a, b) => {
@@ -182,22 +219,73 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       .map(k => ({ name: k, value: sentCounts[k] })).filter(d => d.value > 0);
     const platPie = Object.entries(platCounts).map(([name, value]) => ({ name, value }));
     const timeline = Object.values(byDay).sort((a: any, b: any) => a.date.localeCompare(b.date));
-    // Split into the two timelines: Bluesky (the social network) vs Reddit + any other RSS-collected source.
-    const bsky = posts.filter(p => p.platform === 'bluesky');
-    const feed = posts.filter(p => p.platform !== 'bluesky');
-    return { bsky, feed, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
+    // Platforms present, in canonical order — drives the lane filter chips.
+    const platforms = PLATFORM_ORDER.filter(pl => platCounts[pl]);
+    // Perception by network: net sentiment (%pos − %neg) among on-brand posts (relevance ≥ 0.4) per platform.
+    const perc: Record<string, { pos: number; neg: number; neu: number; total: number }> = {};
+    posts.forEach(p => {
+      if ((p.relevance ?? 0) < 0.4) return;
+      const pl = p.platform;
+      if (!perc[pl]) perc[pl] = { pos: 0, neg: 0, neu: 0, total: 0 };
+      const s = socialSentimentOf(p.sentiment);
+      if (s === 'positive') perc[pl].pos++; else if (s === 'negative') perc[pl].neg++; else if (s === 'neutral') perc[pl].neu++;
+      perc[pl].total++;
+    });
+    const perception = Object.entries(perc).map(([platform, c]) => {
+      const scored = c.pos + c.neg + c.neu;
+      return { platform, volume: c.total, net: scored ? Math.round(((c.pos - c.neg) / scored) * 100) : null, pos: c.pos, neg: c.neg, neu: c.neu };
+    }).filter(d => d.volume > 0).sort((a, b) => (b.net ?? -999) - (a.net ?? -999));
+    return { all: posts, platforms, perception, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
   }, [social]);
+
+  // Auto-split the two lanes onto distinct networks (best- vs worst-perceived) instead of
+  // showing two identical "All networks" lanes. Only acts while BOTH lanes are still at the
+  // 'all' default, so it never overrides a network the user has explicitly picked.
+  useEffect(() => {
+    if (!socialView) return;
+    if (bskyFilter.platforms.length || feedFilter.platforms.length) return;
+    const perc = socialView.perception;
+    let left: string | null = null, right: string | null = null;
+    if (perc.length >= 2) { left = perc[0].platform; right = perc[perc.length - 1].platform; }
+    else if (socialView.platforms.length >= 2) { left = socialView.platforms[0]; right = socialView.platforms[1]; }
+    if (left && right && left !== right) {
+      const L = left, R = right;
+      setBskyFilter(f => ({ ...f, platforms: [L] }));
+      setFeedFilter(f => ({ ...f, platforms: [R] }));
+    }
+  }, [socialView, bskyFilter.platforms.length, feedFilter.platforms.length]);
 
   // One social post card (shared by both timeline columns).
   const renderSocialPostCard = (p: any) => {
     const sent = socialSentimentOf(p.sentiment);
+    const sm = p.social_meta || {};
+    const thumb = sm.thumbnail;
+    const engagement: Array<[string, string | null]> = [
+      ['♥', fmtCount(sm.likes)], ['↻', fmtCount(sm.reposts)],
+      ['💬', fmtCount(sm.comments)], ['▶', fmtCount(sm.plays)],
+    ];
     return (
       <div key={p.uri} className="flex gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-750">
         <div className="w-1 rounded-full flex-shrink-0" style={{ backgroundColor: SOCIAL_SENTIMENT_COLORS[sent] }} title={sent} />
+        {thumb && (
+          <img src={thumb} alt="" loading="lazy" referrerPolicy="no-referrer"
+            className="w-12 h-12 rounded object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-700"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{socialAuthorOf(p)}</span>
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ backgroundColor: platColor(p.platform) }}>{platLabel(p.platform)}</span>
+              {(() => {
+                const h = p.social_meta?.author || (socialAuthorOf(p).startsWith('@') ? socialAuthorOf(p).slice(1) : null);
+                const canProfile = h && ['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok'].includes(p.platform);
+                return canProfile ? (
+                  <button onClick={() => openAccountFromAuthor(p.platform, h)} title={`Profile @${h}`}
+                    className="text-sm font-semibold text-blue-700 dark:text-blue-400 hover:underline truncate">{socialAuthorOf(p)}</button>
+                ) : (
+                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{socialAuthorOf(p)}</span>
+                );
+              })()}
               {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
             </div>
             <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex-shrink-0 inline-flex items-center gap-1">
@@ -222,23 +310,43 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
               }`}>{p.sentiment}</span>
             )}
-            {p.news_source && p.news_source.toLowerCase() !== p.platform && (
-              <span className="text-[11px] text-gray-400">{p.news_source}</span>
+            {sm.subreddit && (
+              <span className="text-[11px] text-gray-400">r/{sm.subreddit}</span>
             )}
+            {engagement.filter(([, v]) => v != null).map(([icon, v]) => (
+              <span key={icon} className="text-[11px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-0.5" title="engagement">
+                <span className="opacity-70">{icon}</span>{v}
+              </span>
+            ))}
           </div>
         </div>
       </div>
     );
   };
 
-  // One timeline column: header + independent sentiment/search/sort controls + scrolling feed.
-  const renderSocialColumn = (
-    label: string, accent: string, basePosts: any[],
-    filter: { sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' },
-    setFilter: (f: { sentiment: string; search: string; sort: 'recent' | 'oldest' | 'relevance' }) => void,
-    emptyHint: string,
+  // One social lane: platform filter chips + independent sentiment/search/sort controls + scrolling feed.
+  // Each lane filters from ALL loaded posts by its own platform selection, so two lanes can compare any
+  // two networks side by side (e.g. best-perceived vs worst-perceived).
+  type LaneFilter = { platforms: string[]; sentiments: string[]; search: string; sort: 'recent' | 'oldest' | 'relevance' };
+  const renderSocialLane = (
+    filter: LaneFilter,
+    setFilter: (f: LaneFilter) => void,
   ) => {
+    const basePosts = socialView?.all || [];
+    const platforms: string[] = socialView?.platforms || [];
     const items = filterSortSocial(basePosts, filter);
+    const sel = filter.platforms;
+    const accent = sel.length === 1 ? platColor(sel[0]) : '#6b7280';
+    const label = sel.length === 0 ? 'All networks' : sel.length === 1 ? platLabel(sel[0]) : `${sel.length} networks`;
+    const togglePlatform = (pl: string) => {
+      if (pl === 'all') { setFilter({ ...filter, platforms: [] }); return; }
+      setFilter({ ...filter, platforms: sel.includes(pl) ? sel.filter(x => x !== pl) : [...sel, pl] });
+    };
+    const toggleSentiment = (v: string) => {
+      if (v === '') { setFilter({ ...filter, sentiments: [] }); return; }
+      const cur = filter.sentiments;
+      setFilter({ ...filter, sentiments: cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v] });
+    };
     return (
       <div className="flex flex-col bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
@@ -248,25 +356,46 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           </div>
           <span className="text-xs text-gray-400">{items.length}{items.length !== basePosts.length ? ` / ${basePosts.length}` : ''}</span>
         </div>
-        {/* per-column controls */}
+        {/* platform filter chips (multi-select; 'All' clears) */}
+        <div className="flex items-center gap-1.5 px-3 pt-2 flex-wrap">
+          {[{ pl: 'all', lbl: 'All' }, ...platforms.map(pl => ({ pl, lbl: platLabel(pl) }))].map(opt => {
+            const active = opt.pl === 'all' ? sel.length === 0 : sel.includes(opt.pl);
+            return (
+              <button
+                key={opt.pl}
+                onClick={() => togglePlatform(opt.pl)}
+                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                  active ? 'text-white border-transparent' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+                style={active ? { backgroundColor: opt.pl === 'all' ? '#4b5563' : platColor(opt.pl) } : undefined}
+              >
+                {opt.lbl}
+              </button>
+            );
+          })}
+        </div>
+        {/* per-lane sentiment (multi-select) / search / sort controls */}
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex-wrap">
           {([
             { label: 'All', val: '' }, { label: '+', val: 'positive' },
             { label: '·', val: 'neutral' }, { label: '−', val: 'negative' },
-          ]).map(opt => (
-            <button
-              key={opt.val}
-              onClick={() => setFilter({ ...filter, sentiment: opt.val })}
-              title={opt.val || 'all sentiments'}
-              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                filter.sentiment === opt.val
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+          ]).map(opt => {
+            const active = opt.val === '' ? filter.sentiments.length === 0 : filter.sentiments.includes(opt.val);
+            return (
+              <button
+                key={opt.val}
+                onClick={() => toggleSentiment(opt.val)}
+                title={opt.val || 'all sentiments'}
+                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                  active
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
           <div className="relative flex-1 min-w-[100px]">
             <Search className="w-3 h-3 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
             <input
@@ -291,10 +420,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         <div className="divide-y divide-gray-100 dark:divide-gray-700 overflow-y-auto" style={{ maxHeight: 640 }}>
           {items.map(renderSocialPostCard)}
           {items.length === 0 && basePosts.length > 0 && (
-            <div className="p-6 text-center text-xs text-gray-400">No posts match this column's filters.</div>
+            <div className="p-6 text-center text-xs text-gray-400">No posts match this lane's filters.</div>
           )}
           {basePosts.length === 0 && (
-            <div className="p-6 text-center text-xs text-gray-400">{emptyHint}</div>
+            <div className="p-6 text-center text-xs text-gray-400">No social posts yet. Add social monitoring (Reddit / Bluesky / X / Instagram / TikTok) to this brand and run a collection cycle.</div>
           )}
         </div>
       </div>
@@ -357,6 +486,113 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const selectedBrand = selectedBrands[0] || undefined;
   const primarySelectedId = config.selectedBrandIds[0] || null;
 
+  // --- Accounts: profile a handle, list saved, tags/notes, open-from-author ---
+  const loadAccounts = useCallback(async () => {
+    try { setAccountsList(await listAccountProfiles()); } catch { /* ignore */ }
+  }, []);
+
+  const profileAccount = useCallback(async (platform: string, handle: string) => {
+    const h = handle.trim();
+    if (!h) return;
+    setAccLoading(true); setAccError(null);
+    try {
+      const brand = selectedBrand?.display_name || null;
+      const prof = await buildAccountProfile(platform, h, brand);
+      setAccountProfile(prof);
+      setAccountsList(prev => [prof, ...prev.filter(p => p.id !== prof.id)]);
+      setAccSearch(s => ({ ...s, handle: '' }));  // iterate: ready for the next handle
+    } catch (e: any) {
+      setAccError(e.message || 'Failed to build profile');
+    } finally {
+      setAccLoading(false);
+    }
+  }, [selectedBrand]);
+
+  const handleDeleteAccount = useCallback(async (id: number) => {
+    try { await deleteAccountProfile(id); } catch { /* ignore */ }
+    setAccountsList(prev => prev.filter(p => p.id !== id));
+    setAccountProfile(prev => (prev?.id === id ? null : prev));
+  }, []);
+
+  // Export the loaded social posts as CSV (respects nothing — exports all loaded, incl. metadata).
+  const exportSocialCsv = useCallback(() => {
+    const posts = socialView?.all || [];
+    if (!posts.length) return;
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['platform', 'author', 'date', 'sentiment', 'relevance', 'likes', 'reposts', 'comments', 'plays', 'text', 'url'];
+    const lines = [header.map(esc).join(',')];
+    posts.forEach((p: any) => {
+      const sm = p.social_meta || {};
+      lines.push([p.platform, sm.author || '', (p.publication_date || '').slice(0, 10), p.sentiment || '',
+        p.relevance ?? '', sm.likes ?? '', sm.reposts ?? '', sm.comments ?? '', sm.plays ?? '',
+        p.summary || p.title || '', p.uri].map(esc).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `social-posts-${(selectedBrand?.display_name || 'all').toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }, [socialView, selectedBrand]);
+
+  const openAccountFromAuthor = useCallback((platform: string, author?: string | null) => {
+    const handle = (author || '').replace(/^@/, '');
+    if (!handle) return;
+    setActiveTab('accounts');
+    setAccSearch({ platform, handle });
+    setAccountProfile(null);
+    loadAccounts();
+    profileAccount(platform, handle);
+  }, [loadAccounts, profileAccount]);
+
+  const handleAddTag = useCallback(async () => {
+    if (!accountProfile) return;
+    const t = accTagInput.trim();
+    if (!t) return;
+    const next = Array.from(new Set([...(accountProfile.tags || []), t]));
+    setAccTagInput('');
+    try { setAccountProfile(await setAccountTags(accountProfile.id, next)); } catch { /* ignore */ }
+  }, [accountProfile, accTagInput]);
+
+  const handleRemoveTag = useCallback(async (tag: string) => {
+    if (!accountProfile) return;
+    const next = (accountProfile.tags || []).filter(t => t !== tag);
+    try { setAccountProfile(await setAccountTags(accountProfile.id, next)); } catch { /* ignore */ }
+  }, [accountProfile]);
+
+  const handleSaveNote = useCallback(async () => {
+    if (!accountProfile) return;
+    try { setAccountProfile(await setAccountAnnotation(accountProfile.id, accNoteInput.trim())); } catch { /* ignore */ }
+  }, [accountProfile, accNoteInput]);
+
+  // Sync the note textarea + clear deep-dive when a different profile is opened.
+  useEffect(() => { setAccNoteInput(accountProfile?.annotation?.text || ''); setAccDeepDive(null); }, [accountProfile?.id]);
+
+  const handleDeepDive = useCallback(async () => {
+    if (!accountProfile) return;
+    setAccDeepLoading(true);
+    try {
+      setAccDeepDive(await deepDiveAccount(accountProfile.platform, accountProfile.handle, selectedBrand?.display_name || null));
+    } catch { /* ignore */ } finally {
+      setAccDeepLoading(false);
+    }
+  }, [accountProfile, selectedBrand]);
+
+  // Create/refresh this brand's social monitoring group (Reddit + Bluesky) and re-fetch.
+  const handleAddSocialMonitoring = useCallback(async () => {
+    if (!primarySelectedId) { alert('Select a brand first.'); return; }
+    setEnablingSocial(true);
+    try {
+      const r = await setupSocialMonitoring(primarySelectedId, 24);
+      alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune providers/interval/model in Gather → group Settings.`);
+      fetchSocial(socialMinRel, undefined, socialInclUneval);
+    } catch (e: any) {
+      alert('Failed to enable social monitoring: ' + e.message);
+    } finally {
+      setEnablingSocial(false);
+    }
+  }, [primarySelectedId, fetchSocial, socialMinRel, socialInclUneval]);
+
   // --- Suggest Keywords via LLM ---
   const handleSuggestKeywords = useCallback(async () => {
     const name = brandForm.display_name?.trim();
@@ -397,6 +633,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
     if (tab === 'social') {
       fetchSocial(socialMinRel, undefined, socialInclUneval);
+    }
+    if (tab === 'accounts') {
+      loadAccounts();
     }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
@@ -997,6 +1236,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
           { id: 'social' as SubTab, label: 'Social', icon: Users },
+          { id: 'accounts' as SubTab, label: 'Accounts', icon: AtSign },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -2073,40 +2313,40 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
       {activeTab === 'social' && (
         <div className="space-y-6">
+          {!(social && social.total > 0) && !socialIntroDismissed && (
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2">
                 <Users className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
                 <div className="text-sm text-gray-700 dark:text-gray-300">
-                  <span className="font-semibold">Social mentions.</span> Reddit + Bluesky posts mentioning this brand, with a lightweight relevance score ("is this actually about the brand?") and sentiment evaluated by a local/Bedrock model built for volume.
+                  <span className="font-semibold">Social mentions.</span> Posts that mention this brand across X, Bluesky, Reddit, Instagram &amp; TikTok. Each post is automatically scored for relevance ("is this actually about the brand?") and sentiment, so high-volume chatter stays readable.
                 </div>
               </div>
-              <button
-                onClick={async () => {
-                  if (!primarySelectedId) { alert('Select a brand first.'); return; }
-                  setEnablingSocial(true);
-                  try {
-                    const r = await setupSocialMonitoring(primarySelectedId, 24);
-                    alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune providers/interval/model in Gather → group Settings.`);
-                    fetchSocial(socialMinRel, undefined, socialInclUneval);
-                  } catch (e: any) {
-                    alert('Failed to enable social monitoring: ' + e.message);
-                  } finally {
-                    setEnablingSocial(false);
-                  }
-                }}
-                disabled={enablingSocial || !primarySelectedId}
-                className="flex-shrink-0 text-xs px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5"
-                title={primarySelectedId ? 'Create/refresh this brand’s social monitoring group (Reddit + Bluesky, own schedule)' : 'Select a brand first'}
-              >
-                {enablingSocial ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                {enablingSocial ? 'Enabling…' : 'Add social monitoring'}
-              </button>
+              <div className="flex items-start gap-1 flex-shrink-0">
+                <button
+                  onClick={handleAddSocialMonitoring}
+                  disabled={enablingSocial || !primarySelectedId}
+                  className="text-xs px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5"
+                  title={primarySelectedId ? 'Create/refresh this brand’s social monitoring group (X, Bluesky, Reddit, Instagram &amp; TikTok, own schedule)' : 'Select a brand first'}
+                >
+                  {enablingSocial ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  {enablingSocial ? 'Enabling…' : 'Add social monitoring'}
+                </button>
+                <button
+                  onClick={() => { setSocialIntroDismissed(true); try { localStorage.setItem('bw_social_intro_dismissed', '1'); } catch {} }}
+                  className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  title="Dismiss"
+                  aria-label="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
+          )}
 
-          {/* Global fetch controls (re-fetch). Source is no longer a filter — the two
-              timelines below split Bluesky vs Reddit/RSS; sentiment/search/sort are per-column. */}
+          {/* Global fetch controls (re-fetch). Source is no longer a global filter — each of the two
+              lanes below picks its own network (All/X/Bsky/Reddit/IG/TikTok); sentiment/search/sort are per-lane. */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Min relevance:</span>
             {([
@@ -2140,6 +2380,23 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </button>
             )}
             <span className="text-xs text-gray-400">≥0.4 = evaluated, on-brand. "All" shows scored-but-off-topic too; toggle to include not-yet-scored.</span>
+            <button
+              onClick={exportSocialCsv}
+              disabled={!socialView || socialView.totalLoaded === 0}
+              className="ml-auto text-xs px-3 py-1 rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 disabled:opacity-50 inline-flex items-center gap-1.5"
+              title="Export the loaded social posts (with metadata) as CSV"
+            >
+              <FileDown className="w-3.5 h-3.5" /> Export CSV
+            </button>
+            <button
+              onClick={handleAddSocialMonitoring}
+              disabled={enablingSocial || !primarySelectedId}
+              className="text-xs px-3 py-1 rounded-full border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-50 inline-flex items-center gap-1.5"
+              title={primarySelectedId ? 'Create/refresh this brand’s social monitoring group (X, Bluesky, Reddit, Instagram &amp; TikTok, own schedule)' : 'Select a brand first'}
+            >
+              {enablingSocial ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              {enablingSocial ? 'Enabling…' : 'Add / refresh social monitoring'}
+            </button>
           </div>
 
           {loadingSocial && (
@@ -2173,10 +2430,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <p className="text-xs text-gray-400">% positive − % negative</p>
                 </div>
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">By timeline</p>
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
-                    <span className="text-sky-600 dark:text-sky-400 font-semibold">{socialView.bsky.length}</span> Bluesky · <span className="text-orange-600 dark:text-orange-400 font-semibold">{socialView.feed.length}</span> Reddit/RSS
-                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Best / worst network</p>
+                  {socialView.perception.filter(d => d.net != null).length > 0 ? (
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1 leading-relaxed">
+                      {(() => { const withNet = socialView.perception.filter(d => d.net != null); const best = withNet[0], worst = withNet[withNet.length - 1]; return (<>
+                        <span className="font-semibold" style={{ color: platColor(best.platform) }}>{platLabel(best.platform)}</span> <span className="text-green-600 dark:text-green-400">{best.net! > 0 ? '+' : ''}{best.net}</span>
+                        {worst && worst.platform !== best.platform && <> · <span className="font-semibold" style={{ color: platColor(worst.platform) }}>{platLabel(worst.platform)}</span> <span className="text-red-600 dark:text-red-400">{worst.net! > 0 ? '+' : ''}{worst.net}</span></>}
+                      </>); })()}
+                    </p>
+                  ) : <p className="text-sm text-gray-400 mt-1">—</p>}
+                  <p className="text-xs text-gray-400 mt-0.5">net sentiment, on-brand posts</p>
                 </div>
               </div>
 
@@ -2206,7 +2469,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     <ResponsiveContainer width="100%" height={200}>
                       <PieChart>
                         <Pie data={socialView.platPie} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
-                          {socialView.platPie.map((d, i) => <Cell key={d.name} fill={d.name === 'reddit' ? '#f97316' : d.name === 'bluesky' ? '#0ea5e9' : ['#8b5cf6', '#14b8a6', '#eab308'][i % 3]} />)}
+                          {socialView.platPie.map((d) => <Cell key={d.name} fill={platColor(d.name)} />)}
                         </Pie>
                         <Tooltip />
                         <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
@@ -2234,12 +2497,50 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
               )}
 
-              {/* Two timelines: Bluesky | Reddit/RSS — each independently filtered + sorted */}
+              {/* Perception by network — cross-platform brand sentiment comparison (best vs worst) */}
+              {socialView.perception.length > 0 && (
+                <div id="chart-social-perception" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Perception by network</h3>
+                      <p className="text-xs text-gray-400">net sentiment (% positive − % negative) among on-brand posts · click a network to load it into the left lane</p>
+                    </div>
+                    <ChartDownloadButton targetId="chart-social-perception" filename="social-perception" />
+                  </div>
+                  <div className="space-y-2">
+                    {socialView.perception.map(d => {
+                      const net = d.net ?? 0;
+                      const pct = Math.min(Math.abs(net), 100);
+                      return (
+                        <button key={d.platform} onClick={() => setBskyFilter({ ...bskyFilter, platforms: [d.platform] })}
+                          className="w-full flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-750 rounded px-1 py-0.5" title={`Load ${platLabel(d.platform)} into the left lane · ${d.pos}+ / ${d.neu}· / ${d.neg}−`}>
+                          <span className="w-20 flex-shrink-0 text-xs font-semibold flex items-center gap-1.5" style={{ color: platColor(d.platform) }}>
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: platColor(d.platform) }} />{platLabel(d.platform)}
+                          </span>
+                          <div className="flex-1 h-4 relative bg-gray-100 dark:bg-gray-700 rounded overflow-hidden">
+                            <div className="absolute top-0 bottom-0 left-1/2 w-px bg-gray-300 dark:bg-gray-600" />
+                            <div className="absolute top-0 bottom-0" style={{
+                              [net >= 0 ? 'left' : 'right']: '50%',
+                              width: `${pct / 2}%`,
+                              backgroundColor: d.net == null ? '#d1d5db' : net >= 0 ? '#10b981' : '#ef4444',
+                            } as React.CSSProperties} />
+                          </div>
+                          <span className="w-12 flex-shrink-0 text-right text-xs font-mono font-semibold" style={{ color: d.net == null ? '#9ca3af' : net >= 0 ? '#059669' : '#dc2626' }}>
+                            {d.net == null ? 'n/a' : `${net > 0 ? '+' : ''}${net}`}
+                          </span>
+                          <span className="w-16 flex-shrink-0 text-right text-xs text-gray-400">{d.volume} post{d.volume === 1 ? '' : 's'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Two lanes — each independently platform-filtered, sentiment-filtered, searched + sorted.
+                  Pick a network per lane to compare any two side by side. */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {renderSocialColumn('Bluesky', '#0ea5e9', socialView.bsky, bskyFilter, setBskyFilter,
-                  'No Bluesky posts yet. Add Bluesky to this brand’s social monitoring and run a collection cycle.')}
-                {renderSocialColumn('Reddit / RSS', '#f97316', socialView.feed, feedFilter, setFeedFilter,
-                  'No Reddit/RSS posts yet. Add Reddit to this brand’s social monitoring and run a collection cycle.')}
+                {renderSocialLane(bskyFilter, setBskyFilter)}
+                {renderSocialLane(feedFilter, setFeedFilter)}
               </div>
             </>
           )}
@@ -2247,6 +2548,250 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           {!loadingSocial && !social && (
             <div className="text-center py-12 text-gray-400 text-sm">No social data loaded.</div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'accounts' && (
+        <div className="space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-4">
+            <p className="text-sm text-gray-700 dark:text-gray-200">
+              <span className="font-semibold">Accounts.</span> Profile any X, Reddit, Instagram or TikTok handle — identity, reach, what they post about{selectedBrand ? <> and their relationship to <span className="font-semibold">{selectedBrand.display_name}</span></> : null}. Built on demand from xpoz. Tip: click a post author in the Social tab to profile them directly.
+            </p>
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <select value={accSearch.platform} onChange={e => setAccSearch({ ...accSearch, platform: e.target.value })}
+                className="text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                {['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok'].map(p => <option key={p} value={p}>{platLabel(p)}</option>)}
+              </select>
+              <div className="relative flex-1 min-w-[180px]">
+                <AtSign className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input type="text" value={accSearch.handle} placeholder="handle (without @)"
+                  onChange={e => setAccSearch({ ...accSearch, handle: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Enter') profileAccount(accSearch.platform, accSearch.handle); }}
+                  className="w-full text-sm pl-8 pr-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-blue-400" />
+              </div>
+              <button onClick={() => profileAccount(accSearch.platform, accSearch.handle)} disabled={accLoading || !accSearch.handle.trim()}
+                className="text-sm px-4 py-1.5 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1.5">
+                {accLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Profile
+              </button>
+            </div>
+            {accError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{accError}</p>}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Saved profiles list */}
+            <div className="lg:col-span-1 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 text-sm font-semibold text-gray-800 dark:text-gray-100">Saved profiles ({accountsList.length})</div>
+              <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[640px] overflow-y-auto">
+                {accountsList.map(a => (
+                  <div key={a.id} onClick={() => { setAccountProfile(a); setAccSearch({ platform: a.platform, handle: a.handle }); }}
+                    className={`group w-full flex items-center gap-2.5 p-2.5 text-left cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 ${accountProfile?.id === a.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                    {a.avatar_url ? <img src={a.avatar_url} alt="" referrerPolicy="no-referrer" className="w-8 h-8 rounded-full object-cover flex-shrink-0 bg-gray-100" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} /> : <UserCircle className="w-8 h-8 text-gray-300 flex-shrink-0" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{a.display_name || a.handle}</span>
+                        {a.verified && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold px-1 rounded text-white" style={{ backgroundColor: platColor(a.platform) }}>{platLabel(a.platform)}</span>
+                        <span className="text-xs text-gray-400 truncate">@{a.handle}</span>
+                      </div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); handleDeleteAccount(a.id); }} title="Delete profile"
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 flex-shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+                {accountsList.length === 0 && <div className="p-6 text-center text-xs text-gray-400">No profiles yet. Profile a handle above.</div>}
+              </div>
+            </div>
+
+            {/* Selected profile */}
+            <div className="lg:col-span-2">
+              {accLoading && !accountProfile && <div className="flex items-center justify-center py-16 text-gray-400"><Loader2 className="w-6 h-6 animate-spin" /></div>}
+              {accountProfile && (() => {
+                const p = accountProfile; const s = p.post_sentiment;
+                return (
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+                    {/* header */}
+                    <div className="flex items-start gap-3">
+                      {p.avatar_url ? <img src={p.avatar_url} alt="" referrerPolicy="no-referrer" className="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-gray-100" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} /> : <UserCircle className="w-14 h-14 text-gray-300 flex-shrink-0" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">{p.display_name || p.handle}</h2>
+                          {p.verified && <BadgeCheck className="w-4 h-4 text-blue-500" />}
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ backgroundColor: platColor(p.platform) }}>{platLabel(p.platform)}</span>
+                        </div>
+                        <a href={p.profile_url || '#'} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 dark:text-blue-400 hover:underline">@{p.handle}</a>
+                        {p.bio && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{p.bio}</p>}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={() => downloadAccountReport(p, accDeepDive)} title="Download HTML report"
+                          className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 inline-flex items-center gap-1">
+                          <Download className="w-3 h-3" /> Report
+                        </button>
+                        <button onClick={() => profileAccount(p.platform, p.handle)} disabled={accLoading} title="Refresh from xpoz"
+                          className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 inline-flex items-center gap-1">
+                          {accLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Refresh
+                        </button>
+                        <button onClick={() => handleDeleteAccount(p.id)} title="Delete profile"
+                          className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-500 hover:border-red-400 hover:text-red-500 inline-flex items-center gap-1">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* reach stats */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {[['Followers', p.followers_count], ['Following', p.following_count], [p.platform === 'reddit' ? 'Link karma' : 'Posts', p.posts_count]].map(([label, val]) => (
+                        <div key={label as string} className="p-2.5 bg-gray-50 dark:bg-gray-750 rounded-lg text-center">
+                          <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{val == null ? '—' : (fmtCount(val as number) || val)}</p>
+                          <p className="text-[11px] text-gray-400">{label}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {p.summary && <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Summary</p><p className="text-sm text-gray-700 dark:text-gray-200">{p.summary}</p></div>}
+                    {p.brand_context && <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-lg"><p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-0.5">Brand context</p><p className="text-sm text-gray-700 dark:text-gray-200">{p.brand_context}</p></div>}
+
+                    {(p.topics && p.topics.length > 0) && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {p.topics.map(t => <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{t}</span>)}
+                      </div>
+                    )}
+
+                    {s && s.scored ? (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sentiment {selectedBrand ? `toward ${selectedBrand.display_name}` : ''}</p>
+                          <span className={`text-xs font-mono font-semibold ${s.net == null ? 'text-gray-400' : s.net > 0 ? 'text-green-600' : s.net < 0 ? 'text-red-600' : 'text-gray-500'}`}>{s.net == null ? '' : `net ${s.net > 0 ? '+' : ''}${s.net}`}</span>
+                        </div>
+                        <div className="flex h-3 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                          <div style={{ width: `${(s.pos || 0) / s.scored * 100}%`, backgroundColor: SOCIAL_SENTIMENT_COLORS.positive }} title={`${s.pos} positive`} />
+                          <div style={{ width: `${(s.neu || 0) / s.scored * 100}%`, backgroundColor: SOCIAL_SENTIMENT_COLORS.neutral }} title={`${s.neu} neutral`} />
+                          <div style={{ width: `${(s.neg || 0) / s.scored * 100}%`, backgroundColor: SOCIAL_SENTIMENT_COLORS.negative }} title={`${s.neg} negative`} />
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1">{s.pos}+ · {s.neu}· · {s.neg}− across {s.scored} recent posts</p>
+                      </div>
+                    ) : null}
+
+                    {/* Tags */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1"><Tag className="w-3 h-3" /> Tags</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {(p.tags || []).map(t => (
+                          <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 inline-flex items-center gap-1">
+                            {t}<button onClick={() => handleRemoveTag(t)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                          </span>
+                        ))}
+                        <input type="text" value={accTagInput} placeholder="add tag…" onChange={e => setAccTagInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddTag(); }}
+                          className="text-xs px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 w-24 focus:outline-none focus:border-blue-400" />
+                      </div>
+                    </div>
+
+                    {/* Note */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Note</p>
+                      <textarea value={accNoteInput} onChange={e => setAccNoteInput(e.target.value)} onBlur={handleSaveNote} rows={2}
+                        placeholder="Analyst note…" className="w-full text-sm px-2.5 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-blue-400" />
+                    </div>
+
+                    {/* Top posts */}
+                    {(p.sample_posts && p.sample_posts.length > 0) && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Top posts</p>
+                        <div className="space-y-2">
+                          {p.sample_posts.map(sp => {
+                            const psent = socialSentimentOf((sp as any).sentiment);
+                            return (
+                              <div key={sp.id} className="flex gap-2.5 p-2.5 bg-gray-50 dark:bg-gray-750 rounded-lg">
+                                {sp.thumbnail && <img src={sp.thumbnail} alt="" referrerPolicy="no-referrer" className="w-10 h-10 rounded object-cover flex-shrink-0 bg-gray-100" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words">{sp.text || '(no text)'}</p>
+                                  <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400 flex-wrap">
+                                    {(sp as any).sentiment && <span className="px-1.5 rounded-full text-white" style={{ backgroundColor: SOCIAL_SENTIMENT_COLORS[psent] }}>{(sp as any).sentiment}</span>}
+                                    {sp.created_at && <span>{sp.created_at.slice(0, 10)}</span>}
+                                    {sp.likes != null && <span>♥ {fmtCount(sp.likes)}</span>}
+                                    {sp.comments != null && <span>💬 {fmtCount(sp.comments)}</span>}
+                                    {sp.plays != null && <span>▶ {fmtCount(sp.plays)}</span>}
+                                    {sp.url && <a href={sp.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">view</a>}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Deep dive */}
+                    <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+                      {!accDeepDive && (
+                        <button onClick={handleDeepDive} disabled={accDeepLoading}
+                          className="text-sm px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400 inline-flex items-center gap-1.5 disabled:opacity-50">
+                          {accDeepLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />} Deep dive (activity, engagement, connections)
+                        </button>
+                      )}
+                      {accDeepDive && (() => {
+                        const dd = accDeepDive;
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Deep dive · {dd.posts_analyzed} posts</p>
+                              <button onClick={() => setAccDeepDive(null)} className="text-xs text-gray-400 hover:text-gray-600">collapse</button>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                              {[['Total likes', dd.engagement.total_likes], ['Avg likes', dd.engagement.avg_likes], ['Comments', dd.engagement.total_comments], ['Max likes', dd.engagement.max_likes]].map(([l, v]) => (
+                                <div key={l as string} className="p-2 bg-gray-50 dark:bg-gray-750 rounded text-center">
+                                  <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmtCount(v as number) || v}</p>
+                                  <p className="text-[10px] text-gray-400">{l}</p>
+                                </div>
+                              ))}
+                            </div>
+                            {dd.timeline.length > 0 && (
+                              <div>
+                                <p className="text-[11px] text-gray-400 mb-1">Activity by day (post volume)</p>
+                                <ResponsiveContainer width="100%" height={140}>
+                                  <BarChart data={dd.timeline} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                                    <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(d: string) => d.slice(5)} />
+                                    <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                                    <Tooltip />
+                                    <Bar dataKey="count" fill={platColor(dd.platform)} radius={[2, 2, 0, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </div>
+                            )}
+                            {dd.connections.length > 0 && (
+                              <div>
+                                <p className="text-[11px] text-gray-400 mb-1">Follows (sample of {dd.connections.length})</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {dd.connections.map(c => (
+                                    <span key={c.handle} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                                      @{c.handle}{c.followers != null && <span className="text-gray-400"> · {fmtCount(c.followers)}</span>}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {dd.platform !== 'twitter' && dd.platform !== 'instagram' && dd.connections.length === 0 && (
+                              <p className="text-[11px] text-gray-400">Connections not available for {platLabel(dd.platform)}.</p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {p.last_profiled_at && <p className="text-[11px] text-gray-400 text-right">profiled {p.last_profiled_at.slice(0, 10)}</p>}
+                  </div>
+                );
+              })()}
+              {!accLoading && !accountProfile && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center text-sm text-gray-400">
+                  Profile a handle or pick a saved profile to see identity, reach, sentiment, topics and top posts.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
