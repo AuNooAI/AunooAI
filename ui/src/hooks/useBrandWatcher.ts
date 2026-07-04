@@ -2,7 +2,7 @@
  * Custom React hook for Brand Watcher functionality
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   getBrands,
   createBrand,
@@ -116,6 +116,17 @@ export function useBrandWatcher() {
 
   const topicsOrUndefined = config.selectedTopics.length > 0 ? config.selectedTopics : undefined;
   const brandIdsOrUndefined = config.selectedBrandIds.length > 0 ? config.selectedBrandIds : undefined;
+  // Social is keyed by topic strings. When the user has picked brands via the header
+  // dropdown (but no explicit topics), scope social to those brands' topics so the
+  // Social tab honours the same brand selection as every other tab (defaults to the
+  // primary brand, e.g. Wiley). Memoised so fetchSocial's identity is stable.
+  const socialTopicsOrUndefined = useMemo(() => {
+    if (config.selectedTopics.length > 0) return config.selectedTopics;
+    if (config.selectedBrandIds.length > 0) {
+      return brands.filter(b => config.selectedBrandIds.includes(b.id)).map(b => `Brand Monitoring ${b.display_name}`);
+    }
+    return undefined;
+  }, [config.selectedTopics, config.selectedBrandIds, brands]);
 
   // Save config
   useEffect(() => {
@@ -242,17 +253,32 @@ export function useBrandWatcher() {
     }
   }, [config.daysBack]);
 
-  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true) => {
+  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true, scope: 'selected' | 'all' = 'selected') => {
     setLoadingSocial(true);
     try {
-      const data = await getSocialPosts(topicsOrUndefined, config.daysBack, minRelevance, source, includeUnevaluated);
+      // scope 'all' = primary + competitors (every brand's topic), regardless of the
+      // header brand selection — powers the "Wiley only / + competitors" toggle.
+      // scope 'selected' with no header selection means the primary brand, NOT
+      // everything — undefined topics would fetch all brands' posts.
+      const primaryBrand = brands.find(b => b.is_primary) || brands[0];
+      if (scope === 'selected' && !socialTopicsOrUndefined && !primaryBrand) {
+        // Brands haven't loaded yet — fetching now would show ALL brands' posts
+        // under a "primary only" toggle. The brands-arrival effect refetches.
+        setLoadingSocial(false);
+        return;
+      }
+      const topics = scope === 'all'
+        ? brands.map(b => `Brand Monitoring ${b.display_name}`)
+        : (socialTopicsOrUndefined
+           ?? (primaryBrand ? [`Brand Monitoring ${primaryBrand.display_name}`] : undefined));
+      const data = await getSocialPosts(topics && topics.length ? topics : undefined, config.daysBack, minRelevance, source, includeUnevaluated, { limit: 500 });
       setSocial(data);
     } catch (err) {
       console.error('Error fetching social posts:', err);
     } finally {
       setLoadingSocial(false);
     }
-  }, [config.daysBack, topicsOrUndefined]);
+  }, [config.daysBack, socialTopicsOrUndefined, brands]);
 
   // Fetch temporal
   const fetchTemporal = useCallback(async () => {

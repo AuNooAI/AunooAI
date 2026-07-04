@@ -751,6 +751,8 @@ CREATE A SYNTHESIS WITH:
    - Deduplicate similar actions from individual articles
    - Prioritize by urgency and impact
    - Include urgency level and rationale
+   - CRITICAL: Every action must be one a {config.persona} can personally initiate — a decision, directive to their own organization, partnership, resourcing, or monitoring/hedging move that is within their actual sphere of control. NEVER recommend actions for governments, regulators, health authorities, NGOs, or any third party the reader does not run. If the news is about a crisis the reader cannot directly act on, the action is how the {config.persona} should respond within their own remit (e.g. commissioning, editorial, portfolio, research, or communication decisions), not how the crisis itself should be managed.
+   - Name the actor for each action: it must be the {config.persona} or a function they command.
 
 4. RISK SUMMARY:
    - Overall risk level: low/moderate/elevated/high
@@ -780,7 +782,8 @@ Return JSON with:
     ],
     "priority_actions": [
         {{
-            "action": "Specific action",
+            "action": "Specific action the {config.persona} can personally initiate",
+            "actor": "The {config.persona} or a function they command",
             "urgency": "immediate/this_week/this_month/this_quarter",
             "rationale": "Why this matters",
             "related_themes": ["Theme name"]

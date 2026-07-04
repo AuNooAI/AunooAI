@@ -99,6 +99,43 @@ export interface BWArticle {
   matched_keywords: string[];
   // Opoint entity verification (Wikidata-ID match), present when available.
   entity_match?: { brands: string[]; relevance: number | null; verified: boolean } | null;
+  // Story clustering: republication count ("×N sources") + cluster key for dedup.
+  story_size?: number | null;
+  story_group_id?: string | null;
+  story_neg?: number | null;
+  story_pos?: number | null;
+  story_scored?: number | null;
+  // MBFC source authority (when the source is in the mediabias dataset).
+  factual_reporting?: string | null;
+  // Adverse risk findings [{risk_type, severity, confidence}] + case state.
+  risks?: { risk_type: string; severity: string; confidence?: number | null }[];
+  review_status?: string | null;
+}
+
+// ---- Adverse alerting ----
+export interface BWAlertConfig {
+  id: number;
+  enabled: boolean;
+  rules: Record<string, any>;
+  channels: { in_app?: boolean; email?: boolean; webhook?: boolean };
+  email_recipients: string[];
+  webhook_url: string | null;
+  cooldown_hours: number;
+}
+
+export interface BWAlertEvent {
+  id: number;
+  brand_id: number | null;
+  brand_name: string | null;
+  rule: string;
+  severity: string;
+  title: string;
+  body: string | null;
+  payload: any;
+  delivered: Record<string, boolean> | null;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  created_at: string | null;
 }
 
 export interface BWOpointCoverage {
@@ -169,6 +206,7 @@ export interface BWSocialPost {
   relevance: number | null;
   sentiment: string | null;
   topic: string | null;
+  matched_keywords?: string[];
   social_meta?: BWSocialMeta | null;
 }
 
@@ -176,10 +214,12 @@ export interface BWSocialResponse {
   window_days: number;
   min_relevance: number;
   include_unevaluated?: boolean;
+  keyword?: string | null;
   total: number;
   evaluated: number;
   by_platform: Record<string, number>;
   by_sentiment: Record<string, number>;
+  by_keyword?: Record<string, number>;
   posts: BWSocialPost[];
 }
 
@@ -485,10 +525,16 @@ export async function setupSocialMonitoring(brandId: number, intervalHours: numb
   return res.json();
 }
 
-export async function getSocialPosts(topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true): Promise<BWSocialResponse> {
-  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), include_unevaluated: includeUnevaluated.toString(), limit: '200' });
+export async function getSocialPosts(
+  topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true,
+  opts?: { startDate?: string; endDate?: string; limit?: number; keyword?: string },
+): Promise<BWSocialResponse> {
+  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), include_unevaluated: includeUnevaluated.toString(), limit: (opts?.limit ?? 200).toString() });
   if (topics?.length) params.append('topics', topics.join(','));
   if (source) params.append('source', source);
+  if (opts?.startDate) params.append('start_date', opts.startDate);
+  if (opts?.endDate) params.append('end_date', opts.endDate);
+  if (opts?.keyword) params.append('keyword', opts.keyword);
   const res = await fetch(`${BASE}/social?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get social posts: ${res.status}`);
   return res.json();
@@ -735,3 +781,99 @@ export const CATEGORY_SHORT_NAMES: Record<string, string> = {
   'Market Strategy & Expansion': 'Strategy',
   'Media & Advertising': 'Media',
 };
+
+
+// ---- Adverse alerting API ----
+export async function getAlertConfig(): Promise<BWAlertConfig> {
+  const res = await fetch(`${BASE}/alert-config`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get alert config: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAlertConfig(cfg: Partial<BWAlertConfig>): Promise<BWAlertConfig> {
+  const res = await fetch(`${BASE}/alert-config`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  });
+  if (!res.ok) throw new Error(`Failed to update alert config: ${res.status}`);
+  return res.json();
+}
+
+export async function listAlertEvents(unackedOnly = false, limit = 50): Promise<BWAlertEvent[]> {
+  const res = await fetch(`${BASE}/alert-events?unacked_only=${unackedOnly}&limit=${limit}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to list alert events: ${res.status}`);
+  return (await res.json()).events || [];
+}
+
+export async function ackAlertEvent(id: number): Promise<void> {
+  await fetch(`${BASE}/alert-events/${id}/ack`, { method: 'POST', credentials: 'include' });
+}
+
+export async function evaluateAlertsNow(): Promise<{ created: number }> {
+  const res = await fetch(`${BASE}/alert-events/evaluate-now`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to evaluate alerts: ${res.status}`);
+  return res.json();
+}
+
+// ---- Finding case states ----
+export async function setFindingState(articleUri: string, brandId: number, status: 'new' | 'reviewed' | 'escalated' | 'dismissed', note?: string): Promise<void> {
+  const res = await fetch(`${BASE}/findings/state`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ article_uri: articleUri, brand_id: brandId, status, note: note || null }),
+  });
+  if (!res.ok) throw new Error(`Failed to set finding state: ${res.status}`);
+}
+
+// ---- Official / scholarly sources (SEC EDGAR, CourtListener, regulations.gov, Crossref, OpenAlex) ----
+export interface BWOfficialSource {
+  key: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  available: boolean;          // false when a required API key is not configured server-side
+  requires_key: string | null;
+  last_polled_at: string | null;
+  article_count: number;
+}
+
+export interface BWBrandSources {
+  brand_id: number;
+  display_name: string;
+  sources: BWOfficialSource[];
+}
+
+export async function getOfficialSourcesStatus(): Promise<BWBrandSources[]> {
+  const res = await fetch(`${BASE}/official-sources/status`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load official sources status: ${res.status}`);
+  return (await res.json()).brands || [];
+}
+
+export async function pollOfficialSourcesNow(brandId?: number): Promise<{
+  polled: number; new_articles: number; risk_flagged: number; errors: number;
+}> {
+  const qs = brandId ? `?brand_id=${brandId}` : '';
+  const res = await fetch(`${BASE}/official-sources/poll-now${qs}`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to poll official sources: ${res.status}`);
+  return res.json();
+}
+
+export interface BWStorySibling {
+  uri: string;
+  title: string;
+  summary?: string | null;
+  news_source?: string | null;
+  publication_date?: string | null;
+  bias?: string | null;
+  factual_reporting?: string | null;
+  sentiment?: string | null;
+}
+
+export async function getStorySiblings(groupId: string, brandId?: number | null): Promise<BWStorySibling[]> {
+  const q = new URLSearchParams({ group_id: groupId });
+  if (brandId) q.append('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/story-siblings?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load story siblings: ${res.status}`);
+  return (await res.json()).articles || [];
+}

@@ -265,6 +265,8 @@ def _build_topic_report_prompt(topic: str, article_rows: list) -> str:
     return f"""You are a strategic foresight expert producing a forward-looking
 report on "{topic}" for a scientific-publisher executive audience.
 
+AUDIENCE CONSTRAINT: every strategic_recommendation, next_step, and executive_decision_framework principle must be an action a scientific publisher can actually take within its own remit (editorial, commissioning, portfolio, licensing, research-integrity, partnership, or communication decisions). Never recommend actions for governments, regulators, funders, health authorities, or other third parties the publisher does not control; if the topic involves a crisis the publisher cannot act on directly, frame the action as how the publisher should respond within its remit, not how the crisis itself should be managed.
+
 Analyse {len(article_rows)} articles and return a SINGLE JSON object with
 EVERY field below populated. No prose outside the JSON. No code fences.
 

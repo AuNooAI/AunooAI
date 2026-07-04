@@ -1566,7 +1566,7 @@ Choose exactly {article_count} articles from the provided corpus (news, filings,
 **time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
 **risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
 **signal_strength** — "weak" | "moderate" | "strong" with a short justification
-**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**executive_action** — Array of 1–2 bullets: what the reader should watch, decide, or delegate now, within their own remit. Never a directive to governments, regulators, or third parties the reader does not control.
 **category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
 **scores** — Optional scoring object: {{"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}}
 
@@ -1913,7 +1913,7 @@ Choose exactly {article_count} articles from the provided corpus (news, filings,
 **time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
 **risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
 **signal_strength** — "weak" | "moderate" | "strong" with a short justification
-**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**executive_action** — Array of 1–2 bullets: what the reader should watch, decide, or delegate now, within their own remit. Never a directive to governments, regulators, or third parties the reader does not control.
 **category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
 **scores** — Optional scoring object: {{"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}}
 

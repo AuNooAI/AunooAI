@@ -49,6 +49,36 @@ export function ArticleDetailPanel({
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
 
+  // Sentiment bucket for the Full Coverage spread (news labels are richer than pos/neu/neg)
+  const sentimentBucket = (s?: string | null): 'positive' | 'neutral' | 'negative' | null => {
+    const t = (s || '').toLowerCase();
+    if (!t) return null;
+    if (t.includes('pos') || t.includes('optimis')) return 'positive';
+    if (t.includes('neg') || t.includes('concern') || t.includes('pessimis') || t.includes('critical') || t.includes('alarm')) return 'negative';
+    return 'neutral';
+  };
+  const SENT_CHIP: Record<string, string> = {
+    positive: 'bg-emerald-100 text-emerald-700',
+    neutral: 'bg-gray-100 text-gray-600',
+    negative: 'bg-red-100 text-red-700',
+  };
+  const factChip = (f?: string | null) => {
+    if (!f) return null;
+    const t = f.toLowerCase();
+    const cls = t.includes('very high') || t === 'high' ? 'bg-emerald-100 text-emerald-700'
+      : t.includes('mixed') || t.includes('mostly') ? 'bg-amber-100 text-amber-700'
+      : t.includes('low') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600';
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${cls}`} title="MBFC factual reporting">{f}</span>;
+  };
+  // Spread across primary + related (only sources that carry a sentiment)
+  const coverageSentiments = [article?.sentiment, ...relatedArticles.map(r => (r as any).sentiment)]
+    .map(sentimentBucket).filter(Boolean) as ('positive' | 'neutral' | 'negative')[];
+  const spread = {
+    positive: coverageSentiments.filter(x => x === 'positive').length,
+    neutral: coverageSentiments.filter(x => x === 'neutral').length,
+    negative: coverageSentiments.filter(x => x === 'negative').length,
+  };
+
   // Initialize preference from article data when article changes
   useEffect(() => {
     const artPref = article?.user_preference;
@@ -528,6 +558,30 @@ Please provide:
               <p className="text-xs text-gray-700 dark:text-gray-300">
                 {relatedArticles.length + 1} sources reporting on this story
               </p>
+              {coverageSentiments.length >= 2 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[11px] text-gray-500">Sentiment across coverage:</span>
+                  <div className="flex h-2.5 w-40 rounded-full overflow-hidden bg-gray-100">
+                    {spread.positive > 0 && <div className="bg-emerald-400" style={{ width: `${(spread.positive / coverageSentiments.length) * 100}%` }} />}
+                    {spread.neutral > 0 && <div className="bg-gray-300" style={{ width: `${(spread.neutral / coverageSentiments.length) * 100}%` }} />}
+                    {spread.negative > 0 && <div className="bg-red-400" style={{ width: `${(spread.negative / coverageSentiments.length) * 100}%` }} />}
+                  </div>
+                  <span className="text-[11px] text-gray-500">{spread.positive}+ {spread.neutral}· {spread.negative}−</span>
+                </div>
+              )}
+              {/* Screening flags: consensus negativity and acute polarization are the
+                  two coverage patterns that warrant attention beyond any single article. */}
+              {coverageSentiments.length >= 3 && spread.negative / coverageSentiments.length >= 0.7 && (
+                <div className="mt-2 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
+                  ⚠ Negative consensus — {spread.negative} of {coverageSentiments.length} scored sources frame this story negatively. This is the story's framing, not one outlet's take.
+                </div>
+              )}
+              {coverageSentiments.length >= 4 && spread.negative / coverageSentiments.length < 0.7
+                && Math.min(spread.positive, spread.negative) / coverageSentiments.length >= 0.3 && (
+                <div className="mt-2 px-3 py-2 rounded-md bg-purple-50 border border-purple-200 text-xs text-purple-700 font-medium">
+                  ⚡ Polarized coverage — sources split {spread.positive} positive vs {spread.negative} negative. The narrative is contested; check which outlets take which side.
+                </div>
+              )}
             </div>
 
             {/* Primary article (current) */}
@@ -552,7 +606,7 @@ Please provide:
                   className="w-full text-left p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-xs flex-wrap">
                       <span className="font-medium text-gray-700">{related.news_source}</span>
                       {related.publication_date && (
                         <>
@@ -560,8 +614,17 @@ Please provide:
                           <span className="text-gray-700 dark:text-gray-300">{formatRelativeTime(related.publication_date)}</span>
                         </>
                       )}
+                      {sentimentBucket((related as any).sentiment) && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${SENT_CHIP[sentimentBucket((related as any).sentiment)!]}`}>
+                          {sentimentBucket((related as any).sentiment)}
+                        </span>
+                      )}
+                      {factChip(related.factual_reporting)}
+                      {related.bias && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600" title="MBFC bias rating">{related.bias}</span>
+                      )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300 flex-shrink-0" />
                   </div>
                   <h4 className="font-medium text-gray-900 mb-2 line-clamp-2">{related.title}</h4>
                   {related.summary && (

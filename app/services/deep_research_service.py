@@ -1909,7 +1909,7 @@ Discuss: What does this sentiment distribution reveal? Are there concerning tren
 Cross-reference findings with predictions. Identify patterns and implications.
 
 ### 7. CONCLUSIONS (write 2-3 paragraphs)
-Actionable recommendations based on findings.
+Actionable recommendations based on findings. Frame every recommendation as an action the reader/commissioning organization can take within its own remit; do NOT issue directives to governments, regulators, health authorities, or other third parties the reader does not control.
 
 ### 8. LIMITATIONS (write 1-2 paragraphs)
 Data gaps, potential biases, confidence levels.

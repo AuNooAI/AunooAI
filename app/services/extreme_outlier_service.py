@@ -730,7 +730,7 @@ SCENARIOS:
 For each scenario, add:
 1. Early warning signs (3-5 observable indicators that would signal this scenario is materializing)
 2. Strategic implications (what it would mean for organizations in this space)
-3. Preparation actions (3-5 concrete steps to hedge against or prepare for this scenario)
+3. Preparation actions (3-5 concrete steps to hedge against or prepare for this scenario). Each preparation action must be one the READER's own organization can take within its remit — do NOT recommend actions for governments, regulators, or other third parties the reader does not control; frame them as how the reader should prepare, not how the wider world should manage the scenario.
 
 Return JSON with:
 {{

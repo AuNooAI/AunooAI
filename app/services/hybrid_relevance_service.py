@@ -292,7 +292,8 @@ class HybridRelevanceService:
         topic: str,
         title: str,
         summary: str,
-        use_local: bool = False
+        use_local: bool = False,
+        keywords: Optional[List[str]] = None,
     ) -> Optional[float]:
         """
         Get relevance score from LLM (most accurate, but slow/expensive).
@@ -303,19 +304,32 @@ class HybridRelevanceService:
             title: Article title
             summary: Article summary
             use_local: If True, use local Qwen model instead of external GPT
+            keywords: The monitor's actual keywords/entities. REQUIRED context for
+                internal topic labels like "Brand Monitoring Wiley" — an article about
+                John Wiley & Sons is not literally "about" the phrase 'Brand Monitoring
+                Wiley', so judging against the bare label mis-scores real coverage.
         """
-        prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
-
-Topic: {topic}
-
-Article Title: {title}
-Article Summary: {summary}
-
-Rules:
-- The article must be DIRECTLY about the topic, not just tangentially related
-- Sharing a keyword is NOT enough — the article's main subject must match the topic
-- Generic news that mentions a related term in passing scores 0.1-0.2
-- Only score above 0.7 if the article is primarily about the topic
+        # Internal monitor labels ("Brand Monitoring <X>") describe an entity watch,
+        # not a subject — judge relevance against the entity + its keywords instead.
+        brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
+        entity = brand_match.group(1).strip() if brand_match else None
+        kw_line = f"\nKey entities / search terms for this topic: {', '.join(keywords[:20])}" if keywords else ""
+        topic_line = (
+            f'Topic: news coverage of the company/organization "{entity}" (brand monitoring)'
+            if entity else f"Topic: {topic}"
+        )
+        brand_rule = (
+            f"""
+- BRAND MONITORING: the topic tracks the company "{entity}". Any article whose main
+  subject is that company — financial results/filings, stock or dividend news, deals,
+  partnerships, product/imprint news, journal or editorial changes, controversies, or
+  executive moves — IS directly about the topic and scores 0.7+. Articles about
+  unrelated people or things that merely share the name score 0.0-0.1.""" if entity else ""
+        )
+        # Materiality demotion of local/single-institution items applies to THEME topics
+        # only. For brand monitoring, company-specific items (a single deal, filing or
+        # journal move) ARE the signal — demoting them hides exactly what we track.
+        materiality_rules = "" if entity else """
 - MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
   local administrative trivia. Purely LOCAL or single-institution items with no wider
   significance — e.g. one local college's admissions, exam results, fee notices, campus
@@ -323,7 +337,19 @@ Rules:
   scope/materiality of the item, NOT the country it is reported from.
 - Items of genuine global or strategic significance score normally regardless of where
   they occur or are reported — e.g. national R&D/science-funding policy, patent-cliff or
-  generic-drug dynamics, major institutions, or developments affecting the field broadly.
+  generic-drug dynamics, major institutions, or developments affecting the field broadly."""
+        prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
+
+{topic_line}{kw_line}
+
+Article Title: {title}
+Article Summary: {summary}
+
+Rules:{brand_rule}
+- The article must be DIRECTLY about the topic, not just tangentially related
+- Sharing a keyword is NOT enough — the article's main subject must match the topic
+- Generic news that mentions a related term in passing scores 0.1-0.2
+- Only score above 0.7 if the article is primarily about the topic{materiality_rules}
 
 Respond with ONLY a number between 0.0 and 1.0.
 
@@ -399,6 +425,7 @@ Score:"""
         force_llm: bool = False,
         use_local_llm: bool = False,
         full_text: Optional[str] = None,
+        keywords: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Score article relevance using hybrid approach.
@@ -418,7 +445,7 @@ Score:"""
         """
         # Force LLM mode
         if force_llm:
-            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
+            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm, keywords=keywords)
             return {
                 "topic": topic,
                 "relevant": (llm_score or 0) >= threshold,
@@ -514,7 +541,7 @@ Score:"""
         if use_llm_fallback and result["confidence"] != "high":
             fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
             logger.info(f"🤖 {fallback_type} fallback triggered for borderline score {result['score']:.3f}")
-            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
+            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm, keywords=keywords)
             if llm_score is not None:
                 result["llm_score"] = llm_score
                 result["score"] = llm_score  # LLM overrides when uncertain

@@ -51,7 +51,7 @@ Provide comprehensive analysis as valid JSON (no markdown):
     "strategic_relevance": "How this relates to the organization's strategic priorities (or general strategic considerations if no org context)",
     "stakeholder_impact": "Impact on key stakeholders",
     "risk_assessment": "Risks or opportunities this presents",
-    "recommended_response": "Suggested actions or response"
+    "recommended_response": "Suggested actions the organization can take within its own remit — never actions for governments, regulators, or other third parties it does not control"
   }},
   "signals": {{
     "growth_indicators": ["Signs this topic is growing in importance"],

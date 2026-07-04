@@ -70,6 +70,7 @@ export interface ClusterRelatedArticle {
   similarity_score: number;
   bias?: string;
   factual_reporting?: string;
+  sentiment?: string;
 }
 
 export interface ArticleCluster {

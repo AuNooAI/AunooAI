@@ -9,6 +9,7 @@ import type {
   Brand, BWStats, BWCategory, BWSentimentTrend, BWAlert,
   BWComparison, BWShareOfVoice, BWSocialResponse, BWSavedNarrative,
 } from './brandWatcherApi';
+import { stripSocialMarkdown } from './socialText';
 
 export interface BrandReportData {
   brand?: Brand;
@@ -104,15 +105,54 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
     }
   }
 
-  // ---- Social ----
+  // ---- Social ---- (scoped to THIS brand, on-brand posts only)
   const soc = d.social;
   let socNet: number | null = null;
-  const socTop = soc ? soc.posts.filter(p => (p.relevance ?? 0) >= 0.4) : [];
+  const socTop = soc ? soc.posts.filter(p => (p.relevance ?? 0) >= 0.4 && (!d.brand || (p.topic || '') === `Brand Monitoring ${d.brand.display_name}`)) : [];
+  let socPos = 0, socNeg = 0, socNeu = 0;
   if (soc) {
-    let p = 0, n = 0, sc = 0;
-    for (const post of socTop) { const c = sentClass(post.sentiment); if (c === 'pos') { p++; sc++; } else if (c === 'neg') { n++; sc++; } else if (post.sentiment) sc++; }
-    socNet = sc ? Math.round(((p - n) / sc) * 100) : null;
+    for (const post of socTop) {
+      if (!post.sentiment) continue;
+      const c = sentClass(post.sentiment);
+      if (c === 'pos') socPos++; else if (c === 'neg') socNeg++; else socNeu++;
+    }
+    const sc = socPos + socNeg + socNeu;
+    socNet = sc ? Math.round(((socPos - socNeg) / sc) * 100) : null;
   }
+
+  // Perception by network — net sentiment (% pos − % neg) per platform.
+  const socPlat: Record<string, { pos: number; neg: number; neu: number; total: number }> = {};
+  for (const p of socTop) {
+    if (!p.sentiment) continue;
+    const pl = p.platform || 'social';
+    const a = (socPlat[pl] ||= { pos: 0, neg: 0, neu: 0, total: 0 });
+    const c = sentClass(p.sentiment);
+    if (c === 'pos') a.pos++; else if (c === 'neg') a.neg++; else a.neu++;
+    a.total++;
+  }
+  // Networks with <5 scored posts are muted + sorted last (single-post +100s are noise).
+  const socPerception = Object.entries(socPlat).map(([pl, a]) => {
+    const sc = a.pos + a.neg + a.neu;
+    return { pl, ...a, net: sc ? Math.round(((a.pos - a.neg) / sc) * 100) : null, low: sc < 5 };
+  }).sort((x, y) => (Number(x.low) - Number(y.low)) || (y.net ?? -999) - (x.net ?? -999));
+
+  // Fans & Critics — authors ranked by net sentiment; own-brand handles excluded from fans.
+  const normH = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ownToks = d.brand ? Array.from(new Set([d.brand.name, ...(d.brand.brand_keywords || [])].map(normH).filter(t => t.length >= 3))) : [];
+  const isOwnH = (h: string) => { const lead = normH((h || '').split('.')[0]); return !!lead && ownToks.some(t => lead.startsWith(t)); };
+  const authorOfP = (p: any) => { const a = p.social_meta?.author; if (a) return a; const m = (p.title || '').match(/@([\w.\-]+)/); return m ? m[1] : ''; };
+  const socByAuthor: Record<string, { a: string; pos: number; neg: number; neu: number; total: number }> = {};
+  for (const p of socTop) {
+    if (!p.sentiment) continue;
+    const h = authorOfP(p); if (!h || h === 'unknown' || h.includes(':')) continue;
+    const x = (socByAuthor[h.toLowerCase()] ||= { a: h, pos: 0, neg: 0, neu: 0, total: 0 });
+    const c = sentClass(p.sentiment);
+    if (c === 'pos') x.pos++; else if (c === 'neg') x.neg++; else x.neu++;
+    x.total++;
+  }
+  const socAuthors = Object.values(socByAuthor).map(x => ({ ...x, net: x.pos - x.neg, own: isOwnH(x.a) }));
+  const socFans = socAuthors.filter(x => x.net > 0 && !x.own).sort((p, q) => q.net - p.net || q.pos - p.pos).slice(0, 10);
+  const socCritics = socAuthors.filter(x => x.net < 0).sort((p, q) => p.net - q.net || q.neg - p.neg).slice(0, 10);
 
   const catBars = catSorted.map(c => `
     <div class="bar-row">
@@ -154,9 +194,63 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
       </div>
     </details>`).join('') : '<p class="muted">No category spikes detected in the last 7 days.</p>';
 
-  const socTopHtml = socTop.length
-    ? socTop.slice(0, 25).map(p => articleRow({ uri: p.uri, title: p.title, publication_date: p.publication_date, sentiment: p.sentiment, news_source: p.platform })).join('')
+  // Actual positive / negative posts (content, author, link) — the voices driving sentiment.
+  const socAuthorOf = (p: any) => { const a = p.social_meta?.author; if (a) return a; const m = (p.title || '').match(/@([\w.\-]+)/); return m ? m[1] : ''; };
+  const socBodyOf = (p: any) => { const b = stripSocialMarkdown(p.summary || '').trim(); return b || stripSocialMarkdown((p.title || '').replace(/^Post by @[\w.\-]+\s*/i, '')).trim() || '(no text)'; };
+  const socPostRow = (p: any) => {
+    const h = socAuthorOf(p);
+    const date = p.publication_date ? esc(p.publication_date.slice(0, 10)) : '';
+    const rel = p.relevance != null ? `<span class="src">rel ${p.relevance.toFixed(2)}</span>` : '';
+    return `<div class="spost" data-text="${esc((socBodyOf(p) + ' ' + h).toLowerCase())}">
+      <div class="spost-head"><span class="chip ${sentClass(p.sentiment)}">${esc(p.platform || 'social')}</span>
+        <a href="${esc(p.uri)}" target="_blank" rel="noopener noreferrer" class="spost-h">${h ? '@' + esc(h) : 'view'}</a>
+        ${date ? `<span class="date">${date}</span>` : ''}${rel}</div>
+      <div class="spost-body">${esc(socBodyOf(p))}</div></div>`;
+  };
+  const byRel = (a: any, b: any) => (b.relevance ?? 0) - (a.relevance ?? 0);
+  const socTopPos = socTop.filter(p => p.sentiment && sentClass(p.sentiment) === 'pos').sort(byRel).slice(0, 15);
+  const socTopNeg = socTop.filter(p => p.sentiment && sentClass(p.sentiment) === 'neg').sort(byRel).slice(0, 15);
+  const socPosHtml = socTopPos.length ? socTopPos.map(socPostRow).join('') : '<p class="muted">No positive posts in range.</p>';
+  const socNegHtml = socTopNeg.length ? socTopNeg.map(socPostRow).join('') : '<p class="muted">No negative posts in range.</p>';
+
+  const socSentTot = socPos + socNeu + socNeg || 1;
+  const socSentBar = (socPos + socNeu + socNeg)
+    ? `<div class="bar-row"><span class="bar-label">Sentiment split</span>
+        <span class="sbar">
+          <span class="pos" style="width:${(socPos / socSentTot * 100).toFixed(1)}%" title="Positive ${socPos}"></span>
+          <span class="neu" style="width:${(socNeu / socSentTot * 100).toFixed(1)}%" title="Neutral ${socNeu}"></span>
+          <span class="neg" style="width:${(socNeg / socSentTot * 100).toFixed(1)}%" title="Negative ${socNeg}"></span>
+        </span><span class="bar-val">${socPos}+ ${socNeu}· ${socNeg}−</span></div>`
+    : '<p class="muted">No scored posts.</p>';
+
+  const socPerceptionHtml = socPerception.length
+    ? socPerception.map(pv => {
+        const net = pv.net ?? 0;
+        const sc = pv.pos + pv.neu + pv.neg;
+        const posPct = sc ? (pv.pos / sc) * 50 : 0;   // half-track = 100%
+        const negPct = sc ? (pv.neg / sc) * 50 : 0;
+        const counts = `${pv.pos}+ ${pv.neu}· ${pv.neg}−`;
+        return `<div class="bar-row${pv.low ? ' low-n' : ''}" title="${counts}${pv.low ? ' — low sample' : ''}">
+          <span class="bar-label">${esc(pv.pl)}${pv.low ? ' <span class="lown-tag">low sample</span>' : ''}</span>
+          <span class="dbar"><span class="n" style="width:${negPct.toFixed(1)}%"></span><span class="p" style="width:${posPct.toFixed(1)}%"></span><span class="c"></span></span>
+          <span class="bar-val">${pv.net == null ? 'n/a' : (net > 0 ? '+' : '') + net} · ${counts}</span></div>`;
+      }).join('')
     : '<p class="muted">No on-brand social posts.</p>';
+
+  const authorRow = (x: { a: string; pos: number; neu: number; neg: number; total: number; net: number }, kind: 'fan' | 'crit') => {
+    const tot = x.total || 1;
+    return `<div class="art"><span class="art-title">@${esc(x.a)}</span>
+      <span class="art-meta">
+        <span class="sbar" style="flex:0 0 70px">
+          <span class="pos" style="width:${(x.pos / tot * 100).toFixed(0)}%"></span>
+          <span class="neu" style="width:${(x.neu / tot * 100).toFixed(0)}%"></span>
+          <span class="neg" style="width:${(x.neg / tot * 100).toFixed(0)}%"></span>
+        </span>
+        <span class="chip ${kind === 'fan' ? 'pos' : 'neg'}">${x.net > 0 ? '+' : ''}${x.net}</span>
+        <span class="src">${x.total}</span></span></div>`;
+  };
+  const socFansHtml = socFans.length ? socFans.map(x => authorRow(x, 'fan')).join('') : '<p class="muted">No net-positive third-party authors.</p>';
+  const socCriticsHtml = socCritics.length ? socCritics.map(x => authorRow(x, 'crit')).join('') : '<p class="muted">No net-negative authors.</p>';
 
   const narrativeHtml = d.narrative?.narrative ? mdToHtml(d.narrative.narrative) : '<p class="muted">No insights generated yet for this period.</p>';
 
@@ -183,6 +277,18 @@ section{margin:26px 0;scroll-margin-top:64px}
 section>h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:0 0 12px;font-weight:700}
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:14px}
 .card h3{font-size:13.5px;margin:0 0 12px;color:var(--text)}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.two-col .card{margin-bottom:0}
+.low-n{opacity:.5}
+.lown-tag{font-size:9.5px;color:var(--muted);background:#f1f1f5;padding:0 5px;border-radius:999px;font-style:italic}
+.dbar{flex:1;height:14px;background:#eef0f5;border-radius:999px;overflow:hidden;position:relative}
+.dbar .n{position:absolute;right:50%;top:0;bottom:0;background:var(--neg)}
+.dbar .p{position:absolute;left:50%;top:0;bottom:0;background:var(--live)}
+.dbar .c{position:absolute;left:50%;top:0;bottom:0;width:1px;background:#d5d7e0}
+.spost{border-bottom:1px solid #f0f0f4;padding:8px 0}.spost:last-child{border-bottom:none}
+.spost-head{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+.spost-h{font-size:12px;font-weight:600}
+.spost-body{font-size:12.5px;color:var(--text2);white-space:pre-wrap;word-break:break-word}
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
 .stat .eyebrow{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
@@ -219,7 +325,7 @@ details.alert .chev{color:var(--muted);transition:transform .15s}details.alert[o
 .muted{color:var(--muted);font-size:12.5px;font-style:italic}
 footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:11.5px;text-align:center}
 .hidden{display:none!important}
-@media(max-width:760px){.stat-grid{grid-template-columns:1fr 1fr}.bar-label{width:120px}.nav{width:100%;order:3}.search{margin-left:0}}
+@media(max-width:760px){.stat-grid{grid-template-columns:1fr 1fr}.two-col{grid-template-columns:1fr}.bar-label{width:120px}.nav{width:100%;order:3}.search{margin-left:0}}
 @media print{.topnav{position:static}.nav,.search,.print-btn{display:none}details.alert{break-inside:avoid}}
 </style></head>
 <body>
@@ -262,14 +368,23 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   </section>
 
   <section id="social">
-    <h2>Social Pulse</h2>
+    <h2>Social Pulse${d.brand ? ` — ${esc(brandName)}` : ''}</h2>
     <div class="stat-grid">
-      ${statCard('Social posts', soc ? soc.total.toLocaleString() : '—', soc ? `last ${soc.window_days}d` : '')}
-      ${statCard('On-brand', String(socTop.length), 'relevance ≥ 0.4')}
+      ${statCard('On-brand posts', String(socTop.length), 'relevance ≥ 0.4')}
       ${(() => { const cls = socNet == null ? '' : socNet > 0 ? 'pos' : socNet < 0 ? 'neg' : ''; const v = socNet == null ? '—' : `${socNet > 0 ? '+' : ''}${socNet}`; return `<div class="stat"><div class="eyebrow">Net sentiment</div><div class="val ${cls}">${v}</div><div class="sub">% pos − % neg</div></div>`; })()}
-      ${statCard('Platforms', soc ? (Object.entries(soc.by_platform).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—') : '—')}
+      ${statCard('Fans / Critics', `${socFans.length} / ${socCritics.length}`, 'net-positive / -negative authors')}
+      ${statCard('Networks', String(socPerception.length), socPerception.length ? socPerception.map(p => p.pl).join(' · ') : '')}
     </div>
-    <div class="card"><h3>Top on-brand social posts</h3>${socTopHtml}</div>
+    <div class="card"><h3>Sentiment</h3>${socSentBar}</div>
+    <div class="card"><h3>Perception by network — net sentiment <span class="muted">(% positive − % negative of scored posts; neutrals count in the base)</span></h3>${socPerceptionHtml}</div>
+    <div class="two-col">
+      <div class="card"><h3>😊 Top fans <span class="muted">(own accounts excluded)</span></h3>${socFansHtml}</div>
+      <div class="card"><h3>😠 Top critics</h3>${socCriticsHtml}</div>
+    </div>
+    <div class="two-col">
+      <div class="card"><h3>👍 Positive posts</h3>${socPosHtml}</div>
+      <div class="card"><h3>👎 Negative posts</h3>${socNegHtml}</div>
+    </div>
   </section>
 
   <footer>Generated ${gen} · Powered by AunooAI · Interactive report — click spikes to expand, use search to filter</footer>

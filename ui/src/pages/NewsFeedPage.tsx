@@ -207,7 +207,19 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel'>('feed');
+  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel';
+  const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel'];
+  // Restore the last-viewed Explore tab across page loads.
+  const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
+    try {
+      const saved = localStorage.getItem('explore_last_tab');
+      if (saved && (EXPLORE_TABS as string[]).includes(saved)) return saved as ExploreTab;
+    } catch { /* localStorage unavailable */ }
+    return 'feed';
+  });
+  useEffect(() => {
+    try { localStorage.setItem('explore_last_tab', currentTab); } catch { /* ignore */ }
+  }, [currentTab]);
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -437,6 +449,25 @@ export function NewsFeedPage() {
   // Handler to fetch full article data and open detail panel
   // Used by Narratives and Highlights which may have partial article data
   // Accepts optional related articles from clusters
+  // Build the best-possible detail view from the click payload alone (used when
+  // the by-uri fetch can't find the article server-side).
+  const stubFromClickData = (article: any): NewsArticle => ({
+    uri: article.uri,
+    title: article.title || 'Unknown Title',
+    summary: article.summary || '',
+    url: article.url || article.uri,
+    publication_date: article.publication_date,
+    sentiment: article.sentiment,
+    category: article.category,
+    topic: article.topic,
+    source: {
+      name: article.news_source || article.source?.name || 'Unknown Source',
+      bias: article.bias,
+      factuality: article.factual_reporting,
+    },
+    tags: [],
+  } as NewsArticle);
+
   const handleArticleClick = useCallback(async (
     article: NewsArticle | { uri: string; title?: string },
     relatedArticles?: ClusterRelatedArticle[]
@@ -461,25 +492,13 @@ export function NewsFeedPage() {
       if (fullArticle) {
         setSelectedArticle(hasBWData ? { ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } : fullArticle);
       } else {
-        // Fallback to partial data if fetch fails
-        setSelectedArticle({
-          uri: article.uri,
-          title: article.title || 'Unknown Title',
-          summary: '',
-          source: { name: 'Unknown Source' },
-          tags: [],
-        });
+        // The by-uri fetch can miss (alert-payload/syndicated URLs) — keep every
+        // field the caller passed rather than degrading to an "Unknown" stub.
+        setSelectedArticle(stubFromClickData(article));
       }
     } catch (err) {
       console.error('Failed to fetch article details:', err);
-      // Fallback to partial data
-      setSelectedArticle({
-        uri: article.uri,
-        title: article.title || 'Unknown Title',
-        summary: '',
-        source: { name: 'Unknown Source' },
-        tags: [],
-      });
+      setSelectedArticle(stubFromClickData(article));
     } finally {
       setLoadingArticleDetail(false);
     }

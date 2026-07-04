@@ -180,12 +180,15 @@ class AutomatedIngestService:
             bias_info = self.media_bias.get_bias_for_source(source)
             
             if bias_info:
+                # NB: the MediaBias lookup returns keys 'source'/'country' — the old
+                # .get('bias_source')/.get('bias_country') always returned None, which
+                # left articles.bias_source/bias_country permanently NULL (0% coverage).
                 article_data.update({
                     'bias': bias_info.get('bias'),
                     'factual_reporting': bias_info.get('factual_reporting'),
                     'mbfc_credibility_rating': bias_info.get('mbfc_credibility_rating'),
-                    'bias_source': bias_info.get('bias_source'),
-                    'bias_country': bias_info.get('bias_country'),
+                    'bias_source': bias_info.get('source') or 'mbfc',
+                    'bias_country': bias_info.get('country'),
                     'press_freedom': bias_info.get('press_freedom'),
                     'media_type': bias_info.get('media_type'),
                     'popularity': bias_info.get('popularity')
@@ -466,7 +469,8 @@ class AutomatedIngestService:
                 threshold=self.get_relevance_threshold(),
                 use_llm_fallback=use_llm_fallback,
                 force_llm=force_llm,
-                use_local_llm=use_local_llm
+                use_local_llm=use_local_llm,
+                keywords=keywords,
             )
 
             # Map hybrid result to expected pipeline format

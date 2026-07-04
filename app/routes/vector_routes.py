@@ -3737,6 +3737,73 @@ async def debug_articles(
 # Independent signal runner for real-time monitoring
 # ------------------------------------------------------------------
 
+# Base system prompt for signal-report generation. The reader-scoping constraint
+# (no directives to governments/third parties) is baked in here; the org persona
+# for the specific reader is appended per-run via _org_persona_report_prefix().
+_SIGNAL_REPORT_SYSTEM_BASE = (
+    "You are an intelligence analyst creating comprehensive reports from signal detection data. "
+    "Always format reports as readable markdown with headers, bullet points, and paragraphs. "
+    "Never return raw JSON in reports. Any recommendations must be actions the report's READER can take "
+    "within their own remit (decisions, directives to their own organization, monitoring, or hedging moves). "
+    "Do NOT issue directives to governments, regulators, health authorities, emergency agencies, or other "
+    "third parties the reader does not control; if a matched signal concerns a crisis the reader cannot act "
+    "on directly, frame recommendations as how the reader should respond within their own sphere, not how the "
+    "crisis itself should be managed."
+)
+
+
+def _org_persona_report_prefix(db) -> str:
+    """Persona framing for signal-report generation, from the tenant's default org profile.
+
+    Returns a system-prompt suffix that names the reader organization so recommendations
+    are scoped to that org's remit (e.g. a scientific publisher's editorial/portfolio moves).
+    Empty string if no profile is configured or on any error (report still generates, just
+    with the generic reader-scoping constraint from _SIGNAL_REPORT_SYSTEM_BASE).
+    """
+    try:
+        from app.database_query_facade import DatabaseQueryFacade
+        import json as _json
+        profiles = DatabaseQueryFacade(db, logger).get_organisational_profiles() or []
+        # NOTE: seed data flags several profiles is_default=true, so pick deterministically
+        # by lowest id (the tenant's primary/first-seeded profile) rather than trusting the
+        # ambiguous flag or the name-sorted facade order.
+        by_id = sorted(profiles, key=lambda p: p.get('id') or 1_000_000)
+        defaults = [p for p in by_id if p.get('is_default')]
+        prof = (defaults or by_id or [None])[0]
+        if not prof:
+            return ""
+
+        def _fmt(v):
+            if isinstance(v, str):
+                try:
+                    v = _json.loads(v)
+                except Exception:
+                    return v
+            if isinstance(v, (list, tuple)):
+                return ", ".join(str(x) for x in v)
+            return v
+
+        name = prof.get('name') or "the reader organization"
+        lines = [f"Organization: {name} ({prof.get('organization_type') or ''} in {prof.get('industry') or 'General'})"]
+        for label, key in (("Key concerns", "key_concerns"),
+                           ("Strategic priorities", "strategic_priorities"),
+                           ("Regulatory environment", "regulatory_environment")):
+            val = _fmt(prof.get(key))
+            if val:
+                lines.append(f"{label}: {str(val)[:400]}")
+        if prof.get('custom_context'):
+            lines.append(f"Context: {str(prof['custom_context'])[:400]}")
+        profile_text = "\n".join(lines)
+        return (
+            f"\n\nThis report is written specifically for the organization below. Frame the analysis, and "
+            f"especially the recommendations, for THIS reader — every recommended action must be one that "
+            f"{name} can take within its own remit.\n{profile_text}"
+        )
+    except Exception as e:
+        logger.warning(f"Signal-report org persona prefix failed: {e}")
+        return ""
+
+
 class _RunSignalRequest(BaseModel):
     """Request for running specific signal instructions."""
     instruction_ids: List[int] = Field(..., description="Signal instruction IDs to run")
@@ -4139,8 +4206,9 @@ Format your response as a structured markdown report with clear sections.
 {alerts_summary}
 """
 
+                report_system_prompt = _SIGNAL_REPORT_SYSTEM_BASE + _org_persona_report_prefix(db)
                 report_messages = [
-                    {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
+                    {"role": "system", "content": report_system_prompt},
                     {"role": "user", "content": full_prompt}
                 ]
 
@@ -4484,7 +4552,7 @@ Format as a concise markdown report.
 {alerts_summary}
 """
                                             per_inst_messages = [
-                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports."},
+                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control."},
                                                 {"role": "user", "content": per_inst_prompt}
                                             ]
                                             per_inst_report = await run_in_threadpool(ai_model.generate_response, per_inst_messages)
@@ -5063,8 +5131,9 @@ Format as a concise markdown report.
 ## Matched Articles ({len(instruction_alerts)} matches)
 {alerts_summary}
 """
+                    report_system_prompt = _SIGNAL_REPORT_SYSTEM_BASE + _org_persona_report_prefix(db)
                     report_messages = [
-                        {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
+                        {"role": "system", "content": report_system_prompt},
                         {"role": "user", "content": full_prompt}
                     ]
                     report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
