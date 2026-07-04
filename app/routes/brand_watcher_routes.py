@@ -199,6 +199,15 @@ NARRATIVE_ANALYSIS_PROMPT = """You are generating an analytical brand intelligen
 **Social Pulse (Reddit/Bluesky):**
 {social_signal}
 
+**Adverse Risk Findings:**
+{risk_findings}
+
+**Open Incidents:**
+{incident_summary}
+
+**Employee / Workforce Signal (Glassdoor):**
+{employee_signal}
+
 ## Analysis Approach
 
 Your job is to SYNTHESIZE the articles into coherent themes and narratives, not to cherry-pick or list individual articles. Read all the provided articles and identify the underlying patterns, recurring themes, and emerging storylines. When you reference specific articles, use them as evidence supporting a broader theme — not as standalone items.
@@ -213,7 +222,7 @@ For example, instead of "Article X reports a data breach", write: "Data security
 
 ## Required Sections
 
-Write a comprehensive brand intelligence narrative (600-1000 words) with these EXACT section headers (use ## markdown format):
+Write a comprehensive brand intelligence narrative (600-1000 words) with these EXACT section headers (use ## markdown format). Do NOT add a document title, H1 heading, or any preamble — begin directly with "## Executive Summary":
 
 ## Executive Summary
 Key findings in 3-4 sentences. Synthesize the dominant narrative threads around this brand. What requires immediate attention? If the Brand Risk Assessment shows Elevated or High risk, explain what themes in the coverage are driving it.
@@ -230,6 +239,12 @@ YOU MUST use bullet points in this section. Format EXACTLY like this:
 
 ## Social Pulse
 Summarize what social conversation (Reddit/Bluesky) adds beyond the news coverage, using ONLY the Social Pulse data provided. Cover: overall volume and the platform split, net sentiment among on-brand posts, and the dominant themes in the top on-brand posts. Note how social sentiment compares to the news coverage (aligned or diverging). If no social data is provided, say so in one sentence and move on. Keep to 2-4 sentences or bullets. Do NOT invent posts, handles, or numbers — ground every claim in the provided social data.
+
+## Risk & Compliance
+Cover the adverse risk findings and open incidents using ONLY the Adverse Risk Findings and Open Incidents data provided. State the counts by type plainly, name the most severe findings with their article links, and list open incidents with severity and status. If both blocks report none, write one sentence saying no adverse risk findings or open incidents were recorded in the period and move on. Do NOT speculate beyond the data.
+
+## Workforce Signal
+Summarize the employee picture using ONLY the Employee / Workforce Signal data provided: overall Glassdoor rating and review volume, CEO approval and business outlook, the weakest sub-ratings, recent employee-review sentiment, workforce risk findings, and how the rating compares to the competitor ratings given. If the block reports no employee data, write one sentence and move on. Keep to 2-4 sentences or bullets. Do NOT invent numbers.
 
 ## Forward-Looking Concerns
 YOU MUST use bullet points in this section. List 3-5 specific concerns synthesized from patterns across multiple articles:
@@ -3040,9 +3055,19 @@ async def export_brand_data(
         result = conn.execute(text("""
             SELECT a.publication_date, a.title, bac.category,
                    a.sentiment, a.news_source, bac.confidence,
-                   bac.classification_method, a.uri
+                   bac.classification_method, a.uri,
+                   COALESCE(bac.relevance_score, a.topic_alignment_score) AS relevance,
+                   a.factual_reporting, a.bias,
+                   rk.risks, fr.status AS case_status
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
+            LEFT JOIN (
+                SELECT article_uri, brand_id,
+                       STRING_AGG(risk_type || ' (' || severity || ')', '; '
+                                  ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END) AS risks
+                FROM bw_article_risks GROUP BY article_uri, brand_id
+            ) rk ON rk.article_uri = a.uri AND rk.brand_id = bac.brand_id
+            LEFT JOIN bw_finding_reviews fr ON fr.article_uri = a.uri AND fr.brand_id = bac.brand_id
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY a.publication_date DESC
@@ -3066,6 +3091,11 @@ async def export_brand_data(
                     "confidence": float(r[5]) if r[5] else None,
                     "method": r[6],
                     "uri": r[7],
+                    "relevance": float(r[8]) if r[8] is not None else None,
+                    "factuality": r[9],
+                    "bias": r[10],
+                    "risks": r[11],
+                    "case_status": r[12] or "new",
                 }
                 for r in rows
             ]
@@ -3074,7 +3104,8 @@ async def export_brand_data(
         # CSV export
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Date", "Title", "Category", "Sentiment", "Source", "Confidence", "Method", "URI"])
+        writer.writerow(["Date", "Title", "Category", "Sentiment", "Source", "Confidence", "Method", "URI",
+                         "Relevance", "Factuality", "Bias", "Risks", "Case Status"])
         for r in rows:
             writer.writerow([
                 str(r[0]) if r[0] else "",
@@ -3085,6 +3116,11 @@ async def export_brand_data(
                 f"{r[5]:.2f}" if r[5] else "",
                 r[6] or "",
                 r[7] or "",
+                f"{r[8]:.2f}" if r[8] is not None else "",
+                r[9] or "",
+                r[10] or "",
+                r[11] or "",
+                r[12] or "new",
             ])
 
         output.seek(0)
@@ -3562,6 +3598,91 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             social_summary = {"total": len(social_rows), "by_platform": plat,
                               "evaluated": scored, "net_sentiment": net, "on_brand": len(on_brand)}
 
+        # Adverse risk findings (taxonomy) recorded against articles in the window
+        nrisk_rows = conn.execute(text("""
+            SELECT r.risk_type, r.severity, a.title, a.uri
+            FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
+            WHERE r.brand_id = :bid
+              AND a.publication_date >= :start AND a.publication_date <= :end
+            ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                     a.publication_date DESC
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        nrisk_by_type: Dict[str, int] = {}
+        for _rt, _sev, _t, _u in nrisk_rows:
+            nrisk_by_type[_rt] = nrisk_by_type.get(_rt, 0) + 1
+        if nrisk_rows:
+            _rf = ["Counts by type: " + ", ".join(
+                f"{k}: {v}" for k, v in sorted(nrisk_by_type.items(), key=lambda x: -x[1]))]
+            for _rt, _sev, _t, _u in nrisk_rows[:8]:
+                _rf.append(f"- {_rt} ({_sev}): [{_t}]({_u})")
+            risk_findings = "\n".join(_rf)
+        else:
+            risk_findings = "None recorded in this period."
+
+        # Open incidents (managed cases)
+        ninc_rows = conn.execute(text("""
+            SELECT title, severity, status, created_at::text FROM bw_incidents
+            WHERE brand_id = :bid AND status NOT IN ('resolved', 'closed')
+            ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                     WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC
+            LIMIT 10
+        """), {"bid": request.brand_id}).fetchall()
+        incident_summary = "\n".join(
+            f"- [{_sev}/{_st}] {_t} (opened {str(_ca)[:10]})"
+            for _t, _sev, _st, _ca in ninc_rows) or "None open."
+
+        # Employee / workforce signal: cached Glassdoor aggregates + landed reviews
+        nemp_lines = []
+        _cfg_raw = conn.execute(text(
+            "SELECT COALESCE(config, '{}') FROM bw_brands WHERE id = :bid"
+        ), {"bid": request.brand_id}).fetchone()
+        _cfg = _cfg_raw[0] if isinstance(_cfg_raw[0], dict) else json.loads(_cfg_raw[0] or "{}")
+        _gd = ((_cfg.get("glassdoor_overview") or {}).get("data")) or None
+        if _gd:
+            nemp_lines.append(
+                f"Glassdoor: {_gd.get('rating')}/5 overall ({_gd.get('review_count')} reviews), "
+                f"CEO approval {round((_gd.get('ceo_rating') or 0) * 100)}%, "
+                f"business outlook {round((_gd.get('business_outlook_rating') or 0) * 100)}% positive, "
+                f"recommend-to-friend {round((_gd.get('recommend_to_friend_rating') or 0) * 100)}%")
+            _subs = {
+                "work-life balance": _gd.get("work_life_balance_rating"),
+                "culture & values": _gd.get("culture_and_values_rating"),
+                "compensation": _gd.get("compensation_and_benefits_rating"),
+                "senior management": _gd.get("senior_management_rating"),
+                "career opportunities": _gd.get("career_opportunities_rating"),
+                "diversity & inclusion": _gd.get("diversity_and_inclusion_rating"),
+            }
+            _subs = {k: v for k, v in _subs.items() if v is not None}
+            if _subs:
+                nemp_lines.append("Sub-ratings (weakest first): " + ", ".join(
+                    f"{k} {v}" for k, v in sorted(_subs.items(), key=lambda x: x[1])))
+        _gr = conn.execute(text("""
+            SELECT a.sentiment, COUNT(*) FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :bid
+            WHERE a.news_source = 'Glassdoor'
+              AND a.publication_date >= :start AND a.publication_date <= :end
+            GROUP BY a.sentiment
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        _gpos = sum(n for s, n in _gr if s and "positiv" in s.lower())
+        _gneg = sum(n for s, n in _gr if s and "negativ" in s.lower())
+        _gtot = sum(n for _s, n in _gr)
+        if _gtot:
+            nemp_lines.append(f"Employee reviews landed this period: {_gtot} ({_gpos} positive, {_gneg} negative)")
+        _wf_count = nrisk_by_type.get("workforce_labor", 0)
+        if _wf_count:
+            nemp_lines.append(f"Workforce risk findings in period: {_wf_count}")
+        _comp_bits = []
+        for _cname, _ccfg_raw in conn.execute(text(
+            "SELECT display_name, COALESCE(config, '{}') FROM bw_brands "
+            "WHERE enabled = true AND id <> :bid"), {"bid": request.brand_id}).fetchall():
+            _ccfg = _ccfg_raw if isinstance(_ccfg_raw, dict) else json.loads(_ccfg_raw or "{}")
+            _cgd = ((_ccfg.get("glassdoor_overview") or {}).get("data")) or {}
+            if _cgd.get("rating") is not None:
+                _comp_bits.append(f"{_cname} {_cgd['rating']}/5")
+        if _comp_bits:
+            nemp_lines.append("Competitor Glassdoor ratings: " + ", ".join(_comp_bits))
+        employee_signal = "\n".join(nemp_lines) or "No employee data available."
+
         prompt = NARRATIVE_ANALYSIS_PROMPT.format(
             brand_name=brand["display_name"],
             date_range=f"{start_date} to {end_date}",
@@ -3571,6 +3692,9 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             risk_assessment=risk_assessment,
             key_articles=key_articles,
             social_signal=social_signal,
+            risk_findings=risk_findings,
+            incident_summary=incident_summary,
+            employee_signal=employee_signal,
         )
 
         model = LiteLLMModel.get_instance(request.model)
@@ -3594,6 +3718,14 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 "contributing_factors": risk_factors,
             },
             "social": social_summary,
+            "risks": {"total": len(nrisk_rows), "by_type": nrisk_by_type},
+            "open_incidents": len(ninc_rows),
+            "employee": {
+                "glassdoor_rating": _gd.get("rating") if _gd else None,
+                "business_outlook": _gd.get("business_outlook_rating") if _gd else None,
+                "reviews_in_period": _gtot,
+                "workforce_risks": _wf_count,
+            },
         }
 
         # Save narrative
@@ -4841,5 +4973,216 @@ async def verify_evidence_chain(incident_id: int, session=Depends(verify_session
                 broken.append(rid)
             prev_chain = chsha
         return {"items": len(rows), "intact": not broken, "broken_ids": broken}
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Employee / Workforce Risk API
+# ============================================================================
+
+def _cfg_dict(raw):
+    return raw if isinstance(raw, dict) else json.loads(raw or "{}")
+
+
+_SENT_POS_RE = re.compile(r"positiv|optimis", re.I)
+_SENT_NEG_RE = re.compile(r"negativ|pessimis|concern|critical|alarm", re.I)
+
+
+@router.get("/brands/{brand_id}/employee-risk")
+async def get_employee_risk(
+    brand_id: int,
+    days_back: int = Query(90, ge=0, le=730),
+    refresh: bool = Query(False, description="Force-refresh the Glassdoor overview cache"),
+    session=Depends(verify_session),
+):
+    """Workforce picture for a brand: Glassdoor aggregate ratings (cached 24h),
+    landed employee reviews, workforce_labor risk findings, and competitor
+    aggregates for every other glassdoor-enabled brand."""
+    from app.services.bw_official_sources import refresh_glassdoor_overview
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brands = conn.execute(text("""
+            SELECT id, display_name, color, COALESCE(config, '{}') AS config
+            FROM bw_brands WHERE enabled = true ORDER BY is_primary DESC, display_name
+        """)).fetchall()
+        me = next((b for b in brands if b[0] == brand_id), None)
+        if not me:
+            raise HTTPException(status_code=404, detail="Brand not found")
+
+        overview = None
+        glassdoor_enabled = False
+        competitors = []
+        for bid, name, color, cfg_raw in brands:
+            cfg = _cfg_dict(cfg_raw)
+            if "glassdoor" not in (cfg.get("extra_sources") or []):
+                continue
+            if bid == brand_id:
+                glassdoor_enabled = True
+            ov = await refresh_glassdoor_overview(conn, bid, name, cfg,
+                                                  force=(refresh and bid == brand_id))
+            if bid == brand_id:
+                overview = ov
+            elif ov:
+                competitors.append({"brand_id": bid, "brand_name": name,
+                                    "color": color, "overview": ov})
+
+        sd, ed = _get_date_range(days_back)
+        review_rows = conn.execute(text("""
+            SELECT a.uri, a.title, a.summary, a.sentiment, a.publication_date
+            FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+            WHERE a.news_source = 'Glassdoor'
+              AND a.publication_date >= :sd AND a.publication_date <= :ed
+            ORDER BY a.publication_date DESC LIMIT 100
+        """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
+        pos = neu = neg = 0
+        reviews = []
+        for uri, title, summary, sentiment, pub in review_rows:
+            s = sentiment or ""
+            if _SENT_NEG_RE.search(s):
+                neg += 1
+            elif _SENT_POS_RE.search(s):
+                pos += 1
+            elif s:
+                neu += 1
+            reviews.append({"uri": uri, "title": title, "summary": summary,
+                            "sentiment": sentiment, "publication_date": str(pub or "")})
+        scored = pos + neu + neg
+        net = round(((pos - neg) / scored) * 100) if scored else None
+
+        risk_rows = conn.execute(text("""
+            SELECT r.article_uri, a.title, a.news_source, r.severity, r.confidence,
+                   r.method, r.detected_at::text, fr.status, a.publication_date
+            FROM bw_article_risks r
+            JOIN articles a ON a.uri = r.article_uri
+            LEFT JOIN bw_finding_reviews fr
+                ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
+            WHERE r.brand_id = :b AND r.risk_type = 'workforce_labor'
+            ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                     a.publication_date DESC
+            LIMIT 50
+        """), {"b": brand_id}).fetchall()
+        workforce_risks = [
+            {"uri": r[0], "title": r[1], "news_source": r[2], "severity": r[3],
+             "confidence": float(r[4]) if r[4] is not None else None, "method": r[5],
+             "detected_at": r[6], "case_status": r[7] or "new",
+             "publication_date": str(r[8] or "")}
+            for r in risk_rows
+        ]
+
+        history = []
+        try:
+            for snap_date, snap_data in conn.execute(text("""
+                SELECT snapshot_date, data FROM bw_glassdoor_snapshots
+                WHERE brand_id = :b ORDER BY snapshot_date ASC LIMIT 400
+            """), {"b": brand_id}).fetchall():
+                sd_ = snap_data if isinstance(snap_data, dict) else json.loads(snap_data or "{}")
+                history.append({"date": str(snap_date),
+                                "rating": sd_.get("rating"),
+                                "business_outlook_rating": sd_.get("business_outlook_rating"),
+                                "ceo_rating": sd_.get("ceo_rating"),
+                                "recommend_to_friend_rating": sd_.get("recommend_to_friend_rating"),
+                                "senior_management_rating": sd_.get("senior_management_rating"),
+                                "work_life_balance_rating": sd_.get("work_life_balance_rating"),
+                                "compensation_and_benefits_rating": sd_.get("compensation_and_benefits_rating"),
+                                "culture_and_values_rating": sd_.get("culture_and_values_rating"),
+                                "review_count": sd_.get("review_count")})
+        except Exception as _he:
+            logger.warning(f"glassdoor history read failed for brand {brand_id}: {_he}")
+            conn.rollback()
+
+        return {
+            "brand_id": brand_id,
+            "glassdoor_enabled": glassdoor_enabled,
+            "overview": overview,
+            "reviews": reviews,
+            "review_sentiment": {"pos": pos, "neu": neu, "neg": neg,
+                                 "scored": scored, "net": net},
+            "workforce_risks": workforce_risks,
+            "competitors": competitors,
+            "history": history,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"employee-risk failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/brands/{brand_id}/risk-summary")
+async def get_risk_summary(
+    brand_id: int,
+    days_back: int = Query(90, ge=0, le=730),
+    session=Depends(verify_session),
+):
+    """Per-brand adverse-risk rollup: counts by type x severity, top findings,
+    official-source record counts, and alert-event count for the window."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        sd, ed = _get_date_range(days_back)
+        by_type: dict = {}
+        for rt, sev, n in conn.execute(text("""
+            SELECT r.risk_type, r.severity, COUNT(*)
+            FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
+            WHERE r.brand_id = :b AND a.publication_date >= :sd AND a.publication_date <= :ed
+            GROUP BY r.risk_type, r.severity
+        """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall():
+            slot = by_type.setdefault(rt, {"high": 0, "medium": 0, "low": 0, "total": 0})
+            slot[sev if sev in ("high", "medium", "low") else "low"] += n
+            slot["total"] += n
+
+        top = [
+            {"uri": r[0], "title": r[1], "risk_type": r[2], "severity": r[3],
+             "confidence": float(r[4]) if r[4] is not None else None,
+             "publication_date": str(r[5] or ""), "news_source": r[6],
+             "case_status": r[7] or "new"}
+            for r in conn.execute(text("""
+                SELECT r.article_uri, a.title, r.risk_type, r.severity, r.confidence,
+                       a.publication_date, a.news_source, fr.status
+                FROM bw_article_risks r
+                JOIN articles a ON a.uri = r.article_uri
+                LEFT JOIN bw_finding_reviews fr
+                    ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
+                WHERE r.brand_id = :b AND a.publication_date >= :sd AND a.publication_date <= :ed
+                ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                         a.publication_date DESC
+                LIMIT 10
+            """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
+        ]
+
+        official = {
+            ns: n for ns, n in conn.execute(text("""
+                SELECT a.news_source, COUNT(DISTINCT a.uri)
+                FROM articles a
+                JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+                WHERE a.bias_source LIKE 'official:%'
+                  AND a.publication_date >= :sd AND a.publication_date <= :ed
+                GROUP BY a.news_source
+            """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
+        }
+
+        alert_events = conn.execute(text("""
+            SELECT COUNT(*) FROM bw_alert_events
+            WHERE brand_id = :b AND rule <> 'digest'
+              AND created_at >= now() - (:d || ' days')::interval
+        """), {"b": brand_id, "d": str(days_back or 3650)}).fetchone()[0]
+
+        open_incidents = conn.execute(text("""
+            SELECT COUNT(*) FROM bw_incidents
+            WHERE brand_id = :b AND status NOT IN ('resolved', 'closed')
+        """), {"b": brand_id}).fetchone()[0]
+
+        return {"brand_id": brand_id, "days_back": days_back, "by_type": by_type,
+                "top_findings": top, "official_sources": official,
+                "alert_events": alert_events, "open_incidents": open_incidents}
+    except Exception as e:
+        logger.error(f"risk-summary failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

@@ -6,6 +6,8 @@ Ports the saas.aunoo.ai official-sources design into the monolith:
   - regulations.gov   US rulemaking / regulatory (needs REGULATIONS_GOV_API_KEY)
   - Crossref          scholarly mentions
   - OpenAlex          scholarly mentions
+  - Glassdoor         employee reviews (needs OPENWEBNINJA_API_KEY;
+                      openwebninja Real-Time Glassdoor Data API)
 
 These are NOT general collectors — they are driven by the Brand Watcher monitor
 loop, per-brand opt-in via ``bw_brands.config['extra_sources']`` (a list of
@@ -91,6 +93,21 @@ OFFICIAL_SOURCES: Dict[str, Dict[str, Any]] = {
         "category": "Product & Innovation",
         "domain": "openalex.org",
         "requires_key": None,
+    },
+    "glassdoor": {
+        "label": "Glassdoor",
+        "description": "Employee reviews (workforce / culture signal)",
+        "news_source": "Glassdoor",
+        "category": "Leadership & Governance",
+        "domain": "glassdoor.com",
+        "requires_key": "OPENWEBNINJA_API_KEY",
+        # Reviews are already company-scoped via Glassdoor company_id and
+        # rarely name the employer in the review text — skip the term gate.
+        "term_gate": False,
+        # Anecdotal opinion, not an authoritative record — don't stamp the
+        # official-source 'very high' factuality on it.
+        "factuality": "mixed",
+        "credibility": "medium",
     },
 }
 
@@ -316,12 +333,209 @@ async def _fetch_openalex(term: str, since: datetime) -> List[Dict[str, Any]]:
     return out
 
 
+_GLASSDOOR_API = "https://api.openwebninja.com/realtime-glassdoor-data"
+# display_name -> Glassdoor company_id. Seeded from bw_brands.config
+# ['glassdoor_company_id'] when set; otherwise resolved once per process
+# via /company-search and cached here.
+_GLASSDOOR_IDS: Dict[str, str] = {}
+
+
+async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
+                                headers: Dict[str, str]) -> Optional[str]:
+    if term in _GLASSDOOR_IDS:
+        return _GLASSDOOR_IDS[term]
+    resp = await client.get(f"{_GLASSDOOR_API}/company-search",
+                            params={"query": term, "limit": 5}, headers=headers)
+    resp.raise_for_status()
+    hits = resp.json().get("data") or []
+    if isinstance(hits, dict):
+        hits = hits.get("companies") or hits.get("results") or []
+    term_l = term.lower()
+    first_word = term_l.split()[0]
+    for h in hits:
+        name_l = str(h.get("name") or h.get("company_name") or h.get("employer_name") or "").lower()
+        cid = h.get("company_id") or h.get("id")
+        # Accept only a hit that plausibly IS the brand — search can return
+        # lookalikes, and reviews of the wrong employer are pure poison.
+        if cid and name_l and (first_word in name_l or (name_l.split()[0] and name_l.split()[0] in term_l)):
+            _GLASSDOOR_IDS[term] = str(cid)
+            return str(cid)
+    logger.warning(f"glassdoor: no company match for {term!r} — set "
+                   f"config.glassdoor_company_id on the brand to override")
+    return None
+
+
+GLASSDOOR_OVERVIEW_TTL = timedelta(hours=24)
+# Aggregate employer-rating fields kept from /company-overview (the rest of the
+# payload — logos, job links, office lists — is display noise we don't store).
+_OVERVIEW_FIELDS = [
+    "company_id", "name", "rating", "review_count", "business_outlook_rating",
+    "career_opportunities_rating", "ceo", "ceo_rating",
+    "compensation_and_benefits_rating", "culture_and_values_rating",
+    "diversity_and_inclusion_rating", "recommend_to_friend_rating",
+    "senior_management_rating", "work_life_balance_rating",
+    "company_size", "industry", "headquarters_location", "reviews_link",
+]
+
+
+async def fetch_glassdoor_overview(term: str,
+                                   company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Live aggregate employer ratings from /company-overview, or None."""
+    api_key = os.getenv("OPENWEBNINJA_API_KEY")
+    if not api_key:
+        return None
+    headers = {"x-api-key": api_key, "User-Agent": _UA}
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        cid = str(company_id) if company_id else await _glassdoor_company_id(client, term, headers)
+        if not cid:
+            return None
+        resp = await client.get(f"{_GLASSDOOR_API}/company-overview",
+                                params={"company_id": cid}, headers=headers)
+        resp.raise_for_status()
+        data = resp.json().get("data") or {}
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if not data:
+            return None
+        return {k: data.get(k) for k in _OVERVIEW_FIELDS}
+
+
+def get_cached_glassdoor_overview(cfg: Dict[str, Any]) -> tuple:
+    """(overview_data|None, is_fresh) from a brand's config cache."""
+    entry = (cfg or {}).get("glassdoor_overview") or {}
+    data = entry.get("data") or None
+    fetched = entry.get("fetched_at")
+    if not data or not fetched:
+        return data, False
+    try:
+        dt = datetime.fromisoformat(fetched)
+    except (ValueError, TypeError):
+        return data, False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return data, (datetime.now(timezone.utc) - dt) <= GLASSDOOR_OVERVIEW_TTL
+
+
+def store_glassdoor_overview(conn, brand_id: int, data: Dict[str, Any]) -> None:
+    conn.execute(text("""
+        UPDATE bw_brands SET config = COALESCE(config, '{}'::jsonb)
+            || jsonb_build_object('glassdoor_overview', jsonb_build_object(
+                'fetched_at', CAST(:ts AS text), 'data', CAST(:d AS jsonb)))
+        WHERE id = :bid
+    """), {"bid": brand_id, "ts": datetime.now(timezone.utc).isoformat(),
+           "d": json.dumps(data)})
+
+
+def snapshot_glassdoor_overview(conn, brand_id: int, data: Dict[str, Any]) -> None:
+    """Daily time-series row so rating/outlook deterioration is detectable.
+    Separate transaction scope from the cache write — a missing table (pre-
+    migration deploy) must not poison the overview cache commit."""
+    try:
+        conn.execute(text("""
+            INSERT INTO bw_glassdoor_snapshots (brand_id, snapshot_date, data)
+            VALUES (:bid, CURRENT_DATE, CAST(:d AS jsonb))
+            ON CONFLICT (brand_id, snapshot_date) DO UPDATE SET data = EXCLUDED.data
+        """), {"bid": brand_id, "d": json.dumps(data)})
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"glassdoor snapshot failed for brand {brand_id}: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
+async def refresh_glassdoor_overview(conn, brand_id: int, display_name: str,
+                                     cfg: Dict[str, Any], force: bool = False) -> Optional[Dict[str, Any]]:
+    """Cached-or-fetch employer aggregates; stores on fetch, keeps stale cache on failure."""
+    cached, fresh = get_cached_glassdoor_overview(cfg)
+    if fresh and not force:
+        return cached
+    try:
+        data = await fetch_glassdoor_overview(display_name, cfg.get("glassdoor_company_id"))
+    except Exception as e:
+        logger.warning(f"glassdoor overview fetch failed for {display_name}: {e}")
+        return cached
+    if not data:
+        return cached
+    store_glassdoor_overview(conn, brand_id, data)
+    conn.commit()
+    snapshot_glassdoor_overview(conn, brand_id, data)
+    return data
+
+
+async def _fetch_glassdoor(term: str, since: datetime) -> List[Dict[str, Any]]:
+    api_key = os.getenv("OPENWEBNINJA_API_KEY")
+    if not api_key:
+        return []
+    headers = {"x-api-key": api_key, "User-Agent": _UA}
+    since_d = since.strftime("%Y-%m-%d")
+    out: List[Dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        cid = await _glassdoor_company_id(client, term, headers)
+        if not cid:
+            return []
+        for page in range(1, 4):  # up to 30 most-recent reviews per poll
+            resp = await client.get(f"{_GLASSDOOR_API}/company-reviews",
+                                    params={"company_id": cid, "page": page,
+                                            "sort": "MOST_RECENT"},
+                                    headers=headers)
+            resp.raise_for_status()
+            data = resp.json().get("data") or {}
+            reviews = data.get("reviews") if isinstance(data, dict) else data
+            if not reviews:
+                break
+            hit_window_edge = False
+            for r in reviews:
+                pub = str(r.get("review_datetime") or r.get("review_date")
+                          or r.get("date") or "")[:10]
+                if pub and pub < since_d:
+                    hit_window_edge = True
+                    break
+                rating = r.get("overall_rating") or r.get("rating")
+                try:
+                    rating = float(rating)
+                except (TypeError, ValueError):
+                    rating = None
+                headline = str(r.get("summary") or r.get("headline")
+                               or r.get("title") or "Employee review").strip().strip('"')
+                rid = r.get("review_id") or r.get("id")
+                url = (r.get("review_link") or r.get("url")
+                       or (f"https://www.glassdoor.com/Reviews/Employee-Review-RVW{rid}.htm" if rid else None))
+                if not url:
+                    continue
+                parts = []
+                if r.get("job_title"):
+                    parts.append(f"Role: {r['job_title']}")
+                if r.get("pros"):
+                    parts.append(f"Pros: {r['pros']}")
+                if r.get("cons"):
+                    parts.append(f"Cons: {r['cons']}")
+                sentiment = None
+                if rating is not None:
+                    sentiment = ("Positive" if rating >= 4
+                                 else "Negative" if rating <= 2 else "Neutral")
+                out.append({
+                    "title": f"Glassdoor review{f' ({rating:.0f}/5)' if rating is not None else ''}: {headline}"[:300],
+                    "summary": " | ".join(parts)[:1000] or None,
+                    "url": url,
+                    "author": r.get("job_title"),
+                    "published_at": pub or None,
+                    "sentiment": sentiment,
+                })
+            if hit_window_edge or len(reviews) < 10:
+                break
+            await asyncio.sleep(0.5)
+    return out
+
+
 _FETCHERS = {
     "sec_edgar": _fetch_sec_edgar,
     "courtlistener": _fetch_courtlistener,
     "regulations_gov": _fetch_regulations_gov,
     "crossref": _fetch_crossref,
     "openalex": _fetch_openalex,
+    "glassdoor": _fetch_glassdoor,
 }
 
 
@@ -399,7 +613,7 @@ def _land_and_attribute(conn, brand: Dict[str, Any], source_key: str,
         if not uri:
             continue
         text_l = f"{r.get('title') or ''} {r.get('summary') or ''}".lower()
-        if not _term_mentioned(terms, text_l):
+        if meta.get("term_gate", True) and not _term_mentioned(terms, text_l):
             continue  # full-text hit that never names the brand — surname/citation noise
         if any(e in text_l for e in excl):
             continue  # known name-collision entity (config.official_keyword_excludes)
@@ -408,15 +622,18 @@ def _land_and_attribute(conn, brand: Dict[str, Any], source_key: str,
             INSERT INTO articles (uri, title, summary, news_source,
                 publication_date, submission_date, topic, category, analyzed,
                 topic_alignment_score, bias, factual_reporting,
-                mbfc_credibility_rating, bias_source, auto_ingested)
+                mbfc_credibility_rating, bias_source, auto_ingested, sentiment)
             VALUES (:uri, :title, :summary, :ns, :pub, :sub, :topic, :cat, false,
-                1.0, 'least biased', 'very high', 'high', :bsrc, true)
+                1.0, 'least biased', :fact, :cred, :bsrc, true, :sent)
             ON CONFLICT (uri) DO NOTHING
             RETURNING uri
         """), {
             "uri": uri, "title": (r.get("title") or "")[:500],
             "summary": r.get("summary"), "ns": meta["news_source"],
             "pub": pub, "sub": now_iso, "topic": topic, "cat": meta["category"],
+            "fact": meta.get("factuality", "very high"),
+            "cred": meta.get("credibility", "high"),
+            "sent": r.get("sentiment"),
             "bsrc": f"official:{meta['domain']}",
         }).fetchone()
         if not inserted:
@@ -490,6 +707,8 @@ async def poll_official_sources(db, force: bool = False,
                 fetcher = _FETCHERS.get(source)
                 if fetcher is None:
                     continue
+                if source == "glassdoor" and cfg.get("glassdoor_company_id"):
+                    _GLASSDOOR_IDS[display_name] = str(cfg["glassdoor_company_id"])
                 since = _due_since(source_state, source, now, force=force)
                 if since is None:
                     continue
@@ -500,6 +719,8 @@ async def poll_official_sources(db, force: bool = False,
                     flagged = await _risk_pass(conn, brand, landed, risk_budget)
                     _mark_polled(conn, bid, source, now)
                     conn.commit()
+                    if source == "glassdoor":
+                        await refresh_glassdoor_overview(conn, bid, display_name, cfg)
                     summary["polled"] += 1
                     summary["new_articles"] += len(landed)
                     summary["risk_flagged"] += flagged

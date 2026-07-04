@@ -30,6 +30,7 @@ _DOC_PATHS: dict[str, str] = {
     "roadmap": "ROADMAP.md",
     "how-it-works-topics": "docs/how_it_works_topics.md",
     "how-it-works-forecast-tracker": "docs/how_it_works_forecast_tracker.md",
+    "brand-watcher-help": "docs/brand_watcher_help.md",
 }
 
 

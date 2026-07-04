@@ -8,6 +8,7 @@
 import type {
   Brand, BWStats, BWCategory, BWSentimentTrend, BWAlert,
   BWComparison, BWShareOfVoice, BWSocialResponse, BWSavedNarrative,
+  BWRiskSummary, BWIncident, BWEmployeeRisk,
 } from './brandWatcherApi';
 import { stripSocialMarkdown } from './socialText';
 
@@ -22,6 +23,11 @@ export interface BrandReportData {
   shareOfVoice: BWShareOfVoice[];
   narrative: BWSavedNarrative | null;
   social: BWSocialResponse | null;
+  riskSummary?: BWRiskSummary | null;      // adverse-risk rollup (taxonomy counts + top findings)
+  incidents?: BWIncident[] | null;         // open incidents
+  employee?: BWEmployeeRisk | null;        // Glassdoor aggregates + reviews + workforce risks
+  allBrandPosts?: any[] | null;            // all-brands social snapshot for the swimlane
+  laneBrands?: string[] | null;            // lane order (brand display names)
   generatedAt: string; // ISO string (caller stamps it — no Date in module scope)
 }
 
@@ -254,6 +260,152 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
 
   const narrativeHtml = d.narrative?.narrative ? mdToHtml(d.narrative.narrative) : '<p class="muted">No insights generated yet for this period.</p>';
 
+  // ---- Risk & compliance ----
+  const rs = d.riskSummary || null;
+  const riskTypes = rs ? Object.entries(rs.by_type).sort((a, b) => b[1].total - a[1].total) : [];
+  const maxRiskCount = Math.max(1, ...riskTypes.map(([, c]) => c.total));
+  const riskBars = riskTypes.length ? riskTypes.map(([rt, c]) => `
+    <div class="bar-row">
+      <span class="bar-label">${esc(rt.replace(/_/g, ' / '))}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${((c.total / maxRiskCount) * 100).toFixed(1)}%;background:${c.high ? 'var(--neg)' : c.medium ? 'var(--amber)' : 'var(--accent)'}"></span></span>
+      <span class="bar-val">${c.total}${c.high ? ` · ${c.high} high` : ''}</span>
+    </div>`).join('') : '<p class="muted">No adverse risk findings in the window. 🎉</p>';
+  const sevChip = (sev: string) => `<span class="chip ${sev === 'high' || sev === 'critical' ? 'neg' : sev === 'medium' ? 'med' : 'neu'}">${esc(sev)}</span>`;
+  const findingsHtml = rs && rs.top_findings.length ? rs.top_findings.map(f => `
+    <div class="art" data-text="${esc((f.title || '').toLowerCase())}">
+      ${sevChip(f.severity)}
+      <a href="${esc(f.uri)}" target="_blank" rel="noopener noreferrer" class="art-title">${esc(f.title)}</a>
+      <span class="art-meta"><span class="src">${esc(f.risk_type.replace(/_/g, '/'))}</span>
+        ${f.case_status !== 'new' ? `<span class="chip neu">${esc(f.case_status)}</span>` : ''}
+        <span class="date">${esc((f.publication_date || '').slice(0, 10))}</span></span>
+    </div>`).join('') : '<p class="muted">No findings.</p>';
+  const openIncidents = (d.incidents || []).filter(i => !['resolved', 'closed'].includes(i.status));
+  const incidentsHtml = openIncidents.length ? openIncidents.map(i => `
+    <div class="art" data-text="${esc((i.title || '').toLowerCase())}">
+      ${sevChip(i.severity)}
+      <span class="art-title">${esc(i.title)}</span>
+      <span class="art-meta"><span class="chip neu">${esc(i.status)}</span>${i.owner ? `<span class="src">${esc(i.owner)}</span>` : ''}<span class="date">${esc((i.created_at || '').slice(0, 10))}</span></span>
+    </div>`).join('') : '<p class="muted">No open incidents. 🎉</p>';
+  const officialHtml = rs && Object.keys(rs.official_sources).length
+    ? Object.entries(rs.official_sources).sort((a, b) => b[1] - a[1]).map(([ns, n]) => `<span class="chip neu">${esc(ns)}: ${n}</span>`).join(' ')
+    : '';
+
+  // ---- Workforce (Glassdoor) ----
+  const emp = d.employee || null;
+  const eo = emp?.overview || null;
+  const empPct = (v?: number | null) => (v == null ? null : Math.round(v * 100));
+  const empSubs: Array<[string, number | null | undefined]> = eo ? [
+    ['Work-life balance', eo.work_life_balance_rating],
+    ['Culture & values', eo.culture_and_values_rating],
+    ['Compensation & benefits', eo.compensation_and_benefits_rating],
+    ['Senior management', eo.senior_management_rating],
+    ['Career opportunities', eo.career_opportunities_rating],
+    ['Diversity & inclusion', eo.diversity_and_inclusion_rating],
+  ] : [];
+  const empSubBars = empSubs.filter(([, v]) => typeof v === 'number').map(([label, v]) => `
+    <div class="bar-row">
+      <span class="bar-label">${esc(label)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${(((v as number) / 5) * 100).toFixed(1)}%;background:${(v as number) >= 3.5 ? 'var(--live)' : (v as number) < 3 ? 'var(--neg)' : 'var(--amber)'}"></span></span>
+      <span class="bar-val">${(v as number).toFixed(1)}/5</span>
+    </div>`).join('');
+  const empCompRows = emp && (emp.competitors.length || eo) ? [
+    ...(eo ? [{ brand_name: brandName, overview: eo, self: true }] : []),
+    ...emp.competitors.map(c => ({ brand_name: c.brand_name, overview: c.overview, self: false })),
+  ].map(c => `
+    <div class="bar-row">
+      <span class="bar-label"${c.self ? ' style="font-weight:700"' : ''}>${esc(c.brand_name)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${(((c.overview.rating || 0) / 5) * 100).toFixed(1)}%"></span></span>
+      <span class="bar-val">${c.overview.rating != null ? `${c.overview.rating}/5` : '—'}${empPct(c.overview.business_outlook_rating) != null ? ` · outlook ${empPct(c.overview.business_outlook_rating)}%` : ''}</span>
+    </div>`).join('') : '';
+  const empReviewRows = (emp?.reviews || []).slice(0, 8).map(r => {
+    const m = (r.title || '').match(/^Glassdoor review(?: \((\d)\/5\))?: (.*)$/);
+    const rating = m?.[1] || null;
+    const headline = m?.[2] || r.title;
+    const seg = (name: string) => { const mm = (r.summary || '').match(new RegExp(`${name}: ([^|]*)(\\||$)`)); return mm ? mm[1].trim() : null; };
+    const pros = seg('Pros'), cons = seg('Cons');
+    return `<div class="spost" data-text="${esc(`${headline} ${pros || ''} ${cons || ''}`.toLowerCase())}">
+      <div class="spost-head">${rating ? `<span class="chip ${Number(rating) >= 4 ? 'pos' : Number(rating) <= 2 ? 'neg' : 'neu'}">${rating}★</span>` : ''}
+        <a href="${esc(r.uri)}" target="_blank" rel="noopener noreferrer" class="spost-h">${esc(headline)}</a>
+        <span class="date">${esc((r.publication_date || '').slice(0, 10))}</span></div>
+      ${pros ? `<div class="spost-body"><strong style="color:var(--live)">Pros:</strong> ${esc(pros.slice(0, 200))}</div>` : ''}
+      ${cons ? `<div class="spost-body"><strong style="color:var(--neg)">Cons:</strong> ${esc(cons.slice(0, 200))}</div>` : ''}
+    </div>`;
+  }).join('') || '<p class="muted">No reviews landed yet.</p>';
+  const wfRiskRows = (emp?.workforce_risks || []).slice(0, 8).map(w => `
+    <div class="art" data-text="${esc((w.title || '').toLowerCase())}">
+      ${sevChip(w.severity)}
+      <a href="${esc(w.uri)}" target="_blank" rel="noopener noreferrer" class="art-title">${esc(w.title)}</a>
+      <span class="art-meta">${w.case_status !== 'new' ? `<span class="chip neu">${esc(w.case_status)}</span>` : ''}<span class="date">${esc((w.publication_date || '').slice(0, 10))}</span></span>
+    </div>`).join('') || '<p class="muted">No workforce risk findings. 🎉</p>';
+  const empRs = emp?.review_sentiment;
+
+  // ---- Social competitor swimlanes (static cells) ----
+  let lanesHtml = '';
+  if (d.allBrandPosts && d.allBrandPosts.length && (d.laneBrands || []).length > 1) {
+    const windowDays = d.daysBack && d.daysBack > 0 ? Math.min(d.daysBack, 365) : 90;
+    const weekly = windowDays > 60;
+    const genDate = new Date(d.generatedAt.slice(0, 10) + 'T00:00:00Z');
+    const bucketOf = (ds: string) => {
+      const day = (ds || '').slice(0, 10);
+      if (!day) return null;
+      if (!weekly) return day;
+      const dt = new Date(`${day}T00:00:00Z`);
+      if (isNaN(+dt)) return null;
+      dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+      return dt.toISOString().slice(0, 10);
+    };
+    const buckets: string[] = [];
+    const start = new Date(genDate); start.setUTCDate(start.getUTCDate() - windowDays);
+    if (weekly) start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+    const cur = new Date(start);
+    const endDay = genDate.toISOString().slice(0, 10);
+    while (cur.toISOString().slice(0, 10) <= endDay) {
+      buckets.push(cur.toISOString().slice(0, 10));
+      cur.setUTCDate(cur.getUTCDate() + (weekly ? 7 : 1));
+    }
+    const brandOf = (p: any) => ((p.topic || '').replace(/^Brand Monitoring\s+/i, '').trim() || 'Other');
+    type LCell = { pos: number; neu: number; neg: number; total: number };
+    const lanes: Record<string, { cells: Record<string, LCell>; pos: number; neg: number; scored: number; total: number }> = {};
+    for (const p of d.allBrandPosts) {
+      const b = brandOf(p);
+      const bk = bucketOf(p.publication_date);
+      if (!bk) continue;
+      const lane = lanes[b] || (lanes[b] = { cells: {}, pos: 0, neg: 0, scored: 0, total: 0 });
+      const cell = lane.cells[bk] || (lane.cells[bk] = { pos: 0, neu: 0, neg: 0, total: 0 });
+      const c = sentClass(p.sentiment);
+      cell.total++; lane.total++;
+      if (c === 'pos') { cell.pos++; lane.pos++; lane.scored++; }
+      else if (c === 'neg') { cell.neg++; lane.neg++; lane.scored++; }
+      else if (p.sentiment) { cell.neu++; lane.scored++; }
+    }
+    const laneOrder = (d.laneBrands || []).filter(n => lanes[n]);
+    if (laneOrder.length > 1) {
+      const cellColor = (c: LCell) => {
+        const sc = c.pos + c.neu + c.neg;
+        if (!sc) return '#9ca3af';
+        const net = (c.pos - c.neg) / sc;
+        return net > 0.2 ? 'var(--live)' : net < -0.2 ? 'var(--neg)' : 'var(--amber)';
+      };
+      lanesHtml = `<div class="card"><h3>Brand swimlanes <span class="muted">(${weekly ? 'weekly' : 'daily'} post volume, colored by net sentiment)</span></h3>
+        ${laneOrder.map(name => {
+          const lane = lanes[name];
+          const maxVol = Math.max(1, ...buckets.map(bk => lane.cells[bk]?.total || 0));
+          const net = lane.scored ? Math.round(((lane.pos - lane.neg) / lane.scored) * 100) : null;
+          return `<div class="lane"><span class="lane-name">${esc(name)}</span>
+            <span class="lane-net ${net == null ? '' : net > 0 ? 'pos-t' : net < 0 ? 'neg-t' : ''}">${net == null ? '—' : `${net > 0 ? '+' : ''}${net}`}</span>
+            <span class="lane-cells">${buckets.map(bk => {
+              const c = lane.cells[bk];
+              if (!c) return '<span class="lcell empty"></span>';
+              const h = Math.max(4, Math.round((c.total / maxVol) * 26));
+              return `<span class="lcell" style="height:${h}px;background:${cellColor(c)}" title="${esc(bk)}${weekly ? ' (week)' : ''}: ${c.total} · ${c.pos}+ ${c.neu}· ${c.neg}−"></span>`;
+            }).join('')}</span>
+            <span class="lane-total">${lane.total}</span></div>`;
+        }).join('')}
+        <p class="muted" style="margin-top:6px">${esc(buckets[0] || '')} → ${esc(endDay)} · green net-positive, amber mixed, red net-negative</p>
+      </div>`;
+    }
+  }
+
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -317,7 +469,13 @@ details.alert .chev{color:var(--muted);transition:transform .15s}details.alert[o
 .art-title{flex:1;color:var(--text)}.art-title:hover{color:var(--accent)}
 .art-meta{display:flex;align-items:center;gap:7px;flex-shrink:0}
 .chip{font-size:10.5px;padding:1px 7px;border-radius:999px}
-.chip.pos{background:#e7f6ec;color:#15803d}.chip.neg{background:#fdeaea;color:#b91c1c}.chip.neu{background:#eef0f5;color:#475569}
+.chip.pos{background:#e7f6ec;color:#15803d}.chip.neg{background:#fdeaea;color:#b91c1c}.chip.neu{background:#eef0f5;color:#475569}.chip.med{background:#fbeedd;color:#b45309}
+.lane{display:flex;align-items:center;gap:8px;padding:4px 0}
+.lane-name{width:130px;font-size:12.5px;color:var(--text2);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lane-net{width:38px;font-size:11px;font-weight:700;flex-shrink:0}.pos-t{color:var(--live)}.neg-t{color:var(--neg)}
+.lane-cells{flex:1;display:flex;align-items:flex-end;gap:1px;height:28px}
+.lcell{flex:1;border-radius:2px;min-width:2px}.lcell.empty{height:3px;background:#e8e9f0}
+.lane-total{width:40px;font-size:11px;color:var(--muted);text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
 .src,.date{font-size:11px;color:var(--muted)}
 .prose h2{font-size:16px;margin:18px 0 6px}.prose h3{font-size:14px;margin:16px 0 6px;color:var(--accent)}
 .prose h4{font-size:13px;margin:12px 0 4px}.prose p{margin:6px 0;color:var(--text2)}
@@ -335,6 +493,8 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   <nav class="nav">
     <a href="#overview" class="active">Overview</a>
     <a href="#analysis">Analysis</a>
+    <a href="#risk">Risk</a>
+    <a href="#workforce">Workforce</a>
     <a href="#insights">Insights</a>
     <a href="#social">Social</a>
   </nav>
@@ -362,6 +522,40 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
     <div class="card"><h3>Share of voice</h3>${sovBars}</div>
   </section>
 
+  <section id="risk">
+    <h2>Risk &amp; Compliance</h2>
+    <div class="stat-grid">
+      ${statCard('Risk findings', String(riskTypes.reduce((a, [, c]) => a + c.total, 0)), rs ? `last ${rs.days_back} days` : '')}
+      ${statCard('High severity', String(riskTypes.reduce((a, [, c]) => a + c.high, 0)))}
+      ${statCard('Open incidents', String(openIncidents.length))}
+      ${statCard('Alert events', String(rs?.alert_events ?? 0), 'server-side rules fired')}
+    </div>
+    <div class="card"><h3>Findings by risk type</h3>${riskBars}</div>
+    <div class="two-col">
+      <div class="card"><h3>Top findings</h3>${findingsHtml}</div>
+      <div class="card"><h3>Open incidents</h3>${incidentsHtml}</div>
+    </div>
+    ${officialHtml ? `<div class="card"><h3>Official &amp; scholarly records</h3>${officialHtml}</div>` : ''}
+  </section>
+
+  <section id="workforce">
+    <h2>Workforce Signal</h2>
+    ${eo ? `<div class="stat-grid">
+      ${statCard('Glassdoor rating', eo.rating != null ? `${eo.rating}/5` : '—', eo.review_count ? `${eo.review_count.toLocaleString()} reviews` : '')}
+      ${statCard('CEO approval', empPct(eo.ceo_rating) != null ? `${empPct(eo.ceo_rating)}%` : '—', eo.ceo || '')}
+      ${(() => { const v = empPct(eo.business_outlook_rating); const cls = v == null ? '' : v >= 60 ? 'pos' : v < 45 ? 'neg' : ''; return `<div class="stat"><div class="eyebrow">Business outlook</div><div class="val ${cls}">${v != null ? `${v}%` : '—'}</div><div class="sub">positive outlook</div></div>`; })()}
+      ${statCard('Recommend to friend', empPct(eo.recommend_to_friend_rating) != null ? `${empPct(eo.recommend_to_friend_rating)}%` : '—')}
+    </div>
+    <div class="two-col">
+      <div class="card"><h3>Sub-ratings</h3>${empSubBars || '<p class="muted">No sub-ratings.</p>'}</div>
+      <div class="card"><h3>Employer ratings vs competitors</h3>${empCompRows || '<p class="muted">No competitor data.</p>'}</div>
+    </div>
+    <div class="two-col">
+      <div class="card"><h3>Recent employee reviews${empRs && empRs.scored ? ` <span class="muted">(${empRs.pos}+ ${empRs.neu}· ${empRs.neg}−)</span>` : ''}</h3>${empReviewRows}</div>
+      <div class="card"><h3>Workforce risk findings</h3>${wfRiskRows}</div>
+    </div>` : '<div class="card"><p class="muted">No Glassdoor data for this brand — enable the Glassdoor source to populate this section.</p></div>'}
+  </section>
+
   <section id="insights">
     <h2>Insights</h2>
     <div class="card prose">${narrativeHtml}</div>
@@ -376,6 +570,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
       ${statCard('Networks', String(socPerception.length), socPerception.length ? socPerception.map(p => p.pl).join(' · ') : '')}
     </div>
     <div class="card"><h3>Sentiment</h3>${socSentBar}</div>
+    ${lanesHtml}
     <div class="card"><h3>Perception by network — net sentiment <span class="muted">(% positive − % negative of scored posts; neutrals count in the base)</span></h3>${socPerceptionHtml}</div>
     <div class="two-col">
       <div class="card"><h3>😊 Top fans <span class="muted">(own accounts excluded)</span></h3>${socFansHtml}</div>

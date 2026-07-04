@@ -977,3 +977,94 @@ export async function verifyIncidentChain(id: number): Promise<{ items: number; 
   if (!res.ok) throw new Error(`Failed to verify chain: ${res.status}`);
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Employee / Workforce Risk
+// ---------------------------------------------------------------------------
+
+export interface BWGlassdoorOverview {
+  company_id?: number | string | null;
+  name?: string | null;
+  rating?: number | null;
+  review_count?: number | null;
+  business_outlook_rating?: number | null;
+  career_opportunities_rating?: number | null;
+  ceo?: string | null;
+  ceo_rating?: number | null;
+  compensation_and_benefits_rating?: number | null;
+  culture_and_values_rating?: number | null;
+  diversity_and_inclusion_rating?: number | null;
+  recommend_to_friend_rating?: number | null;
+  senior_management_rating?: number | null;
+  work_life_balance_rating?: number | null;
+  company_size?: string | null;
+  industry?: string | null;
+  headquarters_location?: string | null;
+  reviews_link?: string | null;
+}
+
+export interface BWEmployeeReview {
+  uri: string;
+  title: string;
+  summary?: string | null;
+  sentiment?: string | null;
+  publication_date: string;
+}
+
+export interface BWWorkforceRisk {
+  uri: string;
+  title: string;
+  news_source?: string | null;
+  severity: string;
+  confidence?: number | null;
+  method?: string | null;
+  detected_at?: string | null;
+  case_status: string;
+  publication_date: string;
+}
+
+export interface BWGlassdoorSnapshot {
+  date: string;
+  rating?: number | null;
+  business_outlook_rating?: number | null;
+  ceo_rating?: number | null;
+  recommend_to_friend_rating?: number | null;
+  senior_management_rating?: number | null;
+  work_life_balance_rating?: number | null;
+  compensation_and_benefits_rating?: number | null;
+  culture_and_values_rating?: number | null;
+  review_count?: number | null;
+}
+
+export interface BWEmployeeRisk {
+  brand_id: number;
+  glassdoor_enabled: boolean;
+  overview: BWGlassdoorOverview | null;
+  reviews: BWEmployeeReview[];
+  review_sentiment: { pos: number; neu: number; neg: number; scored: number; net: number | null };
+  workforce_risks: BWWorkforceRisk[];
+  competitors: { brand_id: number; brand_name: string; color?: string | null; overview: BWGlassdoorOverview }[];
+  history: BWGlassdoorSnapshot[];
+}
+
+export async function getEmployeeRisk(brandId: number, daysBack: number = 90, refresh: boolean = false): Promise<BWEmployeeRisk> {
+  const res = await fetch(`${BASE}/brands/${brandId}/employee-risk?days_back=${daysBack}${refresh ? '&refresh=true' : ''}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch employee risk: ${res.status}`);
+  return res.json();
+}
+
+export interface BWRiskSummary {
+  brand_id: number;
+  days_back: number;
+  by_type: Record<string, { high: number; medium: number; low: number; total: number }>;
+  top_findings: { uri: string; title: string; risk_type: string; severity: string; confidence?: number | null; publication_date: string; news_source?: string | null; case_status: string }[];
+  official_sources: Record<string, number>;
+  alert_events: number;
+  open_incidents: number;
+}
+
+export async function getRiskSummary(brandId: number, daysBack: number = 90): Promise<BWRiskSummary> {
+  const res = await fetch(`${BASE}/brands/${brandId}/risk-summary?days_back=${daysBack}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch risk summary: ${res.status}`);
+  return res.json();
+}

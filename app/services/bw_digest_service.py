@@ -24,13 +24,14 @@ _POS = "(sentiment ILIKE '%positiv%' OR sentiment ILIKE '%optimis%')"
 def _compose_digest(conn, period_days: int) -> Optional[str]:
     """Markdown digest body across enabled brands; None when there is nothing to say."""
     brands = conn.execute(text(
-        "SELECT id, display_name FROM bw_brands WHERE enabled = true ORDER BY is_primary DESC, display_name"
+        "SELECT id, display_name, COALESCE(config, '{}') FROM bw_brands "
+        "WHERE enabled = true ORDER BY is_primary DESC, display_name"
     )).fetchall()
     # First pass: per-brand news nets, so each section can benchmark against the
     # average of the OTHER brands ("are we worse, or is the whole sector down?").
     nets: dict = {}
     stats: dict = {}
-    for bid, bname in brands:
+    for bid, bname, _bcfg in brands:
         row = conn.execute(text(f"""
             SELECT COUNT(*) FILTER (WHERE {_POS}) AS pos,
                    COUNT(*) FILTER (WHERE {_NEG}) AS neg,
@@ -45,7 +46,7 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
         nets[bid] = round(((pos - neg) / scored) * 100) if scored >= 3 else None
     lines = []
     had_content = False
-    for bid, bname in brands:
+    for bid, bname, bcfg in brands:
         section = []
         pos, neg, scored = stats[bid]
         net = round(((pos - neg) / scored) * 100) if scored else None
@@ -58,6 +59,25 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
                 bench = f" — competitor avg {'+' if comp_avg > 0 else ''}{comp_avg} ({'+' if d > 0 else ''}{d})"
             section.append(f"- News sentiment: **{'+' if net and net > 0 else ''}{net}** "
                            f"({pos}+ / {neg}− of {scored} scored){bench}")
+        # Employee signal (cached Glassdoor aggregates + reviews landed this period).
+        _cfg = bcfg if isinstance(bcfg, dict) else json.loads(bcfg or "{}")
+        _gd = ((_cfg.get("glassdoor_overview") or {}).get("data")) or None
+        if _gd and _gd.get("rating") is not None:
+            _gr = conn.execute(text(f"""
+                SELECT COUNT(*) FILTER (WHERE {_POS}) AS pos,
+                       COUNT(*) FILTER (WHERE {_NEG}) AS neg
+                FROM articles a
+                JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+                WHERE a.news_source = 'Glassdoor'
+                  AND a.publication_date >= to_char(now() - (:d || ' days')::interval,'YYYY-MM-DD')
+            """), {"b": bid, "d": str(period_days)}).fetchone()
+            _outlook = _gd.get("business_outlook_rating")
+            _bits = [f"{_gd['rating']}★ Glassdoor"]
+            if _outlook is not None:
+                _bits.append(f"outlook {round(_outlook * 100)}%")
+            if (_gr[0] or 0) + (_gr[1] or 0):
+                _bits.append(f"reviews this period {_gr[0] or 0}+ / {_gr[1] or 0}−")
+            section.append("- Employee signal: " + " · ".join(_bits))
         # New risk findings.
         risks = conn.execute(text("""
             SELECT r.risk_type, r.severity, LEFT(a.title, 90)

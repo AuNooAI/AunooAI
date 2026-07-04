@@ -9,9 +9,9 @@ import {
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer, Search, Bell,
-  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock,
+  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle,
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
@@ -23,6 +23,7 @@ import {
   deepDiveAccount, deleteAccountProfile, type BWAccountProfile, type BWAccountDeepDive,
 } from '../../services/socialProfileApi';
 import { downloadAccountReport } from '../../services/socialProfileReportHtml';
+import { DocViewer } from '../DocViewer';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
   generateCategoryInsight, suggestKeywords, setupBrandMonitoring, getSchedules, createSchedule, deleteSchedule,
@@ -32,8 +33,10 @@ import {
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
   listIncidents, createIncident, getIncident, updateIncident, addIncidentNote,
   attachIncidentEvidence, verifyIncidentChain,
+  getEmployeeRisk, getRiskSummary,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWIncident, type BWIncidentDetail,
+  type BWEmployeeRisk, type BWRiskSummary, type BWGlassdoorOverview,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
   type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
@@ -82,6 +85,8 @@ const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k:
     { k: 'recent_hours', label: 'window (h)', def: 48 }, { k: 'min_recent_neg', label: 'min posts', def: 2 }, { k: 'min_engagement_single', label: 'or engagement ≥', def: 50 }, { k: 'lookback_days', label: 'lookback (d)', def: 30 }] },
   { key: 'coordinated_negative', label: 'Coordinated negativity', params: [
     { k: 'min_authors', label: 'min accounts', def: 3 }, { k: 'window_hours', label: 'window (h)', def: 72 }] },
+  { key: 'glassdoor_deterioration', label: 'Glassdoor deterioration', params: [
+    { k: 'rating_drop', label: 'rating drop ≥', def: 0.2, step: 0.1 }, { k: 'outlook_drop', label: 'outlook drop ≥', def: 0.1, step: 0.05 }, { k: 'lookback_days', label: 'lookback (d)', def: 35 }] },
 ];
 
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)
@@ -129,7 +134,7 @@ interface BrandWatcherTabProps {
                     relatedArticles?: any[]) => void;
 }
 
-type SubTab = 'dashboard' | 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'incidents';
+type SubTab = 'dashboard' | 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -195,10 +200,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // Competitor social benchmark: a small all-brands snapshot fetched independently
   // of the scope toggle, so "you vs competitor average" works even in "X only" view.
   const [benchSocial, setBenchSocial] = useState<Record<string, { pos: number; neg: number; scored: number }> | null>(null);
+  // Raw all-brands post snapshot from the same fetch — feeds the competitor swimlane.
+  const [benchPosts, setBenchPosts] = useState<any[] | null>(null);
   const loadBenchSocial = useCallback(() => {
-    if (brands.length < 2) { setBenchSocial(null); return; }
+    if (brands.length < 2) { setBenchSocial(null); setBenchPosts(null); return; }
     const topics = brands.map(b => `Brand Monitoring ${b.display_name}`);
-    getSocialPosts(topics, config.daysBack, 0.4, undefined, false, { limit: 500 }).then(data => {
+    getSocialPosts(topics, config.daysBack, 0.4, undefined, false, { limit: 2000 }).then(data => {
       const agg: Record<string, { pos: number; neg: number; scored: number }> = {};
       (data.posts || []).forEach((p: any) => {
         const sen = socialSentimentOf(p.sentiment);
@@ -209,7 +216,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         agg[b].scored++;
       });
       setBenchSocial(agg);
-    }).catch(() => setBenchSocial(null));
+      setBenchPosts(data.posts || []);
+    }).catch(() => { setBenchSocial(null); setBenchPosts(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brands, config.daysBack]);
   // Wider adverse-analysis pool for the dashboard: the paged `articles` state
@@ -321,6 +329,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [sentimentTrends, setSentimentTrends] = useState<BWSentimentTrend[]>([]);
   const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
+  // Competitor brands' weekly news sentiment trends — feeds the benchmark-avg
+  // line on the sentiment timeline (one cheap per-brand fetch, few brands).
+  const [compTrends, setCompTrends] = useState<BWSentimentTrend[][]>([]);
+  // Employee / workforce picture (Glassdoor aggregates + reviews + workforce risks).
+  const [employeeRisk, setEmployeeRisk] = useState<BWEmployeeRisk | null>(null);
+  const [loadingEmployee, setLoadingEmployee] = useState(false);
+  // Per-brand adverse-risk rollup (feeds the Analysis tab + HTML report).
+  const [riskSummary, setRiskSummary] = useState<BWRiskSummary | null>(null);
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -605,6 +621,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [socialAuthorFilter, setSocialAuthorFilter] = useState<{ platform: string; author: string } | null>(null);
   const [socialDayFilter, setSocialDayFilter] = useState<string | null>(null);       // 'YYYY-MM-DD'
   const [socialThemeFilter, setSocialThemeFilter] = useState<string | null>(null);   // theme key | 'other'
+  const [socialBrandFilter, setSocialBrandFilter] = useState<string | null>(null);   // brand display name (swimlane click)
   const postAuthorOf = (p: any): string => {
     const sm = p.social_meta || {};
     const m = (p.title || '').match(/@([\w.\-]+)/);
@@ -626,6 +643,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       if (socialAuthorFilter && (p.platform !== socialAuthorFilter.platform
         || postAuthorOf(p) !== socialAuthorFilter.author.toLowerCase())) return false;
       if (socialDayFilter && (p.publication_date || '').slice(0, 10) !== socialDayFilter) return false;
+      if (socialBrandFilter && socialBrandOf(p) !== socialBrandFilter) return false;
       if (socialThemeFilter) {
         if (socialSentimentOf(p.sentiment) !== 'negative') return false;
         const blob = socialThemeBlobOf(p);
@@ -686,6 +704,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }).filter(d => d.volume > 0).sort((a, b) => (Number(a.low) - Number(b.low)) || (b.net ?? -999) - (a.net ?? -999));
     return { all: posts, platforms, perception, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
   }, [social]);
+
 
   // Auto-split the two lanes onto distinct networks (best- vs worst-perceived) instead of
   // showing two identical "All networks" lanes. Only acts while BOTH lanes are still at the
@@ -960,6 +979,159 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const selectedBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
   // With no header selection, the "X only" social scope means the primary brand.
   const selectedBrand = selectedBrands[0] || brands.find(b => b.is_primary) || brands[0] || undefined;
+
+  // Brand risk score from weekly news sentiment + spike alerts. Mirrors the backend
+  // narrative formula: base negative level + worsening-trend penalty + alert weight.
+  const computeBrandRisk = useCallback(() => {
+    const weekly: Record<string, { neg: number; total: number }> = {};
+    for (const t of sentimentTrends) {
+      const w = (t.week || '').slice(0, 10);
+      if (!weekly[w]) weekly[w] = { neg: 0, total: 0 };
+      for (const [s, cnt] of Object.entries(t.sentiments)) {
+        const lo = s.toLowerCase();
+        if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical') || lo.includes('alarm')) weekly[w].neg += cnt;
+        weekly[w].total += cnt;
+      }
+    }
+    const weeks = Object.keys(weekly).sort();
+    const sum = (ws: string[], k: 'neg' | 'total') => ws.reduce((a, w) => a + weekly[w][k], 0);
+    const recent = weeks.slice(-4), older = weeks.slice(-8, -4);
+    const recentNegPct = sum(recent, 'total') ? (sum(recent, 'neg') / sum(recent, 'total')) * 100 : 0;
+    const olderNegPct = sum(older, 'total') ? (sum(older, 'neg') / sum(older, 'total')) * 100 : 0;
+    const negTrend = recentNegPct - olderNegPct;
+    const alertCount = brandAlerts.length;
+    const highAlerts = brandAlerts.filter(a => a.severity === 'high').length;
+    const riskScore = Math.min(100, Math.round(
+      recentNegPct * 1.5 + (negTrend > 0 ? negTrend * 2 : 0) + alertCount * 5 + highAlerts * 10));
+    const riskLevel = riskScore >= 60 ? 'High' : riskScore >= 30 ? 'Elevated' : 'Low';
+    return { riskScore, riskLevel, recentNegPct, negTrend, alertCount, highAlerts };
+  }, [sentimentTrends, brandAlerts]);
+
+  // Weekly news-vs-social net-sentiment line chart, shared by the Dashboard and
+  // Brand Analysis tabs (same data, different anchor ids for chart download).
+  const renderSentimentTimeline = useCallback((chartId: string) => {
+    const sv = socialView;
+    const weekOf = (ds: string) => {
+      const d = new Date(`${ds.slice(0, 10)}T00:00:00Z`);
+      if (isNaN(+d)) return null;
+      d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // Monday, matching DATE_TRUNC('week')
+      return d.toISOString().slice(0, 10);
+    };
+    const wk: Record<string, { nPos: number; nNeg: number; nTot: number; sPos: number; sNeg: number; sTot: number }> = {};
+    const bucket = (w: string) => wk[w] || (wk[w] = { nPos: 0, nNeg: 0, nTot: 0, sPos: 0, sNeg: 0, sTot: 0 });
+    for (const t of sentimentTrends) {
+      const w = (t.week || '').slice(0, 10);
+      if (!w) continue;
+      const b = bucket(w);
+      for (const [s, cnt] of Object.entries(t.sentiments)) {
+        const lo = s.toLowerCase();
+        if (lo.includes('pos') || lo.includes('optimis')) b.nPos += cnt as number;
+        else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) b.nNeg += cnt as number;
+        b.nTot += cnt as number;
+      }
+    }
+    for (const d of (sv?.timeline || []) as any[]) {
+      const w = weekOf(d.date || '');
+      if (!w) continue;
+      const b = bucket(w);
+      b.sPos += d.positive || 0; b.sNeg += d.negative || 0;
+      b.sTot += (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
+    }
+    const MIN_SCORED = 3; // weeks with fewer scored items produce noise, not signal
+
+    // Benchmark: per-week competitor-average nets. News from each competitor's
+    // weekly trends; social from the all-brands snapshot (focus brand excluded).
+    // A competitor only enters a week's average with >= MIN_SCORED scored items.
+    const compNewsWeekly: Record<string, number[]> = {};
+    for (const trends of compTrends) {
+      const cw: Record<string, { pos: number; neg: number; tot: number }> = {};
+      for (const t of trends) {
+        const w = (t.week || '').slice(0, 10);
+        if (!w) continue;
+        const c = cw[w] || (cw[w] = { pos: 0, neg: 0, tot: 0 });
+        for (const [s, cnt] of Object.entries(t.sentiments)) {
+          const lo = s.toLowerCase();
+          if (lo.includes('pos') || lo.includes('optimis')) c.pos += cnt as number;
+          else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) c.neg += cnt as number;
+          c.tot += cnt as number;
+        }
+      }
+      for (const [w, c] of Object.entries(cw)) {
+        if (c.tot < MIN_SCORED) continue;
+        (compNewsWeekly[w] || (compNewsWeekly[w] = [])).push(((c.pos - c.neg) / c.tot) * 100);
+      }
+    }
+    const compSocWeekly: Record<string, number[]> = {};
+    {
+      const focus = selectedBrand?.display_name;
+      const perBrand: Record<string, Record<string, { pos: number; neg: number; tot: number }>> = {};
+      for (const p of (benchPosts || [])) {
+        const b = socialBrandOf(p);
+        if (!focus || b === focus) continue;
+        const w = weekOf(p.publication_date || '');
+        if (!w) continue;
+        const sen = socialSentimentOf(p.sentiment);
+        if (sen === 'unrated') continue;
+        const bw = perBrand[b] || (perBrand[b] = {});
+        const c = bw[w] || (bw[w] = { pos: 0, neg: 0, tot: 0 });
+        if (sen === 'positive') c.pos++; else if (sen === 'negative') c.neg++;
+        c.tot++;
+      }
+      for (const bw of Object.values(perBrand)) {
+        for (const [w, c] of Object.entries(bw)) {
+          if (c.tot < MIN_SCORED) continue;
+          (compSocWeekly[w] || (compSocWeekly[w] = [])).push(((c.pos - c.neg) / c.tot) * 100);
+        }
+      }
+    }
+    const avgOf = (arr?: number[]) => (arr && arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null);
+
+    const allWeeks = new Set([...Object.keys(wk), ...Object.keys(compNewsWeekly), ...Object.keys(compSocWeekly)]);
+    const data = [...allWeeks].sort().map(w => {
+      const b = wk[w] || { nPos: 0, nNeg: 0, nTot: 0, sPos: 0, sNeg: 0, sTot: 0 };
+      return {
+        week: w.slice(5),
+        news: b.nTot >= MIN_SCORED ? Math.round(((b.nPos - b.nNeg) / b.nTot) * 100) : null,
+        social: b.sTot >= MIN_SCORED ? Math.round(((b.sPos - b.sNeg) / b.sTot) * 100) : null,
+        compNews: avgOf(compNewsWeekly[w]),
+        compSocial: avgOf(compSocWeekly[w]),
+        newsVol: b.nTot, socialVol: b.sTot,
+        compNewsN: (compNewsWeekly[w] || []).length, compSocialN: (compSocWeekly[w] || []).length,
+      };
+    });
+    if (data.filter(d => d.news != null || d.social != null).length < 2) return null;
+    const hasCompNews = data.some(d => d.compNews != null);
+    const hasCompSocial = data.some(d => d.compSocial != null);
+    return (
+      <div id={chartId} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Sentiment over time — news vs social</h3>
+          <ChartDownloadButton targetId={chartId} filename="sentiment-over-time" />
+        </div>
+        <p className="text-[11px] text-gray-400 mb-2">Weekly net sentiment (positive − negative, as % of scored items). Weeks with under {MIN_SCORED} scored items are skipped. Dashed lines = competitor average (brands with ≥{MIN_SCORED} scored that week).</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={data} margin={{ top: 4, right: 12, bottom: 0, left: -18 }}>
+            <CartesianGrid strokeDasharray="3 3" className="opacity-40" />
+            <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+            <YAxis domain={[-100, 100]} ticks={[-100, -50, 0, 50, 100]} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v: any, name: any, props: any) => [
+              `${v > 0 ? '+' : ''}${v}`,
+              name === 'News' ? `News net (${props.payload.newsVol} articles)`
+                : name === 'Social' ? `Social net (${props.payload.socialVol} posts)`
+                : name === 'Comp avg (news)' ? `Competitor avg news (${props.payload.compNewsN} brand${props.payload.compNewsN === 1 ? '' : 's'})`
+                : `Competitor avg social (${props.payload.compSocialN} brand${props.payload.compSocialN === 1 ? '' : 's'})`,
+            ]} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+            <Line type="monotone" dataKey="news" name="News" stroke="#2563eb" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+            <Line type="monotone" dataKey="social" name="Social" stroke="#9333ea" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+            {hasCompNews && <Line type="monotone" dataKey="compNews" name="Comp avg (news)" stroke="#60a5fa" strokeWidth={1.5} strokeDasharray="6 4" dot={false} connectNulls />}
+            {hasCompSocial && <Line type="monotone" dataKey="compSocial" name="Comp avg (social)" stroke="#c084fc" strokeWidth={1.5} strokeDasharray="6 4" dot={false} connectNulls />}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }, [sentimentTrends, socialView, compTrends, benchPosts, selectedBrand]);
   const primarySelectedId = config.selectedBrandIds[0] || null;
 
   // --- Accounts: profile a handle, list saved, tags/notes, open-from-author ---
@@ -992,9 +1164,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
   // Serialize posts to CSV, ordered primary brand (Wiley) first then competitors,
   // then by sentiment (fans→critics), then newest-first. Includes brand, sentiment,
-  // and the triggering keywords.
-  const writeSocialCsv = useCallback((posts: any[], suffix: string) => {
+  // the triggering keywords, and — where an Account Profile has been built for the
+  // author — the profile's followers/verified/tags/analyst-note/summary.
+  const writeSocialCsv = useCallback((posts: any[], suffix: string, profiles: BWAccountProfile[] = []) => {
     if (!posts.length) return;
+    // Mirror the server's norm_handle: strip URL prefix, @, reddit u/, first path segment, lowercase.
+    const canonHandle = (h: string) => (h || '').trim().replace(/^https?:\/\/(www\.)?[^/]+\//, '')
+      .replace(/^@/, '').replace(/\/+$/, '').replace(/^u\//i, '').split('/')[0].toLowerCase();
+    const profileMap = new Map<string, BWAccountProfile>();
+    profiles.forEach(p => profileMap.set(`${(p.platform || '').toLowerCase()}|${p.handle_canonical || canonHandle(p.handle)}`, p));
     const rows = [...posts].sort((a: any, b: any) => {
       const ra = brandRank[socialBrandOf(a)] ?? 99, rb = brandRank[socialBrandOf(b)] ?? 99;
       if (ra !== rb) return ra - rb;
@@ -1003,14 +1181,20 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       return (b.publication_date || '').localeCompare(a.publication_date || '');
     });
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['brand', 'sentiment', 'keywords', 'platform', 'author', 'date', 'relevance', 'likes', 'reposts', 'comments', 'plays', 'text', 'url'];
+    const header = ['brand', 'sentiment', 'keywords', 'platform', 'author', 'date', 'relevance', 'likes', 'reposts', 'comments', 'plays', 'text', 'url',
+      'author_followers', 'author_verified', 'author_tags', 'author_note', 'author_profile'];
+    const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
     const lines = [header.map(esc).join(',')];
     rows.forEach((p: any) => {
       const sm = p.social_meta || {};
+      const prof = profileMap.get(`${(p.platform || '').toLowerCase()}|${canonHandle(sm.author || '')}`);
       lines.push([socialBrandOf(p), p.sentiment || socialSentimentOf(p.sentiment), (p.matched_keywords || []).join('; '),
         p.platform, sm.author || '', (p.publication_date || '').slice(0, 10),
         p.relevance ?? '', sm.likes ?? '', sm.reposts ?? '', sm.comments ?? '', sm.plays ?? '',
-        stripSocialMarkdown(p.summary || p.title || ''), p.uri].map(esc).join(','));
+        stripSocialMarkdown(p.summary || p.title || ''), p.uri,
+        prof?.followers_count ?? '', prof ? (prof.verified ? 'yes' : 'no') : '',
+        (prof?.tags || []).join('; '), oneLine(prof?.annotation?.text || ''),
+        oneLine(prof?.summary || '')].map(esc).join(','));
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -1045,8 +1229,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       let posts = data.posts || [];
       if (expSentiments.length) posts = posts.filter((p: any) => expSentiments.includes(socialSentimentOf(p.sentiment)));
       if (!posts.length) { alert('No posts match the selected filters.'); return; }
+      // Account Profiles are optional (tenant may not have the xpoz backend) — degrade to empty.
+      let profiles: BWAccountProfile[] = [];
+      try { profiles = await listAccountProfiles(); } catch { /* no profiles backend */ }
       const suffix = chosen.length === 1 ? chosen[0].display_name.toLowerCase().replace(/\s+/g, '-') : `${chosen.length || 'all'}-brands`;
-      writeSocialCsv(posts, suffix);
+      writeSocialCsv(posts, suffix, profiles);
       setShowSocialExport(false);
     } catch (e) {
       console.error('social export error', e);
@@ -1154,6 +1341,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
     if (tab === 'social') {
       fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
+      loadBenchSocial();  // competitor swimlane needs the all-brands snapshot
     }
     if (tab === 'dashboard') {
       // Combined view needs both sides: social posts + news trends/alerts.
@@ -1194,8 +1382,92 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .then(n => setNarrative(n))
         .catch(console.error);
       fetchComparison();
+      fetchShareOfVoice();
+      loadIncidents();
+      // The reputation section's news-vs-social timeline needs social posts loaded.
+      fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval, socialScope, loadDashArticles]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval, socialScope, loadDashArticles, loadIncidents]);
+
+  // Generated-insights sections, keyed by lowercase H2 heading — lets Brand Analysis
+  // surface each section next to the data it interprets instead of a blind preview.
+  const narrativeSections = useMemo(() => {
+    const out: Record<string, string> = {};
+    const md = narrative?.narrative || '';
+    const re = /^##\s+(.+)$/gm;
+    let m: RegExpExecArray | null;
+    let last: { name: string; start: number } | null = null;
+    const push = (end: number) => { if (last) out[last.name.trim().toLowerCase()] = md.slice(last.start, end).trim(); };
+    while ((m = re.exec(md))) { push(m.index); last = { name: m[1], start: m.index + m[0].length }; }
+    push(md.length);
+    return out;
+  }, [narrative]);
+
+  // Collapsible "AI insight" strip for a narrative section (renders nothing when absent).
+  const insightStrip = (key: string, label: string) => {
+    const md = narrativeSections[key];
+    if (!md) return null;
+    return (
+      <details className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg group">
+        <summary className="cursor-pointer list-none px-3.5 py-2 flex items-center gap-2 text-xs font-medium text-blue-800 dark:text-blue-300">
+          <Sparkles className="w-3.5 h-3.5 flex-shrink-0" /> AI insight — {label}
+          <ChevronRight className="w-3.5 h-3.5 ml-auto transition-transform group-open:rotate-90" />
+        </summary>
+        <div className="px-4 pb-2 prose prose-sm dark:prose-invert max-w-none text-[13px] text-gray-700 dark:text-gray-300"
+          dangerouslySetInnerHTML={{ __html: markdownToHtml(md) }} />
+        <div className="px-4 pb-2.5">
+          <button onClick={() => handleTabChange('insights')} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Full report →</button>
+        </div>
+      </details>
+    );
+  };
+
+  // Designed report layout: each known narrative section gets an icon, an accent
+  // rail and an eyebrow header instead of one undifferentiated markdown blob.
+  const NARRATIVE_SECTION_META: Array<{ key: string; label: string; icon: any; border: string; text: string }> = [
+    { key: 'executive summary', label: 'Executive Summary', icon: Sparkles, border: 'border-blue-400', text: 'text-blue-600 dark:text-blue-400' },
+    { key: 'category analysis', label: 'Category Analysis', icon: BarChart3, border: 'border-indigo-400', text: 'text-indigo-600 dark:text-indigo-400' },
+    { key: 'sentiment & reputation', label: 'Sentiment & Reputation', icon: TrendingUp, border: 'border-emerald-400', text: 'text-emerald-600 dark:text-emerald-400' },
+    { key: 'social pulse', label: 'Social Pulse', icon: Users, border: 'border-purple-400', text: 'text-purple-600 dark:text-purple-400' },
+    { key: 'risk & compliance', label: 'Risk & Compliance', icon: ShieldAlert, border: 'border-red-400', text: 'text-red-600 dark:text-red-400' },
+    { key: 'workforce signal', label: 'Workforce Signal', icon: Briefcase, border: 'border-amber-400', text: 'text-amber-600 dark:text-amber-400' },
+    { key: 'forward-looking concerns', label: 'Forward-Looking Concerns', icon: AlertTriangle, border: 'border-orange-400', text: 'text-orange-600 dark:text-orange-400' },
+  ];
+  const renderNarrativeReport = () => {
+    if (!narrative) return null;
+    const known = new Set(NARRATIVE_SECTION_META.map(s => s.key));
+    const blocks: any[] = [];
+    for (const meta of NARRATIVE_SECTION_META) {
+      const md = narrativeSections[meta.key];
+      if (!md) continue;
+      blocks.push(
+        <section key={meta.key} className={`border-l-[3px] ${meta.border} pl-4`}>
+          <h3 className={`text-[11px] font-bold uppercase tracking-wider ${meta.text} flex items-center gap-1.5 mb-1`}>
+            <meta.icon className="w-3.5 h-3.5" /> {meta.label}
+          </h3>
+          <div className="text-[13.5px] text-gray-700 dark:text-gray-300" dangerouslySetInnerHTML={{ __html: markdownToHtml(md) }} />
+        </section>
+      );
+    }
+    // Sections the model added beyond the required set still render, just unstyled.
+    for (const [k, md] of Object.entries(narrativeSections)) {
+      if (known.has(k) || !md) continue;
+      blocks.push(
+        <section key={k} className="border-l-[3px] border-gray-300 dark:border-gray-600 pl-4">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 flex items-center gap-1.5 mb-1">
+            <FileText className="w-3.5 h-3.5" /> {k.replace(/\b\w/g, c => c.toUpperCase())}
+          </h3>
+          <div className="text-[13.5px] text-gray-700 dark:text-gray-300" dangerouslySetInnerHTML={{ __html: markdownToHtml(md) }} />
+        </section>
+      );
+    }
+    if (!blocks.length) {
+      // Old-format narrative with no recognizable H2 sections — render whole doc.
+      return <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300"
+        dangerouslySetInnerHTML={{ __html: markdownToHtml(narrative.narrative) }} />;
+    }
+    return <div className="space-y-7">{blocks}</div>;
+  };
 
   // --- Refresh overview data when brand/period changes (dashboard shares this data) ---
   useEffect(() => {
@@ -1213,11 +1485,42 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison]);
 
+  // --- Competitor weekly news trends for the benchmark-avg timeline line ---
+  useEffect(() => {
+    if (!primarySelectedId || (activeTab !== 'dashboard' && activeTab !== 'analysis')) return;
+    const comps = brands.filter(b => b.enabled && b.id !== primarySelectedId);
+    if (!comps.length) { setCompTrends([]); return; }
+    Promise.all(comps.map(b => getSentimentTrends(b.id, config.daysBack).then(r => r.trends).catch(() => [] as BWSentimentTrend[])))
+      .then(setCompTrends);
+  }, [activeTab, primarySelectedId, config.daysBack, brands]);
+
+  // --- Employee/workforce data: the Workforce tab needs everything; dashboard and
+  // Analysis render compact cards from the same payload. Server caches the Glassdoor
+  // aggregates 24h, so this is one cheap call per brand switch.
+  useEffect(() => {
+    if (!primarySelectedId) { setEmployeeRisk(null); return; }
+    if (activeTab !== 'workforce' && activeTab !== 'dashboard' && activeTab !== 'analysis') return;
+    if (employeeRisk?.brand_id === primarySelectedId) return;
+    setLoadingEmployee(true);
+    getEmployeeRisk(primarySelectedId, config.daysBack)
+      .then(setEmployeeRisk).catch(console.error)
+      .finally(() => setLoadingEmployee(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, primarySelectedId]);
+
+  // --- Risk rollup for the Analysis tab ---
+  useEffect(() => {
+    if (!primarySelectedId || activeTab !== 'analysis') return;
+    getRiskSummary(primarySelectedId, config.daysBack)
+      .then(setRiskSummary).catch(console.error);
+  }, [activeTab, primarySelectedId, config.daysBack]);
+
   // --- Refresh social when the period/topics change (handleTabChange only fires on tab switch) ---
   useEffect(() => {
     if (activeTab !== 'social' && activeTab !== 'dashboard') return;
     fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
-    if (activeTab === 'dashboard') { loadDashArticles(); loadBenchSocial(); }
+    if (activeTab === 'dashboard') { loadDashArticles(); }
+    if (activeTab === 'dashboard' || activeTab === 'social') { loadBenchSocial(); }
     // brands.length: the initial fetch can fire before the brands list loads, in
     // which case "primary only" scope can't resolve a topic — refetch on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1296,13 +1599,18 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       const bid = primarySelectedId;
       const topicsParam = config.selectedTopics.length ? config.selectedTopics : undefined;
       const socialTopics = selectedBrand ? [`Brand Monitoring ${selectedBrand.display_name}`] : topicsParam;
-      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD] = await Promise.all([
+      const allBrandTopics = brands.length > 1 ? brands.map(b => `Brand Monitoring ${b.display_name}`) : undefined;
+      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD] = await Promise.all([
         getComparison(config.daysBack, topicsParam).catch(() => comparison),
         getShareOfVoice(config.daysBack, topicsParam).catch(() => shareOfVoice),
         getSocialPosts(socialTopics, config.daysBack, 0, undefined, true, { limit: 5000 }).catch(() => social),
         bid ? getSentimentTrends(bid, config.daysBack).then(r => r.trends).catch(() => sentimentTrends) : Promise.resolve([] as typeof sentimentTrends),
         bid ? getBrandAlerts(bid, config.daysBack).then(r => r.alerts).catch(() => brandAlerts) : Promise.resolve([] as typeof brandAlerts),
         bid ? getLatestNarrative(bid).catch(() => narrative) : Promise.resolve(null),
+        bid ? getRiskSummary(bid, config.daysBack).catch(() => riskSummary) : Promise.resolve(null),
+        bid ? listIncidents(undefined, bid).catch(() => []) : Promise.resolve([]),
+        bid ? getEmployeeRisk(bid, config.daysBack).catch(() => employeeRisk) : Promise.resolve(null),
+        allBrandTopics ? getSocialPosts(allBrandTopics, config.daysBack, 0.4, undefined, false, { limit: 2000 }).then(r => r.posts || []).catch(() => benchPosts || []) : Promise.resolve(null),
       ]);
       downloadBrandWatcherReport({
         brand: selectedBrand,
@@ -1314,6 +1622,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         shareOfVoice: sovD,
         narrative: narrativeD,
         social: socialD,
+        riskSummary: riskD,
+        incidents: incidentsD,
+        employee: employeeD,
+        allBrandPosts: lanePostsD,
+        laneBrands: brands.map(b => b.display_name),
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -1322,7 +1635,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       setExportingReport(false);
     }
   }, [primarySelectedId, selectedBrand, config.daysBack, config.selectedTopics, stats, categories,
-      comparison, shareOfVoice, social, sentimentTrends, brandAlerts, narrative]);
+      comparison, shareOfVoice, social, sentimentTrends, brandAlerts, narrative,
+      brands, riskSummary, employeeRisk, benchPosts]);
 
   // --- Dedicated Social report (HTML) — social listening only, not the full brand report ---
   const handleExportSocialReport = useCallback(async () => {
@@ -1799,7 +2113,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
           { id: 'social' as SubTab, label: 'Social', icon: Users },
           { id: 'accounts' as SubTab, label: 'Accounts', icon: AtSign },
+          { id: 'workforce' as SubTab, label: 'Workforce', icon: Briefcase },
           { id: 'incidents' as SubTab, label: 'Incidents', icon: ShieldAlert },
+          { id: 'help' as SubTab, label: 'Help', icon: HelpCircle },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -2147,8 +2463,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </div>
             </div>
 
-            {/* 3. Sentiment overview: news vs social + what the negativity is about */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 3. Sentiment overview: news vs social + what the negativity is about (+ employee signal) */}
+            <div className={`grid grid-cols-1 lg:grid-cols-2 ${employeeRisk?.overview ? 'xl:grid-cols-3' : ''} gap-4`}>
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
                 <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">Sentiment — news vs social</h3>
                 <div className="space-y-2.5">
@@ -2190,7 +2506,33 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   ? `${negNews.length} negative article${negNews.length === 1 ? '' : 's'} in range, but none carry category tags yet.`
                   : 'No negative articles in the analyzed sample. 🎉'}</p>}
               </div>
+              {employeeRisk?.overview && (() => {
+                const eo = employeeRisk.overview!;
+                const ers = employeeRisk.review_sentiment;
+                const wfHigh = employeeRisk.workforce_risks.filter(w => w.severity === 'high').length;
+                const outlook = eo.business_outlook_rating != null ? Math.round(eo.business_outlook_rating * 100) : null;
+                return (
+                  <div onClick={() => handleTabChange('workforce')}
+                    className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 cursor-pointer hover:border-blue-400 lg:col-span-2 xl:col-span-1">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 inline-flex items-center gap-1.5"><Briefcase className="w-4 h-4 text-gray-400" /> Employee signal</h3>
+                      <span className="text-xs text-blue-600 dark:text-blue-400">Workforce →</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div><span className={`text-xl font-bold ${eo.rating != null && eo.rating < 3 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{eo.rating != null ? `${eo.rating}/5` : '—'}</span> <span className="text-[11px] text-gray-400">Glassdoor</span></div>
+                      <div><span className={`text-xl font-bold ${outlook != null && outlook < 45 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{outlook != null ? `${outlook}%` : '—'}</span> <span className="text-[11px] text-gray-400">outlook</span></div>
+                      <div className="text-[11px] text-gray-400">{ers.scored ? <>reviews {ers.pos}+ / {ers.neg}− {ers.net != null && <span className={ers.net < 0 ? 'text-red-500 font-semibold' : 'text-emerald-600 font-semibold'}>({ers.net > 0 ? '+' : ''}{ers.net})</span>}</> : 'no recent reviews'}</div>
+                      <div className="text-[11px]">{employeeRisk.workforce_risks.length
+                        ? <span className={wfHigh ? 'text-red-500 font-semibold' : 'text-amber-600'}>{employeeRisk.workforce_risks.length} workforce risk{employeeRisk.workforce_risks.length === 1 ? '' : 's'}{wfHigh ? ` · ${wfHigh} high` : ''}</span>
+                        : <span className="text-gray-400">no workforce risks</span>}</div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
+
+            {/* 3b. Sentiment over time: weekly net sentiment lines for news vs social */}
+            {renderSentimentTimeline('chart-bw-sentiment-timeline')}
 
             {/* 4. The items: news (adverse first) + top social side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -3118,30 +3460,305 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               {/* Main brand analysis (shown when no competitor selected) */}
               {!selectedCompetitor && (
                 <>
-                  {/* Latest Narrative Preview */}
-                  {narrative && (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-800 p-5">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-blue-500" /> Latest Insights
-                        </h3>
-                        <span className="text-[10px] text-gray-400">
-                          {narrative.generated_at ? new Date(narrative.generated_at).toLocaleDateString() : ''}
-                        </span>
+                  {/* Verdict header: composite risk + the facts driving it */}
+                  {(() => {
+                    const risk = computeBrandRisk();
+                    const bucketNet = (sb: Record<string, number>) => {
+                      let p = 0, n = 0, t = 0;
+                      for (const [s, c] of Object.entries(sb || {})) {
+                        const lo = s.toLowerCase();
+                        if (lo.includes('pos') || lo.includes('optimis')) p += c;
+                        else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) n += c;
+                        t += c;
+                      }
+                      return t ? Math.round(((p - n) / t) * 100) : null;
+                    };
+                    const own = comparison.find(c => c.brand_id === primarySelectedId);
+                    const newsNet = own ? bucketNet(own.sentiment_breakdown) : null;
+                    const compNets = comparison.filter(c => c.brand_id !== primarySelectedId)
+                      .map(c => bucketNet(c.sentiment_breakdown)).filter((v): v is number => v != null);
+                    const compAvg = compNets.length ? Math.round(compNets.reduce((a, b) => a + b, 0) / compNets.length) : null;
+                    const highRisks = Object.values(riskSummary?.by_type || {}).reduce((a, t) => a + (t.high || 0), 0);
+                    const openInc = incidents.filter(i => !['resolved', 'closed'].includes(i.status)).length;
+                    const outlook = employeeRisk?.overview?.business_outlook_rating != null
+                      ? Math.round(employeeRisk.overview.business_outlook_rating * 100) : null;
+                    const bits: string[] = [];
+                    if (risk.negTrend > 5) bits.push(`negative news trend worsening ${Math.round(risk.negTrend)}pts over 4 weeks`);
+                    else if (risk.negTrend < -5) bits.push(`negative news trend improving ${Math.abs(Math.round(risk.negTrend))}pts over 4 weeks`);
+                    if (newsNet != null && compAvg != null && newsNet - compAvg <= -15) bits.push(`sentiment ${Math.abs(newsNet - compAvg)}pts below competitor average`);
+                    if (highRisks) bits.push(`${highRisks} high-severity risk finding${highRisks === 1 ? '' : 's'}`);
+                    if (openInc) bits.push(`${openInc} open incident${openInc === 1 ? '' : 's'}`);
+                    if (outlook != null && outlook < 45) bits.push(`employee outlook weak (${outlook}% positive)`);
+                    const verdictLine = bits.length ? bits.join(' · ') : 'no elevated signals in the current window';
+                    const tone = risk.riskLevel === 'High' ? 'red' : risk.riskLevel === 'Elevated' ? 'orange' : 'green';
+                    const stat = (label: string, value: string, sub?: string | null, jump?: SubTab, bad?: boolean) => (
+                      <div key={label} onClick={jump ? () => handleTabChange(jump) : undefined} className={jump ? 'cursor-pointer' : ''}>
+                        <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">{label}{jump ? ' →' : ''}</div>
+                        <div className={`text-lg font-bold ${bad ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{value}</div>
+                        {sub && <div className="text-[10px] text-gray-400">{sub}</div>}
                       </div>
-                      <div className={`prose prose-sm dark:prose-invert max-w-none text-sm text-gray-600 dark:text-gray-300 ${exportingReport ? '' : 'line-clamp-3'}`}
-                        dangerouslySetInnerHTML={{ __html: markdownToHtml(narrative.narrative) }}
-                      />
-                      {!exportingReport && (
-                        <button
-                          onClick={() => handleTabChange('insights')}
-                          className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                        >
-                          View full in Insights &rarr;
-                        </button>
-                      )}
+                    );
+                    return (
+                      <div className={`rounded-lg border p-4 ${
+                        tone === 'red' ? 'border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10'
+                        : tone === 'orange' ? 'border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/10'
+                        : 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-900/10'}`}>
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                          <div>
+                            <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">Brand risk</div>
+                            <div className={`text-2xl font-bold ${tone === 'red' ? 'text-red-600' : tone === 'orange' ? 'text-orange-500' : 'text-emerald-600'}`}>
+                              {risk.riskLevel} <span className="text-sm font-medium text-gray-400">{risk.riskScore}/100</span>
+                            </div>
+                          </div>
+                          {stat('News net', newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, compAvg != null ? `comp avg ${compAvg > 0 ? '+' : ''}${compAvg}` : null, undefined, newsNet != null && newsNet < 0)}
+                          {stat('4-wk trend', `${risk.negTrend > 0 ? '+' : ''}${Math.round(risk.negTrend)}pts`, 'negative share', undefined, risk.negTrend > 5)}
+                          {stat('High-sev risks', String(highRisks), `${riskSummary?.days_back || config.daysBack}d window`, undefined, highRisks > 0)}
+                          {stat('Open incidents', String(openInc), null, 'incidents' as SubTab, openInc > 0)}
+                          {outlook != null && stat('Emp. outlook', `${outlook}%`, employeeRisk?.overview?.rating != null ? `${employeeRisk.overview.rating}/5 Glassdoor` : null, 'workforce' as SubTab, outlook < 45)}
+                        </div>
+                        <p className="text-xs text-gray-600 dark:text-gray-300 mt-2.5">{selectedBrand?.display_name}: {verdictLine}.</p>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Executive summary from the generated insights (full section, not a
+                      clamped preview) + the forward-looking concerns as a collapsible. */}
+                  {narrative && (() => {
+                    const exec = narrativeSections['executive summary'];
+                    return (
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-800 p-5">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-blue-500" /> Executive summary
+                            <span className="text-[10px] font-normal text-gray-400">from generated insights</span>
+                          </h3>
+                          <span className="text-[10px] text-gray-400">
+                            {narrative.generated_at ? new Date(narrative.generated_at).toLocaleDateString() : ''}
+                          </span>
+                        </div>
+                        <div className={`prose prose-sm dark:prose-invert max-w-none text-sm text-gray-600 dark:text-gray-300 ${exec || exportingReport ? '' : 'line-clamp-3'}`}
+                          dangerouslySetInnerHTML={{ __html: markdownToHtml(exec || narrative.narrative) }}
+                        />
+                        {!exportingReport && (
+                          <button
+                            onClick={() => handleTabChange('insights')}
+                            className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                          >
+                            Full report &rarr;
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {!exportingReport && insightStrip('forward-looking concerns', 'Forward-looking concerns')}
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Reputation</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  {!exportingReport && insightStrip('sentiment & reputation', 'Sentiment & reputation')}
+
+                  {renderSentimentTimeline('chart-analysis-sentiment-timeline')}
+
+                  {/* Sentiment Trends */}
+                  {sentimentTrends.length > 0 && (
+                    <div id="chart-brand-sentiment-by-category" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment by Category (Weekly)</h3>
+                        <ChartDownloadButton targetId="chart-brand-sentiment-by-category" filename="sentiment-by-category" />
+                      </div>
+                      <div className="space-y-2">
+                        {(() => {
+                          const byCat: Record<string, { Positive: number; Neutral: number; Negative: number }> = {};
+                          for (const t of sentimentTrends) {
+                            if (!byCat[t.category]) byCat[t.category] = { Positive: 0, Neutral: 0, Negative: 0 };
+                            for (const [s, cnt] of Object.entries(t.sentiments)) {
+                              const lo = s.toLowerCase();
+                              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') byCat[t.category].Positive += cnt;
+                              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') byCat[t.category].Negative += cnt;
+                              else byCat[t.category].Neutral += cnt;
+                            }
+                          }
+                          const sentBucketOrder: Array<'Positive' | 'Neutral' | 'Negative'> = ['Positive', 'Neutral', 'Negative'];
+                          const sentBucketColors: Record<string, string> = { Positive: '#16a34a', Neutral: '#94a3b8', Negative: '#dc2626' };
+                          return Object.entries(byCat).map(([cat, sents]) => {
+                            const total = sents.Positive + sents.Neutral + sents.Negative;
+                            return (
+                              <button key={cat} onClick={() => handleCategoryDrillDown(cat)}
+                                className="w-full flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors text-left"
+                                title={`View ${cat} articles`}>
+                                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                                <span className="text-xs text-gray-700 dark:text-gray-300 w-36 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                                <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                                  {sentBucketOrder.map(sent => {
+                                    const cnt = sents[sent];
+                                    const pct = total > 0 ? (cnt / total) * 100 : 0;
+                                    return pct > 0 ? (
+                                      <div key={sent} className="h-full" title={`${sent}: ${cnt} (${pct.toFixed(0)}%)`}
+                                        style={{ width: `${pct}%`, backgroundColor: sentBucketColors[sent] }} />
+                                    ) : null;
+                                  })}
+                                </div>
+                                <span className="text-xs text-gray-500 w-8 text-right">{total}</span>
+                                <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                      <div className="flex items-center gap-3 mt-3 flex-wrap">
+                        {[
+                          { label: 'Positive', color: '#16a34a' },
+                          { label: 'Neutral', color: '#94a3b8' },
+                          { label: 'Negative', color: '#dc2626' },
+                        ].map(s => (
+                          <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                            {s.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Risk &amp; compliance</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  {!exportingReport && insightStrip('risk & compliance', 'Risk & compliance')}
+
+                  {riskSummary && (() => {
+                    const types = Object.entries(riskSummary.by_type).sort((a, b) => b[1].total - a[1].total);
+                    const sevCls = (sev: string) => sev === 'high' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                      : sev === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
+                    const openInc = incidents.filter(i => !['resolved', 'closed'].includes(i.status));
+                    return (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">Risk findings <span className="text-xs font-normal text-gray-400">last {riskSummary.days_back}d</span></h3>
+                          {types.length === 0 ? (
+                            <p className="text-xs text-gray-400">No adverse risk findings in the window. 🎉</p>
+                          ) : (
+                            <>
+                              <div className="flex flex-wrap gap-1.5 mb-3">
+                                {types.map(([rt, c]) => (
+                                  <span key={rt} className={`text-[11px] px-2 py-0.5 rounded-full ${c.high ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : c.medium ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                                    {rt.replace(/_/g, '/')} {c.total}{c.high ? ` (${c.high} high)` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="space-y-1.5">
+                                {riskSummary.top_findings.slice(0, 6).map(f => (
+                                  <div key={`${f.uri}|${f.risk_type}`} className="flex items-center gap-2">
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${sevCls(f.severity)}`}>{f.severity}</span>
+                                    <a href={f.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-700 dark:text-gray-200 hover:text-blue-600 truncate flex-1">{f.title}</a>
+                                    <span className="text-[10px] text-gray-400 flex-shrink-0">{f.risk_type.replace(/_/g, '/')}</span>
+                                    <select value={f.case_status} onChange={e => {
+                                        const st = e.target.value;
+                                        setFindingState(f.uri, primarySelectedId!, st).then(() => {
+                                          setRiskSummary(prev => prev ? { ...prev, top_findings: prev.top_findings.map(x => x.uri === f.uri && x.risk_type === f.risk_type ? { ...x, case_status: st } : x) } : prev);
+                                        }).catch(console.error);
+                                      }}
+                                      className="text-[10px] bg-transparent border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-gray-500 flex-shrink-0">
+                                      {['new', 'reviewed', 'escalated', 'dismissed'].map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Open incidents</h3>
+                            <button onClick={() => handleTabChange('incidents')} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Incidents →</button>
+                          </div>
+                          {openInc.length === 0 ? (
+                            <p className="text-xs text-gray-400">No open incidents. 🎉</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {openInc.slice(0, 6).map(i => (
+                                <div key={i.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 rounded px-1 py-0.5" onClick={() => handleTabChange('incidents')}>
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${sevCls(i.severity === 'critical' ? 'high' : i.severity)}`}>{i.severity}</span>
+                                  <span className="text-xs text-gray-700 dark:text-gray-200 truncate flex-1">{i.title}</span>
+                                  <span className="text-[10px] text-gray-400 flex-shrink-0">{i.status}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Spike Alerts */}
+                  {brandAlerts.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-6">
+                      <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
+                      </h3>
+                      <div className="space-y-2">
+                        {brandAlerts.map(renderAlertRow)}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">Click a spike to see the articles driving it.</p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Competitive position</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  {shareOfVoice.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">Share of voice <span className="text-xs font-normal text-gray-400">mentions across tracked brands</span></h3>
+                      <div className="space-y-1.5">
+                        {shareOfVoice.map(s => (
+                          <div key={s.brand_id} className="flex items-center gap-2">
+                            <span className={`w-36 text-xs truncate flex-shrink-0 ${s.brand_id === primarySelectedId ? 'font-semibold text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}>{s.brand_name}</span>
+                            <div className="flex-1 h-3.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${s.percentage}%`, backgroundColor: s.color || '#6b7280' }} />
+                            </div>
+                            <span className="text-xs font-mono text-gray-400 w-20 text-right flex-shrink-0">{s.percentage.toFixed(0)}% · {s.mention_count.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Workforce</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  {!exportingReport && insightStrip('workforce signal', 'Workforce signal')}
+
+                  {employeeRisk?.overview && (() => {
+                    const eo = employeeRisk.overview!;
+                    const ers = employeeRisk.review_sentiment;
+                    const outlook = eo.business_outlook_rating != null ? Math.round(eo.business_outlook_rating * 100) : null;
+                    return (
+                      <div onClick={() => handleTabChange('workforce')}
+                        className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 cursor-pointer hover:border-blue-400 flex flex-wrap items-center gap-x-6 gap-y-2">
+                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 inline-flex items-center gap-1.5"><Briefcase className="w-4 h-4 text-gray-400" /> Workforce signal</span>
+                        <span className="text-sm"><b className={eo.rating != null && eo.rating < 3 ? 'text-red-600' : ''}>{eo.rating != null ? `${eo.rating}/5` : '—'}</b> <span className="text-xs text-gray-400">Glassdoor</span></span>
+                        {outlook != null && <span className="text-sm"><b className={outlook < 45 ? 'text-red-600' : ''}>{outlook}%</b> <span className="text-xs text-gray-400">outlook</span></span>}
+                        {ers.scored > 0 && <span className="text-xs text-gray-500">reviews {ers.pos}+ / {ers.neg}−{ers.net != null ? ` (net ${ers.net > 0 ? '+' : ''}${ers.net})` : ''}</span>}
+                        <span className="text-xs text-gray-500">{employeeRisk.workforce_risks.length ? `${employeeRisk.workforce_risks.length} workforce risk${employeeRisk.workforce_risks.length === 1 ? '' : 's'}` : 'no workforce risks'}</span>
+                        <span className="text-xs text-blue-600 dark:text-blue-400 ml-auto">Workforce →</span>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Coverage &amp; sources</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  {!exportingReport && insightStrip('category analysis', 'Category analysis')}
 
                   {/* Category Trends Over Time — with clickable legend for AI insights */}
                   {temporalData.length > 1 && categories.length > 0 && (() => {
@@ -3235,79 +3852,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     </div>
                   )}
 
-                  {/* Spike Alerts */}
-                  {brandAlerts.length > 0 && (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-6">
-                      <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
-                      </h3>
-                      <div className="space-y-2">
-                        {brandAlerts.map(renderAlertRow)}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-2">Click a spike to see the articles driving it.</p>
-                    </div>
-                  )}
-
-                  {/* Sentiment Trends */}
-                  {sentimentTrends.length > 0 && (
-                    <div id="chart-brand-sentiment-by-category" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment by Category (Weekly)</h3>
-                        <ChartDownloadButton targetId="chart-brand-sentiment-by-category" filename="sentiment-by-category" />
-                      </div>
-                      <div className="space-y-2">
-                        {(() => {
-                          const byCat: Record<string, { Positive: number; Neutral: number; Negative: number }> = {};
-                          for (const t of sentimentTrends) {
-                            if (!byCat[t.category]) byCat[t.category] = { Positive: 0, Neutral: 0, Negative: 0 };
-                            for (const [s, cnt] of Object.entries(t.sentiments)) {
-                              const lo = s.toLowerCase();
-                              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') byCat[t.category].Positive += cnt;
-                              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') byCat[t.category].Negative += cnt;
-                              else byCat[t.category].Neutral += cnt;
-                            }
-                          }
-                          const sentBucketOrder: Array<'Positive' | 'Neutral' | 'Negative'> = ['Positive', 'Neutral', 'Negative'];
-                          const sentBucketColors: Record<string, string> = { Positive: '#16a34a', Neutral: '#94a3b8', Negative: '#dc2626' };
-                          return Object.entries(byCat).map(([cat, sents]) => {
-                            const total = sents.Positive + sents.Neutral + sents.Negative;
-                            return (
-                              <button key={cat} onClick={() => handleCategoryDrillDown(cat)}
-                                className="w-full flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors text-left"
-                                title={`View ${cat} articles`}>
-                                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
-                                <span className="text-xs text-gray-700 dark:text-gray-300 w-36 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
-                                <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                                  {sentBucketOrder.map(sent => {
-                                    const cnt = sents[sent];
-                                    const pct = total > 0 ? (cnt / total) * 100 : 0;
-                                    return pct > 0 ? (
-                                      <div key={sent} className="h-full" title={`${sent}: ${cnt} (${pct.toFixed(0)}%)`}
-                                        style={{ width: `${pct}%`, backgroundColor: sentBucketColors[sent] }} />
-                                    ) : null;
-                                  })}
-                                </div>
-                                <span className="text-xs text-gray-500 w-8 text-right">{total}</span>
-                                <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
-                              </button>
-                            );
-                          });
-                        })()}
-                      </div>
-                      <div className="flex items-center gap-3 mt-3 flex-wrap">
-                        {[
-                          { label: 'Positive', color: '#16a34a' },
-                          { label: 'Neutral', color: '#94a3b8' },
-                          { label: 'Negative', color: '#dc2626' },
-                        ].map(s => (
-                          <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                            {s.label}
-                          </span>
+                  {riskSummary && Object.keys(riskSummary.official_sources).length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Official & scholarly records <span className="text-xs font-normal text-gray-400">last {riskSummary.days_back}d</span></h3>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(riskSummary.official_sources).sort((a, b) => b[1] - a[1]).map(([ns, n]) => (
+                          <span key={ns} className="text-[11px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border border-teal-200 dark:border-teal-800">{ns}: {n}</span>
                         ))}
                       </div>
                     </div>
                   )}
+
                 </>
               )}
 
@@ -3349,6 +3904,101 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           </div>
           )}
+
+          {/* Competitor swimlanes: one day-bucketed sentiment lane per brand from the
+              all-brands snapshot. Click a lane to filter the feed below to that brand. */}
+          {benchPosts && benchPosts.length > 0 && brands.length > 1 && (() => {
+            const windowDays = config.daysBack && config.daysBack > 0 ? Math.min(config.daysBack, 365) : 90;
+            const weekly = windowDays > 60;              // day cells up to ~60, week cells beyond
+            const bucketOf = (ds: string) => {
+              const day = (ds || '').slice(0, 10);
+              if (!day) return null;
+              if (!weekly) return day;
+              const d = new Date(`${day}T00:00:00Z`);
+              if (isNaN(+d)) return null;
+              d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+              return d.toISOString().slice(0, 10);
+            };
+            // Continuous bucket axis so every lane shares the same x positions.
+            const buckets: string[] = [];
+            {
+              const start = new Date(); start.setUTCDate(start.getUTCDate() - windowDays);
+              if (weekly) start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+              const cur = new Date(start);
+              const today = new Date().toISOString().slice(0, 10);
+              while (cur.toISOString().slice(0, 10) <= today) {
+                buckets.push(cur.toISOString().slice(0, 10));
+                cur.setUTCDate(cur.getUTCDate() + (weekly ? 7 : 1));
+              }
+            }
+            type Cell = { pos: number; neu: number; neg: number; total: number };
+            const lanes: Record<string, { cells: Record<string, Cell>; pos: number; neg: number; scored: number; total: number }> = {};
+            for (const p of benchPosts) {
+              const b = socialBrandOf(p);
+              const bk = bucketOf(p.publication_date);
+              if (!bk) continue;
+              const lane = lanes[b] || (lanes[b] = { cells: {}, pos: 0, neg: 0, scored: 0, total: 0 });
+              const cell = lane.cells[bk] || (lane.cells[bk] = { pos: 0, neu: 0, neg: 0, total: 0 });
+              const sen = socialSentimentOf(p.sentiment);
+              cell.total++; lane.total++;
+              if (sen === 'positive') { cell.pos++; lane.pos++; lane.scored++; }
+              else if (sen === 'negative') { cell.neg++; lane.neg++; lane.scored++; }
+              else if (sen === 'neutral') { cell.neu++; lane.scored++; }
+            }
+            const laneOrder = brands.map(b => b.display_name).filter(n => lanes[n]);
+            if (laneOrder.length < 2) return null;
+            const cellColor = (c: Cell) => {
+              const scored = c.pos + c.neu + c.neg;
+              if (!scored) return '#9ca3af';
+              const net = (c.pos - c.neg) / scored;
+              return net > 0.2 ? '#10b981' : net < -0.2 ? '#ef4444' : '#f59e0b';
+            };
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Brand swimlanes <span className="text-xs font-normal text-gray-400">{weekly ? 'weekly' : 'daily'} post volume, colored by net sentiment</span></h3>
+                  {socialBrandFilter && (
+                    <button onClick={() => setSocialBrandFilter(null)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Clear brand filter ✕</button>
+                  )}
+                </div>
+                <div className="space-y-1.5 mt-2">
+                  {laneOrder.map(name => {
+                    const lane = lanes[name];
+                    const maxVol = Math.max(1, ...buckets.map(bk => lane.cells[bk]?.total || 0));
+                    const net = lane.scored ? Math.round(((lane.pos - lane.neg) / lane.scored) * 100) : null;
+                    const active = socialBrandFilter === name;
+                    return (
+                      <button key={name} onClick={() => setSocialBrandFilter(active ? null : name)}
+                        className={`w-full flex items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors ${active ? 'bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-300 dark:ring-blue-700' : 'hover:bg-gray-50 dark:hover:bg-gray-750'} ${socialBrandFilter && !active ? 'opacity-50' : ''}`}
+                        title={`${name}: ${lane.total} posts — click to ${active ? 'clear' : 'filter feed'}`}>
+                        <span className="w-32 text-xs font-medium text-gray-700 dark:text-gray-200 truncate flex-shrink-0">{name}</span>
+                        <span className={`w-12 text-[10px] font-semibold flex-shrink-0 ${net == null ? 'text-gray-400' : net > 0 ? 'text-emerald-600' : net < 0 ? 'text-red-600' : 'text-gray-500'}`}>{net == null ? '—' : `${net > 0 ? '+' : ''}${net}`}</span>
+                        <div className="flex-1 flex items-end gap-px h-7">
+                          {buckets.map(bk => {
+                            const c = lane.cells[bk];
+                            if (!c) return <div key={bk} className="flex-1 bg-gray-100 dark:bg-gray-700/50 rounded-sm" style={{ height: 3 }} />;
+                            const h = Math.max(4, Math.round((c.total / maxVol) * 28));
+                            return (
+                              <div key={bk} className="flex-1 rounded-sm" style={{ height: h, backgroundColor: cellColor(c), minWidth: 2 }}
+                                title={`${bk}${weekly ? ' (week)' : ''}: ${c.total} post${c.total === 1 ? '' : 's'} · ${c.pos}+ ${c.neu}· ${c.neg}−`} />
+                            );
+                          })}
+                        </div>
+                        <span className="w-10 text-[10px] text-gray-400 text-right flex-shrink-0">{lane.total}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-400">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: '#10b981' }} /> net positive</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: '#f59e0b' }} /> mixed</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: '#ef4444' }} /> net negative</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-gray-300 dark:bg-gray-600" /> unscored</span>
+                  <span>{buckets[0]} → today</span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Social honours the header Brand selector (defaults to the primary brand). Use
               that dropdown to focus one brand or pick "All brands" to compare. */}
@@ -3744,9 +4394,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 );
               })()}
 
-              {(socialAuthorFilter || socialDayFilter || socialThemeFilter) && (
+              {(socialAuthorFilter || socialDayFilter || socialThemeFilter || socialBrandFilter) && (
                 <div className="flex items-center gap-2 flex-wrap px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                   <span className="text-xs text-blue-700 dark:text-blue-300 font-medium">Filters:</span>
+                  {socialBrandFilter && (
+                    <button onClick={() => setSocialBrandFilter(null)} title="Clear brand filter"
+                      className="text-xs px-2 py-0.5 rounded-full border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 inline-flex items-center gap-1">
+                      {socialBrandFilter} <X className="w-3 h-3" />
+                    </button>
+                  )}
                   {socialAuthorFilter && (
                     <button onClick={() => setSocialAuthorFilter(null)} title="Clear author filter"
                       className="text-xs px-2 py-0.5 rounded-full border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 inline-flex items-center gap-1">
@@ -4391,21 +5047,61 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           ) : (
             <>
-              {/* Stats cards */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Articles</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.total_articles ?? 0}</p>
+              {/* Narrative report — the tab's main object; generation lives in its header */}
+              {loadingNarrative ? (
+                <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+              ) : (
+                <div id="narrative-report-card" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-gray-100 dark:border-gray-700 flex-wrap">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                        Brand Intelligence Report — {narrative?.brand_name || selectedBrand?.display_name || '—'}
+                      </h3>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        {narrative?.generated_at ? `Generated ${new Date(narrative.generated_at).toLocaleString()}` : 'Not generated yet'}
+                        {narrative?.data_summary?.total_articles != null && <> · {narrative.data_summary.total_articles.toLocaleString()} articles analyzed</>}
+                        {' · '}{config.daysBack === 0 ? 'all time' : `last ${config.daysBack} days`}
+                      </p>
+                    </div>
+                    {!exportingReport && (
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {narrative && <NarrativeExportButtons narrative={narrative} brandName={narrative.brand_name || selectedBrand?.display_name || 'brand'} />}
+                        <button
+                          onClick={handleGenerateNarrative}
+                          disabled={generatingNarrative}
+                          title="Rebuild the report from the current window's articles, risks, incidents, social and workforce data"
+                          className="text-xs px-3 py-1.5 rounded-md border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 inline-flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          {generatingNarrative ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                          {generatingNarrative ? 'Generating…' : narrative ? 'Regenerate' : 'Generate'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {narrative ? (
+                    <div className="px-6 py-5">{renderNarrativeReport()}</div>
+                  ) : (
+                    <div className="text-center py-12 px-6">
+                      <Sparkles className="w-8 h-8 mx-auto text-gray-300 mb-3" />
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 max-w-md mx-auto">
+                        No report yet for {selectedBrand?.display_name || 'this brand'}. Generation synthesizes the window's
+                        articles, risk findings, incidents, social pulse and workforce signal into an analyst-style narrative.
+                      </p>
+                      {!exportingReport && (
+                        <button
+                          onClick={handleGenerateNarrative}
+                          disabled={generatingNarrative}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {generatingNarrative ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                          {generatingNarrative ? 'Generating…' : 'Generate report'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Categories</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{categories.filter(c => c.article_count > 0).length}</p>
-                </div>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Brand</p>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{selectedBrand?.display_name || '—'}</p>
-                </div>
-              </div>
+              )}
 
               {/* Company Profile Card */}
               {selectedBrand && (
@@ -4473,38 +5169,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
               )}
 
-              {/* Generate / Regenerate button (hidden during export) */}
-              {!exportingReport && (
-                <button
-                  onClick={handleGenerateNarrative}
-                  disabled={generatingNarrative}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {generatingNarrative ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                  {narrative ? 'Regenerate Narrative' : 'Generate Narrative'}
-                </button>
-              )}
-
-              {/* Narrative display */}
-              {loadingNarrative && (
-                <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
-              )}
-              {narrative && !loadingNarrative && (
-                <div id="narrative-report-card" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      Brand Intelligence Report — {narrative.brand_name || selectedBrand?.display_name}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400">{narrative.generated_at ? new Date(narrative.generated_at).toLocaleString() : ''}</span>
-                      <NarrativeExportButtons narrative={narrative} brandName={narrative.brand_name || selectedBrand?.display_name || 'brand'} />
-                    </div>
-                  </div>
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300"
-                    dangerouslySetInnerHTML={{ __html: markdownToHtml(narrative.narrative) }}
-                  />
-                </div>
-              )}
             </>
           )}
         </div>
@@ -4682,6 +5346,327 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       </div>{/* end brand-watcher-export */}
+
+      {/* ==================== HELP TAB ==================== */}
+      {activeTab === 'help' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <DocViewer name="brand-watcher-help" />
+        </div>
+      )}
+
+      {/* ==================== WORKFORCE TAB ==================== */}
+      {activeTab === 'workforce' && (() => {
+        if (!primarySelectedId) {
+          return <div className="text-center py-12 text-sm text-gray-400">Select a brand to see its workforce picture.</div>;
+        }
+        const er = employeeRisk;
+        if (loadingEmployee && !er) {
+          return <div className="flex items-center justify-center py-12 gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading workforce data…</div>;
+        }
+        if (er && !er.glassdoor_enabled) {
+          return (
+            <div className="text-center py-12 space-y-3">
+              <Briefcase className="w-8 h-8 mx-auto text-gray-300" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">Glassdoor isn't enabled for {selectedBrand?.display_name || 'this brand'} yet.</p>
+              <button onClick={() => { setShowSourcesModal(true); setSourcesPollMsg(null); getOfficialSourcesStatus().then(setSourcesStatus).catch(console.error); }}
+                className="text-sm px-3 py-1.5 rounded-md bg-teal-600 text-white hover:bg-teal-700 inline-flex items-center gap-1.5">
+                <Landmark className="w-4 h-4" /> Enable Glassdoor in Sources
+              </button>
+            </div>
+          );
+        }
+        const ov = er?.overview || null;
+        const pct = (v?: number | null) => (v == null ? null : Math.round(v * 100));
+        const SUBS: Array<{ label: string; short: string; key: keyof BWGlassdoorOverview }> = [
+          { label: 'Work-life balance', short: 'Work-life', key: 'work_life_balance_rating' },
+          { label: 'Culture & values', short: 'Culture', key: 'culture_and_values_rating' },
+          { label: 'Compensation & benefits', short: 'Comp', key: 'compensation_and_benefits_rating' },
+          { label: 'Senior management', short: 'Sr. mgmt', key: 'senior_management_rating' },
+          { label: 'Career opportunities', short: 'Career', key: 'career_opportunities_rating' },
+          { label: 'Diversity & inclusion', short: 'D&I', key: 'diversity_and_inclusion_rating' },
+        ];
+        const comps = er?.competitors || [];
+        const compAvg = (key: keyof BWGlassdoorOverview) => {
+          const vals = comps.map(c => c.overview[key]).filter((v): v is number => typeof v === 'number');
+          return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        };
+        // Biggest sub-rating gap vs the best competitor (the takeaway line).
+        let gap: { sub: string; delta: number; vs: string } | null = null;
+        if (ov) {
+          for (const s of SUBS) {
+            const own = ov[s.key];
+            if (typeof own !== 'number') continue;
+            for (const c of comps) {
+              const cv = c.overview[s.key];
+              if (typeof cv !== 'number') continue;
+              const d = own - cv;
+              if (!gap || Math.abs(d) > Math.abs(gap.delta)) gap = { sub: s.label.toLowerCase(), delta: d, vs: c.brand_name };
+            }
+          }
+        }
+        const sentChip = (s?: string | null) => {
+          const lo = (s || '').toLowerCase();
+          const cls = lo.includes('neg') ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+            : lo.includes('pos') ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
+          return s ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${cls}`}>{s}</span> : null;
+        };
+        const parseReview = (r: { title: string; summary?: string | null }) => {
+          const m = r.title.match(/^Glassdoor review(?: \((\d)\/5\))?: (.*)$/);
+          const rating = m?.[1] ? parseInt(m[1], 10) : null;
+          const headline = m?.[2] || r.title;
+          const seg = (name: string) => {
+            const mm = (r.summary || '').match(new RegExp(`${name}: ([^|]*)(\\||$)`));
+            return mm ? mm[1].trim() : null;
+          };
+          return { rating, headline, role: seg('Role'), pros: seg('Pros'), cons: seg('Cons') };
+        };
+        const rs = er?.review_sentiment;
+        const chartData = SUBS.map(s => {
+          const row: any = { sub: s.short };
+          if (typeof ov?.[s.key] === 'number') row[selectedBrand?.display_name || 'Brand'] = ov[s.key];
+          comps.forEach(c => { if (typeof c.overview[s.key] === 'number') row[c.brand_name] = c.overview[s.key]; });
+          return row;
+        });
+        const chartBrands = [
+          { name: selectedBrand?.display_name || 'Brand', color: '#2563eb' },
+          ...comps.map(c => ({ name: c.brand_name, color: c.color || '#94a3b8' })),
+        ];
+        // Change vs the oldest snapshot within ~35 days — the deterioration lens.
+        const hist = er?.history || [];
+        const histDelta = (key: 'rating' | 'business_outlook_rating' | 'ceo_rating' | 'recommend_to_friend_rating') => {
+          if (hist.length < 2) return null;
+          const latest = hist[hist.length - 1];
+          const cutoff = new Date(new Date(`${latest.date}T00:00:00Z`).getTime() - 35 * 86400000).toISOString().slice(0, 10);
+          const base = hist.find(h => h.date >= cutoff) || hist[0];
+          if (base.date === latest.date) return null;
+          const a = base[key], b = latest[key];
+          if (typeof a !== 'number' || typeof b !== 'number') return null;
+          return { delta: b - a, since: base.date };
+        };
+        const deltaChip = (d: { delta: number; since: string } | null, asPct: boolean) => {
+          if (!d || Math.abs(d.delta) < (asPct ? 0.005 : 0.05)) return null;
+          const v = asPct ? `${Math.abs(Math.round(d.delta * 100))}pts` : Math.abs(d.delta).toFixed(1);
+          return (
+            <span className={`text-[10px] font-semibold ${d.delta < 0 ? 'text-red-500' : 'text-emerald-600'}`} title={`vs ${d.since}`}>
+              {d.delta < 0 ? '▼' : '▲'}{v}
+            </span>
+          );
+        };
+        return (
+          <div className="space-y-4">
+            {/* 1. Aggregate rating cards */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Glassdoor — {ov?.name || selectedBrand?.display_name}{ov?.review_count ? ` · ${ov.review_count.toLocaleString()} reviews` : ''}
+                </span>
+                <button onClick={() => { setLoadingEmployee(true); getEmployeeRisk(primarySelectedId, config.daysBack, true).then(setEmployeeRisk).catch(console.error).finally(() => setLoadingEmployee(false)); }}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1">
+                  <RefreshCw className={`w-3 h-3 ${loadingEmployee ? 'animate-spin' : ''}`} /> Refresh
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: 'Overall rating', value: ov?.rating != null ? `${ov.rating}/5` : '—', sub: ov?.industry || '', tone: ov?.rating != null ? (ov.rating >= 3.5 ? 1 : ov.rating < 3 ? -1 : 0) : null, d: deltaChip(histDelta('rating'), false) },
+                  { label: 'CEO approval', value: pct(ov?.ceo_rating) != null ? `${pct(ov?.ceo_rating)}%` : '—', sub: ov?.ceo || '', tone: pct(ov?.ceo_rating) != null ? (pct(ov?.ceo_rating)! >= 70 ? 1 : pct(ov?.ceo_rating)! < 50 ? -1 : 0) : null, d: deltaChip(histDelta('ceo_rating'), true) },
+                  { label: 'Business outlook', value: pct(ov?.business_outlook_rating) != null ? `${pct(ov?.business_outlook_rating)}%` : '—', sub: 'positive outlook', tone: pct(ov?.business_outlook_rating) != null ? (pct(ov?.business_outlook_rating)! >= 60 ? 1 : pct(ov?.business_outlook_rating)! < 45 ? -1 : 0) : null, d: deltaChip(histDelta('business_outlook_rating'), true) },
+                  { label: 'Recommend to friend', value: pct(ov?.recommend_to_friend_rating) != null ? `${pct(ov?.recommend_to_friend_rating)}%` : '—', sub: ov?.company_size || '', tone: pct(ov?.recommend_to_friend_rating) != null ? (pct(ov?.recommend_to_friend_rating)! >= 70 ? 1 : pct(ov?.recommend_to_friend_rating)! < 50 ? -1 : 0) : null, d: deltaChip(histDelta('recommend_to_friend_rating'), true) },
+                ].map(c => (
+                  <div key={c.label} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3.5">
+                    <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">{c.label}</div>
+                    <div className={`text-2xl font-bold mt-0.5 flex items-baseline gap-1.5 ${c.tone == null ? 'text-gray-900 dark:text-gray-100' : c.tone > 0 ? 'text-emerald-600' : c.tone < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{c.value}{c.d}</div>
+                    {c.sub && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{c.sub}</div>}
+                  </div>
+                ))}
+              </div>
+              {!ov && !loadingEmployee && (
+                <p className="text-xs text-gray-400 mt-2">No Glassdoor aggregates yet — the company may not have resolved. Set <code>glassdoor_company_id</code> on the brand if the match failed.</p>
+              )}
+            </div>
+
+            {/* 2+3. Sub-ratings vs competitor avg + competitor comparison */}
+            {ov && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">Sub-ratings <span className="text-xs font-normal text-gray-400">vs competitor average</span></h3>
+                  <div className="space-y-2">
+                    {SUBS.map(s => {
+                      const own = ov[s.key];
+                      if (typeof own !== 'number') return null;
+                      const avg = compAvg(s.key);
+                      return (
+                        <div key={s.key as string} className="flex items-center gap-2">
+                          <span className="w-40 text-xs text-gray-600 dark:text-gray-300 flex-shrink-0">{s.label}</span>
+                          <div className="flex-1 h-3.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden relative">
+                            <div className={`h-full rounded-full ${own >= 3.5 ? 'bg-emerald-500' : own < 3 ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${(own / 5) * 100}%` }} />
+                            {avg != null && (
+                              <div className="absolute top-0 bottom-0 w-0.5 bg-gray-800 dark:bg-gray-100" style={{ left: `${(avg / 5) * 100}%` }} title={`Competitor avg ${avg.toFixed(1)}`} />
+                            )}
+                          </div>
+                          <span className="w-8 text-xs font-mono text-gray-500 text-right flex-shrink-0">{own.toFixed(1)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {comps.length > 0 && <p className="text-[11px] text-gray-400 mt-2">Dark tick = average across {comps.map(c => c.brand_name).join(', ')}.</p>}
+                </div>
+                <div id="chart-workforce-competitors" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Employer ratings vs competitors</h3>
+                    <ChartDownloadButton targetId="chart-workforce-competitors" filename="workforce-competitors" />
+                  </div>
+                  {comps.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-6 text-center">No competitor Glassdoor data yet — enable Glassdoor for competitor brands in Sources.</p>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto mb-2">
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-gray-400 text-left">
+                            <th className="py-1 pr-2 font-medium">Brand</th><th className="py-1 pr-2 font-medium">Overall</th>
+                            <th className="py-1 pr-2 font-medium">Outlook</th><th className="py-1 pr-2 font-medium">CEO</th><th className="py-1 font-medium">Recommend</th>
+                          </tr></thead>
+                          <tbody>
+                            {[{ brand_id: primarySelectedId, brand_name: selectedBrand?.display_name || 'Brand', overview: ov }, ...comps].map((c: any) => (
+                              <tr key={c.brand_id} className={`border-t border-gray-100 dark:border-gray-700 ${c.brand_id === primarySelectedId ? 'font-semibold' : ''}`}>
+                                <td className="py-1 pr-2 text-gray-700 dark:text-gray-200">{c.brand_name}</td>
+                                <td className="py-1 pr-2">{c.overview.rating != null ? `${c.overview.rating}/5` : '—'}</td>
+                                <td className="py-1 pr-2">{pct(c.overview.business_outlook_rating) != null ? `${pct(c.overview.business_outlook_rating)}%` : '—'}</td>
+                                <td className="py-1 pr-2">{pct(c.overview.ceo_rating) != null ? `${pct(c.overview.ceo_rating)}%` : '—'}</td>
+                                <td className="py-1">{pct(c.overview.recommend_to_friend_rating) != null ? `${pct(c.overview.recommend_to_friend_rating)}%` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -22 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="opacity-40" />
+                          <XAxis dataKey="sub" tick={{ fontSize: 10.5 }} />
+                          <YAxis domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} tick={{ fontSize: 10.5 }} />
+                          <Tooltip />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          {chartBrands.map(b => <Bar key={b.name} dataKey={b.name} fill={b.color} radius={[2, 2, 0, 0]} />)}
+                        </BarChart>
+                      </ResponsiveContainer>
+                      {gap && Math.abs(gap.delta) >= 0.3 && (
+                        <p className={`text-xs mt-1.5 ${gap.delta < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                          {gap.delta < 0
+                            ? `${selectedBrand?.display_name} trails ${gap.vs} by ${Math.abs(gap.delta).toFixed(1)} on ${gap.sub}.`
+                            : `${selectedBrand?.display_name} leads ${gap.vs} by ${gap.delta.toFixed(1)} on ${gap.sub}.`}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3b. Ratings over time — daily snapshots so deterioration is visible */}
+            {(() => {
+              const pts = hist.filter(h => h.rating != null || h.business_outlook_rating != null);
+              if (pts.length < 2) {
+                return ov ? (
+                  <p className="text-[11px] text-gray-400 px-1">
+                    Ratings history: {pts.length === 1 ? `tracking since ${pts[0].date} — the trend line appears after a few daily snapshots.` : 'snapshots start with the next Glassdoor refresh.'}
+                    {' '}A deterioration alert fires automatically when the overall rating drops ≥ 0.2 or business outlook drops ≥ 10pts within ~a month.
+                  </p>
+                ) : null;
+              }
+              const data = pts.map(h => ({
+                date: h.date.slice(5),
+                rating: h.rating ?? null,
+                outlook: h.business_outlook_rating != null ? Math.round(h.business_outlook_rating * 100) : null,
+                ceo: h.ceo_rating != null ? Math.round(h.ceo_rating * 100) : null,
+                recommend: h.recommend_to_friend_rating != null ? Math.round(h.recommend_to_friend_rating * 100) : null,
+              }));
+              return (
+                <div id="chart-workforce-history" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ratings over time <span className="text-xs font-normal text-gray-400">daily snapshots</span></h3>
+                    <ChartDownloadButton targetId="chart-workforce-history" filename="glassdoor-ratings-over-time" />
+                  </div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -22 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-40" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10.5 }} />
+                      <YAxis yAxisId="r" domain={[0, 5]} ticks={[0, 1, 2, 3, 4, 5]} tick={{ fontSize: 10.5 }} />
+                      <YAxis yAxisId="p" orientation="right" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fontSize: 10.5 }} />
+                      <Tooltip formatter={(v: any, name: any) => [name === 'Overall rating' ? `${v}/5` : `${v}%`, name]} />
+                      <Legend wrapperStyle={{ fontSize: 11.5 }} />
+                      <Line yAxisId="r" type="monotone" dataKey="rating" name="Overall rating" stroke="#2563eb" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                      <Line yAxisId="p" type="monotone" dataKey="outlook" name="Business outlook %" stroke="#f59e0b" strokeWidth={1.5} dot={{ r: 2 }} connectNulls />
+                      <Line yAxisId="p" type="monotone" dataKey="ceo" name="CEO approval %" stroke="#10b981" strokeWidth={1.5} dot={{ r: 2 }} connectNulls />
+                      <Line yAxisId="p" type="monotone" dataKey="recommend" name="Recommend %" stroke="#9333ea" strokeWidth={1.5} dot={{ r: 2 }} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <p className="text-[11px] text-gray-400 mt-1">Left axis: overall rating (0–5). Right axis: percentages. The <b>Glassdoor deterioration</b> alert rule watches this series (default: rating −0.2 or outlook −10pts within 35 days).</p>
+                </div>
+              );
+            })()}
+
+            {/* 4+5. Review stream + workforce risk findings */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Recent employee reviews</h3>
+                  {rs && rs.scored > 0 && (
+                    <span className="text-xs text-gray-400">{rs.pos}+ {rs.neu}· {rs.neg}− {rs.net != null && <span className={`font-semibold ${rs.net > 0 ? 'text-emerald-600' : rs.net < 0 ? 'text-red-600' : ''}`}>net {rs.net > 0 ? '+' : ''}{rs.net}</span>}</span>
+                  )}
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[480px] overflow-y-auto">
+                  {(er?.reviews || []).map(r => {
+                    const pr = parseReview(r);
+                    return (
+                      <div key={r.uri} className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          {pr.rating != null && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${pr.rating >= 4 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : pr.rating <= 2 ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>{pr.rating}★</span>
+                          )}
+                          <a href={r.uri} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-800 dark:text-gray-100 hover:text-blue-600 font-medium truncate">{pr.headline}</a>
+                        </div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">{pr.role && <span>{pr.role} · </span>}{(r.publication_date || '').slice(0, 10)}</div>
+                        {pr.pros && <div className="text-xs text-gray-600 dark:text-gray-300 mt-1"><span className="text-emerald-600 font-medium">Pros:</span> {pr.pros.slice(0, 180)}</div>}
+                        {pr.cons && <div className="text-xs text-gray-600 dark:text-gray-300 mt-0.5"><span className="text-red-500 font-medium">Cons:</span> {pr.cons.slice(0, 180)}</div>}
+                      </div>
+                    );
+                  })}
+                  {(er?.reviews || []).length === 0 && <p className="px-4 py-6 text-center text-xs text-gray-400">No reviews landed yet — the daily poll pulls the most recent ones.</p>}
+                </div>
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Workforce risk findings <span className="text-xs font-normal text-gray-400">strikes, disputes, layoffs, tribunals</span></h3>
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[480px] overflow-y-auto">
+                  {(er?.workforce_risks || []).map(w => (
+                    <div key={`${w.uri}`} className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase ${w.severity === 'high' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : w.severity === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>{w.severity}</span>
+                        <a href={w.uri} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-800 dark:text-gray-100 hover:text-blue-600 truncate">{w.title}</a>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5">
+                        <span>{w.news_source || ''} · {(w.publication_date || '').slice(0, 10)}</span>
+                        {sentChip(w.case_status !== 'new' ? w.case_status : null)}
+                        <select value={w.case_status} onChange={e => {
+                            const st = e.target.value;
+                            setFindingState(w.uri, primarySelectedId, st).then(() => {
+                              setEmployeeRisk(prev => prev ? { ...prev, workforce_risks: prev.workforce_risks.map(x => x.uri === w.uri ? { ...x, case_status: st } : x) } : prev);
+                            }).catch(console.error);
+                          }}
+                          className="text-[10px] bg-transparent border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-gray-500">
+                          {['new', 'reviewed', 'escalated', 'dismissed'].map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                  {(er?.workforce_risks || []).length === 0 && <p className="px-4 py-6 text-center text-xs text-gray-400">No workforce risk findings. 🎉</p>}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {activeTab === 'incidents' && (
         <div className="space-y-4">
@@ -5205,7 +6190,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <option value="all">Everything (incl. not-yet-evaluated)</option>
                 </select>
               </div>
-              <p className="text-[11px] text-gray-400">Fetches the full matching set (not the on-screen sample). CSV is ordered by brand (primary first), then sentiment, then newest.</p>
+              <p className="text-[11px] text-gray-400">Fetches the full matching set (not the on-screen sample). CSV is ordered by brand (primary first), then sentiment, then newest. Authors with a built Account Profile get followers/verified/tags/note/summary columns.</p>
             </div>
             <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
               <button onClick={() => setShowSocialExport(false)} className="text-sm px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300">Cancel</button>
@@ -5710,12 +6695,28 @@ ${markdownToHtml(narrative.narrative)}
 // Simple markdown to HTML converter for narratives
 function markdownToHtml(md: string): string {
   if (!md) return '';
-  return md
-    .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold mt-6 mb-2">$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3 class="text-base font-semibold mt-4 mb-2">$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300">$1</a>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-    .replace(/\n\n/g, '</p><p class="mt-2">')
-    .replace(/\n/g, '<br />');
+  const lines = md.replace(/\r/g, '').split('\n');
+  const out: string[] = [];
+  let inList = false;
+  const inline = (t: string) => t
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:underline">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-gray-900 dark:text-gray-100">$1</strong>')
+    .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { closeList(); continue; }
+    let m: RegExpMatchArray | null;
+    if ((m = line.match(/^###\s+(.*)/))) { closeList(); out.push(`<h4 class="text-sm font-semibold mt-4 mb-1.5 text-gray-800 dark:text-gray-100">${inline(m[1])}</h4>`); }
+    else if ((m = line.match(/^##\s+(.*)/))) { closeList(); out.push(`<h3 class="text-base font-semibold mt-6 mb-2 text-gray-900 dark:text-gray-100">${inline(m[1])}</h3>`); }
+    else if ((m = line.match(/^#\s+(.*)/))) { closeList(); out.push(`<h2 class="text-lg font-bold mb-2 text-gray-900 dark:text-gray-100">${inline(m[1])}</h2>`); }
+    else if ((m = line.match(/^[-*]\s+(.*)/))) {
+      if (!inList) { out.push('<ul class="my-2 space-y-1.5">'); inList = true; }
+      out.push(`<li class="flex gap-2"><span class="text-blue-400 flex-shrink-0 leading-relaxed">▪</span><span class="leading-relaxed">${inline(m[1])}</span></li>`);
+    }
+    else { closeList(); out.push(`<p class="my-2 leading-relaxed">${inline(line)}</p>`); }
+  }
+  closeList();
+  return out.join('');
 }

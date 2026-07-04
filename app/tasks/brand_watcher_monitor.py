@@ -447,6 +447,8 @@ _ADVERSE_RULE_DEFAULTS = {
     "new_critic":          {"enabled": True, "recent_hours": 48, "min_recent_neg": 2,
                             "min_engagement_single": 50, "lookback_days": 30},
     "coordinated_negative": {"enabled": True, "window_hours": 72, "min_authors": 3},
+    "glassdoor_deterioration": {"enabled": True, "rating_drop": 0.2, "outlook_drop": 0.10,
+                                "lookback_days": 35, "min_span_days": 7},
 }
 
 _NEG_SENT_SQL = "(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%' OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')"
@@ -710,6 +712,48 @@ def evaluate_adverse_alerts(db) -> int:
                             {"authors": authors, "posts": n, "signature": sig[:80]},
                             f"coordinated_negative|{bid}|{sig[:60]}|{bucket}"):
                         created += 1
+
+            # 9) Glassdoor deterioration: latest snapshot vs the oldest within the
+            # lookback window. Employer ratings move slowly — a 0.2 drop or a
+            # 10-point outlook slide inside ~a month is a real signal.
+            rc = rule("glassdoor_deterioration")
+            if rc.get("enabled"):
+                snaps = conn.execute(_text("""
+                    (SELECT snapshot_date, data FROM bw_glassdoor_snapshots
+                     WHERE brand_id = :b
+                       AND snapshot_date >= CURRENT_DATE - (:lb || ' days')::interval
+                     ORDER BY snapshot_date ASC LIMIT 1)
+                    UNION ALL
+                    (SELECT snapshot_date, data FROM bw_glassdoor_snapshots
+                     WHERE brand_id = :b ORDER BY snapshot_date DESC LIMIT 1)
+                """), {"b": bid, "lb": str(rc["lookback_days"])}).fetchall()
+                if len(snaps) == 2 and snaps[0][0] != snaps[1][0]:
+                    (d_old, old_data), (d_new, new_data) = snaps
+                    if (d_new - d_old).days >= rc.get("min_span_days", 7):
+                        o = old_data if isinstance(old_data, dict) else _json.loads(old_data or "{}")
+                        n2 = new_data if isinstance(new_data, dict) else _json.loads(new_data or "{}")
+                        drops = []
+                        try:
+                            r_old, r_new = o.get("rating"), n2.get("rating")
+                            if r_old is not None and r_new is not None and (r_old - r_new) >= rc["rating_drop"]:
+                                drops.append(f"overall rating {r_old} → {r_new}")
+                            ol_old, ol_new = o.get("business_outlook_rating"), n2.get("business_outlook_rating")
+                            if ol_old is not None and ol_new is not None and (ol_old - ol_new) >= rc["outlook_drop"]:
+                                drops.append(f"business outlook {round(ol_old*100)}% → {round(ol_new*100)}%")
+                        except TypeError:
+                            drops = []
+                        if drops:
+                            if _insert_alert_event(conn, bid, "glassdoor_deterioration", "medium",
+                                    f"{bname}: Glassdoor employer ratings deteriorating",
+                                    f"Since {d_old}: " + "; ".join(drops)
+                                    + ". Employer ratings move slowly — a slide this size in "
+                                    f"{(d_new - d_old).days} days usually reflects a real internal shift.",
+                                    {"from": str(d_old), "to": str(d_new),
+                                     "rating_old": o.get("rating"), "rating_new": n2.get("rating"),
+                                     "outlook_old": o.get("business_outlook_rating"),
+                                     "outlook_new": n2.get("business_outlook_rating")},
+                                    f"glassdoor_deterioration|{bid}|{bucket}"):
+                                created += 1
 
         conn.commit()
         # Push whatever is new through the configured channels.
