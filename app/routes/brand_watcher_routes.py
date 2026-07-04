@@ -4332,7 +4332,8 @@ async def list_alert_events(limit: int = Query(50, ge=1, le=200), unacked_only: 
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
-        where = "WHERE acknowledged_at IS NULL" if unacked_only else ""
+        # rule='digest' rows are send-idempotence bookkeeping, not adverse alerts.
+        where = "WHERE e.rule <> 'digest'" + (" AND acknowledged_at IS NULL" if unacked_only else "")
         rows = conn.execute(text(f"""
             SELECT e.id, e.brand_id, b.display_name, e.rule, e.severity, e.title, e.body,
                    e.payload, e.delivered, e.acknowledged_by, e.acknowledged_at, e.created_at
@@ -4497,5 +4498,348 @@ async def get_story_siblings(group_id: str = Query(...), brand_id: Optional[int]
             "publication_date": r[4], "bias": r[5], "factual_reporting": r[6],
             "sentiment": r[7],
         } for r in rows]}
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Incident management + evidence locker
+# ============================================================================
+# Incidents group adverse findings into managed cases. Evidence is captured
+# SERVER-SIDE at attach time (the client only names the source) and stored as
+# an immutable snapshot with a sha256 chained to the previous item — sources
+# get deleted or edited; the locker entry is the durable, tamper-evident record.
+
+INCIDENT_STATUSES = ["open", "investigating", "contained", "resolved", "closed"]
+INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"]
+
+
+class IncidentCreate(BaseModel):
+    brand_id: int
+    title: str
+    description: Optional[str] = None
+    severity: str = "medium"
+
+
+class IncidentUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    owner: Optional[str] = None
+    note: Optional[str] = None  # optional context recorded with the change
+
+
+class IncidentNote(BaseModel):
+    note: str
+
+
+class EvidenceAttach(BaseModel):
+    evidence_type: str            # article | alert_event | risk_finding | note | url
+    source_ref: Optional[str] = None   # article uri / alert event id / risk id / url
+    title: Optional[str] = None        # for manual note/url evidence
+    content: Optional[str] = None      # for manual note evidence
+
+
+def _incident_actor(session) -> str:
+    return str((session or {}).get("sub") or (session or {}).get("username") or "user")[:100]
+
+
+def _incident_event(conn, incident_id: int, kind: str, actor: str,
+                    old_value=None, new_value=None, note=None):
+    conn.execute(text("""
+        INSERT INTO bw_incident_events (incident_id, kind, actor, old_value, new_value, note)
+        VALUES (:i, :k, :a, :o, :n, :nt)
+    """), {"i": incident_id, "k": kind, "a": actor,
+           "o": str(old_value) if old_value is not None else None,
+           "n": str(new_value) if new_value is not None else None, "nt": note})
+
+
+def _capture_evidence(conn, incident_id: int, req: "EvidenceAttach", actor: str) -> dict:
+    """Snapshot the referenced source NOW and append it to the incident's hash chain."""
+    import hashlib
+    etype = req.evidence_type
+    title, content, meta = req.title, req.content, {}
+    if etype == "article":
+        if not req.source_ref:
+            raise HTTPException(status_code=400, detail="source_ref (article uri) required")
+        row = conn.execute(text("""
+            SELECT title, summary, news_source, publication_date, sentiment, topic,
+                   topic_alignment_score, factual_reporting, bias, social_meta
+            FROM articles WHERE uri = :u
+        """), {"u": req.source_ref}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Article not found")
+        title = row[0]
+        content = f"{row[0] or ''}\n\n{row[1] or ''}"
+        meta = {"news_source": row[2], "publication_date": row[3], "sentiment": row[4],
+                "topic": row[5], "relevance": row[6], "factual_reporting": row[7],
+                "bias": row[8], "social_meta": row[9], "uri": req.source_ref}
+        risks = conn.execute(text(
+            "SELECT risk_type, severity, confidence FROM bw_article_risks WHERE article_uri = :u"
+        ), {"u": req.source_ref}).fetchall()
+        if risks:
+            meta["risks"] = [{"risk_type": r[0], "severity": r[1], "confidence": r[2]} for r in risks]
+    elif etype == "alert_event":
+        row = conn.execute(text("""
+            SELECT rule, severity, title, body, payload, created_at
+            FROM bw_alert_events WHERE id = :i
+        """), {"i": int(req.source_ref or 0)}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Alert event not found")
+        title = row[2]
+        content = f"{row[2] or ''}\n\n{row[3] or ''}"
+        meta = {"rule": row[0], "severity": row[1], "payload": row[4],
+                "created_at": row[5].isoformat() if row[5] else None, "event_id": req.source_ref}
+    elif etype in ("note", "url"):
+        if not (req.content or req.source_ref):
+            raise HTTPException(status_code=400, detail="content or source_ref required")
+        title = req.title or (req.source_ref or "manual note")[:120]
+        content = req.content or req.source_ref or ""
+        meta = {"url": req.source_ref} if etype == "url" else {}
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown evidence_type: {etype}")
+
+    prev = conn.execute(text("""
+        SELECT chain_sha256 FROM bw_incident_evidence
+        WHERE incident_id = :i ORDER BY id DESC LIMIT 1
+    """), {"i": incident_id}).fetchone()
+    prev_chain = prev[0] if prev else ""
+    meta_json = json.dumps(meta, sort_keys=True, default=str)
+    content_sha = hashlib.sha256(f"{content}|{meta_json}".encode()).hexdigest()
+    chain_sha = hashlib.sha256(f"{prev_chain}|{content_sha}".encode()).hexdigest()
+    row = conn.execute(text("""
+        INSERT INTO bw_incident_evidence
+            (incident_id, evidence_type, source_ref, title, content, meta,
+             content_sha256, chain_sha256, captured_by)
+        VALUES (:i, :t, :r, :ti, :c, :m, :cs, :ch, :a)
+        RETURNING id, captured_at
+    """), {"i": incident_id, "t": etype, "r": req.source_ref, "ti": (title or "")[:300],
+           "c": content, "m": meta_json, "cs": content_sha, "ch": chain_sha, "a": actor}).fetchone()
+    _incident_event(conn, incident_id, "evidence_added", actor,
+                    new_value=etype, note=(title or "")[:200])
+    return {"id": row[0], "content_sha256": content_sha, "chain_sha256": chain_sha,
+            "captured_at": row[1].isoformat() if row[1] else None}
+
+
+@router.post("/incidents", status_code=201)
+async def create_incident(req: IncidentCreate, session=Depends(verify_session)):
+    if req.severity not in INCIDENT_SEVERITIES:
+        raise HTTPException(status_code=400, detail="Invalid severity")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        actor = _incident_actor(session)
+        row = conn.execute(text("""
+            INSERT INTO bw_incidents (brand_id, title, description, severity, created_by, owner)
+            VALUES (:b, :t, :d, :s, :a, :a)
+            RETURNING id
+        """), {"b": req.brand_id, "t": req.title.strip()[:300], "d": req.description,
+               "s": req.severity, "a": actor}).fetchone()
+        _incident_event(conn, row[0], "created", actor, new_value=req.severity)
+        conn.commit()
+        return {"id": row[0]}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/incidents")
+async def list_incidents(status: Optional[str] = Query(None), brand_id: Optional[int] = Query(None),
+                         limit: int = Query(50, ge=1, le=200), session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        clauses, params = [], {"lim": limit}
+        if status:
+            clauses.append("i.status = :st"); params["st"] = status
+        if brand_id:
+            clauses.append("i.brand_id = :b"); params["b"] = brand_id
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = conn.execute(text(f"""
+            SELECT i.id, i.brand_id, b.display_name, i.title, i.severity, i.status,
+                   i.owner, i.created_at, i.updated_at, i.resolved_at,
+                   (SELECT COUNT(*) FROM bw_incident_evidence e WHERE e.incident_id = i.id) AS evidence_count,
+                   (SELECT COUNT(*) FROM bw_incident_events ev WHERE ev.incident_id = i.id) AS event_count
+            FROM bw_incidents i JOIN bw_brands b ON b.id = i.brand_id
+            {where}
+            ORDER BY CASE i.status WHEN 'open' THEN 0 WHEN 'investigating' THEN 1
+                     WHEN 'contained' THEN 2 WHEN 'resolved' THEN 3 ELSE 4 END,
+                     CASE i.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                     WHEN 'medium' THEN 2 ELSE 3 END, i.updated_at DESC
+            LIMIT :lim
+        """), params).fetchall()
+        return {"incidents": [{
+            "id": r[0], "brand_id": r[1], "brand_name": r[2], "title": r[3],
+            "severity": r[4], "status": r[5], "owner": r[6],
+            "created_at": r[7].isoformat() if r[7] else None,
+            "updated_at": r[8].isoformat() if r[8] else None,
+            "resolved_at": r[9].isoformat() if r[9] else None,
+            "evidence_count": r[10], "event_count": r[11],
+        } for r in rows]}
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/{incident_id}")
+async def get_incident(incident_id: int, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        r = conn.execute(text("""
+            SELECT i.id, i.brand_id, b.display_name, i.title, i.description, i.severity,
+                   i.status, i.owner, i.created_by, i.created_at, i.updated_at, i.resolved_at
+            FROM bw_incidents i JOIN bw_brands b ON b.id = i.brand_id WHERE i.id = :i
+        """), {"i": incident_id}).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        events = conn.execute(text("""
+            SELECT kind, actor, old_value, new_value, note, at
+            FROM bw_incident_events WHERE incident_id = :i ORDER BY at DESC, id DESC LIMIT 200
+        """), {"i": incident_id}).fetchall()
+        evidence = conn.execute(text("""
+            SELECT id, evidence_type, source_ref, title, content, meta,
+                   content_sha256, chain_sha256, captured_by, captured_at
+            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+        """), {"i": incident_id}).fetchall()
+        def _j(v):
+            if v is None or isinstance(v, (dict, list)):
+                return v
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return {
+            "id": r[0], "brand_id": r[1], "brand_name": r[2], "title": r[3],
+            "description": r[4], "severity": r[5], "status": r[6], "owner": r[7],
+            "created_by": r[8],
+            "created_at": r[9].isoformat() if r[9] else None,
+            "updated_at": r[10].isoformat() if r[10] else None,
+            "resolved_at": r[11].isoformat() if r[11] else None,
+            "timeline": [{"kind": e[0], "actor": e[1], "old_value": e[2], "new_value": e[3],
+                          "note": e[4], "at": e[5].isoformat() if e[5] else None} for e in events],
+            "evidence": [{"id": e[0], "evidence_type": e[1], "source_ref": e[2], "title": e[3],
+                          "content": e[4], "meta": _j(e[5]), "content_sha256": e[6],
+                          "chain_sha256": e[7], "captured_by": e[8],
+                          "captured_at": e[9].isoformat() if e[9] else None} for e in evidence],
+        }
+    finally:
+        conn.close()
+
+
+@router.put("/incidents/{incident_id}")
+async def update_incident(incident_id: int, req: IncidentUpdate, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        cur = conn.execute(text(
+            "SELECT title, description, severity, status, owner FROM bw_incidents WHERE id = :i"
+        ), {"i": incident_id}).fetchone()
+        if not cur:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        actor = _incident_actor(session)
+        sets, params = [], {"i": incident_id}
+        if req.status is not None and req.status != cur[3]:
+            if req.status not in INCIDENT_STATUSES:
+                raise HTTPException(status_code=400, detail="Invalid status")
+            sets.append("status = :st"); params["st"] = req.status
+            if req.status in ("resolved", "closed"):
+                sets.append("resolved_at = COALESCE(resolved_at, NOW())")
+            _incident_event(conn, incident_id, "status_change", actor, cur[3], req.status, req.note)
+        if req.severity is not None and req.severity != cur[2]:
+            if req.severity not in INCIDENT_SEVERITIES:
+                raise HTTPException(status_code=400, detail="Invalid severity")
+            sets.append("severity = :sv"); params["sv"] = req.severity
+            _incident_event(conn, incident_id, "severity_change", actor, cur[2], req.severity, req.note)
+        if req.owner is not None and req.owner != cur[4]:
+            sets.append("owner = :ow"); params["ow"] = req.owner[:100]
+            _incident_event(conn, incident_id, "owner_change", actor, cur[4], req.owner, req.note)
+        if req.title is not None and req.title.strip() and req.title != cur[0]:
+            sets.append("title = :ti"); params["ti"] = req.title.strip()[:300]
+        if req.description is not None and req.description != cur[1]:
+            sets.append("description = :de"); params["de"] = req.description
+        if sets:
+            conn.execute(text(f"UPDATE bw_incidents SET {', '.join(sets)}, updated_at = NOW() WHERE id = :i"), params)
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/note")
+async def add_incident_note(incident_id: int, req: IncidentNote, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        _incident_event(conn, incident_id, "note", _incident_actor(session), note=req.note[:2000])
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback(); raise
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/evidence", status_code=201)
+async def attach_evidence(incident_id: int, req: EvidenceAttach, session=Depends(verify_session)):
+    """Capture a server-side snapshot of the source into the incident's evidence chain.
+    Evidence is append-only by design — there is no update or delete endpoint."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        result = _capture_evidence(conn, incident_id, req, _incident_actor(session))
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/{incident_id}/verify-chain")
+async def verify_evidence_chain(incident_id: int, session=Depends(verify_session)):
+    """Recompute the evidence hash chain and report whether it is intact."""
+    import hashlib
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        rows = conn.execute(text("""
+            SELECT id, content, meta, content_sha256, chain_sha256
+            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+        """), {"i": incident_id}).fetchall()
+        prev_chain = ""
+        broken = []
+        for rid, content, meta, csha, chsha in rows:
+            meta_json = meta if isinstance(meta, str) else json.dumps(meta or {}, sort_keys=True, default=str)
+            # meta round-trips through JSONB, so recompute from the canonical form
+            try:
+                meta_json = json.dumps(meta if isinstance(meta, (dict, list)) else json.loads(meta or "{}"),
+                                       sort_keys=True, default=str)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            expect_c = hashlib.sha256(f"{content}|{meta_json}".encode()).hexdigest()
+            expect_ch = hashlib.sha256(f"{prev_chain}|{expect_c}".encode()).hexdigest()
+            if expect_c != csha or expect_ch != chsha:
+                broken.append(rid)
+            prev_chain = chsha
+        return {"items": len(rows), "intact": not broken, "broken_ids": broken}
     finally:
         conn.close()

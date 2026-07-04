@@ -8,6 +8,7 @@ one key per calendar period), so restarts and multi-cycle checks can't double-se
 """
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -139,14 +140,18 @@ def maybe_send_digest(db) -> bool:
             if not svc.is_available():
                 logger.warning("bw digest skipped: email service not configured")
                 return False
+            # The text/plain alternative must NOT carry markdown syntax — clients
+            # that prefer (or preview) the text part would show it literally.
+            text_body = re.sub(r"^### (.+)$", r"\1", body_md, flags=re.MULTILINE)
+            text_body = text_body.replace("**", "").replace("_Quiet period", "Quiet period").rstrip("_")
             ok = svc.send_email(
                 to_addresses=recipients,
                 subject=f"[AuNoo AI] {title}",
                 body_html=markdown_to_html(f"## {title}\n\n{body_md}"),
-                body_text=f"{title}\n\n{body_md}",
+                body_text=f"{title}\n\n{text_body}",
             )
             conn.execute(text("UPDATE bw_alert_events SET delivered = :d, body = :b WHERE id = :i"),
-                         {"d": json.dumps({"email": bool(ok)}), "b": body_md[:5000], "i": claimed[0]})
+                         {"d": json.dumps({"email": bool(ok)}), "b": text_body[:5000], "i": claimed[0]})
             conn.commit()
             logger.info(f"bw digest sent to {len(recipients)} recipient(s): {bool(ok)}")
             return bool(ok)

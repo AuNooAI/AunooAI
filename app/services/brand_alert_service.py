@@ -118,7 +118,8 @@ def deliver_pending_events(db, conn) -> int:
     channels = cfg["channels"] or {}
     rows = conn.execute(text("""
         SELECT id, brand_id, rule, severity, title, body, payload
-        FROM bw_alert_events WHERE delivered IS NULL ORDER BY id LIMIT 50
+        FROM bw_alert_events WHERE delivered IS NULL AND rule <> 'digest'
+        ORDER BY id LIMIT 50
     """)).fetchall()
     done = 0
     for rid, brand_id, rule, severity, title, body, payload in rows:

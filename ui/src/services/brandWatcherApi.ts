@@ -877,3 +877,103 @@ export async function getStorySiblings(groupId: string, brandId?: number | null)
   if (!res.ok) throw new Error(`Failed to load story siblings: ${res.status}`);
   return (await res.json()).articles || [];
 }
+
+// ---- Incident management + evidence locker ----
+export interface BWIncident {
+  id: number;
+  brand_id: number;
+  brand_name: string;
+  title: string;
+  description?: string | null;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  status: 'open' | 'investigating' | 'contained' | 'resolved' | 'closed';
+  owner?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  resolved_at?: string | null;
+  evidence_count?: number;
+  event_count?: number;
+}
+
+export interface BWIncidentEvent {
+  kind: string;
+  actor?: string | null;
+  old_value?: string | null;
+  new_value?: string | null;
+  note?: string | null;
+  at?: string | null;
+}
+
+export interface BWIncidentEvidence {
+  id: number;
+  evidence_type: string;
+  source_ref?: string | null;
+  title?: string | null;
+  content: string;
+  meta?: Record<string, any> | null;
+  content_sha256: string;
+  chain_sha256: string;
+  captured_by?: string | null;
+  captured_at?: string | null;
+}
+
+export interface BWIncidentDetail extends BWIncident {
+  timeline: BWIncidentEvent[];
+  evidence: BWIncidentEvidence[];
+}
+
+export async function listIncidents(status?: string, brandId?: number): Promise<BWIncident[]> {
+  const q = new URLSearchParams();
+  if (status) q.append('status', status);
+  if (brandId) q.append('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/incidents?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to list incidents: ${res.status}`);
+  return (await res.json()).incidents || [];
+}
+
+export async function createIncident(brandId: number, title: string, description?: string, severity: string = 'medium'): Promise<{ id: number }> {
+  const res = await fetch(`${BASE}/incidents`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_id: brandId, title, description: description || null, severity }),
+  });
+  if (!res.ok) throw new Error(`Failed to create incident: ${res.status}`);
+  return res.json();
+}
+
+export async function getIncident(id: number): Promise<BWIncidentDetail> {
+  const res = await fetch(`${BASE}/incidents/${id}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load incident: ${res.status}`);
+  return res.json();
+}
+
+export async function updateIncident(id: number, updates: { title?: string; description?: string; severity?: string; status?: string; owner?: string; note?: string }): Promise<void> {
+  const res = await fetch(`${BASE}/incidents/${id}`, {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`Failed to update incident: ${res.status}`);
+}
+
+export async function addIncidentNote(id: number, note: string): Promise<void> {
+  const res = await fetch(`${BASE}/incidents/${id}/note`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) throw new Error(`Failed to add note: ${res.status}`);
+}
+
+export async function attachIncidentEvidence(id: number, evidence: { evidence_type: string; source_ref?: string; title?: string; content?: string }): Promise<{ id: number; content_sha256: string; chain_sha256: string }> {
+  const res = await fetch(`${BASE}/incidents/${id}/evidence`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(evidence),
+  });
+  if (!res.ok) throw new Error(`Failed to attach evidence: ${res.status}`);
+  return res.json();
+}
+
+export async function verifyIncidentChain(id: number): Promise<{ items: number; intact: boolean; broken_ids: number[] }> {
+  const res = await fetch(`${BASE}/incidents/${id}/verify-chain`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to verify chain: ${res.status}`);
+  return res.json();
+}

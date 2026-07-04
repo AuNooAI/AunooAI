@@ -9,7 +9,7 @@ import {
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer, Search, Bell,
-  AtSign, UserCircle, Tag, BadgeCheck, Landmark,
+  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
@@ -30,7 +30,10 @@ import {
   runScheduleNow, getSentimentTrends, getBrandAlerts, exportBrandData, updateBrandConfig,
   getAlertConfig, updateAlertConfig, listAlertEvents, ackAlertEvent, evaluateAlertsNow, setFindingState,
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
+  listIncidents, createIncident, getIncident, updateIncident, addIncidentNote,
+  attachIncidentEvidence, verifyIncidentChain,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
+  type BWIncident, type BWIncidentDetail,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
   type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
@@ -126,7 +129,7 @@ interface BrandWatcherTabProps {
                     relatedArticles?: any[]) => void;
 }
 
-type SubTab = 'dashboard' | 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts';
+type SubTab = 'dashboard' | 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'incidents';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -222,6 +225,45 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       per_page: 200,
     }).then(r => setDashArticles(r.articles)).catch(() => {});
   }, [config.selectedBrandIds, config.selectedTopics, config.daysBack]);
+  // ---- Incident management + evidence locker ----
+  const [incidents, setIncidents] = useState<BWIncident[]>([]);
+  const [incStatusFilter, setIncStatusFilter] = useState<string>('');
+  const [incDetail, setIncDetail] = useState<BWIncidentDetail | null>(null);
+  const [incLoading, setIncLoading] = useState(false);
+  const [incNoteText, setIncNoteText] = useState('');
+  const [incEvidenceUrl, setIncEvidenceUrl] = useState('');
+  const [incChain, setIncChain] = useState<{ intact: boolean; items: number; broken_ids: number[] } | null>(null);
+  const [incCreate, setIncCreate] = useState<{ open: boolean; title: string; description: string; severity: string; brandId: number | null }>({ open: false, title: '', description: '', severity: 'medium', brandId: null });
+  // "Add to incident" picker: holds the source being attached (article or alert event)
+  const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event'; ref: string; label: string; brandId: number | null } | null>(null);
+  const [incAttachNewTitle, setIncAttachNewTitle] = useState('');
+  const loadIncidents = useCallback((status?: string) => {
+    setIncLoading(true);
+    listIncidents(status || undefined).then(setIncidents).catch(console.error).finally(() => setIncLoading(false));
+  }, []);
+  const openIncident = useCallback((id: number) => {
+    setIncChain(null);
+    getIncident(id).then(setIncDetail).catch(console.error);
+  }, []);
+  const refreshIncident = useCallback(() => {
+    if (incDetail) getIncident(incDetail.id).then(setIncDetail).catch(console.error);
+    loadIncidents(incStatusFilter || undefined);
+  }, [incDetail, incStatusFilter, loadIncidents]);
+  // Attach the pending source to an incident (existing id, or create-new first).
+  const doAttach = useCallback(async (incidentId: number | null) => {
+    if (!incAttach) return;
+    try {
+      let id = incidentId;
+      if (id == null) {
+        if (!incAttachNewTitle.trim() || !incAttach.brandId) return;
+        id = (await createIncident(incAttach.brandId, incAttachNewTitle.trim(), undefined, 'high')).id;
+      }
+      await attachIncidentEvidence(id, { evidence_type: incAttach.kind, source_ref: incAttach.ref });
+      setIncAttach(null); setIncAttachNewTitle('');
+      loadIncidents(incStatusFilter || undefined);
+      alert('Evidence captured into incident #' + id);
+    } catch (e) { console.error(e); alert('Failed to attach evidence'); }
+  }, [incAttach, incAttachNewTitle, incStatusFilter, loadIncidents]);
   // Per-finding review state (optimistic local overlay over articles payload)
   const [reviewOverrides, setReviewOverrides] = useState<Record<string, string>>({});
   const setReview = useCallback(async (uri: string, brandId: number | null, status: 'reviewed' | 'escalated' | 'dismissed') => {
@@ -1119,6 +1161,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       loadAlertData();
       loadDashArticles();
       loadBenchSocial();
+      loadIncidents();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
           .then(d => setSentimentTrends(d.trends)).catch(console.error);
@@ -1128,6 +1171,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
     if (tab === 'accounts') {
       loadAccounts();
+    }
+    if (tab === 'incidents') {
+      loadIncidents(incStatusFilter || undefined);
+      loadAlertData();
     }
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
@@ -1746,13 +1793,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {([
           { id: 'dashboard' as SubTab, label: 'Dashboard', icon: Sparkles },
-          { id: 'overview' as SubTab, label: 'Overview', icon: BarChart3 },
           { id: 'analysis' as SubTab, label: 'Brand Analysis', icon: TrendingUp },
           { id: 'comparison' as SubTab, label: 'Comparison', icon: Users },
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
           { id: 'social' as SubTab, label: 'Social', icon: Users },
           { id: 'accounts' as SubTab, label: 'Accounts', icon: AtSign },
+          { id: 'incidents' as SubTab, label: 'Incidents', icon: ShieldAlert },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -1814,6 +1861,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         const sv = socialView;
         const socNet = sv?.netSentiment ?? null;
         const socScored = sv ? sv.sentCounts.positive + sv.sentCounts.neutral + sv.sentCounts.negative : 0;
+        const openIncidents = incidents.filter(i => !['resolved', 'closed'].includes(i.status));
+        const sevIncidents = openIncidents.filter(i => i.severity === 'high' || i.severity === 'critical').length;
         // ---- Competitor benchmarks: mean net sentiment across the OTHER brands ----
         const primaryName = selectedBrand?.display_name || '';
         const netFromBreakdown = (bd: Record<string, number>) => {
@@ -1980,12 +2029,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     reviewStatusOf(a) === 'escalated' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
                     : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>{reviewStatusOf(a)}</span>
                 )}
-                <select value="" onChange={e => { const v = e.target.value as any; if (v) setReview(a.uri, a.brand_id, v); }}
+                <select value="" onChange={e => { const v = e.target.value as any;
+                    if (v === 'incident') { setIncAttach({ kind: 'article', ref: a.uri, label: a.title || a.uri, brandId: a.brand_id ?? null }); loadIncidents(); }
+                    else if (v) setReview(a.uri, a.brand_id, v); }}
                   title="Case state" className="text-[10px] px-1 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-transparent text-gray-400 hover:text-gray-600 cursor-pointer">
                   <option value="">act…</option>
                   <option value="reviewed">Mark reviewed</option>
                   <option value="escalated">Escalate</option>
                   <option value="dismissed">Dismiss</option>
+                  <option value="incident">Add to incident…</option>
                 </select>
               </div>
               {neg && a.summary && (
@@ -2022,21 +2074,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         return (
           <div className="space-y-5">
             {/* 1. PROBLEMS — server alert events + adverse signals + category spikes */}
-            {(alertEvents.length > 0 || visibleProblems.length > 0 || visibleSpikes.length > 0) && (
+            {(visibleProblems.length > 0 || visibleSpikes.length > 0) && (
               <div className="space-y-2">
-                {alertEvents.map(ev => (
-                  <div key={`ev-${ev.id}`} className={`flex items-center gap-3 rounded-lg border p-3 ${
-                    ev.severity === 'high' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
-                    <Bell className={`w-4 h-4 flex-shrink-0 ${ev.severity === 'high' ? 'text-red-600' : 'text-amber-600'}`} />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm text-gray-800 dark:text-gray-100 block">{ev.title}</span>
-                      {ev.body && <span className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{ev.body}</span>}
-                    </div>
-                    <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.created_at || '').slice(0, 16).replace('T', ' ')}</span>
-                    <button onClick={() => { ackAlertEvent(ev.id).then(loadAlertData); }}
-                      className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 flex-shrink-0">Ack</button>
-                  </div>
-                ))}
                 {visibleProblems.map(pr => (
                   <div key={pr.key} className={`flex items-center gap-3 rounded-lg border p-3 ${
                     pr.sev === 'high' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
@@ -2089,15 +2128,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     : sv && <span className="text-[11px] text-gray-400">{sv.totalLoaded} posts · {new Set((sv.all || []).map(p => socialBrandOf(p))).size} brand{new Set((sv.all || []).map(p => socialBrandOf(p))).size === 1 ? '' : 's'}</span>}
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
                   { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`), tone: negNewsToday ? -1 : null },
                   { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−${newsNet != null && newsCompAvg != null ? ` · comp avg ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}` : ''}`, tone: newsNet },
                   { label: 'Social posts', value: (sv?.totalLoaded ?? 0).toLocaleString(), sub: socToday ? `+${socToday} today · ${socScored} scored` : `${socScored} scored` },
                   { label: 'Social sentiment', value: socNet == null ? '—' : `${socNet > 0 ? '+' : ''}${socNet}`, sub: sv ? `${sv.sentCounts.positive}+ ${sv.sentCounts.neutral}· ${sv.sentCounts.negative}−${socNet != null && socCompAvg != null ? ` · comp avg ${socCompAvg > 0 ? '+' : ''}${socCompAvg}` : ''}` : '', tone: socNet },
                   { label: 'Spike alerts', value: String(brandAlerts.length), sub: highAlerts ? `${highAlerts} high` : 'none high', tone: highAlerts ? -1 : null },
+                  { label: 'Open incidents', value: String(openIncidents.length), sub: openIncidents.length ? `${sevIncidents} high/critical · view →` : 'none open', tone: sevIncidents ? -1 : null, jump: 'incidents' as SubTab },
                 ].map((c: any) => (
-                  <div key={c.label} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3.5">
+                  <div key={c.label} onClick={c.jump ? () => handleTabChange(c.jump) : undefined}
+                    className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3.5 ${c.jump ? 'cursor-pointer hover:border-blue-400' : ''}`}>
                     <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">{c.label}</div>
                     <div className={`text-2xl font-bold mt-0.5 ${c.tone == null ? 'text-gray-900 dark:text-gray-100' : c.tone > 0 ? 'text-emerald-600' : c.tone < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{c.value}</div>
                     {c.sub && <div className="text-[11px] text-gray-400 mt-0.5">{c.sub}</div>}
@@ -2241,13 +2282,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         );
       })()}
 
-      {(activeTab === 'overview' || exportingReport) && (
-        <div className={`space-y-6 ${exportingReport ? 'order-3' : ''}`}>
-          {exportingReport && (
+      {(activeTab === 'dashboard' || exportingReport) && (
+        <div className={`space-y-6 ${exportingReport ? 'order-3' : 'mt-6'}`}>
+          {exportingReport ? (
             <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">2. Overview</h2>
+          ) : (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Coverage analytics</span>
+            </div>
           )}
-          {/* Stat cards */}
-          {(() => {
+          {/* Stat cards (export only — the merged dashboard has its own At-a-glance row) */}
+          {exportingReport && (() => {
             // Aggregate sentiment from sentimentTrends — normalize labels
             const sentAgg: Record<string, number> = { Positive: 0, Neutral: 0, Negative: 0 };
             let sentTotal = 0;
@@ -2319,8 +2364,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             );
           })()}
 
-          {/* Spike Alerts Banner (brand selected, if alerts exist) */}
-          {primarySelectedId && brandAlerts.length > 0 && (
+          {/* Spike Alerts Banner (export only — dashboard Problems block covers spikes) */}
+          {exportingReport && primarySelectedId && brandAlerts.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-4">
               <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
@@ -4599,12 +4644,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>{reviewStatusOf(article)}</span>
                     )}
                     <select value="" onClick={e => e.stopPropagation()}
-                      onChange={e => { const v = e.target.value as any; if (v) setReview(article.uri, article.brand_id, v); e.currentTarget.value = ''; }}
+                      onChange={e => { const v = e.target.value as any;
+                        if (v === 'incident') { setIncAttach({ kind: 'article', ref: article.uri, label: article.title || article.uri, brandId: article.brand_id ?? null }); loadIncidents(); }
+                        else if (v) setReview(article.uri, article.brand_id, v); e.currentTarget.value = ''; }}
                       title="Case state" className="text-[10px] px-1 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-transparent text-gray-400 hover:text-gray-600 cursor-pointer">
                       <option value="">act…</option>
                       <option value="reviewed">Mark reviewed</option>
                       <option value="escalated">Escalate</option>
                       <option value="dismissed">Dismiss</option>
+                      <option value="incident">Add to incident…</option>
                     </select>
                   </div>
                 </div>
@@ -4634,6 +4682,243 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       </div>{/* end brand-watcher-export */}
+
+      {activeTab === 'incidents' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            {['', 'open', 'investigating', 'contained', 'resolved', 'closed'].map(st => (
+              <button key={st || 'all'} onClick={() => { setIncStatusFilter(st); loadIncidents(st || undefined); }}
+                className={`text-xs px-2.5 py-1 rounded-full border ${incStatusFilter === st ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>
+                {st || 'all'}
+              </button>
+            ))}
+            <span className="flex-1" />
+            <button onClick={() => setIncCreate({ open: true, title: '', description: '', severity: 'medium', brandId: selectedBrand?.id ?? brands[0]?.id ?? null })}
+              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5" /> New incident
+            </button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              {/* Alert triage: unacknowledged server alerts — ack here or case them */}
+              {alertEvents.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unacknowledged alerts — triage</span>
+                  {alertEvents.map(ev => (
+                    <div key={`inc-ev-${ev.id}`} className={`flex items-center gap-3 rounded-lg border p-3 ${
+                      ev.severity === 'high' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
+                      <Bell className={`w-4 h-4 flex-shrink-0 ${ev.severity === 'high' ? 'text-red-600' : 'text-amber-600'}`} />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-gray-800 dark:text-gray-100 block">{ev.title}</span>
+                        {ev.body && <span className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{ev.body}</span>}
+                      </div>
+                      <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.created_at || '').slice(0, 16).replace('T', ' ')}</span>
+                      <button onClick={() => { setIncAttach({ kind: 'alert_event', ref: String(ev.id), label: ev.title, brandId: ev.brand_id ?? null }); }}
+                        title="Capture this alert as evidence in an incident"
+                        className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 flex-shrink-0">→ incident</button>
+                      <button onClick={() => { ackAlertEvent(ev.id).then(loadAlertData); }}
+                        className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 flex-shrink-0">Ack</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {alertEvents.length === 0 && (
+                <div className="min-h-[120px] flex items-center justify-center text-sm text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
+                  No unacknowledged alerts. 🎉
+                </div>
+              )}
+            </div>
+            <div className="space-y-3">
+              {incLoading && <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>}
+              {!incLoading && incidents.length === 0 && <p className="text-xs text-gray-400 py-4 text-center">No incidents{incStatusFilter ? ` with status "${incStatusFilter}"` : ''}. Adverse findings can be captured via "act… → Add to incident" on any article row.</p>}
+              {incidents.map(inc => {
+                const sevCls: Record<string, string> = { low: 'bg-gray-100 text-gray-600', medium: 'bg-amber-100 text-amber-700', high: 'bg-red-100 text-red-700', critical: 'bg-red-600 text-white' };
+                return (
+                  <button key={inc.id} onClick={() => openIncident(inc.id)}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors ${incDetail?.id === inc.id ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${sevCls[inc.severity] || sevCls.medium}`}>{inc.severity}</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex-1">#{inc.id} {inc.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
+                      <span className={`px-1.5 py-0.5 rounded-full ${inc.status === 'open' ? 'bg-red-50 text-red-600' : inc.status === 'investigating' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>{inc.status}</span>
+                      <span>{inc.brand_name}</span>
+                      <span className="flex-1" />
+                      <span className="inline-flex items-center gap-0.5"><Lock className="w-3 h-3" /> {inc.evidence_count}</span>
+                      <span>{(inc.updated_at || '').slice(0, 10)}</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {!incDetail ? (
+                <div className="min-h-[100px] flex items-center justify-center text-sm text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">Select an incident to see its evidence &amp; timeline</div>
+              ) : (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+                  <div className="flex items-start gap-3 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">#{incDetail.id} {incDetail.title}</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">{incDetail.brand_name} · opened {(incDetail.created_at || '').slice(0, 10)} by {incDetail.created_by}{incDetail.resolved_at ? ` · resolved ${incDetail.resolved_at.slice(0, 10)}` : ''}</p>
+                      {incDetail.description && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1.5">{incDetail.description}</p>}
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <select value={incDetail.status} onChange={e => updateIncident(incDetail.id, { status: e.target.value }).then(refreshIncident).catch(console.error)}
+                        className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                        {['open', 'investigating', 'contained', 'resolved', 'closed'].map(st => <option key={st} value={st}>{st}</option>)}
+                      </select>
+                      <select value={incDetail.severity} onChange={e => updateIncident(incDetail.id, { severity: e.target.value }).then(refreshIncident).catch(console.error)}
+                        className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                        {['low', 'medium', 'high', 'critical'].map(sv => <option key={sv} value={sv}>{sv}</option>)}
+                      </select>
+                      <input type="text" defaultValue={incDetail.owner || ''} placeholder="owner"
+                        onBlur={e => { if (e.target.value !== (incDetail.owner || '')) updateIncident(incDetail.id, { owner: e.target.value }).then(refreshIncident).catch(console.error); }}
+                        className="w-24 text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"><Lock className="w-3.5 h-3.5" /> Evidence locker <span className="font-normal normal-case">({incDetail.evidence.length} · append-only, hash-chained)</span></h4>
+                      <button onClick={() => verifyIncidentChain(incDetail.id).then(setIncChain).catch(console.error)}
+                        className="text-[11px] px-2 py-0.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700">Verify chain</button>
+                    </div>
+                    {incChain && (
+                      <p className={`text-xs mb-2 px-2 py-1 rounded ${incChain.intact ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
+                        {incChain.intact ? `✓ Chain intact — ${incChain.items} item(s) verified.` : `✗ CHAIN BROKEN at item(s) ${incChain.broken_ids.join(', ')} — evidence has been altered.`}
+                      </p>
+                    )}
+                    <div className="space-y-2">
+                      {incDetail.evidence.map(ev => (
+                        <div key={ev.id} className="p-2.5 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 font-semibold flex-shrink-0">{ev.evidence_type}</span>
+                            <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate flex-1">{ev.title || ev.source_ref}</span>
+                            <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.captured_at || '').slice(0, 16).replace('T', ' ')} · {ev.captured_by}</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 whitespace-pre-line">{ev.content}</p>
+                          <p className="text-[9px] font-mono text-gray-400 mt-1 truncate" title={`content sha256: ${ev.content_sha256} · chain: ${ev.chain_sha256}`}>sha256 {ev.content_sha256.slice(0, 20)}… · chain {ev.chain_sha256.slice(0, 20)}…</p>
+                        </div>
+                      ))}
+                      {incDetail.evidence.length === 0 && <p className="text-xs text-gray-400">No evidence captured yet.</p>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input type="text" value={incEvidenceUrl} onChange={e => setIncEvidenceUrl(e.target.value)}
+                        placeholder="Article URI in the system, or any external URL…"
+                        className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                      <button disabled={!incEvidenceUrl.trim()} onClick={async () => {
+                          const ref = incEvidenceUrl.trim();
+                          try {
+                            try { await attachIncidentEvidence(incDetail.id, { evidence_type: 'article', source_ref: ref }); }
+                            catch { await attachIncidentEvidence(incDetail.id, { evidence_type: 'url', source_ref: ref, title: ref }); }
+                            setIncEvidenceUrl(''); refreshIncident();
+                          } catch (e) { console.error(e); alert('Failed to capture evidence'); }
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50">Capture</button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">Timeline</h4>
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      {incDetail.timeline.map((ev, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className="text-gray-400 flex-shrink-0 w-24 font-mono">{(ev.at || '').slice(5, 16).replace('T', ' ')}</span>
+                          <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">{ev.actor}</span>
+                          <span className="text-gray-700 dark:text-gray-200">
+                            {ev.kind === 'note' ? ev.note
+                              : ev.kind === 'evidence_added' ? `captured ${ev.new_value} evidence: ${ev.note}`
+                              : ev.kind === 'created' ? `opened the incident (${ev.new_value})`
+                              : `${ev.kind.replace('_', ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value}${ev.note ? ` (${ev.note})` : ''}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input type="text" value={incNoteText} onChange={e => setIncNoteText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && incNoteText.trim()) { addIncidentNote(incDetail.id, incNoteText.trim()).then(() => { setIncNoteText(''); refreshIncident(); }).catch(console.error); } }}
+                        placeholder="Add a note (Enter to save)…"
+                        className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- ADD-TO-INCIDENT PICKER ---- */}
+      {incAttach && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setIncAttach(null)} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-red-500" /> Add to incident</h3>
+              <button onClick={() => setIncAttach(null)} className="text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4 overflow-y-auto space-y-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">Capturing: <span className="font-medium text-gray-700 dark:text-gray-200">{incAttach.label}</span></p>
+              <div className="space-y-1.5">
+                {incidents.filter(i => !['resolved', 'closed'].includes(i.status)).map(i => (
+                  <button key={i.id} onClick={() => doAttach(i.id)}
+                    className="w-full text-left p-2 rounded-md border border-gray-200 dark:border-gray-700 hover:border-blue-400 text-sm text-gray-800 dark:text-gray-100">
+                    #{i.id} {i.title} <span className="text-xs text-gray-400">· {i.status} · {i.brand_name}</span>
+                  </button>
+                ))}
+                {incidents.filter(i => !['resolved', 'closed'].includes(i.status)).length === 0 && <p className="text-xs text-gray-400">No open incidents.</p>}
+              </div>
+              <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 block mb-1">…or open a new incident</label>
+                <div className="flex items-center gap-2">
+                  <input type="text" value={incAttachNewTitle} onChange={e => setIncAttachNewTitle(e.target.value)} placeholder="Incident title"
+                    className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                  <button disabled={!incAttachNewTitle.trim() || !incAttach.brandId} onClick={() => doAttach(null)}
+                    className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Create &amp; capture</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- NEW INCIDENT MODAL ---- */}
+      {incCreate.open && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setIncCreate(c => ({ ...c, open: false }))} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">New incident</h3>
+              <button onClick={() => setIncCreate(c => ({ ...c, open: false }))} className="text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <select value={incCreate.brandId ?? ''} onChange={e => setIncCreate(c => ({ ...c, brandId: Number(e.target.value) }))}
+                className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                {brands.map(b => <option key={b.id} value={b.id}>{b.display_name}</option>)}
+              </select>
+              <input type="text" value={incCreate.title} onChange={e => setIncCreate(c => ({ ...c, title: e.target.value }))} placeholder="Title"
+                className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+              <textarea value={incCreate.description} onChange={e => setIncCreate(c => ({ ...c, description: e.target.value }))} placeholder="Description (optional)" rows={3}
+                className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Severity</label>
+                <select value={incCreate.severity} onChange={e => setIncCreate(c => ({ ...c, severity: e.target.value }))}
+                  className="text-sm px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                  {['low', 'medium', 'high', 'critical'].map(sv => <option key={sv} value={sv}>{sv}</option>)}
+                </select>
+                <span className="flex-1" />
+                <button disabled={!incCreate.title.trim() || !incCreate.brandId} onClick={async () => {
+                    try {
+                      const r = await createIncident(incCreate.brandId!, incCreate.title.trim(), incCreate.description || undefined, incCreate.severity);
+                      setIncCreate(c => ({ ...c, open: false }));
+                      loadIncidents(incStatusFilter || undefined);
+                      openIncident(r.id);
+                    } catch (e) { console.error(e); alert('Failed to create incident'); }
+                  }}
+                  className="text-sm px-4 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---- BRAND CONFIG MODAL ---- */}
       {showAlertSettings && (
