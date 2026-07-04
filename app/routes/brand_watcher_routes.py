@@ -4171,7 +4171,7 @@ async def run_schedule_now(
 # ============================================================================
 
 RISK_TYPES = ["legal_regulatory", "financial_distress", "fraud_integrity",
-              "esg", "executive_misconduct", "data_breach"]
+              "esg", "executive_misconduct", "data_breach", "workforce_labor"]
 
 # Cheap pre-screen: only articles that are negative OR contain risk vocabulary get
 # the LLM risk pass, bounding cost to the adverse sliver of the stream.
@@ -4180,7 +4180,9 @@ _RISK_TRIGGER_RE = re.compile(
     r"\bfraud|scandal|misconduct|bribe|corrupt|plagiar|retract|falsif|"
     r"\bbreach|\bhack|ransom|\bleak\b|cyberattack|"
     r"bankrupt|insolven|default|downgrade|layoff|restructur|going concern|"
-    r"boycott|discriminat|harass|greenwash|child labor|resign|ousted|fired",
+    r"boycott|discriminat|harass|greenwash|child labor|resign|ousted|fired|"
+    r"\bstrikes?\b|\bunion\b|redundanc|walkout|tribunal|unfair dismissal|"
+    r"toxic (workplace|culture)|pay dispute|wage theft|understaff",
     re.IGNORECASE)
 
 _NEG_SENT_RE = re.compile(r"negativ|concern|pessimis|critical|alarm", re.IGNORECASE)
@@ -4197,6 +4199,10 @@ def _keyword_risk_fallback(text_content: str) -> list:
     if re.search(r"boycott|discriminat|harass|greenwash|child labor|environmental damage", t): add("esg", "medium")
     if re.search(r"misconduct|resign|ousted|fired.*(ceo|cfo|executive|director)|(ceo|cfo|executive|director).*(misconduct|resign|ousted|fired)", t): add("executive_misconduct", "medium")
     if re.search(r"\bbreach|\bhack|ransom|cyberattack|data leak", t): add("data_breach", "high")
+    # Bare "union"/"strike" collide with ordinary prose ("union of ideas", "striking
+    # design") — the fallback (which tags directly, no LLM adjudication) needs the
+    # compound forms only.
+    if re.search(r"(trade|labou?r|staff) union|union (members?|dispute|vote|action|strike)|(staff|workers?|employees?) (strike|walkout)|strike (action|ballot)|redundanc|tribunal|unfair dismissal|toxic (workplace|culture)|pay dispute|wage theft|mass layoff", t): add("workforce_labor", "medium")
     return found
 
 
@@ -4208,7 +4214,7 @@ async def _llm_detect_risks(title: str, summary: str, brand_name: str) -> Option
 Article Title: {title}
 Article Summary: {(summary or "")[:1500]}
 
-Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action, fines, probes), financial_distress (bankruptcy risk, downgrades, defaults, major layoffs), fraud_integrity (fraud, corruption, research/publication integrity, retractions), esg (environmental/social harms, discrimination, boycotts), executive_misconduct (leadership scandals, forced departures), data_breach (hacks, breaches, ransomware).
+Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action, fines, probes), financial_distress (bankruptcy risk, downgrades, defaults), fraud_integrity (fraud, corruption, research/publication integrity, retractions), esg (environmental/social harms, consumer discrimination, boycotts), executive_misconduct (leadership scandals, forced departures), data_breach (hacks, breaches, ransomware), workforce_labor (strikes, union disputes, mass layoffs/redundancies, employment tribunals, unfair-dismissal or workplace-discrimination claims, toxic-culture allegations, pay disputes).
 
 Rules:
 - Only flag risks where {brand_name} is the SUBJECT of the adverse event (not merely mentioned, not the plaintiff suing someone else unless it exposes them to counter-risk).
