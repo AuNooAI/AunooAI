@@ -116,18 +116,6 @@ export function useBrandWatcher() {
 
   const topicsOrUndefined = config.selectedTopics.length > 0 ? config.selectedTopics : undefined;
   const brandIdsOrUndefined = config.selectedBrandIds.length > 0 ? config.selectedBrandIds : undefined;
-  // Social is keyed by topic strings. When the user has picked brands via the header
-  // dropdown (but no explicit topics), scope social to those brands' topics so the
-  // Social tab honours the same brand selection as every other tab (defaults to the
-  // primary brand, e.g. Wiley). Memoised so fetchSocial's identity is stable.
-  const socialTopicsOrUndefined = useMemo(() => {
-    if (config.selectedTopics.length > 0) return config.selectedTopics;
-    if (config.selectedBrandIds.length > 0) {
-      return brands.filter(b => config.selectedBrandIds.includes(b.id)).map(b => `Brand Monitoring ${b.display_name}`);
-    }
-    return undefined;
-  }, [config.selectedTopics, config.selectedBrandIds, brands]);
-
   // Save config
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)); }
@@ -256,21 +244,22 @@ export function useBrandWatcher() {
   const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true, scope: 'selected' | 'all' = 'selected') => {
     setLoadingSocial(true);
     try {
-      // scope 'all' = primary + competitors (every brand's topic), regardless of the
-      // header brand selection — powers the "Wiley only / + competitors" toggle.
-      // scope 'selected' with no header selection means the primary brand, NOT
-      // everything — undefined topics would fetch all brands' posts.
-      const primaryBrand = brands.find(b => b.is_primary) || brands[0];
-      if (scope === 'selected' && !socialTopicsOrUndefined && !primaryBrand) {
+      // scope 'all' = primary + competitors (every brand's topic).
+      // scope 'selected' = EXACTLY ONE brand — the toggle is labeled "<brand> only",
+      // so it must not widen to a multi-brand header selection or (worse) to
+      // everything when nothing is selected. Focus brand = first header-selected
+      // brand, else the primary brand, else the first brand.
+      const focusBrand = brands.find(b => b.id === config.selectedBrandIds[0])
+        || brands.find(b => b.is_primary) || brands[0];
+      if (scope === 'selected' && !focusBrand) {
         // Brands haven't loaded yet — fetching now would show ALL brands' posts
-        // under a "primary only" toggle. The brands-arrival effect refetches.
+        // under a "<brand> only" toggle. The brands-arrival effect refetches.
         setLoadingSocial(false);
         return;
       }
       const topics = scope === 'all'
         ? brands.map(b => `Brand Monitoring ${b.display_name}`)
-        : (socialTopicsOrUndefined
-           ?? (primaryBrand ? [`Brand Monitoring ${primaryBrand.display_name}`] : undefined));
+        : [`Brand Monitoring ${focusBrand.display_name}`];
       const data = await getSocialPosts(topics && topics.length ? topics : undefined, config.daysBack, minRelevance, source, includeUnevaluated, { limit: 500 });
       setSocial(data);
     } catch (err) {
@@ -278,7 +267,7 @@ export function useBrandWatcher() {
     } finally {
       setLoadingSocial(false);
     }
-  }, [config.daysBack, socialTopicsOrUndefined, brands]);
+  }, [config.daysBack, config.selectedBrandIds, brands]);
 
   // Fetch temporal
   const fetchTemporal = useCallback(async () => {

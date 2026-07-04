@@ -117,7 +117,7 @@ export interface BWAlertConfig {
   id: number;
   enabled: boolean;
   rules: Record<string, any>;
-  channels: { in_app?: boolean; email?: boolean; webhook?: boolean };
+  channels: { in_app?: boolean; email?: boolean; webhook?: boolean; digest?: { enabled?: boolean; frequency?: 'daily' | 'weekly'; hour_utc?: number } };
   email_recipients: string[];
   webhook_url: string | null;
   cooldown_hours: number;

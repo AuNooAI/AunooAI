@@ -446,6 +446,7 @@ _ADVERSE_RULE_DEFAULTS = {
     "neg_consensus_story": {"enabled": True, "min_scored": 3, "neg_share": 0.7, "window_hours": 48},
     "new_critic":          {"enabled": True, "recent_hours": 48, "min_recent_neg": 2,
                             "min_engagement_single": 50, "lookback_days": 30},
+    "coordinated_negative": {"enabled": True, "window_hours": 72, "min_authors": 3},
 }
 
 _NEG_SENT_SQL = "(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%' OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')"
@@ -681,6 +682,35 @@ def evaluate_adverse_alerts(db) -> int:
                                 f"new_critic|{bid}|{author}|{bucket}"):
                             created += 1
 
+            # 8) Coordinated negativity: the same (normalized) negative message posted
+            #    by several distinct accounts — copypasta/brigading, not organic backlash.
+            rc = rule("coordinated_negative")
+            if rc.get("enabled"):
+                rows = conn.execute(_text(f"""
+                    SELECT LEFT(regexp_replace(lower(COALESCE(NULLIF(summary,''), title, '')),
+                                '(https?://\\S+)|[^a-z0-9 ]', '', 'g'), 120) AS sig,
+                           COUNT(DISTINCT social_meta->>'author') AS authors,
+                           COUNT(*) AS n, MAX(title) AS sample
+                    FROM articles
+                    WHERE topic = :t AND {_SOCIAL_SRC_SQL}
+                      AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                      AND COALESCE(social_meta->>'author','') <> ''
+                      AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
+                    GROUP BY 1
+                    HAVING LENGTH(LEFT(regexp_replace(lower(COALESCE(NULLIF(summary,''), title, '')),
+                                '(https?://\\S+)|[^a-z0-9 ]', '', 'g'), 120)) > 30
+                       AND COUNT(DISTINCT social_meta->>'author') >= :ma
+                """), {"t": topic, "wh": str(rc["window_hours"]), "ma": rc["min_authors"]}).fetchall()
+                for sig, authors, n, sample in rows:
+                    if _insert_alert_event(conn, bid, "coordinated_negative", "high",
+                            f"{bname}: possible coordinated negative campaign ({authors} accounts, same message)",
+                            f"{n} negative posts from {authors} distinct accounts repeat the same message "
+                            f"in the last {rc['window_hours']}h — copypasta pattern, not organic backlash. "
+                            f"Sample: \"{(sample or '')[:120]}\"",
+                            {"authors": authors, "posts": n, "signature": sig[:80]},
+                            f"coordinated_negative|{bid}|{sig[:60]}|{bucket}"):
+                        created += 1
+
         conn.commit()
         # Push whatever is new through the configured channels.
         try:
@@ -744,6 +774,12 @@ async def run_brand_watcher_monitor():
                     evaluate_adverse_alerts(db)
                 except Exception as e:
                     logger.error(f"Adverse alert evaluation error: {e}")
+                # Digest is hour-gated + period-deduped internally — cheap to check here.
+                try:
+                    from app.services.bw_digest_service import maybe_send_digest
+                    maybe_send_digest(db)
+                except Exception as e:
+                    logger.error(f"Digest check error: {e}")
 
             # Official/scholarly sources every ~5 cycles; the per-(brand, source)
             # 24h cursor inside makes a no-op cycle one SELECT.
@@ -764,6 +800,13 @@ async def run_brand_watcher_monitor():
                     _check_auto_retrain(db)
                 except Exception as e:
                     logger.error(f"Auto-retrain check failed: {e}")
+                # Foreign-language relevance recovery (bounded LLM budget per run;
+                # attempted articles are stamped, so this converges).
+                try:
+                    from app.services.bw_language_recovery import recover_foreign_articles
+                    await recover_foreign_articles(db, limit=20)
+                except Exception as e:
+                    logger.error(f"Language recovery error: {e}")
 
             _background_task_status["last_error"] = None
 

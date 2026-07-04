@@ -59,6 +59,28 @@ const SOCIAL_NEG_THEMES: Array<{ key: string; label: string; re: RegExp }> = [
 ];
 const socialThemeBlobOf = (p: { title?: string | null; summary?: string | null }) => `${p.title || ''} ${p.summary || ''}`;
 
+// Alert rules + tunable thresholds — MUST mirror _ADVERSE_RULE_DEFAULTS in
+// app/tasks/brand_watcher_monitor.py (values here are only the display defaults;
+// the server merges bw_alert_config.rules over its own defaults).
+const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k: string; label: string; def: number; step?: number }> }> = [
+  { key: 'neg_social_spike', label: 'Negative-social spike', params: [
+    { k: 'min_prior', label: 'min prior', def: 2 }, { k: 'multiplier', label: 'multiplier', def: 2, step: 0.5 }] },
+  { key: 'high_reach_negative', label: 'High-reach negative post', params: [
+    { k: 'min_engagement', label: 'min engagement', def: 50 }, { k: 'window_hours', label: 'window (h)', def: 24 }] },
+  { key: 'news_net_negative', label: 'News net-negative', params: [
+    { k: 'net_threshold', label: 'net ≤', def: -20 }, { k: 'min_scored', label: 'min scored', def: 5 }, { k: 'window_days', label: 'window (d)', def: 7 }] },
+  { key: 'category_spike', label: 'Category spike', params: [
+    { k: 'multiplier', label: 'multiplier', def: 2, step: 0.5 }, { k: 'min_count', label: 'min count', def: 5 }] },
+  { key: 'high_risk_finding', label: 'High-severity risk finding', params: [
+    { k: 'window_hours', label: 'window (h)', def: 24 }] },
+  { key: 'neg_consensus_story', label: 'Negative-consensus story', params: [
+    { k: 'min_scored', label: 'min sources', def: 3 }, { k: 'neg_share', label: 'neg share', def: 0.7, step: 0.05 }, { k: 'window_hours', label: 'window (h)', def: 48 }] },
+  { key: 'new_critic', label: 'New critic', params: [
+    { k: 'recent_hours', label: 'window (h)', def: 48 }, { k: 'min_recent_neg', label: 'min posts', def: 2 }, { k: 'min_engagement_single', label: 'or engagement ≥', def: 50 }, { k: 'lookback_days', label: 'lookback (d)', def: 30 }] },
+  { key: 'coordinated_negative', label: 'Coordinated negativity', params: [
+    { k: 'min_authors', label: 'min accounts', def: 3 }, { k: 'window_hours', label: 'window (h)', def: 72 }] },
+];
+
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)
 function KeywordTagInput({ label, keywords, inputValue, setInputValue, onAdd, onRemove }: {
   label: string;
@@ -167,6 +189,26 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
     onArticleClick?.({ ...a }, related);
   }, [onArticleClick]);
+  // Competitor social benchmark: a small all-brands snapshot fetched independently
+  // of the scope toggle, so "you vs competitor average" works even in "X only" view.
+  const [benchSocial, setBenchSocial] = useState<Record<string, { pos: number; neg: number; scored: number }> | null>(null);
+  const loadBenchSocial = useCallback(() => {
+    if (brands.length < 2) { setBenchSocial(null); return; }
+    const topics = brands.map(b => `Brand Monitoring ${b.display_name}`);
+    getSocialPosts(topics, config.daysBack, 0.4, undefined, false, { limit: 500 }).then(data => {
+      const agg: Record<string, { pos: number; neg: number; scored: number }> = {};
+      (data.posts || []).forEach((p: any) => {
+        const sen = socialSentimentOf(p.sentiment);
+        if (sen === 'unrated') return;
+        const b = socialBrandOf(p);
+        if (!agg[b]) agg[b] = { pos: 0, neg: 0, scored: 0 };
+        if (sen === 'positive') agg[b].pos++; else if (sen === 'negative') agg[b].neg++;
+        agg[b].scored++;
+      });
+      setBenchSocial(agg);
+    }).catch(() => setBenchSocial(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brands, config.daysBack]);
   // Wider adverse-analysis pool for the dashboard: the paged `articles` state
   // follows the Articles tab (one page), which starves "what the negative
   // coverage is about" — fetch up to 200 recent articles for dashboard math.
@@ -492,6 +534,21 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         {atype && <span className={`text-[9px] px-1 py-px rounded-full font-semibold ${atype.cls}`}>{atype.label}</span>}
       </span>
     );
+  };
+  // Story-level coverage flags (from per-story sentiment mix across syndicated copies):
+  // negative consensus = the story's framing is negative across sources, not one outlet's take.
+  const isNegConsensus = (a: any) => (a.story_scored || 0) >= 3 && (a.story_neg || 0) / a.story_scored >= 0.7;
+  const isPolarized = (a: any) => (a.story_scored || 0) >= 4
+    && Math.min(a.story_neg || 0, a.story_pos || 0) / a.story_scored >= 0.3;
+  // MBFC factuality chip (shared by dashboard rows and the Articles tab).
+  const factualityChip = (f?: string | null) => {
+    if (!f) return null;
+    const t = f.toLowerCase();
+    const cls = t.includes('very high') || t === 'high' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+      : t.includes('mixed') || t.includes('mostly') ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
+      : t.includes('low') ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+      : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${cls}`} title="MBFC factual reporting rating">{f}</span>;
   };
   // Escalating/cooling arrow for a fan/critic (recent window-half vs prior half).
   const trendArrow = (t: 'up' | 'down' | 'flat' | null | undefined, kind: 'fan' | 'crit') => {
@@ -1061,6 +1118,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
       loadAlertData();
       loadDashArticles();
+      loadBenchSocial();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
           .then(d => setSentimentTrends(d.trends)).catch(console.error);
@@ -1112,7 +1170,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   useEffect(() => {
     if (activeTab !== 'social' && activeTab !== 'dashboard') return;
     fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
-    if (activeTab === 'dashboard') loadDashArticles();
+    if (activeTab === 'dashboard') { loadDashArticles(); loadBenchSocial(); }
     // brands.length: the initial fetch can fire before the brands list loads, in
     // which case "primary only" scope can't resolve a topic — refetch on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1756,6 +1814,42 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         const sv = socialView;
         const socNet = sv?.netSentiment ?? null;
         const socScored = sv ? sv.sentCounts.positive + sv.sentCounts.neutral + sv.sentCounts.negative : 0;
+        // ---- Competitor benchmarks: mean net sentiment across the OTHER brands ----
+        const primaryName = selectedBrand?.display_name || '';
+        const netFromBreakdown = (bd: Record<string, number>) => {
+          let pos = 0, neg = 0, scored = 0;
+          for (const [k, v] of Object.entries(bd || {})) {
+            const sen = socialSentimentOf(k);
+            if (sen === 'unrated') continue;
+            if (sen === 'positive') pos += v; else if (sen === 'negative') neg += v;
+            scored += v;
+          }
+          return scored >= 3 ? Math.round(((pos - neg) / scored) * 100) : null;
+        };
+        const newsCompNets = (comparison || [])
+          .filter(c => c.brand_name !== primaryName)
+          .map(c => ({ name: c.brand_name, net: netFromBreakdown(c.sentiment_breakdown) }))
+          .filter(c => c.net != null) as Array<{ name: string; net: number }>;
+        const newsCompAvg = newsCompNets.length
+          ? Math.round(newsCompNets.reduce((a, c) => a + c.net, 0) / newsCompNets.length) : null;
+        const socCompNets = Object.entries(benchSocial || {})
+          .filter(([b, v]) => b !== primaryName && v.scored >= 3)
+          .map(([b, v]) => ({ name: b, net: Math.round(((v.pos - v.neg) / v.scored) * 100) }));
+        const socCompAvg = socCompNets.length
+          ? Math.round(socCompNets.reduce((a, c) => a + c.net, 0) / socCompNets.length) : null;
+        const benchChip = (own: number | null, compAvg: number | null, nets: Array<{ name: string; net: number }>) => {
+          if (own == null || compAvg == null) return null;
+          const d = own - compAvg;
+          const cls = d >= 10 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+            : d <= -10 ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+            : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
+          return (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${cls}`}
+              title={`Competitor average ${compAvg > 0 ? '+' : ''}${compAvg} — ${nets.map(c => `${c.name} ${c.net > 0 ? '+' : ''}${c.net}`).join(' · ')}`}>
+              {d > 0 ? '▲' : d < 0 ? '▼' : '='} {d > 0 ? '+' : ''}{d} vs comp avg
+            </span>
+          );
+        };
         const highAlerts = brandAlerts.filter(a => a.severity === 'high').length;
         // ---- Social posts: adverse screening — NEGATIVE posts lead (by reach) ----
         const eng = (p: any) => { const m = p.social_meta || {}; return (m.likes || 0) + (m.reposts || 0) * 2 + (m.comments || 0) + (m.plays || 0) / 100; };
@@ -1817,11 +1911,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           seenStory.add(k);
           dedupedNews.push(a);
         }
-        // Story-level coverage flags (from per-story sentiment mix across syndicated copies):
-        // negative consensus = the story's framing is negative across sources, not one outlet's take.
-        const isNegConsensus = (a: any) => (a.story_scored || 0) >= 3 && (a.story_neg || 0) / a.story_scored >= 0.7;
-        const isPolarized = (a: any) => (a.story_scored || 0) >= 4
-          && Math.min(a.story_neg || 0, a.story_pos || 0) / a.story_scored >= 0.3;
         const isNegNews = (a: any) => socialSentimentOf(a.sentiment) === 'negative' || (a.risks || []).length > 0 || isNegConsensus(a);
         const visibleNewsPool = dedupedNews.filter(a => reviewStatusOf(a) !== 'dismissed');
         const negNews = visibleNewsPool.filter(isNegNews).sort((a, b) => (b.story_size || 1) - (a.story_size || 1) || (b.publication_date || '').localeCompare(a.publication_date || ''));
@@ -2003,9 +2092,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {[
                   { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`), tone: negNewsToday ? -1 : null },
-                  { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−`, tone: newsNet },
+                  { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−${newsNet != null && newsCompAvg != null ? ` · comp avg ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}` : ''}`, tone: newsNet },
                   { label: 'Social posts', value: (sv?.totalLoaded ?? 0).toLocaleString(), sub: socToday ? `+${socToday} today · ${socScored} scored` : `${socScored} scored` },
-                  { label: 'Social sentiment', value: socNet == null ? '—' : `${socNet > 0 ? '+' : ''}${socNet}`, sub: sv ? `${sv.sentCounts.positive}+ ${sv.sentCounts.neutral}· ${sv.sentCounts.negative}−` : '', tone: socNet },
+                  { label: 'Social sentiment', value: socNet == null ? '—' : `${socNet > 0 ? '+' : ''}${socNet}`, sub: sv ? `${sv.sentCounts.positive}+ ${sv.sentCounts.neutral}· ${sv.sentCounts.negative}−${socNet != null && socCompAvg != null ? ` · comp avg ${socCompAvg > 0 ? '+' : ''}${socCompAvg}` : ''}` : '', tone: socNet },
                   { label: 'Spike alerts', value: String(brandAlerts.length), sub: highAlerts ? `${highAlerts} high` : 'none high', tone: highAlerts ? -1 : null },
                 ].map((c: any) => (
                   <div key={c.label} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3.5">
@@ -2026,11 +2115,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     <span className="w-16 text-xs font-medium text-gray-500 flex-shrink-0">📰 News</span>
                     {splitBar(newsSent.pos, newsSent.neu, newsSent.neg)}
                     {netChip(newsNet)}
+                    {benchChip(newsNet, newsCompAvg, newsCompNets)}
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="w-16 text-xs font-medium text-gray-500 flex-shrink-0">💬 Social</span>
                     {sv ? splitBar(sv.sentCounts.positive, sv.sentCounts.neutral, sv.sentCounts.negative) : <div className="flex-1 text-xs text-gray-400">loading…</div>}
                     {netChip(socNet)}
+                    {benchChip(socNet, socCompAvg, socCompNets)}
                   </div>
                 </div>
                 {newsNet != null && socNet != null && Math.abs(newsNet - socNet) >= 25 && (
@@ -4472,12 +4563,49 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <Sparkles className="w-3 h-3" /> Entity-verified{article.entity_match.relevance != null ? ` ${article.entity_match.relevance.toFixed(2)}` : ''}
                       </span>
                     )}
+                    {factualityChip(article.factual_reporting)}
+                    {(article.risks || []).map((r: any) => (
+                      <span key={r.risk_type}
+                        title={`Adverse risk: ${r.risk_type} (${r.severity})`}
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                          r.severity === 'high' ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                          : r.severity === 'medium' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                        ⚠ {r.risk_type.replace(/_/g, '/')}
+                      </span>
+                    ))}
+                    {(article.story_size || 1) >= 2 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 font-semibold"
+                        title={`Republished by ${article.story_size} sources`}>×{article.story_size}</span>
+                    )}
+                    {isNegConsensus(article) && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-600 text-white"
+                        title={`${article.story_neg} of ${article.story_scored} sources frame this negatively`}>⚠ negative consensus</span>
+                    )}
+                    {!isNegConsensus(article) && isPolarized(article) && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                        title={`Coverage split: ${article.story_pos} positive vs ${article.story_neg} negative`}>⚡ polarized</span>
+                    )}
                     {article.news_source && (
                       <span className="text-xs text-gray-400">{article.news_source}</span>
                     )}
                     {article.publication_date && (
                       <span className="text-xs text-gray-400">{article.publication_date.slice(0, 10)}</span>
                     )}
+                    <span className="flex-1" />
+                    {reviewStatusOf(article) !== 'new' && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                        reviewStatusOf(article) === 'escalated' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                        : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>{reviewStatusOf(article)}</span>
+                    )}
+                    <select value="" onClick={e => e.stopPropagation()}
+                      onChange={e => { const v = e.target.value as any; if (v) setReview(article.uri, article.brand_id, v); e.currentTarget.value = ''; }}
+                      title="Case state" className="text-[10px] px-1 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-transparent text-gray-400 hover:text-gray-600 cursor-pointer">
+                      <option value="">act…</option>
+                      <option value="reviewed">Mark reviewed</option>
+                      <option value="escalated">Escalate</option>
+                      <option value="dismissed">Dismiss</option>
+                    </select>
                   </div>
                 </div>
               ))}
@@ -4536,6 +4664,26 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     ))}
                   </div>
                 </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-200">
+                    <input type="checkbox" checked={!!alertCfg.channels?.digest?.enabled}
+                      onChange={e => setAlertCfg({ ...alertCfg, channels: { ...alertCfg.channels, digest: { ...(alertCfg.channels?.digest || {}), enabled: e.target.checked } } })} />
+                    Digest email
+                  </label>
+                  <select value={alertCfg.channels?.digest?.frequency || 'daily'}
+                    onChange={e => setAlertCfg({ ...alertCfg, channels: { ...alertCfg.channels, digest: { ...(alertCfg.channels?.digest || {}), frequency: e.target.value as any } } })}
+                    className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                    <option value="daily">daily</option>
+                    <option value="weekly">weekly (Mondays)</option>
+                  </select>
+                  <span className="text-xs text-gray-400">at</span>
+                  <select value={alertCfg.channels?.digest?.hour_utc ?? 6}
+                    onChange={e => setAlertCfg({ ...alertCfg, channels: { ...alertCfg.channels, digest: { ...(alertCfg.channels?.digest || {}), hour_utc: Number(e.target.value) } } })}
+                    className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                    {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00 UTC</option>)}
+                  </select>
+                  <span className="text-xs text-gray-400">— sentiment, findings, alerts &amp; case actions to the recipients below</span>
+                </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1.5 block">Email recipients <span className="normal-case font-normal text-gray-400">(comma-separated)</span></label>
                   <input type="text" value={alertRecipientsText} onChange={e => setAlertRecipientsText(e.target.value)}
@@ -4556,7 +4704,34 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   </select>
                   <span className="text-xs text-gray-400">same rule+brand alerts at most once per window</span>
                 </div>
-                <p className="text-[11px] text-gray-400">Rules: negative-social spike (2× in 48h), high-reach negative post, news net-negative (≤ −20), category spikes, high-severity risk findings, negative-consensus stories (≥70% of sources negative). Thresholds are tunable via the API (bw_alert_config.rules).</p>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1.5 block">Rules &amp; thresholds</label>
+                  <div className="space-y-1.5">
+                    {BW_ALERT_RULE_DEFS.map(rd => {
+                      const rcfg = (alertCfg.rules || {})[rd.key] || {};
+                      const enabled = rcfg.enabled !== false;
+                      const setRule = (patch: Record<string, any>) =>
+                        setAlertCfg({ ...alertCfg, rules: { ...(alertCfg.rules || {}), [rd.key]: { ...rcfg, ...patch } } });
+                      return (
+                        <div key={rd.key} className={`flex items-center gap-2 flex-wrap text-xs rounded-md px-2 py-1 ${enabled ? '' : 'opacity-50'} bg-gray-50 dark:bg-gray-750`}>
+                          <label className="flex items-center gap-1.5 text-gray-700 dark:text-gray-200 w-52 flex-shrink-0">
+                            <input type="checkbox" checked={enabled} onChange={e => setRule({ enabled: e.target.checked })} />
+                            {rd.label}
+                          </label>
+                          {rd.params.map(pm => (
+                            <label key={pm.k} className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+                              {pm.label}
+                              <input type="number" step={pm.step || 1} value={rcfg[pm.k] ?? pm.def}
+                                onChange={e => setRule({ [pm.k]: e.target.value === '' ? pm.def : Number(e.target.value) })}
+                                className="w-16 text-xs px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">Values shown are the server defaults until changed; unchecking disables a rule.</p>
+                </div>
               </div>
             )}
             <div className="flex items-center justify-between gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
@@ -4569,7 +4744,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     setAlertSaving(true);
                     try {
                       const recipients = alertRecipientsText.split(',').map(x => x.trim()).filter(Boolean);
-                      const updated = await updateAlertConfig({ enabled: alertCfg.enabled, channels: alertCfg.channels, email_recipients: recipients, webhook_url: alertCfg.webhook_url, cooldown_hours: alertCfg.cooldown_hours });
+                      const updated = await updateAlertConfig({ enabled: alertCfg.enabled, rules: alertCfg.rules, channels: alertCfg.channels, email_recipients: recipients, webhook_url: alertCfg.webhook_url, cooldown_hours: alertCfg.cooldown_hours });
                       setAlertCfg(updated); setShowAlertSettings(false);
                     } catch (e) { console.error(e); alert('Failed to save alert config'); }
                     finally { setAlertSaving(false); }
