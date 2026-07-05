@@ -1019,6 +1019,11 @@ export async function updateIncident(id: number, updates: { title?: string; desc
   if (!res.ok) throw new Error(`Failed to update incident: ${res.status}`);
 }
 
+export async function deleteIncident(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/incidents/${id}`, { method: 'DELETE', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to delete incident: ${res.status}`);
+}
+
 export async function addIncidentNote(id: number, note: string): Promise<void> {
   const res = await fetch(`${BASE}/incidents/${id}/note`, {
     method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },

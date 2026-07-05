@@ -4972,6 +4972,30 @@ async def update_incident(incident_id: int, req: IncidentUpdate, session=Depends
         conn.close()
 
 
+@router.delete("/incidents/{incident_id}")
+async def delete_incident(incident_id: int, session=Depends(verify_session)):
+    """Delete an incident (events and evidence cascade)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("SELECT title FROM bw_incidents WHERE id = :i"),
+                           {"i": incident_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        conn.execute(text("DELETE FROM bw_incidents WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        logger.info(f"Incident {incident_id} ('{row[0]}') deleted by {_incident_actor(session)}")
+        return {"message": "Incident deleted", "id": incident_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error deleting incident {incident_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.post("/incidents/{incident_id}/note")
 async def add_incident_note(incident_id: int, req: IncidentNote, session=Depends(verify_session)):
     db = get_database_instance()

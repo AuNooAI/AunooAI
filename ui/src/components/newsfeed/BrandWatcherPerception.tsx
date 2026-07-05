@@ -9,7 +9,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Loader2, Info } from 'lucide-react';
+import { Loader2, Info, FileDown } from 'lucide-react';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, Legend, Tooltip,
@@ -142,12 +143,15 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
       </div>
 
       {/* Radar: all brands overlaid, axes = dimensions */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      <div id="bw-perception-radar" className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center gap-1.5 mb-1">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Perception radar</h4>
           <span title="Axes are normalized to 0–100 so all dimensions share a scale: 50 = neutral, above = net positive perception, below = net negative. Dimensions with no data in the window are left blank.">
             <Info className="w-3.5 h-3.5 text-gray-400" />
           </span>
+          <div className="ml-auto">
+            <ChartDownloadButton targetId="bw-perception-radar" filename="perception_radar" />
+          </div>
         </div>
         <ResponsiveContainer width="100%" height={380}>
           <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
@@ -166,7 +170,34 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
 
       {/* Table: raw scores + volumes */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 overflow-x-auto">
-        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Scores by dimension</h4>
+        <div className="flex items-center mb-3">
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Scores by dimension</h4>
+          <button
+            onClick={() => {
+              const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+              const lines = ['brand,is_primary,dimension,score,items,positive,neutral,negative,glassdoor_rating,glassdoor_outlook'];
+              for (const b of shownBrands) {
+                for (const dim of DIMENSIONS) {
+                  const d = b.dimensions[dim.key];
+                  lines.push([esc(b.display_name), b.is_primary, dim.label, d?.score ?? '',
+                    d?.n ?? 0, d?.positive ?? '', d?.neutral ?? '', d?.negative ?? '',
+                    dim.key === 'employee' ? (d?.rating ?? '') : '',
+                    dim.key === 'employee' && d?.outlook != null ? Math.round(d.outlook * 100) : ''].join(','));
+                }
+              }
+              const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `perception_scores_${new Date().toISOString().slice(0, 10)}.csv`;
+              link.click();
+              URL.revokeObjectURL(url);
+            }}
+            title="Download the visible brands' dimension scores and volumes as CSV"
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600">
+            <FileDown className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">

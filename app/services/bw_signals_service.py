@@ -133,14 +133,21 @@ async def _mcp_call(client: httpx.AsyncClient, tool: str,
 async def _start_and_poll(client: httpx.AsyncClient, start_tool: str,
                           start_args: Dict[str, Any], poll_tool: str,
                           poll_seconds: int) -> Dict[str, Any]:
-    """start_*_job → poll get_*_job until succeeded/failed/ceiling."""
+    """start_*_job → poll get_*_job until succeeded/failed/ceiling.
+
+    saas dedupes validations by content hash server-side: an article that was
+    already validated completes its job near-instantly from cache. The first
+    polls are therefore fast (3s/5s/8s) so cached results return in seconds
+    instead of waiting a full poll interval; fresh runs fall back to the
+    normal cadence."""
     started = await _mcp_call(client, start_tool, start_args)
     job_id = started.get("job_id")
     if job_id is None:
         raise SaasMcpError(f"{start_tool}: no job_id in response")
     deadline = time.monotonic() + JOB_CEILING_SECONDS
+    fast_polls = [3, 5, 8]
     while time.monotonic() < deadline:
-        await asyncio.sleep(poll_seconds)
+        await asyncio.sleep(fast_polls.pop(0) if fast_polls else poll_seconds)
         job = await _mcp_call(client, poll_tool, {"job_id": job_id})
         status = job.get("status")
         if status == "succeeded":

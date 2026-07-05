@@ -34,7 +34,7 @@ import {
   runScheduleNow, getSentimentTrends, getBrandAlerts, exportBrandData, updateBrandConfig,
   getAlertConfig, updateAlertConfig, listAlertEvents, ackAlertEvent, evaluateAlertsNow, setFindingState,
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
-  listIncidents, createIncident, getIncident, updateIncident, addIncidentNote,
+  listIncidents, createIncident, getIncident, updateIncident, deleteIncident, addIncidentNote,
   attachIncidentEvidence, verifyIncidentChain,
   getEmployeeRisk, getRiskSummary,
   runSignals, getSignalsDetail,
@@ -251,10 +251,41 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // "Add to incident" picker: holds the source being attached (article or alert event)
   const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event'; ref: string; label: string; brandId: number | null } | null>(null);
   const [incAttachNewTitle, setIncAttachNewTitle] = useState('');
+  // Bulk incident management: selected ids + pending bulk edit values
+  const [incSelected, setIncSelected] = useState<Set<number>>(new Set());
+  const [incBulk, setIncBulk] = useState<{ status: string; severity: string; owner: string }>({ status: '', severity: '', owner: '' });
+  const [incBulkBusy, setIncBulkBusy] = useState(false);
   const loadIncidents = useCallback((status?: string) => {
     setIncLoading(true);
     listIncidents(status || undefined).then(setIncidents).catch(console.error).finally(() => setIncLoading(false));
   }, []);
+  const applyIncidentBulk = useCallback(async (action: 'update' | 'delete') => {
+    const ids = Array.from(incSelected);
+    if (!ids.length) return;
+    if (action === 'delete' && !window.confirm(`Delete ${ids.length} incident${ids.length > 1 ? 's' : ''}? Events and evidence are removed with them.`)) return;
+    setIncBulkBusy(true);
+    try {
+      for (const id of ids) {
+        if (action === 'delete') {
+          await deleteIncident(id);
+          if (incDetail?.id === id) setIncDetail(null);
+        } else {
+          const updates: Record<string, string> = {};
+          if (incBulk.status) updates.status = incBulk.status;
+          if (incBulk.severity) updates.severity = incBulk.severity;
+          if (incBulk.owner.trim()) updates.owner = incBulk.owner.trim();
+          if (Object.keys(updates).length) await updateIncident(id, updates);
+        }
+      }
+      setIncSelected(new Set());
+      setIncBulk({ status: '', severity: '', owner: '' });
+      loadIncidents(incStatusFilter || undefined);
+    } catch (err) {
+      console.error('Bulk incident action failed:', err);
+    } finally {
+      setIncBulkBusy(false);
+    }
+  }, [incSelected, incBulk, incDetail, incStatusFilter, loadIncidents]);
   const openIncident = useCallback((id: number) => {
     setIncChain(null);
     getIncident(id).then(setIncDetail).catch(console.error);
@@ -1702,6 +1733,57 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       setExporting(false);
     }
   }, [primarySelectedId, config.daysBack]);
+
+  // --- Articles tab: export the currently FILTERED list as CSV (pages through
+  // the API with the active brand/topic/category/window filters) ---
+  const [exportingArticlesCsv, setExportingArticlesCsv] = useState(false);
+  const handleExportArticlesCsv = useCallback(async () => {
+    setExportingArticlesCsv(true);
+    try {
+      const all: typeof articles = [];
+      let page = 1;
+      for (;;) {
+        const res = await getArticles({
+          brand_ids: config.selectedBrandIds.length > 0 ? config.selectedBrandIds : undefined,
+          topics: config.selectedTopics.length > 0 ? config.selectedTopics : undefined,
+          categories: config.selectedCategories.length > 0 ? config.selectedCategories : undefined,
+          days_back: config.daysBack,
+          sort_by: config.sortBy,
+          page,
+          per_page: 200,
+        });
+        all.push(...res.articles);
+        if (page >= res.total_pages || all.length >= 5000) break;
+        page++;
+      }
+      const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const header = ['title', 'url', 'source', 'published', 'brand', 'sentiment', 'categories',
+                      'matched_keywords', 'factual_reporting', 'risks', 'case_status',
+                      'signals_verdict', 'signals_composite'];
+      const lines = [header.join(',')];
+      for (const a of all) {
+        lines.push([
+          esc(a.title), esc(a.uri), esc(a.news_source), esc(a.publication_date),
+          esc(a.brand_name), esc(a.sentiment), esc((a.categories || []).join('; ')),
+          esc((a.matched_keywords || []).join('; ')), esc(a.factual_reporting),
+          esc((a.risks || []).map(r => `${r.risk_type}:${r.severity}`).join('; ')),
+          esc(a.review_status),
+          esc(a.signals_summary?.verdict), esc(a.signals_summary?.composite),
+        ].join(','));
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `brand_watcher_articles_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Articles CSV export error:', err);
+    } finally {
+      setExportingArticlesCsv(false);
+    }
+  }, [config.selectedBrandIds, config.selectedTopics, config.selectedCategories, config.daysBack, config.sortBy]);
 
   // --- Full PDF Report Export (with charts) ---
   const handleExportPDFReport = useCallback(async () => {
@@ -5381,6 +5463,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   Clear filters
                 </button>
               )}
+              <button onClick={handleExportArticlesCsv} disabled={exportingArticlesCsv}
+                title="Download the currently filtered article list (brand, category, topic and time filters applied) as CSV — includes sentiment, categories, risks, case status and Five Signals verdicts"
+                className="ml-auto flex items-center gap-1.5 px-3 py-1 text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">
+                {exportingArticlesCsv ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+                {exportingArticlesCsv ? 'Exporting…' : 'Export CSV'}
+              </button>
             </div>
           )}
 
@@ -5889,11 +5977,58 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             <div className="space-y-3">
               {incLoading && <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>}
               {!incLoading && incidents.length === 0 && <p className="text-xs text-gray-400 py-4 text-center">No incidents{incStatusFilter ? ` with status "${incStatusFilter}"` : ''}. Adverse findings can be captured via "act… → Add to incident" on any article row.</p>}
+              {incidents.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <label className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400 cursor-pointer"
+                    title="Select all listed incidents for a bulk action">
+                    <input type="checkbox"
+                      checked={incSelected.size > 0 && incSelected.size === incidents.length}
+                      onChange={e => setIncSelected(e.target.checked ? new Set(incidents.map(i => i.id)) : new Set())} />
+                    {incSelected.size > 0 ? `${incSelected.size} selected` : 'Select all'}
+                  </label>
+                  {incSelected.size > 0 && (
+                    <>
+                      <select value={incBulk.status} onChange={e => setIncBulk(b => ({ ...b, status: e.target.value }))}
+                        className="px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-gray-200">
+                        <option value="">status…</option>
+                        {['open', 'investigating', 'contained', 'resolved', 'closed'].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <select value={incBulk.severity} onChange={e => setIncBulk(b => ({ ...b, severity: e.target.value }))}
+                        className="px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-gray-200">
+                        <option value="">severity…</option>
+                        {['low', 'medium', 'high', 'critical'].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <input type="text" value={incBulk.owner} placeholder="owner…"
+                        onChange={e => setIncBulk(b => ({ ...b, owner: e.target.value }))}
+                        className="w-24 px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-gray-200" />
+                      <button onClick={() => applyIncidentBulk('update')}
+                        disabled={incBulkBusy || (!incBulk.status && !incBulk.severity && !incBulk.owner.trim())}
+                        title="Apply the chosen status/severity/owner to every selected incident (each change lands in the incident timeline)"
+                        className="px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
+                        {incBulkBusy ? 'Applying…' : 'Apply'}
+                      </button>
+                      <button onClick={() => applyIncidentBulk('delete')} disabled={incBulkBusy}
+                        title="Delete every selected incident, including its timeline and evidence"
+                        className="px-2.5 py-1 rounded border border-red-300 dark:border-red-700 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40">
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               {incidents.map(inc => {
                 const sevCls: Record<string, string> = { low: 'bg-gray-100 text-gray-600', medium: 'bg-amber-100 text-amber-700', high: 'bg-red-100 text-red-700', critical: 'bg-red-600 text-white' };
                 return (
-                  <button key={inc.id} onClick={() => openIncident(inc.id)}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors ${incDetail?.id === inc.id ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
+                  <div key={inc.id} className="flex items-start gap-2">
+                  <input type="checkbox" checked={incSelected.has(inc.id)}
+                    onChange={e => setIncSelected(prev => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(inc.id); else next.delete(inc.id);
+                      return next;
+                    })}
+                    className="mt-4 flex-shrink-0" title="Select for bulk action" />
+                  <button onClick={() => openIncident(inc.id)}
+                    className={`flex-1 min-w-0 text-left p-3 rounded-lg border transition-colors ${incDetail?.id === inc.id ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${sevCls[inc.severity] || sevCls.medium}`}>{inc.severity}</span>
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex-1">#{inc.id} {inc.title}</span>
@@ -5906,6 +6041,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <span>{(inc.updated_at || '').slice(0, 10)}</span>
                     </div>
                   </button>
+                  </div>
                 );
               })}
               {!incDetail ? (
