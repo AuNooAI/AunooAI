@@ -118,8 +118,10 @@ Per tenant X (slug = DB name, user `X_user`), following the proven clone playboo
 
 After code changes ship to bugfixing: rsync code + built static + templates from
 bugfixing into bwtemplate, `alembic upgrade head` on the bwtemplate DB, restart,
-re-dump to `/var/tmp/bw_template.dump`. The DB stays clean as long as nothing is
-ingested (no keyword groups exist, so collectors gather nothing).
+re-dump to `/var/tmp/bw_template.dump`. The dump must stay readable by the
+postgres OS user (`chown root:postgres`, `chmod 640`) — pg_restore runs as
+postgres and 600/root breaks provisioning. The DB stays clean as long as nothing
+is ingested (no keyword groups exist, so collectors gather nothing).
 
 The bwtemplate service can be left stopped when not needed
 (`systemctl stop bwtemplate.aunoo.ai.service`) — the template artifacts are the

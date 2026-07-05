@@ -223,6 +223,10 @@ def provision(args):
     for path in (TEMPLATE_DIR, args.dump, TEMPLATE_UNIT):
         if not os.path.exists(path):
             die(f"missing prerequisite: {path}")
+    # pg_restore runs as the postgres OS user — it must be able to read the dump
+    if run(["sudo", "-u", "postgres", "test", "-r", args.dump], check=False).returncode != 0:
+        die(f"{args.dump} is not readable by the postgres user "
+            f"(fix: chown root:postgres + chmod 640)")
     if os.path.exists(n["dir"]):
         die(f"{n['dir']} already exists")
     if os.path.exists(n["unit_path"]):
