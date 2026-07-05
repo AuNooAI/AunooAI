@@ -184,17 +184,17 @@ class TenantClient:
 # Provision
 # ---------------------------------------------------------------------------
 
-def read_template_env():
-    """Return the template's plaintext .env content (decrypting a copy if needed)."""
-    env_path = os.path.join(TEMPLATE_DIR, ".env")
+def read_tenant_env(tenant_dir):
+    """Return a tenant's plaintext .env content (decrypting a copy if needed)."""
+    env_path = os.path.join(tenant_dir, ".env")
     if os.path.exists(env_path):
         return open(env_path).read()
     enc_path = env_path + ".encrypted"
     if not os.path.exists(enc_path):
-        die(f"template has neither .env nor .env.encrypted in {TEMPLATE_DIR}")
-    run(["sudo", "-u", OWNER] + ENV_TOOL + ["decrypt", TEMPLATE_DIR])
+        die(f"{tenant_dir} has neither .env nor .env.encrypted")
+    run(["sudo", "-u", OWNER] + ENV_TOOL + ["decrypt", tenant_dir])
     content = open(env_path).read()
-    os.remove(env_path)  # leave the template encrypted-at-rest
+    os.remove(env_path)  # leave the source encrypted-at-rest
     return content
 
 
@@ -202,6 +202,8 @@ def render_env(template_env, n, port, db_password):
     subs = {
         "PORT": str(port),
         "DOMAIN": n["domain"],
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432",  # direct postgres — the clone has no pgbouncer entry
         "DB_NAME": n["db"],
         "DB_USER": n["db_user"],
         "DB_PASSWORD": db_password,
@@ -214,6 +216,12 @@ def render_env(template_env, n, port, db_password):
     for line in template_env.splitlines():
         key = line.split("=", 1)[0] if "=" in line else None
         out.append(f"{key}={subs[key]}" if key in subs else line)
+    # Dedicated Brand Watcher flags — append when the base env lacks them
+    keys = {l.split("=", 1)[0] for l in out if "=" in l}
+    if "BW_DEDICATED_MODE" not in keys:
+        out += ["", "# Dedicated Brand Watcher tenant", "BW_DEDICATED_MODE=1"]
+    if "ENABLED_MODULES" not in keys:
+        out.append("ENABLED_MODULES=brand_watcher")
     return "\n".join(out) + "\n"
 
 
@@ -225,14 +233,36 @@ def provision(args):
         die("slug must be lowercase alphanumeric, starting with a letter")
     n = names(slug)
 
+    if not args.brand and not args.data_from:
+        die("--brand is required unless --data-from is given")
+
+    # Resolve a source tenant whose data we clone instead of the golden dump
+    src_dir = src_env = src_db = None
+    if args.data_from:
+        cand = args.data_from if os.path.isdir(args.data_from) else \
+            os.path.join(TENANTS_DIR, args.data_from if "." in args.data_from
+                         else f"{args.data_from}.aunoo.ai")
+        if not os.path.isdir(cand):
+            die(f"--data-from tenant not found: {cand}")
+        src_dir = cand
+        src_env = read_tenant_env(src_dir)
+        m = re.search(r"^DB_NAME=(.+)$", src_env, re.M)
+        if not m:
+            die(f"no DB_NAME in {src_dir}/.env")
+        src_db = m.group(1).strip()
+        if not psql(f"SELECT 1 FROM pg_database WHERE datname='{src_db}'"):
+            die(f"source database {src_db} does not exist")
+
     # Preflight
-    for path in (TEMPLATE_DIR, args.dump, TEMPLATE_UNIT):
+    prereqs = [TEMPLATE_DIR, TEMPLATE_UNIT] + ([] if src_db else [args.dump])
+    for path in prereqs:
         if not os.path.exists(path):
             die(f"missing prerequisite: {path}")
-    # pg_restore runs as the postgres OS user — it must be able to read the dump
-    if run(["sudo", "-u", "postgres", "test", "-r", args.dump], check=False).returncode != 0:
-        die(f"{args.dump} is not readable by the postgres user "
-            f"(fix: chown root:postgres + chmod 640)")
+    if not src_db:
+        # pg_restore runs as the postgres OS user — it must be able to read the dump
+        if run(["sudo", "-u", "postgres", "test", "-r", args.dump], check=False).returncode != 0:
+            die(f"{args.dump} is not readable by the postgres user "
+                f"(fix: chown root:postgres + chmod 640)")
     if os.path.exists(n["dir"]):
         die(f"{n['dir']} already exists")
     if os.path.exists(n["unit_path"]):
@@ -259,14 +289,34 @@ def provision(args):
     # Guard against the unanchored-exclude footgun (app/models must survive)
     if not os.path.isdir(os.path.join(n["dir"], "app", "models")):
         die("app/models missing after rsync — check excludes")
+    if src_dir:
+        # Carry the source tenant's live config (topics, provider settings)
+        for cfg in ("config.json", "provider_config.json"):
+            src_cfg = os.path.join(src_dir, "app", "config", cfg)
+            if os.path.exists(src_cfg):
+                shutil.copy2(src_cfg, os.path.join(n["dir"], "app", "config", cfg))
+                log(f"carried {cfg} from {os.path.basename(src_dir)}")
 
     # 2. Database
+    dump_path = args.dump
+    if src_db:
+        dump_path = f"/var/tmp/{slug}_from_{src_db}.dump"
+        log(f"dumping source database {src_db} (this can take a while)")
+        with open(dump_path, "wb") as out:
+            r = subprocess.run(["sudo", "-u", "postgres", "pg_dump", "-Fc",
+                                "--no-owner", "--no-acl", "-d", src_db],
+                               stdout=out, stderr=subprocess.PIPE, text=False)
+        if r.returncode != 0:
+            die("pg_dump of source failed:\n" + r.stderr.decode()[:800])
+        shutil.chown(dump_path, user="root", group="postgres")
+        os.chmod(dump_path, 0o640)
+        log(f"source dump: {os.path.getsize(dump_path) // (1024 * 1024)} MiB")
     db_password = secrets.token_hex(24)
     psql(f"CREATE ROLE {n['db_user']} LOGIN PASSWORD '{db_password}'", capture=False)
     run(["sudo", "-u", "postgres", "createdb", "-O", n["db_user"], n["db"]])
     psql("CREATE EXTENSION vector", db=n["db"], capture=False)
     r = run(["sudo", "-u", "postgres", "pg_restore", "--no-owner",
-             f"--role={n['db_user']}", "-j4", "-d", n["db"], args.dump],
+             f"--role={n['db_user']}", "-j4", "-d", n["db"], dump_path],
             check=False, capture=True)
     benign = [l for l in (r.stderr or "").splitlines()
               if "must be owner of extension vector" not in l and l.strip()
@@ -278,8 +328,9 @@ def provision(args):
         die(f"restore produced only {tables} tables")
     log(f"database restored ({tables} tables)")
 
-    # 3. .env (plaintext -> encrypted at rest)
-    env_content = render_env(read_template_env(), n, port, db_password)
+    # 3. .env (plaintext -> encrypted at rest); base = source tenant's env when
+    # cloning data so its API keys and collector credentials carry over
+    env_content = render_env(src_env or read_tenant_env(TEMPLATE_DIR), n, port, db_password)
     env_path = os.path.join(n["dir"], ".env")
     with open(env_path, "w") as f:
         f.write(env_content)
@@ -322,33 +373,47 @@ def provision(args):
              "--agree-tos", "--non-interactive", "--redirect"])
         log(f"https://{n['domain']} is live")
 
-    # 7. Seed the brand through the app's own API
+    # 7. Seed / verify through the app's own API
     client = TenantClient(port)
     client.login("admin", admin_password)
     modules = client.get_json("/api/modules")
     if not modules.get("dedicated_mode"):
         die("tenant is not in dedicated mode — check BW_DEDICATED_MODE in .env")
-    keywords = [k.strip() for k in (args.keywords or "").split(",") if k.strip()]
-    aliases = [a.strip() for a in (args.aliases or "").split(",") if a.strip()]
-    brand_keywords = list(dict.fromkeys([args.brand] + aliases + keywords))
-    brand = client.post_json("/api/brand-watcher/brands", {
-        "name": slug,
-        "display_name": args.brand,
-        "description": f"Primary monitored brand for {n['domain']}",
-        "brand_keywords": brand_keywords,
-    })
-    brand_id = brand["id"]
-    client.put(f"/api/brand-watcher/brands/{brand_id}/set-primary")
-    setup = client.post_json(f"/api/brand-watcher/brands/{brand_id}/setup-monitoring", {})
-    log(f"brand {brand_id} seeded: topic '{setup.get('topic_name')}', "
-        f"group '{setup.get('group_name')}'")
+    if src_db:
+        # Data clone: brands came with the data. Clear alert delivery targets so
+        # the clone does not double-send alerts/digests alongside the source.
+        psql("UPDATE bw_alert_config SET email_recipients = '[]', webhook_url = NULL",
+             db=n["db"], capture=False)
+        log("cleared alert email/webhook targets (avoid duplicate delivery) — "
+            "re-enter recipients on the new tenant deliberately")
+        brands = client.get_json("/api/brand-watcher/brands")
+        if not brands:
+            die("data clone has no brands — source was not a Brand Watcher tenant?")
+        arts = client.get_json("/api/brand-watcher/articles?days=30")
+        log(f"verification passed: dedicated mode on, {len(brands)} brands "
+            f"({', '.join(b['display_name'] for b in brands)}), "
+            f"{arts.get('total_count')} articles in last 30d")
+    else:
+        keywords = [k.strip() for k in (args.keywords or "").split(",") if k.strip()]
+        aliases = [a.strip() for a in (args.aliases or "").split(",") if a.strip()]
+        brand_keywords = list(dict.fromkeys([args.brand] + aliases + keywords))
+        brand = client.post_json("/api/brand-watcher/brands", {
+            "name": slug,
+            "display_name": args.brand,
+            "description": f"Primary monitored brand for {n['domain']}",
+            "brand_keywords": brand_keywords,
+        })
+        brand_id = brand["id"]
+        client.put(f"/api/brand-watcher/brands/{brand_id}/set-primary")
+        setup = client.post_json(f"/api/brand-watcher/brands/{brand_id}/setup-monitoring", {})
+        log(f"brand {brand_id} seeded: topic '{setup.get('topic_name')}', "
+            f"group '{setup.get('group_name')}'")
 
-    # 8. Verify
-    brands = client.get_json("/api/brand-watcher/brands")
-    assert any(b["id"] == brand_id for b in brands), "brand missing after seed"
-    arts = client.get_json("/api/brand-watcher/articles?days=30")
-    assert arts.get("total_count") == 0, "expected empty article set"
-    log("verification passed: dedicated mode on, brand seeded, clean empty state")
+        brands = client.get_json("/api/brand-watcher/brands")
+        assert any(b["id"] == brand_id for b in brands), "brand missing after seed"
+        arts = client.get_json("/api/brand-watcher/articles?days=30")
+        assert arts.get("total_count") == 0, "expected empty article set"
+        log("verification passed: dedicated mode on, brand seeded, clean empty state")
 
     # 9. Record credentials (root-only)
     with open(n["creds"], "w") as f:
@@ -402,7 +467,12 @@ def main():
 
     p = sub.add_parser("provision", help="stamp out a new dedicated BW tenant")
     p.add_argument("--slug", required=True, help="tenant slug (dir/db/user/domain prefix)")
-    p.add_argument("--brand", required=True, help="brand display name, e.g. 'Acme Publishing'")
+    p.add_argument("--brand", help="brand display name, e.g. 'Acme Publishing' "
+                                   "(required unless --data-from)")
+    p.add_argument("--data-from", help="existing tenant (slug, domain or dir) whose DATA to "
+                                       "clone: fresh DB dump, .env base (API keys carry over), "
+                                       "config.json/provider_config.json; skips brand seeding "
+                                       "and clears alert delivery targets on the clone")
     p.add_argument("--aliases", help="comma-separated brand aliases (legal names, tickers)")
     p.add_argument("--keywords", help="comma-separated extra monitoring keywords")
     p.add_argument("--port", type=int, help=f"backend port (default: first free in {PORT_RANGE.start}-{PORT_RANGE.stop - 1})")
