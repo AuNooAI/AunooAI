@@ -4054,13 +4054,17 @@ async def retrain_classifier(
 @router.get("/topics")
 async def get_topics(session=Depends(verify_session)):
     """List topics that have articles available for brand classification."""
+    from app.core.modules import is_dedicated_bw
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
-        result = conn.execute(text("""
+        # Dedicated Brand Watcher tenants only expose brand monitoring topics
+        dedicated_clause = "AND topic LIKE 'Brand Monitoring %'" if is_dedicated_bw() else ""
+        result = conn.execute(text(f"""
             SELECT topic, COUNT(*) as article_count
             FROM articles
             WHERE topic IS NOT NULL AND topic != ''
+            {dedicated_clause}
             GROUP BY topic
             ORDER BY article_count DESC
         """))

@@ -1301,6 +1301,10 @@ async def get_topics(session=Depends(verify_session)):
     # Load fresh config each time
     config = load_config()
     topics = [{"name": topic['name']} for topic in config['topics']]
+    # Dedicated Brand Watcher tenants only expose brand monitoring topics
+    from app.core.modules import is_dedicated_bw
+    if is_dedicated_bw():
+        topics = [t for t in topics if t["name"].startswith("Brand Monitoring")]
     #logger.debug(f"Returning topics: {topics}")
     return topics
 
