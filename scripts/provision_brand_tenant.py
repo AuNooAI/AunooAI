@@ -39,7 +39,10 @@ OWNER = "orochford"
 PORT_RANGE = range(10018, 10100)
 
 RSYNC_EXCLUDES = [
-    "/models/", "/cache/", "/chromadb/", "/logs/", ".venv/", ".git/",
+    # "/models" without trailing slash: the template's models is a SYMLINK,
+    # and "/models/" would only match a directory. Anchored, so app/models
+    # (the ORM package) is not affected.
+    "/models", "/cache/", "/chromadb/", "/logs/", ".venv/", ".git/",
     ".env", ".env.encrypted", "ui/node_modules/", "__pycache__/", "*.pyc",
     "/webninjakey", "/xpozkey",
 ]
@@ -237,7 +240,10 @@ def provision(args):
     run(["rsync", "-a", os.path.join(TEMPLATE_DIR, ".venv") + "/",
          os.path.join(n["dir"], ".venv") + "/"])
     os.makedirs(os.path.join(n["dir"], "logs"), exist_ok=True)
-    os.symlink(SHARED_MODELS, os.path.join(n["dir"], "models"))
+    models_link = os.path.join(n["dir"], "models")
+    if os.path.lexists(models_link):
+        os.remove(models_link)
+    os.symlink(SHARED_MODELS, models_link)
     run(["chown", "-R", f"{OWNER}:{OWNER}", os.path.join(n["dir"], "logs")])
     run(["chown", "-h", f"{OWNER}:{OWNER}", os.path.join(n["dir"], "models")])
     # Guard against the unanchored-exclude footgun (app/models must survive)
