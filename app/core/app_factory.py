@@ -287,6 +287,11 @@ def create_app() -> FastAPI:
     # Initialize FastAPI app with lifespan management
     app = FastAPI(title="AuNoo AI", lifespan=lifespan)
 
+    # Dedicated Brand Watcher tenants: server-rendered templates read this via
+    # request.app.state to trim the shared nav (React pages use /api/modules)
+    from app.core.modules import is_dedicated_bw
+    app.state.dedicated_bw = is_dedicated_bw()
+
     # Add validation error handler for debugging
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):

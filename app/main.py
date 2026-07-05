@@ -1560,6 +1560,80 @@ async def remove_newsapi_config():
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/config/newsfirehose")
+async def save_newsfirehose_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    """Save NewsFirehose configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'PROVIDER_NEWSFIREHOSE_API_KEY'
+
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+        if not key_found:
+            lines.append(new_line)
+
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+        os.environ[env_var_name] = config.api_key
+
+        return JSONResponse(
+            status_code=200,
+            content={"message": "NewsFirehose configuration saved successfully"}
+        )
+    except Exception as e:
+        logger.error(f"Error saving NewsFirehose configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/newsfirehose")
+async def get_newsfirehose_config():
+    """Get NewsFirehose configuration status."""
+    try:
+        load_dotenv(override=True)
+        key = os.getenv('PROVIDER_NEWSFIREHOSE_API_KEY') or os.getenv('NEWSFIREHOSE_API_KEY')
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(key),
+                "message": "NewsFirehose is configured" if key else "NewsFirehose is not configured"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error checking NewsFirehose configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/newsfirehose")
+async def remove_newsfirehose_config():
+    """Remove NewsFirehose configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_NEWSFIREHOSE_API_KEY=') or
+            line.startswith('NEWSFIREHOSE_API_KEY=')
+        )]
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+        for var in ('PROVIDER_NEWSFIREHOSE_API_KEY', 'NEWSFIREHOSE_API_KEY'):
+            if var in os.environ:
+                del os.environ[var]
+        load_dotenv(dotenv_path=env_path, override=True)
+        return {"message": "NewsFirehose configuration removed successfully"}
+    except Exception as e:
+        logger.error(f"Error removing NewsFirehose configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/config/opoint")
 async def save_opoint_config(config: OpointConfig):
     """Save Opoint configuration."""
