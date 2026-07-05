@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useModules } from '../../hooks/useModules';
 import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic, Star, Clock } from 'lucide-react';
 import {
   Dialog,
@@ -75,6 +76,8 @@ export function AddAgentModal({
   loading = false,
   editAgent = null,
 }: AddAgentModalProps) {
+  // Dedicated Brand Watcher tenants: agents must target a Brand Monitoring topic
+  const { dedicatedMode } = useModules();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [instruction, setInstruction] = useState('');
@@ -267,6 +270,10 @@ export function AddAgentModal({
       setError('Research instruction is required');
       return;
     }
+    if (dedicatedMode === true && !topic.startsWith('Brand Monitoring')) {
+      setError('Agents on this tenant report on brand data only — choose a brand topic');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -449,10 +456,12 @@ export function AddAgentModal({
             <Label htmlFor="agent-topic">Topic Filter</Label>
             <Select value={topic || '__all__'} onValueChange={(val) => setTopic(val === '__all__' ? '' : val)} disabled={saving || loading}>
               <SelectTrigger>
-                <SelectValue placeholder="All Topics (Global)" />
+                <SelectValue placeholder={dedicatedMode === true ? 'Choose a brand topic' : 'All Topics (Global)'} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">All Topics (Global)</SelectItem>
+                {dedicatedMode !== true && (
+                  <SelectItem value="__all__">All Topics (Global)</SelectItem>
+                )}
                 {topics.map((t) => (
                   <SelectItem key={t} value={t}>
                     {t}
@@ -461,7 +470,9 @@ export function AddAgentModal({
               </SelectContent>
             </Select>
             <p className="text-xs text-gray-700 dark:text-gray-300">
-              Optionally limit this agent to articles from a specific topic
+              {dedicatedMode === true
+                ? 'Agents on this tenant report on brand data only — pick which brand this agent watches'
+                : 'Optionally limit this agent to articles from a specific topic'}
             </p>
           </div>
 

@@ -210,20 +210,24 @@ export function NewsFeedPage() {
   type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel';
   const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel'];
   // Restore the last-viewed Explore tab across page loads.
+  // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
+  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents'];
   const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
-    if (getCachedDedicatedMode() === true) return 'brand_watcher';
     try {
       const saved = localStorage.getItem('explore_last_tab');
+      if (getCachedDedicatedMode() === true) {
+        return saved && (DEDICATED_TABS as string[]).includes(saved) ? saved as ExploreTab : 'brand_watcher';
+      }
       if (saved && (EXPLORE_TABS as string[]).includes(saved)) return saved as ExploreTab;
     } catch { /* localStorage unavailable */ }
-    return 'feed';
+    return getCachedDedicatedMode() === true ? 'brand_watcher' : 'feed';
   });
   useEffect(() => {
     try { localStorage.setItem('explore_last_tab', currentTab); } catch { /* ignore */ }
   }, [currentTab]);
-  // Dedicated Brand Watcher tenants only expose the Brand Watcher tab.
+  // Dedicated Brand Watcher tenants only expose the Brand Watcher + Agents tabs.
   useEffect(() => {
-    if (dedicatedMode && currentTab !== 'brand_watcher') setCurrentTab('brand_watcher');
+    if (dedicatedMode && !DEDICATED_TABS.includes(currentTab)) setCurrentTab('brand_watcher');
   }, [dedicatedMode, currentTab]);
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
@@ -928,7 +932,7 @@ export function NewsFeedPage() {
             Threat Intelligence
           </button>
           )}
-          {dedicatedMode === false && (<>
+          {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -939,6 +943,10 @@ export function NewsFeedPage() {
               <span className="explore-tab-badge">{emergingTopicsCount}</span>
             )}
           </button>
+          )}
+          {/* Observer Agents: available in dedicated mode too (agents are
+              restricted to Brand Monitoring topics there) */}
+          {dedicatedMode !== null && (
           <button
             className={`explore-tab-btn ${currentTab === 'agents' ? 'active' : ''}`}
             onClick={() => setCurrentTab('agents')}
@@ -949,6 +957,8 @@ export function NewsFeedPage() {
               <span className="explore-tab-badge">{researchAlertsCount}</span>
             )}
           </button>
+          )}
+          {dedicatedMode === false && (<>
           <button
             className={`explore-tab-btn ${currentTab === 'saved' ? 'active' : ''}`}
             onClick={() => setCurrentTab('saved')}
@@ -1226,12 +1236,12 @@ export function NewsFeedPage() {
                 onAddAgent={addAgent}
                 onUpdateAgent={updateAgent}
                 onDeleteAgent={removeAgent}
-                onRunAgent={(agentId, options) => runAgent(agentId, { topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
-                onRunAllAgents={(options) => runAllAgents({ topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles, generateUnifiedReport: options?.generateUnifiedReport })}
+                onRunAgent={(agentId, options) => runAgent(agentId, { topic: dedicatedMode ? undefined : config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
+                onRunAllAgents={(options) => runAllAgents({ topic: dedicatedMode ? undefined : config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles, generateUnifiedReport: options?.generateUnifiedReport })}
                 onAcknowledgeAlert={acknowledgeOne}
                 onAcknowledgeAll={acknowledgeAll}
                 onDismissPodcast={handleDismissPodcast}
-                topics={topics.map(t => t.name)}
+                topics={(dedicatedMode ? topics.filter(t => t.name.startsWith('Brand Monitoring')) : topics).map(t => t.name)}
               />
             )}
 

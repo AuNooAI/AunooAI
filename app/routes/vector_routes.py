@@ -3269,6 +3269,17 @@ class _UpdateSignalInstructionRequest(BaseModel):
             return re.sub(r'\s+', ' ', v.strip())
         return v
 
+def _enforce_dedicated_bw_topic(topic):
+    """Dedicated Brand Watcher tenants: observer agents may only report on brand data."""
+    from app.core.modules import is_dedicated_bw
+    if is_dedicated_bw() and not (topic or "").startswith("Brand Monitoring"):
+        raise HTTPException(
+            status_code=400,
+            detail="This tenant restricts observer agents to brand data — "
+                   "choose a 'Brand Monitoring …' topic",
+        )
+
+
 @router.post("/signal-instructions")
 async def save_signal_instruction(
     req: _SignalInstructionRequest,
@@ -3276,6 +3287,7 @@ async def save_signal_instruction(
 ):
     """Save a custom signal instruction for threat hunting."""
     logger = logging.getLogger(__name__)
+    _enforce_dedicated_bw_topic(req.topic)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
@@ -3314,6 +3326,7 @@ async def update_signal_instruction(
 ):
     """Update a signal instruction by ID."""
     logger = logging.getLogger(__name__)
+    _enforce_dedicated_bw_topic(req.topic)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
@@ -3904,7 +3917,17 @@ async def run_signal_instructions(
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
         
-        if req.topic:
+        from app.core.modules import is_dedicated_bw
+        if is_dedicated_bw():
+            # Dedicated Brand Watcher tenants: agents only ever see brand articles.
+            # Strict topic match (no title/summary LIKE — it would leak non-brand
+            # articles that merely mention the topic string).
+            if req.topic and req.topic.startswith("Brand Monitoring"):
+                query += " AND topic = ?"
+                params.append(req.topic)
+            else:
+                query += " AND topic LIKE 'Brand Monitoring %'"
+        elif req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
@@ -4709,7 +4732,17 @@ async def _run_signals_background(
         """
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
 
-        if req.topic:
+        from app.core.modules import is_dedicated_bw
+        if is_dedicated_bw():
+            # Dedicated Brand Watcher tenants: agents only ever see brand articles.
+            # Strict topic match (no title/summary LIKE — it would leak non-brand
+            # articles that merely mention the topic string).
+            if req.topic and req.topic.startswith("Brand Monitoring"):
+                query += " AND topic = ?"
+                params.append(req.topic)
+            else:
+                query += " AND topic LIKE 'Brand Monitoring %'"
+        elif req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
@@ -4957,7 +4990,15 @@ async def _run_signal_instruction_internal(
             """
             params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
 
-            if topic:
+            from app.core.modules import is_dedicated_bw
+            if is_dedicated_bw():
+                # Dedicated Brand Watcher tenants: agents only ever see brand articles.
+                if topic and topic.startswith("Brand Monitoring"):
+                    query += " AND topic = ?"
+                    params.append(topic)
+                else:
+                    query += " AND topic LIKE 'Brand Monitoring %'"
+            elif topic:
                 query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
                 topic_pattern = f"%{topic}%"
                 params.extend([topic, topic_pattern, topic_pattern])
