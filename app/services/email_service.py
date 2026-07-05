@@ -375,7 +375,9 @@ class EmailService:
         topic: Optional[str] = None,
         report_content: Optional[str] = None,
         podcast_url: Optional[str] = None,
-        report_id: Optional[int] = None
+        report_id: Optional[int] = None,
+        report_download_url: Optional[str] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> bool:
         """Send a signal alert email notification with optional report and podcast."""
         subject = f"[AuNoo AI] Signal Alert: {instruction_name}"
@@ -467,6 +469,19 @@ class EmailService:
             </div>
             """)
 
+        # No-auth download links for the full report (signed, time-limited)
+        if report_download_url:
+            pdf_url = (report_download_url.replace('fmt=html', 'fmt=pdf')
+                       if 'fmt=' in report_download_url
+                       else report_download_url + '&fmt=pdf')
+            html_parts.append(f"""
+            <p style="margin: 12px 0; text-align: center;">
+                <a href="{report_download_url}" target="_blank" style="display: inline-block; background: #667eea; color: white; padding: 8px 18px; border-radius: 5px; text-decoration: none; font-weight: bold; margin-right: 8px;">📄 View full report</a>
+                <a href="{pdf_url}" target="_blank" style="display: inline-block; background: #4b5563; color: white; padding: 8px 18px; border-radius: 5px; text-decoration: none; font-weight: bold;">⬇️ Download PDF</a>
+            </p>
+            <p style="text-align: center; color: #999; font-size: 11px; margin: 4px 0 0 0;">No login needed — links are valid for 30 days.</p>
+            """)
+
         # Add Podcast Section if available
         if podcast_url:
             full_podcast_url = f"{base_url}{podcast_url}" if podcast_url.startswith('/') else podcast_url
@@ -547,11 +562,15 @@ Investigate with Auspex AI: {auspex_url}
             body_text += f"Match {i}: {match.get('summary', 'No summary')}\n"
             body_text += f"Threat: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"
 
+        if report_download_url:
+            body_text += f"\nDownload full report (no login needed, 30 days): {report_download_url}\n"
+
         return self.send_email(
             to_addresses=[to_address],
             subject=subject,
             body_html=body_html,
-            body_text=body_text
+            body_text=body_text,
+            attachments=attachments,
         )
 
 

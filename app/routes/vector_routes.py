@@ -3269,6 +3269,101 @@ class _UpdateSignalInstructionRequest(BaseModel):
             return re.sub(r'\s+', ' ', v.strip())
         return v
 
+# ─── Signed no-auth report downloads ────────────────────────────────────────
+# Report emails carry a download link that must work without a session. The
+# link is signed (HMAC over report id + expiry with the app secret) so it
+# grants access to exactly one report for a bounded time.
+
+_REPORT_LINK_TTL_SECONDS = 30 * 24 * 3600  # 30 days
+
+
+def _report_link_secret() -> bytes:
+    return (os.environ.get("FLASK_SECRET_KEY") or "aunoo-report-link").encode()
+
+
+def _report_token(report_id: int, exp: int) -> str:
+    import hashlib
+    import hmac as _hmac
+    return _hmac.new(_report_link_secret(),
+                     f"signal-report:{report_id}:{exp}".encode(),
+                     hashlib.sha256).hexdigest()
+
+
+def build_report_download_url(report_id: int, fmt: str = "html") -> str:
+    import time as _time
+    exp = int(_time.time()) + _REPORT_LINK_TTL_SECONDS
+    token = _report_token(report_id, exp)
+    domain = os.getenv("DOMAIN", "localhost:10015")
+    protocol = "https" if "localhost" not in domain else "http"
+    return (f"{protocol}://{domain}/api/signal-reports/{report_id}/download"
+            f"?exp={exp}&token={token}&fmt={fmt}")
+
+
+def _report_email_extras(report_id, report_title, report_content, instr_config) -> dict:
+    """kwargs for send_signal_alert_email: signed no-auth download link, plus a
+    PDF attachment when the agent's config asks for it (attach_pdf_report)."""
+    log = logging.getLogger(__name__)
+    extras = {}
+    if report_id:
+        extras["report_download_url"] = build_report_download_url(report_id)
+    if (instr_config or {}).get("attach_pdf_report") and report_content:
+        try:
+            from app.services.report_pdf import markdown_report_to_pdf
+            pdf = markdown_report_to_pdf(report_title or "Signal report", report_content)
+            safe = "".join(c if c.isalnum() or c in " -_" else "_"
+                           for c in (report_title or "report"))[:60].strip() or "report"
+            extras["attachments"] = [{"filename": f"{safe}.pdf", "content": pdf,
+                                      "mime_type": "application/pdf"}]
+        except Exception as e:
+            log.warning(f"PDF attachment generation failed (sending without): {e}")
+    return extras
+
+
+@router.get("/signal-reports/{report_id}/download")
+async def download_signal_report(report_id: int, exp: int, token: str,
+                                 fmt: str = "html"):
+    """Tokenized report download — NO session required (links land in email)."""
+    import hmac as _hmac
+    import time as _time
+    from fastapi.responses import HTMLResponse, Response
+    if _time.time() > exp:
+        raise HTTPException(status_code=410, detail="Download link has expired")
+    if not _hmac.compare_digest(token, _report_token(report_id, exp)):
+        raise HTTPException(status_code=403, detail="Invalid download token")
+
+    from app.database import get_database_instance
+    db = get_database_instance()
+    rows = db.fetch_all(
+        "SELECT name, instruction_name, report_content, created_at "
+        "FROM saved_signal_reports WHERE id = ?", [report_id])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Report not found")
+    r = rows[0]
+    title = r.get("name") or r.get("instruction_name") or f"Signal report {report_id}"
+    content = r.get("report_content") or ""
+
+    if fmt == "pdf":
+        from app.services.report_pdf import markdown_report_to_pdf
+        pdf = markdown_report_to_pdf(title, content)
+        safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)[:60].strip() or "report"
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
+
+    from app.services.email_service import markdown_to_html
+    body = markdown_to_html(content)
+    page = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title></head>
+<body style="margin:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:820px;margin:24px auto;background:#fff;border-radius:8px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+<h1 style="font-size:22px;color:#333;margin:0 0 4px 0;">{title}</h1>
+<p style="color:#888;font-size:12px;margin:0 0 20px 0;">Generated {str(r.get('created_at') or '')[:16]} · AuNoo Observer Agent report ·
+<a href="{build_report_download_url(report_id, 'pdf')}" style="color:#4055c6;">download PDF</a></p>
+{body}
+</div></body></html>"""
+    return HTMLResponse(content=page)
+
+
 def _enforce_dedicated_bw_topic(topic):
     """Dedicated Brand Watcher tenants: observer agents may only report on brand data."""
     from app.core.modules import is_dedicated_bw
@@ -4596,7 +4691,9 @@ Format as a concise markdown report.
                                     topic=req.topic,
                                     report_content=email_report_content,
                                     podcast_url=None,  # No longer sent separately - now embedded in report
-                                    report_id=email_report_id
+                                    report_id=email_report_id,
+                                    **_report_email_extras(email_report_id, instruction['name'],
+                                                           email_report_content, config)
                                 )
                                 if success:
                                     email_sent = True
@@ -4663,7 +4760,9 @@ Format as a concise markdown report.
                             topic=req.topic,
                             report_content=report_content,
                             podcast_url=None,
-                            report_id=report_id
+                            report_id=report_id,
+                            **_report_email_extras(report_id, unified_instruction_name,
+                                                   report_content, None)
                         )
                         if success:
                             email_sent = True
@@ -5225,7 +5324,9 @@ Format as a concise markdown report.
                                 topic=topic,
                                 report_content=report_content,
                                 podcast_url=None,
-                                report_id=report_id
+                                report_id=report_id,
+                                **_report_email_extras(report_id, instruction['name'],
+                                                       report_content, config)
                             )
                             if success:
                                 email_sent = True

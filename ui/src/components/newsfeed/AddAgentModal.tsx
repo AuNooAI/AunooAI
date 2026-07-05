@@ -99,6 +99,7 @@ export function AddAgentModal({
   const [actionDeepResearch, setActionDeepResearch] = useState(false);
   const [actionSendEmail, setActionSendEmail] = useState(false);
   const [emailRecipient, setEmailRecipient] = useState('');
+  const [attachPdfReport, setAttachPdfReport] = useState(false);
   const [showEmailConfig, setShowEmailConfig] = useState(false);
   const [actionBlueskyDm, setActionBlueskyDm] = useState(false);
   const [blueskyRecipient, setBlueskyRecipient] = useState('');
@@ -193,6 +194,7 @@ export function AddAgentModal({
       setActionDeepResearch(configDeepResearch || false);
       setActionSendEmail(configSendEmail || false);
       setEmailRecipient(configEmailRecipient || '');
+      setAttachPdfReport((editAgent.config?.attach_pdf_report as boolean | undefined) || false);
       setShowEmailConfig(configSendEmail || false);
       setActionBlueskyDm(configBlueskyDm || false);
       setBlueskyRecipient(configBlueskyRecipient || '');
@@ -289,6 +291,7 @@ export function AddAgentModal({
       if (actionSendEmail) {
         config.send_email = true;
         if (emailRecipient.trim()) config.email_recipient = emailRecipient.trim();
+        if (attachPdfReport) config.attach_pdf_report = true;
       }
       if (actionBlueskyDm) {
         config.bluesky_dm = true;
@@ -926,6 +929,13 @@ export function AddAgentModal({
                         <p className="text-xs text-gray-600 dark:text-gray-300">
                           Leave blank to use the default notification email
                         </p>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                          title="Also attach the generated report to the email as a PDF file. Emails always carry a no-login download link; the attachment makes the report readable offline and forwardable.">
+                          <input type="checkbox" checked={attachPdfReport}
+                            onChange={(e) => setAttachPdfReport(e.target.checked)}
+                            disabled={saving || loading} />
+                          Attach report as PDF
+                        </label>
                       </div>
                     )}
                   </div>
