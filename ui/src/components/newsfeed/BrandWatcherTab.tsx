@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
+import { BrandWatcherOnboarding } from './BrandWatcherOnboarding';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
@@ -145,9 +146,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     comparison, shareOfVoice, social, config,
     totalArticles, totalPages, signalsAvailable,
     loading, loadingStats, loadingCategories, loadingArticles, loadingSocial,
+    brandsLoaded,
     error,
     updateConfig, clearError, refresh,
-    fetchComparison, fetchShareOfVoice, fetchSocial,
+    fetchBrands, fetchComparison, fetchShareOfVoice, fetchSocial,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
     setPrimary,
   } = useBrandWatcher();
@@ -2064,6 +2066,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       console.error('Error running schedule:', err);
     }
   }, [refresh]);
+
+  // First run: no brands configured yet — walk through primary brand +
+  // competitor setup instead of showing an empty dashboard.
+  if (brandsLoaded && brands.length === 0) {
+    return <BrandWatcherOnboarding onDone={() => { fetchBrands(); refresh(); }} />;
+  }
 
   return (
     <div className="space-y-6">

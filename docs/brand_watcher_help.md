@@ -6,6 +6,7 @@ Brand Watcher is an adverse-media and brand-intelligence screen. It continuously
 
 ## Core concepts
 
+- **First-run setup** — when no brands are configured yet, the tab opens a three-step wizard: name your primary brand (with AI-suggested keyword variants), add at least one competitor (required — benchmarks and share-of-voice need a peer), then launch. It creates the monitoring topic and keyword group for each brand; collection starts on the next ingest cycle. Everything the wizard sets up can be tuned later via the gear icon.
 - **Brands** — each tracked entity (your brand + competitors) has a display name, brand keywords, a color, and per-brand configuration. One brand can be marked *primary*. Competitor brands are tracked deliberately: most views benchmark your brand against them.
 - **Topics** — articles arrive through monitoring topics (e.g. `Brand Monitoring Wiley` for social, `Wiley - Brand Watch` for official records). The header brand selector scopes most tabs to one brand.
 - **Relevance (topic alignment)** — every article and post is scored 0–1 for "is this actually about the brand?". **All brand views filter at relevance ≥ 0.4** to keep name-collisions (people called Wiley, unrelated companies) out of your numbers. Off-brand items still exist in the database; they are just excluded from brand analytics.

@@ -59,7 +59,32 @@ behind auth; dedicated mode is UI scoping, not route lockdown.
 - `.env` is encrypted at rest (`.env.encrypted`, systemd decrypt/encrypt hooks like
   bugfixing). `models` is a symlink to `/home/orochford/shared-models`.
 
-## Spinning up a new tenant from the template (manual; provisioning script TODO)
+## First-run onboarding wizard
+
+When the Brand Watcher tab loads with zero configured brands (every fresh
+tenant), it shows a three-step wizard instead of an empty dashboard
+(`BrandWatcherOnboarding.tsx`): primary brand (name, description, keywords with
+AI suggest), at least one competitor (required — benchmarks and share-of-voice
+need a peer; AI-suggested competitor names offered), review & launch. Creation
+goes through the existing API: `POST /brands` per brand,
+`PUT /brands/{id}/set-primary`, `POST /brands/{id}/setup-monitoring`
+(topic + keyword group each). Seeding a brand at provision time is therefore
+optional — a tenant can be handed over unseeded and the customer walks the wizard.
+
+## Spinning up a new tenant
+
+`scripts/provision_brand_tenant.py` (run as root) automates the whole playbook
+below plus brand seeding and verification:
+
+```
+provision_brand_tenant.py provision --slug acme --brand "Acme Publishing" \
+    --aliases "Acme Corp,ACME" --keywords "Acme Press"   # full stamp-out
+provision_brand_tenant.py provision --slug acme --brand "Acme" --skip-nginx  # no TLS/site
+provision_brand_tenant.py destroy --slug acme --yes      # complete teardown
+```
+
+Credentials land in `/var/tmp/<slug>_credentials.txt` (root-only). The manual
+steps, for reference:
 
 Per tenant X (slug = DB name, user `X_user`), following the proven clone playbook:
 

@@ -1591,7 +1591,7 @@ async def delete_brand(
                 facade = DatabaseQueryFacade(db, logger)
                 groups = facade.get_all_group_ids_associated_to_topic(topic_name)
                 for g in (groups or []):
-                    gid = g['id'] if isinstance(g, dict) else g[0]
+                    gid = g['id'] if hasattr(g, 'keys') else g[0]  # RowMapping is dict-like, not dict
                     facade.delete_group_keywords(gid)
                     facade.delete_keyword_group(gid)
                     logger.info(f"Deleted keyword group {gid} for topic '{topic_name}'")

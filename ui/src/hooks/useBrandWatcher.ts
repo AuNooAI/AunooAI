@@ -103,6 +103,9 @@ export function useBrandWatcher() {
 
   // Loading
   const [loadingBrands, setLoadingBrands] = useState(false);
+  // True once the brands list has been fetched successfully (gates the
+  // first-run onboarding wizard so it never flashes during load).
+  const [brandsLoaded, setBrandsLoaded] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingTemporal, setLoadingTemporal] = useState(false);
@@ -130,6 +133,7 @@ export function useBrandWatcher() {
     try {
       const data = await getBrands();
       setBrands(data);
+      setBrandsLoaded(true);
     } catch (err) {
       console.error('Error fetching brands:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch brands');
@@ -365,7 +369,7 @@ export function useBrandWatcher() {
     brands, topics, stats, categories, temporalData, articles,
     comparison, shareOfVoice, opointCoverage, opointPoV, social, config,
     totalArticles, totalPages, signalsAvailable,
-    loading, loadingBrands, loadingStats, loadingCategories,
+    loading, loadingBrands, brandsLoaded, loadingStats, loadingCategories,
     loadingTemporal, loadingArticles, loadingComparison, loadingShareOfVoice,
     loadingOpoint, loadingPoV, loadingSocial,
     error,
