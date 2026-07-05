@@ -173,6 +173,12 @@ class TenantClient:
             die(f"POST {path} -> HTTP {status}: {body[:300]}")
         return json.loads(body)
 
+    def put(self, path):
+        status, body = self._request(path, method="PUT")
+        if status != 200:
+            die(f"PUT {path} -> HTTP {status}: {body[:300]}")
+        return json.loads(body)
+
 
 # ---------------------------------------------------------------------------
 # Provision
@@ -332,6 +338,7 @@ def provision(args):
         "brand_keywords": brand_keywords,
     })
     brand_id = brand["id"]
+    client.put(f"/api/brand-watcher/brands/{brand_id}/set-primary")
     setup = client.post_json(f"/api/brand-watcher/brands/{brand_id}/setup-monitoring", {})
     log(f"brand {brand_id} seeded: topic '{setup.get('topic_name')}', "
         f"group '{setup.get('group_name')}'")
