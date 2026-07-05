@@ -388,6 +388,23 @@ _VERACITY_BASE = {
 }
 
 
+def _sub(validation: Optional[Dict[str, Any]], key: str) -> Dict[str, Any]:
+    """Unwrap one subagent block from the saas validation report.
+
+    The report nests each subagent as ``{"status": ..., "output": {...}}``
+    (see saas ``_run_validation_report``); the composers want the inner
+    output. A failed subagent has ``output: null`` → empty dict. A flat
+    dict (no wrapper) passes through unchanged for forward compat.
+    """
+    block = (validation or {}).get(key) or {}
+    if not isinstance(block, dict):
+        return {}
+    if "output" in block or "status" in block:
+        inner = block.get("output")
+        return inner if isinstance(inner, dict) else {}
+    return block
+
+
 def _claim_status_counts(validation: Dict[str, Any]) -> Dict[str, int]:
     counts: Dict[str, int] = {}
     for cv in validation.get("claim_verifications") or []:
@@ -426,7 +443,7 @@ def _sig_veracity(validation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _sig_source(validation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     key, label = "source_credibility", SIGNAL_LABELS["source_credibility"]
-    rep = (validation or {}).get("source_reputation") or {}
+    rep = _sub(validation, "source_reputation")
     verdict = ((validation or {}).get("verdict") or "").strip().lower()
     domain = rep.get("domain") or "unknown source"
     if verdict == "satire":
@@ -458,14 +475,14 @@ def _sig_corroboration(validation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not validation:
         return {"key": key, "label": label, "score": None, "band": "nodata",
                 "summary": "Claim validation unavailable for this run.", "evidence": {}}
-    corr = validation.get("corroboration") or {}
+    corr = _sub(validation, "corroboration")
     corroborators = corr.get("corroborators") or []
     n_corr = len(corroborators)
-    web = validation.get("web_evidence") or {}
+    web = _sub(validation, "web_evidence")
     web_verdicts = web.get("verdicts") or []
     web_supported = sum(1 for v in web_verdicts
                         if (v.get("verdict") or "").lower() == "supported")
-    fc = validation.get("external_fact_check") or {}
+    fc = _sub(validation, "external_fact_check")
     fc_matches = fc.get("matched_reviews") or []
     verdict = (validation.get("verdict") or "").strip().lower()
 
@@ -561,7 +578,7 @@ def _sig_propagation(reach: Optional[Dict[str, Any]],
 def _sig_amplification(reach: Optional[Dict[str, Any]],
                        validation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     key, label = "amplification_integrity", SIGNAL_LABELS["amplification_integrity"]
-    coord = (validation or {}).get("coordination_context") or {}
+    coord = _sub(validation, "coordination_context")
     has_reach = bool(reach and reach.get("search_available", False)
                      and (reach.get("totals") or {}).get("posts"))
     if not has_reach and not coord.get("has_coordination_signal"):
