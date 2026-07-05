@@ -397,6 +397,7 @@ t_articles = Table(
     Column('preference_date', DateTime),  # when preference was set
     Column('article_origin', Text, server_default=text("'unknown'")),  # 'aunoo', 'external', 'unknown'
     Column('opoint_entities', JSONB),  # Opoint per-article entity/topic enrichment (brand/competitor signal)
+    Column('social_meta', JSONB),  # Social post media + engagement (thumbnail, likes/reposts/comments/plays) for xpoz posts
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),

@@ -98,6 +98,8 @@ export function useBrandWatcher() {
   // Pagination
   const [totalArticles, setTotalArticles] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  // Five Signals availability (backend has a saas MCP key configured)
+  const [signalsAvailable, setSignalsAvailable] = useState(false);
 
   // Loading
   const [loadingBrands, setLoadingBrands] = useState(false);
@@ -298,6 +300,7 @@ export function useBrandWatcher() {
       setArticles(res.articles);
       setTotalArticles(res.total_count);
       setTotalPages(res.total_pages);
+      setSignalsAvailable(!!res.signals_available);
     } catch (err) {
       console.error('Error fetching articles:', err);
     } finally {
@@ -361,7 +364,7 @@ export function useBrandWatcher() {
   return {
     brands, topics, stats, categories, temporalData, articles,
     comparison, shareOfVoice, opointCoverage, opointPoV, social, config,
-    totalArticles, totalPages,
+    totalArticles, totalPages, signalsAvailable,
     loading, loadingBrands, loadingStats, loadingCategories,
     loadingTemporal, loadingArticles, loadingComparison, loadingShareOfVoice,
     loadingOpoint, loadingPoV, loadingSocial,

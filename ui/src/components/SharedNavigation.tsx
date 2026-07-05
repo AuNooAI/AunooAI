@@ -12,10 +12,14 @@ import {
   Brain, BarChart, Edit, Database as DatabaseIcon, Heart,
   Book, MessageSquare, Chrome, Compass
 } from 'lucide-react';
+import { useModules } from '../hooks/useModules';
 
 interface SharedNavigationProps {
   currentPage: 'health' | 'anticipate' | 'investigate' | 'gather';
   onTopicEditorClick?: () => void;
+  /** Dedicated Brand Watcher tenant override; when omitted the component
+   * determines it itself via /api/modules (session-cached). */
+  dedicatedMode?: boolean | null;
 }
 
 interface UserInfo {
@@ -23,11 +27,16 @@ interface UserInfo {
   email: string;
 }
 
-export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavigationProps) {
+export function SharedNavigation({ currentPage, onTopicEditorClick, dedicatedMode }: SharedNavigationProps) {
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({});
   const [userInfo, setUserInfo] = useState<UserInfo>({ username: 'User', email: 'user@example.com' });
   const { theme, setTheme } = useTheme();
   const isDark = theme === 'dark';
+  const { dedicatedMode: fetchedDedicated } = useModules();
+  // null = unknown (first paint before /api/modules resolves): keep the
+  // dedicated-only items hidden rather than flashing the full menu.
+  const dedicated = dedicatedMode ?? fetchedDedicated;
+  const fullNav = dedicated === false;
 
   useEffect(() => {
     // Fetch user info from API
@@ -56,6 +65,9 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
       {/* Logo/Brand */}
       <div className="p-6 border-b border-gray-200 dark:border-[#35353a]">
         <h2 className="text-lg font-semibold text-pink-500 tracking-wide">AUNOOAI</h2>
+        {dedicated === true && (
+          <div className="text-xs text-gray-500 dark:text-[#a09fa6] tracking-wide mt-0.5">Brand Watcher</div>
+        )}
       </div>
 
       {/* Navigation */}
@@ -67,6 +79,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
           </div>
           <ul className="space-y-0.5">
             {/* Operations HQ */}
+            {fullNav && (
             <li>
               <a
                 href="/"
@@ -80,8 +93,10 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 <span>Operations HQ</span>
               </a>
             </li>
+            )}
 
             {/* Anticipate */}
+            {fullNav && (
             <li>
               <a
                 href="/trend-convergence"
@@ -95,6 +110,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 <span>Anticipate</span>
               </a>
             </li>
+            )}
 
             {/* Explore */}
             <li>
@@ -107,11 +123,12 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 }`}
               >
                 <Search className="w-4.5 h-4.5" />
-                <span>Explore</span>
+                <span>{dedicated === true ? 'Brand Watcher' : 'Explore'}</span>
               </a>
             </li>
 
             {/* Gather */}
+            {fullNav && (
             <li>
               <a
                 href="/gather"
@@ -125,6 +142,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                 <span>Gather</span>
               </a>
             </li>
+            )}
           </ul>
         </div>
 
@@ -154,6 +172,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                       <span className="text-xs">App Configuration</span>
                     </a>
                   </li>
+                  {fullNav && (<>
                   <li>
                     <a href="/trend-convergence?onboarding=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-[#a09fa6] hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                       <Sparkles className="w-3.5 h-3.5" />
@@ -206,6 +225,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                       <span className="text-xs">Analytics</span>
                     </a>
                   </li>
+                  </>)}
                 </ul>
               )}
             </li>

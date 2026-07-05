@@ -449,6 +449,7 @@ _ADVERSE_RULE_DEFAULTS = {
     "coordinated_negative": {"enabled": True, "window_hours": 72, "min_authors": 3},
     "glassdoor_deterioration": {"enabled": True, "rating_drop": 0.2, "outlook_drop": 0.10,
                                 "lookback_days": 35, "min_span_days": 7},
+    "signals_flag":            {"enabled": True, "recent_days": 7},
 }
 
 _NEG_SENT_SQL = "(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%' OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')"
@@ -755,6 +756,40 @@ def evaluate_adverse_alerts(db) -> int:
                                     f"glassdoor_deterioration|{bid}|{bucket}"):
                                 created += 1
 
+            # 10) Five Signals screen failure: a screened article whose claim
+            #     validation came back contested/non-independent, or whose social
+            #     pickup shows coordinated amplification. Fires once per article
+            #     (dedup has no time bucket) — the verdict on an article is final.
+            rc = rule("signals_flag")
+            if rc.get("enabled"):
+                rows = conn.execute(_text("""
+                    SELECT s.article_uri, s.verdict, s.composite_score, s.signals, a.title
+                    FROM bw_article_signals s JOIN articles a ON a.uri = s.article_uri
+                    WHERE s.brand_id = :b AND s.status = 'completed'
+                      AND s.updated_at >= now() - (:rd || ' days')::interval
+                """), {"b": bid, "rd": str(rc.get("recent_days", 7))}).fetchall()
+                for s_uri, s_verdict, s_comp, s_sigs, s_title in rows:
+                    sp = s_sigs if isinstance(s_sigs, dict) else _json.loads(s_sigs or "{}")
+                    amp = sp.get("amplification_integrity") or {}
+                    bad_verdict = s_verdict in ("contested", "non_independent")
+                    bad_amp = amp.get("band") == "bad"
+                    if not (bad_verdict or bad_amp):
+                        continue
+                    reasons = []
+                    if bad_verdict:
+                        reasons.append(f"claim validation verdict '{s_verdict}'")
+                    if bad_amp and amp.get("summary"):
+                        reasons.append(amp["summary"].rstrip("."))
+                    if _insert_alert_event(conn, bid, "signals_flag", "high",
+                            f"{bname}: article fails Five Signals screen",
+                            f"\"{(s_title or '')[:120]}\" — " + "; ".join(reasons)
+                            + f". Composite screen score {s_comp}.",
+                            {"article_uri": s_uri, "verdict": s_verdict,
+                             "composite_score": s_comp,
+                             "amplification_band": amp.get("band")},
+                            f"signals_flag|{bid}|{s_uri}"):
+                        created += 1
+
         conn.commit()
         # Push whatever is new through the configured channels.
         try:
@@ -773,6 +808,50 @@ def evaluate_adverse_alerts(db) -> int:
         return 0
     finally:
         conn.close()
+
+
+AUTO_SIGNALS_DAILY_CAP = 10   # fresh saas screens cost LLM + web-search calls
+AUTO_SIGNALS_PER_CYCLE = 2    # each run is 2-4 min; keep the loop responsive
+
+
+async def _auto_screen_high_risk(db) -> None:
+    """Run Five Signals on articles that just picked up a high-severity finding.
+
+    Analysts scrutinize these anyway — pre-running the screen means the verdict
+    is waiting when they open the article. Bounded two ways: per cycle (the
+    runs are awaited inline) and per day across all brands.
+    """
+    from app.services.bw_signals_service import signals_available, run_five_signals
+    if not signals_available():
+        return
+    conn = db._temp_get_connection()
+    try:
+        today_auto = conn.execute(text("""
+            SELECT COUNT(*) FROM bw_article_signals
+            WHERE requested_by = 'auto' AND created_at >= CURRENT_DATE
+        """)).fetchone()[0]
+        budget = min(AUTO_SIGNALS_PER_CYCLE, AUTO_SIGNALS_DAILY_CAP - today_auto)
+        if budget <= 0:
+            return
+        candidates = conn.execute(text("""
+            SELECT DISTINCT r.article_uri, r.brand_id
+            FROM bw_article_risks r
+            JOIN bw_brands b ON b.id = r.brand_id AND b.enabled = true
+            JOIN articles a ON a.uri = r.article_uri
+            LEFT JOIN bw_article_signals s
+              ON s.article_uri = r.article_uri AND s.brand_id = r.brand_id
+            WHERE r.severity = 'high'
+              AND r.detected_at >= now() - interval '48 hours'
+              AND s.id IS NULL
+              AND (a.uri ILIKE 'http://%' OR a.uri ILIKE 'https://%')
+            ORDER BY r.article_uri
+            LIMIT :lim
+        """), {"lim": budget}).fetchall()
+    finally:
+        conn.close()
+    for uri, brand_id in candidates:
+        logger.info(f"Five Signals auto-screen: {uri} (brand {brand_id})")
+        await run_five_signals(uri, brand_id, uri, requested_by="auto")
 
 
 async def run_brand_watcher_monitor():
@@ -824,6 +903,12 @@ async def run_brand_watcher_monitor():
                     maybe_send_digest(db)
                 except Exception as e:
                     logger.error(f"Digest check error: {e}")
+                # Auto Five Signals screening of fresh high-severity findings
+                # (daily-capped; no-op when the saas key is absent).
+                try:
+                    await _auto_screen_high_risk(db)
+                except Exception as e:
+                    logger.error(f"Five Signals auto-screen error: {e}")
 
             # Official/scholarly sources every ~5 cycles; the per-(brand, source)
             # 24h cursor inside makes a no-op cycle one SELECT.

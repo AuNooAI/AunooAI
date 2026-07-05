@@ -47,7 +47,7 @@ import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsigh
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
-import { useModules } from '../hooks/useModules';
+import { useModules, getCachedDedicatedMode } from '../hooks/useModules';
 import { ModuleConfigModal } from '../components/newsfeed/ModuleConfigModal';
 
 const PolicyTrackerTab = React.lazy(() =>
@@ -204,13 +204,14 @@ export function NewsFeedPage() {
   };
 
   // Analysis modules
-  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
+  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
   type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel';
   const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel'];
   // Restore the last-viewed Explore tab across page loads.
   const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
+    if (getCachedDedicatedMode() === true) return 'brand_watcher';
     try {
       const saved = localStorage.getItem('explore_last_tab');
       if (saved && (EXPLORE_TABS as string[]).includes(saved)) return saved as ExploreTab;
@@ -220,6 +221,10 @@ export function NewsFeedPage() {
   useEffect(() => {
     try { localStorage.setItem('explore_last_tab', currentTab); } catch { /* ignore */ }
   }, [currentTab]);
+  // Dedicated Brand Watcher tenants only expose the Brand Watcher tab.
+  useEffect(() => {
+    if (dedicatedMode && currentTab !== 'brand_watcher') setCurrentTab('brand_watcher');
+  }, [dedicatedMode, currentTab]);
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -812,7 +817,7 @@ export function NewsFeedPage() {
     <div className="gather-app">
       <div className="gather-layout">
         {/* Shared Navigation Sidebar */}
-        <SharedNavigation currentPage="investigate" />
+        <SharedNavigation currentPage="investigate" dedicatedMode={dedicatedMode} />
 
       {/* Main Content */}
       <div className="gather-content-area">
@@ -822,7 +827,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', threat_intel: 'Threat Intelligence' }[currentTab] ?? 'News Feed'}
+              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -838,6 +843,7 @@ export function NewsFeedPage() {
               />
             )}
             <NotificationBell />
+            {dedicatedMode === false && (
             <button
               onClick={() => setIsOnboardingOpen(true)}
               className="gather-top-bar-setup-btn"
@@ -845,10 +851,12 @@ export function NewsFeedPage() {
               Set up topic
               <Plus className="w-4 h-4" />
             </button>
+            )}
           </div>
         </div>
 
-        {/* Filters Header - visible on all tabs for consistent UI */}
+        {/* Filters Header - visible on all tabs for consistent UI (hidden in dedicated Brand Watcher mode) */}
+        {dedicatedMode === false && (
         <NewsFeedHeader
           config={config}
           narrativeConfig={narrativeConfig}
@@ -862,9 +870,11 @@ export function NewsFeedPage() {
           onScheduleClick={() => setIsScheduleModalOpen(true)}
           onConfigureProfile={() => setIsProfileModalOpen(true)}
         />
+        )}
 
         {/* Tab Navigation */}
         <div className="explore-tab-navigation">
+          {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'feed' ? 'active' : ''}`}
             onClick={() => setCurrentTab('feed')}
@@ -872,6 +882,7 @@ export function NewsFeedPage() {
             <Rss className="w-4 h-4" />
             News Feed
           </button>
+          )}
           {isModuleEnabled('geopolitical') && (
           <button
             className={`explore-tab-btn ${currentTab === 'geopolitical' ? 'active' : ''}`}
@@ -917,6 +928,7 @@ export function NewsFeedPage() {
             Threat Intelligence
           </button>
           )}
+          {dedicatedMode === false && (<>
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -968,6 +980,7 @@ export function NewsFeedPage() {
               <Settings2 className="w-4 h-4" />
             </button>
           </div>
+          </>)}
         </div>
 
         {/* Error Alerts */}

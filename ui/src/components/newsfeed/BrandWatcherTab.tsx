@@ -17,6 +17,7 @@ import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
 import { downloadSocialReport } from '../../services/socialReportHtml';
+import { downloadPropagationReport } from '../../services/propagationReportHtml';
 import { cleanSocialText, stripSocialMarkdown } from '../../services/socialText';
 import {
   buildAccountProfile, getAccountProfile, listAccountProfiles, setAccountTags, setAccountAnnotation,
@@ -34,7 +35,9 @@ import {
   listIncidents, createIncident, getIncident, updateIncident, addIncidentNote,
   attachIncidentEvidence, verifyIncidentChain,
   getEmployeeRisk, getRiskSummary,
+  runSignals, getSignalsDetail,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
+  type BWArticleSignals,
   type BWIncident, type BWIncidentDetail,
   type BWEmployeeRisk, type BWRiskSummary, type BWGlassdoorOverview,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
@@ -140,7 +143,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
     brands, topics, stats, categories, temporalData, articles,
     comparison, shareOfVoice, social, config,
-    totalArticles, totalPages,
+    totalArticles, totalPages, signalsAvailable,
     loading, loadingStats, loadingCategories, loadingArticles, loadingSocial,
     error,
     updateConfig, clearError, refresh,
@@ -280,6 +283,150 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     try { await setFindingState(uri, brandId, status); } catch (e) { console.error('finding state failed', e); }
   }, []);
   const reviewStatusOf = useCallback((a: any) => reviewOverrides[`${a.uri}|${a.brand_id}`] || a.review_status || 'new', [reviewOverrides]);
+  // ---- Five Signals screening (saas claim validation + social propagation) ----
+  // Optimistic overlay of per-article screen summaries (chips update without a
+  // page refetch), plus the detail modal + its polling while a run is live.
+  const [sigOverrides, setSigOverrides] = useState<Record<string, any>>({});
+  const [sigModal, setSigModal] = useState<{ uri: string; brandId: number; title: string } | null>(null);
+  const [sigDetail, setSigDetail] = useState<BWArticleSignals | null>(null);
+  const sigModalRef = useRef<typeof sigModal>(null);
+  useEffect(() => { sigModalRef.current = sigModal; }, [sigModal]);
+  const sigPollsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  useEffect(() => () => { Object.values(sigPollsRef.current).forEach(clearInterval); }, []);
+  const signalsOf = useCallback((a: any) => sigOverrides[`${a.uri}|${a.brand_id}`] || a.signals_summary || null, [sigOverrides]);
+  const summaryFromDetail = useCallback((d: BWArticleSignals) => ({
+    status: d.status, verdict: d.verdict, composite: d.composite_score,
+    signals: ['veracity', 'source_credibility', 'corroboration', 'propagation', 'amplification_integrity']
+      .map(k => ({ key: k, band: d.signals?.[k]?.band ?? null, score: d.signals?.[k]?.score ?? null })),
+  }), []);
+  const pollSignals = useCallback((uri: string, brandId: number) => {
+    const key = `${uri}|${brandId}`;
+    if (sigPollsRef.current[key]) return;
+    sigPollsRef.current[key] = setInterval(async () => {
+      try {
+        const d = await getSignalsDetail(uri, brandId);
+        if (d.status !== 'running') {
+          clearInterval(sigPollsRef.current[key]); delete sigPollsRef.current[key];
+          setSigOverrides(prev => ({ ...prev, [key]: summaryFromDetail(d) }));
+          const m = sigModalRef.current;
+          if (m && m.uri === uri && m.brandId === brandId) setSigDetail(d);
+        }
+      } catch { /* keep polling; run may still be starting */ }
+    }, 5000);
+  }, [summaryFromDetail]);
+  const startSignals = useCallback(async (a: any, force = false, mode: 'full' | 'validation' | 'reach' = 'full') => {
+    if (!a.brand_id) return;
+    const key = `${a.uri}|${a.brand_id}`;
+    setSigOverrides(prev => ({ ...prev, [key]: { status: 'running', verdict: null, composite: null, signals: [] } }));
+    try {
+      const r = await runSignals(a.uri, a.brand_id, force, mode);
+      if (r.status === 'completed') {
+        const d = await getSignalsDetail(a.uri, a.brand_id);
+        setSigOverrides(prev => ({ ...prev, [key]: summaryFromDetail(d) }));
+      } else {
+        pollSignals(a.uri, a.brand_id);
+      }
+    } catch (e) {
+      console.error('Five Signals run failed to start', e);
+      setSigOverrides(prev => { const n = { ...prev }; delete n[key]; return n; });
+      alert('Five Signals run failed to start — is the saas integration configured?');
+    }
+  }, [pollSignals, summaryFromDetail]);
+  const openSignalsModal = useCallback(async (a: any) => {
+    if (!a.brand_id) return;
+    setSigModal({ uri: a.uri, brandId: a.brand_id, title: a.title || a.uri });
+    setSigDetail(null);
+    try {
+      const d = await getSignalsDetail(a.uri, a.brand_id);
+      setSigDetail(d);
+      if (d.status === 'running') pollSignals(a.uri, a.brand_id);
+    } catch (e) { console.error(e); }
+  }, [pollSignals]);
+  // Kick a run from inside the modal: keep it open, flip it to the live
+  // "screening…" state, and let the poll swap the result in when done.
+  const startSignalsInModal = useCallback((mode: 'full' | 'validation' | 'reach', force: boolean) => {
+    const m = sigModalRef.current;
+    if (!m) return;
+    startSignals({ uri: m.uri, brand_id: m.brandId }, force, mode);
+    setSigDetail(d => ({
+      status: 'running',
+      signals: d?.signals || null, verdict: d?.verdict || null,
+      composite_score: d?.composite_score ?? null,
+      validation: d?.validation || null, reach: d?.reach || null,
+      error: null, requested_by: 'user',
+    }));
+  }, [startSignals]);
+  const SIG_BAND_CLS: Record<string, string> = {
+    good: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+    warn: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+    bad: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+    nodata: 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500',
+  };
+  const SIG_SHORT: Record<string, string> = {
+    veracity: 'V', source_credibility: 'S', corroboration: 'C',
+    propagation: 'P', amplification_integrity: 'A',
+  };
+  const SIG_TITLES: Record<string, string> = {
+    veracity: 'Claim veracity', source_credibility: 'Source credibility',
+    corroboration: 'Corroboration & independence', propagation: 'Propagation & reach',
+    amplification_integrity: 'Amplification integrity',
+  };
+  // Plain-language explanations surfaced as hover help on chips + modal cards.
+  const SIG_DESC: Record<string, string> = {
+    veracity: 'Are the article’s claims true? Each claim is extracted and checked against corroborating coverage and open-web evidence, then synthesized into a verdict.',
+    source_credibility: 'How reliable is the outlet? Media-bias/factuality (MBFC) record of the publishing domain — factual-reporting tier, credibility, bias. Satire outlets score near zero.',
+    corroboration: 'Is anyone else independently reporting this? Counts independent outlets carrying the story, open-web evidence per claim, and external fact-check matches. Same-owner or wire-copy “corroboration” is discounted.',
+    propagation: 'How far has it spread on social? A live Bluesky URL trace (posts, accounts, engagement, follower-weighted reach) plus cross-network pickup on X/Twitter, Reddit, TikTok and Instagram via the monitoring corpus and live xpoz query. Scored as magnitude — wide spread of an adverse story is the risky case, so high spread bands red.',
+    amplification_integrity: 'Does the spread look organic? Checks engagement concentration, fresh-account surges, coordinated posting cohorts, and coordination signals in the coverage itself. Low score = the pickup looks manufactured.',
+  };
+  const SIG_BAND_WORD: Record<string, string> = {
+    good: 'healthy', warn: 'caution', bad: 'problem', nodata: 'no data',
+  };
+  // Verdict enum from the saas claim-validation engine, in analyst language.
+  const VERDICT_DESC: Record<string, string> = {
+    corroborated: 'Multiple independent outlets carry the story and its claims check out.',
+    partial: 'Some claims are supported, others could not be verified.',
+    single_source: 'Only one source is reporting this — unconfirmed, not necessarily false.',
+    contested: 'Evidence actively disputes one or more of the article’s claims.',
+    non_independent: 'The apparent corroboration is same-owner outlets or wire copy — not independent confirmation.',
+    unverifiable_input: 'The article could not be fetched or its claims could not be extracted for checking.',
+    satire: 'The outlet is satire — the content is not factual reporting.',
+    likely_coordinated: 'Coverage patterns suggest coordinated placement rather than organic reporting.',
+  };
+  const COMPOSITE_HELP = 'Mean of the available signal scores, with Propagation inverted (wide spread drags it down). 0–100, higher = healthier. Signals with no data are excluded.';
+  // Compact V/S/C/P/A chip strip (or run/retry/spinner action) for any article
+  // row — rendered on the Articles tab, the Overview recent-articles preview,
+  // and the dashboard adverse-news list.
+  const renderSignalsChips = (article: any) => {
+    const sig = signalsOf(article);
+    if (sig?.status === 'running') return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300 inline-flex items-center gap-1"
+        title="Five Signals screen running (2-4 min)"><Loader2 className="w-2.5 h-2.5 animate-spin" /> signals</span>
+    );
+    if (sig?.status === 'completed') return (
+      <button onClick={e => { e.stopPropagation(); openSignalsModal(article); }}
+        title={`Five Signals screen — verdict: ${sig.verdict || 'n/a'}${VERDICT_DESC[sig.verdict || ''] ? ` (${VERDICT_DESC[sig.verdict || '']})` : ''}${sig.composite != null ? `. Composite ${sig.composite}/100` : ''}. Click for the full breakdown.`}
+        className="inline-flex items-center gap-px rounded-full overflow-hidden border border-gray-200 dark:border-gray-600">
+        {(sig.signals || []).map((s: any) => (
+          <span key={s.key} className={`text-[9px] px-1 py-0.5 font-bold ${SIG_BAND_CLS[s.band || 'nodata']}`}
+            title={`${SIG_TITLES[s.key]} — ${s.score != null ? `${s.score}/100 (${SIG_BAND_WORD[s.band || 'nodata']})` : 'no data'}. ${SIG_DESC[s.key]}`}>{SIG_SHORT[s.key]}</span>
+        ))}
+      </button>
+    );
+    if (sig?.status === 'failed') return (
+      <button onClick={e => { e.stopPropagation(); startSignals(article, true); }}
+        title="Five Signals screen failed — click to retry"
+        className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400">signals ✗</button>
+    );
+    if (signalsAvailable && String(article.uri).startsWith('http')) return (
+      <button onClick={e => { e.stopPropagation(); openSignalsModal(article); }}
+        title="Screen this article — opens the Five Signals panel where you can run claim validation, the Bluesky reach lookup, or both"
+        className="text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 dark:border-gray-600 text-gray-400 hover:text-blue-600 hover:border-blue-400">
+        ✓? signals
+      </button>
+    );
+    return null;
+  };
 
   const dismissAlert = useCallback((k: string) => {
     setDismissedAlerts(prev => {
@@ -761,6 +908,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </a>
           </div>
           <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap break-words"
+             title={cleanSocialText(socialBodyOf(p))}
              dangerouslySetInnerHTML={{ __html: socialBodyHtml(p) }} />
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {(() => { const bc = brandColorOf(socialBrandOf(p)); return (p.matched_keywords || []).map((k: string) => (
@@ -1600,7 +1748,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       const topicsParam = config.selectedTopics.length ? config.selectedTopics : undefined;
       const socialTopics = selectedBrand ? [`Brand Monitoring ${selectedBrand.display_name}`] : topicsParam;
       const allBrandTopics = brands.length > 1 ? brands.map(b => `Brand Monitoring ${b.display_name}`) : undefined;
-      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD] = await Promise.all([
+      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD, screenedD] = await Promise.all([
         getComparison(config.daysBack, topicsParam).catch(() => comparison),
         getShareOfVoice(config.daysBack, topicsParam).catch(() => shareOfVoice),
         getSocialPosts(socialTopics, config.daysBack, 0, undefined, true, { limit: 5000 }).catch(() => social),
@@ -1611,6 +1759,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         bid ? listIncidents(undefined, bid).catch(() => []) : Promise.resolve([]),
         bid ? getEmployeeRisk(bid, config.daysBack).catch(() => employeeRisk) : Promise.resolve(null),
         allBrandTopics ? getSocialPosts(allBrandTopics, config.daysBack, 0.4, undefined, false, { limit: 2000 }).then(r => r.posts || []).catch(() => benchPosts || []) : Promise.resolve(null),
+        bid ? getArticles({ brand_ids: [bid], days_back: config.daysBack, page: 1, per_page: 200 })
+          .then(r => (r.articles || [])
+            .filter(a => a.signals_summary?.status === 'completed')
+            .map(a => ({ title: a.title, uri: a.uri, verdict: a.signals_summary!.verdict,
+                         composite: a.signals_summary!.composite, signals: a.signals_summary!.signals || [] })))
+          .catch(() => []) : Promise.resolve([]),
       ]);
       downloadBrandWatcherReport({
         brand: selectedBrand,
@@ -1627,6 +1781,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         employee: employeeD,
         allBrandPosts: lanePostsD,
         laneBrands: brands.map(b => b.display_name),
+        screened: screenedD,
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -2339,6 +2494,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 {a.entity_match?.verified && (
                   <span title="Wikidata-verified brand mention"><BadgeCheck className="w-3 h-3 text-blue-400" /></span>
                 )}
+                {renderSignalsChips(a)}
                 <span className="flex-1" />
                 {reviewStatusOf(a) !== 'new' && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
@@ -2357,7 +2513,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </select>
               </div>
               {neg && a.summary && (
-                <p className="text-[11.5px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{stripSocialMarkdown(a.summary)}</p>
+                <p className="text-[11.5px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1" title={stripSocialMarkdown(a.summary)}>{stripSocialMarkdown(a.summary)}</p>
               )}
             </div>
           );
@@ -3149,6 +3305,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                           </span>
                         )}
                         {article.publication_date && <span className="text-[10px] text-gray-400">{article.publication_date.slice(0, 10)}</span>}
+                        {renderSignalsChips(article)}
                       </div>
                     </div>
                   </div>
@@ -5227,9 +5384,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
                   onClick={() => openArticle(article)}
                 >
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2">{article.title}</h4>
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2" title={article.title}>{article.title}</h4>
                   {article.summary && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{article.summary}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2" title={article.summary}>{article.summary}</p>
                   )}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     {article.brand_name && (
@@ -5295,6 +5452,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
                         title={`Coverage split: ${article.story_pos} positive vs ${article.story_neg} negative`}>⚡ polarized</span>
                     )}
+                    {renderSignalsChips(article)}
                     {article.news_source && (
                       <span className="text-xs text-gray-400">{article.news_source}</span>
                     )}
@@ -5832,6 +5990,297 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- ADD-TO-INCIDENT PICKER ---- */}
+      {/* ---- FIVE SIGNALS DETAIL MODAL ---- */}
+      {sigModal && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSigModal(null)} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="min-w-0">
+                <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-2"
+                  title="Two independent engines run against this article on the Aunoo platform: claim validation (extracts and verifies each claim) and Bluesky story-reach (who spread it and how). The results are composed into five scored signals.">
+                  <BadgeCheck className="w-4 h-4 text-blue-500" /> Five Signals screen
+                  <button onClick={() => { setSigModal(null); handleTabChange('help'); }}
+                    title="Open the Help tab — full documentation of what each signal measures, scoring, triggers and caveats"
+                    className="text-[11px] font-normal text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">
+                    <HelpCircle className="w-3 h-3" /> how this works
+                  </button>
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{sigModal.title}</p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {sigDetail?.status === 'completed' && (
+                  <>
+                    <button onClick={() => downloadPropagationReport({
+                        articleTitle: sigModal.title, articleUri: sigModal.uri,
+                        brandName: brands.find(b => b.id === sigModal.brandId)?.display_name || null,
+                        signals: sigDetail, generatedAt: new Date().toISOString(),
+                      })}
+                      title="Download the story propagation report — spread sequence across networks, daily timeline, per-network pickup with sample posts, amplification-integrity read, and the claims context. Self-contained HTML, safe to email."
+                      className="text-[11px] px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1">
+                      <FileDown className="w-3 h-3" /> propagation report
+                    </button>
+                    <span className="text-[10px] text-gray-400 mr-0.5 ml-1">re-run:</span>
+                    <button onClick={() => startSignalsInModal('validation', true)}
+                      title="Re-query claim validation only (verdict, per-claim checks, source reputation, corroboration) — leaves the stored Bluesky reach untouched"
+                      className="text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600">claims</button>
+                    <button onClick={() => startSignalsInModal('reach', true)}
+                      title="Re-query the Bluesky story-reach lookup only (spread, amplifiers, coordination) — leaves the stored claim validation untouched"
+                      className="text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600">bsky</button>
+                    <button onClick={() => startSignalsInModal('full', true)}
+                      title="Discard the cached screen and re-run both engines (recomposes all five signals)"
+                      className="text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600 inline-flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3" /> full five signals
+                    </button>
+                  </>
+                )}
+                <button onClick={() => setSigModal(null)} className="text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            <div className="p-4 overflow-y-auto space-y-4">
+              {!sigDetail && <p className="text-sm text-gray-400 py-8 text-center"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</p>}
+              {sigDetail?.status === 'running' && (
+                <p className="text-sm text-gray-500 py-8 text-center">
+                  <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                  Screening in progress — claim validation and social propagation typically take 2–4 minutes. This panel updates automatically.
+                </p>
+              )}
+              {sigDetail?.status === 'failed' && (
+                <p className="text-sm text-red-500 py-4 text-center">Screen failed{sigDetail.error ? `: ${sigDetail.error}` : ''}.</p>
+              )}
+              {sigDetail?.status === 'completed' && (() => {
+                const sigs = sigDetail.signals || {};
+                const order = ['veracity', 'source_credibility', 'corroboration', 'propagation', 'amplification_integrity'];
+                const val = sigDetail.validation || {};
+                const claims: any[] = val.claim_verifications || [];
+                const webVerdicts: any[] = (val.web_evidence || {}).verdicts || [];
+                const corroborators: any[] = (val.corroboration || {}).corroborators || [];
+                const fcMatches: any[] = (val.external_fact_check || {}).matched_reviews || [];
+                const reachP: any = sigDetail.reach || null;
+                const reachPosts: any[] = (reachP?.posts || []);
+                return (
+                  <>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span title={VERDICT_DESC[sigDetail.verdict || ''] || 'Overall claim-validation verdict for this article.'}
+                        className={`text-xs px-2 py-1 rounded-full font-semibold cursor-help ${
+                        ['contested', 'non_independent', 'satire'].includes(sigDetail.verdict || '') ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                        : sigDetail.verdict === 'corroborated' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                        verdict: {sigDetail.verdict || 'n/a'}
+                      </span>
+                      {VERDICT_DESC[sigDetail.verdict || ''] && (
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400">{VERDICT_DESC[sigDetail.verdict || '']}</span>
+                      )}
+                      {sigDetail.composite_score != null && (
+                        <span className="text-xs text-gray-500 cursor-help" title={COMPOSITE_HELP}>composite screen score <span className="font-semibold text-gray-700 dark:text-gray-200">{sigDetail.composite_score}</span> / 100</span>
+                      )}
+                      {sigDetail.error && <span className="text-[11px] text-amber-600 cursor-help" title={`One of the two engines failed on this run — the signals it feeds show "no data". Error: ${sigDetail.error}`}>partial: one engine failed</span>}
+                      <span className="flex-1" />
+                      <span className="text-[10px] text-gray-400 cursor-help"
+                        title={sigDetail.requested_by === 'auto'
+                          ? 'Screened automatically because the article picked up a high-severity risk finding (auto-screens are capped at 10/day).'
+                          : 'Screened on demand by an analyst. Results are cached — re-viewing is free; Re-run forces a fresh screen.'}>
+                        screened {String(sigDetail.updated_at || '').slice(0, 16).replace('T', ' ')}{sigDetail.requested_by === 'auto' ? ' · auto' : ''}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {order.map(k => { const s = sigs[k]; if (!s) return null; return (
+                        <div key={k} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700" title={SIG_DESC[k]}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${SIG_BAND_CLS[s.band || 'nodata']}`}
+                              title={`${SIG_BAND_WORD[s.band || 'nodata']}${s.band === 'nodata' ? ' — this signal could not be assessed on this run (e.g. no social pickup, engine failure, or unknown source)' : ''}`}>{SIG_SHORT[k]}</span>
+                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 inline-flex items-center gap-1">
+                              {SIG_TITLES[k]}
+                              <HelpCircle className="w-3 h-3 text-gray-300 dark:text-gray-600" />
+                            </span>
+                            <span className="flex-1" />
+                            <span className="text-xs font-bold text-gray-600 dark:text-gray-300"
+                              title={s.score != null ? `${s.score}/100 — ${SIG_BAND_WORD[s.band || 'nodata']}${k === 'propagation' ? ' (propagation measures spread magnitude: high = wide reach = risky for adverse stories)' : ' (higher is healthier)'}` : 'No data for this signal on this run'}>{s.score != null ? s.score : '—'}</span>
+                          </div>
+                          {s.score != null && (
+                            <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden mb-1.5">
+                              <div className={`h-full rounded-full ${s.band === 'good' ? 'bg-emerald-500' : s.band === 'warn' ? 'bg-amber-500' : 'bg-red-500'}`}
+                                style={{ width: `${Math.max(2, Math.min(100, s.score))}%` }} />
+                            </div>
+                          )}
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{s.summary}</p>
+                        </div>
+                      ); })}
+                    </div>
+                    {!sigDetail.validation && (
+                      <p className="text-[11px] text-gray-400">
+                        Claim validation not queried yet.{' '}
+                        <button onClick={() => startSignalsInModal('validation', false)}
+                          title="Query only the claim-validation engine for this article (~1-3 min): verdict, per-claim checks, source reputation, corroboration"
+                          className="text-blue-600 dark:text-blue-400 hover:underline">Validate claims →</button>
+                      </p>
+                    )}
+                    {claims.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5 cursor-help"
+                          title="Each factual claim extracted from the article, with its verification status: supported (evidence confirms it), contested (evidence disputes it), unsupported (nothing found either way), uncertain (mixed/weak evidence). 'Unsupported' means unverified, not false.">Claims checked</h4>
+                        <div className="space-y-1">
+                          {claims.map((c: any, i: number) => (
+                            <div key={i} className="flex items-start gap-2 text-[11px]">
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded-full font-semibold ${
+                                c.status === 'supported' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : c.status === 'contested' || c.status === 'unsupported' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                                : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>{c.status || 'uncertain'}</span>
+                              <span className="text-gray-600 dark:text-gray-300">{c.claim_text || c.claim || ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(corroborators.length > 0 || webVerdicts.length > 0 || fcMatches.length > 0) && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {corroborators.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 cursor-help"
+                              title="Independent outlets carrying the same story in the indexed corpus. Same-owner outlets and wire copies are flagged rather than counted as independent confirmation.">Corroborating coverage</h4>
+                            {corroborators.slice(0, 6).map((c: any, i: number) => (
+                              <p key={i} className="text-[11px] text-gray-500 dark:text-gray-400 truncate">• {c.source || c.domain || ''} {c.title ? `— ${c.title}` : ''}</p>
+                            ))}
+                          </div>
+                        )}
+                        {(webVerdicts.length > 0 || fcMatches.length > 0) && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 cursor-help"
+                              title="Evidence from outside the corpus: open-web search results graded per claim, and matches from external fact-check archives (e.g. Google Fact Check). This is the meaningful check for stories outside the platform's indexed topics.">External evidence</h4>
+                            {webVerdicts.slice(0, 4).map((v: any, i: number) => (
+                              <p key={`w${i}`} className="text-[11px] text-gray-500 dark:text-gray-400"><span className="font-semibold">{v.verdict}</span>: {(v.claim_text || '').slice(0, 90)}</p>
+                            ))}
+                            {fcMatches.slice(0, 3).map((m: any, i: number) => (
+                              <p key={`f${i}`} className="text-[11px] text-gray-500 dark:text-gray-400">
+                                fact-check {m.rating ? `(${m.rating}) ` : ''}{m.publisher_name || m.provider}
+                                {m.review_url && <> — <a href={m.review_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>review</a></>}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5 cursor-help"
+                        title="News → social: every post found sharing this article (or quoting its headline), per network. Bluesky is a live URL trace; X/Twitter, Reddit, TikTok and Instagram come from the tenant's monitoring corpus plus the live xpoz query when provisioned. This is the raw material behind the Propagation and Amplification-integrity signals.">
+                        Social pickup
+                      </h4>
+                      <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                        Bluesky <span className="font-normal text-gray-400">(live trace)</span>
+                        {reachP && (reachP.totals?.posts ?? 0) > 0 && (
+                          <span className="font-normal text-gray-400"> — {reachP.totals.posts} post{reachP.totals.posts !== 1 ? 's' : ''} by {reachP.totals.unique_accounts} account{reachP.totals.unique_accounts !== 1 ? 's' : ''}{reachP.first_seen ? `, first seen ${String(reachP.first_seen).slice(0, 10)}` : ''}</span>
+                        )}
+                      </p>
+                      {!reachP && (
+                        <p className="text-[11px] text-gray-400">
+                          Propagation not queried yet.{' '}
+                          <button onClick={() => startSignalsInModal('reach', false)}
+                            title="Query only the Bluesky story-reach lookup for this article (~1-2 min)"
+                            className="text-blue-600 dark:text-blue-400 hover:underline">Query Bluesky reach →</button>
+                        </p>
+                      )}
+                      {reachP && reachP.search_available === false && (
+                        <p className="text-[11px] text-gray-400">Bluesky search is not configured on the analysis platform — no propagation data available.</p>
+                      )}
+                      {reachP && reachP.search_available !== false && reachPosts.length === 0 && (
+                        <p className="text-[11px] text-gray-400">No Bluesky posts found sharing this article in the {reachP.window_days || 90}-day window.</p>
+                      )}
+                      {reachPosts.length > 0 && (
+                        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                          {reachPosts.map((p: any, i: number) => (
+                            <div key={i} className="p-2 rounded border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="font-semibold text-gray-700 dark:text-gray-200">@{p.handle}</span>
+                                <span className="text-gray-400" title={`${p.likes ?? 0} likes · ${p.reposts ?? 0} reposts · ${p.replies ?? 0} replies${p.quotes != null ? ` · ${p.quotes} quotes` : ''}`}>{p.total_engagement ?? 0} engagement</span>
+                                {p.created_at && <span className="text-gray-400">{String(p.created_at).slice(0, 10)}</span>}
+                                <span className="flex-1" />
+                                {p.post_url && <a href={p.post_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>view post →</a>}
+                              </div>
+                              {p.text && <p className="text-[11px] text-gray-600 dark:text-gray-300 mt-0.5 line-clamp-2" title={p.text}>{p.text}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {(() => {
+                        const xn: any = (sigDetail as any).xnet || null;
+                        const plats = Object.entries<any>((xn?.platforms) || {}).sort((a, b) => b[1].posts - a[1].posts);
+                        const NLBL: Record<string, string> = { twitter: 'X / Twitter', reddit: 'Reddit', tiktok: 'TikTok', instagram: 'Instagram' };
+                        if (!xn) return (
+                          <p className="text-[10px] text-gray-400 mt-2">Other networks (X/Twitter, Reddit, TikTok, Instagram): not queried yet — included in the next reach run.</p>
+                        );
+                        return (
+                          <div className="mt-2 space-y-2">
+                            <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 cursor-help"
+                              title={`X/Twitter, Reddit, TikTok, Instagram — matched from the tenant's own social-monitoring corpus${xn.live_available ? ' plus a live xpoz URL/headline query (rolling ~60-day window)' : ' (live cross-network query not provisioned)'}. A lower bound on spread, not an exhaustive trace.`}>
+                              Other networks <span className="font-normal text-gray-400">({xn.live_available ? 'corpus + live query' : 'monitoring corpus only'})</span>
+                            </p>
+                            {plats.length === 0 && (
+                              <p className="text-[11px] text-gray-400">No shares found on X/Twitter, Reddit, TikTok or Instagram{xn.live_available ? '' : ' in the monitoring corpus'}.</p>
+                            )}
+                            {plats.map(([k, p]) => (
+                              <div key={k}>
+                                <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                                  {NLBL[k] || k} — {p.posts} post{p.posts !== 1 ? 's' : ''} · {p.engagement} engagement{p.first_seen ? ` · first seen ${String(p.first_seen).slice(0, 10)}` : ''}
+                                </p>
+                                <div className="space-y-1 mt-0.5">
+                                  {(p.sample || []).slice(0, 5).map((s: any, i: number) => (
+                                    <div key={i} className="p-1.5 rounded border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-[11px]">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-gray-700 dark:text-gray-200">@{s.author || 'unknown'}</span>
+                                        <span className="text-gray-400">{s.engagement ?? 0} eng{s.date ? ` · ${String(s.date).slice(0, 10)}` : ''}</span>
+                                        <span className="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-help"
+                                          title={s.origin === 'live' ? 'Found by the live xpoz query at screen time' : 'Matched from posts already collected by brand monitoring'}>{s.origin}</span>
+                                        <span className="flex-1" />
+                                        {s.url && <a href={s.url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>view post →</a>}
+                                      </div>
+                                      {s.text && <p className="text-gray-600 dark:text-gray-300 mt-0.5 line-clamp-2" title={s.text}>{s.text}</p>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div className="pt-2 border-t border-gray-100 dark:border-gray-700 flex items-center gap-3 flex-wrap text-[10px] text-gray-400">
+                      <span className="font-semibold text-gray-500 dark:text-gray-400">Legend:</span>
+                      <span><span className={`px-1 py-0.5 rounded font-bold ${SIG_BAND_CLS.good}`}>■</span> healthy</span>
+                      <span><span className={`px-1 py-0.5 rounded font-bold ${SIG_BAND_CLS.warn}`}>■</span> caution</span>
+                      <span><span className={`px-1 py-0.5 rounded font-bold ${SIG_BAND_CLS.bad}`}>■</span> problem</span>
+                      <span><span className={`px-1 py-0.5 rounded font-bold ${SIG_BAND_CLS.nodata}`}>■</span> no data</span>
+                      <span className="flex-1" />
+                      <span>Sources: claim validation + Bluesky story-reach (Aunoo). Propagation covers Bluesky only. Hover any element for details.</span>
+                    </div>
+                  </>
+                );
+              })()}
+              {sigDetail?.status === 'none' && (
+                <div className="py-4 text-center space-y-3">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Not screened yet.</p>
+                  <button onClick={() => startSignalsInModal('full', false)}
+                    title="Runs both engines — claim validation + Bluesky propagation — and composes all five signals (2-4 min)"
+                    className="text-sm px-4 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1.5">
+                    <BadgeCheck className="w-4 h-4" /> Run Five Signals
+                  </button>
+                  <p className="text-[11px] text-gray-400">
+                    The five signals compose from two engines. You can also query one at a time — the signals it feeds fill in, the rest stay “no data” until the other runs:
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <button onClick={() => startSignalsInModal('validation', false)}
+                      title="Claim validation only (~1-3 min) — fills Veracity, Source credibility and Corroboration"
+                      className="text-xs px-2.5 py-1 rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 hover:text-blue-600 hover:border-blue-400">claim validation only</button>
+                    <button onClick={() => startSignalsInModal('reach', false)}
+                      title="Bluesky story-reach only (~1-2 min) — fills Propagation and Amplification integrity"
+                      className="text-xs px-2.5 py-1 rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 hover:text-blue-600 hover:border-blue-400">bsky reach only</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {incAttach && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => setIncAttach(null)} />

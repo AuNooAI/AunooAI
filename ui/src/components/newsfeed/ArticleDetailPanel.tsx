@@ -5,8 +5,10 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle, Newspaper } from 'lucide-react';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle, Newspaper, BadgeCheck } from 'lucide-react';
 import { type NewsArticle, type ClusterRelatedArticle, recordArticlePreference } from '../../services/newsFeedApi';
+import { getSignalsDetail, runSignals, type BWArticleSignals } from '../../services/brandWatcherApi';
+import { downloadPropagationReport } from '../../services/propagationReportHtml';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
@@ -48,6 +50,66 @@ export function ArticleDetailPanel({
   const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
+
+  // Five Signals screen (Brand Watcher articles carry brand_id; detail rows
+  // live in bw_article_signals). Fetched when the article has been screened —
+  // or on demand via the Run button — and polled while a run is live.
+  const [bwSignals, setBwSignals] = useState<BWArticleSignals | null>(null);
+  const [bwSignalsStarting, setBwSignalsStarting] = useState(false);
+  const bwSigPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bwBrandId: number | null = (article as any)?.brand_id ?? null;
+  const bwScreenable = !!(bwBrandId && typeof article?.uri === 'string' && article.uri.startsWith('http'));
+  const stopBwSigPoll = () => { if (bwSigPollRef.current) { clearInterval(bwSigPollRef.current); bwSigPollRef.current = null; } };
+  const pollBwSignals = (uri: string, brandId: number) => {
+    stopBwSigPoll();
+    bwSigPollRef.current = setInterval(async () => {
+      try {
+        const d = await getSignalsDetail(uri, brandId);
+        setBwSignals(d);
+        if (d.status !== 'running') stopBwSigPoll();
+      } catch { /* transient; keep polling */ }
+    }, 5000);
+  };
+  useEffect(() => {
+    setBwSignals(null); setBwSignalsStarting(false); stopBwSigPoll();
+    if (!article?.uri || !bwBrandId) return;
+    if (!(article as any)?.signals_summary) return;
+    getSignalsDetail(article.uri, bwBrandId).then(d => {
+      setBwSignals(d);
+      if (d.status === 'running') pollBwSignals(article.uri, bwBrandId);
+    }).catch(() => {});
+    return stopBwSigPoll;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.uri, bwBrandId]);
+  const startBwSignals = async (mode: 'full' | 'validation' | 'reach' = 'full') => {
+    if (!article?.uri || !bwBrandId) return;
+    setBwSignalsStarting(true);
+    try {
+      const r = await runSignals(article.uri, bwBrandId, false, mode);
+      if (r.status === 'completed') {
+        // Already screened (cached server-side) — show it immediately.
+        setBwSignals(await getSignalsDetail(article.uri, bwBrandId));
+      } else {
+        setBwSignals({ status: 'running', signals: null, verdict: null, composite_score: null, validation: null, reach: null, error: null, requested_by: 'user' });
+        pollBwSignals(article.uri, bwBrandId);
+      }
+    } catch (e) {
+      console.error('Five Signals run failed to start', e);
+      setBwSignals({ status: 'failed', signals: null, verdict: null, composite_score: null, validation: null, reach: null,
+        error: 'could not start — the saas integration may not be configured on this server', requested_by: null });
+    } finally {
+      setBwSignalsStarting(false);
+    }
+  };
+  const BW_SIG_ORDER = ['veracity', 'source_credibility', 'corroboration', 'propagation', 'amplification_integrity'];
+  const BW_SIG_BAND: Record<string, string> = {
+    good: 'bg-emerald-100 text-emerald-800', warn: 'bg-amber-100 text-amber-800',
+    bad: 'bg-red-100 text-red-800', nodata: 'bg-gray-100 text-gray-400',
+  };
+  const BW_SIG_SHORT: Record<string, string> = {
+    veracity: 'V', source_credibility: 'S', corroboration: 'C',
+    propagation: 'P', amplification_integrity: 'A',
+  };
 
   // Sentiment bucket for the Full Coverage spread (news labels are richer than pos/neu/neg)
   const sentimentBucket = (s?: string | null): 'positive' | 'neutral' | 'negative' | null => {
@@ -389,6 +451,129 @@ Please provide:
                 showLabels
                 size="md"
               />
+            </div>
+          )}
+
+          {/* Five Signals screen (Brand Watcher articles only) */}
+          {bwScreenable && (
+            <div className="mt-4 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5 cursor-help"
+                  title="Independent article screen: claim validation (verdict + per-claim checks, source reputation, corroboration) plus Bluesky propagation (spread, coordinated-amplification checks). Full documentation is on the Brand Watcher Help tab.">
+                  <BadgeCheck className="w-4 h-4 text-blue-500" /> Five Signals screen
+                </h3>
+                <span className="flex-1" />
+                {bwSignals?.status === 'completed' && bwSignals.composite_score != null && (
+                  <span className="text-xs text-gray-500 cursor-help"
+                    title="Mean of the available signal scores with Propagation inverted — 0-100, higher is healthier.">
+                    composite <span className="font-semibold text-gray-700 dark:text-gray-200">{bwSignals.composite_score}</span>/100
+                  </span>
+                )}
+                {bwSignals?.status === 'completed' && (
+                  <button onClick={() => downloadPropagationReport({
+                      articleTitle: article?.title || article?.uri || 'article', articleUri: article?.uri || '',
+                      brandName: (article as any)?.brand_name || null,
+                      signals: bwSignals, generatedAt: new Date().toISOString(),
+                    })}
+                    title="Download the story propagation report — spread sequence, timeline, per-network pickup, amplification read, claims context. Self-contained HTML."
+                    className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    propagation report ↓
+                  </button>
+                )}
+              </div>
+              {!bwSignals && !bwSignalsStarting && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Not screened yet.</p>
+                  <button onClick={() => startBwSignals('full')}
+                    title="Runs both engines — claim validation + Bluesky propagation — and composes all five signals (2-4 min; result is cached)"
+                    className="text-xs px-2.5 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1">
+                    <BadgeCheck className="w-3.5 h-3.5" /> Run Five Signals
+                  </button>
+                  <span className="text-[11px] text-gray-400">or one engine:</span>
+                  <button onClick={() => startBwSignals('validation')}
+                    title="Claim validation only (~1-3 min) — fills Veracity, Source credibility and Corroboration"
+                    className="text-xs px-2 py-1 rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 hover:text-blue-600 hover:border-blue-400">
+                    claim validation
+                  </button>
+                  <button onClick={() => startBwSignals('reach')}
+                    title="Bluesky story-reach only (~1-2 min) — fills Propagation and Amplification integrity"
+                    className="text-xs px-2 py-1 rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 hover:text-blue-600 hover:border-blue-400">
+                    bsky reach
+                  </button>
+                </div>
+              )}
+              {(bwSignalsStarting || bwSignals?.status === 'running') && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Screening — claim validation and propagation take 2–4 minutes; this panel updates automatically.
+                </p>
+              )}
+              {bwSignals?.status === 'failed' && (
+                <p className="text-xs text-red-500">Screen failed{bwSignals.error ? `: ${bwSignals.error}` : ''}.</p>
+              )}
+              {bwSignals?.status === 'completed' && (
+                <div className="space-y-1.5">
+                  {bwSignals.verdict && (
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      Claim-validation verdict: <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
+                        ['contested', 'non_independent', 'satire'].includes(bwSignals.verdict) ? 'bg-red-100 text-red-800'
+                        : bwSignals.verdict === 'corroborated' ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'}`}>{bwSignals.verdict}</span>
+                    </p>
+                  )}
+                  {BW_SIG_ORDER.map(k => {
+                    const s = bwSignals.signals?.[k];
+                    if (!s) return null;
+                    return (
+                      <div key={k} className="flex items-start gap-2 text-xs">
+                        <span className={`shrink-0 w-5 text-center py-0.5 rounded font-bold ${BW_SIG_BAND[s.band || 'nodata']}`}
+                          title={`${s.label}${s.score != null ? `: ${s.score}/100` : ''}`}>{BW_SIG_SHORT[k]}</span>
+                        <span className="text-gray-600 dark:text-gray-300">
+                          <span className="font-medium">{s.label}{s.score != null ? ` (${s.score})` : ''}:</span> {s.summary}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {!(bwSignals as any).validation && (
+                    <button onClick={() => startBwSignals('validation')}
+                      title="Claim validation has not been queried for this article yet (~1-3 min)"
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">Validate claims →</button>
+                  )}
+                  {(() => {
+                    const rp: any = (bwSignals as any).reach;
+                    const xn: any = (bwSignals as any).xnet;
+                    const xplats = Object.entries<any>((xn?.platforms) || {}).filter(([, p]) => p.posts > 0);
+                    if (!rp && !xn) return (
+                      <button onClick={() => startBwSignals('reach')}
+                        title="The social propagation lookup (Bluesky live trace + other networks) has not been queried for this article yet (~1-2 min)"
+                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">Query social reach →</button>
+                    );
+                    const posts: any[] = rp?.posts || [];
+                    return (
+                      <div className="pt-1">
+                        {posts.length > 0 && (
+                          <>
+                            <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300 cursor-help"
+                              title="Bluesky posts sharing this article's URL, ordered by engagement — the raw material behind the Propagation signal.">Bluesky pickup ({rp.totals?.posts ?? posts.length} post{(rp.totals?.posts ?? posts.length) !== 1 ? 's' : ''}):</p>
+                            {posts.slice(0, 3).map((p: any, i: number) => (
+                              <p key={i} className="text-[11px] text-gray-500 dark:text-gray-400 truncate" title={p.text || ''}>
+                                @{p.handle} · {p.total_engagement ?? 0} eng
+                                {p.post_url && <> — <a href={p.post_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">view post</a></>}
+                                {p.text ? <> — {p.text}</> : null}
+                              </p>
+                            ))}
+                          </>
+                        )}
+                        {xplats.length > 0 && (
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 cursor-help"
+                            title="Cross-network shares from the monitoring corpus + live xpoz query. Full breakdown and sample posts are in the propagation report.">
+                            Other networks: {xplats.map(([k, p]) => `${k} ${p.posts}`).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           )}
 

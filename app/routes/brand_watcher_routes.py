@@ -387,6 +387,10 @@ class ArticleResponse(BaseModel):
     risks: List[dict] = []
     # Case state (bw_finding_reviews): new | reviewed | escalated | dismissed.
     review_status: Optional[str] = None
+    # Five Signals screen (bw_article_signals): {status, verdict, composite,
+    # signals: [{key, band, score}]} — compact row summary; full detail via
+    # GET /signals/detail.
+    signals_summary: Optional[dict] = None
 
 
 class ArticlesListResponse(BaseModel):
@@ -395,6 +399,9 @@ class ArticlesListResponse(BaseModel):
     page: int
     per_page: int
     total_pages: int
+    # False when AUNOO_SAAS_MCP_KEY is unset — the UI hides the Five Signals
+    # run action entirely.
+    signals_available: bool = False
 
 
 class TemporalDataResponse(BaseModel):
@@ -3252,6 +3259,25 @@ async def get_articles(
             ), {"us": uris_page}).fetchall():
                 review_map[(v_uri, v_bid)] = v_status
 
+        # Bulk-load Five Signals screens for this page (compact row summary).
+        signals_map: dict = {}
+        if uris_page:
+            for s_uri, s_bid, s_status, s_verdict, s_comp, s_sigs in conn.execute(text(
+                "SELECT article_uri, brand_id, status, verdict, composite_score, signals"
+                " FROM bw_article_signals WHERE article_uri = ANY(:us)"
+            ), {"us": uris_page}).fetchall():
+                s_parsed = s_sigs if isinstance(s_sigs, dict) else (json.loads(s_sigs) if s_sigs else {})
+                signals_map[(s_uri, s_bid)] = {
+                    "status": s_status, "verdict": s_verdict,
+                    "composite": s_comp,
+                    "signals": [
+                        {"key": k, "band": (s_parsed.get(k) or {}).get("band"),
+                         "score": (s_parsed.get(k) or {}).get("score")}
+                        for k in ("veracity", "source_credibility", "corroboration",
+                                  "propagation", "amplification_integrity")
+                    ] if s_parsed else [],
+                }
+
         articles = []
         for row in rows_all:
             row_brand_id = row[6]
@@ -3292,11 +3318,14 @@ async def get_articles(
                 story_scored=row[19],
                 risks=risk_map.get((row[0], row[6]), []),
                 review_status=review_map.get((row[0], row[6])),
+                signals_summary=signals_map.get((row[0], row[6])),
             ))
 
+        from app.services.bw_signals_service import signals_available
         return ArticlesListResponse(
             articles=articles, total_count=total_count,
             page=page, per_page=per_page, total_pages=total_pages,
+            signals_available=signals_available(),
         )
     except Exception as e:
         logger.error(f"Error fetching brand watcher articles: {e}")
@@ -3619,6 +3648,36 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         else:
             risk_findings = "None recorded in this period."
 
+        # Five Signals screens (saas claim-validation + propagation) on articles
+        # in the window — feeds the same Risk & Compliance section.
+        nsig_rows = conn.execute(text("""
+            SELECT s.verdict, s.composite_score, s.signals, a.title, a.uri
+            FROM bw_article_signals s JOIN articles a ON a.uri = s.article_uri
+            WHERE s.brand_id = :bid AND s.status = 'completed'
+              AND a.publication_date >= :start AND a.publication_date <= :end
+            ORDER BY s.composite_score ASC NULLS LAST
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        nsig_verdicts: Dict[str, int] = {}
+        nsig_flagged = []
+        for _sv, _sc, _ss, _st, _su in nsig_rows:
+            if _sv:
+                nsig_verdicts[_sv] = nsig_verdicts.get(_sv, 0) + 1
+            _ssp = _ss if isinstance(_ss, dict) else (json.loads(_ss) if _ss else {})
+            _amp = (_ssp.get("amplification_integrity") or {})
+            if _sv in ("contested", "non_independent") or _amp.get("band") == "bad":
+                nsig_flagged.append((_st, _su, _sv, _amp.get("summary")))
+        if nsig_rows:
+            _sf = [f"\nFive Signals screening: {len(nsig_rows)} articles screened "
+                   f"(claim validation + social propagation). Verdicts: "
+                   + ", ".join(f"{k}: {v}" for k, v in sorted(nsig_verdicts.items(), key=lambda x: -x[1]))
+                   + "."]
+            for _st, _su, _sv, _amps in nsig_flagged[:5]:
+                _line = f"- Flagged: [{_st}]({_su}) — verdict {_sv}"
+                if _amps:
+                    _line += f"; {_amps}"
+                _sf.append(_line)
+            risk_findings += "\n" + "\n".join(_sf)
+
         # Open incidents (managed cases)
         ninc_rows = conn.execute(text("""
             SELECT title, severity, status, created_at::text FROM bw_incidents
@@ -3719,6 +3778,8 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             },
             "social": social_summary,
             "risks": {"total": len(nrisk_rows), "by_type": nrisk_by_type},
+            "signals": {"screened": len(nsig_rows), "verdicts": nsig_verdicts,
+                        "flagged": len(nsig_flagged)},
             "open_incidents": len(ninc_rows),
             "employee": {
                 "glassdoor_rating": _gd.get("rating") if _gd else None,
@@ -5183,6 +5244,111 @@ async def get_risk_summary(
                 "alert_events": alert_events, "open_incidents": open_incidents}
     except Exception as e:
         logger.error(f"risk-summary failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Five Signals article screening (saas.aunoo.ai claim validation + propagation)
+# ============================================================================
+
+class SignalsRunRequest(BaseModel):
+    article_uri: str
+    brand_id: int
+    force: bool = False
+    # Which engine(s) to query: 'full' (both), 'validation' (claim validation
+    # only), 'reach' (Bluesky story-reach only). Partial runs merge into the
+    # stored row and the five signals recompose over both payloads.
+    mode: str = "full"
+
+
+@router.post("/signals/run")
+async def run_article_signals(
+    request: SignalsRunRequest,
+    background_tasks: BackgroundTasks,
+    session=Depends(verify_session),
+):
+    """Kick off a Five Signals screen for one article (background).
+
+    The screen calls saas.aunoo.ai's claim-validation and deep story-reach
+    jobs (2-4 min wall clock) and composes the result into
+    ``bw_article_signals``; the frontend polls GET /signals/detail until the
+    row leaves 'running'. Completed rows are returned as-is unless force.
+    """
+    from app.services.bw_signals_service import signals_available, run_five_signals
+    if not signals_available():
+        raise HTTPException(status_code=503,
+                            detail="Five Signals is not configured (AUNOO_SAAS_MCP_KEY missing)")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text(
+            "SELECT uri FROM articles WHERE uri = :u"
+        ), {"u": request.article_uri}).fetchone()
+        if not row or not str(row[0]).lower().startswith(("http://", "https://")):
+            raise HTTPException(status_code=400,
+                                detail="Five Signals needs a public article URL "
+                                       "(social posts and employee reviews are not screenable)")
+        if request.mode not in ("full", "validation", "reach"):
+            raise HTTPException(status_code=400, detail="mode must be full | validation | reach")
+        existing = conn.execute(text(
+            "SELECT status, validation IS NOT NULL, reach IS NOT NULL FROM bw_article_signals"
+            " WHERE article_uri = :u AND brand_id = :b"
+        ), {"u": request.article_uri, "b": request.brand_id}).fetchone()
+        if existing and existing[0] == "running":
+            return {"status": "running"}
+        # Cached-return only when every engine the caller asked for has already
+        # run — a partial run may still fill in the missing engine.
+        if existing and existing[0] == "completed" and not request.force:
+            has_val, has_reach = bool(existing[1]), bool(existing[2])
+            wanted_done = (has_val if request.mode == "validation"
+                           else has_reach if request.mode == "reach"
+                           else (has_val and has_reach))
+            if wanted_done:
+                return {"status": "completed", "cached": True}
+        background_tasks.add_task(
+            run_five_signals, request.article_uri, request.brand_id,
+            request.article_uri, 90, request.force, "user", request.mode,
+        )
+        return {"status": "running"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"signals/run failed for {request.article_uri}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/signals/detail")
+async def get_article_signals(
+    article_uri: str,
+    brand_id: int,
+    session=Depends(verify_session),
+):
+    """Full Five Signals row for one article (poll target for the modal)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("""
+            SELECT status, signals, verdict, composite_score, validation, reach,
+                   xnet, error, requested_by, created_at::text, updated_at::text
+            FROM bw_article_signals WHERE article_uri = :u AND brand_id = :b
+        """), {"u": article_uri, "b": brand_id}).fetchone()
+        if not row:
+            return {"status": "none"}
+        def _j(v):
+            return v if isinstance(v, (dict, list)) or v is None else json.loads(v)
+        return {
+            "status": row[0], "signals": _j(row[1]), "verdict": row[2],
+            "composite_score": row[3], "validation": _j(row[4]), "reach": _j(row[5]),
+            "xnet": _j(row[6]),
+            "error": row[7], "requested_by": row[8],
+            "created_at": row[9], "updated_at": row[10],
+        }
+    except Exception as e:
+        logger.error(f"signals/detail failed for {article_uri}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

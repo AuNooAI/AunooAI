@@ -20,7 +20,7 @@ Brand Watcher is an adverse-media and brand-intelligence screen. It continuously
 | **Brand Analysis** | The analyst view: a verdict header (composite risk score + the facts driving it), then themed sections — Reputation, Risk & compliance, Competitive position, Workforce, Coverage & sources. |
 | **Comparison** | Side-by-side category and sentiment comparison across brands. |
 | **Insights** | The LLM-written brand intelligence narrative (see *Insights generation* below), with regenerate and export controls. |
-| **Articles** | The full classified article list: category filter chips, per-article sentiment, risk chips, factuality, case-status controls, CSV/JSON export. |
+| **Articles** | The full classified article list: category filter chips, per-article sentiment, risk chips, factuality, Five Signals screening (run button + V/S/C/P/A chips), case-status controls, CSV/JSON export. |
 | **Social** | Social listening: brand swimlanes (per-brand sentiment timelines — click a lane to filter), scope toggle, two independently-filterable post lanes, diverging sentiment timeline, negativity themes, fans & critics with account typing. |
 | **Accounts** | Per-account profiles built on demand: bio, followers, post sentiment, sample posts, tags, analyst notes, deep-dive and downloadable account report. |
 | **Workforce** | Employee risk: Glassdoor aggregate ratings (overall, CEO approval, business outlook, recommend-to-friend, six sub-ratings), competitor rating comparison, recent employee reviews (pros/cons), and workforce risk findings. |
@@ -45,7 +45,7 @@ Both appear on article detail panels and fire the `neg_consensus_story` alert ru
 
 ## Alerting
 
-Eight server-side rules run in the background (roughly every 15 minutes) over each enabled brand. Every event is deduplicated by rule + brand + time-bucket, so a persisting condition alerts once per cooldown window, not every cycle.
+Ten server-side rules run in the background (roughly every 15 minutes) over each enabled brand. Every event is deduplicated by rule + brand + time-bucket, so a persisting condition alerts once per cooldown window, not every cycle.
 
 | Rule | Fires when |
 |---|---|
@@ -58,6 +58,7 @@ Eight server-side rules run in the background (roughly every 15 minutes) over ea
 | `new_critic` | An author with no negative history posts ≥ 2 negatives (or one high-engagement negative) in 48h. |
 | `coordinated_negative` | ≥ 3 distinct authors post near-identical negative content within 72h. |
 | `glassdoor_deterioration` | Glassdoor overall rating drops ≥ 0.2 or business outlook drops ≥ 10 pts vs a snapshot up to 35 days back. |
+| `signals_flag` | A Five Signals screen completes with a `contested`/`non_independent` claim-validation verdict, or coordinated amplification (bad amplification-integrity band). Fires once per article. |
 
 Delivery channels: **in-app** notifications, **email** (configured recipients), and **webhook** (Slack-compatible JSON POST). Configure recipients, thresholds, and per-rule enable/disable in the **Alerts** modal (bell button on the dashboard). Unacknowledged events land in the Incidents tab triage column.
 
@@ -102,6 +103,24 @@ With Glassdoor enabled, the platform tracks two layers:
 1. **Aggregates** (refreshed daily, cached 24h): overall rating, review count, CEO approval, business outlook, recommend-to-friend, and six sub-ratings (work-life, culture, compensation, senior management, career, D&I). Shown on the Workforce tab with competitor comparison, on the dashboard Employee signal card, in the Analysis verdict, narrative, report, and digest. Every refresh also writes a **daily snapshot**, building a ratings-over-time series: the Workforce tab charts it and shows change-vs-last-month chips, and the `glassdoor_deterioration` alert rule fires when the rating or outlook slides — employer ratings move slowly, so a small drop inside a month is a real signal.
 2. **Individual reviews** land as articles (title carries the star rating, summary carries Role/Pros/Cons) and flow into sentiment analytics. Reviews with strike/tribunal/layoff language feed the `workforce_labor` risk pass.
 
+## Five Signals article screening
+
+Any news article with a public URL can be put through an independent **Five Signals** screen — a deeper check than classification, built for "is this adverse story real, and is its spread organic?". The screen calls two engines on the Aunoo SaaS platform (claim validation and Bluesky story-reach) and composes the result into five scored signals:
+
+| Signal | What it measures | Backed by |
+|---|---|---|
+| **V — Claim veracity** | Verdict on the article's claims (`corroborated` / `partial` / `single_source` / `contested` / `non_independent` / `unverifiable` / `satire`) with per-claim support statuses. | Claim validation |
+| **S — Source credibility** | MBFC reputation of the outlet (factual reporting, credibility, bias; satire short-circuits to bad). | Claim validation |
+| **C — Corroboration & independence** | Independent outlets carrying the story, open-web evidence per claim, external fact-check matches; detects same-owner/wire-copy pseudo-corroboration. | Claim validation |
+| **P — Propagation & reach** | Social spread: a live Bluesky URL trace (posts, accounts, engagement, follower-weighted reach) **plus cross-network pickup** on X/Twitter, Reddit, TikTok and Instagram — matched from the tenant's own monitoring corpus and, when xpoz is provisioned, a live URL/headline query (rolling ~60-day window). Scored as magnitude — wide spread of an adverse story is the risky case. | Story reach (deep) + xpoz |
+| **A — Amplification integrity** | Whether the spread looks organic: engagement concentration, fresh-account surge, coordination cohorts, coordination signals in coverage. | Story reach (deep) + validation |
+
+Signals are banded good / warn / bad (gray = no data — e.g. no Bluesky pickup). The composite score folds propagation in inverted, so it reads uniformly as "screen health" 0–100.
+
+**Running a screen**: the dashed `✓? signals` button on any article row (Articles tab, Overview recent articles, dashboard adverse list — visible only when the integration is configured) opens the screen panel, where the engines can be queried **individually or together**: *full screen* (both, 2–4 min), *claims only* (claim validation, ~1–3 min), or *bsky reach only* (~1–2 min). Partial runs merge — query reach today, claims tomorrow, and the five signals recompose over both. The panel's **Social pickup** section lists every post found sharing the article per network — the Bluesky live trace plus other-network shares (origin-tagged: monitoring corpus vs live query) — with engagement and links. A **story propagation report** (self-contained HTML: spread sequence across networks, daily timeline, per-network pickup with sample posts, amplification-integrity read, claims context) downloads from the panel or the article detail view. Results are cached permanently — re-viewing is free; the *re-run* buttons force a fresh query of either engine. Articles that pick up a **high-severity risk finding** are screened automatically (both engines, capped at 10 auto-screens/day). A failed screen (`contested`/`non_independent` verdict or coordinated amplification) fires the `signals_flag` alert rule.
+
+**Caveats**: fresh screens run paid LLM + web-evidence calls on the SaaS side and count against its monthly validation quota. Corpus corroboration there is topic-scoped, so Brand Watcher stories often show corroboration from open-web evidence rather than the corpus — the corroboration summary says which. Propagation covers Bluesky only.
+
 ## Source quality (MBFC)
 
 News sources are matched against a media-bias/factuality dataset at classification time. Factuality chips (high/mixed/low) appear on article rows and detail panels; authority weighting uses it so an SEC filing and an unknown blog don't count the same.
@@ -114,8 +133,9 @@ The **Insights** tab narrative is generated on demand (Generate/Regenerate) from
 
 - **Articles CSV/JSON** (Export menu): Date, Title, Category, Sentiment, Source, Confidence, Method, URI, Relevance, Factuality, Bias, **Risks**, **Case Status**.
 - **Social CSV** (Social tab → Export CSV…): full matching set (not the on-screen sample), ordered brand → sentiment → date; includes matched keywords, engagement counts, and — for authors with a built Account Profile — followers, verified, tags, analyst note, and profile summary columns.
-- **HTML brand report** (Export menu → HTML report): a self-contained interactive file covering Overview, Analysis, **Risk & Compliance**, **Workforce Signal**, Insights, and Social (including static brand swimlanes) — safe to email, works offline.
+- **HTML brand report** (Export menu → HTML report): a self-contained interactive file covering Overview, Analysis, **Risk & Compliance** (including the Five Signals screening table for analyzed articles), **Workforce Signal**, Insights, and Social (including static brand swimlanes) — safe to email, works offline.
 - **Social / Account reports**: dedicated HTML reports from the Social and Accounts tabs.
+- **Story propagation report** (Five Signals panel → propagation report): per-article spread analysis — sequence across networks, timeline, per-network pickup, amplification integrity, claims context.
 
 ## Scheduling & cadence
 
@@ -139,4 +159,4 @@ The **Insights** tab narrative is generated on demand (Generate/Regenerate) from
 | `glassdoor_company_id` | Pin the exact Glassdoor employer when name search is ambiguous. |
 | `topics` | Monitoring topics attached to the brand. |
 
-Server environment keys: `OPENWEBNINJA_API_KEY` (Glassdoor), `REGULATIONS_GOV_API_KEY` (regulations.gov), `COURTLISTENER_API_TOKEN` (optional, higher rate limit).
+Server environment keys: `OPENWEBNINJA_API_KEY` (Glassdoor), `REGULATIONS_GOV_API_KEY` (regulations.gov), `COURTLISTENER_API_TOKEN` (optional, higher rate limit), `AUNOO_SAAS_MCP_KEY` + `AUNOO_SAAS_MCP_URL` (Five Signals screening via the Aunoo SaaS platform).

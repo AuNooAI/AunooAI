@@ -110,6 +110,14 @@ export interface BWArticle {
   // Adverse risk findings [{risk_type, severity, confidence}] + case state.
   risks?: { risk_type: string; severity: string; confidence?: number | null }[];
   review_status?: string | null;
+  // Five Signals screen summary (bw_article_signals) — compact row chips;
+  // full breakdown via getSignalsDetail.
+  signals_summary?: {
+    status: string;
+    verdict: string | null;
+    composite: number | null;
+    signals: { key: string; band: string | null; score: number | null }[];
+  } | null;
 }
 
 // ---- Adverse alerting ----
@@ -229,6 +237,34 @@ export interface BWArticlesResponse {
   page: number;
   per_page: number;
   total_pages: number;
+  // False when the backend has no saas MCP key — hide the Five Signals action.
+  signals_available?: boolean;
+}
+
+// ---- Five Signals article screening ----
+export interface BWSignalEntry {
+  key: string;
+  label: string;
+  score: number | null;
+  band: 'good' | 'warn' | 'bad' | 'nodata';
+  summary: string;
+  evidence: any;
+}
+
+export interface BWArticleSignals {
+  status: 'none' | 'running' | 'completed' | 'failed';
+  signals: Record<string, BWSignalEntry> | null;
+  verdict: string | null;
+  composite_score: number | null;
+  validation: any;
+  reach: any;
+  // Cross-network pickup (xpoz corpus match + optional live query):
+  // { gathered_at, window_days, live_available, platforms: { twitter: {posts, engagement, first_seen, last_seen, sample[]}, ... } }
+  xnet?: any;
+  error: string | null;
+  requested_by: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface BWTemporalData {
@@ -1066,5 +1102,24 @@ export interface BWRiskSummary {
 export async function getRiskSummary(brandId: number, daysBack: number = 90): Promise<BWRiskSummary> {
   const res = await fetch(`${BASE}/brands/${brandId}/risk-summary?days_back=${daysBack}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch risk summary: ${res.status}`);
+  return res.json();
+}
+
+export type BWSignalsMode = 'full' | 'validation' | 'reach';
+
+export async function runSignals(articleUri: string, brandId: number, force: boolean = false, mode: BWSignalsMode = 'full'): Promise<{ status: string; cached?: boolean }> {
+  const res = await fetch(`${BASE}/signals/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ article_uri: articleUri, brand_id: brandId, force, mode }),
+  });
+  if (!res.ok) throw new Error(`Failed to start Five Signals run: ${res.status}`);
+  return res.json();
+}
+
+export async function getSignalsDetail(articleUri: string, brandId: number): Promise<BWArticleSignals> {
+  const res = await fetch(`${BASE}/signals/detail?article_uri=${encodeURIComponent(articleUri)}&brand_id=${brandId}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch Five Signals detail: ${res.status}`);
   return res.json();
 }

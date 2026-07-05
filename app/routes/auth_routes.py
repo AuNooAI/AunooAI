@@ -108,9 +108,12 @@ async def login(
         request.session["user"] = username
         
         # Check if password change is required
+        from app.core.modules import is_dedicated_bw
         if user.get('force_password_change'):
             return RedirectResponse(url="/change_password", status_code=status.HTTP_302_FOUND)
-        elif not user.get('completed_onboarding'):
+        elif not user.get('completed_onboarding') and not is_dedicated_bw():
+            # Dedicated Brand Watcher tenants skip the topic wizard — brands are
+            # configured in the Brand Watcher tab, not via general topic onboarding.
             return RedirectResponse(url="/onboarding", status_code=status.HTTP_302_FOUND)
             
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)

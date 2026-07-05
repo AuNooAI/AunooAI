@@ -160,6 +160,15 @@ def _get_db_overrides() -> dict[str, bool] | None:
         return None
 
 
+def is_dedicated_bw() -> bool:
+    """True when this tenant runs as a dedicated Brand Watcher instance.
+
+    Set BW_DEDICATED_MODE=1 in the tenant .env. The UI then hides the
+    non-Brand-Watcher surface and lands on the Brand Watcher tab.
+    """
+    return os.environ.get("BW_DEDICATED_MODE", "").strip().lower() in ("1", "true", "yes")
+
+
 def _get_env_enabled_ids() -> list[str]:
     """Read ENABLED_MODULES env var. Returns list of module IDs."""
     raw = os.environ.get("ENABLED_MODULES", "*").strip()
