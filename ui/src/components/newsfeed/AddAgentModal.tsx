@@ -52,8 +52,7 @@ const DEFAULT_REPORT_PROMPT = `Analyze the following signal matches and create a
 1. Summarize the key findings across all matched articles
 2. Identify common themes and patterns
 3. Assess the overall significance and urgency
-4. Provide actionable recommendations
-5. Note any gaps or areas requiring further investigation
+4. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.`;
 
@@ -96,6 +95,7 @@ export function AddAgentModal({
   const [actionReport, setActionReport] = useState(false);
   const [reportPrompt, setReportPrompt] = useState(DEFAULT_REPORT_PROMPT);
   const [showReportPrompt, setShowReportPrompt] = useState(false);
+  const [includeRecommendations, setIncludeRecommendations] = useState(false);
   const [actionDeepResearch, setActionDeepResearch] = useState(false);
   const [actionSendEmail, setActionSendEmail] = useState(false);
   const [emailRecipient, setEmailRecipient] = useState('');
@@ -195,6 +195,7 @@ export function AddAgentModal({
       setActionSendEmail(configSendEmail || false);
       setEmailRecipient(configEmailRecipient || '');
       setAttachPdfReport((editAgent.config?.attach_pdf_report as boolean | undefined) || false);
+      setIncludeRecommendations((editAgent.config?.include_recommendations as boolean | undefined) || false);
       setShowEmailConfig(configSendEmail || false);
       setActionBlueskyDm(configBlueskyDm || false);
       setBlueskyRecipient(configBlueskyRecipient || '');
@@ -286,6 +287,7 @@ export function AddAgentModal({
       if (model) config.model = model;
       // Always save days_back for scheduled runs
       config.days_back = scheduleDaysBack;
+      if (includeRecommendations) config.include_recommendations = true;
       if (actionStarArticles) config.star_flagged_articles = true;
       if (actionDeepResearch) config.deep_research = true;
       if (actionSendEmail) {
@@ -741,6 +743,13 @@ export function AddAgentModal({
                           disabled={saving || loading}
                           className="font-mono text-sm"
                         />
+                        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                          title="Off by default: reports state findings, themes and significance only. Turn on to add a 'Recommendations & guidance' section scoped to your organization's remit.">
+                          <input type="checkbox" checked={includeRecommendations}
+                            onChange={(e) => setIncludeRecommendations(e.target.checked)}
+                            disabled={saving || loading} />
+                          Include recommendations &amp; guidance
+                        </label>
                         <div className="flex justify-between items-center">
                           <p className="text-xs text-gray-600 dark:text-gray-300">
                             This prompt tells the AI how to analyze and summarize matched articles

@@ -3299,6 +3299,28 @@ def build_report_download_url(report_id: int, fmt: str = "html") -> str:
             f"?exp={exp}&token={token}&fmt={fmt}")
 
 
+# Recommendations are opt-in per agent (config.include_recommendations) — by
+# default reports state findings, themes and significance without advice.
+_RECOMMENDATIONS_ON = (
+    "\n\nInclude a short 'Recommendations & guidance' section with actionable "
+    "recommendations scoped strictly to the report reader's own organization and "
+    "remit. Never address recommendations to governments, regulators, industries "
+    "or other outside actors."
+)
+_RECOMMENDATIONS_OFF = (
+    "\n\nDo NOT include recommendations, guidance, suggested actions or advice of "
+    "any kind — even if instructed above. Report findings, themes and significance "
+    "only; the reader decides what to do."
+)
+
+
+def _apply_recommendations_pref(prompt: str, instr_config) -> str:
+    """Append the include/suppress-recommendations directive to a report prompt."""
+    if (instr_config or {}).get("include_recommendations"):
+        return (prompt or "") + _RECOMMENDATIONS_ON
+    return (prompt or "") + _RECOMMENDATIONS_OFF
+
+
 def _report_email_extras(report_id, report_title, report_content, instr_config) -> dict:
     """kwargs for send_signal_alert_email: signed no-auth download link, plus a
     PDF attachment when the agent's config asks for it (attach_pdf_report)."""
@@ -4291,8 +4313,7 @@ Analyze the following signal matches and create a comprehensive intelligence rep
 1. Summarize the key findings across all matched articles
 2. Identify common themes and patterns
 3. Assess the overall significance and urgency
-4. Provide actionable recommendations
-5. Note any gaps or areas requiring further investigation
+4. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.
 """
@@ -4302,6 +4323,9 @@ Format your response as a structured markdown report with clear sections.
                     report_prompt = instructions_with_report[0].get('report_prompt')
                 if not report_prompt:
                     report_prompt = default_prompt
+                report_prompt = _apply_recommendations_pref(
+                    report_prompt,
+                    instructions_with_report[0].get('config') if instructions_with_report else None)
 
                 # Build article summaries for report
                 alerts_summary = "\n\n".join([
@@ -4650,9 +4674,11 @@ Write the complete podcast script:
                                             # Generate a quick report for this instruction only
                                             instruction_report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings, significance, and any recommended actions.
+Summarize key findings and significance.
 Format as a concise markdown report.
 """
+                                            instruction_report_prompt = _apply_recommendations_pref(
+                                                instruction_report_prompt, instruction.get('config'))
                                             alerts_summary = "\n\n".join([
                                                 f"**Article:** {a['article_uri']}\n"
                                                 f"**Threat Level:** {a['threat_level']}\n"
@@ -5251,9 +5277,10 @@ If no articles match, return an empty array: []"""
                 try:
                     report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings, significance, and any recommended actions.
+Summarize key findings and significance.
 Format as a concise markdown report.
 """
+                    report_prompt = _apply_recommendations_pref(report_prompt, config)
                     alerts_summary = "\n\n".join([
                         f"**Article:** {a['article_uri']}\n"
                         f"**Threat Level:** {a['threat_level']}\n"
