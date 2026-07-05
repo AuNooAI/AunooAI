@@ -19,6 +19,7 @@ Brand Watcher is an adverse-media and brand-intelligence screen. It continuously
 |---|---|
 | **Dashboard** | The daily screen: problems & alerts, at-a-glance stats, news vs social sentiment (+ employee signal), sentiment over time, adverse-first news, most-amplified social, fans & critics. |
 | **Brand Analysis** | The analyst view: a verdict header (composite risk score + the facts driving it), then themed sections — Reputation, Risk & compliance, Competitive position, Workforce, Coverage & sources. |
+| **Perception** | Five perception dimensions per brand on one radar + score table: **Media** (news net sentiment), **Social** (Bluesky/X/Instagram/TikTok), **Community** (Reddit), **Employee** (Glassdoor rating scaled to −100…+100, with outlook and landed reviews on hover), **Investor** (net sentiment of Financial Performance-classified articles). All text dimensions use the standard net-sentiment rollup over relevance ≥ 0.4 items; the radar normalizes to 0–100 (50 = neutral) so brands can be overlaid. Grey volume counts flag low-sample scores. |
 | **Comparison** | Side-by-side category and sentiment comparison across brands. |
 | **Insights** | The LLM-written brand intelligence narrative (see *Insights generation* below), with regenerate and export controls. |
 | **Articles** | The full classified article list: category filter chips, per-article sentiment, risk chips, factuality, Five Signals screening (run button + V/S/C/P/A chips), case-status controls, CSV/JSON export. |

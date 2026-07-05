@@ -14,6 +14,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { BrandWatcherOnboarding } from './BrandWatcherOnboarding';
+import { BrandWatcherPerception } from './BrandWatcherPerception';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
@@ -138,7 +139,7 @@ interface BrandWatcherTabProps {
                     relatedArticles?: any[]) => void;
 }
 
-type SubTab = 'dashboard' | 'overview' | 'analysis' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
+type SubTab = 'dashboard' | 'overview' | 'analysis' | 'perception' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -2271,6 +2272,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         {([
           { id: 'dashboard' as SubTab, label: 'Dashboard', icon: Sparkles },
           { id: 'analysis' as SubTab, label: 'Brand Analysis', icon: TrendingUp },
+          { id: 'perception' as SubTab, label: 'Perception', icon: Eye },
           { id: 'comparison' as SubTab, label: 'Comparison', icon: Users },
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
@@ -4918,6 +4920,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Perception dimensions view */}
+      {activeTab === 'perception' && (
+        <BrandWatcherPerception daysBack={config.daysBack} />
       )}
 
       {(activeTab === 'comparison' || exportingReport) && (

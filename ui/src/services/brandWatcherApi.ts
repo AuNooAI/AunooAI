@@ -526,6 +526,34 @@ export async function getClassifyRuns(limit: number = 10): Promise<{ runs: BWCla
 
 // --- Stats & Analytics ---
 
+export interface BWPerceptionDimension {
+  score: number | null;         // net sentiment -100..100 (employee: scaled Glassdoor rating)
+  n: number;
+  positive?: number;
+  neutral?: number;
+  negative?: number;
+  rating?: number | null;       // employee only: Glassdoor 1-5
+  outlook?: number | null;      // employee only: business outlook 0-1
+  review_count?: number | null;
+  reviews_net?: number | null;
+  reviews_n?: number;
+}
+
+export interface BWPerceptionBrand {
+  brand_id: number;
+  name: string;
+  display_name: string;
+  color: string | null;
+  is_primary: boolean;
+  dimensions: Record<'media' | 'social' | 'community' | 'employee' | 'investor', BWPerceptionDimension>;
+}
+
+export async function getPerception(daysBack: number = 90): Promise<{ days_back: number; brands: BWPerceptionBrand[] }> {
+  const res = await fetch(`${BASE}/perception?days_back=${daysBack}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch perception: ${res.status}`);
+  return res.json();
+}
+
 export async function getStats(brandIds?: number[], daysBack: number = 365, topics?: string[]): Promise<BWStats> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
   if (brandIds?.length) params.append('brand_ids', brandIds.join(','));

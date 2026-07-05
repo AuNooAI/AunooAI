@@ -5050,6 +5050,128 @@ _SENT_POS_RE = re.compile(r"positiv|optimis", re.I)
 _SENT_NEG_RE = re.compile(r"negativ|pessimis|concern|critical|alarm", re.I)
 
 
+def _net_sentiment(pos: int, neu: int, neg: int):
+    """Standard rollup: (positive − negative) ÷ scored × 100, or None unscored."""
+    scored = pos + neu + neg
+    return round(((pos - neg) / scored) * 100) if scored else None
+
+
+@router.get("/perception")
+async def get_perception_dimensions(
+    days_back: int = Query(90, ge=1, le=730),
+    session=Depends(verify_session),
+):
+    """Perception across five dimensions per brand: media (news sentiment),
+    social (Bluesky/X/Instagram/TikTok), community (Reddit), employee
+    (Glassdoor rating + landed reviews), investor (Financial Performance
+    category sentiment). Text dimensions use the standard net-sentiment
+    rollup over relevance-filtered items (topic_alignment_score >= 0.4)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brands = conn.execute(text("""
+            SELECT id, name, display_name, color, is_primary, COALESCE(config, '{}')
+            FROM bw_brands WHERE enabled = true ORDER BY is_primary DESC, display_name
+        """)).fetchall()
+        if not brands:
+            return {"days_back": days_back, "brands": []}
+        topic_by_brand = {b[0]: f"Brand Monitoring {b[2]}" for b in brands}
+        brand_by_topic = {v: k for k, v in topic_by_brand.items()}
+
+        sd, ed = _get_date_range(days_back)
+
+        # Media / social / community in one grouped pass over brand-topic articles.
+        # Source buckets are matched strictly (not the substring helper) so news
+        # sites like financetwitter.com don't land in the social bucket.
+        topic_keys = {f"_t{i}": t for i, t in enumerate(brand_by_topic)}
+        topic_in = ", ".join(f":{k}" for k in topic_keys)
+        rows = conn.execute(text(f"""
+            SELECT a.topic,
+                   CASE
+                     WHEN LOWER(a.news_source) LIKE 'reddit%' OR LOWER(a.news_source) LIKE 'www.reddit%'
+                          OR LOWER(a.news_source) = 'xpoz:reddit' THEN 'community'
+                     WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
+                          OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
+                     WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
+                     ELSE 'media'
+                   END AS dim,
+                   a.sentiment, COUNT(*)
+            FROM articles a
+            WHERE a.publication_date >= :sd AND a.publication_date <= :ed
+              AND a.topic IN ({topic_in})
+              AND a.topic_alignment_score >= 0.4
+            GROUP BY 1, 2, 3
+        """), {"sd": sd, "ed": ed, **topic_keys}).fetchall()
+
+        counts = {}  # (brand_id, dim) -> [pos, neu, neg]
+        for topic, dim, sentiment, n in rows:
+            bid = brand_by_topic.get(topic)
+            if bid is None:
+                continue
+            c = counts.setdefault((bid, dim), [0, 0, 0])
+            s = sentiment or ""
+            if _SENT_NEG_RE.search(s):
+                c[2] += n
+            elif _SENT_POS_RE.search(s):
+                c[0] += n
+            elif s:
+                c[1] += n
+
+        # Investor: sentiment of articles classified Financial Performance per brand
+        inv_rows = conn.execute(text("""
+            SELECT bac.brand_id, a.sentiment, COUNT(*)
+            FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri
+            WHERE bac.category = 'Financial Performance'
+              AND a.publication_date >= :sd AND a.publication_date <= :ed
+              AND a.topic_alignment_score >= 0.4
+            GROUP BY 1, 2
+        """), {"sd": sd, "ed": ed}).fetchall()
+        for bid, sentiment, n in inv_rows:
+            c = counts.setdefault((bid, "investor"), [0, 0, 0])
+            s = sentiment or ""
+            if _SENT_NEG_RE.search(s):
+                c[2] += n
+            elif _SENT_POS_RE.search(s):
+                c[0] += n
+            elif s:
+                c[1] += n
+
+        out = []
+        for bid, name, display_name, color, is_primary, cfg_raw in brands:
+            dims = {}
+            for dim in ("media", "social", "community", "investor"):
+                pos, neu, neg = counts.get((bid, dim), (0, 0, 0))
+                dims[dim] = {"score": _net_sentiment(pos, neu, neg),
+                             "n": pos + neu + neg,
+                             "positive": pos, "neutral": neu, "negative": neg}
+
+            # Employee: Glassdoor aggregate rating (1-5 scaled to -100..100)
+            # plus net sentiment of landed review articles as detail
+            cfg = _cfg_dict(cfg_raw)
+            gd = ((cfg.get("glassdoor_overview") or {}).get("data") or {})
+            rating = gd.get("rating")
+            rpos, rneu, rneg = counts.get((bid, "employee_reviews"), (0, 0, 0))
+            dims["employee"] = {
+                "score": round((float(rating) - 3.0) / 2.0 * 100) if rating else None,
+                "rating": rating,
+                "outlook": gd.get("business_outlook_rating"),
+                "review_count": gd.get("review_count"),
+                "reviews_net": _net_sentiment(rpos, rneu, rneg),
+                "reviews_n": rpos + rneu + rneg,
+                "n": gd.get("review_count") or (rpos + rneu + rneg),
+            }
+            out.append({"brand_id": bid, "name": name, "display_name": display_name,
+                        "color": color, "is_primary": bool(is_primary), "dimensions": dims})
+
+        return {"days_back": days_back, "brands": out}
+    except Exception as e:
+        logger.error(f"Error building perception dimensions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.get("/brands/{brand_id}/employee-risk")
 async def get_employee_risk(
     brand_id: int,
