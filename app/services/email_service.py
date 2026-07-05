@@ -39,8 +39,53 @@ import re
 logger = logging.getLogger(__name__)
 
 
+# Inline styles per tag — email clients ignore <style> blocks, so styles must
+# ride on the elements themselves.
+_EMAIL_TAG_STYLES = {
+    'h1': 'font-size:20px;color:#333;margin:20px 0 12px 0;',
+    'h2': 'font-size:18px;color:#333;margin:18px 0 10px 0;',
+    'h3': 'font-size:16px;color:#333;margin:15px 0 8px 0;',
+    'h4': 'font-size:14px;color:#333;margin:12px 0 6px 0;',
+    'h5': 'font-size:13px;color:#333;margin:10px 0 5px 0;',
+    'p': 'margin:10px 0;',
+    'ul': 'margin:10px 0;padding-left:20px;',
+    'ol': 'margin:10px 0;padding-left:20px;',
+    'li': 'margin:4px 0;',
+    'table': 'border-collapse:collapse;margin:10px 0;',
+    'th': 'border:1px solid #ddd;padding:6px 8px;background:#f3f4f6;text-align:left;',
+    'td': 'border:1px solid #ddd;padding:6px 8px;',
+    'code': 'background:#f3f4f6;padding:1px 4px;border-radius:3px;',
+    'blockquote': 'border-left:3px solid #ddd;margin:10px 0;padding-left:12px;color:#555;',
+    'hr': 'border:none;border-top:1px solid #ddd;margin:16px 0;',
+}
+
+
 def markdown_to_html(text: str) -> str:
-    """Convert basic markdown to HTML for email rendering."""
+    """Convert markdown to email-safe HTML.
+
+    Uses the real markdown renderer (handles #### headers, nested lists,
+    tables — the regex fallback leaked those raw into emails), then stamps
+    inline styles onto the tags for email-client compatibility."""
+    if not text:
+        return ""
+    try:
+        import markdown as _md
+        html = _md.markdown(text, extensions=["tables", "sane_lists", "nl2br"])
+        html = re.sub(
+            r'<(h1|h2|h3|h4|h5|p|ul|ol|li|table|th|td|code|blockquote|hr)>',
+            lambda m: f'<{m.group(1)} style="{_EMAIL_TAG_STYLES[m.group(1)]}">',
+            html,
+        )
+        html = html.replace(
+            '<a href', '<a style="color:#667eea;text-decoration:underline;" href')
+        return html
+    except Exception as e:
+        logger.warning(f"markdown renderer unavailable, using legacy converter: {e}")
+        return _legacy_markdown_to_html(text)
+
+
+def _legacy_markdown_to_html(text: str) -> str:
+    """Regex-based fallback converter (pre-2026-07 behavior)."""
     if not text:
         return ""
 
