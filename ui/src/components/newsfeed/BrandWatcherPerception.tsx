@@ -51,6 +51,21 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
   const [brands, setBrands] = useState<BWPerceptionBrand[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Brand toggles: null = all on (default); once touched, an explicit set of visible ids
+  const [visibleIds, setVisibleIds] = useState<Set<number> | null>(null);
+
+  const isVisible = (id: number) => visibleIds === null || visibleIds.has(id);
+  const toggleBrand = (id: number) => {
+    setVisibleIds(prev => {
+      const next = new Set(prev === null ? brands.map(b => b.brand_id) : prev);
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id); // keep at least one brand visible
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -73,13 +88,16 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
     return <div className="p-6 text-sm text-gray-500 dark:text-gray-400">No brands configured.</div>;
   }
 
-  const colorOf = (b: BWPerceptionBrand, i: number) => b.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+  // Stable per-brand colors keyed on the full list, so toggling doesn't reshuffle
+  const colorById = new Map(brands.map((b, i) => [b.brand_id, b.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length]]));
+  const colorOf = (b: BWPerceptionBrand, _i?: number) => colorById.get(b.brand_id)!;
+  const shownBrands = brands.filter(b => isVisible(b.brand_id));
 
   // Radar shows scores normalized to 0–100 so all five axes share a scale
   // (net −100…+100 → 0…100; 50 = neutral).
   const radarData = DIMENSIONS.map(dim => {
     const row: Record<string, any> = { dimension: dim.label };
-    for (const b of brands) {
+    for (const b of shownBrands) {
       const s = b.dimensions[dim.key]?.score;
       row[b.display_name] = s === null || s === undefined ? undefined : Math.round((s + 100) / 2);
     }
@@ -98,6 +116,31 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
         </div>
       </div>
 
+      {/* Brand toggles */}
+      <div className="flex flex-wrap items-center gap-2">
+        {brands.map((b, i) => {
+          const on = isVisible(b.brand_id);
+          return (
+            <button
+              key={b.brand_id}
+              onClick={() => toggleBrand(b.brand_id)}
+              title={on ? `Hide ${b.display_name}` : `Show ${b.display_name}`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                on
+                  ? 'border-transparent text-white'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500 bg-transparent'
+              }`}
+              style={on ? { backgroundColor: colorOf(b, i) } : undefined}
+            >
+              <span className="w-2 h-2 rounded-full inline-block"
+                style={{ backgroundColor: on ? 'rgba(255,255,255,0.85)' : colorOf(b, i) }} />
+              {b.display_name}
+              {b.is_primary && <span className="opacity-75 text-[10px]">primary</span>}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Radar: all brands overlaid, axes = dimensions */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center gap-1.5 mb-1">
@@ -111,7 +154,7 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
             <PolarGrid stroke="#9ca3af55" />
             <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 12 }} />
             <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickCount={5} />
-            {brands.map((b, i) => (
+            {shownBrands.map((b, i) => (
               <Radar key={b.brand_id} name={b.display_name} dataKey={b.display_name}
                 stroke={colorOf(b, i)} fill={colorOf(b, i)} fillOpacity={0.12} strokeWidth={2} />
             ))}
@@ -139,7 +182,7 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
             </tr>
           </thead>
           <tbody>
-            {brands.map((b, i) => (
+            {shownBrands.map((b, i) => (
               <tr key={b.brand_id} className="border-b border-gray-50 dark:border-gray-750 last:border-0">
                 <td className="py-2.5 pr-4">
                   <span className="inline-flex items-center gap-2 font-medium text-gray-900 dark:text-gray-100">

@@ -234,6 +234,45 @@ def get_format_block(query_depth: str) -> str:
     }.get(query_depth, AUSPEX_STANDARD_FORMAT)
 
 
+_dedicated_bw_cache = {"block": None, "at": 0.0}
+
+
+def _dedicated_bw_block() -> str:
+    """Brand-focus block for dedicated Brand Watcher tenants (cached 10 min).
+
+    Names the tenant's actual brands and monitoring topics so Auspex scopes
+    its research to brand data and steers off-topic requests back."""
+    from app.core.modules import is_dedicated_bw
+    if not is_dedicated_bw():
+        return ""
+    import time as _time
+    now = _time.time()
+    if _dedicated_bw_cache["block"] is not None and now - _dedicated_bw_cache["at"] < 600:
+        return _dedicated_bw_cache["block"]
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        rows = db.fetch_all(
+            "SELECT display_name, is_primary FROM bw_brands WHERE enabled = true "
+            "ORDER BY is_primary DESC, display_name", [])
+        names = [f"{r['display_name']} (primary)" if r['is_primary'] else r['display_name'] for r in rows]
+        topics = ", ".join(f'"Brand Monitoring {r["display_name"]}"' for r in rows)
+    except Exception:
+        names, topics = [], ""
+    block = f"""
+
+## Dedicated Brand Monitoring Workspace
+This tenant is a dedicated brand monitoring workspace. Brands under watch: {', '.join(names) or 'see the Brand Watcher tab'}.
+- Focus every answer on brand perception, reputation, risk, coverage and competitive positioning for these brands.
+- When searching the database, scope searches to the brand monitoring topics: {topics or 'topics starting with "Brand Monitoring"'}.
+- Do not use articles from other topics — this workspace's users only work with brand data.
+- If asked about unrelated subjects, answer briefly if trivial, then steer back to what this workspace covers: brand and competitor intelligence.
+"""
+    _dedicated_bw_cache["block"] = block
+    _dedicated_bw_cache["at"] = now
+    return block
+
+
 def build_system_prompt(query: str = None, query_depth: str = None) -> str:
     """Build the complete system prompt based on query depth."""
     if query_depth is None and query:
@@ -242,7 +281,7 @@ def build_system_prompt(query: str = None, query_depth: str = None) -> str:
         query_depth = 'standard'
 
     format_block = get_format_block(query_depth)
-    return AUSPEX_CORE_PROMPT + format_block
+    return AUSPEX_CORE_PROMPT + _dedicated_bw_block() + format_block
 
 
 # Legacy compatibility - default to standard format
@@ -396,7 +435,8 @@ def build_versatile_prompt(query: str) -> str:
     core_with_date = AUSPEX_VERSATILE_CORE.format(current_date=current_date)
 
     # Always start with versatile core and data integrity
-    prompt_parts = [core_with_date, AUSPEX_DATA_INTEGRITY]
+    # (+ the brand-focus block on dedicated Brand Watcher tenants)
+    prompt_parts = [core_with_date, _dedicated_bw_block(), AUSPEX_DATA_INTEGRITY]
 
     # Add intent-specific guidance
     if intent == 'system':
