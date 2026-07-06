@@ -39,6 +39,7 @@ export interface BWAccountProfile {
   tags?: string[] | null;
   annotation?: { text?: string; by?: string; at?: string } | null;
   last_profiled_at?: string | null;
+  watchlisted?: boolean;
 }
 
 async function j<T>(res: Response): Promise<T> {
@@ -109,4 +110,25 @@ export async function setAccountAnnotation(id: number, text: string): Promise<BW
 export async function deleteAccountProfile(id: number): Promise<void> {
   const res = await fetch(`${BASE}/profile/${id}`, { method: 'DELETE', credentials: 'include' });
   if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export async function setAccountWatchlist(id: number, watchlisted: boolean): Promise<BWAccountProfile> {
+  const res = await fetch(`${BASE}/profile/${id}/watchlist`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ watchlisted }),
+  });
+  return j<BWAccountProfile>(res);
+}
+
+export async function emailAccountReport(id: number, to: string, html: string): Promise<void> {
+  const res = await fetch(`${BASE}/profile/${id}/email`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, html }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `${res.status}`);
+  }
 }

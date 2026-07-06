@@ -8,7 +8,7 @@ import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
-  Download, AlertTriangle, Eye, Star, Image, FileDown, Copy, Check, Printer, Search, Bell,
+  Download, AlertTriangle, Eye, Star, Mail, Image, FileDown, Copy, Check, Printer, Search, Bell,
   AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
@@ -23,9 +23,10 @@ import { downloadPropagationReport } from '../../services/propagationReportHtml'
 import { cleanSocialText, stripSocialMarkdown } from '../../services/socialText';
 import {
   buildAccountProfile, getAccountProfile, listAccountProfiles, setAccountTags, setAccountAnnotation,
-  deepDiveAccount, deleteAccountProfile, type BWAccountProfile, type BWAccountDeepDive,
+  deepDiveAccount, deleteAccountProfile, setAccountWatchlist, emailAccountReport,
+  type BWAccountProfile, type BWAccountDeepDive,
 } from '../../services/socialProfileApi';
-import { downloadAccountReport } from '../../services/socialProfileReportHtml';
+import { downloadAccountReport, buildAccountReportHtml } from '../../services/socialProfileReportHtml';
 import { DocViewer } from '../DocViewer';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
@@ -4794,6 +4795,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{a.display_name || a.handle}</span>
                         {a.verified && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
+                        {a.watchlisted && <Star className="w-3 h-3 fill-amber-400 text-amber-400 flex-shrink-0" aria-label="On watchlist" />}
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-semibold px-1 rounded text-white" style={{ backgroundColor: platColor(a.platform) }}>{platLabel(a.platform)}</span>
@@ -4828,9 +4830,37 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         {p.bio && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{p.bio}</p>}
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const upd = await setAccountWatchlist(p.id, !p.watchlisted);
+                              setAccountProfile(upd);
+                              setAccountsList(await listAccountProfiles());
+                            } catch (e) { setAccError(e instanceof Error ? e.message : 'Watchlist update failed'); }
+                          }}
+                          title={p.watchlisted ? 'On the watchlist — click to remove' : 'Add to watchlist (watched accounts sort first in the profiles list)'}
+                          className={`text-xs px-2 py-1 rounded-md border inline-flex items-center gap-1 ${p.watchlisted
+                            ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                            : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-amber-400'}`}>
+                          <Star className={`w-3 h-3 ${p.watchlisted ? 'fill-amber-400 text-amber-400' : ''}`} /> {p.watchlisted ? 'Watching' : 'Watch'}
+                        </button>
                         <button onClick={() => downloadAccountReport(p, accDeepDive)} title="Download HTML report"
                           className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 inline-flex items-center gap-1">
                           <Download className="w-3 h-3" /> Report
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const to = window.prompt('Email this account report to:', '');
+                            if (!to || !to.includes('@')) return;
+                            try {
+                              await emailAccountReport(p.id, to.trim(),
+                                buildAccountReportHtml(p, accDeepDive, new Date().toISOString()));
+                              window.alert(`Report for @${p.handle} sent to ${to.trim()}.`);
+                            } catch (e) { window.alert(`Email failed: ${e instanceof Error ? e.message : e}`); }
+                          }}
+                          title="Email this report as a self-contained HTML attachment — identical to the download"
+                          className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 inline-flex items-center gap-1">
+                          <Mail className="w-3 h-3" /> Email
                         </button>
                         <button onClick={() => profileAccount(p.platform, p.handle)} disabled={accLoading} title="Refresh from xpoz"
                           className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 inline-flex items-center gap-1">

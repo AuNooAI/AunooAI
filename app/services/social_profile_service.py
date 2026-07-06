@@ -370,7 +370,8 @@ class SocialProfileService:
 
     _SELECT = ("id, platform, handle, handle_canonical, display_name, avatar_url, bio, profile_url, "
                "verified, followers_count, following_count, posts_count, account_created_at, topics, "
-               "post_sentiment, summary, brand_context, sample_posts, tags, annotation, last_profiled_at")
+               "post_sentiment, summary, brand_context, sample_posts, tags, annotation, last_profiled_at, "
+               "watchlisted")
 
     def _row_to_dict(self, r) -> Dict:
         keys = [c.strip() for c in self._SELECT.split(",")]
@@ -387,9 +388,18 @@ class SocialProfileService:
     def list_profiles(self, db, limit: int = 200) -> List[Dict]:
         conn = db._temp_get_connection()
         rows = conn.execute(sql_text(f"SELECT {self._SELECT} FROM social_accounts "
-                                     "ORDER BY last_profiled_at DESC NULLS LAST LIMIT :lim"),
+                                     "ORDER BY watchlisted DESC, last_profiled_at DESC NULLS LAST "
+                                     "LIMIT :lim"),
                             {"lim": limit}).fetchall()
         return [self._row_to_dict(r) for r in rows]
+
+    def set_watchlist(self, db, account_id: int, watchlisted: bool) -> Optional[Dict]:
+        conn = db._temp_get_connection()
+        conn.execute(sql_text("UPDATE social_accounts SET watchlisted=:w WHERE id=:id"),
+                     {"w": bool(watchlisted), "id": account_id})
+        try: conn.commit()
+        except Exception: pass
+        return self._by_id(db, account_id)
 
     def set_tags(self, db, account_id: int, tags: List[str]) -> Optional[Dict]:
         conn = db._temp_get_connection()

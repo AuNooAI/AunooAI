@@ -5598,3 +5598,68 @@ async def set_account_annotation(account_id: int, req: AccountAnnotationRequest,
 async def delete_account_profile(account_id: int, session=Depends(verify_session)):
     _social_profile_service().delete_profile(get_database_instance(), account_id)
     return {"status": "deleted", "id": account_id}
+
+
+class AccountWatchlistRequest(BaseModel):
+    watchlisted: bool
+
+
+class AccountEmailReportRequest(BaseModel):
+    to: str
+    html: str          # the report exactly as the download button builds it
+    subject: Optional[str] = None
+
+
+@router.put("/accounts/profile/{account_id}/watchlist")
+async def set_account_watchlist(account_id: int, req: AccountWatchlistRequest,
+                                session=Depends(verify_session)):
+    """Add/remove an account from the watchlist (watched accounts list first)."""
+    prof = _social_profile_service().set_watchlist(get_database_instance(), account_id, req.watchlisted)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.post("/accounts/profile/{account_id}/email")
+async def email_account_report(account_id: int, req: AccountEmailReportRequest,
+                               session=Depends(verify_session)):
+    """Email an account report. The client sends the same self-contained HTML
+    the download button produces; it goes out as an attachment so the mailbox
+    copy is identical to the downloaded one."""
+    svc = _social_profile_service()
+    prof = svc._by_id(get_database_instance(), account_id)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    to = (req.to or "").strip()
+    if "@" not in to or " " in to:
+        raise HTTPException(status_code=400, detail="Invalid recipient address")
+    if not req.html or len(req.html) > 2_000_000:
+        raise HTTPException(status_code=400, detail="Report HTML missing or too large")
+
+    from app.services.email_service import get_email_service
+    email_svc = get_email_service()
+    if not email_svc.is_available():
+        raise HTTPException(status_code=400, detail="Email service is not configured on this tenant")
+
+    handle = prof.get("handle") or f"account {account_id}"
+    platform = prof.get("platform") or ""
+    subject = req.subject or f"[AuNoo AI] Account report — @{handle} ({platform})"
+    fname = "".join(c if c.isalnum() or c in "-_" else "_" for c in f"{platform}_{handle}")[:60] or "account"
+    body = f"""
+    <h2>Account report — @{handle}</h2>
+    <p>The full interactive report for <strong>@{handle}</strong> ({platform}) is attached
+    as a self-contained HTML file — open it in any browser.</p>
+    <p style="color:#888;font-size:12px">{prof.get('display_name') or ''} ·
+    {prof.get('followers_count') or 0:,} followers · profiled {str(prof.get('last_profiled_at') or '')[:16]}</p>
+    """
+    ok = email_svc.send_email(
+        to_addresses=[to], subject=subject, body_html=body,
+        body_text=f"Account report for @{handle} ({platform}) attached as HTML.",
+        attachments=[{"filename": f"{fname}_report.html",
+                      "content": req.html.encode("utf-8"),
+                      "mime_type": "text/html"}],
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to send the email")
+    logger.info(f"Account report for @{handle} emailed to {to}")
+    return {"message": "sent", "to": to}
