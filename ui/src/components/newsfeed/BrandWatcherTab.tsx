@@ -2747,15 +2747,21 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`), tone: negNewsToday ? -1 : null },
-                  { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−${newsNet != null && newsCompAvg != null ? ` · comp avg ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}` : ''}`, tone: newsNet },
-                  { label: 'Social posts', value: (sv?.totalLoaded ?? 0).toLocaleString(), sub: socToday ? `+${socToday} today · ${socScored} scored` : `${socScored} scored` },
-                  { label: 'Social sentiment', value: socNet == null ? '—' : `${socNet > 0 ? '+' : ''}${socNet}`, sub: sv ? `${sv.sentCounts.positive}+ ${sv.sentCounts.neutral}· ${sv.sentCounts.negative}−${socNet != null && socCompAvg != null ? ` · comp avg ${socCompAvg > 0 ? '+' : ''}${socCompAvg}` : ''}` : '', tone: socNet },
-                  { label: 'Spike alerts', value: String(brandAlerts.length), sub: highAlerts ? `${highAlerts} high` : 'none high', tone: highAlerts ? -1 : null },
-                  { label: 'Open incidents', value: String(openIncidents.length), sub: openIncidents.length ? `${sevIncidents} high/critical · view →` : 'none open', tone: sevIncidents ? -1 : null, jump: 'incidents' as SubTab },
+                  { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`), tone: negNewsToday ? -1 : null,
+                    tip: `On-brand news articles in the window (relevance >= 0.4 so name-collisions are excluded).${newsToday ? ` ${newsToday} arrived today, ${negNewsToday || 0} of them negative.` : ''}` },
+                  { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−${newsNet != null && newsCompAvg != null ? ` · comp avg ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}` : ''}`, tone: newsNet,
+                    tip: `Net sentiment of news coverage: (positive − negative) ÷ scored × 100, from ${newsSent.pos} positive, ${newsSent.neu} neutral, ${newsSent.neg} negative articles. Neutrals count in the base, so many neutrals pull the net toward 0.${newsCompAvg != null ? ` Competitor average is ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}.` : ''}` },
+                  { label: 'Social posts', value: (sv?.totalLoaded ?? 0).toLocaleString(), sub: socToday ? `+${socToday} today · ${socScored} scored` : `${socScored} scored`,
+                    tip: `On-brand social posts loaded for the window (Bluesky, X, Reddit, Instagram, TikTok — relevance >= 0.4). ${socScored} have a sentiment score; the rest are pending the social evaluator.${socToday ? ` ${socToday} arrived today.` : ''}` },
+                  { label: 'Social sentiment', value: socNet == null ? '—' : `${socNet > 0 ? '+' : ''}${socNet}`, sub: sv ? `${sv.sentCounts.positive}+ ${sv.sentCounts.neutral}· ${sv.sentCounts.negative}−${socNet != null && socCompAvg != null ? ` · comp avg ${socCompAvg > 0 ? '+' : ''}${socCompAvg}` : ''}` : '', tone: socNet,
+                    tip: sv ? `Net sentiment of scored social posts: (positive − negative) ÷ scored × 100, from ${sv.sentCounts.positive} positive, ${sv.sentCounts.neutral} neutral, ${sv.sentCounts.negative} negative posts.${socNet != null && socCompAvg != null ? ` Competitor average is ${socCompAvg > 0 ? '+' : ''}${socCompAvg}.` : ''}` : 'No scored social posts in the window yet.' },
+                  { label: 'Spike alerts', value: String(brandAlerts.length), sub: highAlerts ? `${highAlerts} high` : 'none high', tone: highAlerts ? -1 : null,
+                    tip: `Category coverage spikes vs the brand's baseline in the window — ${brandAlerts.length} alert${brandAlerts.length === 1 ? '' : 's'}, ${highAlerts} high severity. Details under Problems needing attention above.` },
+                  { label: 'Open incidents', value: String(openIncidents.length), sub: openIncidents.length ? `${sevIncidents} high/critical · view →` : 'none open', tone: sevIncidents ? -1 : null, jump: 'incidents' as SubTab,
+                    tip: `Incident cases not yet resolved or closed — ${openIncidents.length} open, ${sevIncidents} high or critical. Click to open the Incidents tab.` },
                 ].map((c: any) => (
-                  <div key={c.label} onClick={c.jump ? () => handleTabChange(c.jump) : undefined}
-                    className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3.5 ${c.jump ? 'cursor-pointer hover:border-blue-400' : ''}`}>
+                  <div key={c.label} onClick={c.jump ? () => handleTabChange(c.jump) : undefined} title={c.tip}
+                    className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3.5 ${c.jump ? 'cursor-pointer hover:border-blue-400' : 'cursor-help'}`}>
                     <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">{c.label}</div>
                     <div className={`text-2xl font-bold mt-0.5 ${c.tone == null ? 'text-gray-900 dark:text-gray-100' : c.tone > 0 ? 'text-emerald-600' : c.tone < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{c.value}</div>
                     {c.sub && <div className="text-[11px] text-gray-400 mt-0.5">{c.sub}</div>}
@@ -3793,8 +3799,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     if (outlook != null && outlook < 45) bits.push(`employee outlook weak (${outlook}% positive)`);
                     const verdictLine = bits.length ? bits.join(' · ') : 'no elevated signals in the current window';
                     const tone = risk.riskLevel === 'High' ? 'red' : risk.riskLevel === 'Elevated' ? 'orange' : 'green';
-                    const stat = (label: string, value: string, sub?: string | null, jump?: SubTab, bad?: boolean) => (
-                      <div key={label} onClick={jump ? () => handleTabChange(jump) : undefined} className={jump ? 'cursor-pointer' : ''}>
+                    const stat = (label: string, value: string, sub?: string | null, jump?: SubTab, bad?: boolean, tip?: string) => (
+                      <div key={label} onClick={jump ? () => handleTabChange(jump) : undefined} title={tip} className={jump ? 'cursor-pointer' : tip ? 'cursor-help' : ''}>
                         <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">{label}{jump ? ' →' : ''}</div>
                         <div className={`text-lg font-bold ${bad ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{value}</div>
                         {sub && <div className="text-[10px] text-gray-400">{sub}</div>}
@@ -3812,11 +3818,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                               {risk.riskLevel} <span className="text-sm font-medium text-gray-400">{risk.riskScore}/100</span>
                             </div>
                           </div>
-                          {stat('News net', newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, compAvg != null ? `comp avg ${compAvg > 0 ? '+' : ''}${compAvg}` : null, undefined, newsNet != null && newsNet < 0)}
-                          {stat('4-wk trend', `${risk.negTrend > 0 ? '+' : ''}${Math.round(risk.negTrend)}pts`, 'negative share', undefined, risk.negTrend > 5)}
-                          {stat('High-sev risks', String(highRisks), `${riskSummary?.days_back || config.daysBack}d window`, undefined, highRisks > 0)}
-                          {stat('Open incidents', String(openInc), null, 'incidents' as SubTab, openInc > 0)}
-                          {outlook != null && stat('Emp. outlook', `${outlook}%`, employeeRisk?.overview?.rating != null ? `${employeeRisk.overview.rating}/5 Glassdoor` : null, 'workforce' as SubTab, outlook < 45)}
+                          {stat('News net', newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, compAvg != null ? `comp avg ${compAvg > 0 ? '+' : ''}${compAvg}` : null, undefined, newsNet != null && newsNet < 0, 'Net news sentiment for this brand in the window: (positive − negative) ÷ scored × 100' + (compAvg != null ? `; competitor average ${compAvg > 0 ? '+' : ''}${compAvg}` : ''))}
+                          {stat('4-wk trend', `${risk.negTrend > 0 ? '+' : ''}${Math.round(risk.negTrend)}pts`, 'negative share', undefined, risk.negTrend > 5, 'Change in the negative share of coverage over the last 4 weeks vs the prior 4 — rising means coverage is souring')}
+                          {stat('High-sev risks', String(highRisks), `${riskSummary?.days_back || config.daysBack}d window`, undefined, highRisks > 0, 'High-severity adverse findings from the risk taxonomy (legal, regulatory, financial distress, misconduct, workforce, ESG) in the window')}
+                          {stat('Open incidents', String(openInc), null, 'incidents' as SubTab, openInc > 0, 'Incident cases not yet resolved or closed — click to manage')}
+                          {outlook != null && stat('Emp. outlook', `${outlook}%`, employeeRisk?.overview?.rating != null ? `${employeeRisk.overview.rating}/5 Glassdoor` : null, 'workforce' as SubTab, outlook < 45, 'Glassdoor business-outlook: share of employees expecting the company to do better — below 45% reads as weak. Click for the full workforce picture')}
                         </div>
                         <p className="text-xs text-gray-600 dark:text-gray-300 mt-2.5">{selectedBrand?.display_name}: {verdictLine}.</p>
                       </div>
