@@ -546,36 +546,94 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   ${(() => {
     const pb = d.perception?.brands || [];
     if (!pb.length) return '';
-    const DIMS: { k: 'media' | 'social' | 'community' | 'employee' | 'investor'; l: string }[] = [
-      { k: 'media', l: 'Media' }, { k: 'social', l: 'Social' }, { k: 'community', l: 'Community' },
-      { k: 'employee', l: 'Employee' }, { k: 'investor', l: 'Investor' }];
+    // Dimension identity: fixed icon + categorical hue (validated palette:
+    // blue/aqua/yellow/violet; employee carries no volume so no pie slice).
+    const DIMS: { k: 'media' | 'social' | 'community' | 'employee' | 'investor'; l: string; icon: string; hue: string }[] = [
+      { k: 'media', l: 'Media', icon: '📰', hue: '#2a78d6' },
+      { k: 'social', l: 'Social', icon: '💬', hue: '#1baf7a' },
+      { k: 'community', l: 'Community', icon: '👥', hue: '#eda100' },
+      { k: 'employee', l: 'Employee', icon: '💼', hue: '#94a3b8' },
+      { k: 'investor', l: 'Investor', icon: '📈', hue: '#4a3aa7' }];
     const chip = (s: number | null | undefined) => {
       if (s === null || s === undefined) return '<span class="chip">no data</span>';
       const cls = s >= 20 ? 'pos' : s <= -20 ? 'neg' : '';
-      return `<span class="chip ${cls}">${s > 0 ? '+' : ''}${s}</span>`;
+      return `<span class="chip ${cls}" style="font-weight:700">${s > 0 ? '+' : ''}${s}</span>`;
     };
-    const rows = pb.map(b => `<tr>
-      <td style="white-space:nowrap">${esc(b.display_name)}${b.is_primary ? ' <span class="muted" style="font-size:10px">primary</span>' : ''}</td>
+    // Pie: where the primary brand is talked about (item-volume mix; volumes
+    // only exist for the four text dimensions).
+    const focus = pb.find(b => b.is_primary) || pb[0];
+    const volDims = DIMS.filter(x => x.k !== 'employee')
+      .map(x => ({ ...x, n: focus.dimensions[x.k]?.n || 0 })).filter(x => x.n > 0);
+    const volTotal = volDims.reduce((s, x) => s + x.n, 0);
+    let pieHtml = '';
+    if (volTotal > 0 && volDims.length > 1) {
+      const R = 62, CX = 75, CY = 75;
+      let a0 = -Math.PI / 2;
+      const slices = volDims.map(x => {
+        const a1 = a0 + (x.n / volTotal) * Math.PI * 2;
+        const large = a1 - a0 > Math.PI ? 1 : 0;
+        const p1 = [CX + R * Math.cos(a0), CY + R * Math.sin(a0)];
+        const p2 = [CX + R * Math.cos(a1), CY + R * Math.sin(a1)];
+        const path = `M${CX},${CY} L${p1[0].toFixed(1)},${p1[1].toFixed(1)} A${R},${R} 0 ${large} 1 ${p2[0].toFixed(1)},${p2[1].toFixed(1)} Z`;
+        a0 = a1;
+        return `<path d="${path}" fill="${x.hue}" stroke="var(--card, #fff)" stroke-width="2"><title>${x.l}: ${x.n} items (${Math.round(x.n / volTotal * 100)}%)</title></path>`;
+      }).join('');
+      const legend = volDims.map(x => `
+        <div style="display:flex;align-items:center;gap:7px;margin:4px 0;font-size:12px">
+          <span style="width:10px;height:10px;border-radius:3px;background:${x.hue};display:inline-block;flex-shrink:0"></span>
+          <span>${x.icon} ${x.l}</span>
+          <span class="muted" style="margin-left:auto">${x.n.toLocaleString()} · ${Math.round(x.n / volTotal * 100)}%</span>
+        </div>`).join('');
+      pieHtml = `<div class="card">
+        <h3>${esc(focus.display_name)} — where the conversation happens</h3>
+        <p class="muted" style="margin:0 0 8px;font-size:11px">Item-volume mix across perception surfaces (${volTotal.toLocaleString()} items; employee is a rating, not a volume)</p>
+        <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+          <svg width="150" height="150" viewBox="0 0 150 150" role="img" aria-label="Perception volume mix">${slices}</svg>
+          <div style="flex:1;min-width:170px">${legend}</div>
+        </div>
+      </div>`;
+    }
+    // Callout: primary brand's strongest / weakest surface (volume-guarded).
+    const eligible = DIMS.map(x => ({ ...x, s: focus.dimensions[x.k]?.score, n: focus.dimensions[x.k]?.n || 0 }))
+      .filter(x => x.s !== null && x.s !== undefined && (x.k === 'employee' || x.n >= 5));
+    let callout = '';
+    if (eligible.length >= 2) {
+      const hi = eligible.reduce((a, b) => (b.s! > a.s! ? b : a));
+      const lo = eligible.reduce((a, b) => (b.s! < a.s! ? b : a));
+      if (hi.k !== lo.k) callout = `<p style="font-size:12px;margin:0 0 10px">
+        <strong style="color:#15803d">Strongest surface:</strong> ${hi.icon} ${hi.l} (${hi.s! > 0 ? '+' : ''}${hi.s})
+        · <strong style="color:#b91c1c">Weakest:</strong> ${lo.icon} ${lo.l} (${lo.s! > 0 ? '+' : ''}${lo.s})
+        <span class="muted" style="font-size:11px">— ${esc(focus.display_name)}, surfaces with ≥5 items</span></p>`;
+    }
+    const rows = pb.map((b, i) => `<tr style="${i % 2 ? 'background:rgba(148,163,184,.06)' : ''}">
+      <td style="white-space:nowrap;padding:8px 10px 8px 0">
+        <span style="display:inline-flex;align-items:center;gap:7px;font-weight:600">
+          <span style="width:9px;height:9px;border-radius:50%;background:${esc(b.color || '#94a3b8')};display:inline-block"></span>
+          ${esc(b.display_name)}${b.is_primary ? ' <span class="chip" style="font-size:9px">primary</span>' : ''}
+        </span></td>
       ${DIMS.map(dim => {
         const v = b.dimensions[dim.k];
         const n = dim.k === 'employee'
           ? (v?.rating != null ? `${v.rating}/5` : '')
           : (v?.n ? String(v.n) : '');
-        return `<td>${chip(v?.score)}${n ? ` <span class="muted" style="font-size:10px">${esc(n)}</span>` : ''}</td>`;
+        return `<td style="padding:8px 10px 8px 0">${chip(v?.score)}${n ? ` <span class="muted" style="font-size:10px">${esc(n)}</span>` : ''}</td>`;
       }).join('')}
     </tr>`).join('');
-    return `<section id="perception">
-    <h2>Perception Dimensions</h2>
-    <div class="card">
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="text-align:left;color:#888;font-size:11px">
-          <th style="padding:4px 8px 8px 0">Brand</th>${DIMS.map(x => `<th style="padding:4px 8px 8px 0">${x.l}</th>`).join('')}
+    const table = `<div class="card">
+      <h3>Scores by dimension</h3>
+      ${callout}
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="text-align:left;color:#888;font-size:11px;border-bottom:1px solid var(--border,#e5e7eb)">
+          <th style="padding:4px 10px 8px 0">Brand</th>${DIMS.map(x => `<th style="padding:4px 10px 8px 0;white-space:nowrap">${x.icon} ${x.l}</th>`).join('')}
         </tr></thead>
         <tbody>${rows}</tbody>
-      </table>
-      <p class="muted" style="margin-top:10px;font-size:11px">Net sentiment −100…+100 over relevance ≥ 0.4 items (media = news, social = Bluesky/X/Instagram/TikTok, community = Reddit, investor = Financial Performance-classified articles). Employee scales the Glassdoor rating (3.0 = neutral); grey numbers are item volumes — low-sample scores are volatile.</p>
-    </div>
-  </section>` ;
+      </table></div>
+      <p class="muted" style="margin-top:10px;font-size:11px">Net sentiment −100…+100 over relevance ≥ 0.4 items (📰 news · 💬 Bluesky/X/Instagram/TikTok · 👥 Reddit · 📈 Financial Performance-classified articles). 💼 Employee scales the Glassdoor rating (3.0 = neutral); grey numbers are item volumes — low-sample scores are volatile.</p>
+    </div>`;
+    return `<section id="perception">
+    <h2>Perception Dimensions</h2>
+    ${pieHtml ? `<div class="two-col">${pieHtml}${table}</div>` : table}
+  </section>`;
   })()}
 
   <section id="risk">
