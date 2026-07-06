@@ -2406,6 +2406,19 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         ]).map(tab => (
           <button
             key={tab.id}
+            title={({
+              dashboard: 'The daily screen: problems & alerts, at-a-glance stats, sentiment, adverse-first news and amplified social',
+              analysis: 'Analyst view: composite risk verdict plus themed sections — reputation, risk & compliance, competitive position, workforce, coverage',
+              perception: 'Five perception dimensions per brand (media, social, community, employee, investor) on a radar + score table',
+              comparison: 'Side-by-side category and sentiment comparison across brands',
+              insights: 'LLM-written brand intelligence narrative with regenerate and export controls',
+              articles: 'Classified article list: category filters, sentiment, risk chips, Five Signals screening, case status, CSV export',
+              social: 'Social listening: per-brand lanes, sentiment timelines, posted-vs-seen, negativity themes, fans & critics',
+              accounts: 'Per-account profiles built on demand: identity, reach, sentiment, watchlist, deep dive, emailable report',
+              workforce: 'Employee signal: Glassdoor ratings, competitor comparison, employee reviews, workforce risk findings',
+              incidents: 'Case management: alert triage, incident cases with severity/status/owner, timeline, evidence locker',
+              help: 'Full documentation of every Brand Watcher feature',
+            } as Record<string, string>)[tab.id]}
             onClick={() => handleTabChange(tab.id)}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex-shrink-0 whitespace-nowrap ${
               activeTab === tab.id
@@ -2701,7 +2714,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             {/* 2. Stat cards, with scope toggle as header control + new-today deltas */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">At a glance</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400 cursor-help" title="Headline counts for the selected window — every stat is relevance-filtered (topic alignment >= 0.4) so name-collisions don't pollute the numbers. Click a card to jump to its tab.">At a glance</span>
                 <div className="flex items-center gap-1.5">
                   <button onClick={() => {
                       setShowAlertSettings(true);
@@ -2754,7 +2767,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             {/* 3. Sentiment overview: news vs social + what the negativity is about (+ employee signal) */}
             <div className={`grid grid-cols-1 lg:grid-cols-2 ${employeeRisk?.overview ? 'xl:grid-cols-3' : ''} gap-4`}>
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">Sentiment — news vs social</h3>
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 cursor-help" title="Net sentiment = (positive − negative) ÷ scored × 100, computed separately for news articles and social posts. Neutrals count in the base, so many neutrals pull the net toward 0.">Sentiment — news vs social</h3>
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-3">
                     <span className="w-16 text-xs font-medium text-gray-500 flex-shrink-0">📰 News</span>
@@ -2776,7 +2789,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 )}
               </div>
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">What the negative coverage is about <span className="text-xs font-normal text-gray-400">(loaded articles)</span></h3>
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 cursor-help" title="Negative articles grouped by theme keywords over their titles and summaries — a quick read on what is driving negativity. Click a theme to filter.">What the negative coverage is about <span className="text-xs font-normal text-gray-400">(loaded articles)</span></h3>
                 {negCats.length ? (
                   <div className="space-y-1.5">
                     {negCats.map(([cat, n]) => (
@@ -2918,7 +2931,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">2. Overview</h2>
           ) : (
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Coverage analytics</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400 cursor-help" title="Volume, sentiment and category breakdowns over the selected window and brands — all charts respect the relevance >= 0.4 filter and can be downloaded via their corner buttons.">Coverage analytics</span>
             </div>
           )}
           {/* Stat cards (export only — the merged dashboard has its own At-a-glance row) */}
@@ -3016,7 +3029,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           {!primarySelectedId && comparison.length > 0 && comparison.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
             <div id="chart-brand-sentiment-by-brand" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment by Brand</h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-help" title="Positive / neutral / negative article mix per brand over the window — how each brand's coverage tone compares.">Sentiment by Brand</h3>
                 <ChartDownloadButton targetId="chart-brand-sentiment-by-brand" filename="sentiment-by-brand" />
               </div>
               <div className="space-y-3">
@@ -3215,7 +3228,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   : 'border-gray-200 dark:border-gray-700'
                 }`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 cursor-help" title="Composite screen over the window: negative-coverage share, high-severity risk findings, alert spikes and workforce signal roll into a green / amber / red verdict. The facts driving it are listed below.">
                       Brand Risk Assessment
                       {riskColor !== 'green' && <AlertTriangle className={`w-4 h-4 ${riskColor === 'red' ? 'text-red-500' : 'text-orange-500'}`} />}
                     </h3>
@@ -3293,7 +3306,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 {/* Sentiment Over Time — area chart */}
                 <div id="chart-brand-sentiment" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment Over Time</h3>
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-help" title="Article sentiment mix per period — watch for the negative band widening as an early warning.">Sentiment Over Time</h3>
                     <ChartDownloadButton targetId="chart-brand-sentiment" filename="sentiment-over-time" />
                   </div>
                   <ResponsiveContainer width="100%" height={220}>
@@ -3373,7 +3386,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             return (
               <div id="chart-brand-monthly-volume" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Monthly Article Volume</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-help" title="On-brand article counts per month — spikes usually mean a story broke; check Recent Articles or the Articles tab for what it was.">Monthly Article Volume</h3>
                   <ChartDownloadButton targetId="chart-brand-monthly-volume" filename="monthly-article-volume" />
                 </div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -3404,7 +3417,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           {/* Top Recent Articles Preview (brand selected) */}
           {config.selectedBrandIds.length > 0 && articles.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Articles</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 cursor-help" title="Latest on-brand articles, adverse-first. Chips show sentiment, risk findings, source factuality and Five Signals screens; use act… to case-manage a finding.">Recent Articles</h3>
               <div className="space-y-2">
                 {articles.slice(0, 3).map(article => (
                   <div key={`${article.uri}-${article.brand_id}`}
@@ -3462,7 +3475,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             return (
               <div id="chart-brand-category-dist" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Distribution</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-help" title="How coverage splits across the 11-category taxonomy (Financial Performance, Legal & Regulatory, …). Articles can carry several categories.">Category Distribution</h3>
                   <div className="flex items-center gap-2">
                     {!exportingReport && <span className="text-[10px] text-gray-400">Click a category to view articles</span>}
                     <ChartDownloadButton targetId="chart-brand-category-dist" filename="category-distribution" />
@@ -3854,7 +3867,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   {sentimentTrends.length > 0 && (
                     <div id="chart-brand-sentiment-by-category" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment by Category (Weekly)</h3>
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-help" title="Weekly sentiment mix inside each category — spots which topic areas are souring even when overall sentiment looks stable.">Sentiment by Category (Weekly)</h3>
                         <ChartDownloadButton targetId="chart-brand-sentiment-by-category" filename="sentiment-by-category" />
                       </div>
                       <div className="space-y-2">
@@ -3927,7 +3940,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     return (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">Risk findings <span className="text-xs font-normal text-gray-400">last {riskSummary.days_back}d</span></h3>
+                          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3 cursor-help" title="Adverse-media findings from the risk taxonomy (legal, regulatory, financial distress, misconduct, workforce, ESG) — detected by LLM + keyword screening on on-brand articles, deduplicated per article.">Risk findings <span className="text-xs font-normal text-gray-400">last {riskSummary.days_back}d</span></h3>
                           {types.length === 0 ? (
                             <p className="text-xs text-gray-400">No adverse risk findings in the window. 🎉</p>
                           ) : (
@@ -3962,7 +3975,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         </div>
                         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
                           <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Open incidents</h3>
+                            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 cursor-help" title="Cases currently open in incident management — severity, status and owner are managed on the Incidents tab, with a tamper-evident evidence locker.">Open incidents</h3>
                             <button onClick={() => handleTabChange('incidents')} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Incidents →</button>
                           </div>
                           {openInc.length === 0 ? (
