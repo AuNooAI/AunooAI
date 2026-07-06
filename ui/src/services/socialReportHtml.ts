@@ -6,6 +6,8 @@
  */
 import type { Brand, BWSocialResponse } from './brandWatcherApi';
 import { stripSocialMarkdown } from './socialText';
+import { computePostedVsSeen, computePlatformMix, computeNegThemes,
+         postedVsSeenHtml, platformMixHtml, negThemesHtml } from './socialAnalytics';
 
 export interface SocialReportData {
   brand?: Brand;
@@ -67,6 +69,11 @@ export function buildSocialReportHtml(d: SocialReportData): string {
     const sc = a.pos + a.neg + a.neu;
     return { pl, ...a, net: sc ? Math.round(((a.pos - a.neg) / sc) * 100) : null, low: sc < MIN_PERCEPTION_N };
   }).sort((x, y) => (Number(x.low) - Number(y.low)) || (y.net ?? -999) - (x.net ?? -999));
+
+  // Shared analytics (identical math to the Social tab)
+  const pvSeen = computePostedVsSeen(posts);
+  const platMix = computePlatformMix(posts);
+  const negThemes = computeNegThemes(posts);
 
   // Fans & Critics (own-brand handles excluded from fans).
   const normH = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -268,6 +275,9 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
         <span class="bar-val">${pos}+ ${neu}· ${neg}−</span></div>
     </div>
     <div class="card"><h3>Perception by network — net sentiment <span class="muted">(% positive − % negative of scored posts; neutrals count in the base, so many neutrals pull the net toward 0)</span></h3>${perceptionHtml}</div>
+    ${postedVsSeenHtml(pvSeen) ? `<div class="card"><h3>Posted vs seen <span class="muted">(engagement-weighted)</span></h3>${postedVsSeenHtml(pvSeen)}</div>` : ''}
+    ${platformMixHtml(platMix) ? `<div class="card"><h3>Sentiment &amp; platform mix</h3>${platformMixHtml(platMix)}</div>` : ''}
+    ${negThemesHtml(negThemes) ? `<div class="card"><h3>What the negativity is about <span class="muted">(theme keywords over negative posts)</span></h3>${negThemesHtml(negThemes)}</div>` : ''}
   </section>
 
   <section id="voices">

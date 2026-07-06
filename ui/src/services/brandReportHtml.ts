@@ -11,6 +11,8 @@ import type {
   BWRiskSummary, BWIncident, BWEmployeeRisk,
 } from './brandWatcherApi';
 import { stripSocialMarkdown } from './socialText';
+import { computePostedVsSeen, computePlatformMix, computeNegThemes,
+         postedVsSeenHtml, platformMixHtml, negThemesHtml } from './socialAnalytics';
 
 export interface BrandReportData {
   brand?: Brand;
@@ -148,6 +150,11 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
     const sc = a.pos + a.neg + a.neu;
     return { pl, ...a, net: sc ? Math.round(((a.pos - a.neg) / sc) * 100) : null, low: sc < 5 };
   }).sort((x, y) => (Number(x.low) - Number(y.low)) || (y.net ?? -999) - (x.net ?? -999));
+
+  // Shared analytics (identical math to the Social tab + social report)
+  const socPvSeen = computePostedVsSeen(socTop);
+  const socPlatMix = computePlatformMix(socTop);
+  const socNegThemes = computeNegThemes(socTop);
 
   // Fans & Critics — authors ranked by net sentiment; own-brand handles excluded from fans.
   const normH = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -621,6 +628,9 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
     <div class="card"><h3>Sentiment</h3>${socSentBar}</div>
     ${lanesHtml}
     <div class="card"><h3>Perception by network — net sentiment <span class="muted">(% positive − % negative of scored posts; neutrals count in the base)</span></h3>${socPerceptionHtml}</div>
+    ${postedVsSeenHtml(socPvSeen) ? `<div class="card"><h3>Posted vs seen <span class="muted">(engagement-weighted)</span></h3>${postedVsSeenHtml(socPvSeen)}</div>` : ''}
+    ${platformMixHtml(socPlatMix) ? `<div class="card"><h3>Sentiment &amp; platform mix</h3>${platformMixHtml(socPlatMix)}</div>` : ''}
+    ${negThemesHtml(socNegThemes) ? `<div class="card"><h3>What the negativity is about <span class="muted">(theme keywords over negative posts)</span></h3>${negThemesHtml(socNegThemes)}</div>` : ''}
     <div class="two-col">
       <div class="card"><h3>😊 Top fans <span class="muted">(own accounts excluded)</span></h3>${socFansHtml}</div>
       <div class="card"><h3>😠 Top critics</h3>${socCriticsHtml}</div>
