@@ -5506,3 +5506,95 @@ async def get_article_signals(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ─── Account Profiles (xpoz-powered per-account brand intelligence, Phase 2) ───
+# Recovered 2026-07-06: originally tenant-local on wileytest and lost in a file
+# convergence — now canonical here. Service: app/services/social_profile_service.py
+
+class AccountProfileRequest(BaseModel):
+    platform: str
+    handle: str
+    brand: Optional[str] = None
+
+
+class AccountTagsRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+
+
+class AccountAnnotationRequest(BaseModel):
+    text: Optional[str] = None
+
+
+def _social_profile_service():
+    from app.services.social_profile_service import SocialProfileService
+    return SocialProfileService()
+
+
+@router.post("/accounts/profile")
+async def build_account_profile(req: AccountProfileRequest, session=Depends(verify_session)):
+    """Build/refresh a lean account profile from xpoz (explicit user action only)."""
+    svc = _social_profile_service()
+    try:
+        prof = await svc.build_profile(get_database_instance(), req.platform, req.handle, brand=req.brand)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"build_account_profile error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build profile")
+    if not prof:
+        raise HTTPException(status_code=404, detail=f"No {req.platform} account found for '{req.handle}'")
+    return prof
+
+
+@router.get("/accounts/profile")
+async def get_account_profile(platform: str, handle: str, session=Depends(verify_session)):
+    prof = _social_profile_service().get_stored(get_database_instance(), platform, handle)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.get("/accounts/profiles")
+async def list_account_profiles(session=Depends(verify_session)):
+    return {"profiles": _social_profile_service().list_profiles(get_database_instance())}
+
+
+@router.get("/accounts/deepdive")
+async def account_deep_dive(platform: str, handle: str, brand: Optional[str] = None,
+                            session=Depends(verify_session)):
+    """On-demand deeper pull: post timeline, engagement, connections. No stored state."""
+    svc = _social_profile_service()
+    try:
+        dd = await svc.deep_dive(get_database_instance(), platform, handle, brand=brand)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"account_deep_dive error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Deep dive failed")
+    if not dd:
+        raise HTTPException(status_code=404, detail="No data")
+    return dd
+
+
+@router.put("/accounts/profile/{account_id}/tags")
+async def set_account_tags(account_id: int, req: AccountTagsRequest, session=Depends(verify_session)):
+    prof = _social_profile_service().set_tags(get_database_instance(), account_id, req.tags)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.post("/accounts/profile/{account_id}/annotation")
+async def set_account_annotation(account_id: int, req: AccountAnnotationRequest, session=Depends(verify_session)):
+    by = session.get("user") if isinstance(session, dict) else None
+    prof = _social_profile_service().set_annotation(get_database_instance(), account_id, req.text, by)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.delete("/accounts/profile/{account_id}")
+async def delete_account_profile(account_id: int, session=Depends(verify_session)):
+    _social_profile_service().delete_profile(get_database_instance(), account_id)
+    return {"status": "deleted", "id": account_id}
