@@ -1833,7 +1833,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       const topicsParam = config.selectedTopics.length ? config.selectedTopics : undefined;
       const socialTopics = selectedBrand ? [`Brand Monitoring ${selectedBrand.display_name}`] : topicsParam;
       const allBrandTopics = brands.length > 1 ? brands.map(b => `Brand Monitoring ${b.display_name}`) : undefined;
-      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD, screenedD, perceptionD] = await Promise.all([
+      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD, perceptionD] = await Promise.all([
         getComparison(config.daysBack, topicsParam).catch(() => comparison),
         getShareOfVoice(config.daysBack, topicsParam).catch(() => shareOfVoice),
         getSocialPosts(socialTopics, config.daysBack, 0, undefined, true, { limit: 5000 }).catch(() => social),
@@ -1844,12 +1844,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         bid ? listIncidents(undefined, bid).catch(() => []) : Promise.resolve([]),
         bid ? getEmployeeRisk(bid, config.daysBack).catch(() => employeeRisk) : Promise.resolve(null),
         allBrandTopics ? getSocialPosts(allBrandTopics, config.daysBack, 0.4, undefined, false, { limit: 2000 }).then(r => r.posts || []).catch(() => benchPosts || []) : Promise.resolve(null),
-        bid ? getArticles({ brand_ids: [bid], days_back: config.daysBack, page: 1, per_page: 200 })
-          .then(r => (r.articles || [])
-            .filter(a => a.signals_summary?.status === 'completed')
-            .map(a => ({ title: a.title, uri: a.uri, verdict: a.signals_summary!.verdict,
-                         composite: a.signals_summary!.composite, signals: a.signals_summary!.signals || [] })))
-          .catch(() => []) : Promise.resolve([]),
         getPerception(config.daysBack).catch(() => null),
       ]);
       downloadBrandWatcherReport({
@@ -1867,7 +1861,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         employee: employeeD,
         allBrandPosts: lanePostsD,
         laneBrands: brands.map(b => b.display_name),
-        screened: screenedD,
         perception: perceptionD,
         generatedAt: new Date().toISOString(),
       });

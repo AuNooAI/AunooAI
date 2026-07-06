@@ -300,30 +300,8 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
     ? Object.entries(rs.official_sources).sort((a, b) => b[1] - a[1]).map(([ns, n]) => `<span class="chip neu">${esc(ns)}: ${n}</span>`).join(' ')
     : '';
 
-  // ---- Five Signals screening (claim validation + propagation) ----
-  const SIG_SHORT: Record<string, string> = {
-    veracity: 'V', source_credibility: 'S', corroboration: 'C',
-    propagation: 'P', amplification_integrity: 'A',
-  };
-  const SIG_TITLES: Record<string, string> = {
-    veracity: 'Claim veracity', source_credibility: 'Source credibility',
-    corroboration: 'Corroboration & independence', propagation: 'Propagation & reach',
-    amplification_integrity: 'Amplification integrity',
-  };
-  const screenedRows = (d.screened || []).map(s => `
-    <div class="art" data-text="${esc((s.title || '').toLowerCase())}">
-      <span class="chip ${['contested', 'non_independent', 'satire'].includes(s.verdict || '') ? 'neg' : s.verdict === 'corroborated' ? 'pos' : 'med'}">${esc(s.verdict || 'n/a')}</span>
-      <a href="${esc(s.uri)}" target="_blank" rel="noopener noreferrer" class="art-title">${esc(s.title)}</a>
-      <span class="art-meta">
-        ${s.signals.map(g => `<span class="sigchip sig-${esc(g.band || 'nodata')}" title="${esc(SIG_TITLES[g.key] || g.key)}${g.score != null ? `: ${g.score}` : ''}">${esc(SIG_SHORT[g.key] || '?')}</span>`).join('')}
-        ${s.composite != null ? `<span class="date">composite ${s.composite}</span>` : ''}
-      </span>
-    </div>`).join('');
-  const screenedHtml = screenedRows
-    ? `<div class="card"><h3>Five Signals article screening</h3>
-       <p class="muted" style="margin:0 0 8px">Independent screen per article: <strong>V</strong>eracity · <strong>S</strong>ource credibility · <strong>C</strong>orroboration · <strong>P</strong>ropagation · <strong>A</strong>mplification integrity (claim validation + Bluesky propagation via Aunoo).</p>
-       ${screenedRows}</div>`
-    : '';
+  // Five Signals screening intentionally NOT in the report — screening exists
+  // to escalate incidents, not for report consumption (removed 2026-07-06).
 
   // ---- Workforce (Glassdoor) ----
   const emp = d.employee || null;
@@ -505,8 +483,6 @@ details.alert .chev{color:var(--muted);transition:transform .15s}details.alert[o
 .art-meta{display:flex;align-items:center;gap:7px;flex-shrink:0}
 .chip{font-size:10.5px;padding:1px 7px;border-radius:999px}
 .chip.pos{background:#e7f6ec;color:#15803d}.chip.neg{background:#fdeaea;color:#b91c1c}.chip.neu{background:#eef0f5;color:#475569}.chip.med{background:#fbeedd;color:#b45309}
-.sigchip{display:inline-block;width:16px;text-align:center;font-size:9px;font-weight:800;padding:2px 0;border-radius:3px;margin-right:1px}
-.sig-good{background:#e7f6ec;color:#15803d}.sig-warn{background:#fbeedd;color:#b45309}.sig-bad{background:#fdeaea;color:#b91c1c}.sig-nodata{background:#eef0f5;color:#94a3b8}
 .lane{display:flex;align-items:center;gap:8px;padding:4px 0}
 .lane-name{width:130px;font-size:12.5px;color:var(--text2);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lane-net{width:38px;font-size:11px;font-weight:700;flex-shrink:0}.pos-t{color:var(--live)}.neg-t{color:var(--neg)}
@@ -608,7 +584,6 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
       <div class="card"><h3>Top findings</h3>${findingsHtml}</div>
       <div class="card"><h3>Open incidents</h3>${incidentsHtml}</div>
     </div>
-    ${screenedHtml}
     ${officialHtml ? `<div class="card"><h3>Official &amp; scholarly records</h3>${officialHtml}</div>` : ''}
   </section>
 
