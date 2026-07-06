@@ -6204,9 +6204,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 const order = ['veracity', 'source_credibility', 'corroboration', 'propagation', 'amplification_integrity'];
                 const val = sigDetail.validation || {};
                 const claims: any[] = val.claim_verifications || [];
-                const webVerdicts: any[] = (val.web_evidence || {}).verdicts || [];
-                const corroborators: any[] = (val.corroboration || {}).corroborators || [];
-                const fcMatches: any[] = (val.external_fact_check || {}).matched_reviews || [];
+                // Subagent blocks arrive wrapped as {status, output:{...}} from the
+                // saas report — unwrap, tolerating a flat dict for older rows.
+                const sub = (key: string): any => {
+                  const block = val[key] || {};
+                  if ('output' in block || 'status' in block) return block.output || {};
+                  return block;
+                };
+                const webVerdicts: any[] = sub('web_evidence').verdicts || [];
+                const corroborators: any[] = sub('corroboration').corroborators || [];
+                const fcMatches: any[] = sub('external_fact_check').matched_reviews || [];
                 const reachP: any = sigDetail.reach || null;
                 const reachPosts: any[] = (reachP?.posts || []);
                 return (
