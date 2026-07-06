@@ -3398,7 +3398,14 @@
                     if (isCurrentUser) {
                         actions = '<span class="text-muted">You</span>';
                     } else {
+                        const resetBtn = user.is_oauth ? '' : `
+                            <button class="btn btn-sm btn-outline-primary me-1" onclick="resetUserPassword('${user.username}', ${JSON.stringify(user.email || '')})"
+                                title="Email the user a signed reset link (24h, single use), or generate a temporary password if they have no email">
+                                <i class="fas fa-key"></i> Reset password
+                            </button>
+                        `;
                         actions = `
+                            ${resetBtn}
                             <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.username}')">
                                 <i class="fas fa-trash"></i> Delete
                             </button>
@@ -3424,6 +3431,33 @@
             if (container) {
                 container.innerHTML = `<div class="alert alert-danger">Error loading users: ${error.message}</div>`;
             }
+        }
+    }
+
+    // Admin password reset (global for onclick handlers)
+    async function resetUserPassword(username, email) {
+        let mode;
+        if (email && email.includes('@')) {
+            mode = confirm(`Send a password-reset link to ${email}?\n\nOK = email the link (valid 24h, single use)\nCancel = generate a temporary password instead`) ? 'email' : 'temp';
+        } else {
+            if (!confirm(`"${username}" has no email on file. Generate a temporary password (shown once, change forced on first login)?`)) return;
+            mode = 'temp';
+        }
+        try {
+            const response = await fetch(`/api/users/${encodeURIComponent(username)}/reset-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+            if (data.method === 'email') {
+                alert(`Reset link sent to ${data.email}. It is valid for ${data.expires_hours} hours and can be used once.`);
+            } else {
+                prompt(`Temporary password for "${username}" — copy it now, it is shown only once.\nThe user must change it on first login.`, data.temp_password);
+            }
+        } catch (error) {
+            alert(`Password reset failed: ${error.message}`);
         }
     }
 

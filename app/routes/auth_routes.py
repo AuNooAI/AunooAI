@@ -131,3 +131,86 @@ async def logout(request: Request):
     """Handle user logout."""
     request.session.clear()
     return RedirectResponse(url="/login")
+
+# ─── Password reset via signed link (admin-initiated, no session required) ───
+# The token binds username + expiry + a prefix of the CURRENT password hash,
+# so a link stops working the moment the password changes (single-use in
+# practice) and expires after 24h regardless.
+
+import hashlib as _hashlib
+import hmac as _hmac
+import os as _os
+import time as _time
+from urllib.parse import quote as _quote
+
+_PW_RESET_TTL_SECONDS = 24 * 3600
+
+
+def _pw_reset_secret() -> bytes:
+    return (_os.environ.get("FLASK_SECRET_KEY") or "aunoo-pw-reset").encode()
+
+
+def _pw_reset_token(username: str, exp: int, password_hash: str) -> str:
+    msg = f"pw-reset:{username.lower()}:{exp}:{(password_hash or '')[:20]}"
+    return _hmac.new(_pw_reset_secret(), msg.encode(), _hashlib.sha256).hexdigest()
+
+
+def build_password_reset_link(username: str, db) -> str:
+    """Signed reset URL for a user (called by the admin reset endpoint)."""
+    user = db.facade.get_user_by_username(username)
+    if not user:
+        raise ValueError("User not found")
+    exp = int(_time.time()) + _PW_RESET_TTL_SECONDS
+    token = _pw_reset_token(username, exp, user.get("password_hash") or "")
+    domain = _os.getenv("DOMAIN", "localhost:10015")
+    protocol = "https" if "localhost" not in domain else "http"
+    return (f"{protocol}://{domain}/reset-password"
+            f"?u={_quote(username)}&exp={exp}&token={token}")
+
+
+def _pw_reset_check(db, username: str, exp: int, token: str) -> bool:
+    if _time.time() > exp:
+        return False
+    user = db.facade.get_user_by_username(username)
+    if not user or not user.get("password_hash"):
+        return False
+    expected = _pw_reset_token(username, exp, user.get("password_hash") or "")
+    return _hmac.compare_digest(token, expected)
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, u: str = "", exp: int = 0, token: str = ""):
+    db = get_database_instance()
+    valid = bool(u and token) and _pw_reset_check(db, u, exp, token)
+    return templates.TemplateResponse("reset_password.html", {
+        "request": request, "token_valid": valid,
+        "username": u, "exp": exp, "token": token,
+    })
+
+
+@router.post("/reset-password", response_class=HTMLResponse)
+async def reset_password_submit(
+    request: Request,
+    u: str = Form(...),
+    exp: int = Form(...),
+    token: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    db = get_database_instance()
+    if not _pw_reset_check(db, u, exp, token):
+        return templates.TemplateResponse("reset_password.html", {
+            "request": request, "token_valid": False,
+            "username": u, "exp": exp, "token": token,
+        })
+    ctx = {"request": request, "token_valid": True,
+           "username": u, "exp": exp, "token": token}
+    if new_password != confirm_password:
+        return templates.TemplateResponse("reset_password.html",
+                                          {**ctx, "error": "Passwords do not match"})
+    if len(new_password) < 8:
+        return templates.TemplateResponse("reset_password.html",
+                                          {**ctx, "error": "Password must be at least 8 characters"})
+    db.update_user_password(u, new_password)
+    logger.info(f"Password reset completed via signed link for user: {u}")
+    return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
