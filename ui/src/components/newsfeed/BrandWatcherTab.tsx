@@ -3,10 +3,10 @@
  * Main container for brand intelligence dashboard
  */
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
-  BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
+  BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight, ChevronLeft,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Mail, Image, FileDown, Copy, Check, Printer, Search, Bell,
   AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle,
@@ -131,6 +131,50 @@ function KeywordTagInput({ label, keywords, inputValue, setInputValue, onAdd, on
         placeholder="Type and press Enter"
         className="w-full px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 dark:text-gray-100"
       />
+    </div>
+  );
+}
+
+// Horizontally scrollable tab strip: no visible scrollbar, side chevrons
+// appear only when there is hidden content in that direction.
+function ScrollTabStrip({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+  const update = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+  useEffect(() => {
+    update();
+    const el = ref.current;
+    if (!el) return;
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    const t = setTimeout(update, 250); // after fonts/layout settle
+    return () => { el.removeEventListener('scroll', update); window.removeEventListener('resize', update); clearTimeout(t); };
+  }, [update]);
+  const nudge = (d: number) => ref.current?.scrollBy({ left: d, behavior: 'smooth' });
+  return (
+    <div className="relative border-b border-gray-200 dark:border-gray-700">
+      {canLeft && (
+        <button onClick={() => nudge(-280)} aria-label="Scroll tabs left"
+          className="absolute left-0 top-0 bottom-0 z-10 flex items-center pl-0.5 pr-4 bg-gradient-to-r from-white via-white/90 to-transparent dark:from-gray-900 dark:via-gray-900/90">
+          <ChevronLeft className="w-4 h-4 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200" />
+        </button>
+      )}
+      <div ref={ref} style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as CSSProperties}
+        className="flex gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+        {children}
+      </div>
+      {canRight && (
+        <button onClick={() => nudge(280)} aria-label="Scroll tabs right"
+          className="absolute right-0 top-0 bottom-0 z-10 flex items-center pr-0.5 pl-4 bg-gradient-to-l from-white via-white/90 to-transparent dark:from-gray-900 dark:via-gray-900/90">
+          <ChevronRight className="w-4 h-4 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200" />
+        </button>
+      )}
     </div>
   );
 }
@@ -2346,7 +2390,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* Sub-tab navigation */}
-      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
+      <ScrollTabStrip>
         {([
           { id: 'dashboard' as SubTab, label: 'Dashboard', icon: Sparkles },
           { id: 'analysis' as SubTab, label: 'Brand Analysis', icon: TrendingUp },
@@ -2363,7 +2407,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           <button
             key={tab.id}
             onClick={() => handleTabChange(tab.id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex-shrink-0 whitespace-nowrap ${
               activeTab === tab.id
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -2373,7 +2417,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             {tab.label}
           </button>
         ))}
-      </div>
+      </ScrollTabStrip>
 
       {/* Loading overlay during report generation */}
       {exportingReport && (
