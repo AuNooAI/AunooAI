@@ -3398,15 +3398,17 @@
                     if (isCurrentUser) {
                         actions = '<span class="text-muted">You</span>';
                     } else {
+                        const safeEmail = (user.email || '').replace(/\\/g, '').replace(/'/g, "\\'");
                         const resetBtn = user.is_oauth ? '' : `
-                            <button class="btn btn-sm btn-outline-primary me-1" onclick="resetUserPassword('${user.username}', ${JSON.stringify(user.email || '')})"
+                            <button class="btn btn-sm btn-secondary me-1" style="padding:4px 10px;font-size:12px;gap:4px"
+                                onclick="resetUserPassword('${user.username}', '${safeEmail}')"
                                 title="Email the user a signed reset link (24h, single use), or generate a temporary password if they have no email">
-                                <i class="fas fa-key"></i> Reset password
+                                <i class="fas fa-key"></i> Reset
                             </button>
                         `;
                         actions = `
                             ${resetBtn}
-                            <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.username}')">
+                            <button class="btn btn-sm btn-danger" style="padding:4px 10px;font-size:12px;gap:4px" onclick="deleteUser('${user.username}')">
                                 <i class="fas fa-trash"></i> Delete
                             </button>
                         `;
