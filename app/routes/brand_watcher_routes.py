@@ -2015,6 +2015,32 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
     db = get_database_instance()
     conn = db._temp_get_connection()
 
+    # Overlap guard: two concurrent runs contend on the same
+    # bw_article_categories rows (ON CONFLICT DO UPDATE takes the same row
+    # locks), which under per-article LLM latency becomes multi-minute lock
+    # waits. Refuse to start while another run is live. The 2h staleness
+    # cutoff keeps a crashed run's orphaned 'running' row from wedging the
+    # schedule forever.
+    try:
+        other = conn.execute(text("""
+            SELECT id FROM bw_tracker_runs
+            WHERE status = 'running' AND id <> :run_id
+              AND started_at > NOW() - INTERVAL '2 hours'
+            LIMIT 1
+        """), {"run_id": run_id}).fetchone()
+        if other:
+            logger.info(f"BW Run {run_id}: run {other[0]} already in progress — skipping (overlap guard)")
+            conn.execute(text("""
+                UPDATE bw_tracker_runs SET status = 'skipped_overlap', completed_at = NOW(),
+                    error_message = :msg
+                WHERE id = :run_id
+            """), {"run_id": run_id, "msg": f"run {other[0]} already in progress"})
+            conn.commit()
+            conn.close()
+            return
+    except Exception as guard_err:
+        logger.warning(f"BW Run {run_id}: overlap guard check failed ({guard_err}) — continuing")
+
     # Try SLM
     slm_available = False
     try:
@@ -2274,8 +2300,14 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     except Exception as re_err:
                         logger.debug(f"risk pass failed for {uri}: {re_err}")
 
+                # Commit this article's writes NOW. The loop awaits Bedrock
+                # calls between writes; holding uncommitted row locks across
+                # them let a concurrent run block for the whole LLM window
+                # (12+ min observed), and the resulting sync lock waits froze
+                # the event loop → sitewide /explore 504s (2026-07-06).
+                conn.commit()
+
                 if articles_processed % 25 == 0:
-                    conn.commit()
                     conn.execute(text("""
                         UPDATE bw_tracker_runs SET articles_processed = :p, articles_categorized = :c
                         WHERE id = :run_id
