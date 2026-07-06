@@ -207,7 +207,16 @@ class AIModel:
     def __init__(self, model_config: Dict[str, Any]):
         self.config = model_config
         self.model = model_config["model"]
+        # Configs derived from litellm_config.yaml carry the key as the
+        # UNRESOLVED indirection string "os.environ/<VAR>" (liteLLM router
+        # syntax). Resolve it here — passing the literal string on (or not
+        # passing the key at all, as generate_sync used to) makes boto3 fall
+        # back to the host's SigV4 credentials (~/.aws → aws_aunoo), which
+        # have no bedrock:InvokeModel rights.
         self.api_key = model_config.get("api_key")
+        if isinstance(self.api_key, str) and self.api_key.startswith("os.environ/"):
+            self.api_key = os.environ.get(self.api_key.split("/", 1)[1])
+        self.aws_region_name = model_config.get("aws_region_name")
         self.max_tokens = model_config.get("max_tokens", 2000)
         self.temperature = model_config.get("temperature", 0.7)
         # Ensure a uniform attribute name that other components expect.
@@ -217,20 +226,26 @@ class AIModel:
     def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Synchronous version of generate() for use in sync contexts."""
         try:
-            # Set API key if provided
-            if self.api_key:
-                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
-
             # Use provided values or fall back to instance defaults
             tokens = max_tokens if max_tokens is not None else self.max_tokens
             temp = temperature if temperature is not None else self.temperature
+
+            # Pass provider credentials explicitly — the old behaviour
+            # (stuffing self.api_key into a mangled env var) never worked
+            # for bedrock/ models and left the call on SigV4 fallback.
+            extra: Dict[str, Any] = {}
+            if self.api_key:
+                extra["api_key"] = self.api_key
+            if self.aws_region_name:
+                extra["aws_region_name"] = self.aws_region_name
 
             # Generate completion
             response = completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=tokens,
-                temperature=temp
+                temperature=temp,
+                **extra
             )
 
             return response.choices[0]
@@ -265,16 +280,19 @@ class AIModel:
         """
 
         try:
-            # Set API key if provided (important when multiple models/
-            # providers coexist)
+            # Pass provider credentials explicitly (see generate_sync).
+            extra: Dict[str, Any] = {}
             if self.api_key:
-                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
+                extra["api_key"] = self.api_key
+            if self.aws_region_name:
+                extra["aws_region_name"] = self.aws_region_name
 
             response = completion(
                 model=self.model,
                 messages=messages,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
+                **extra
             )
 
             # Extract the content field in a generic way.
