@@ -37,7 +37,7 @@ import {
   listIncidents, createIncident, getIncident, updateIncident, deleteIncident, addIncidentNote,
   attachIncidentEvidence, verifyIncidentChain,
   getEmployeeRisk, getRiskSummary,
-  runSignals, getSignalsDetail,
+  runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
   type BWIncident, type BWIncidentDetail,
@@ -1833,7 +1833,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       const topicsParam = config.selectedTopics.length ? config.selectedTopics : undefined;
       const socialTopics = selectedBrand ? [`Brand Monitoring ${selectedBrand.display_name}`] : topicsParam;
       const allBrandTopics = brands.length > 1 ? brands.map(b => `Brand Monitoring ${b.display_name}`) : undefined;
-      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD, screenedD] = await Promise.all([
+      const [comparisonD, sovD, socialD, trendsD, alertsD, narrativeD, riskD, incidentsD, employeeD, lanePostsD, screenedD, perceptionD] = await Promise.all([
         getComparison(config.daysBack, topicsParam).catch(() => comparison),
         getShareOfVoice(config.daysBack, topicsParam).catch(() => shareOfVoice),
         getSocialPosts(socialTopics, config.daysBack, 0, undefined, true, { limit: 5000 }).catch(() => social),
@@ -1850,6 +1850,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             .map(a => ({ title: a.title, uri: a.uri, verdict: a.signals_summary!.verdict,
                          composite: a.signals_summary!.composite, signals: a.signals_summary!.signals || [] })))
           .catch(() => []) : Promise.resolve([]),
+        getPerception(config.daysBack).catch(() => null),
       ]);
       downloadBrandWatcherReport({
         brand: selectedBrand,
@@ -1867,6 +1868,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         allBrandPosts: lanePostsD,
         laneBrands: brands.map(b => b.display_name),
         screened: screenedD,
+        perception: perceptionD,
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {

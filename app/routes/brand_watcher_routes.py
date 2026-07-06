@@ -1335,7 +1335,7 @@ async def get_social_posts(
 
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
-                   a.topic_alignment_score, a.sentiment, a.topic
+                   a.topic_alignment_score, a.sentiment, a.topic, a.social_meta
             FROM articles a
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               AND {src_clause}
@@ -1347,6 +1347,8 @@ async def get_social_posts(
 
         def _platform(ns):
             s = (ns or "").lower()
+            if s.startswith("xpoz:"):
+                return s.split(":", 1)[1] or "social"
             if "reddit" in s:
                 return "reddit"
             if "bsky" in s or "bluesky" in s:
@@ -1359,6 +1361,8 @@ async def get_social_posts(
             "publication_date": str(r[4]) if r[4] else None,
             "relevance": round(r[5], 3) if r[5] is not None else None,
             "sentiment": r[6], "topic": r[7],
+            "social_meta": (r[8] if isinstance(r[8], dict)
+                            else (json.loads(r[8]) if r[8] else None)),
         } for r in rows]
 
         # Attach the brand keyword(s) that triggered each post so the UI can show a

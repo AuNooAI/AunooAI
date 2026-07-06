@@ -32,6 +32,7 @@ export interface BrandReportData {
     signals: { key: string; band: string | null; score: number | null }[];
   }[] | null;
   employee?: BWEmployeeRisk | null;        // Glassdoor aggregates + reviews + workforce risks
+  perception?: { brands: import('./brandWatcherApi').BWPerceptionBrand[] } | null; // five-dimension perception scores
   allBrandPosts?: any[] | null;            // all-brands social snapshot for the swimlane
   laneBrands?: string[] | null;            // lane order (brand display names)
   generatedAt: string; // ISO string (caller stamps it — no Date in module scope)
@@ -153,14 +154,15 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
   const ownToks = d.brand ? Array.from(new Set([d.brand.name, ...(d.brand.brand_keywords || [])].map(normH).filter(t => t.length >= 3))) : [];
   const isOwnH = (h: string) => { const lead = normH((h || '').split('.')[0]); return !!lead && ownToks.some(t => lead.startsWith(t)); };
   const authorOfP = (p: any) => { const a = p.social_meta?.author; if (a) return a; const m = (p.title || '').match(/@([\w.\-]+)/); return m ? m[1] : ''; };
-  const socByAuthor: Record<string, { a: string; pos: number; neg: number; neu: number; total: number }> = {};
+  const socByAuthor: Record<string, { a: string; pos: number; neg: number; neu: number; total: number; nets: Set<string> }> = {};
   for (const p of socTop) {
     if (!p.sentiment) continue;
     const h = authorOfP(p); if (!h || h === 'unknown' || h.includes(':')) continue;
-    const x = (socByAuthor[h.toLowerCase()] ||= { a: h, pos: 0, neg: 0, neu: 0, total: 0 });
+    const x = (socByAuthor[h.toLowerCase()] ||= { a: h, pos: 0, neg: 0, neu: 0, total: 0, nets: new Set<string>() });
     const c = sentClass(p.sentiment);
     if (c === 'pos') x.pos++; else if (c === 'neg') x.neg++; else x.neu++;
     x.total++;
+    if ((p as any).platform) x.nets.add((p as any).platform);
   }
   const socAuthors = Object.values(socByAuthor).map(x => ({ ...x, net: x.pos - x.neg, own: isOwnH(x.a) }));
   const socFans = socAuthors.filter(x => x.net > 0 && !x.own).sort((p, q) => q.net - p.net || q.pos - p.pos).slice(0, 10);
@@ -249,9 +251,11 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
       }).join('')
     : '<p class="muted">No on-brand social posts.</p>';
 
-  const authorRow = (x: { a: string; pos: number; neu: number; neg: number; total: number; net: number }, kind: 'fan' | 'crit') => {
+  const authorRow = (x: { a: string; pos: number; neu: number; neg: number; total: number; net: number; nets?: Set<string> }, kind: 'fan' | 'crit') => {
     const tot = x.total || 1;
-    return `<div class="art"><span class="art-title">@${esc(x.a)}</span>
+    const netTag = x.nets && x.nets.size
+      ? ` <span class="muted" style="font-size:10px">${esc(Array.from(x.nets).join(' · '))}</span>` : '';
+    return `<div class="art"><span class="art-title">@${esc(x.a)}${netTag}</span>
       <span class="art-meta">
         <span class="sbar" style="flex:0 0 70px">
           <span class="pos" style="width:${(x.pos / tot * 100).toFixed(0)}%"></span>
@@ -526,6 +530,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   <nav class="nav">
     <a href="#overview" class="active">Overview</a>
     <a href="#analysis">Analysis</a>
+    <a href="#perception">Perception</a>
     <a href="#risk">Risk</a>
     <a href="#workforce">Workforce</a>
     <a href="#insights">Insights</a>
@@ -554,6 +559,41 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
     <div class="card"><h3>Sentiment by category</h3>${sentBars}</div>
     <div class="card"><h3>Share of voice</h3>${sovBars}</div>
   </section>
+
+  ${(() => {
+    const pb = d.perception?.brands || [];
+    if (!pb.length) return '';
+    const DIMS: { k: 'media' | 'social' | 'community' | 'employee' | 'investor'; l: string }[] = [
+      { k: 'media', l: 'Media' }, { k: 'social', l: 'Social' }, { k: 'community', l: 'Community' },
+      { k: 'employee', l: 'Employee' }, { k: 'investor', l: 'Investor' }];
+    const chip = (s: number | null | undefined) => {
+      if (s === null || s === undefined) return '<span class="chip">no data</span>';
+      const cls = s >= 20 ? 'pos' : s <= -20 ? 'neg' : '';
+      return `<span class="chip ${cls}">${s > 0 ? '+' : ''}${s}</span>`;
+    };
+    const rows = pb.map(b => `<tr>
+      <td style="white-space:nowrap">${esc(b.display_name)}${b.is_primary ? ' <span class="muted" style="font-size:10px">primary</span>' : ''}</td>
+      ${DIMS.map(dim => {
+        const v = b.dimensions[dim.k];
+        const n = dim.k === 'employee'
+          ? (v?.rating != null ? `${v.rating}/5` : '')
+          : (v?.n ? String(v.n) : '');
+        return `<td>${chip(v?.score)}${n ? ` <span class="muted" style="font-size:10px">${esc(n)}</span>` : ''}</td>`;
+      }).join('')}
+    </tr>`).join('');
+    return `<section id="perception">
+    <h2>Perception Dimensions</h2>
+    <div class="card">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="text-align:left;color:#888;font-size:11px">
+          <th style="padding:4px 8px 8px 0">Brand</th>${DIMS.map(x => `<th style="padding:4px 8px 8px 0">${x.l}</th>`).join('')}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="muted" style="margin-top:10px;font-size:11px">Net sentiment −100…+100 over relevance ≥ 0.4 items (media = news, social = Bluesky/X/Instagram/TikTok, community = Reddit, investor = Financial Performance-classified articles). Employee scales the Glassdoor rating (3.0 = neutral); grey numbers are item volumes — low-sample scores are volatile.</p>
+    </div>
+  </section>` ;
+  })()}
 
   <section id="risk">
     <h2>Risk &amp; Compliance</h2>
