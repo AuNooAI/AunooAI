@@ -33,6 +33,39 @@ def _md_link(title: str, url: Optional[str]) -> str:
     return f"[{t}]({url})"
 
 
+def _brand_narration(brand: str, alert_titles: list, articles: list) -> Optional[str]:
+    """1-2 sentence narration of what is behind a brand's alerts.
+
+    Grounded in the driver articles' titles + summaries only. Best-effort:
+    returns None on failure and the digest ships with bare headline links.
+    """
+    if not articles:
+        return None
+    try:
+        from app.ai_models import LiteLLMModel
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        art_block = "\n".join(
+            f"- {t}: {sm}" if sm else f"- {t}" for t, sm in articles[:6]
+        )
+        prompt = (
+            f"Alerts fired for the brand \"{brand}\":\n"
+            + "\n".join(f"- {t}" for t in alert_titles[:5])
+            + "\n\nThe articles behind them (title: summary):\n" + art_block[:3500]
+            + "\n\nIn 1-2 plain sentences, say what this coverage is actually "
+            "about — the concrete stories/themes, named specifically. "
+            "Observations only, no advice, nothing not present in the "
+            "articles. No preamble, no bullets — just the sentence(s)."
+        )
+        out = (model.generate_response(
+            [{"role": "user", "content": prompt}], temperature=0.2) or "").strip()
+        if not out or out.startswith(("-", "*", "#")):
+            return None
+        return out[:600]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"bw digest narration failed for {brand} ({e})")
+        return None
+
+
 def _prose_summary(facts: str, period_label: str) -> Optional[str]:
     """2-4 sentence editorial lead over the deterministic digest facts.
 
@@ -52,10 +85,13 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
             "changed and how bad it is relative to peers, and note anything "
             "quiet/stable in half a sentence. Observations only — no advice, no "
             "recommendations. Never state a number or fact that is not in the "
-            "bullets. No greeting, no markdown, no bullet points — just the "
+            "bullets. Net-sentiment numbers: MORE NEGATIVE = WORSE (-38 is "
+            "worse than -26) — do not compare them the wrong way round. No "
+            "greeting, no markdown, no bullet points — just the "
             "paragraph.\n\nFACTS:\n" + facts[:6000]
         )
-        out = model.generate_response([{"role": "user", "content": prompt}])
+        out = model.generate_response(
+            [{"role": "user", "content": prompt}], temperature=0.2)
         out = (out or "").strip()
         # Guard against a model returning markdown/bullets anyway.
         if not out or out.startswith(("-", "*", "#")):
@@ -138,15 +174,70 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
         # the period (e.g. daily-keyed sentiment alerts spanning two calendar
         # days) previously produced duplicate lines in the digest.
         events = conn.execute(text("""
-            SELECT title FROM (
-                SELECT DISTINCT ON (title) title, created_at FROM bw_alert_events
+            SELECT title, payload FROM (
+                SELECT DISTINCT ON (title) title, payload, created_at FROM bw_alert_events
                 WHERE brand_id = :b AND rule <> 'digest'
                   AND created_at >= now() - (:d || ' days')::interval
                 ORDER BY title, created_at DESC
             ) t ORDER BY created_at DESC LIMIT 5
         """), {"b": bid, "d": str(period_days)}).fetchall()
-        for (title,) in events:
+        spike_cats: list = []
+        has_neg_alert = False
+        for title, payload in events:
             section.append(f"- 🔔 {title}")
+            p = payload if isinstance(payload, dict) else json.loads(payload or "{}")
+            if p.get("category"):
+                spike_cats.append(p["category"])
+            if "net-negative" in (title or ""):
+                has_neg_alert = True
+
+        # Driver articles behind the alerts — the digest should say WHAT the
+        # coverage is, not just count it. Spike alerts measure a weekly
+        # window, so their drivers are fetched over 7 days regardless of the
+        # digest period; sentiment drivers stay within the digest period.
+        drivers: list = []
+        seen_uris: set = set()
+        if spike_cats:
+            cat_keys = {f"_c{i}": c for i, c in enumerate(spike_cats)}
+            cat_in = ", ".join(f":{k}" for k in cat_keys)
+            for t, u, s, sm in conn.execute(text(f"""
+                SELECT a.title, a.uri, a.news_source, LEFT(COALESCE(a.summary,''), 300)
+                FROM articles a
+                JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+                WHERE bac.category IN ({cat_in})
+                  AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
+                ORDER BY a.publication_date DESC LIMIT 4
+            """), {"b": bid, **cat_keys}).fetchall():
+                if u not in seen_uris:
+                    seen_uris.add(u)
+                    drivers.append((t, u, s, sm))
+        if has_neg_alert or (neg or 0) >= 3:
+            # Sentiment alerts aggregate over a wider window than a daily
+            # digest period — fetch drivers over 7 days so the narration can
+            # actually cover what the alert measured.
+            for t, u, s, sm in conn.execute(text(f"""
+                SELECT a.title, a.uri, a.news_source, LEFT(COALESCE(a.summary,''), 300)
+                FROM articles a
+                JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+                WHERE ({_NEG})
+                  AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
+                  AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                ORDER BY a.publication_date DESC LIMIT 4
+            """), {"b": bid}).fetchall():
+                if u not in seen_uris:
+                    seen_uris.add(u)
+                    drivers.append((t, u, s, sm))
+        if drivers:
+            narration = _brand_narration(
+                bname,
+                [t for t, _ in events],
+                [(t, sm) for t, _, _, sm in drivers],
+            )
+            if narration:
+                section.append(f"- What's driving it: {narration}")
+            for t, u, s, _sm in drivers[:4]:
+                src = f" — {s}" if s else ""
+                section.append(f"    - {_md_link((t or '')[:90], u)}{src}")
         # Case actions taken.
         row = conn.execute(text("""
             SELECT COUNT(*) FILTER (WHERE new_status = 'escalated') AS esc,
