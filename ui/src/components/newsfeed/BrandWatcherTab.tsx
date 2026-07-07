@@ -37,7 +37,7 @@ import {
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
   listIncidents, createIncident, getIncident, updateIncident, deleteIncident, addIncidentNote,
   attachIncidentEvidence, verifyIncidentChain,
-  getEmployeeRisk, getRiskSummary,
+  getEmployeeRisk, getRiskSummary, updateBrandConfig, pollOfficialSourcesNow,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
@@ -5725,6 +5725,32 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           );
         }
         const ov = er?.overview || null;
+        if (er && er.glassdoor_enabled && !ov && !(er.reviews?.length) && !(er.history?.length)) {
+          return (
+            <div className="text-center py-12 space-y-3">
+              <Briefcase className="w-8 h-8 mx-auto text-gray-300" />
+              <p className="text-sm text-gray-600 dark:text-gray-300">Glassdoor is enabled, but no employer profile matched “{selectedBrand?.display_name || 'this brand'}”.</p>
+              <p className="text-xs text-gray-400 max-w-md mx-auto">Smaller companies often have no Glassdoor page — in that case there's no workforce data to show. If the brand does have one, set its company ID from the reviews URL (the number after “-E”).</p>
+              <button onClick={async () => {
+                  const raw = window.prompt('Glassdoor reviews URL or numeric company ID:\ne.g. https://www.glassdoor.com/Reviews/Wiley-Reviews-E1551.htm or 1551');
+                  if (!raw) return;
+                  const m = raw.match(/-E(\d+)\b/) || raw.match(/^\s*(\d+)\s*$/);
+                  if (!m) { alert('Could not find a company ID in that — paste the reviews URL or just the number.'); return; }
+                  if (!primarySelectedId) return;
+                  setLoadingEmployee(true);
+                  try {
+                    await updateBrandConfig(primarySelectedId, { glassdoor_company_id: Number(m[1]) });
+                    await pollOfficialSourcesNow(primarySelectedId);
+                    setEmployeeRisk(await getEmployeeRisk(primarySelectedId, config.daysBack, true));
+                  } catch (e) { console.error(e); alert('Failed to apply the Glassdoor override — check the console.'); }
+                  finally { setLoadingEmployee(false); }
+                }}
+                className="text-sm px-3 py-1.5 rounded-md bg-teal-600 text-white hover:bg-teal-700 inline-flex items-center gap-1.5">
+                <Briefcase className="w-4 h-4" /> Set Glassdoor company ID
+              </button>
+            </div>
+          );
+        }
         const pct = (v?: number | null) => (v == null ? null : Math.round(v * 100));
         const SUBS: Array<{ label: string; short: string; key: keyof BWGlassdoorOverview }> = [
           { label: 'Work-life balance', short: 'Work-life', key: 'work_life_balance_rating' },
