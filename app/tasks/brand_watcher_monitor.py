@@ -898,9 +898,11 @@ async def run_brand_watcher_monitor():
                 except Exception as e:
                     logger.error(f"Adverse alert evaluation error: {e}")
                 # Digest is hour-gated + period-deduped internally — cheap to check here.
+                # Off-loop: the digest composes an LLM prose lead + sends SMTP,
+                # both blocking calls that must not run on the event loop.
                 try:
                     from app.services.bw_digest_service import maybe_send_digest
-                    maybe_send_digest(db)
+                    await asyncio.to_thread(maybe_send_digest, db)
                 except Exception as e:
                     logger.error(f"Digest check error: {e}")
                 # Auto Five Signals screening of fresh high-severity findings

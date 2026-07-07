@@ -8,6 +8,7 @@ one key per calendar period), so restarts and multi-cycle checks can't double-se
 """
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -19,6 +20,50 @@ logger = logging.getLogger(__name__)
 _NEG = ("sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%'"
         " OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%'")
 _POS = "(sentiment ILIKE '%positiv%' OR sentiment ILIKE '%optimis%')"
+
+_BASE_URL = os.getenv("APP_PUBLIC_URL", "https://wbm.aunoo.ai").rstrip("/")
+_DASHBOARD_URL = f"{_BASE_URL}/newsfeed?tab=brand-watcher"
+
+
+def _md_link(title: str, url: Optional[str]) -> str:
+    """Markdown link with bracket-safe title; falls back to plain text."""
+    t = (title or "").replace("[", "(").replace("]", ")")
+    if not url or not str(url).startswith("http"):
+        return t
+    return f"[{t}]({url})"
+
+
+def _prose_summary(facts: str, period_label: str) -> Optional[str]:
+    """2-4 sentence editorial lead over the deterministic digest facts.
+
+    Grounded strictly in the composed bullet facts (no raw-article access,
+    so it cannot introduce out-of-period claims). Best-effort: any failure
+    returns None and the digest ships without a lead. Runs on the mini
+    (Haiku) route — the caller already runs off the event loop.
+    """
+    try:
+        from app.ai_models import LiteLLMModel
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        prompt = (
+            "You are writing the one-paragraph lead for an adverse-media digest "
+            f"email covering the {period_label}. Below are ALL the facts, as "
+            "bullet points per brand. Write 2-4 plain sentences a comms analyst "
+            "would skim: name the brands that need attention first, say what "
+            "changed and how bad it is relative to peers, and note anything "
+            "quiet/stable in half a sentence. Observations only — no advice, no "
+            "recommendations. Never state a number or fact that is not in the "
+            "bullets. No greeting, no markdown, no bullet points — just the "
+            "paragraph.\n\nFACTS:\n" + facts[:6000]
+        )
+        out = model.generate_response([{"role": "user", "content": prompt}])
+        out = (out or "").strip()
+        # Guard against a model returning markdown/bullets anyway.
+        if not out or out.startswith(("-", "*", "#")):
+            return None
+        return out[:1200]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"bw digest prose lead failed ({e}) — sending without it")
+        return None
 
 
 def _compose_digest(conn, period_days: int) -> Optional[str]:
@@ -78,22 +123,27 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
             if (_gr[0] or 0) + (_gr[1] or 0):
                 _bits.append(f"reviews this period {_gr[0] or 0}+ / {_gr[1] or 0}−")
             section.append("- Employee signal: " + " · ".join(_bits))
-        # New risk findings.
+        # New risk findings — titles link to the underlying article (uri is
+        # the article URL in this schema).
         risks = conn.execute(text("""
-            SELECT r.risk_type, r.severity, LEFT(a.title, 90)
+            SELECT r.risk_type, r.severity, LEFT(a.title, 90), a.uri
             FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
             WHERE r.brand_id = :b AND r.detected_at >= now() - (:d || ' days')::interval
             ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END
             LIMIT 5
         """), {"b": bid, "d": str(period_days)}).fetchall()
-        for rt, sev, title in risks:
-            section.append(f"- ⚠ **{rt.replace('_', '/')}** ({sev}): {title}")
-        # Alert events fired.
+        for rt, sev, title, uri in risks:
+            section.append(f"- ⚠ **{rt.replace('_', '/')}** ({sev}): {_md_link(title, uri)}")
+        # Alert events fired. DISTINCT ON title: the same rule re-firing across
+        # the period (e.g. daily-keyed sentiment alerts spanning two calendar
+        # days) previously produced duplicate lines in the digest.
         events = conn.execute(text("""
-            SELECT title FROM bw_alert_events
-            WHERE brand_id = :b AND rule <> 'digest'
-              AND created_at >= now() - (:d || ' days')::interval
-            ORDER BY created_at DESC LIMIT 5
+            SELECT title FROM (
+                SELECT DISTINCT ON (title) title, created_at FROM bw_alert_events
+                WHERE brand_id = :b AND rule <> 'digest'
+                  AND created_at >= now() - (:d || ' days')::interval
+                ORDER BY title, created_at DESC
+            ) t ORDER BY created_at DESC LIMIT 5
         """), {"b": bid, "d": str(period_days)}).fetchall()
         for (title,) in events:
             section.append(f"- 🔔 {title}")
@@ -151,9 +201,15 @@ def maybe_send_digest(db) -> bool:
         if not claimed:
             return False
         body_md = _compose_digest(conn, period_days)
+        title = f"Adverse-media digest — {'last 7 days' if freq == 'weekly' else 'last 24 hours'}"
         if body_md is None:
             body_md = "_Quiet period — no new findings, alerts, or case actions._"
-        title = f"Adverse-media digest — {'last 7 days' if freq == 'weekly' else 'last 24 hours'}"
+        else:
+            period_label = "last 7 days" if freq == "weekly" else "last 24 hours"
+            lead = _prose_summary(body_md, period_label)
+            if lead:
+                body_md = f"{lead}\n\n{body_md}"
+        body_md += f"\n\n[Open Brand Watcher dashboard →]({_DASHBOARD_URL})"
         try:
             from app.services.email_service import get_email_service, markdown_to_html
             svc = get_email_service()
@@ -163,6 +219,7 @@ def maybe_send_digest(db) -> bool:
             # The text/plain alternative must NOT carry markdown syntax — clients
             # that prefer (or preview) the text part would show it literally.
             text_body = re.sub(r"^### (.+)$", r"\1", body_md, flags=re.MULTILINE)
+            text_body = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 — \2", text_body)
             text_body = text_body.replace("**", "").replace("_Quiet period", "Quiet period").rstrip("_")
             ok = svc.send_email(
                 to_addresses=recipients,
