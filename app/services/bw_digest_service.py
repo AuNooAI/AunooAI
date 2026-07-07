@@ -194,29 +194,29 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
         # Driver articles behind the alerts — the digest should say WHAT the
         # coverage is, not just count it. Spike alerts measure a weekly
         # window, so their drivers are fetched over 7 days regardless of the
-        # digest period; sentiment drivers stay within the digest period.
+        # digest period; sentiment alerts aggregate wider than a daily digest
+        # too, so theirs use 7 days as well.
+        _DRIVER_COLS = ("a.title, a.uri, a.news_source, LEFT(COALESCE(a.summary,''), 300), "
+                        "a.factual_reporting, a.mbfc_credibility_rating")
         drivers: list = []
         seen_uris: set = set()
         if spike_cats:
             cat_keys = {f"_c{i}": c for i, c in enumerate(spike_cats)}
             cat_in = ", ".join(f":{k}" for k in cat_keys)
-            for t, u, s, sm in conn.execute(text(f"""
-                SELECT a.title, a.uri, a.news_source, LEFT(COALESCE(a.summary,''), 300)
+            for row in conn.execute(text(f"""
+                SELECT {_DRIVER_COLS}
                 FROM articles a
                 JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                 WHERE bac.category IN ({cat_in})
                   AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
                 ORDER BY a.publication_date DESC LIMIT 4
             """), {"b": bid, **cat_keys}).fetchall():
-                if u not in seen_uris:
-                    seen_uris.add(u)
-                    drivers.append((t, u, s, sm))
+                if row[1] not in seen_uris:
+                    seen_uris.add(row[1])
+                    drivers.append(row)
         if has_neg_alert or (neg or 0) >= 3:
-            # Sentiment alerts aggregate over a wider window than a daily
-            # digest period — fetch drivers over 7 days so the narration can
-            # actually cover what the alert measured.
-            for t, u, s, sm in conn.execute(text(f"""
-                SELECT a.title, a.uri, a.news_source, LEFT(COALESCE(a.summary,''), 300)
+            for row in conn.execute(text(f"""
+                SELECT {_DRIVER_COLS}
                 FROM articles a
                 JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                 WHERE ({_NEG})
@@ -224,20 +224,38 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
                   AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 ORDER BY a.publication_date DESC LIMIT 4
             """), {"b": bid}).fetchall():
-                if u not in seen_uris:
-                    seen_uris.add(u)
-                    drivers.append((t, u, s, sm))
+                if row[1] not in seen_uris:
+                    seen_uris.add(row[1])
+                    drivers.append(row)
         if drivers:
-            narration = _brand_narration(
-                bname,
-                [t for t, _ in events],
-                [(t, sm) for t, _, _, sm in drivers],
-            )
-            if narration:
-                section.append(f"- What's driving it: {narration}")
-            for t, u, s, _sm in drivers[:4]:
+            # Credibility split (MBFC stamp on the article row): low-cred
+            # items are FLAGGED in the link list but excluded from the LLM
+            # narration input — a hit piece is itself a signal worth seeing,
+            # but it must not be laundered into the digest's own voice.
+            def _low_cred(row) -> bool:
+                fact = (row[4] or "").strip().lower()
+                cred = (row[5] or "").strip().lower()
+                return fact in ("low", "very low") or cred.startswith("low")
+            credible = [r for r in drivers if not _low_cred(r)]
+            low_cred = [r for r in drivers if _low_cred(r)]
+            if credible:
+                narration = _brand_narration(
+                    bname,
+                    [t for t, _ in events],
+                    [(r[0], r[3]) for r in credible],
+                )
+                if narration:
+                    section.append(f"- What's driving it: {narration}")
+            elif low_cred:
+                section.append(
+                    "- What's driving it: the only coverage behind this alert "
+                    "comes from low-credibility sources (not summarised)."
+                )
+            for r in (credible + low_cred)[:4]:
+                t, u, s = r[0], r[1], r[2]
                 src = f" — {s}" if s else ""
-                section.append(f"    - {_md_link((t or '')[:90], u)}{src}")
+                flag = " · ⚑ low-credibility source" if _low_cred(r) else ""
+                section.append(f"    - {_md_link((t or '')[:90], u)}{src}{flag}")
         # Case actions taken.
         row = conn.execute(text("""
             SELECT COUNT(*) FILTER (WHERE new_status = 'escalated') AS esc,
