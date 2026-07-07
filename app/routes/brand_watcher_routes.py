@@ -1591,6 +1591,7 @@ async def update_brand(brand_id: int, updates: BrandUpdate, session=Depends(veri
         if not row:
             raise HTTPException(status_code=404, detail="Brand not found")
         conn.commit()
+        bw_cache_clear()
         return BrandResponse(**_brand_row_to_dict(row))
     except HTTPException:
         raise
@@ -1746,6 +1747,7 @@ async def update_brand_config(brand_id: int, config_update: dict, session=Depend
             UPDATE bw_brands SET config = :config, updated_at = NOW() WHERE id = :id
         """), {"id": brand_id, "config": json.dumps(current_config)})
         conn.commit()
+        bw_cache_clear()
         return {"config": current_config}
     except HTTPException:
         raise
@@ -4773,6 +4775,7 @@ async def poll_official_sources_now(brand_id: Optional[int] = Query(None),
     from app.services.bw_official_sources import poll_official_sources
     db = get_database_instance()
     result = await poll_official_sources(db, force=True, only_brand_id=brand_id)
+    bw_cache_clear()
     return result
 
 
