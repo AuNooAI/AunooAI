@@ -176,8 +176,12 @@ class KeywordMonitor:
             from app.collectors.reddit_collector import RedditCollector
             return RedditCollector()
 
+        elif provider == 'xpoz':
+            from app.collectors.xpoz_collector import XpozCollector
+            return XpozCollector()
+
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit', 'xpoz'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
@@ -896,6 +900,7 @@ class KeywordMonitor:
                     'summary': article.get('summary', ''),
                     'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
                     'opoint_entities': article.get('opoint_entities'),  # Preserve Opoint entity/topic enrichment
+                    'social_meta': article.get('social_meta'),  # Preserve social media/engagement (xpoz)
                     'topic': topic,
                     'analyzed': False
                 }
@@ -1044,10 +1049,10 @@ class KeywordMonitor:
         original_collectors = self.collectors
         self.collectors = group_collectors
 
-        # A social-only group (reddit/bluesky) skips the heavy news pipeline and
+        # A social-only group (reddit/bluesky/xpoz) skips the heavy news pipeline and
         # uses the cheap social eval instead.
         self._social_only_group = bool(group_collectors) and all(
-            p in ('reddit', 'bluesky') for p in group_collectors
+            p in ('reddit', 'bluesky', 'xpoz') for p in group_collectors
         )
 
         # Also update settings temporarily
@@ -1075,7 +1080,7 @@ class KeywordMonitor:
             # configurable model instead of the heavy news pipeline. Model precedence:
             # the group's default_llm_model (set in the Gather group-settings UI) ->
             # SOCIAL_EVAL_MODEL env -> default. So the UI model dropdown controls it.
-            if any(p in self.collectors for p in ('reddit', 'bluesky')):
+            if any(p in self.collectors for p in ('reddit', 'bluesky', 'xpoz')):
                 group_topic = group.get('topic')
                 if group_topic:
                     try:
