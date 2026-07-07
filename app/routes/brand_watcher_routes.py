@@ -25,6 +25,68 @@ from app.utils.keyword_normalizer import normalize_keyword_list
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/brand-watcher", tags=["Brand Watcher"])
 
+# ---------------------------------------------------------------------------
+# Read-endpoint response cache (stale-while-revalidate).
+#
+# A dashboard load fires ~18 GET requests whose handlers each re-aggregate a
+# multi-GB articles table with sync SQL inside async defs — so the calls
+# serialize on the event loop and a cold first paint takes tens of seconds.
+# Responses here are tenant-global (no per-user data) and only change when a
+# collection/classification cycle lands, so short TTL caching is invisible to
+# freshness but makes repeat loads instant. Entries fresher than
+# _BW_CACHE_FRESH are served directly; older-but-usable entries are served
+# stale while one background task recomputes them.
+import asyncio as _bw_asyncio
+import functools as _bw_functools
+import time as _bw_time
+
+_BW_CACHE: Dict[str, tuple] = {}
+_BW_CACHE_REFRESHING: set = set()
+_BW_CACHE_FRESH = 180      # seconds: serve as-is
+_BW_CACHE_STALE = 1800     # seconds: serve + refresh in background
+_BW_CACHE_MAX_ENTRIES = 200
+
+
+def bw_cache_clear():
+    _BW_CACHE.clear()
+
+
+def bw_cached(fn):
+    @_bw_functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        key = fn.__name__ + "|" + "|".join(
+            f"{k}={v}" for k, v in sorted(kwargs.items())
+            if isinstance(v, (str, int, float, bool)) or v is None
+        )
+        now = _bw_time.monotonic()
+        hit = _BW_CACHE.get(key)
+        if hit is not None:
+            age = now - hit[0]
+            if age < _BW_CACHE_FRESH:
+                return hit[1]
+            if age < _BW_CACHE_STALE:
+                if key not in _BW_CACHE_REFRESHING:
+                    _BW_CACHE_REFRESHING.add(key)
+
+                    async def _refresh():
+                        try:
+                            _BW_CACHE[key] = (_bw_time.monotonic(), await fn(*args, **kwargs))
+                        except Exception as refresh_err:
+                            logger.warning(f"bw_cached refresh failed for {key}: {refresh_err}")
+                        finally:
+                            _BW_CACHE_REFRESHING.discard(key)
+
+                    _bw_asyncio.create_task(_refresh())
+                return hit[1]
+        result = await fn(*args, **kwargs)
+        if len(_BW_CACHE) >= _BW_CACHE_MAX_ENTRIES:
+            oldest = min(_BW_CACHE, key=lambda k: _BW_CACHE[k][0])
+            _BW_CACHE.pop(oldest, None)
+        _BW_CACHE[key] = (_bw_time.monotonic(), result)
+        return result
+    return wrapper
+
+
 
 # ============================================================================
 # Constants & Categories (11)
@@ -1280,6 +1342,7 @@ incremental article volume.</p>
 
 
 @router.get("/social")
+@bw_cached
 async def get_social_posts(
     topics: Optional[str] = Query(None, description="Comma-separated brand topic(s)"),
     days_back: int = Query(30, ge=1, le=365),
@@ -2331,6 +2394,7 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             WHERE id = :run_id
         """), {"run_id": run_id, "p": articles_processed, "c": articles_categorized})
         conn.commit()
+        bw_cache_clear()  # aggregates change after a classification run
         logger.info(f"Brand Watcher run {run_id}: {articles_processed} processed, {articles_categorized} categorized")
 
         # Send notification on completion
@@ -2594,6 +2658,7 @@ def _build_topics_filter(topics_param: Optional[str], alias: str = "a") -> tuple
 # ============================================================================
 
 @router.get("/stats", response_model=StatsResponse)
+@bw_cached
 async def get_stats(
     brand_id: Optional[int] = Query(None, description="Filter by brand ID"),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
@@ -2666,6 +2731,7 @@ async def get_stats(
 
 
 @router.get("/categories", response_model=List[CategoryDistribution])
+@bw_cached
 async def get_category_distribution(
     brand_id: Optional[int] = Query(None),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
@@ -2733,6 +2799,7 @@ async def get_category_distribution(
 
 
 @router.get("/temporal", response_model=List[TemporalDataResponse])
+@bw_cached
 async def get_temporal_data(
     brand_id: Optional[int] = Query(None),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
@@ -2796,6 +2863,7 @@ async def get_temporal_data(
 
 
 @router.get("/comparison", response_model=List[ComparisonDataResponse])
+@bw_cached
 async def get_brand_comparison(
     topics: Optional[str] = Query(None),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs to compare"),
@@ -2871,6 +2939,7 @@ async def get_brand_comparison(
 
 
 @router.get("/share-of-voice", response_model=List[ShareOfVoiceResponse])
+@bw_cached
 async def get_share_of_voice(
     topics: Optional[str] = Query(None),
     days_back: int = Query(365, ge=0, le=730),
@@ -2920,6 +2989,7 @@ async def get_share_of_voice(
 # ============================================================================
 
 @router.get("/brands/{brand_id}/sentiment-trends")
+@bw_cached
 async def get_sentiment_trends(
     brand_id: int,
     topics: Optional[str] = Query(None),
@@ -2987,6 +3057,7 @@ async def get_sentiment_trends(
 # ============================================================================
 
 @router.get("/brands/{brand_id}/alerts")
+@bw_cached
 async def get_brand_alerts(
     brand_id: int,
     days_back: int = Query(30, ge=1, le=365),
@@ -5121,6 +5192,7 @@ def _net_sentiment(pos: int, neu: int, neg: int):
 
 
 @router.get("/perception")
+@bw_cached
 async def get_perception_dimensions(
     days_back: int = Query(90, ge=1, le=730),
     session=Depends(verify_session),
@@ -5237,6 +5309,7 @@ async def get_perception_dimensions(
 
 
 @router.get("/brands/{brand_id}/employee-risk")
+@bw_cached
 async def get_employee_risk(
     brand_id: int,
     days_back: int = Query(90, ge=0, le=730),
@@ -5362,6 +5435,7 @@ async def get_employee_risk(
 
 
 @router.get("/brands/{brand_id}/risk-summary")
+@bw_cached
 async def get_risk_summary(
     brand_id: int,
     days_back: int = Query(90, ge=0, le=730),
