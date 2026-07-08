@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import litellm
 
-from app.ai_models import minimal_reasoning_effort, resolve_litellm_call_params
+from app.ai_models import minimal_reasoning_effort, resolve_litellm_call_params, extract_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +266,7 @@ Score each article for relevance. Return JSON array with scores."""
 
             # Parse scores - handle both direct array and wrapped object
             try:
-                parsed = json.loads(result_text)
+                parsed = extract_json_response(result_text)
                 if isinstance(parsed, list):
                     scores = parsed
                 elif isinstance(parsed, dict):

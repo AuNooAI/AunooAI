@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import yaml
 import time
 import asyncio
@@ -77,6 +78,35 @@ def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
         if cfg.get(key) is not None:
             params[key] = cfg[key]
     return params
+
+
+def extract_json_response(text: Optional[str]):
+    """Parse JSON out of an LLM reply that may wrap it in markdown fences or prose.
+
+    OpenAI json_object mode returns bare JSON, but Bedrock/Anthropic targets
+    (where response_format is dropped — litellm's tool-call emulation wraps the
+    payload in a nondeterministic envelope) return plain text that often leads
+    with a markdown code fence or a sentence of preamble. A strict ``json.loads``
+    on that raises at char 0 and silently trips fallback paths. Tries, in
+    order: fence-stripped strict parse, then ``raw_decode`` from the first
+    ``{``/``[`` (tolerates trailing prose). Raises ``json.JSONDecodeError``
+    like a plain ``json.loads`` would so existing except-blocks keep working.
+    """
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\s*\n?", "", s)
+        s = re.sub(r"\n?```\s*$", "", s).strip()
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError as first_err:
+        decoder = json.JSONDecoder()
+        for m in re.finditer(r"[\{\[]", s):
+            try:
+                obj, _ = decoder.raw_decode(s[m.start():])
+                return obj
+            except json.JSONDecodeError:
+                continue
+        raise first_err
 
 
 # ── Global LLM concurrency gate ───────────────────────────────────────────

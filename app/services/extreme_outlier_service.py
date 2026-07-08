@@ -22,7 +22,7 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -498,7 +498,7 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.weak_signals = result.get("weak_signals", [])
 
         except Exception as e:
@@ -590,7 +590,7 @@ Generate 6-10 amplified pathways across the three categories:
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.amplified_pathways = result.get("amplified_pathways", [])
 
         except Exception as e:
@@ -694,7 +694,7 @@ Return JSON:
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.raw_scenarios = result.get("scenarios", [])
 
             yield {"status": "scenarios_built", "progress": 0.9, "count": len(state.raw_scenarios)}
@@ -767,7 +767,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             enhancements = {e["scenario_id"]: e for e in result.get("enhanced_scenarios", [])}
 
             yield {"status": "merging", "progress": 0.7}

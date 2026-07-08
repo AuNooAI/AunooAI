@@ -21,7 +21,7 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
 
@@ -534,7 +534,7 @@ Select the articles that will best inform executive decision-making."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.selected_articles = result.get("selected_articles", [])
 
         except Exception as e:
@@ -661,7 +661,7 @@ Write as if this will be the only thing the executive reads about this topic tod
                     response_format={"type": "json_object"}
                 )
 
-                result = json.loads(response.choices[0].message.content)
+                result = extract_json_response(response.choices[0].message.content)
                 analyzed = result.get("analyzed_article", {})
 
                 briefing_article = BriefingArticle(
@@ -833,7 +833,7 @@ Enable the {config.persona} to make better decisions in the next 24-48 hours."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.briefing_summary = result.get("briefing_summary", "")
             state.themes = result.get("themes", [])
             state.priority_actions = result.get("priority_actions", [])

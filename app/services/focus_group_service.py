@@ -22,7 +22,7 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
 
@@ -492,7 +492,7 @@ Extract ALL stakeholder mentions you find - we will cluster them in the next sta
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.stakeholder_mentions = result.get("stakeholder_mentions", [])
 
         except Exception as e:
@@ -596,7 +596,7 @@ Remember: DISCOVER personas from evidence, don't INVENT them."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             # Filter to only clusters meeting threshold
             clusters = result.get("persona_clusters", [])
             state.persona_clusters = [
@@ -733,7 +733,7 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             raw_personas = result.get("personas", [])
 
             yield {"status": "processing", "progress": 0.7}
@@ -869,7 +869,7 @@ Be specific about how the personas' characteristics would lead to these dynamics
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.focus_group_summary = result.get("focus_group_summary", "")
             state.interaction_dynamics = result.get("interaction_dynamics", {})
 
