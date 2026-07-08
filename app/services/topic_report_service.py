@@ -27,6 +27,8 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
+from app.ai_models import resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
 INTRO_TEMPLATE_PATH = os.path.join(
@@ -396,7 +398,7 @@ async def generate_executive_summary_for_run(
     import litellm
     import asyncio as _asyncio
     call_kwargs: dict = {
-        "model": model,
+        **resolve_litellm_call_params(model),
         "messages": [{"role": "user", "content": full_prompt}],
         "caching": False,
     }
@@ -527,7 +529,7 @@ async def _rerun_future_horizons_for_topic(
     import litellm
     import asyncio as _asyncio
     call_kwargs: dict = {
-        "model": model,
+        **resolve_litellm_call_params(model),
         "messages": [{"role": "user", "content": formatted_prompt}],
         "caching": False,
     }

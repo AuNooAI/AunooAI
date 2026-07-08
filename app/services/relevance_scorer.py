@@ -15,21 +15,18 @@ from dataclasses import dataclass, field
 
 import litellm
 
+from app.ai_models import minimal_reasoning_effort, resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
-# Router-only aliases (defined in app/config/litellm_config.yaml) mapped to the
-# concrete litellm model strings, so direct litellm.acompletion() calls can
-# resolve them. This lets ops point RELEVANCE_MODEL / RELEVANCE_FALLBACK_MODEL at
-# Bedrock (where AWS credits apply) without any code change. AWS auth + region are
-# read from the same env vars the LiteLLM router uses (AWS_REGION_NAME, etc.).
-_MODEL_ALIASES = {
-    "bedrock-claude-haiku": "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0",
-}
-
-
-def _resolve_model(name: str) -> str:
-    """Translate a router alias to a concrete litellm model string."""
-    return _MODEL_ALIASES.get(name, name)
+# Model aliases (RELEVANCE_MODEL / RELEVANCE_FALLBACK_MODEL, e.g.
+# "bedrock-claude-haiku") are resolved through app/config/litellm_config.yaml
+# via resolve_litellm_call_params(), which returns the concrete provider model
+# string plus the credentials/params the yaml pins to it (api_key,
+# aws_region_name, thinking, additional_drop_params). This lets ops point this
+# high-volume path at Bedrock (where AWS credits apply) without any code
+# change, and keeps direct litellm.acompletion() calls consistent with the
+# Router's yaml routing. Unknown/concrete names pass through unchanged.
 
 
 @dataclass
@@ -65,25 +62,27 @@ class RelevanceScorer:
 
     async def _acompletion_with_fallback(self, messages: List[Dict]):
         """Call the primary scoring model; on failure retry on the configured
-        fallback (e.g. Bedrock). Resolves router aliases and only sends params the
-        target provider supports: reasoning_effort='minimal' for the gpt-5 family
-        (so a pure classification call doesn't bill hidden 'medium' reasoning
-        tokens), and native JSON mode only for OpenAI."""
+        fallback (e.g. Bedrock). Resolves yaml aliases via
+        resolve_litellm_call_params() (model + api_key/aws_region_name/thinking/
+        additional_drop_params) and only sends params the target provider
+        supports: reasoning_effort='minimal' for the gpt-5 family (so a pure
+        classification call doesn't bill hidden 'medium' reasoning tokens), and
+        native JSON mode only for OpenAI."""
         models = [self.config.model]
         if self.config.fallback_model and self.config.fallback_model != self.config.model:
             models.append(self.config.fallback_model)
 
         last_err = None
         for idx, model_name in enumerate(models):
-            resolved = _resolve_model(model_name)
+            call_params = resolve_litellm_call_params(model_name)
+            resolved = call_params["model"]
             kwargs = {
-                "model": resolved,
+                **call_params,
                 "messages": messages,
                 "temperature": self.config.temperature,
                 "max_tokens": 1000,
             }
             if resolved.startswith("gpt-5"):
-                from app.ai_models import minimal_reasoning_effort
                 kwargs["reasoning_effort"] = minimal_reasoning_effort(resolved)
             if resolved.startswith(("gpt-", "openai/")):
                 kwargs["response_format"] = {"type": "json_object"}

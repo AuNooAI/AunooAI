@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -431,7 +432,7 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.extraction_model,
+                **resolve_litellm_call_params(self.config.extraction_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.extraction_temperature,
                 max_tokens=2000,
@@ -482,7 +483,7 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.extraction_model,
+                **resolve_litellm_call_params(self.config.extraction_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.extraction_temperature,
                 max_tokens=3000,
@@ -569,7 +570,7 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=2000,
@@ -647,7 +648,7 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=1500,
@@ -697,7 +698,7 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=1500,
@@ -736,7 +737,7 @@ Keep it to 2-3 paragraphs."""
 
         try:
             response = await litellm.acompletion(
-                model=self.config.extraction_model,
+                **resolve_litellm_call_params(self.config.extraction_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=500
@@ -781,7 +782,7 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=1000,

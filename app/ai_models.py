@@ -46,6 +46,39 @@ def minimal_reasoning_effort(model_name: str) -> str:
     return "minimal"
 
 
+def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
+    """Resolve a litellm_config.yaml alias into kwargs for a DIRECT
+    ``litellm.completion()`` / ``litellm.acompletion()`` call.
+
+    Direct litellm calls bypass the Router, so a bare alias like ``"gpt-5.4"``
+    makes litellm infer the provider from the name (OpenAI) and ignore the
+    yaml routing entirely — on Bedrock-routed tenants that silently keeps the
+    call on OpenAI. This maps the alias to the concrete provider path plus the
+    credentials/params the yaml pins to it (api_key indirection resolved,
+    aws_region_name, thinking, additional_drop_params). Unknown names pass
+    through unchanged so concrete ``provider/model`` strings keep working.
+
+    Usage: ``litellm.acompletion(**resolve_litellm_call_params(name), ...)``
+    """
+    params: Dict[str, Any] = {"model": model_name}
+    try:
+        cfg = load_model_config().get(model_name)
+    except Exception:
+        cfg = None
+    if not cfg:
+        return params
+    params["model"] = cfg.get("model", model_name)
+    api_key = cfg.get("api_key")
+    if isinstance(api_key, str) and api_key.startswith("os.environ/"):
+        api_key = os.environ.get(api_key.split("/", 1)[1])
+    if api_key:
+        params["api_key"] = api_key
+    for key in ("api_base", "aws_region_name", "thinking", "additional_drop_params"):
+        if cfg.get(key) is not None:
+            params[key] = cfg[key]
+    return params
+
+
 # ── Global LLM concurrency gate ───────────────────────────────────────────
 # Every LLM call here ultimately runs ``litellm.completion`` (sync), which
 # async paths dispatch via ``asyncio.to_thread``. Without a cap, multiple

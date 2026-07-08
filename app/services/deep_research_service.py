@@ -28,6 +28,7 @@ from enum import Enum
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_loader import get_tool_loader
@@ -631,7 +632,7 @@ The more specific your question, the better insights I can provide!"""
             content = "\n".join(content_items)
 
             response = await litellm.acompletion(
-                model="gpt-5.4-mini",
+                **resolve_litellm_call_params("gpt-5.4-mini"),
                 messages=[
                     {
                         "role": "system",
@@ -686,7 +687,7 @@ Respond with valid JSON matching the expected schema."""
 
         try:
             response = await litellm.acompletion(
-                model=config.planning_model,
+                **resolve_litellm_call_params(config.planning_model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -1481,7 +1482,7 @@ Respond with valid JSON:
             try:
                 response = await asyncio.wait_for(
                     litellm.acompletion(
-                        model=config.synthesis_model,
+                        **resolve_litellm_call_params(config.synthesis_model),
                         messages=[
                             {"role": "system", "content": synthesizer_prompt},
                             {"role": "user", "content": batch_prompt}
@@ -1943,7 +1944,7 @@ Format inline citations as: [Article Title](URL)
 
         # FIXED: Correct async streaming pattern for litellm
         response = await litellm.acompletion(
-            model=config.writing_model,
+            **resolve_litellm_call_params(config.writing_model),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -2262,7 +2263,7 @@ Assess the coverage and identify gaps that need follow-up searches."""
 
         try:
             response = await litellm.acompletion(
-                model=config.planning_model,
+                **resolve_litellm_call_params(config.planning_model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}

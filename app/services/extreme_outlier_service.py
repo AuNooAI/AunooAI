@@ -22,6 +22,7 @@ from enum import Enum
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -487,7 +488,7 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a contrarian analyst specializing in identifying weak signals and early warning indicators that mainstream analysis overlooks."},
                     {"role": "user", "content": prompt}
@@ -579,7 +580,7 @@ Generate 6-10 amplified pathways across the three categories:
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a systems analyst specializing in cascade effects and amplification dynamics. You identify how small signals can grow into major disruptions."},
                     {"role": "user", "content": prompt}
@@ -683,7 +684,7 @@ Return JSON:
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are an analytical forecaster. You construct logical extrapolations from weak signals - projecting how outlier positions could develop if their premises prove correct. Ground all scenarios in source data."},
                     {"role": "user", "content": prompt}
@@ -756,7 +757,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a strategic advisor specializing in risk hedging and contingency planning for extreme scenarios."},
                     {"role": "user", "content": prompt}

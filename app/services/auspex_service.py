@@ -20,7 +20,7 @@ from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
 from app.services.article_stats import compute_article_stats
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
-from app.ai_models import get_ai_model
+from app.ai_models import get_ai_model, resolve_litellm_call_params
 from app.retrieval.reranker import rerank, overfetch_limit
 
 # Import sampling framework for strategy-based article selection
@@ -2588,7 +2588,7 @@ User message:
 Extracted search query (respond with ONLY the query, no explanation):"""
 
             response = litellm.completion(
-                model="gpt-5.4-mini",  # Fast and cheap model for extraction
+                **resolve_litellm_call_params("gpt-5.4-mini"),  # Fast and cheap model for extraction
                 messages=[
                     {"role": "user", "content": extraction_prompt.format(message=message[:3000])}  # Limit to 3000 chars to avoid huge costs
                 ],
@@ -3702,7 +3702,7 @@ Article Details (First {detail_limit}):
             # downstream fails with "No valid JSON found in AI response".
             call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens)
             response_stream = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=messages,
                 stream=True,
                 **call_kwargs,
@@ -3770,7 +3770,7 @@ Article Details (First {detail_limit}):
                                            temperature=temperature)
             try:
                 response = await litellm.acompletion(
-                    model=model,
+                    **resolve_litellm_call_params(model),
                     messages=messages,
                     response_format={"type": "json_object"},
                     **call_kwargs,
@@ -3779,7 +3779,7 @@ Article Details (First {detail_limit}):
                 # Fallback without JSON mode if not supported
                 logger.warning(f"JSON mode not supported for {model}, falling back to regular completion: {e}")
                 response = await litellm.acompletion(
-                    model=model,
+                    **resolve_litellm_call_params(model),
                     messages=messages,
                     **call_kwargs,
                 )
@@ -3939,7 +3939,7 @@ Article Details (First {detail_limit}):
         prompt = "\n".join(prompt_parts)
 
         try:
-            response = litellm.completion(model=DEFAULT_MODEL, messages=[{"role": "user", "content": prompt}])
+            response = litellm.completion(**resolve_litellm_call_params(DEFAULT_MODEL), messages=[{"role": "user", "content": prompt}])
             text = response.choices[0].message["content"].strip()
             options = [o.strip() for o in text.replace("\n", ",").split(",") if o.strip()]
             if not options:

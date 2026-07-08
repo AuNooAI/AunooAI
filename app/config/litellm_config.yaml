@@ -1,132 +1,204 @@
+# BEDROCK-ONLY tenant config.
+# Every model_name is kept identical to the upstream OpenAI/Anthropic names so the
+# ~18 hardcoded `model="gpt-5.4"` / `model="gpt-5.4-mini"` call sites resolve, but each
+# target is repointed to an AWS Bedrock Claude deployment. All LLM traffic for this
+# tenant therefore goes through Bedrock (api_key = AWS_BEDROCK_API_KEY, us-east-1).
+#
+# Mapping:  flagship / standard names -> Claude Sonnet 4.5
+#           mini / nano / small names -> Claude Haiku 4.5
+#
+# `thinking: {"type": "disabled"}` is REQUIRED on every deployment: the gpt-5* code path
+# injects an OpenAI `reasoning_effort` kwarg which litellm translates into an Anthropic
+# "thinking" budget that Bedrock rejects (budget<1024 / max_tokens clash), silently
+# killing the call. Disabling thinking makes every deployment answer regardless of the
+# originating model's reasoning params.
+
 model_list:
+  # ---- mini / nano / small -> Bedrock Claude Haiku 4.5 ----
   - model_name: gpt-4.1-mini
     litellm_params:
-      model: openai/gpt-4.1-mini
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  - model_name: gpt-4o
-    litellm_params:
-      model: openai/gpt-4o
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gpt-4o-mini
     litellm_params:
-      model: openai/gpt-4o-mini
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  - model_name: gpt-4.1
-    litellm_params:
-      model: openai/gpt-4.1
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gpt-4.1-nano
     litellm_params:
-      model: openai/gpt-4.1-nano
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  # OpenAI GPT-5 series — used by the Wiley bundle supervisor pipeline
-  # ("Ask David" pattern). gpt-5 for narrative/synthesis agents, gpt-5-mini
-  # for supervisor routing decisions, gpt-5-nano for cheap retrieval steps.
-  - model_name: gpt-5
-    litellm_params:
-      model: openai/gpt-5
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gpt-5-mini
     litellm_params:
-      model: openai/gpt-5-mini
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gpt-5-nano
     litellm_params:
-      model: openai/gpt-5-nano
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  # OpenAI GPT-5.4 / 5.5 — current models. The gpt-5 snapshots above are
-  # deprecated (API shutdown 2026-12-10). gpt-5.4 = standard, mini/nano cheaper,
-  # gpt-5.5 = flagship reasoning. These are the repoint targets monolith-wide.
-  - model_name: gpt-5.5
-    litellm_params:
-      model: openai/gpt-5.5
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  - model_name: gpt-5.4
-    litellm_params:
-      model: openai/gpt-5.4
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gpt-5.4-mini
     litellm_params:
-      model: openai/gpt-5.4-mini
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gpt-5.4-nano
     litellm_params:
-      model: openai/gpt-5.4-nano
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
-  # Hugging Face
-  - model_name: mixtral-8x7b
+  # ---- flagship / standard -> Bedrock Claude Sonnet 4.5 ----
+  - model_name: gpt-4o
     litellm_params:
-      model: huggingface/mistralai/Mixtral-8x7B-Instruct-v0.1
-      api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
-      api_key: "os.environ/HUGGINGFACE_API_KEY"
-      custom_llm_provider: "huggingface"
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
-  # Anthropic
+  - model_name: gpt-4.1
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  - model_name: gpt-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  - model_name: gpt-5.5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  - model_name: gpt-5.4
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  # ---- Anthropic-direct names -> Bedrock Claude Sonnet 4.5 ----
   - model_name: claude-4-sonnet-latest
     litellm_params:
-      model: anthropic/claude-4-sonnet-latest
-      api_key: "os.environ/ANTHROPIC_API_KEY"
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: claude-3-7-sonnet-latest
     litellm_params:
-      model: anthropic/claude-3-7-sonnet-latest
-      api_key: "os.environ/ANTHROPIC_API_KEY"
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: claude-3-5-sonnet-latest
     litellm_params:
-      model: anthropic/claude-3-5-sonnet-latest
-      api_key: "os.environ/ANTHROPIC_API_KEY"
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
-  # Google Gemini
+  # ---- Legacy HF name -> Bedrock Claude Haiku 4.5 (cheap) ----
+  - model_name: mixtral-8x7b
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  # ---- Gemini names -> Bedrock Claude Haiku 4.5 (cheap) ----
   - model_name: gemini-pro
     litellm_params:
-      model: gemini/gemini-pro
-      api_key: "os.environ/GEMINI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
   - model_name: gemini-2.0-flash-exp
     litellm_params:
-      model: gemini/gemini-2.0-flash-exp
-      api_key: "os.environ/GEMINI_API_KEY"
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
 
-  # Local Ollama gemma3:4b — cheap high-volume social-post relevance + sentiment.
-  # Requires `ollama serve` + `ollama pull gemma3:4b` (default port 11434).
+  # ---- Canonical Bedrock aliases (used by SOCIAL_EVAL_MODEL / RELEVANCE_MODEL / etc.) ----
+  - model_name: bedrock-claude-haiku
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  - model_name: bedrock-claude-sonnet
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort"]
+
+  # Local Ollama gemma3:4b — left as-is. Not used (SOCIAL_EVAL_MODEL points at Bedrock)
+  # and only resolves if a local `ollama serve` is running.
   - model_name: gemma3:4b
     litellm_params:
       model: ollama/gemma3:4b
       api_base: "os.environ/OLLAMA_BASE_URL"
 
-  # AWS Bedrock — alternative for the social eval (no local serving needed).
-  # Requires AWS creds in env (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION_NAME
-  # or AWS_BEARER_TOKEN_BEDROCK). Swap the model id for whatever is enabled in the account.
-  - model_name: bedrock-claude-haiku
-    litellm_params:
-      model: bedrock/anthropic.claude-3-5-haiku-20241022-v1:0
-      aws_region_name: "os.environ/AWS_REGION_NAME"
-
+# Bedrock-only tenant: primaries are already Bedrock. Keep a Haiku fallback for the
+# Sonnet-backed names so a Sonnet hiccup still answers (Bedrock -> Bedrock).
 fallbacks:
+  - gpt-4o:
+      - bedrock-claude-haiku
   - gpt-4.1:
-      - qwen3:14b
-  - gpt-4.1-nano:
-      - qwen3:14b
-  - gpt-4.1-mini:
-      - qwen3:14b
+      - bedrock-claude-haiku
   - gpt-5:
-      - gpt-4.1
-  - gpt-5-mini:
-      - gpt-4.1-mini
-  - gpt-5-nano:
-      - gpt-4.1-nano
+      - bedrock-claude-haiku
+  - gpt-5.4:
+      - bedrock-claude-haiku
+  - gpt-5.5:
+      - bedrock-claude-haiku
 
 routing_strategy: least-busy

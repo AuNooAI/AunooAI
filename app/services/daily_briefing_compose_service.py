@@ -25,6 +25,8 @@ import re
 from datetime import datetime, date
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from app.ai_models import resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
 # Target volumes — medians observed across the briefing corpus.
@@ -364,7 +366,7 @@ Select up to {TARGET_ARTICLES} articles, {TARGET_INCIDENTS} incidents, and
 }}"""
 
     call_kwargs = {
-        "model": model,
+        **resolve_litellm_call_params(model),
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},

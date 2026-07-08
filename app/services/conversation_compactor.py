@@ -14,6 +14,8 @@ from datetime import datetime
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -147,7 +149,7 @@ SUMMARY:"""
 
     try:
         response = await litellm.acompletion(
-            model=SUMMARY_MODEL,
+            **resolve_litellm_call_params(SUMMARY_MODEL),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=MAX_SUMMARY_TOKENS

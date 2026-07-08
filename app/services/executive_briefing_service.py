@@ -21,6 +21,7 @@ from enum import Enum
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
 
@@ -523,7 +524,7 @@ Select the articles that will best inform executive decision-making."""
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are an executive news curator specializing in selecting strategically relevant articles for busy executives. You prioritize quality, relevance, and diversity."},
                     {"role": "user", "content": prompt}
@@ -650,7 +651,7 @@ Write as if this will be the only thing the executive reads about this topic tod
 
             try:
                 response = await litellm.acompletion(
-                    model=model,
+                    **resolve_litellm_call_params(model),
                     messages=[
                         {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst specializing in distilling complex news into actionable insights. You write with precision and brevity for busy executives."},
                         {"role": "user", "content": prompt}
@@ -822,7 +823,7 @@ Enable the {config.persona} to make better decisions in the next 24-48 hours."""
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing multiple article analyses into actionable executive briefings. You identify patterns, prioritize actions, and provide strategic guidance."},
                     {"role": "user", "content": prompt}
@@ -943,7 +944,7 @@ Generate a polished podcast script that an executive would want to listen to dur
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}

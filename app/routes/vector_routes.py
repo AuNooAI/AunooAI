@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 import uuid
 import threading
 
+from app.ai_models import resolve_litellm_call_params
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -1366,7 +1367,7 @@ async def vector_summary(
     try:
         # Use litellm directly (same as six articles generation)
         response = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=messages,
             temperature=0.3,
             max_tokens=2000
@@ -1505,7 +1506,7 @@ async def vector_summary_raw(
 
     try:
         resp = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=messages,
             temperature=0.2,
             max_tokens=2000,
@@ -1629,7 +1630,7 @@ async def article_insights(
         generated_at = datetime.utcnow().isoformat() + "Z"
         
         resp = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=messages,
             temperature=0.3,
             max_tokens=2000,
@@ -5796,7 +5797,7 @@ async def article_deep_dive(
         generated_at = datetime.utcnow().isoformat() + "Z"
         
         resp = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": user_msg},

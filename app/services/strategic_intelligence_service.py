@@ -18,6 +18,7 @@ from collections import defaultdict
 import litellm
 import numpy as np
 
+from app.ai_models import resolve_litellm_call_params
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -493,7 +494,7 @@ class StrategicIntelligenceService:
 
         try:
             response = await litellm.acompletion(
-                model=config.discovery_model,
+                **resolve_litellm_call_params(config.discovery_model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "Generate diverse search queries for news discovery."},
                     {"role": "user", "content": user_prompt}
@@ -665,7 +666,7 @@ You MUST create at least one event cluster for every few articles."""
 
         try:
             response = await litellm.acompletion(
-                model=config.triage_model,
+                **resolve_litellm_call_params(config.triage_model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "Cluster news articles into events."},
                     {"role": "user", "content": prompt}
@@ -954,7 +955,7 @@ Use markdown formatting. Include confidence indicators and source attributions."
             report_chunks = []
 
             response = await litellm.acompletion(
-                model=config.synthesis_model,
+                **resolve_litellm_call_params(config.synthesis_model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "Generate strategic intelligence briefs."},
                     {"role": "user", "content": prompt}

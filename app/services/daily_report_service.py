@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, AsyncGenerator, Any
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -269,7 +270,7 @@ Return JSON:
 
         try:
             call_kwargs = {
-                "model": model,
+                **resolve_litellm_call_params(model),
                 "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles."},
                     {"role": "user", "content": prompt}
@@ -340,7 +341,7 @@ Return JSON:
 
         try:
             call_kwargs = {
-                "model": model,
+                **resolve_litellm_call_params(model),
                 "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports."},
                     {"role": "user", "content": prompt}
@@ -514,7 +515,7 @@ Present strategic considerations that inform executive judgment, not replace it.
 
         try:
             call_kwargs = {
-                "model": model,
+                **resolve_litellm_call_params(model),
                 "messages": [
                     {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance."},
                     {"role": "user", "content": prompt}
