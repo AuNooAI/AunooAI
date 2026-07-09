@@ -294,7 +294,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [incChain, setIncChain] = useState<{ intact: boolean; items: number; broken_ids: number[] } | null>(null);
   const [incCreate, setIncCreate] = useState<{ open: boolean; title: string; description: string; severity: string; brandId: number | null }>({ open: false, title: '', description: '', severity: 'medium', brandId: null });
   // "Add to incident" picker: holds the source being attached (article or alert event)
-  const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event'; ref: string; label: string; brandId: number | null } | null>(null);
+  const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event'; ref: string; refs?: string[]; label: string; brandId: number | null } | null>(null);
   const [incAttachNewTitle, setIncAttachNewTitle] = useState('');
   // Bulk incident management: selected ids + pending bulk edit values
   const [incSelected, setIncSelected] = useState<Set<number>>(new Set());
@@ -348,10 +348,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         if (!incAttachNewTitle.trim() || !incAttach.brandId) return;
         id = (await createIncident(incAttach.brandId, incAttachNewTitle.trim(), undefined, 'high')).id;
       }
-      await attachIncidentEvidence(id, { evidence_type: incAttach.kind, source_ref: incAttach.ref });
+      const refs = incAttach.refs?.length ? incAttach.refs : [incAttach.ref];
+      for (const r of refs) {
+        await attachIncidentEvidence(id, { evidence_type: incAttach.kind, source_ref: r });
+      }
       setIncAttach(null); setIncAttachNewTitle('');
       loadIncidents(incStatusFilter || undefined);
-      alert('Evidence captured into incident #' + id);
+      alert(`${refs.length > 1 ? refs.length + ' evidence items' : 'Evidence'} captured into incident #` + id);
     } catch (e) { console.error(e); alert('Failed to attach evidence'); }
   }, [incAttach, incAttachNewTitle, incStatusFilter, loadIncidents]);
   // Per-finding review state (optimistic local overlay over articles payload)
@@ -994,6 +997,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={() => { setIncAttach({ kind: 'article', ref: p.uri, label: cleanSocialText(socialBodyOf(p)).slice(0, 120) || p.uri, brandId: brands.find(b => b.display_name === socialBrandOf(p))?.id ?? null }); loadIncidents(); }}
+                title="Add to incident — snapshots the post (content + engagement + risks) into the tamper-evident evidence locker"
+                className="text-xs text-gray-300 dark:text-gray-500 hover:text-amber-600 dark:hover:text-amber-400 inline-flex items-center">
+                <ShieldAlert className="w-3 h-3" />
+              </button>
               <button onClick={() => flagSocialFalsePositive(p)}
                 title="Flag as false positive — hides the post from Brand Watcher and alert counts (kept for relevance tuning)"
                 className="text-xs text-gray-300 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 inline-flex items-center">
@@ -2551,13 +2559,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         const brandKey = selectedBrand?.display_name || 'all';
         const negRecent = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'negative' && (p.publication_date || '') >= iso(48));
         const negPrior = onBrandSocial.filter(p => { const d = p.publication_date || ''; return socialSentimentOf(p.sentiment) === 'negative' && d >= iso(96) && d < iso(48); });
-        const problems: Array<{ key: string; sev: 'high' | 'medium'; text: string; jump: SubTab }> = [];
+        // evidence: post uris behind the problem — powers the "+ incident" button,
+        // which snapshots them into the incident's tamper-evident evidence locker.
+        const problems: Array<{ key: string; sev: 'high' | 'medium'; text: string; jump: SubTab; evidence?: string[] }> = [];
         if (negPrior.length >= 2 && negRecent.length >= negPrior.length * 2) {
-          problems.push({ key: `adv|negspike|${brandKey}|${bucket48}`, sev: 'high', text: `Negative social posts doubled: ${negRecent.length} in the last 48h vs ${negPrior.length} in the prior 48h.`, jump: 'social' });
+          problems.push({ key: `adv|negspike|${brandKey}|${bucket48}`, sev: 'high', text: `Negative social posts doubled: ${negRecent.length} in the last 48h vs ${negPrior.length} in the prior 48h.`, jump: 'social',
+            evidence: [...negRecent].sort((a, b) => eng(b) - eng(a)).slice(0, 5).map(p => p.uri) });
         }
         const hotNeg = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'negative' && eng(p) >= 50);
         if (hotNeg.length) {
-          problems.push({ key: `adv|hotneg|${brandKey}|${bucket48}`, sev: 'high', text: `${hotNeg.length} high-reach negative post${hotNeg.length === 1 ? '' : 's'} circulating (>=50 engagement).`, jump: 'social' });
+          problems.push({ key: `adv|hotneg|${brandKey}|${bucket48}`, sev: 'high', text: `${hotNeg.length} high-reach negative post${hotNeg.length === 1 ? '' : 's'} circulating (>=50 engagement).`, jump: 'social',
+            evidence: [...hotNeg].sort((a, b) => eng(b) - eng(a)).slice(0, 5).map(p => p.uri) });
         }
         const activeCritics = fansCritics.critics.filter(c => c.neg >= 3);
         if (activeCritics.length) {
@@ -2720,6 +2732,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     pr.sev === 'high' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
                     <AlertTriangle className={`w-4 h-4 flex-shrink-0 ${pr.sev === 'high' ? 'text-red-600' : 'text-amber-600'}`} />
                     <button onClick={() => handleTabChange(pr.jump)} className="text-sm text-gray-800 dark:text-gray-100 flex-1 text-left hover:underline">{pr.text}</button>
+                    {!!pr.evidence?.length && (
+                      <button onClick={() => { setIncAttach({ kind: 'article', ref: pr.evidence![0], refs: pr.evidence, label: `${pr.text} (${pr.evidence!.length} post${pr.evidence!.length === 1 ? '' : 's'} captured as evidence)`, brandId: selectedBrand?.id ?? null }); loadIncidents(); }}
+                        title="Open or extend an incident with these posts snapshotted into the tamper-evident evidence locker"
+                        className="text-xs px-2 py-0.5 rounded-full border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30 flex-shrink-0">＋ incident</button>
+                    )}
                     <span className="text-xs text-gray-400 flex-shrink-0">investigate →</span>
                     <button onClick={() => dismissAlert(pr.key)} title="Dismiss (returns if it re-triggers)" className="text-gray-400 hover:text-gray-600 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
                   </div>
