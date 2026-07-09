@@ -24,7 +24,10 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_SOCIAL_EVAL_MODEL = "gemma3:4b"
-SOCIAL_SOURCES = ("reddit", "bluesky", "bsky")  # news_source substrings that mark social posts
+SOCIAL_SOURCES = ("reddit", "bluesky", "bsky", "xpoz")  # news_source substrings that mark social posts
+# NB: without "xpoz", xpoz:twitter/instagram/tiktok posts were collected but never
+# evaluated (stuck unscored -> invisible to /social and every >=0.4 gate);
+# xpoz:reddit only worked by accident of the '%reddit%' substring match.
 _MAX_CONCURRENT = 6  # cap parallel model calls
 
 _SYSTEM = (
