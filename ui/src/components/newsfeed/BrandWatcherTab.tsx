@@ -2751,7 +2751,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   </button>
                   <span className="text-gray-300 dark:text-gray-600">|</span>
                   <span className="text-xs text-gray-400">Social scope:</span>
-                  {([{ v: 'selected', l: `${selectedBrand?.display_name || 'Brand'} only` }, { v: 'all', l: '+ competitors' }] as const).map(o => (
+                  {([{ v: 'selected', l: selectedBrands.length > 1 ? `${selectedBrands.length} selected brands` : `${selectedBrand?.display_name || 'Brand'} only` }, { v: 'all', l: '+ competitors' }] as const).map(o => (
                     <button key={o.v} onClick={() => setSocialScope(o.v)}
                       className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${socialScope === o.v
                         ? 'bg-blue-600 text-white border-blue-600'
@@ -4334,7 +4334,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               lanes below picks its own network (All/X/Bsky/Reddit/IG/TikTok); sentiment/search/sort are per-lane. */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Scope:</span>
-            {([{ v: 'selected', l: `${selectedBrand?.display_name || 'Selected brand'} only` }, { v: 'all', l: '+ competitors' }] as const).map(o => (
+            {([{ v: 'selected', l: selectedBrands.length > 1 ? `${selectedBrands.length} selected brands` : `${selectedBrand?.display_name || 'Selected brand'} only` }, { v: 'all', l: '+ competitors' }] as const).map(o => (
               <button key={o.v} onClick={() => setSocialScope(o.v)}
                 className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${socialScope === o.v
                   ? 'bg-blue-600 text-white border-blue-600'

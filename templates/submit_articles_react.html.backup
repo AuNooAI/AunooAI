@@ -12,7 +12,7 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-3hcE_JHT.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-uUY1sTEf.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/NotificationBell-8Ks6Rxty.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/gather-8ghqohxR.css">
     <!-- Plotly for Auspex charts -->
@@ -29,8 +29,8 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/submitArticles-C7pu2ZH5.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-NZ1R_Cnh.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/submitArticles-BuuRhR2Q.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-oK0lsmdL.js">
   </head>
 
   <body>

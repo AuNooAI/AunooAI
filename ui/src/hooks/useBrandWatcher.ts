@@ -251,13 +251,13 @@ export function useBrandWatcher() {
     setLoadingSocial(true);
     try {
       // scope 'all' = primary + competitors (every brand's topic).
-      // scope 'selected' = EXACTLY ONE brand — the toggle is labeled "<brand> only",
-      // so it must not widen to a multi-brand header selection or (worse) to
-      // everything when nothing is selected. Focus brand = first header-selected
-      // brand, else the primary brand, else the first brand.
-      const focusBrand = brands.find(b => b.id === config.selectedBrandIds[0])
-        || brands.find(b => b.is_primary) || brands[0];
-      if (scope === 'selected' && !focusBrand) {
+      // scope 'selected' = the header-selected brand(s). Falls back to the primary
+      // brand (else the first brand) when nothing is selected, so the "only"
+      // toggle never silently widens to everything.
+      const headerBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
+      const focusBrands = headerBrands.length ? headerBrands
+        : [brands.find(b => b.is_primary) || brands[0]].filter(Boolean);
+      if (scope === 'selected' && !focusBrands.length) {
         // Brands haven't loaded yet — fetching now would show ALL brands' posts
         // under a "<brand> only" toggle. The brands-arrival effect refetches.
         setLoadingSocial(false);
@@ -265,7 +265,7 @@ export function useBrandWatcher() {
       }
       const topics = scope === 'all'
         ? brands.map(b => `Brand Monitoring ${b.display_name}`)
-        : [`Brand Monitoring ${focusBrand.display_name}`];
+        : focusBrands.map(b => `Brand Monitoring ${b.display_name}`);
       const data = await getSocialPosts(topics && topics.length ? topics : undefined, config.daysBack, minRelevance, source, includeUnevaluated, { limit: 500 });
       setSocial(data);
     } catch (err) {
