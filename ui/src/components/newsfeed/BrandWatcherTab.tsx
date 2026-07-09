@@ -209,6 +209,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // Social scope toggle: primary brand only vs primary + competitors (adverse media
   // screening usually starts brand-only, widens for competitive context).
   const [socialScope, setSocialScope] = useState<'selected' | 'all'>('selected');
+  // Dashboard social panel ordering: reach (amplification, with a floor) / newest / relevance.
+  const [dashSocialSort, setDashSocialSort] = useState<'reach' | 'newest' | 'relevance'>('reach');
   // Dismissed problem-alerts (anti-wallpaper): keys are rule|brand|time-bucket so a
   // dismissal expires when the underlying window rolls over. Persisted locally.
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
@@ -2545,14 +2547,23 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         // ---- Social posts: adverse screening — NEGATIVE posts lead (by reach) ----
         const eng = (p: any) => { const m = p.social_meta || {}; return (m.likes || 0) + (m.reposts || 0) * 2 + (m.comments || 0) + (m.plays || 0) / 100; };
         const onBrandSocial = (sv?.all || []).filter(p => (p.relevance ?? 0) >= 0.4);
-        // Damage/advocacy ledgers: most-amplified complaint first, most-amplified praise first.
+        // Damage/advocacy ledgers: complaint column + praise column, order selectable.
         // Reach floor: "by reach" means amplified — a 4-like gripe topping the panel just
-        // means nothing is circulating. Low-reach posts stay visible on the Social tab.
+        // means nothing is circulating. The floor only applies to the reach sort;
+        // newest/relevance orders are honest without it.
         const REACH_FLOOR = 10;
-        const negLedger = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'negative' && eng(p) >= REACH_FLOOR)
-          .sort((a, b) => eng(b) - eng(a)).slice(0, 4);
-        const posLedger = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'positive' && eng(p) >= REACH_FLOOR)
-          .sort((a, b) => eng(b) - eng(a)).slice(0, 4);
+        const ledgerCmp = (a: any, b: any) =>
+          dashSocialSort === 'newest' ? (b.publication_date || '').localeCompare(a.publication_date || '')
+          : dashSocialSort === 'relevance' ? (b.relevance ?? -1) - (a.relevance ?? -1) || eng(b) - eng(a)
+          : eng(b) - eng(a);
+        const ledgerOf = (sent: string) => onBrandSocial
+          .filter(p => socialSentimentOf(p.sentiment) === sent && (dashSocialSort !== 'reach' || eng(p) >= REACH_FLOOR))
+          .sort(ledgerCmp).slice(0, 4);
+        const negLedger = ledgerOf('negative');
+        const posLedger = ledgerOf('positive');
+        const ledgerTag = dashSocialSort === 'reach' ? 'by reach' : dashSocialSort === 'newest' ? 'newest' : 'by relevance';
+        const ledgerEmpty = (sent: string) => dashSocialSort === 'reach'
+          ? `No ${sent} posts with reach ≥ ${REACH_FLOOR} in range.` : `No ${sent} posts in range.`;
         // ---- Adverse signal detection (dismissible; keys roll over with the window) ----
         const iso = (h: number) => new Date(Date.now() - h * 3600e3).toISOString();
         const bucket48 = Math.floor(Date.now() / (48 * 3600e3));
@@ -2901,22 +2912,30 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </div>
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">💬 Social <span className="text-xs font-normal text-gray-400">most-amplified first</span></h3>
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">💬 Social
+                    <select value={dashSocialSort} onChange={e => setDashSocialSort(e.target.value as any)}
+                      title="Order for both columns. 'Most amplified' applies the reach ≥ 10 floor; the other orders show low-reach posts too."
+                      className="text-xs font-normal text-gray-500 dark:text-gray-300 bg-transparent border border-gray-200 dark:border-gray-600 rounded px-1.5 py-0.5 cursor-pointer">
+                      <option value="reach">most amplified first</option>
+                      <option value="newest">newest first</option>
+                      <option value="relevance">most relevant first</option>
+                    </select>
+                  </h3>
                   <button onClick={() => handleTabChange('social')} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">All social →</button>
                 </div>
                 <div className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-gray-100 dark:divide-gray-700">
                   <div>
-                    <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-red-600 dark:text-red-400">⚠ Negative — by reach</div>
+                    <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-red-600 dark:text-red-400">⚠ Negative — {ledgerTag}</div>
                     <div className="divide-y divide-gray-100 dark:divide-gray-700">
                       {negLedger.map(renderSocialPostCard)}
-                      {negLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : `No negative posts with reach ≥ ${REACH_FLOOR} in range. 🎉`}</p>}
+                      {negLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : `${ledgerEmpty('negative')} 🎉`}</p>}
                     </div>
                   </div>
                   <div>
-                    <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-emerald-600 dark:text-emerald-400">＋ Positive — by reach</div>
+                    <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-emerald-600 dark:text-emerald-400">＋ Positive — {ledgerTag}</div>
                     <div className="divide-y divide-gray-100 dark:divide-gray-700">
                       {posLedger.map(renderSocialPostCard)}
-                      {posLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : `No positive posts with reach ≥ ${REACH_FLOOR} in range.`}</p>}
+                      {posLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : ledgerEmpty('positive')}</p>}
                     </div>
                   </div>
                 </div>
