@@ -71,6 +71,20 @@ def _num(v) -> Optional[int]:
         return None
 
 
+def _as_dict(v) -> Dict:
+    """social_meta defensively: JSONB usually arrives as dict, but stray rows
+    hold arrays or double-encoded strings — treat anything non-dict as empty."""
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, (str, bytes)):
+        try:
+            obj = json.loads(v)
+            return obj if isinstance(obj, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
 class _BskyClient:
     """Minimal unauthenticated Bluesky AppView client with a handle->DID cache."""
 
@@ -221,7 +235,7 @@ def refresh_social_engagement(db, limit: int = 300) -> Dict:
     bsky_urls: List[Tuple[str, Dict]] = []
     skipped = 0
     for uri, news_source, meta in rows:
-        meta = meta if isinstance(meta, dict) else (json.loads(meta) if meta else {})
+        meta = _as_dict(meta)
         platform = _platform_of(news_source, meta)
         if platform == "bluesky":
             bsky_urls.append((uri, meta))
@@ -269,7 +283,7 @@ def refresh_social_engagement(db, limit: int = 300) -> Dict:
 
     stamp = now.strftime("%Y-%m-%dT%H:%M:%S")
     refreshed = 0
-    meta_by_uri = {r[0]: (r[2] if isinstance(r[2], dict) else (json.loads(r[2]) if r[2] else {})) for r in rows}
+    meta_by_uri = {r[0]: _as_dict(r[2]) for r in rows}
     for uri, patch in patches.items():
         existing = meta_by_uri.get(uri) or {}
         # never blank an author we already have; only fill it in
@@ -277,7 +291,8 @@ def refresh_social_engagement(db, limit: int = 300) -> Dict:
             patch.pop("author", None)
         patch["eng_refreshed_at"] = stamp
         db.facade._execute_with_rollback(text(
-            "UPDATE articles SET social_meta = COALESCE(social_meta, CAST('{}' AS jsonb)) || CAST(:p AS jsonb) WHERE uri = :u"
+            "UPDATE articles SET social_meta = CASE WHEN jsonb_typeof(social_meta) = 'object'"
+            " THEN social_meta || CAST(:p AS jsonb) ELSE CAST(:p AS jsonb) END WHERE uri = :u"
         ), {"p": json.dumps(patch), "u": uri})
         refreshed += 1
     # Stamp the misses too, so unreachable posts (deleted, private, unresolvable)
@@ -285,7 +300,8 @@ def refresh_social_engagement(db, limit: int = 300) -> Dict:
     for uri, *_ in rows:
         if uri not in patches:
             db.facade._execute_with_rollback(text(
-                "UPDATE articles SET social_meta = COALESCE(social_meta, CAST('{}' AS jsonb)) || CAST(:p AS jsonb) WHERE uri = :u"
+                "UPDATE articles SET social_meta = CASE WHEN jsonb_typeof(social_meta) = 'object'"
+            " THEN social_meta || CAST(:p AS jsonb) ELSE CAST(:p AS jsonb) END WHERE uri = :u"
             ), {"p": json.dumps({"eng_refreshed_at": stamp}), "u": uri})
     db.facade.connection.commit()
 
