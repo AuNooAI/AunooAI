@@ -30,8 +30,17 @@ _MAX_CONCURRENT = 6  # cap parallel model calls
 _SYSTEM = (
     "You are a precise brand-monitoring classifier. For each social media post you are "
     "given a BRAND/TOPIC and the post text. Decide (1) how relevant the post is to that "
-    "brand/topic on a 0.0-1.0 scale — 1.0 = clearly about it, 0.0 = unrelated or a "
-    "coincidental name match — and (2) the sentiment toward the brand/topic. "
+    "brand/topic on a 0.0-1.0 scale and (2) the sentiment toward the brand/topic.\n"
+    "Relevance means the post is substantively ABOUT the brand/company — its business, "
+    "products, people, actions, or someone's genuine experience or opinion of them. "
+    "1.0 = clearly about the brand; 0.0 = unrelated or a coincidental name match "
+    "(e.g. 'Wiley' the rapper vs Wiley the publisher).\n"
+    "Advertisements and solicitation spam score 0.0-0.1 even when they name the brand or "
+    "its products: contract-cheating / essay-mill / 'we take your online class or exam' "
+    "services, homework or test-prep solicitations, piracy/download/coupon/referral blasts, "
+    "and link-farm posts. An ad that merely lists brand products it services (e.g. "
+    "'Pearson, Cengage, WileyPLUS, MyMathLab') is advertising the spammer, not discussing "
+    "the brand — it is NOT relevant.\n"
     'Respond with ONLY a JSON object: {"relevance": <float 0-1>, "sentiment": '
     '"positive"|"neutral"|"negative"}. No prose.'
 )
