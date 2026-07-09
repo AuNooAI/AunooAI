@@ -24,6 +24,7 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_SOCIAL_EVAL_MODEL = "gemma3:4b"
+_CALL_TIMEOUT_S = 90  # hard cap per model call; wedged provider sockets must not stall batches
 # Canonical definition lives in social_sources; re-exported here because many
 # consumers (routes, monitors) historically import it from this module.
 from app.services.social_sources import SOCIAL_SOURCES, is_social_source  # noqa: F401
@@ -140,8 +141,17 @@ class SocialEvalService:
         ]
         try:
             from fastapi.concurrency import run_in_threadpool
-            content = await run_in_threadpool(model.generate_response, messages)
+            # Hard deadline: a wedged provider socket (observed: Bedrock SSL read
+            # blocking indefinitely) must not pin a worker slot forever — one hung
+            # call would stall the whole batch AND the keyword-monitor loop.
+            # On timeout the worker thread is abandoned (bounded leak), which is
+            # the lesser evil.
+            content = await asyncio.wait_for(
+                run_in_threadpool(model.generate_response, messages), timeout=_CALL_TIMEOUT_S)
             r = _parse_eval(content)
+        except asyncio.TimeoutError:
+            logger.warning(f"SocialEval call timed out after {_CALL_TIMEOUT_S}s")
+            return None
         except Exception as e:
             logger.debug(f"SocialEval call failed: {e}")
             return None
@@ -170,8 +180,12 @@ class SocialEvalService:
         ]
         try:
             from fastapi.concurrency import run_in_threadpool
-            content = await run_in_threadpool(model.generate_response, messages)
+            content = await asyncio.wait_for(
+                run_in_threadpool(model.generate_response, messages), timeout=_CALL_TIMEOUT_S)
             return _parse_verify(content)
+        except asyncio.TimeoutError:
+            logger.warning(f"SocialEval supervisor call timed out after {_CALL_TIMEOUT_S}s")
+            return None
         except Exception as e:
             logger.debug(f"SocialEval supervisor call failed: {e}")
             return None
