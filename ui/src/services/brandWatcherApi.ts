@@ -216,6 +216,7 @@ export interface BWSocialPost {
   topic: string | null;
   matched_keywords?: string[];
   social_meta?: BWSocialMeta | null;
+  review_status?: string | null;
 }
 
 export interface BWSocialResponse {
@@ -881,7 +882,7 @@ export async function evaluateAlertsNow(): Promise<{ created: number }> {
 }
 
 // ---- Finding case states ----
-export async function setFindingState(articleUri: string, brandId: number, status: 'new' | 'reviewed' | 'escalated' | 'dismissed', note?: string): Promise<void> {
+export async function setFindingState(articleUri: string, brandId: number, status: 'new' | 'reviewed' | 'escalated' | 'dismissed' | 'false_positive', note?: string): Promise<void> {
   const res = await fetch(`${BASE}/findings/state`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

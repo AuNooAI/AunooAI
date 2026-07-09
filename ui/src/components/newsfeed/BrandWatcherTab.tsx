@@ -9,7 +9,7 @@ import {
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight, ChevronLeft,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Mail, Image, FileDown, Copy, Check, Printer, Search, Bell,
-  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle,
+  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle, Flag,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
@@ -356,12 +356,22 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   }, [incAttach, incAttachNewTitle, incStatusFilter, loadIncidents]);
   // Per-finding review state (optimistic local overlay over articles payload)
   const [reviewOverrides, setReviewOverrides] = useState<Record<string, string>>({});
-  const setReview = useCallback(async (uri: string, brandId: number | null, status: 'reviewed' | 'escalated' | 'dismissed') => {
+  const setReview = useCallback(async (uri: string, brandId: number | null, status: 'reviewed' | 'escalated' | 'dismissed' | 'false_positive') => {
     if (!brandId) return;
     setReviewOverrides(prev => ({ ...prev, [`${uri}|${brandId}`]: status }));
     try { await setFindingState(uri, brandId, status); } catch (e) { console.error('finding state failed', e); }
   }, []);
   const reviewStatusOf = useCallback((a: any) => reviewOverrides[`${a.uri}|${a.brand_id}`] || a.review_status || 'new', [reviewOverrides]);
+  // Social false-positive flags: optimistic local hide until the next /social
+  // refetch (the backend then excludes flagged posts server-side).
+  const [socialFpHidden, setSocialFpHidden] = useState<Set<string>>(new Set());
+  const flagSocialFalsePositive = useCallback(async (p: any) => {
+    const brandId = brands.find(b => b.display_name === socialBrandOf(p))?.id;
+    if (!brandId) { alert('Could not resolve the brand for this post.'); return; }
+    if (!window.confirm('Flag this post as a false positive?\n\nIt will be hidden from Brand Watcher and excluded from alert counts, but kept in the database as labeled data for relevance tuning.')) return;
+    setSocialFpHidden(prev => new Set(prev).add(p.uri));
+    try { await setFindingState(p.uri, brandId, 'false_positive'); } catch (e) { console.error('flag false positive failed', e); }
+  }, [brands]);
   // ---- Five Signals screening (saas claim validation + social propagation) ----
   // Optimistic overlay of per-article screen summaries (chips update without a
   // page refetch), plus the detail modal + its polling while a run is live.
@@ -891,7 +901,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   };
   const socialView = useMemo(() => {
     if (!social) return null;
-    const posts = social.posts || [];
+    const posts = (social.posts || []).filter(p =>
+      (p as any).review_status !== 'false_positive' && !socialFpHidden.has(p.uri));
     const sentCounts = { positive: 0, neutral: 0, negative: 0, unrated: 0 };
     const platCounts: Record<string, number> = {};
     const byDay: Record<string, any> = {};
@@ -929,7 +940,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       return { platform, volume: c.total, net: scored ? Math.round(((c.pos - c.neg) / scored) * 100) : null, pos: c.pos, neg: c.neg, neu: c.neu, low: scored < 5 };
     }).filter(d => d.volume > 0).sort((a, b) => (Number(a.low) - Number(b.low)) || (b.net ?? -999) - (a.net ?? -999));
     return { all: posts, platforms, perception, sentCounts, netSentiment, sentPie, platPie, timeline, totalLoaded: posts.length };
-  }, [social]);
+  }, [social, socialFpHidden]);
 
 
   // Auto-split the two lanes onto distinct networks (best- vs worst-perceived) instead of
@@ -982,9 +993,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               })()}
               {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
             </div>
-            <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex-shrink-0 inline-flex items-center gap-1">
-              <Eye className="w-3 h-3" /> View
-            </a>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={() => flagSocialFalsePositive(p)}
+                title="Flag as false positive — hides the post from Brand Watcher and alert counts (kept for relevance tuning)"
+                className="text-xs text-gray-300 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 inline-flex items-center">
+                <Flag className="w-3 h-3" />
+              </button>
+              <a href={p.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1">
+                <Eye className="w-3 h-3" /> View
+              </a>
+            </div>
           </div>
           <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap break-words"
              title={cleanSocialText(socialBodyOf(p))}
@@ -2577,7 +2595,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           dedupedNews.push(a);
         }
         const isNegNews = (a: any) => socialSentimentOf(a.sentiment) === 'negative' || (a.risks || []).length > 0 || isNegConsensus(a);
-        const visibleNewsPool = dedupedNews.filter(a => reviewStatusOf(a) !== 'dismissed');
+        const visibleNewsPool = dedupedNews.filter(a => reviewStatusOf(a) !== 'dismissed' && reviewStatusOf(a) !== 'false_positive');
         const negNews = visibleNewsPool.filter(isNegNews).sort((a, b) => (b.story_size || 1) - (a.story_size || 1) || (b.publication_date || '').localeCompare(a.publication_date || ''));
         const otherNews = visibleNewsPool.filter(a => !isNegNews(a)).sort((a, b) => (b.publication_date || '').localeCompare(a.publication_date || ''));
         const newsRows = [...negNews, ...otherNews].slice(0, 8);
@@ -2654,6 +2672,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <option value="reviewed">Mark reviewed</option>
                   <option value="escalated">Escalate</option>
                   <option value="dismissed">Dismiss</option>
+                  <option value="false_positive">False positive</option>
                   <option value="incident">Add to incident…</option>
                 </select>
               </div>
@@ -3971,7 +3990,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                                         }).catch(console.error);
                                       }}
                                       className="text-[10px] bg-transparent border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-gray-500 flex-shrink-0">
-                                      {['new', 'reviewed', 'escalated', 'dismissed'].map(s => <option key={s} value={s}>{s}</option>)}
+                                      {['new', 'reviewed', 'escalated', 'dismissed', 'false_positive'].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                   </div>
                                 ))}
@@ -5665,6 +5684,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <option value="reviewed">Mark reviewed</option>
                       <option value="escalated">Escalate</option>
                       <option value="dismissed">Dismiss</option>
+                      <option value="false_positive">False positive</option>
                       <option value="incident">Add to incident…</option>
                     </select>
                   </div>
@@ -6030,7 +6050,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                             }).catch(console.error);
                           }}
                           className="text-[10px] bg-transparent border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-gray-500">
-                          {['new', 'reviewed', 'escalated', 'dismissed'].map(s => <option key={s} value={s}>{s}</option>)}
+                          {['new', 'reviewed', 'escalated', 'dismissed', 'false_positive'].map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                     </div>

@@ -1352,6 +1352,7 @@ async def get_social_posts(
     start_date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD); overrides days_back window start"),
     end_date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD); overrides days_back window end (inclusive)"),
     include_unevaluated: bool = Query(True, description="When no min_relevance, include posts the social eval hasn't scored yet"),
+    include_flagged: bool = Query(False, description="Include posts flagged as false positives (hidden by default)"),
     limit: int = Query(100, ge=1, le=20000),
     session=Depends(verify_session),
 ):
@@ -1396,6 +1397,13 @@ async def get_social_posts(
         else:
             rel_clause = ""
 
+        # Posts flagged as false positives (essay-mill spam etc.) are removed from
+        # the feed and all rollups, but the rows stay in `articles` +
+        # bw_finding_reviews as labeled data for relevance fine-tuning.
+        fp_clause = "" if include_flagged else (
+            "AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr"
+            " WHERE _fpr.article_uri = a.uri AND _fpr.status = 'false_positive')")
+
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
                    a.topic_alignment_score, a.sentiment, a.topic, a.social_meta
@@ -1404,6 +1412,7 @@ async def get_social_posts(
               AND {src_clause}
               {topic_clause}
               {rel_clause}
+              {fp_clause}
             ORDER BY a.publication_date DESC
             LIMIT :lim
         """), params).fetchall()
@@ -1458,6 +1467,18 @@ async def get_social_posts(
                 kw_map[m_uri] = sorted({id_to_kw[i] for i in ids if i in id_to_kw})
         for p in posts:
             p["matched_keywords"] = kw_map.get(p["uri"], [])
+
+        # Attach review/case status so the UI can render + toggle the FP flag.
+        # A false_positive flag under ANY brand wins (spam is spam for all brands).
+        st_map: dict = {}
+        if uris:
+            for s_uri, s_status in conn.execute(text(
+                "SELECT article_uri, status FROM bw_finding_reviews WHERE article_uri = ANY(:uris)"
+            ), {"uris": uris}).fetchall():
+                if st_map.get(s_uri) != "false_positive":
+                    st_map[s_uri] = s_status
+        for p in posts:
+            p["review_status"] = st_map.get(p["uri"])
 
         # Optional filter: only posts triggered by a specific keyword (case-insensitive).
         if keyword:
@@ -3321,6 +3342,10 @@ async def get_articles(
                 WHERE a.publication_date >= :start AND a.publication_date <= :end
                 AND a.analyzed = true
                 AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                -- items flagged false-positive (any brand) are hidden from the list
+                -- but kept in the DB as labeled data for relevance fine-tuning
+                AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                                WHERE _fpr.article_uri = a.uri AND _fpr.status = 'false_positive')
                 {brand_clause} {cat_clause} {topic_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name,
@@ -4689,7 +4714,7 @@ async def evaluate_alerts_now(session=Depends(verify_session)):
 # Finding-level case states (reviewed / escalated / dismissed + audit log)
 # ============================================================================
 
-FINDING_STATUSES = ("new", "reviewed", "escalated", "dismissed")
+FINDING_STATUSES = ("new", "reviewed", "escalated", "dismissed", "false_positive")
 
 
 class FindingStateRequest(BaseModel):
@@ -4722,12 +4747,54 @@ async def set_finding_state(req: FindingStateRequest, session=Depends(verify_ses
             VALUES (:u, :b, :o, :s, :a, :n)
         """), {"u": req.article_uri, "b": req.brand_id, "o": old_status, "s": req.status, "a": actor, "n": req.note})
         conn.commit()
+        # False-positive flags change what cached views (/social, /articles, stats)
+        # should return, so drop the whole BW cache on any transition touching one.
+        if req.status == "false_positive" or old_status == "false_positive":
+            bw_cache_clear()
         return {"ok": True, "status": req.status, "previous": old_status}
     except HTTPException:
         raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/findings/false-positives")
+async def list_false_positives(brand_id: Optional[int] = Query(None),
+                               limit: int = Query(500, ge=1, le=5000),
+                               session=Depends(verify_session)):
+    """Items flagged as false positives, with full article context.
+
+    This is the labeled dataset for relevance fine-tuning: each row is a
+    human-confirmed "matched the brand keywords but is NOT about the brand"
+    example. Rows are never deleted — unflag via POST /findings/state.
+    """
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bclause = "AND fr.brand_id = :bid" if brand_id else ""
+        params: dict = {"lim": limit}
+        if brand_id:
+            params["bid"] = brand_id
+        rows = conn.execute(text(f"""
+            SELECT fr.article_uri, fr.brand_id, b.display_name, fr.actor, fr.note, fr.updated_at,
+                   a.title, a.summary, a.news_source, a.publication_date, a.sentiment,
+                   a.topic, a.topic_alignment_score, a.social_meta IS NOT NULL AS is_social
+            FROM bw_finding_reviews fr
+            JOIN bw_brands b ON b.id = fr.brand_id
+            LEFT JOIN articles a ON a.uri = fr.article_uri
+            WHERE fr.status = 'false_positive' {bclause}
+            ORDER BY fr.updated_at DESC LIMIT :lim
+        """), params).fetchall()
+        return {"total": len(rows), "false_positives": [{
+            "uri": r[0], "brand_id": r[1], "brand": r[2], "flagged_by": r[3], "note": r[4],
+            "flagged_at": r[5].isoformat() if r[5] else None,
+            "title": r[6], "summary": r[7], "news_source": r[8],
+            "publication_date": str(r[9]) if r[9] else None, "sentiment": r[10],
+            "topic": r[11], "topic_alignment_score": r[12], "is_social": bool(r[13]),
+        } for r in rows]}
     finally:
         conn.close()
 

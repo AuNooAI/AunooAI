@@ -459,6 +459,16 @@ _ENGAGEMENT_SQL = ("(COALESCE((social_meta->>'likes')::float,0) + 2*COALESCE((so
                    " + COALESCE((social_meta->>'comments')::float,0) + COALESCE((social_meta->>'plays')::float,0)/100)")
 
 
+def _not_fp_sql(alias: str = "articles") -> str:
+    """Exclude items a human flagged as false positives (bw_finding_reviews).
+
+    A flag under ANY brand removes the item from alert counts everywhere —
+    the same spam post routinely trips several brands' keywords at once.
+    """
+    return (f"NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr"
+            f" WHERE _fpr.article_uri = {alias}.uri AND _fpr.status = 'false_positive')")
+
+
 def _insert_alert_event(conn, brand_id, rule, severity, title, body, payload, dedup_key) -> bool:
     """Insert an alert event; dedup_key uniqueness makes re-evaluation idempotent."""
     from sqlalchemy import text as _text
@@ -523,6 +533,7 @@ def evaluate_adverse_alerts(db) -> int:
                                          AND publication_date >= to_char(now() - interval '96 hours','YYYY-MM-DD"T"HH24:MI:SS')) AS prior
                     FROM articles
                     WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                      AND {_not_fp_sql()}
                 """), {"t": topic}).fetchone()
                 recent, prior = row[0] or 0, row[1] or 0
                 if prior >= rc["min_prior"] and recent >= prior * rc["multiplier"]:
@@ -542,6 +553,7 @@ def evaluate_adverse_alerts(db) -> int:
                     WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
                       AND {_ENGAGEMENT_SQL} >= :minEng
+                      AND {_not_fp_sql()}
                 """), {"t": topic, "wh": str(rc["window_hours"]), "minEng": rc["min_engagement"]}).fetchone()
                 n, max_eng = row[0] or 0, row[1] or 0
                 if n > 0:
@@ -565,6 +577,7 @@ def evaluate_adverse_alerts(db) -> int:
                     JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                     WHERE a.publication_date >= to_char(now() - (:wd || ' days')::interval,'YYYY-MM-DD')
                       AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                      AND {_not_fp_sql('a')}
                 """), {"b": bid, "wd": str(rc["window_days"])}).fetchone()
                 pos, neg, scored = row[0] or 0, row[1] or 0, row[2] or 0
                 if scored >= rc["min_scored"]:
@@ -581,7 +594,7 @@ def evaluate_adverse_alerts(db) -> int:
             # 4) Category spike: this week vs 30d weekly average.
             rc = rule("category_spike")
             if rc.get("enabled"):
-                rows = conn.execute(_text("""
+                rows = conn.execute(_text(f"""
                     WITH weekly AS (
                       SELECT bac.category,
                         COUNT(*) FILTER (WHERE a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')) AS cur,
@@ -590,6 +603,7 @@ def evaluate_adverse_alerts(db) -> int:
                       JOIN articles a ON a.uri = bac.article_uri
                       WHERE bac.brand_id = :b
                         AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                        AND {_not_fp_sql('a')}
                       GROUP BY bac.category)
                     SELECT category, cur, avg FROM weekly
                     WHERE cur >= :minc AND avg > 0 AND cur >= avg * :mult
@@ -605,11 +619,12 @@ def evaluate_adverse_alerts(db) -> int:
             # 5) New high-severity adverse-risk finding (bw_article_risks).
             rc = rule("high_risk_finding")
             if rc.get("enabled"):
-                rows = conn.execute(_text("""
+                rows = conn.execute(_text(f"""
                     SELECT r.risk_type, COUNT(*), MAX(a.title)
                     FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
                     WHERE r.brand_id = :b AND r.severity = 'high'
                       AND r.detected_at >= now() - (:wh || ' hours')::interval
+                      AND {_not_fp_sql('a')}
                     GROUP BY r.risk_type
                 """), {"b": bid, "wh": str(rc["window_hours"])}).fetchall()
                 for risk_type, n, sample_title in rows:
@@ -625,7 +640,7 @@ def evaluate_adverse_alerts(db) -> int:
             #    predominantly negative — the framing is consensus, not one outlet.
             rc = rule("neg_consensus_story")
             if rc.get("enabled"):
-                rows = conn.execute(_text("""
+                rows = conn.execute(_text(f"""
                     SELECT st.story_group_id,
                            COUNT(*) FILTER (WHERE COALESCE(a.sentiment,'') <> '') AS scored,
                            COUNT(*) FILTER (WHERE a.sentiment ILIKE '%negativ%' OR a.sentiment ILIKE '%concern%'
@@ -636,6 +651,7 @@ def evaluate_adverse_alerts(db) -> int:
                     JOIN articles a ON a.uri = st.article_uri
                     WHERE st.brand_id = :b
                       AND a.publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD')
+                      AND {_not_fp_sql('a')}
                     GROUP BY st.story_group_id
                 """), {"b": bid, "wh": str(rc["window_hours"])}).fetchall()
                 for group_id, scored, neg, sample_title in rows:
@@ -662,6 +678,7 @@ def evaluate_adverse_alerts(db) -> int:
                           AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                           AND COALESCE(social_meta->>'author','') <> ''
                           AND publication_date >= to_char(now() - (:lb || ' days')::interval,'YYYY-MM-DD')
+                          AND {_not_fp_sql()}
                     )
                     SELECT author,
                            COUNT(*) FILTER (WHERE publication_date >= to_char(now() - (:rh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')) AS recent,
@@ -699,6 +716,7 @@ def evaluate_adverse_alerts(db) -> int:
                       AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                       AND COALESCE(social_meta->>'author','') <> ''
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
+                      AND {_not_fp_sql()}
                     GROUP BY 1
                     HAVING LENGTH(LEFT(regexp_replace(lower(COALESCE(NULLIF(summary,''), title, '')),
                                 '(https?://\\S+)|[^a-z0-9 ]', '', 'g'), 120)) > 30
@@ -762,11 +780,12 @@ def evaluate_adverse_alerts(db) -> int:
             #     (dedup has no time bucket) — the verdict on an article is final.
             rc = rule("signals_flag")
             if rc.get("enabled"):
-                rows = conn.execute(_text("""
+                rows = conn.execute(_text(f"""
                     SELECT s.article_uri, s.verdict, s.composite_score, s.signals, a.title
                     FROM bw_article_signals s JOIN articles a ON a.uri = s.article_uri
                     WHERE s.brand_id = :b AND s.status = 'completed'
                       AND s.updated_at >= now() - (:rd || ' days')::interval
+                      AND {_not_fp_sql('a')}
                 """), {"b": bid, "rd": str(rc.get("recent_days", 7))}).fetchall()
                 for s_uri, s_verdict, s_comp, s_sigs, s_title in rows:
                     sp = s_sigs if isinstance(s_sigs, dict) else _json.loads(s_sigs or "{}")
