@@ -930,6 +930,14 @@ async def run_brand_watcher_monitor():
                     await _auto_screen_high_risk(db)
                 except Exception as e:
                     logger.error(f"Five Signals auto-screen error: {e}")
+                # Re-poll engagement for on-brand social posts 6h-7d old (collection
+                # snapshots metrics at age ~0, so reach reads 0 forever otherwise).
+                # Per-post ~12h budget inside; sync SDK + HTTP, so off-loop.
+                try:
+                    from app.services.social_engagement_refresh import refresh_social_engagement
+                    await asyncio.to_thread(refresh_social_engagement, db, 300)
+                except Exception as e:
+                    logger.error(f"Engagement refresh error: {e}")
 
             # Official/scholarly sources every ~5 cycles; the per-(brand, source)
             # 24h cursor inside makes a no-op cycle one SELECT.

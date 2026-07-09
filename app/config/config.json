@@ -543,8 +543,8 @@
             ]
         },
         {
-            "name": "ASML Acquisition Watch",
-            "description": "Tracking ASML, the Dutch semiconductor equipment maker and target of aggressive US acquisition interest. Covers acquisition and takeover moves, US pressure and government or regulatory responses, export controls and chip-sovereignty geopolitics, as well as ASML corporate, financial, market, and technology developments.",
+            "name": "ASML Watch",
+            "description": "Tracking all news coverage of ASML, the Dutch semiconductor equipment maker. Any article whose main subject is ASML is on-topic, including corporate, financial, market, analyst, technology, and supply-chain developments, as well as acquisition and takeover interest (notably aggressive US acquisition moves), US pressure, Dutch and EU government or regulatory responses, and export-control and chip-sovereignty geopolitics.",
             "categories": [
                 "Acquisition & Takeover Interest",
                 "Government & Regulatory Response",

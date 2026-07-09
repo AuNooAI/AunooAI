@@ -368,7 +368,11 @@ class DatabaseQueryFacade:
                     summary=article.get('summary', ''),
                     topic=topic,
                     analyzed=False,
-                    opoint_entities=article.get('opoint_entities')
+                    opoint_entities=article.get('opoint_entities'),
+                    # Social posts (xpoz/bluesky) carry author + engagement here; the
+                    # social-only group path saves ONLY via this insert, so dropping
+                    # it loses author/likes for good (adverse rules depend on both).
+                    social_meta=article.get('social_meta')
                 ))
 
                 inserted_new_article = True
