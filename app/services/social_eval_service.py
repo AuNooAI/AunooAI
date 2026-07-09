@@ -46,6 +46,28 @@ _SYSTEM = (
 )
 
 
+_SUPERVISOR_SYSTEM = (
+    "You are a strict brand-monitoring reviewer. A first-pass classifier marked the "
+    "social media post below as NEGATIVE toward the given BRAND/TOPIC. Verify that verdict "
+    "by answering two questions:\n"
+    "1. negative_toward_brand — is the negativity actually directed AT the brand/company or "
+    "its products/services? Negative subject matter is NOT negativity toward the brand: a post "
+    "sharing an article or paper about a grim topic that happens to be published by the brand, "
+    "a complaint about a third party, or general industry criticism that does not target the "
+    "brand all count as false. A complaint about the brand's own product misbehaving counts "
+    "as true.\n"
+    "2. spam_or_solicitation — is the post advertising, solicitation, a piracy/PDF/textbook "
+    "request, or other spam, rather than a genuine opinion or experience?\n"
+    'Respond with ONLY a JSON object: {"negative_toward_brand": true|false, '
+    '"spam_or_solicitation": true|false}. No prose.'
+)
+
+# Supervisor pass on negative verdicts (second, stricter model call). On by
+# default; SOCIAL_EVAL_SUPERVISOR=0 disables it.
+def _supervisor_enabled() -> bool:
+    return os.getenv("SOCIAL_EVAL_SUPERVISOR", "1").lower() not in ("0", "false", "no")
+
+
 def is_social_source(news_source: Optional[str]) -> bool:
     s = (news_source or "").lower()
     return any(k in s for k in SOCIAL_SOURCES)
@@ -71,6 +93,23 @@ def _parse_eval(content: str) -> Optional[Dict]:
     if sent not in ("positive", "neutral", "negative"):
         sent = "neutral"
     return {"relevance": rel, "sentiment": sent}
+
+
+def _parse_verify(content: str) -> Optional[Dict]:
+    """Extract the supervisor verdict from a model response, tolerantly."""
+    if not content:
+        return None
+    m = re.search(r"\{[\s\S]*\}", content)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group())
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict) or "negative_toward_brand" not in obj:
+        return None
+    return {"negative_toward_brand": bool(obj.get("negative_toward_brand")),
+            "spam_or_solicitation": bool(obj.get("spam_or_solicitation"))}
 
 
 class SocialEvalService:
@@ -105,9 +144,39 @@ class SocialEvalService:
         try:
             from fastapi.concurrency import run_in_threadpool
             content = await run_in_threadpool(model.generate_response, messages)
-            return _parse_eval(content)
+            r = _parse_eval(content)
         except Exception as e:
             logger.debug(f"SocialEval call failed: {e}")
+            return None
+        # Supervisor pass: negative on-brand verdicts drive the spike alerts and
+        # adverse panels, so they get a second, stricter look before they count.
+        # Spam/solicitation -> hidden (relevance 0.1); negativity that isn't aimed
+        # at the brand (grim subject matter, third parties) -> neutral.
+        if r and r["sentiment"] == "negative" and r["relevance"] >= 0.4 and _supervisor_enabled():
+            v = await self._verify_negative(brand_topic, title, body)
+            if v:
+                if v["spam_or_solicitation"]:
+                    r["relevance"] = min(r["relevance"], 0.1)
+                elif not v["negative_toward_brand"]:
+                    r["sentiment"] = "neutral"
+        return r
+
+    async def _verify_negative(self, brand_topic: str, title: str, body: str) -> Optional[Dict]:
+        """Second-pass supervisor check on a first-pass negative verdict."""
+        model = self._get_model()
+        if not model:
+            return None
+        text = f"{title}\n{body}".strip()[:1500]
+        messages = [
+            {"role": "system", "content": _SUPERVISOR_SYSTEM},
+            {"role": "user", "content": f"BRAND/TOPIC: {brand_topic}\n\nPOST:\n{text}"},
+        ]
+        try:
+            from fastapi.concurrency import run_in_threadpool
+            content = await run_in_threadpool(model.generate_response, messages)
+            return _parse_verify(content)
+        except Exception as e:
+            logger.debug(f"SocialEval supervisor call failed: {e}")
             return None
 
     async def evaluate_posts(self, posts: List[Dict], brand_topic: str) -> List[Dict]:
