@@ -454,7 +454,8 @@ _ADVERSE_RULE_DEFAULTS = {
 
 _NEG_SENT_SQL = "(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%' OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')"
 _POS_SENT_SQL = "(sentiment ILIKE '%positiv%' OR sentiment ILIKE '%optimis%')"
-_SOCIAL_SRC_SQL = "(news_source LIKE 'xpoz:%' OR news_source = 'bluesky' OR news_source ILIKE '%reddit%')"
+from app.services.social_sources import social_src_sql as _social_src_sql
+_SOCIAL_SRC_SQL = _social_src_sql("news_source")
 _ENGAGEMENT_SQL = ("(COALESCE((social_meta->>'likes')::float,0) + 2*COALESCE((social_meta->>'reposts')::float,0)"
                    " + COALESCE((social_meta->>'comments')::float,0) + COALESCE((social_meta->>'plays')::float,0)/100)")
 

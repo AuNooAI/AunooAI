@@ -23,6 +23,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
+from app.services.social_sources import social_src_sql
+
 logger = logging.getLogger(__name__)
 
 _BSKY_APPVIEW = "https://public.api.bsky.app/xrpc"
@@ -216,10 +218,10 @@ def refresh_social_engagement(db, limit: int = 300) -> Dict:
     win_old = (now - timedelta(days=_REFRESH_MAX_AGE_D)).strftime("%Y-%m-%dT%H:%M:%S")
     stale = (now - timedelta(hours=_REFRESH_EVERY_H)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    rows = db.facade._execute_with_rollback(text("""
+    rows = db.facade._execute_with_rollback(text(f"""
         SELECT uri, news_source, social_meta
         FROM articles
-        WHERE (news_source LIKE 'xpoz:%' OR news_source = 'bluesky' OR news_source ILIKE '%reddit%')
+        WHERE {social_src_sql('news_source')}
           AND topic LIKE 'Brand Monitoring %'
           AND topic_alignment_score >= 0.4
           AND publication_date >= :old AND publication_date <= :new

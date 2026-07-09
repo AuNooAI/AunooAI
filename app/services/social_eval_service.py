@@ -24,10 +24,9 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_SOCIAL_EVAL_MODEL = "gemma3:4b"
-SOCIAL_SOURCES = ("reddit", "bluesky", "bsky", "xpoz")  # news_source substrings that mark social posts
-# NB: without "xpoz", xpoz:twitter/instagram/tiktok posts were collected but never
-# evaluated (stuck unscored -> invisible to /social and every >=0.4 gate);
-# xpoz:reddit only worked by accident of the '%reddit%' substring match.
+# Canonical definition lives in social_sources; re-exported here because many
+# consumers (routes, monitors) historically import it from this module.
+from app.services.social_sources import SOCIAL_SOURCES, is_social_source  # noqa: F401
 _MAX_CONCURRENT = 6  # cap parallel model calls
 
 _SYSTEM = (
@@ -69,11 +68,6 @@ _SUPERVISOR_SYSTEM = (
 # default; SOCIAL_EVAL_SUPERVISOR=0 disables it.
 def _supervisor_enabled() -> bool:
     return os.getenv("SOCIAL_EVAL_SUPERVISOR", "1").lower() not in ("0", "false", "no")
-
-
-def is_social_source(news_source: Optional[str]) -> bool:
-    s = (news_source or "").lower()
-    return any(k in s for k in SOCIAL_SOURCES)
 
 
 def _parse_eval(content: str) -> Optional[Dict]:

@@ -18,6 +18,8 @@ from typing import Optional
 
 from sqlalchemy import text
 
+from app.services.social_sources import social_src_sql
+
 logger = logging.getLogger(__name__)
 
 _EN_HINTS = re.compile(r"\b(the|and|of|to|in|for|with|on|is|are|that|from|this|has|have)\b", re.I)
@@ -68,13 +70,15 @@ async def recover_foreign_articles(db, limit: int = 20) -> dict:
     conn = db._temp_get_connection()
     summary = {"scanned": 0, "attempted": 0, "promoted": 0}
     try:
-        rows = conn.execute(text("""
+        rows = conn.execute(text(f"""
             SELECT uri, title, COALESCE(summary,''), topic
             FROM articles
             WHERE publication_date >= to_char(now() - interval '14 days','YYYY-MM-DD')
               AND (topic_alignment_score IS NULL OR topic_alignment_score < 0.4)
               AND (llm_processing_metadata->>'lang_recovery') IS NULL
-              AND news_source NOT LIKE 'xpoz:%' AND news_source <> 'bluesky'
+              -- news only: social posts are scored by the social eval, and recovery
+              -- must never re-promote a post the spam/supervisor passes downscored
+              AND NOT {social_src_sql('news_source')}
               -- Scope to Brand Watcher-relevant topics: an unscoped sweep over the
               -- whole firehose (>100k low-scored rows/30d) never converges.
               AND (topic LIKE 'Brand Monitoring %' OR topic ILIKE '%watch list%')
