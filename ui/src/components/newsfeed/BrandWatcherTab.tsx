@@ -2538,9 +2538,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         const eng = (p: any) => { const m = p.social_meta || {}; return (m.likes || 0) + (m.reposts || 0) * 2 + (m.comments || 0) + (m.plays || 0) / 100; };
         const onBrandSocial = (sv?.all || []).filter(p => (p.relevance ?? 0) >= 0.4);
         // Damage/advocacy ledgers: most-amplified complaint first, most-amplified praise first.
-        const negLedger = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'negative')
+        // Reach floor: "by reach" means amplified — a 4-like gripe topping the panel just
+        // means nothing is circulating. Low-reach posts stay visible on the Social tab.
+        const REACH_FLOOR = 10;
+        const negLedger = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'negative' && eng(p) >= REACH_FLOOR)
           .sort((a, b) => eng(b) - eng(a)).slice(0, 4);
-        const posLedger = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'positive')
+        const posLedger = onBrandSocial.filter(p => socialSentimentOf(p.sentiment) === 'positive' && eng(p) >= REACH_FLOOR)
           .sort((a, b) => eng(b) - eng(a)).slice(0, 4);
         // ---- Adverse signal detection (dismissible; keys roll over with the window) ----
         const iso = (h: number) => new Date(Date.now() - h * 3600e3).toISOString();
@@ -2889,14 +2892,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-red-600 dark:text-red-400">⚠ Negative — by reach</div>
                     <div className="divide-y divide-gray-100 dark:divide-gray-700">
                       {negLedger.map(renderSocialPostCard)}
-                      {negLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : 'No negative posts in range. 🎉'}</p>}
+                      {negLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : `No negative posts with reach ≥ ${REACH_FLOOR} in range. 🎉`}</p>}
                     </div>
                   </div>
                   <div>
                     <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-emerald-600 dark:text-emerald-400">＋ Positive — by reach</div>
                     <div className="divide-y divide-gray-100 dark:divide-gray-700">
                       {posLedger.map(renderSocialPostCard)}
-                      {posLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : 'No positive posts in range.'}</p>}
+                      {posLedger.length === 0 && <p className="px-4 py-4 text-center text-xs text-gray-400">{loadingSocial ? 'Loading…' : `No positive posts with reach ≥ ${REACH_FLOOR} in range.`}</p>}
                     </div>
                   </div>
                 </div>
