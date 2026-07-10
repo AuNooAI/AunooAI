@@ -21,6 +21,101 @@ logger = logging.getLogger(__name__)
 
 SEVERITY_EMOJI = {"high": "🔴", "medium": "🟠", "low": "🟡"}
 
+# Mirrors the evaluator's sentiment/engagement SQL (app/tasks/brand_watcher_monitor.py) —
+# kept here so both the evaluator and the digest can pull the posts behind an alert
+# without a services -> tasks import.
+_NEG_SENT_SQL = ("(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%'"
+                 " OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')")
+_ENGAGEMENT_SQL = ("(COALESCE((social_meta->>'likes')::float,0) + 2*COALESCE((social_meta->>'reposts')::float,0)"
+                   " + COALESCE((social_meta->>'comments')::float,0) + COALESCE((social_meta->>'plays')::float,0)/100)")
+
+
+def fetch_negative_social_posts(conn, topic: str, hours: int, author: Optional[str] = None,
+                                min_engagement: Optional[float] = None, limit: int = 6) -> List[Dict[str, Any]]:
+    """The negative on-brand social posts behind a social alert, most-engaged first.
+
+    Same predicates as the alert rules themselves (topic lane, alignment >= 0.4,
+    negative sentiment, false-positive exclusion), so the posts shown are exactly
+    the ones that were counted.
+    """
+    from app.services.social_sources import social_src_sql
+    params: Dict[str, Any] = {"t": topic, "h": str(hours), "lim": limit}
+    extra = ""
+    if author:
+        extra += " AND LOWER(COALESCE(social_meta->>'author','')) = :author"
+        params["author"] = author.lower()
+    if min_engagement is not None:
+        extra += f" AND {_ENGAGEMENT_SQL} >= :min_eng"
+        params["min_eng"] = min_engagement
+    rows = conn.execute(text(f"""
+        SELECT title, uri, news_source, LEFT(COALESCE(NULLIF(summary,''), title, ''), 400),
+               COALESCE(social_meta->>'author',''), {_ENGAGEMENT_SQL} AS eng
+        FROM articles
+        WHERE topic = :t AND {social_src_sql('news_source')}
+          AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+          AND publication_date >= to_char(now() - (:h || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
+          AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                          WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')
+          {extra}
+        ORDER BY eng DESC NULLS LAST, publication_date DESC
+        LIMIT :lim
+    """), params).fetchall()
+    return [{"title": r[0] or "", "url": r[1], "source": r[2] or "", "text": r[3] or "",
+             "author": r[4] or "", "engagement": round(float(r[5] or 0))} for r in rows]
+
+
+def _platform_label(source: str) -> str:
+    """Reader-facing platform name from the internal news_source ('xpoz:twitter' → 'X/Twitter')."""
+    s = (source or "").lower().split(":")[-1]
+    return {"twitter": "X/Twitter", "reddit": "Reddit", "instagram": "Instagram",
+            "tiktok": "TikTok", "bluesky": "Bluesky", "bsky": "Bluesky",
+            "youtube": "YouTube", "reddit.com": "Reddit"}.get(s, source or "")
+
+
+def narrate_social_posts(brand: str, posts: List[Dict[str, Any]]) -> Optional[str]:
+    """2-3 plain sentences on what the posts actually say. Best-effort: None on failure,
+    and the alert ships with the linked post list only."""
+    if not posts:
+        return None
+    try:
+        from app.ai_models import LiteLLMModel
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        block = "\n".join(
+            f"- {_platform_label(p['source'])} · @{p['author'] or 'unknown'}: {(p['text'] or p['title'])[:350]}"
+            for p in posts[:8]
+        )
+        prompt = (
+            f"Negative social posts about the brand \"{brand}\" (platform · author: post):\n"
+            + block[:3500]
+            + "\n\nIn 2-3 plain sentences, say what these posts are actually saying — the "
+            "concrete complaints, claims or stories, named specifically, and who is saying "
+            "them when it matters (one loud account, a single community, many unrelated "
+            "users). Observations only, nothing not present in the posts. No preamble, "
+            "no bullets — just the sentence(s)."
+        )
+        out = (model.generate_response(
+            [{"role": "user", "content": prompt}], temperature=0.2) or "").strip()
+        if not out or out.startswith(("-", "*", "#")):
+            return None
+        return out[:700]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"bw social-post narration failed for {brand}: {e}")
+        return None
+
+
+def social_posts_md(posts: List[Dict[str, Any]], limit: int = 5, indent: str = "") -> List[str]:
+    """Markdown bullets for the posts behind an alert: linked text — @author · platform · engagement."""
+    lines = []
+    for p in posts[:limit]:
+        t = (p.get("title") or p.get("text") or "").replace("\\n", " ").replace("\\t", " ")
+        t = " ".join(t.split())[:110].replace("[", "(").replace("]", ")")
+        link = f"[{t}]({p['url']})" if str(p.get("url") or "").startswith("http") else t
+        bits = [b for b in (f"@{p['author']}" if p.get("author") else "",
+                            _platform_label(p.get("source") or ""),
+                            f"engagement {p['engagement']}" if p.get("engagement") else "") if b]
+        lines.append(f"{indent}- {link}" + (" — " + " · ".join(bits) if bits else ""))
+    return lines
+
 
 def get_alert_config(conn) -> Optional[Dict[str, Any]]:
     """Load the tenant-wide alert config row (brand_id NULL). Returns None if absent."""

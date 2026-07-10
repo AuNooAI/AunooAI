@@ -470,6 +470,17 @@ def _not_fp_sql(alias: str = "articles") -> str:
             f" WHERE _fpr.article_uri = {alias}.uri AND _fpr.status = 'false_positive')")
 
 
+def _dedup_exists(conn, dedup_key) -> bool:
+    """True when an event with this dedup_key already fired (this cooldown bucket).
+
+    Checked BEFORE composing bodies that cost an LLM call — the rule condition
+    stays true for the whole bucket, and evaluation re-runs every ~15 minutes.
+    """
+    from sqlalchemy import text as _text
+    return conn.execute(_text("SELECT 1 FROM bw_alert_events WHERE dedup_key = :k"),
+                        {"k": dedup_key}).fetchone() is not None
+
+
 def _insert_alert_event(conn, brand_id, rule, severity, title, body, payload, dedup_key) -> bool:
     """Insert an alert event; dedup_key uniqueness makes re-evaluation idempotent."""
     from sqlalchemy import text as _text
@@ -492,7 +503,28 @@ def evaluate_adverse_alerts(db) -> int:
     """
     from sqlalchemy import text as _text
     import time as _time
-    from app.services.brand_alert_service import get_alert_config, deliver_pending_events
+    from app.services.brand_alert_service import (
+        get_alert_config, deliver_pending_events,
+        fetch_negative_social_posts, narrate_social_posts, social_posts_md,
+    )
+
+    def _social_body(lead: str, bname_, posts) -> str:
+        """Alert body = the count sentence + what the posts actually say + linked posts.
+
+        A bare count is not actionable — the reader needs the substance and a way
+        to click through to the posts themselves.
+        """
+        body = lead
+        narration = narrate_social_posts(bname_, posts)
+        if narration:
+            body += f"\n\n**What the posts say:** {narration}"
+        if posts:
+            body += "\n\n" + "\n".join(social_posts_md(posts))
+        return body
+
+    def _posts_payload(posts) -> list:
+        return [{k: p.get(k) for k in ("title", "url", "source", "author", "engagement")}
+                for p in posts[:5]]
 
     conn = db._temp_get_connection()
     created = 0
@@ -537,11 +569,15 @@ def evaluate_adverse_alerts(db) -> int:
                       AND {_not_fp_sql()}
                 """), {"t": topic}).fetchone()
                 recent, prior = row[0] or 0, row[1] or 0
-                if prior >= rc["min_prior"] and recent >= prior * rc["multiplier"]:
+                if (prior >= rc["min_prior"] and recent >= prior * rc["multiplier"]
+                        and not _dedup_exists(conn, f"neg_social_spike|{bid}|{bucket}")):
+                    posts = fetch_negative_social_posts(conn, topic, 48)
                     if _insert_alert_event(conn, bid, "neg_social_spike", "high",
                             f"{bname}: negative social posts doubled ({recent} in 48h vs {prior} prior)",
-                            f"Negative on-brand social posts for {bname} jumped from {prior} to {recent} in the last 48 hours.",
-                            {"recent": recent, "prior": prior},
+                            _social_body(
+                                f"Negative on-brand social posts for {bname} jumped from {prior} to {recent} in the last 48 hours.",
+                                bname, posts),
+                            {"recent": recent, "prior": prior, "posts": _posts_payload(posts)},
                             f"neg_social_spike|{bid}|{bucket}"):
                         created += 1
 
@@ -557,12 +593,16 @@ def evaluate_adverse_alerts(db) -> int:
                       AND {_not_fp_sql()}
                 """), {"t": topic, "wh": str(rc["window_hours"]), "minEng": rc["min_engagement"]}).fetchone()
                 n, max_eng = row[0] or 0, row[1] or 0
-                if n > 0:
+                if n > 0 and not _dedup_exists(conn, f"high_reach_negative|{bid}|{bucket}"):
+                    posts = fetch_negative_social_posts(
+                        conn, topic, int(rc["window_hours"]), min_engagement=rc["min_engagement"])
                     if _insert_alert_event(conn, bid, "high_reach_negative", "high",
                             f"{bname}: {n} high-reach negative post{'s' if n != 1 else ''} circulating",
-                            f"{n} negative post{'s' if n != 1 else ''} about {bname} with engagement >= {rc['min_engagement']} "
-                            f"(max {int(max_eng)}) in the last {rc['window_hours']}h.",
-                            {"count": n, "max_engagement": max_eng},
+                            _social_body(
+                                f"{n} negative post{'s' if n != 1 else ''} about {bname} with engagement >= {rc['min_engagement']} "
+                                f"(max {int(max_eng)}) in the last {rc['window_hours']}h.",
+                                bname, posts),
+                            {"count": n, "max_engagement": max_eng, "posts": _posts_payload(posts)},
                             f"high_reach_negative|{bid}|{bucket}"):
                         created += 1
 
@@ -692,14 +732,20 @@ def evaluate_adverse_alerts(db) -> int:
                     if _is_own_handle(author) or ':' in author:
                         continue
                     high_reach = (max_eng or 0) >= rc["min_engagement_single"]
-                    if (recent or 0) >= rc["min_recent_neg"] or high_reach:
+                    if ((recent or 0) >= rc["min_recent_neg"] or high_reach) \
+                            and not _dedup_exists(conn, f"new_critic|{bid}|{author}|{bucket}"):
+                        posts = fetch_negative_social_posts(
+                            conn, topic, int(rc["recent_hours"]), author=author)
                         if _insert_alert_event(conn, bid, "new_critic",
                                 "high" if high_reach else "medium",
                                 f"{bname}: new critic @{author} ({recent} negative post{'s' if recent != 1 else ''})",
-                                f"@{author} posted {recent} negative post{'s' if recent != 1 else ''} about {bname} "
-                                f"in the last {rc['recent_hours']}h with no prior negative history in {rc['lookback_days']} days"
-                                + (f" (max engagement {int(max_eng)})." if max_eng else "."),
-                                {"author": author, "recent": recent, "max_engagement": max_eng},
+                                _social_body(
+                                    f"@{author} posted {recent} negative post{'s' if recent != 1 else ''} about {bname} "
+                                    f"in the last {rc['recent_hours']}h with no prior negative history in {rc['lookback_days']} days"
+                                    + (f" (max engagement {int(max_eng)})." if max_eng else "."),
+                                    bname, posts),
+                                {"author": author, "recent": recent, "max_engagement": max_eng,
+                                 "posts": _posts_payload(posts)},
                                 f"new_critic|{bid}|{author}|{bucket}"):
                             created += 1
 
@@ -914,7 +960,9 @@ async def run_brand_watcher_monitor():
             if adverse_counter >= 15:
                 adverse_counter = 0
                 try:
-                    evaluate_adverse_alerts(db)
+                    # Off-loop: rule evaluation now narrates the posts behind
+                    # social alerts (blocking LLM call) before persisting them.
+                    await asyncio.to_thread(evaluate_adverse_alerts, db)
                 except Exception as e:
                     logger.error(f"Adverse alert evaluation error: {e}")
                 # Digest is hour-gated + period-deduped internally — cheap to check here.

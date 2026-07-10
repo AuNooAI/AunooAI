@@ -3896,6 +3896,13 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             {"role": "user", "content": prompt}
         ])
 
+        # LiteLLMModel signals failure by RETURNING error text ("⚠️ <model> is
+        # currently unavailable...") instead of raising. Never persist that as a
+        # report — fail the request so the last good narrative stays "latest".
+        if not narrative or not str(narrative).strip() or str(narrative).lstrip().startswith("⚠️"):
+            detail = str(narrative).strip() if narrative else "the model returned no content"
+            raise HTTPException(status_code=503, detail=f"Narrative generation failed: {detail}")
+
         data_summary = {
             "total_articles": total_articles,
             "date_range": {"start": start_date, "end": end_date},
@@ -3962,13 +3969,19 @@ async def get_latest_narrative(
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
+        # Full LLM reports outrank auto-detected cluster stubs regardless of age
+        # (the stubs share this table and used to bury the real report); rows
+        # holding persisted model-error text ("⚠️ ...") are never served.
         result = conn.execute(text("""
             SELECT n.id, n.brand_id, b.display_name, n.narrative, n.data_summary,
                    n.days_back, n.date_range_start, n.date_range_end, n.generated_at
             FROM bw_tracker_narratives n
             JOIN bw_brands b ON n.brand_id = b.id
             WHERE n.brand_id = :bid
-            ORDER BY n.generated_at DESC LIMIT 1
+              AND n.narrative NOT LIKE '⚠️%'
+            ORDER BY (COALESCE(n.data_summary->>'auto_generated','') = 'true') ASC,
+                     n.generated_at DESC
+            LIMIT 1
         """), {"bid": brand_id})
 
         row = result.fetchone()
@@ -4704,9 +4717,11 @@ async def ack_alert_event(event_id: int, session=Depends(verify_session)):
 @router.post("/alert-events/evaluate-now")
 async def evaluate_alerts_now(session=Depends(verify_session)):
     """Manual trigger of the adverse-alert evaluation (also used for testing)."""
+    import asyncio
     from app.tasks.brand_watcher_monitor import evaluate_adverse_alerts
     db = get_database_instance()
-    created = evaluate_adverse_alerts(db)
+    # Off-loop: evaluation narrates social-alert posts (blocking LLM call).
+    created = await asyncio.to_thread(evaluate_adverse_alerts, db)
     return {"created": created}
 
 

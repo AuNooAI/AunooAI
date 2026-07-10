@@ -564,6 +564,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [classifyRunId, setClassifyRunId] = useState<number | null>(null);
   const [classifyStatus, setClassifyStatus] = useState<string>('');
   const [narrative, setNarrative] = useState<BWSavedNarrative | null>(null);
+  // Brand id whose latest-narrative fetch has RESOLVED — auto-generation must
+  // only kick in after we know the server truly has no report for this brand.
+  const [narrativeChecked, setNarrativeChecked] = useState<number | null>(null);
   const [loadingNarrative, setLoadingNarrative] = useState(false);
   const [generatingNarrative, setGeneratingNarrative] = useState(false);
   const [categoryInsight, setCategoryInsight] = useState<BWCategoryInsightResponse | null>(null);
@@ -1622,7 +1625,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
       getLatestNarrative(primarySelectedId)
-        .then(n => setNarrative(n))
+        .then(n => { setNarrative(n); setNarrativeChecked(primarySelectedId); })
         .catch(console.error)
         .finally(() => setLoadingNarrative(false));
     }
@@ -1634,7 +1637,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .then(d => setBrandAlerts(d.alerts))
         .catch(console.error);
       getLatestNarrative(primarySelectedId)
-        .then(n => setNarrative(n))
+        .then(n => { setNarrative(n); setNarrativeChecked(primarySelectedId); })
         .catch(console.error);
       fetchComparison();
       fetchShareOfVoice();
@@ -2030,6 +2033,21 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       setGeneratingNarrative(false);
     }
   }, [primarySelectedId, config.daysBack, selectedBrand]);
+
+  // Brand Analysis / Insights must never be report-less: when the latest-
+  // narrative fetch has resolved and the server truly has none for this brand,
+  // generate one automatically (persisted server-side, so this happens once
+  // per brand, not per visit). One attempt per brand per mount — a failing
+  // model must not retry-loop.
+  const autoGenNarrativeTried = useRef<number | null>(null);
+  useEffect(() => {
+    if (activeTab !== 'analysis' && activeTab !== 'insights') return;
+    if (!primarySelectedId || narrativeChecked !== primarySelectedId) return;
+    if (narrative || generatingNarrative) return;
+    if (autoGenNarrativeTried.current === primarySelectedId) return;
+    autoGenNarrativeTried.current = primarySelectedId;
+    handleGenerateNarrative();
+  }, [activeTab, primarySelectedId, narrative, narrativeChecked, generatingNarrative, handleGenerateNarrative]);
 
   // --- Category insight ---
   const handleCategoryInsight = useCallback(async (category: string) => {
@@ -3889,6 +3907,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
                   {/* Executive summary from the generated insights (full section, not a
                       clamped preview) + the forward-looking concerns as a collapsible. */}
+                  {!narrative && generatingNarrative && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-800 p-5 flex items-center gap-2.5 text-sm text-gray-500 dark:text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-500 flex-shrink-0" />
+                      Generating the brand analysis report — this takes about a minute…
+                    </div>
+                  )}
                   {narrative && (() => {
                     const exec = narrativeSections['executive summary'];
                     return (
