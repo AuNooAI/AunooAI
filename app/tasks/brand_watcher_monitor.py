@@ -934,6 +934,7 @@ async def run_brand_watcher_monitor():
     retrain_check_counter = 0
     adverse_counter = 13  # first adverse evaluation ~2 min after startup
     official_counter = 2  # first official-sources check ~3 min after startup
+    social_sweep_counter = 3  # hourly: retry social posts whose eval failed
 
     while True:
         try:
@@ -987,6 +988,18 @@ async def run_brand_watcher_monitor():
                     await asyncio.to_thread(refresh_social_engagement, db, 300)
                 except Exception as e:
                     logger.error(f"Engagement refresh error: {e}")
+                # Hourly (every 4th adverse cycle): retry social posts whose
+                # relevance/sentiment eval failed (model timeouts/outages leave
+                # them unscored and invisible to the relevance-filtered views;
+                # the per-group collection cycle was previously the only retry).
+                social_sweep_counter += 1
+                if social_sweep_counter >= 4:
+                    social_sweep_counter = 0
+                    try:
+                        from app.services.social_eval_service import sweep_unevaluated_social
+                        await sweep_unevaluated_social(db)
+                    except Exception as e:
+                        logger.error(f"Social eval sweep error: {e}")
 
             # Official/scholarly sources every ~5 cycles; the per-(brand, source)
             # 24h cursor inside makes a no-op cycle one SELECT.

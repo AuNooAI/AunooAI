@@ -44,6 +44,10 @@ _SYSTEM = (
     "and link-farm posts. An ad that merely lists brand products it services (e.g. "
     "'Pearson, Cengage, WileyPLUS, MyMathLab') is advertising the spammer, not discussing "
     "the brand — it is NOT relevant.\n"
+    "If the post never mentions the brand at all — by name, obvious variant or abbreviation, "
+    "product name containing the brand, @handle, #hashtag, or stock ticker — relevance must "
+    "not exceed 0.3, no matter how close the subject matter is to the brand's industry "
+    "(e.g. a complaint about ebooks or textbooks that names a different company or none).\n"
     'Respond with ONLY a JSON object: {"relevance": <float 0-1>, "sentiment": '
     '"positive"|"neutral"|"negative"}. No prose.'
 )
@@ -69,6 +73,28 @@ _SUPERVISOR_SYSTEM = (
 # default; SOCIAL_EVAL_SUPERVISOR=0 disables it.
 def _supervisor_enabled() -> bool:
     return os.getenv("SOCIAL_EVAL_SUPERVISOR", "1").lower() not in ("0", "false", "no")
+
+
+# Generic words that can lead a brand name without identifying it.
+_ANCHOR_STOP = {"the", "and", "for", "brand", "monitoring", "group", "inc",
+                "llc", "ltd", "corp", "company", "co", "john"}
+
+
+def _brand_anchor_tokens(brand_topic: str) -> List[str]:
+    """The distinctive leading token of the brand name, for the no-mention cap.
+
+    "Brand Monitoring Pearsons Education" -> ["pearsons"]; "Wiley" -> ["wiley"].
+    Returns [] when nothing distinctive can be derived (the cap then fails open).
+    """
+    name = re.sub(r"^brand monitoring\s+", "", (brand_topic or "").strip().lower())
+    toks = [t for t in re.findall(r"[a-z0-9']+", name)
+            if len(t) >= 3 and t not in _ANCHOR_STOP]
+    return toks[:1]
+
+
+def _mentions_brand(text_lower: str, anchors: List[str]) -> bool:
+    """Word-start match so '#Wiley' / '@wileyglobal' / '$WLYY-adjacent' handles count."""
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(a), text_lower) for a in anchors)
 
 
 def _parse_eval(content: str) -> Optional[Dict]:
@@ -130,7 +156,8 @@ class SocialEvalService:
                 self._unavailable = True
         return self._model
 
-    async def _eval_one(self, brand_topic: str, title: str, body: str) -> Optional[Dict]:
+    async def _eval_one(self, brand_topic: str, title: str, body: str,
+                        author: str = "") -> Optional[Dict]:
         model = self._get_model()
         if not model:
             return None
@@ -155,6 +182,15 @@ class SocialEvalService:
         except Exception as e:
             logger.debug(f"SocialEval call failed: {e}")
             return None
+        # Deterministic backstop for the prompt's no-mention rule: a post that
+        # never names the brand cannot be highly on-brand, however close the
+        # subject matter (a French Sony ebook complaint scored 0.75 for Wiley).
+        # 0.3 sits below the 0.4 relevance floor used by feeds and alert rules.
+        if r and r["relevance"] > 0.3:
+            anchors = _brand_anchor_tokens(brand_topic)
+            hay = f"{text}\n{author or ''}".lower()
+            if anchors and not _mentions_brand(hay, anchors):
+                r["relevance"] = 0.3
         # Supervisor pass: negative on-brand verdicts drive the spike alerts and
         # adverse panels, so they get a second, stricter look before they count.
         # Spam/solicitation -> hidden (relevance 0.1); negativity that isn't aimed
@@ -205,7 +241,8 @@ class SocialEvalService:
             async with sem:
                 title = p.get("title") or ""
                 body = p.get("summary") or p.get("content") or ""
-                r = await self._eval_one(brand_topic, title, body)
+                author = p.get("author") or (p.get("social_meta") or {}).get("author") or ""
+                r = await self._eval_one(brand_topic, title, body, author=author)
                 if r:
                     results.append({"uri": p.get("uri") or p.get("url"), **r})
 
@@ -233,14 +270,14 @@ class SocialEvalService:
         for i, s in enumerate(SOCIAL_SOURCES):
             params[f"s{i}"] = f"%{s}%"
         rows = db.facade._execute_with_rollback(text(f"""
-            SELECT uri, title, summary FROM articles
+            SELECT uri, title, summary, COALESCE(social_meta->>'author','') FROM articles
             WHERE topic = :t
               AND ({src_clause})
               AND (ingest_status IS NULL OR ingest_status <> 'social_evaluated')
             ORDER BY submission_date DESC NULLS LAST
             LIMIT :lim
         """), params).fetchall()
-        posts = [{"uri": r[0], "title": r[1], "summary": r[2]} for r in rows]
+        posts = [{"uri": r[0], "title": r[1], "summary": r[2], "author": r[3]} for r in rows]
         if not posts:
             return {"evaluated": 0, "candidates": 0}
         scored = await self.evaluate_posts(posts, brand_topic)
@@ -263,3 +300,52 @@ def get_social_eval_service() -> SocialEvalService:
     if _singleton is None:
         _singleton = SocialEvalService()
     return _singleton
+
+
+async def sweep_unevaluated_social(db, limit_per_topic: int = 200,
+                                   max_topics: int = 12, days_back: int = 14) -> Dict:
+    """Retry evaluation for social posts whose scoring failed earlier.
+
+    evaluate_and_store only marks posts it successfully scored, so model
+    timeouts/outages leave posts as candidates — but they were only retried
+    when their group's COLLECTION cycle happened to run again. This sweep is
+    collection-independent: find topics with unevaluated recent social posts
+    and re-run the evaluator for each, honoring the group's model choice.
+    """
+    from sqlalchemy import text
+    src_clause = " OR ".join(f"LOWER(news_source) LIKE :s{i}" for i in range(len(SOCIAL_SOURCES)))
+    params = {"mt": max_topics, "cutoff": ""}
+    for i, s in enumerate(SOCIAL_SOURCES):
+        params[f"s{i}"] = f"%{s}%"
+    from datetime import datetime, timedelta, timezone
+    params["cutoff"] = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    try:
+        rows = db.facade._execute_with_rollback(text(f"""
+            SELECT topic, COUNT(*) FROM articles
+            WHERE ({src_clause})
+              AND (ingest_status IS NULL OR ingest_status <> 'social_evaluated')
+              AND COALESCE(topic, '') <> ''
+              AND submission_date >= :cutoff
+            GROUP BY topic ORDER BY COUNT(*) DESC LIMIT :mt
+        """), params).fetchall()
+    except Exception as e:  # noqa: BLE001 - sweep is best-effort
+        logger.warning(f"SocialEval sweep candidate scan failed: {e}")
+        return {"swept": 0, "error": str(e)}
+    total = {"swept": 0, "topics": 0}
+    for topic, backlog in rows:
+        try:
+            grp = db.facade._execute_with_rollback(text(
+                "SELECT default_llm_model FROM keyword_groups WHERE topic = :t"
+                " AND COALESCE(default_llm_model,'') <> '' LIMIT 1"), {"t": topic}).fetchone()
+            svc = SocialEvalService(grp[0]) if grp else get_social_eval_service()
+            res = await svc.evaluate_and_store(db, topic, limit=min(limit_per_topic, int(backlog)))
+            if res.get("skipped_model_unavailable"):
+                logger.info("SocialEval sweep: model unavailable, aborting this round")
+                break
+            total["swept"] += res.get("evaluated", 0)
+            total["topics"] += 1
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"SocialEval sweep failed for {topic!r}: {e}")
+    if total["swept"]:
+        logger.info(f"SocialEval sweep: re-scored {total['swept']} posts across {total['topics']} topic(s)")
+    return total

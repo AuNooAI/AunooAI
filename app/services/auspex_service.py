@@ -41,8 +41,22 @@ from app.services.conversation_compactor import (
 logger = logging.getLogger(__name__)
 
 
+def _bedrock_routed(model: str) -> bool:
+    """True when litellm_config.yaml routes this model alias to a Bedrock
+    target. On Bedrock-repointed tenants the gpt-5.x aliases land on Claude
+    models whose real limits (200k window, 64k output) are far below the
+    alias's nominal OpenAI limits — Bedrock hard-rejects requests sized to
+    the nominal numbers."""
+    try:
+        from app.ai_models import resolve_litellm_call_params
+        return str(resolve_litellm_call_params(model).get("model", "")).startswith("bedrock/")
+    except Exception:
+        return False
+
+
 def _llm_call_kwargs(model: str, *, output_tokens: int,
-                     temperature: float = 0.7) -> dict:
+                     temperature: float = 0.7,
+                     context_budget: Optional[int] = None) -> dict:
     """Build per-model completion kwargs for a litellm call.
 
     GPT-5 is a reasoning model: it burns the output-token budget on
@@ -66,6 +80,17 @@ def _llm_call_kwargs(model: str, *, output_tokens: int,
         completion = max(output_tokens * 4, 16000)
         completion = min(completion, 128000)
         from app.ai_models import minimal_reasoning_effort
+        # On Bedrock-routed tenants the gpt-5.x alias resolves to a Claude
+        # model whose output cap is 64k — Bedrock hard-rejects anything above
+        # it ("maximum tokens you requested exceeds the model limit of 64000").
+        if _bedrock_routed(model):
+            completion = min(completion, 64000)
+        # A caller that already sized output against the remaining context
+        # window passes context_budget; the 4x reasoning headroom must not
+        # re-inflate past it or Bedrock rejects with "Input is too long"
+        # (input + max_tokens must fit inside the window).
+        if context_budget is not None:
+            completion = min(completion, max(1024, context_budget))
         return {
             "reasoning_effort": minimal_reasoning_effort(model),
             "max_completion_tokens": completion,
@@ -3683,24 +3708,32 @@ Article Details (First {detail_limit}):
             context_limit = self._get_model_context_limit(model)
             max_output_tokens = self._get_model_output_limit(model)
             
-            # Estimate tokens used by input (rough approximation)
+            # Estimate tokens used by input (rough approximation).
+            # Bedrock rejects the whole request when input + max_tokens
+            # exceeds the window ("Input is too long"), so there we estimate
+            # conservatively (3 chars/token) — undercounting the input
+            # inflates max_tokens past what the window can actually hold.
             input_text = " ".join([msg.get("content", "") for msg in messages])
-            estimated_input_tokens = len(input_text) // 4  # Rough estimate: 4 chars per token
-            
+            chars_per_token = 3 if _bedrock_routed(model) else 4
+            estimated_input_tokens = len(input_text) // chars_per_token
+
             # Calculate max_tokens based on model's actual output limit and available context
             available_context = context_limit - estimated_input_tokens - 1000  # Reserve 1000 for safety
             max_tokens = min(max_output_tokens, available_context)
-            
+
             # Ensure we have at least some tokens for response
             max_tokens = max(500, max_tokens)
-            
+
             logger.info(f"Model: {model}, Context limit: {context_limit}, Max output limit: {max_output_tokens}, Estimated input tokens: {estimated_input_tokens}, Final max_tokens: {max_tokens}")
 
             # Create the streaming response. gpt-5.4 needs ``reasoning_effort``
             # + ``max_completion_tokens`` instead of ``max_tokens`` /
             # ``temperature`` — otherwise it emits 0 chars and JSON parsing
             # downstream fails with "No valid JSON found in AI response".
-            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens)
+            # context_budget stops the 4x reasoning headroom from re-inflating
+            # past what the window has left after the input.
+            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens,
+                                           context_budget=max_tokens)
             response_stream = await litellm.acompletion(
                 **resolve_litellm_call_params(model),
                 messages=messages,
@@ -3990,9 +4023,15 @@ Article Details (First {detail_limit}):
         # Handle versioned model names
         base_model = model.split("-")[0:2]  # Get first two parts
         base_model_key = "-".join(base_model)
-        
+
         # Try exact match first, then base model, then default
-        return model_limits.get(model, model_limits.get(base_model_key, 16385))
+        limit = model_limits.get(model, model_limits.get(base_model_key, 16385))
+        # Bedrock Claude targets have a 200k window regardless of the
+        # alias's nominal (OpenAI) window — sizing input to 400k gets the
+        # request rejected with "Input is too long".
+        if _bedrock_routed(model):
+            limit = min(limit, 200000)
+        return limit
     
     def _get_model_output_limit(self, model: str) -> int:
         """Get maximum output token limit for different models."""
@@ -4041,7 +4080,12 @@ Article Details (First {detail_limit}):
         base_model_key = "-".join(base_model)
         
         # Try exact match first, then base model, then reasonable default
-        return model_output_limits.get(model, model_output_limits.get(base_model_key, 4096))
+        limit = model_output_limits.get(model, model_output_limits.get(base_model_key, 4096))
+        # Bedrock Claude targets cap output at 64k regardless of the alias's
+        # nominal (OpenAI) output limit.
+        if _bedrock_routed(model):
+            limit = min(limit, 64000)
+        return limit
     
     def _update_context_manager_for_model(self, model: str):
         """Update context manager with correct model limits."""
