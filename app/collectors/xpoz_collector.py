@@ -102,6 +102,33 @@ def _clean(text: Optional[str], limit: int = 1000) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()[:limit]
 
 
+def _strict_terms_enabled() -> bool:
+    """Kill-switch for the term gate (XPOZ_STRICT_TERMS=0 disables)."""
+    return os.getenv("XPOZ_STRICT_TERMS", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _term_tokens(term: str) -> List[str]:
+    """Meaningful words of the search query, lowercased (punctuation/&/quotes dropped)."""
+    return [t for t in re.findall(r"[a-z0-9']+", (term or "").lower()) if len(t) >= 2]
+
+
+def _post_matches_terms(row: Dict, tokens: List[str]) -> bool:
+    """True when EVERY query token appears in the post (word-start match).
+
+    Xpoz keyword search is loose: a multi-word query like "Wiley eBooks"
+    returns posts containing ANY of the words — which put a French Sony/
+    PlayStation ebook complaint into the Wiley brand lane. Enforce the AND
+    semantics the query claims: each token must occur at a word start, so
+    "wiley" still matches "#Wiley", "@wileyglobal" or "WileyGlobal", and the
+    author handle / subreddit count as brand context alongside the text.
+    """
+    meta = row.get("social_meta") or {}
+    hay = " ".join(str(x) for x in (
+        row.get("title"), row.get("summary"),
+        meta.get("author"), meta.get("subreddit")) if x).lower()
+    return all(re.search(r"(?<![a-z0-9])" + re.escape(tok), hay) for tok in tokens)
+
+
 class XpozCollector(ArticleCollector):
     """Collector for social posts via the xpoz.ai SDK (one search per platform)."""
 
@@ -160,6 +187,7 @@ class XpozCollector(ArticleCollector):
         from xpoz import XpozClient
 
         out: List[Dict] = []
+        tokens = _term_tokens(term) if _strict_terms_enabled() else []
         client = XpozClient(self.api_key, check_update=False)
         try:
             for plat in self.platforms:
@@ -176,13 +204,19 @@ class XpozCollector(ArticleCollector):
                     )
                     posts = getattr(result, "data", None) or []
                     mapper = getattr(self, f"_map_{plat}")
+                    dropped = 0
                     for post in posts[:per_platform]:
                         row = mapper(post, topic)
-                        if row:
-                            out.append(row)
+                        if not row:
+                            continue
+                        if tokens and not _post_matches_terms(row, tokens):
+                            dropped += 1
+                            continue
+                        out.append(row)
                     logger.info(
-                        "Xpoz %s returned %d posts for '%s'",
+                        "Xpoz %s returned %d posts for '%s'%s",
                         plat, len(posts), term[:60],
+                        f" ({dropped} dropped: missing query terms)" if dropped else "",
                     )
                 except Exception as e:  # noqa: BLE001 - one platform failing shouldn't kill the rest
                     logger.warning("Xpoz %s search error: %s: %s", plat, type(e).__name__, e)
