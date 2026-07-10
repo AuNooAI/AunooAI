@@ -325,6 +325,23 @@ CRITICAL FORMATTING REQUIREMENTS:
 - Include specific numbers from the data
 - Be analytical and evidence-based, grounding all claims in the provided articles"""
 
+NARRATIVE_REVIEWER_PROMPT = """You are an exacting editor reviewing a brand intelligence report before it reaches executives. Below are the SOURCE BRIEF (the only permitted evidence) and the DRAFT report.
+
+Rewrite the draft so that:
+1. Every number, event, ranking and date is supported by the source brief. Remove or reword anything unsupported down to what the brief actually shows. Never add facts of your own.
+2. Reporting periods are unambiguous. Companies with non-calendar fiscal years report a "Q4" in June — label such periods explicitly, e.g. "fiscal Q4 2026 (quarter ended April 2026), announced mid-June 2026", so no reader mistakes a fiscal quarter for a calendar one or flags it as an error.
+3. The writing is plain data narration. Remove storytelling framings and verdicts — "entered a recovery phase", "signaling underlying strength", "momentum is worsening" — and state what the data shows instead; readers draw their own conclusions.
+4. Keep the same markdown heading structure and roughly the same length. No recommendations, no advice, no greeting, no notes about your edits.
+
+Return ONLY the corrected markdown report.
+
+SOURCE BRIEF:
+{brief}
+
+DRAFT:
+{draft}"""
+
+
 CATEGORY_INSIGHT_PROMPT = """You are a brand intelligence analyst providing insights on a specific category for a brand.
 
 ## Brand: {brand_name}
@@ -492,7 +509,9 @@ class ShareOfVoiceResponse(BaseModel):
 class NarrativeRequest(BaseModel):
     brand_id: int
     days_back: int = 365
-    model: str = "gpt-5.4-mini"
+    # Standard tier, not mini: this is the most executive-facing text in Brand
+    # Watcher, and it gets a same-tier reviewer pass on top (see generate_narrative).
+    model: str = "gpt-5.4"
 
 
 class NarrativeResponse(BaseModel):
@@ -3903,7 +3922,34 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             detail = str(narrative).strip() if narrative else "the model returned no content"
             raise HTTPException(status_code=503, detail=f"Narrative generation failed: {detail}")
 
+        # Reviewer pass: a second capable-model edit that (a) strips claims the
+        # source brief doesn't support, (b) disambiguates fiscal periods (the
+        # sources title June announcements "Q4 2026" — unlabeled fiscal quarters
+        # read as calendar errors), (c) converts story framing to plain data
+        # narration. Best-effort: any failure ships the unreviewed draft.
+        reviewed = False
+        reviewer_model_name = os.getenv("BW_NARRATIVE_REVIEWER_MODEL") or request.model
+        try:
+            reviewer = LiteLLMModel.get_instance(reviewer_model_name)
+            revised = await reviewer.agenerate_response([
+                {"role": "system", "content": "You are an exacting editor of brand intelligence reports. You never invent facts."},
+                {"role": "user", "content": NARRATIVE_REVIEWER_PROMPT.format(
+                    brief=prompt[:60000], draft=narrative)},
+            ])
+            revised = (revised or "").strip()
+            if revised and not revised.startswith("⚠️") and "##" in revised \
+                    and len(revised) >= max(400, int(len(narrative) * 0.4)):
+                narrative = revised
+                reviewed = True
+            else:
+                logger.warning("Narrative reviewer output failed sanity guards — keeping the draft")
+        except Exception as rev_err:  # noqa: BLE001
+            logger.warning(f"Narrative reviewer pass failed ({rev_err}) — keeping the draft")
+
         data_summary = {
+            "model": request.model,
+            "reviewed": reviewed,
+            "reviewer_model": reviewer_model_name if reviewed else None,
             "total_articles": total_articles,
             "date_range": {"start": start_date, "end": end_date},
             "categories": category_data,
