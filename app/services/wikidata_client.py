@@ -279,14 +279,17 @@ class WikidataClient:
 
 def _parse_entity(raw: dict, qid: str, language: str) -> WikidataEntity:
     """Pull the bits we actually use out of a raw wbgetentities response."""
-    labels = raw.get("labels") or {}
-    label = (labels.get(language) or {}).get("value") or qid
-
     descriptions = raw.get("descriptions") or {}
     description = (descriptions.get(language) or {}).get("value")
 
     aliases_field = raw.get("aliases") or {}
     aliases = [a.get("value") for a in (aliases_field.get(language) or []) if a.get("value")]
+
+    # Some entities have no label in the requested language (e.g. Q21096327
+    # "Springer Nature" as of 2026-07) — fall back to the first alias before
+    # degrading to the bare QID.
+    labels = raw.get("labels") or {}
+    label = (labels.get(language) or {}).get("value") or (aliases[0] if aliases else None) or qid
 
     claims_raw = raw.get("claims") or {}
     claims: dict[str, list[WikidataClaim]] = {}

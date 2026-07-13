@@ -138,9 +138,11 @@ async def _verify(
                         continue
                     if isinstance(claim.value, str) and claim.value.startswith("Q"):
                         person_refs.append((claim.value, role))
+            seen_org_qids: set[str] = set()
             for pid, relation in _ORG_PROPS.items():
                 for claim in brand_entity.claims.get(pid, [])[:5]:
-                    if isinstance(claim.value, str) and claim.value.startswith("Q"):
+                    if isinstance(claim.value, str) and claim.value.startswith("Q") and claim.value not in seen_org_qids:
+                        seen_org_qids.add(claim.value)
                         org_refs.append((claim.value, relation))
 
             # ── 3. Resolve QIDs → labels in one batch ───────────────────────
