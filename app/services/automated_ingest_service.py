@@ -1717,14 +1717,21 @@ class AutomatedIngestService:
             loop = asyncio.get_event_loop()
 
             self.logger.info(f"Submitting to dedicated blocking I/O executor (poll_interval=5, wait_timeout=300)")
-            batch_job = await loop.run_in_executor(
-                self._blocking_executor,  # Use dedicated executor instead of None
-                lambda: firecrawl_app.batch_scrape(
-                    uris,
-                    formats=['markdown'],
-                    poll_interval=5,  # Check every 5 seconds
-                    wait_timeout=300  # Wait up to 5 minutes
-                )
+            # wait_timeout only bounds the SDK's polling loop; its individual HTTP
+            # requests have no socket timeout and can block the executor thread
+            # forever (seen 2026-07-11: result-page GET hung 2 days and froze the
+            # keyword monitor). asyncio.wait_for puts a hard ceiling on the await.
+            batch_job = await asyncio.wait_for(
+                loop.run_in_executor(
+                    self._blocking_executor,  # Use dedicated executor instead of None
+                    lambda: firecrawl_app.batch_scrape(
+                        uris,
+                        formats=['markdown'],
+                        poll_interval=5,  # Check every 5 seconds
+                        wait_timeout=300  # Wait up to 5 minutes
+                    )
+                ),
+                timeout=360  # hard ceiling above the SDK's 300s wait_timeout
             )
 
             if not batch_job:
