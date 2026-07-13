@@ -609,6 +609,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [suggestingKeywords, setSuggestingKeywords] = useState(false);
   const [suggestionVerification, setSuggestionVerification] = useState<SuggestionVerification | null>(null);
   const [confirmedQid, setConfirmedQid] = useState<string | null>(null);
+  // Editable copy of config.wikidata_ids — saved as-is (replace, not merge) so
+  // a wrong QID can be removed from the UI.
+  const [wikidataIds, setWikidataIds] = useState<string[]>([]);
   const [setupMonitoring, setSetupMonitoring] = useState(true);
   const [monitoringStatus, setMonitoringStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -1586,7 +1589,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       const verification = suggestions.verification ?? null;
       setSuggestionVerification(verification);
       if (verification?.available && verification.brand?.matched && verification.brand.qid) {
-        setConfirmedQid(verification.brand.qid);
+        const newQid = verification.brand.qid;
+        const prevQid = confirmedQid;
+        // Replace the previously suggested QID (if any) rather than accumulating.
+        setWikidataIds(ids => [...ids.filter(q => q !== prevQid && q !== newQid), newQid]);
+        setConfirmedQid(newQid);
       }
     } catch (err) {
       console.error('Error suggesting keywords:', err);
@@ -2137,6 +2144,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     setCompetitorKeywordInput('');
     setSuggestionVerification(null);
     setConfirmedQid(null);
+    setWikidataIds([]);
     setSetupMonitoring(true);
   };
 
@@ -2171,6 +2179,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     });
     setSuggestionVerification(null);
     setConfirmedQid((brand.config?.wikidata_ids || [])[0] || null);
+    setWikidataIds(brand.config?.wikidata_ids || []);
     setSetupMonitoring(false);
   };
 
@@ -2207,12 +2216,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       // wholesale and opoint_brand_matcher depends on the existing list.
       const v = suggestionVerification;
       const existing = (editingBrandId ? brands.find(b => b.id === editingBrandId)?.config : undefined) || {};
-      const qidIsNew = !!confirmedQid && !(existing.wikidata_ids || []).includes(confirmedQid);
-      if (v?.available || qidIsNew) {
+      const existingIds = existing.wikidata_ids || [];
+      const idsChanged = existingIds.length !== wikidataIds.length || existingIds.some((q: string, i: number) => q !== wikidataIds[i]);
+      if (v?.available || idsChanged) {
         try {
-          const wikidataIds = [...new Set([...(existing.wikidata_ids || []), confirmedQid].filter(Boolean))];
+          // wikidata_ids is written as-is (an empty list is a deliberate removal).
           await updateBrandConfig(brandId, {
-            ...(wikidataIds.length ? { wikidata_ids: wikidataIds } : {}),
+            wikidata_ids: wikidataIds,
             ...(v?.available ? {
               verified_entities: {
                 brand: v.brand ? { qid: v.brand.qid, label: v.brand.label, description: v.brand.description } : { qid: confirmedQid },
@@ -7236,6 +7246,29 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         No Wikidata entity found for "{brandForm.display_name}" — suggestions are unverified.
                       </p>
                     )
+                  )}
+                  {wikidataIds.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Wikidata Entities</label>
+                      <div className="flex flex-wrap gap-1">
+                        {wikidataIds.map(q => (
+                          <span key={q} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded text-xs">
+                            <BadgeCheck className="w-3 h-3 shrink-0" />
+                            {q === suggestionVerification?.brand?.qid && suggestionVerification.brand.label
+                              ? `${suggestionVerification.brand.label} (${q})` : q}
+                            <button onClick={() => {
+                              setWikidataIds(ids => ids.filter(x => x !== q));
+                              if (confirmedQid === q) setConfirmedQid(null);
+                            }} className="hover:text-red-500" title="Remove this entity">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                        Used to match articles to this brand by entity. Remove a wrong entry, then re-run Suggest Keywords to pick the correct one.
+                      </p>
+                    </div>
                   )}
                   <KeywordTagInput label="Brand Keywords" keywords={(brandForm.brand_keywords as string[]) || []}
                     inputValue={brandKeywordInput} setInputValue={setBrandKeywordInput}
