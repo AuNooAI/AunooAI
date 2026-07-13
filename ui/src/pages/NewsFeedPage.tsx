@@ -28,6 +28,7 @@ import {
   Target,
   Shield,
   BarChart3,
+  CalendarDays,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -60,6 +61,8 @@ const BrandWatcherTab = React.lazy(() =>
   import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
 const ThreatIntelligenceTab = React.lazy(() =>
   import('../components/newsfeed/ThreatIntelligenceTab').then(m => ({ default: m.ThreatIntelligenceTab })));
+const TimelineTab = React.lazy(() =>
+  import('../components/newsfeed/TimelineTab').then(m => ({ default: m.TimelineTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -207,11 +210,11 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
-  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel';
-  const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel'];
+  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel' | 'timeline';
+  const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
-  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents'];
+  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents', 'timeline'];
   const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
     try {
       const saved = localStorage.getItem('explore_last_tab');
@@ -831,7 +834,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence' }[currentTab] ?? 'News Feed'}
+              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence', timeline: 'Timeline' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -956,6 +959,16 @@ export function NewsFeedPage() {
             {researchAlertsCount > 0 && (
               <span className="explore-tab-badge">{researchAlertsCount}</span>
             )}
+          </button>
+          )}
+          {/* Timeline mementos: per-brand/per-topic event timeline */}
+          {dedicatedMode !== null && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'timeline' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('timeline')}
+          >
+            <CalendarDays className="w-4 h-4" />
+            Timeline
           </button>
           )}
           {dedicatedMode === false && (<>
@@ -1294,6 +1307,13 @@ export function NewsFeedPage() {
             {currentTab === 'threat_intel' && isModuleEnabled('threat_intel') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
                 <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
+              </Suspense>
+            )}
+
+            {/* Timeline Tab Content */}
+            {currentTab === 'timeline' && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}>
+                <TimelineTab />
               </Suspense>
             )}
 
