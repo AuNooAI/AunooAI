@@ -16,6 +16,8 @@ import {
   Layers,
   ExternalLink,
   Sparkles,
+  Pin,
+  Trash2,
 } from 'lucide-react';
 
 const BASE = '/api/timeline';
@@ -137,6 +139,10 @@ export function TimelineTab() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noteFormOpen, setNoteFormOpen] = useState(false);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteBody, setNoteBody] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -205,6 +211,44 @@ export function TimelineTab() {
       setError(e instanceof Error ? e.message : 'Generation failed');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!selected || noteTitle.trim().length < 3) return;
+    setSavingNote(true);
+    try {
+      const res = await fetch(`${BASE}/notes`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope_type: selected.scope_type,
+          scope_id: selected.scope_id,
+          title: noteTitle.trim(),
+          description: noteBody.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error(`note: HTTP ${res.status}`);
+      setNoteTitle('');
+      setNoteBody('');
+      setNoteFormOpen(false);
+      await loadScope(selected, view);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save note');
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const handleDeleteNote = async (id: number) => {
+    if (!selected || !confirm('Delete this analyst note?')) return;
+    try {
+      const res = await fetch(`${BASE}/notes/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error(`delete: HTTP ${res.status}`);
+      await loadScope(selected, view);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete note');
     }
   };
 
@@ -333,14 +377,59 @@ export function TimelineTab() {
           )}
 
           {/* Analyst notes */}
-          {summary.analyst_notes.length > 0 && (
-            <div>
-              <div className="text-sm font-semibold text-gray-700 mb-2">Analyst notes</div>
-              <div className="space-y-2">
-                {summary.analyst_notes.map(evt => <EventCard key={evt.id} evt={evt} />)}
-              </div>
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-semibold text-gray-700">Analyst notes</span>
+              <button
+                className="text-xs flex items-center gap-1 px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                onClick={() => setNoteFormOpen(!noteFormOpen)}
+              >
+                <Pin className="w-3 h-3" /> {noteFormOpen ? 'Cancel' : 'Pin note'}
+              </button>
             </div>
-          )}
+            {noteFormOpen && (
+              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 mb-2 space-y-2">
+                <input
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  placeholder="Note title (permanent — feeds the state doc and agent context)"
+                  value={noteTitle}
+                  onChange={e => setNoteTitle(e.target.value)}
+                  maxLength={300}
+                />
+                <textarea
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  placeholder="Detail (optional)"
+                  rows={2}
+                  value={noteBody}
+                  onChange={e => setNoteBody(e.target.value)}
+                  maxLength={2000}
+                />
+                <button
+                  className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
+                  disabled={noteTitle.trim().length < 3 || savingNote}
+                  onClick={handleAddNote}
+                >
+                  {savingNote ? 'Saving…' : 'Save note'}
+                </button>
+              </div>
+            )}
+            {summary.analyst_notes.length > 0 && (
+              <div className="space-y-2">
+                {summary.analyst_notes.map(evt => (
+                  <div key={evt.id} className="flex items-start gap-2">
+                    <div className="flex-1"><EventCard evt={evt} /></div>
+                    <button
+                      className="mt-3 text-gray-400 hover:text-red-600"
+                      title="Delete note"
+                      onClick={() => handleDeleteNote(evt.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Recent mementos */}
           <div>

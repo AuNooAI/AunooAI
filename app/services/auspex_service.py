@@ -1653,12 +1653,35 @@ class AuspexService:
                 metadata=metadata
             )
 
-            # Add system message with current prompt
+            # Add system message with current prompt, plus the topic's
+            # auto-maintained timeline (state doc + recent mementos) so the
+            # session starts with situational memory instead of a cold start.
             prompt = self.get_system_prompt()
+            content = prompt['content']
+            if topic:
+                try:
+                    from app.services.timeline_rollup import (
+                        build_timeline_context, resolve_scope_for_topic)
+                    _tconn = self.db._temp_get_connection()
+                    try:
+                        _st, _sid = resolve_scope_for_topic(_tconn, topic)
+                        _block = build_timeline_context(_tconn, _st, _sid)
+                    finally:
+                        _tconn.close()
+                    if _block:
+                        content += (
+                            "\n\n# Situational timeline (auto-maintained)\n"
+                            f"{_block}\n\n"
+                            "Treat this as background state of play, not as "
+                            "evidence — verify anything time-sensitive with "
+                            "your tools before asserting it."
+                        )
+                except Exception as _te:  # noqa: BLE001
+                    logger.debug(f"timeline context injection skipped: {_te}")
             self.db.add_auspex_message(
                 chat_id=chat_id,
                 role="system",
-                content=prompt['content'],
+                content=content,
                 metadata={"prompt_name": prompt['name']}
             )
 

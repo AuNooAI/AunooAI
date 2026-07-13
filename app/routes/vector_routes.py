@@ -4339,9 +4339,35 @@ Format your response as a structured markdown report with clear sections.
                     for i, a in enumerate(alerts_created)
                 ])
 
+                # Situational timeline for the topic: lets the report say what
+                # is genuinely NEW versus ongoing instead of re-reporting the
+                # same developments every run.
+                timeline_block = ""
+                if req.topic:
+                    try:
+                        from app.services.timeline_rollup import (
+                            build_timeline_context, resolve_scope_for_topic)
+                        _tconn = db._temp_get_connection()
+                        try:
+                            _st, _sid = resolve_scope_for_topic(_tconn, req.topic)
+                            timeline_block = build_timeline_context(_tconn, _st, _sid)
+                        finally:
+                            _tconn.close()
+                    except Exception as _te:
+                        logger.debug(f"timeline context for report skipped: {_te}")
+
+                timeline_section = ""
+                if timeline_block:
+                    timeline_section = f"""
+## Situational timeline (background — already known)
+{timeline_block}
+
+Use the timeline only to distinguish new developments from ongoing ones; do not restate it as findings.
+"""
+
                 full_prompt = f"""
 {report_prompt}
-
+{timeline_section}
 ## Signal Instructions Analyzed
 {', '.join(instruction_names)}
 

@@ -181,6 +181,51 @@ async def timeline_status(session=Depends(verify_session)):
         conn.close()
 
 
+class NoteRequest(BaseModel):
+    scope_type: str = Field(pattern="^(topic|brand)$")
+    scope_id: str
+    title: str = Field(min_length=3, max_length=300)
+    description: str = Field("", max_length=2000)
+
+
+@router.post("/notes")
+async def add_analyst_note(req: NoteRequest, session=Depends(verify_session)):
+    """Pin a permanent analyst note onto a scope's timeline. Notes are never
+    stale, feed the state doc, and ride along in the LLM context block."""
+    conn = _conn()
+    try:
+        from app.services.timeline_events import upsert_event
+        evt = {
+            "event_type": "analyst_note",
+            "title": req.title.strip(),
+            "description": req.description.strip(),
+            "significance": "high",
+            "granularity": "permanent",
+        }
+        outcome = upsert_event(conn, req.scope_type, req.scope_id, evt,
+                               date.today(), dated_hash=False)
+        conn.commit()
+        return {"outcome": outcome}
+    finally:
+        conn.close()
+
+
+@router.delete("/notes/{event_id}")
+async def delete_analyst_note(event_id: int, session=Depends(verify_session)):
+    conn = _conn()
+    try:
+        row = conn.execute(text("""
+            DELETE FROM timeline_events
+            WHERE id = :i AND event_type = 'analyst_note' RETURNING id
+        """), {"i": event_id}).fetchone()
+        conn.commit()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return {"deleted": event_id}
+    finally:
+        conn.close()
+
+
 class GenerateRequest(BaseModel):
     scope_type: str = Field(pattern="^(topic|brand)$")
     scope_id: str

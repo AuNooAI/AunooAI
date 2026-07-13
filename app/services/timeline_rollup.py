@@ -343,9 +343,26 @@ def state_doc_stale_scopes(conn, max_age_days: int = STATE_DOC_STALE_DAYS) -> Li
 # Context block for LLM prompt injection
 # ---------------------------------------------------------------------------
 
+def resolve_scope_for_topic(conn, topic: str):
+    """Map an articles.topic value to a timeline scope.
+
+    'Brand Monitoring <name>' lanes belong to the brand scope (its timeline
+    also carries risk/alert/story mementos); everything else is a topic scope.
+    """
+    if topic and topic.startswith("Brand Monitoring "):
+        name = topic[len("Brand Monitoring "):].strip()
+        row = conn.execute(text(
+            "SELECT id FROM bw_brands WHERE display_name = :n AND enabled = true"),
+            {"n": name}).fetchone()
+        if row:
+            return "brand", str(row[0])
+    return "topic", topic
+
+
 def build_timeline_context(conn, scope_type: str, scope_id: str,
                            char_budget: int = 3200) -> str:
-    """Compact text block (~800 tokens): state doc + 1 monthly + 4 weekly + 7 daily."""
+    """Compact text block (~800 tokens): state doc + analyst notes + 1 monthly
+    + 4 weekly + 7 daily."""
     label = scope_label(conn, scope_type, scope_id)
     blocks: List[str] = []
 
@@ -355,6 +372,13 @@ def build_timeline_context(conn, scope_type: str, scope_id: str,
         blocks.append(f"[STATE: {label}]{trend}\n{sd['summary']}\n[END STATE]")
 
     lines: List[str] = [f"[TIMELINE: {label}]"]
+    notes = _fetch_events(conn, scope_type, scope_id, "permanent", limit=10,
+                          exclude_stale=False)
+    if notes:
+        lines.append("Analyst notes:")
+        for n in notes:
+            lines.append(f"- {n['title']}" + (f": {(n['description'] or '')[:200]}"
+                                              if n.get("description") else ""))
     for gran, limit, prefix in (("monthly", 1, "Month"), ("weekly", 4, "Week"),):
         for e in _fetch_events(conn, scope_type, scope_id, gran, limit=limit):
             lines.append(f"- [{prefix} {e['event_date']}] {e['title']}: {(e['description'] or '')[:220]}")
