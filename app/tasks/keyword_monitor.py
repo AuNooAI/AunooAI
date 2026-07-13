@@ -1192,10 +1192,21 @@ async def run_keyword_monitor():
     last_checkpoint = datetime.now()
     checkpoint_interval = 300  # 5 minutes
 
+    # Liveness heartbeat for the external collector health check
+    # (collector_health_check.sh greps the journal for keyword_monitor lines
+    # within 90 min). Due-group activity legitimately goes quiet for hours on
+    # 12h group cadences, so the loop itself must emit a periodic INFO line —
+    # its absence then really does mean the loop is hung or dead.
+    last_heartbeat = datetime.now()
+    heartbeat_interval = 1800  # 30 minutes
+
     while True:
         try:
             # Perform periodic WAL checkpoint to prevent WAL file growth
             current_time = datetime.now()
+            if (current_time - last_heartbeat).total_seconds() >= heartbeat_interval:
+                last_heartbeat = current_time
+                logger.info("Keyword monitor heartbeat: loop alive (per-group scheduling)")
             if (current_time - last_checkpoint).total_seconds() >= checkpoint_interval:
                 try:
                     db.perform_wal_checkpoint("PASSIVE")
