@@ -158,6 +158,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_rss_feed_monitor_start())
         logger.info("Scheduled RSS feed monitor to start in 25 seconds")
 
+        # Start the timeline mementos task with a delay
+        async def delayed_timeline_task_start():
+            """Start timeline mementos scheduler after other monitors"""
+            await asyncio.sleep(30)  # Wait 30 seconds after startup
+            try:
+                from app.tasks.timeline_task import run_timeline_task
+                logger.info("Starting timeline mementos background task...")
+                asyncio.create_task(run_timeline_task())
+                logger.info("Timeline mementos background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start timeline mementos task: {str(e)}")
+
+        asyncio.create_task(delayed_timeline_task_start())
+        logger.info("Scheduled timeline mementos task to start in 30 seconds")
+
         # Event-loop health monitor. Always on — overhead is one sleep+timestamp
         # every 5s. Logs WARNING when scheduling lag exceeds 1s; samples
         # available at GET /api/admin/event-loop-status.

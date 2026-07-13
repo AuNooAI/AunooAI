@@ -2169,6 +2169,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       competitor_keywords: brand.competitor_keywords || [],
       color: brand.color || '',
     });
+    setSuggestionVerification(null);
+    setConfirmedQid((brand.config?.wikidata_ids || [])[0] || null);
     setSetupMonitoring(false);
   };
 
@@ -2198,6 +2200,31 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           color: brandForm.color,
         });
         brandId = created.id;
+      }
+
+      // Persist the confirmed Wikidata QID + verified entities into brand config.
+      // wikidata_ids must be merged client-side: the config PUT replaces keys
+      // wholesale and opoint_brand_matcher depends on the existing list.
+      const v = suggestionVerification;
+      const existing = (editingBrandId ? brands.find(b => b.id === editingBrandId)?.config : undefined) || {};
+      const qidIsNew = !!confirmedQid && !(existing.wikidata_ids || []).includes(confirmedQid);
+      if (v?.available || qidIsNew) {
+        try {
+          const wikidataIds = [...new Set([...(existing.wikidata_ids || []), confirmedQid].filter(Boolean))];
+          await updateBrandConfig(brandId, {
+            ...(wikidataIds.length ? { wikidata_ids: wikidataIds } : {}),
+            ...(v?.available ? {
+              verified_entities: {
+                brand: v.brand ? { qid: v.brand.qid, label: v.brand.label, description: v.brand.description } : { qid: confirmedQid },
+                people: v.people || [],
+                competitors: v.competitors || [],
+                retrieved_at: v.retrieved_at,
+              },
+            } : {}),
+          });
+        } catch (err) {
+          console.error('Failed to save verified entity config:', err);
+        }
       }
 
       // Setup monitoring if checked
@@ -7164,13 +7191,52 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         placeholder="#2563eb"
                         className="w-32 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-gray-100" />
                     </div>
-                    <button onClick={handleSuggestKeywords}
+                    <button onClick={() => handleSuggestKeywords()}
                       disabled={!brandForm.display_name?.trim() || suggestingKeywords}
                       className="px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap">
                       {suggestingKeywords ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                       {suggestingKeywords ? 'Suggesting...' : 'Suggest Keywords'}
                     </button>
                   </div>
+                  {suggestionVerification && (
+                    suggestionVerification.available === false ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        Wikidata verification unavailable — suggestions are unverified.
+                      </p>
+                    ) : suggestionVerification.brand?.matched ? (
+                      <div className="flex items-start gap-1.5 p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-xs text-gray-700 dark:text-gray-300">
+                        <BadgeCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span>
+                          Verified against Wikidata: <strong>{suggestionVerification.brand.label}</strong>
+                          {suggestionVerification.brand.description && <> — {suggestionVerification.brand.description}</>}
+                          {suggestionVerification.retrieved_at && <span className="text-gray-500 dark:text-gray-400"> (retrieved {suggestionVerification.retrieved_at})</span>}
+                          {' '}
+                          <button onClick={handleChangeEntity} className="text-blue-600 dark:text-blue-400 hover:underline">Change</button>
+                        </span>
+                      </div>
+                    ) : (suggestionVerification.brand?.candidates?.length || 0) > 0 ? (
+                      <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-xs space-y-1">
+                        <p className="text-gray-700 dark:text-gray-300 font-medium">
+                          Multiple Wikidata entities match "{brandForm.display_name}" — pick the right one to verify people & firms:
+                        </p>
+                        {suggestionVerification.brand!.candidates.map(c => (
+                          <button key={c.qid}
+                            onClick={() => { setConfirmedQid(c.qid); handleSuggestKeywords(c.qid); }}
+                            disabled={suggestingKeywords}
+                            className="block w-full text-left px-2 py-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-50 text-gray-700 dark:text-gray-300">
+                            <strong>{c.label}</strong>{c.description && <> — {c.description}</>} <span className="text-gray-400">({c.qid})</span>
+                          </button>
+                        ))}
+                        <p className="text-gray-500 dark:text-gray-400">None of these? Suggestions stay unverified.</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        No Wikidata entity found for "{brandForm.display_name}" — suggestions are unverified.
+                      </p>
+                    )
+                  )}
                   <KeywordTagInput label="Brand Keywords" keywords={(brandForm.brand_keywords as string[]) || []}
                     inputValue={brandKeywordInput} setInputValue={setBrandKeywordInput}
                     onAdd={(v) => addKeyword('brand_keywords', v)} onRemove={(v) => removeKeyword('brand_keywords', v)} />
@@ -7179,10 +7245,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     onAdd={(v) => addKeyword('product_keywords', v)} onRemove={(v) => removeKeyword('product_keywords', v)} />
                   <KeywordTagInput label="People Keywords" keywords={(brandForm.people_keywords as string[]) || []}
                     inputValue={peopleKeywordInput} setInputValue={setPeopleKeywordInput}
-                    onAdd={(v) => addKeyword('people_keywords', v)} onRemove={(v) => removeKeyword('people_keywords', v)} />
+                    onAdd={(v) => addKeyword('people_keywords', v)} onRemove={(v) => removeKeyword('people_keywords', v)}
+                    meta={peopleMeta} />
                   <KeywordTagInput label="Competitor Keywords" keywords={(brandForm.competitor_keywords as string[]) || []}
                     inputValue={competitorKeywordInput} setInputValue={setCompetitorKeywordInput}
-                    onAdd={(v) => addKeyword('competitor_keywords', v)} onRemove={(v) => removeKeyword('competitor_keywords', v)} />
+                    onAdd={(v) => addKeyword('competitor_keywords', v)} onRemove={(v) => removeKeyword('competitor_keywords', v)}
+                    meta={competitorMeta} />
 
                   <label className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg cursor-pointer">
                     <input type="checkbox" checked={setupMonitoring}
