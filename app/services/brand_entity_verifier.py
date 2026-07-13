@@ -37,11 +37,8 @@ _ORG_DESCRIPTION_HINTS = (
     "organization", "organisation", "firm", "airline", "automaker", "chain",
     "producer", "provider", "developer", "operator", "group", "holding",
     "software", "technology", "media", "label", "studio", "platform",
-)
-
-_PERSONISH_DESCRIPTION_HINTS = (
-    "singer", "rapper", "musician", "actor", "actress", "footballer",
-    "politician", "writer", "author", "artist", "player", "born",
+    "website", "search engine", "marque", "service", "startup",
+    "university", "institute", "press", "maker",
 )
 
 
@@ -61,13 +58,6 @@ def _looks_like_org(description: Optional[str]) -> bool:
         return False
     d = description.casefold()
     return any(h in d for h in _ORG_DESCRIPTION_HINTS)
-
-
-def _looks_like_person(description: Optional[str]) -> bool:
-    if not description:
-        return False
-    d = description.casefold()
-    return any(h in d for h in _PERSONISH_DESCRIPTION_HINTS)
 
 
 async def verify_suggestions(
@@ -110,10 +100,14 @@ async def _verify(
                 {"qid": h["qid"], "label": h["label"], "description": h.get("description")}
                 for h in hits
             ]
+            # Auto-select only an exact-label match whose description looks like
+            # an organization. "Not a person" is too weak: "Springer" exact-matches
+            # a 1982 video game before any publisher. No org-like exact match ⇒
+            # matched=False and the UI shows the candidate picker.
             target = _norm(brand_name)
             for h in hits:
                 names = [h.get("label", "")] + list(h.get("aliases") or [])
-                if any(_norm(n) == target for n in names) and not _looks_like_person(h.get("description")):
+                if any(_norm(n) == target for n in names) and _looks_like_org(h.get("description")):
                     brand_qid = h["qid"]
                     matched = True
                     break
