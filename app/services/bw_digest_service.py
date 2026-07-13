@@ -105,8 +105,45 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
         return None
 
 
-def _compose_digest(conn, period_days: int) -> Optional[str]:
-    """Markdown digest body across enabled brands; None when there is nothing to say."""
+_DIGEST_MEMORY_DAYS = 14  # how far back "already covered in a digest" reaches
+
+
+def _previously_digested(conn, days: int = _DIGEST_MEMORY_DAYS) -> set:
+    """Article URIs linked in recent digests (each digest event stores sent_uris).
+
+    Cross-period memory: driver articles and social posts already shown in an
+    earlier digest are suppressed, so an ongoing story reads as a delta
+    ("+N new") instead of repeating the same links every day.
+    """
+    rows = conn.execute(text("""
+        SELECT DISTINCT jsonb_array_elements_text(payload->'sent_uris')
+        FROM bw_alert_events
+        WHERE rule = 'digest' AND payload->'sent_uris' IS NOT NULL
+          AND created_at >= now() - (:d || ' days')::interval
+    """), {"d": str(days)}).fetchall()
+    return {r[0] for r in rows}
+
+
+def _story_groups_for(conn, brand_id: int, uris) -> Dict[str, str]:
+    """uri -> story_group_id for this brand (bw_article_stories); missing = own story."""
+    uris = [u for u in uris if u]
+    if not uris:
+        return {}
+    rows = conn.execute(text("""
+        SELECT article_uri, story_group_id FROM bw_article_stories
+        WHERE brand_id = :b AND article_uri = ANY(:uris)
+    """), {"b": brand_id, "uris": uris}).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def _compose_digest(conn, period_days: int):
+    """Markdown digest body across enabled brands + the article URIs it links.
+
+    Returns ``(body_markdown | None, sent_uris)`` — None body when there is
+    nothing to say.
+    """
+    prev_uris = _previously_digested(conn)
+    sent_uris: list = []
     brands = conn.execute(text(
         "SELECT id, display_name, COALESCE(config, '{}') FROM bw_brands "
         "WHERE enabled = true ORDER BY is_primary DESC, display_name"
@@ -173,6 +210,7 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
         """), {"b": bid, "d": str(period_days)}).fetchall()
         for rt, sev, title, uri in risks:
             section.append(f"- ⚠ **{rt.replace('_', '/')}** ({sev}): {_md_link(title, uri)}")
+            sent_uris.append(uri)
         # Alert events fired. DISTINCT ON title: the same rule re-firing across
         # the period (e.g. daily-keyed sentiment alerts spanning two calendar
         # days) previously produced duplicate lines in the digest.
@@ -205,7 +243,7 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
         # too, so theirs use 7 days as well.
         _DRIVER_COLS = ("a.title, a.uri, a.news_source, LEFT(COALESCE(a.summary,''), 300), "
                         "a.factual_reporting, a.mbfc_credibility_rating")
-        drivers: list = []
+        candidates: list = []
         seen_uris: set = set()
         if spike_cats:
             cat_keys = {f"_c{i}": c for i, c in enumerate(spike_cats)}
@@ -216,11 +254,11 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
                 JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                 WHERE bac.category IN ({cat_in})
                   AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
-                ORDER BY a.publication_date DESC LIMIT 4
+                ORDER BY a.publication_date DESC LIMIT 8
             """), {"b": bid, **cat_keys}).fetchall():
                 if row[1] not in seen_uris:
                     seen_uris.add(row[1])
-                    drivers.append(row)
+                    candidates.append(row)
         if has_neg_alert or (neg or 0) >= 3:
             for row in conn.execute(text(f"""
                 SELECT {_DRIVER_COLS}
@@ -229,11 +267,27 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
                 WHERE ({_NEG})
                   AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
                   AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-                ORDER BY a.publication_date DESC LIMIT 4
+                ORDER BY a.publication_date DESC LIMIT 8
             """), {"b": bid}).fetchall():
                 if row[1] not in seen_uris:
                     seen_uris.add(row[1])
+                    candidates.append(row)
+        # Cross-period memory: drop drivers already linked in a recent digest,
+        # including syndicated copies of an already-covered story (same
+        # bw_article_stories group). Ongoing coverage becomes a delta line,
+        # not the same links again.
+        drivers: list = []
+        already_covered = 0
+        if candidates:
+            groups = _story_groups_for(conn, bid, [r[1] for r in candidates] + list(prev_uris))
+            prev_groups = {groups[u] for u in prev_uris if u in groups}
+            for row in candidates:
+                uri = row[1]
+                if uri in prev_uris or groups.get(uri) in prev_groups:
+                    already_covered += 1
+                else:
                     drivers.append(row)
+            drivers = drivers[:4]
         if drivers:
             # Credibility split (MBFC stamp on the article row): low-cred
             # items are FLAGGED in the link list but excluded from the LLM
@@ -263,6 +317,10 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
                 src = f" — {s}" if s else ""
                 flag = " · ⚑ low-credibility source" if _low_cred(r) else ""
                 section.append(f"    - {_md_link((t or '')[:90], u)}{src}{flag}")
+                sent_uris.append(u)
+        if already_covered:
+            section.append(f"    - _…plus {already_covered} article{'s' if already_covered != 1 else ''} "
+                           f"already covered in earlier digests (ongoing coverage)._")
         # Social-alert substance — a social spike/critic alert must narrate the
         # posts themselves (what is being said, by whom, where), not just count
         # them. Window matches the widest social rule (48h) or the digest period.
@@ -270,12 +328,17 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
             from app.services.brand_alert_service import (
                 fetch_negative_social_posts, narrate_social_posts, social_posts_md)
             posts = fetch_negative_social_posts(
-                conn, f"Brand Monitoring {bname}", hours=max(48, period_days * 24))
-            if posts:
-                social_narr = narrate_social_posts(bname, posts)
+                conn, f"Brand Monitoring {bname}", hours=max(48, period_days * 24), limit=12)
+            fresh_posts = [p for p in posts if p.get("url") not in prev_uris][:6]
+            if fresh_posts:
+                social_narr = narrate_social_posts(bname, fresh_posts)
                 if social_narr:
                     section.append(f"- What the posts say: {social_narr}")
-                section.extend(social_posts_md(posts, limit=4, indent="    "))
+                section.extend(social_posts_md(fresh_posts, limit=4, indent="    "))
+                sent_uris.extend(p.get("url") for p in fresh_posts[:4] if p.get("url"))
+            elif posts:
+                section.append(f"- Social posts behind the alert{'s' if len(posts) != 1 else ''} "
+                               "were covered in an earlier digest (no new posts).")
         # Case actions taken.
         row = conn.execute(text("""
             SELECT COUNT(*) FILTER (WHERE new_status = 'escalated') AS esc,
@@ -293,8 +356,8 @@ def _compose_digest(conn, period_days: int) -> Optional[str]:
             lines.extend(section)
             lines.append("")
     if not had_content:
-        return None
-    return "\n".join(lines)
+        return None, sent_uris
+    return "\n".join(lines), sent_uris
 
 
 def maybe_send_digest(db) -> bool:
@@ -329,7 +392,7 @@ def maybe_send_digest(db) -> bool:
         conn.commit()
         if not claimed:
             return False
-        body_md = _compose_digest(conn, period_days)
+        body_md, sent_uris = _compose_digest(conn, period_days)
         title = f"Adverse-media digest — {'last 7 days' if freq == 'weekly' else 'last 24 hours'}"
         if body_md is None:
             body_md = "_Quiet period — no new findings, alerts, or case actions._"
@@ -356,8 +419,11 @@ def maybe_send_digest(db) -> bool:
                 body_html=markdown_to_html(f"## {title}\n\n{body_md}"),
                 body_text=f"{title}\n\n{text_body}",
             )
-            conn.execute(text("UPDATE bw_alert_events SET delivered = :d, body = :b WHERE id = :i"),
-                         {"d": json.dumps({"email": bool(ok)}), "b": text_body[:5000], "i": claimed[0]})
+            # sent_uris = the digest's cross-period memory (_previously_digested).
+            conn.execute(text("UPDATE bw_alert_events SET delivered = :d, body = :b, payload = :p WHERE id = :i"),
+                         {"d": json.dumps({"email": bool(ok)}), "b": text_body[:5000],
+                          "p": json.dumps({"sent_uris": [u for u in dict.fromkeys(sent_uris) if u][:600]}),
+                          "i": claimed[0]})
             conn.commit()
             logger.info(f"bw digest sent to {len(recipients)} recipient(s): {bool(ok)}")
             return bool(ok)

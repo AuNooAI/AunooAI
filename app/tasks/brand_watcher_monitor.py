@@ -437,12 +437,15 @@ def _check_auto_retrain(db: Database) -> None:
 
 # Default rule thresholds; overridable per-rule via bw_alert_config.rules JSONB,
 # e.g. {"neg_social_spike": {"enabled": true, "min_posts": 4}, ...}
+# "min_new": articles/posts not covered by any previous alert of the rule —
+# identity-keyed dedup means a rule only re-fires on that much NEW content.
 _ADVERSE_RULE_DEFAULTS = {
-    "neg_social_spike":    {"enabled": True, "min_prior": 2, "multiplier": 2.0},
-    "high_reach_negative": {"enabled": True, "min_engagement": 50, "window_hours": 24},
-    "news_net_negative":   {"enabled": True, "net_threshold": -20, "min_scored": 5, "window_days": 7},
-    "category_spike":      {"enabled": True, "multiplier": 2.0, "min_count": 5},
-    "high_risk_finding":   {"enabled": True, "window_hours": 24},
+    "neg_social_spike":    {"enabled": True, "min_prior": 2, "multiplier": 2.0, "min_new": 2},
+    "high_reach_negative": {"enabled": True, "min_engagement": 50, "window_hours": 24, "min_new": 1},
+    "news_net_negative":   {"enabled": True, "net_threshold": -20, "min_scored": 5, "window_days": 7,
+                            "refire_worsen_points": 10},
+    "category_spike":      {"enabled": True, "multiplier": 2.0, "min_count": 5, "min_new": 3},
+    "high_risk_finding":   {"enabled": True, "window_hours": 24, "min_new": 1},
     "neg_consensus_story": {"enabled": True, "min_scored": 3, "neg_share": 0.7, "window_hours": 48},
     "new_critic":          {"enabled": True, "recent_hours": 48, "min_recent_neg": 2,
                             "min_engagement_single": 50, "lookback_days": 30},
@@ -471,14 +474,58 @@ def _not_fp_sql(alias: str = "articles") -> str:
 
 
 def _dedup_exists(conn, dedup_key) -> bool:
-    """True when an event with this dedup_key already fired (this cooldown bucket).
+    """True when an event with this dedup_key already fired.
 
     Checked BEFORE composing bodies that cost an LLM call — the rule condition
-    stays true for the whole bucket, and evaluation re-runs every ~15 minutes.
+    stays true for days, and evaluation re-runs every ~15 minutes.
     """
     from sqlalchemy import text as _text
     return conn.execute(_text("SELECT 1 FROM bw_alert_events WHERE dedup_key = :k"),
                         {"k": dedup_key}).fetchone() is not None
+
+
+def _uris_sig(uris) -> str:
+    """Stable short signature over a set of article URIs, for identity dedup keys."""
+    import hashlib
+    return hashlib.sha1("|".join(sorted(uris)).encode("utf-8", "ignore")).hexdigest()[:16]
+
+
+def _alerted_uris(conn, brand_id, rule, days: int = 30, key_prefix: str = None) -> set:
+    """URIs this rule already alerted on for the brand.
+
+    The ledger is the ``alert_uris`` list each identity-keyed event stores in
+    its payload — an article counted into one alert never counts as "new"
+    again (within the lookback). ``key_prefix`` narrows the ledger to a
+    sub-scope (e.g. one category / risk type) via the dedup_key format.
+    """
+    from sqlalchemy import text as _text
+    q = ("SELECT DISTINCT jsonb_array_elements_text(payload->'alert_uris') "
+         "FROM bw_alert_events WHERE rule = :r AND brand_id = :b "
+         "AND payload->'alert_uris' IS NOT NULL "
+         "AND created_at >= now() - (:d || ' days')::interval")
+    params = {"r": rule, "b": brand_id, "d": str(days)}
+    if key_prefix:
+        q += " AND dedup_key LIKE :pfx"
+        params["pfx"] = key_prefix.replace("%", "").replace("_", r"\_") + "%"
+    return {r[0] for r in conn.execute(_text(q), params).fetchall()}
+
+
+def _fired_recently(conn, brand_id, rule, hours, key_prefix: str = None) -> bool:
+    """Rate floor: the rule already fired for this brand within the cooldown.
+
+    Identity-keyed alerts only fire on NEW content, but a stream of trickling
+    articles must not produce an alert every 15-minute cycle — the cooldown
+    caps each rule (or sub-scope via ``key_prefix``) at one alert per window;
+    content that arrives during the window alerts after it expires.
+    """
+    from sqlalchemy import text as _text
+    q = ("SELECT 1 FROM bw_alert_events WHERE rule = :r AND brand_id = :b "
+         "AND created_at >= now() - (:h || ' hours')::interval")
+    params = {"r": rule, "b": brand_id, "h": str(hours)}
+    if key_prefix:
+        q += " AND dedup_key LIKE :pfx"
+        params["pfx"] = key_prefix.replace("%", "").replace("_", r"\_") + "%"
+    return conn.execute(_text(q), params).fetchone() is not None
 
 
 def _insert_alert_event(conn, brand_id, rule, severity, title, body, payload, dedup_key) -> bool:
@@ -502,7 +549,6 @@ def evaluate_adverse_alerts(db) -> int:
     fire unattended. Returns the number of NEW events created.
     """
     from sqlalchemy import text as _text
-    import time as _time
     from app.services.brand_alert_service import (
         get_alert_config, deliver_pending_events,
         fetch_negative_social_posts, narrate_social_posts, social_posts_md,
@@ -533,8 +579,11 @@ def evaluate_adverse_alerts(db) -> int:
         if not cfg or not cfg.get("enabled"):
             return 0
         rules_cfg = cfg.get("rules") or {}
+        # No more rolling time bucket in dedup keys: alerts are keyed on the
+        # IDENTITY of what fired them (story, author, article set, snapshot
+        # pair), so a still-true window condition can't re-alert on the same
+        # content. cooldown_hours survives as a per-rule rate floor only.
         cooldown_h = cfg.get("cooldown_hours") or 24
-        bucket = int(_time.time() // (cooldown_h * 3600))
 
         def rule(name):
             merged = dict(_ADVERSE_RULE_DEFAULTS.get(name, {}))
@@ -570,41 +619,61 @@ def evaluate_adverse_alerts(db) -> int:
                 """), {"t": topic}).fetchone()
                 recent, prior = row[0] or 0, row[1] or 0
                 if (prior >= rc["min_prior"] and recent >= prior * rc["multiplier"]
-                        and not _dedup_exists(conn, f"neg_social_spike|{bid}|{bucket}")):
-                    posts = fetch_negative_social_posts(conn, topic, 48)
-                    if _insert_alert_event(conn, bid, "neg_social_spike", "high",
-                            f"{bname}: negative social posts doubled ({recent} in 48h vs {prior} prior)",
-                            _social_body(
-                                f"Negative on-brand social posts for {bname} jumped from {prior} to {recent} in the last 48 hours.",
-                                bname, posts),
-                            {"recent": recent, "prior": prior, "posts": _posts_payload(posts)},
-                            f"neg_social_spike|{bid}|{bucket}"):
-                        created += 1
+                        and not _fired_recently(conn, bid, "neg_social_spike", cooldown_h)):
+                    uris = [r[0] for r in conn.execute(_text(f"""
+                        SELECT uri FROM articles
+                        WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                          AND publication_date >= to_char(now() - interval '48 hours','YYYY-MM-DD"T"HH24:MI:SS')
+                          AND {_not_fp_sql()}
+                    """), {"t": topic}).fetchall()]
+                    new_set = set(uris) - _alerted_uris(conn, bid, "neg_social_spike")
+                    if len(new_set) >= int(rc.get("min_new", 2)):
+                        posts = fetch_negative_social_posts(conn, topic, 48, limit=20)
+                        posts = [p for p in posts if p.get("url") in new_set][:6] or posts[:6]
+                        if _insert_alert_event(conn, bid, "neg_social_spike", "high",
+                                f"{bname}: negative social posts doubled ({recent} in 48h vs {prior} prior)",
+                                _social_body(
+                                    f"Negative on-brand social posts for {bname} jumped from {prior} to {recent} in the last 48 hours"
+                                    f" ({len(new_set)} not previously alerted).",
+                                    bname, posts),
+                                {"recent": recent, "prior": prior, "new_posts": len(new_set),
+                                 "posts": _posts_payload(posts), "alert_uris": uris[:300]},
+                                f"neg_social_spike|{bid}|{_uris_sig(new_set)}"):
+                            created += 1
 
-            # 2) High-reach negative post in the last window.
+            # 2) High-reach negative post in the last window. Keyed on the set
+            #    of not-yet-alerted posts — each post alerts once, ever.
             rc = rule("high_reach_negative")
             if rc.get("enabled"):
-                row = conn.execute(_text(f"""
-                    SELECT COUNT(*), MAX({_ENGAGEMENT_SQL})
+                rows = conn.execute(_text(f"""
+                    SELECT uri, {_ENGAGEMENT_SQL}
                     FROM articles
                     WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
                       AND {_ENGAGEMENT_SQL} >= :minEng
                       AND {_not_fp_sql()}
-                """), {"t": topic, "wh": str(rc["window_hours"]), "minEng": rc["min_engagement"]}).fetchone()
-                n, max_eng = row[0] or 0, row[1] or 0
-                if n > 0 and not _dedup_exists(conn, f"high_reach_negative|{bid}|{bucket}"):
-                    posts = fetch_negative_social_posts(
-                        conn, topic, int(rc["window_hours"]), min_engagement=rc["min_engagement"])
-                    if _insert_alert_event(conn, bid, "high_reach_negative", "high",
-                            f"{bname}: {n} high-reach negative post{'s' if n != 1 else ''} circulating",
-                            _social_body(
-                                f"{n} negative post{'s' if n != 1 else ''} about {bname} with engagement >= {rc['min_engagement']} "
-                                f"(max {int(max_eng)}) in the last {rc['window_hours']}h.",
-                                bname, posts),
-                            {"count": n, "max_engagement": max_eng, "posts": _posts_payload(posts)},
-                            f"high_reach_negative|{bid}|{bucket}"):
-                        created += 1
+                """), {"t": topic, "wh": str(rc["window_hours"]), "minEng": rc["min_engagement"]}).fetchall()
+                if rows and not _fired_recently(conn, bid, "high_reach_negative", cooldown_h):
+                    ledger = _alerted_uris(conn, bid, "high_reach_negative")
+                    new_rows = [(u, e) for u, e in rows if u not in ledger]
+                    n = len(new_rows)
+                    if n >= int(rc.get("min_new", 1)):
+                        new_set = {u for u, _e in new_rows}
+                        max_eng = max((e or 0) for _u, e in new_rows)
+                        posts = fetch_negative_social_posts(
+                            conn, topic, int(rc["window_hours"]),
+                            min_engagement=rc["min_engagement"], limit=20)
+                        posts = [p for p in posts if p.get("url") in new_set][:6] or posts[:6]
+                        if _insert_alert_event(conn, bid, "high_reach_negative", "high",
+                                f"{bname}: {n} high-reach negative post{'s' if n != 1 else ''} circulating",
+                                _social_body(
+                                    f"{n} new negative post{'s' if n != 1 else ''} about {bname} with engagement >= {rc['min_engagement']} "
+                                    f"(max {int(max_eng)}) in the last {rc['window_hours']}h.",
+                                    bname, posts),
+                                {"count": n, "max_engagement": max_eng, "posts": _posts_payload(posts),
+                                 "alert_uris": [u for u, _e in rows][:300]},
+                                f"high_reach_negative|{bid}|{_uris_sig(new_set)}"):
+                            created += 1
 
             # 3) News net-negative over the window.
             rc = rule("news_net_negative")
@@ -624,13 +693,31 @@ def evaluate_adverse_alerts(db) -> int:
                 if scored >= rc["min_scored"]:
                     net = round(((pos - neg) / scored) * 100)
                     if net <= rc["net_threshold"]:
-                        if _insert_alert_event(conn, bid, "news_net_negative", "high",
-                                f"{bname}: news sentiment net-negative ({net})",
-                                f"News coverage of {bname} over the last {rc['window_days']} days is net {net} "
-                                f"({pos} positive / {neg} negative of {scored} scored).",
-                                {"net": net, "pos": pos, "neg": neg, "scored": scored},
-                                f"news_net_negative|{bid}|{bucket}"):
-                            created += 1
+                        # State alert, not an event: fire on ENTERING the bad
+                        # state, then only when it materially worsens vs the
+                        # last alert. Periodic "still negative" reminders are
+                        # the digest's job.
+                        prev = conn.execute(_text("""
+                            SELECT payload->>'net' FROM bw_alert_events
+                            WHERE rule = 'news_net_negative' AND brand_id = :b
+                            ORDER BY created_at DESC LIMIT 1
+                        """), {"b": bid}).fetchone()
+                        prev_net = None
+                        if prev and prev[0] is not None:
+                            try:
+                                prev_net = int(float(prev[0]))
+                            except ValueError:
+                                prev_net = None
+                        worsen_by = int(rc.get("refire_worsen_points", 10))
+                        if prev_net is None or net <= prev_net - worsen_by:
+                            if _insert_alert_event(conn, bid, "news_net_negative", "high",
+                                    f"{bname}: news sentiment net-negative ({net})",
+                                    f"News coverage of {bname} over the last {rc['window_days']} days is net {net} "
+                                    f"({pos} positive / {neg} negative of {scored} scored)"
+                                    + (f" — down from {prev_net} at the last alert." if prev_net is not None else "."),
+                                    {"net": net, "pos": pos, "neg": neg, "scored": scored},
+                                    f"news_net_negative|{bid}|{net}"):
+                                created += 1
 
             # 4) Category spike: this week vs 30d weekly average.
             rc = rule("category_spike")
@@ -650,31 +737,54 @@ def evaluate_adverse_alerts(db) -> int:
                     WHERE cur >= :minc AND avg > 0 AND cur >= avg * :mult
                 """), {"b": bid, "minc": rc["min_count"], "mult": rc["multiplier"]}).fetchall()
                 for cat, cur, avg in rows:
+                    if _fired_recently(conn, bid, "category_spike", cooldown_h,
+                                       key_prefix=f"category_spike|{bid}|{cat}|"):
+                        continue
+                    uris = [r[0] for r in conn.execute(_text(f"""
+                        SELECT a.uri
+                        FROM bw_article_categories bac
+                        JOIN articles a ON a.uri = bac.article_uri
+                        WHERE bac.brand_id = :b AND bac.category = :c
+                          AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
+                          AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                          AND {_not_fp_sql('a')}
+                    """), {"b": bid, "c": cat}).fetchall()]
+                    new_set = set(uris) - _alerted_uris(
+                        conn, bid, "category_spike", key_prefix=f"category_spike|{bid}|{cat}|")
+                    if len(new_set) < int(rc.get("min_new", 3)):
+                        continue
                     if _insert_alert_event(conn, bid, "category_spike", "medium",
                             f"{bname}: '{cat}' coverage spike ({cur} this week, avg {avg:.1f})",
-                            f"Category '{cat}' for {bname} has {cur} articles this week vs a 30-day weekly average of {avg:.1f}.",
-                            {"category": cat, "current": cur, "average": float(avg)},
-                            f"category_spike|{bid}|{cat}|{bucket}"):
+                            f"Category '{cat}' for {bname} has {cur} articles this week vs a 30-day weekly average of {avg:.1f} "
+                            f"({len(new_set)} not previously alerted).",
+                            {"category": cat, "current": cur, "average": float(avg),
+                             "new_articles": len(new_set), "alert_uris": uris[:300]},
+                            f"category_spike|{bid}|{cat}|{_uris_sig(new_set)}"):
                         created += 1
 
             # 5) New high-severity adverse-risk finding (bw_article_risks).
             rc = rule("high_risk_finding")
             if rc.get("enabled"):
                 rows = conn.execute(_text(f"""
-                    SELECT r.risk_type, COUNT(*), MAX(a.title)
+                    SELECT r.risk_type, COUNT(*), MAX(a.title), array_agg(DISTINCT a.uri)
                     FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
                     WHERE r.brand_id = :b AND r.severity = 'high'
                       AND r.detected_at >= now() - (:wh || ' hours')::interval
                       AND {_not_fp_sql('a')}
                     GROUP BY r.risk_type
                 """), {"b": bid, "wh": str(rc["window_hours"])}).fetchall()
-                for risk_type, n, sample_title in rows:
+                for risk_type, n, sample_title, uris in rows:
+                    new_set = set(uris or []) - _alerted_uris(
+                        conn, bid, "high_risk_finding", key_prefix=f"high_risk_finding|{bid}|{risk_type}|")
+                    if len(new_set) < int(rc.get("min_new", 1)):
+                        continue
                     if _insert_alert_event(conn, bid, "high_risk_finding", "high",
                             f"{bname}: high-severity {risk_type.replace('_', '/')} finding",
-                            f"{n} article{'s' if n != 1 else ''} flagged {risk_type} (high severity) for {bname} "
+                            f"{len(new_set)} new article{'s' if len(new_set) != 1 else ''} flagged {risk_type} (high severity) for {bname} "
                             f"in the last {rc['window_hours']}h. e.g. \"{(sample_title or '')[:120]}\"",
-                            {"risk_type": risk_type, "count": n},
-                            f"high_risk_finding|{bid}|{risk_type}|{bucket}"):
+                            {"risk_type": risk_type, "count": n, "new_articles": len(new_set),
+                             "alert_uris": list(uris or [])[:300]},
+                            f"high_risk_finding|{bid}|{risk_type}|{_uris_sig(new_set)}"):
                         created += 1
 
             # 6) Negative-consensus story: a story whose syndicated copies are
@@ -703,7 +813,7 @@ def evaluate_adverse_alerts(db) -> int:
                                 f"in the last {rc['window_hours']}h — consensus framing, not a single outlet's take. "
                                 f"\"{(sample_title or '')[:120]}\"",
                                 {"story_group_id": group_id, "scored": scored, "neg": neg},
-                                f"neg_consensus_story|{bid}|{group_id}|{bucket}"):
+                                f"neg_consensus_story|{bid}|{group_id}"):
                             created += 1
 
             # 7) New critic emerged: an account whose FIRST negative on-brand post(s)
@@ -732,8 +842,10 @@ def evaluate_adverse_alerts(db) -> int:
                     if _is_own_handle(author) or ':' in author:
                         continue
                     high_reach = (max_eng or 0) >= rc["min_engagement_single"]
+                    # Keyed per author, no time bucket: an account is a "new
+                    # critic" once — after that it's a known critic.
                     if ((recent or 0) >= rc["min_recent_neg"] or high_reach) \
-                            and not _dedup_exists(conn, f"new_critic|{bid}|{author}|{bucket}"):
+                            and not _dedup_exists(conn, f"new_critic|{bid}|{author}"):
                         posts = fetch_negative_social_posts(
                             conn, topic, int(rc["recent_hours"]), author=author)
                         if _insert_alert_event(conn, bid, "new_critic",
@@ -746,7 +858,7 @@ def evaluate_adverse_alerts(db) -> int:
                                     bname, posts),
                                 {"author": author, "recent": recent, "max_engagement": max_eng,
                                  "posts": _posts_payload(posts)},
-                                f"new_critic|{bid}|{author}|{bucket}"):
+                                f"new_critic|{bid}|{author}"):
                             created += 1
 
             # 8) Coordinated negativity: the same (normalized) negative message posted
@@ -776,7 +888,7 @@ def evaluate_adverse_alerts(db) -> int:
                             f"in the last {rc['window_hours']}h — copypasta pattern, not organic backlash. "
                             f"Sample: \"{(sample or '')[:120]}\"",
                             {"authors": authors, "posts": n, "signature": sig[:80]},
-                            f"coordinated_negative|{bid}|{sig[:60]}|{bucket}"):
+                            f"coordinated_negative|{bid}|{sig[:60]}"):
                         created += 1
 
             # 9) Glassdoor deterioration: latest snapshot vs the oldest within the
@@ -818,7 +930,7 @@ def evaluate_adverse_alerts(db) -> int:
                                      "rating_old": o.get("rating"), "rating_new": n2.get("rating"),
                                      "outlook_old": o.get("business_outlook_rating"),
                                      "outlook_new": n2.get("business_outlook_rating")},
-                                    f"glassdoor_deterioration|{bid}|{bucket}"):
+                                    f"glassdoor_deterioration|{bid}|{d_old}|{d_new}"):
                                 created += 1
 
             # 10) Five Signals screen failure: a screened article whose claim

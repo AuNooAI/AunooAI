@@ -9,7 +9,7 @@ Classification approach: keyword-based → LLM fallback → SLM (DeBERTa) when 5
 
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, timedelta, date, time as dt_time
 from sqlalchemy import text
 import logging
@@ -2022,11 +2022,20 @@ async def setup_social_monitoring(brand_id: int, req: SocialMonitoringRequest = 
 class SuggestKeywordsRequest(BaseModel):
     brand_name: str
     description: Optional[str] = None
+    qid: Optional[str] = None  # user-confirmed Wikidata QID (skips disambiguation)
+    verify: bool = True
+    unverified_policy: Literal["flag", "drop"] = "flag"
 
 @router.post("/suggest-keywords")
 async def suggest_keywords(request: SuggestKeywordsRequest, session=Depends(verify_session)):
-    """Use LLM to suggest brand keywords, product keywords, people keywords, and competitor keywords."""
+    """Use LLM to suggest brand keywords, product keywords, people keywords, and competitor keywords.
+
+    When verify=True (default), executives and competitor firms are cross-checked
+    against Wikidata and a `verification` block with per-item provenance is added
+    to the response. The four keyword arrays keep their legacy plain-string shape.
+    """
     from app.ai_models import LiteLLMModel
+    from app.services.brand_entity_verifier import verify_suggestions
 
     prompt = f"""You are a brand intelligence analyst. Given the brand name and optional description, suggest comprehensive keyword lists for monitoring this brand in news articles.
 
@@ -2036,36 +2045,89 @@ Brand name: {request.brand_name}
 Return a JSON object with these four arrays:
 - "brand_keywords": Variations of the brand/company name that would appear in news (full legal name, common abbreviations, stock ticker symbols, former names, parent company names). Include the brand name itself.
 - "product_keywords": Major products, services, platforms, or publications associated with this brand.
-- "people_keywords": Key executives, founders, or notable people associated with this brand (CEO, CFO, board members).
-- "competitor_keywords": Major direct competitors in the same industry.
+- "people_keywords": Key executives, founders, or notable people associated with this brand (CEO, CFO, board members). Only include real, named individuals you are confident hold or held these roles; if unsure, omit.
+- "competitor_keywords": Major direct competitors in the same industry. Company names only, no products.
 
 Be thorough but only include terms that would realistically appear in news articles. Each keyword should be specific enough to avoid false positives.
 
 Respond ONLY with valid JSON, no markdown formatting."""
 
-    try:
+    async def _llm_suggest() -> dict:
         model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
         ])
-
         response_text = response.strip()
         if response_text.startswith("```"):
             response_text = response_text.split("```")[1]
             if response_text.startswith("json"):
                 response_text = response_text[4:]
-        result = json.loads(response_text)
+        return json.loads(response_text)
 
-        return {
-            "brand_keywords": result.get("brand_keywords", []),
-            "product_keywords": result.get("product_keywords", []),
-            "people_keywords": result.get("people_keywords", []),
-            "competitor_keywords": result.get("competitor_keywords", []),
-        }
+    try:
+        result = await _llm_suggest()
     except Exception as e:
         logger.error(f"Error suggesting keywords: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    payload = {
+        "brand_keywords": result.get("brand_keywords", []),
+        "product_keywords": result.get("product_keywords", []),
+        "people_keywords": result.get("people_keywords", []),
+        "competitor_keywords": result.get("competitor_keywords", []),
+    }
+
+    if not request.verify:
+        payload["verification"] = {"available": False}
+        return payload
+
+    verification = await verify_suggestions(
+        request.brand_name, payload, qid=request.qid
+    )
+    payload["verification"] = verification
+
+    if verification.get("available"):
+        verified_people = {p["name"] for p in verification.get("people", []) if p.get("verified")}
+        verified_comps = {c["name"] for c in verification.get("competitors", []) if c.get("verified")}
+        if request.unverified_policy == "drop":
+            payload["people_keywords"] = [p for p in payload["people_keywords"] if p in verified_people]
+            payload["competitor_keywords"] = [c for c in payload["competitor_keywords"] if c in verified_comps]
+        # Append Wikidata-only people/firms (deduped, case-insensitive) so plain-array
+        # consumers like the onboarding wizard benefit from verified additions too.
+        have_people = {p.casefold() for p in payload["people_keywords"]}
+        for p in verification.get("people", []):
+            if p.get("source") == "wikidata" and p["name"].casefold() not in have_people:
+                payload["people_keywords"].append(p["name"])
+                have_people.add(p["name"].casefold())
+        have_comps = {c.casefold() for c in payload["competitor_keywords"]}
+        for c in verification.get("competitors", []):
+            if c.get("source") == "wikidata" and c["name"].casefold() not in have_comps:
+                payload["competitor_keywords"].append(c["name"])
+                have_comps.add(c["name"].casefold())
+
+    return payload
+
+
+class WikidataSearchRequest(BaseModel):
+    query: str
+    limit: int = 8
+
+@router.post("/wikidata/search")
+async def wikidata_search(request: WikidataSearchRequest, session=Depends(verify_session)):
+    """Search Wikidata entities by name — powers the 'Change entity' picker."""
+    from app.services.wikidata_client import WikidataClient
+
+    try:
+        async with WikidataClient() as wd:
+            hits = await wd.search(request.query, limit=min(request.limit, 20))
+        return {"candidates": [
+            {"qid": h["qid"], "label": h["label"], "description": h.get("description")}
+            for h in hits
+        ]}
+    except Exception as e:
+        logger.error(f"Wikidata search failed: {e}")
+        return {"candidates": []}
 
 
 # ============================================================================
@@ -2428,6 +2490,21 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             for cat, count in cat_result.fetchall():
                 _update_daily_stats(conn, bid, cat, today, count)
             conn.commit()
+
+            # Story dedup: cluster the brand's not-yet-assigned classified
+            # articles into syndication groups (bw_article_stories) so
+            # story-level analytics and story-keyed alert dedup stay current.
+            try:
+                from app.services.brand_watcher_stories import assign_story_groups
+                assigned = assign_story_groups(conn, bid, brand.get("config") or {})
+                if assigned:
+                    logger.info(f"BW Run {run_id}: assigned {assigned} articles to story groups for brand {bid}")
+            except Exception as se:
+                logger.warning(f"BW Run {run_id}: story-group assignment failed for brand {bid}: {se}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
         # Mark run complete
         conn.execute(text("""

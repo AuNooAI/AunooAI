@@ -472,18 +472,70 @@ export async function setupBrandMonitoring(brandId: number): Promise<{
 
 // --- Keyword Suggestions ---
 
-export async function suggestKeywords(brandName: string, description?: string): Promise<{
+export interface VerifiedPerson {
+  name: string;
+  role?: string;
+  qid?: string;
+  verified: boolean;
+  source: 'wikidata' | 'llm' | 'both';
+}
+
+export interface VerifiedFirm {
+  name: string;
+  qid?: string;
+  description?: string;
+  verified: boolean;
+  source: string;
+  relation?: string;
+}
+
+export interface WikidataCandidate {
+  qid: string;
+  label: string;
+  description?: string;
+}
+
+export interface SuggestionVerification {
+  available: boolean;
+  retrieved_at?: string;
+  brand?: {
+    qid?: string;
+    label?: string;
+    description?: string;
+    matched: boolean;
+    candidates: WikidataCandidate[];
+  };
+  people?: VerifiedPerson[];
+  competitors?: VerifiedFirm[];
+}
+
+export async function suggestKeywords(
+  brandName: string,
+  description?: string,
+  opts?: { qid?: string },
+): Promise<{
   brand_keywords: string[];
   product_keywords: string[];
   people_keywords: string[];
   competitor_keywords: string[];
+  verification?: SuggestionVerification;
 }> {
   const res = await fetch(`${BASE}/suggest-keywords`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ brand_name: brandName, description }),
+    body: JSON.stringify({ brand_name: brandName, description, qid: opts?.qid }),
   });
   if (!res.ok) throw new Error(`Failed to suggest keywords: ${res.status}`);
+  return res.json();
+}
+
+export async function searchWikidata(query: string): Promise<{ candidates: WikidataCandidate[] }> {
+  const res = await fetch(`${BASE}/wikidata/search`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) throw new Error(`Failed to search Wikidata: ${res.status}`);
   return res.json();
 }
 

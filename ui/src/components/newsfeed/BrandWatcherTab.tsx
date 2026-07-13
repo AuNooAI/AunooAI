@@ -44,6 +44,7 @@ import {
   type BWIncident, type BWIncidentDetail,
   type BWEmployeeRisk, type BWRiskSummary, type BWGlassdoorOverview,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
+  searchWikidata, type SuggestionVerification,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
   type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
 } from '../../services/brandWatcherApi';
@@ -96,13 +97,14 @@ const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k:
 ];
 
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)
-function KeywordTagInput({ label, keywords, inputValue, setInputValue, onAdd, onRemove }: {
+function KeywordTagInput({ label, keywords, inputValue, setInputValue, onAdd, onRemove, meta }: {
   label: string;
   keywords: string[];
   inputValue: string;
   setInputValue: (v: string) => void;
   onAdd: (value: string) => void;
   onRemove: (value: string) => void;
+  meta?: Record<string, { verified: boolean; tooltip?: string }>;
 }) {
   return (
     <div>
@@ -110,7 +112,12 @@ function KeywordTagInput({ label, keywords, inputValue, setInputValue, onAdd, on
       <div className="flex flex-wrap gap-1 mb-1">
         {keywords.map(kw => (
           <span key={kw} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
-            {kw}
+            {meta?.[kw] && (
+              meta[kw].verified
+                ? <BadgeCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" aria-label="Verified" />
+                : <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" aria-label="Unverified" />
+            )}
+            <span title={meta?.[kw]?.tooltip}>{kw}</span>
             <button onClick={() => onRemove(kw)} className="hover:text-red-500">
               <X className="w-3 h-3" />
             </button>
@@ -600,6 +607,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [peopleKeywordInput, setPeopleKeywordInput] = useState('');
   const [competitorKeywordInput, setCompetitorKeywordInput] = useState('');
   const [suggestingKeywords, setSuggestingKeywords] = useState(false);
+  const [suggestionVerification, setSuggestionVerification] = useState<SuggestionVerification | null>(null);
+  const [confirmedQid, setConfirmedQid] = useState<string | null>(null);
   const [setupMonitoring, setSetupMonitoring] = useState(true);
   const [monitoringStatus, setMonitoringStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -1559,13 +1568,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, fetchSocial, socialMinRel, socialInclUneval]);
 
-  // --- Suggest Keywords via LLM ---
-  const handleSuggestKeywords = useCallback(async () => {
+  // --- Suggest Keywords via LLM (+ Wikidata verification) ---
+  const handleSuggestKeywords = useCallback(async (qidOverride?: string) => {
     const name = brandForm.display_name?.trim();
     if (!name) return;
     setSuggestingKeywords(true);
     try {
-      const suggestions = await suggestKeywords(name, brandForm.description || undefined);
+      const qid = qidOverride ?? confirmedQid ?? undefined;
+      const suggestions = await suggestKeywords(name, brandForm.description || undefined, { qid });
       setBrandForm(prev => ({
         ...prev,
         brand_keywords: [...new Set([...(prev.brand_keywords || []), ...suggestions.brand_keywords])],
@@ -1573,12 +1583,48 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         people_keywords: [...new Set([...(prev.people_keywords || []), ...suggestions.people_keywords])],
         competitor_keywords: [...new Set([...(prev.competitor_keywords || []), ...suggestions.competitor_keywords])],
       }));
+      const verification = suggestions.verification ?? null;
+      setSuggestionVerification(verification);
+      if (verification?.available && verification.brand?.matched && verification.brand.qid) {
+        setConfirmedQid(verification.brand.qid);
+      }
     } catch (err) {
       console.error('Error suggesting keywords:', err);
     } finally {
       setSuggestingKeywords(false);
     }
-  }, [brandForm.display_name, brandForm.description]);
+  }, [brandForm.display_name, brandForm.description, confirmedQid]);
+
+  // Per-chip verification metadata for the People / Competitor keyword chips.
+  const peopleMeta = useMemo(() => {
+    const v = suggestionVerification;
+    if (!v?.available || !v.people) return undefined;
+    const m: Record<string, { verified: boolean; tooltip?: string }> = {};
+    for (const p of v.people) {
+      m[p.name] = {
+        verified: p.verified,
+        tooltip: p.verified
+          ? `${p.role || 'person'} — Wikidata ${p.qid}${v.retrieved_at ? ` — retrieved ${v.retrieved_at}` : ''}`
+          : 'LLM-suggested, not verified on Wikidata',
+      };
+    }
+    return m;
+  }, [suggestionVerification]);
+
+  const competitorMeta = useMemo(() => {
+    const v = suggestionVerification;
+    if (!v?.available || !v.competitors) return undefined;
+    const m: Record<string, { verified: boolean; tooltip?: string }> = {};
+    for (const c of v.competitors) {
+      m[c.name] = {
+        verified: c.verified,
+        tooltip: c.verified
+          ? `${c.relation ? `${c.relation} — ` : ''}entity verified on Wikidata (${c.qid})${c.description ? ` — ${c.description}` : ''}`
+          : 'LLM-suggested, entity not verified on Wikidata',
+      };
+    }
+    return m;
+  }, [suggestionVerification]);
 
   // --- Tab change with data loading ---
   const handleTabChange = useCallback((tab: SubTab) => {
@@ -2089,7 +2135,26 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     setProductKeywordInput('');
     setPeopleKeywordInput('');
     setCompetitorKeywordInput('');
+    setSuggestionVerification(null);
+    setConfirmedQid(null);
     setSetupMonitoring(true);
+  };
+
+  // "Change entity": re-open the Wikidata candidate picker for the current name.
+  const handleChangeEntity = async () => {
+    const name = brandForm.display_name?.trim();
+    if (!name) return;
+    setConfirmedQid(null);
+    try {
+      const { candidates } = await searchWikidata(name);
+      setSuggestionVerification(prev => ({
+        ...(prev || { available: true }),
+        available: true,
+        brand: { matched: false, candidates },
+      }));
+    } catch (err) {
+      console.error('Wikidata search failed:', err);
+    }
   };
 
   const startEditBrand = (brand: Brand) => {
