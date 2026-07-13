@@ -29,6 +29,12 @@ except ImportError:
 # Strip before sending to collectors; keep the prefixed form in the DB.
 _ENTITY_PREFIXES = ("tech:", "company:", "person:", "location:")
 
+# Hard cap on a single collector search. A provider that accepts the
+# connection but never responds otherwise freezes the whole monitor loop
+# (2026-07-13: a hung NewsFirehose backend stalled every tenant's keyword
+# monitor until the services were restarted).
+SEARCH_TIMEOUT_SECONDS = 120
+
 
 def _strip_entity_prefix(keyword: str) -> str:
     for prefix in _ENTITY_PREFIXES:
@@ -291,14 +297,17 @@ class KeywordMonitor:
             else:
                 logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
 
-            articles = await collector.search_articles(
-                query=search_term,
-                topic=topic,
-                max_results=self.page_size,
-                start_date=start_date,
-                search_fields=self.search_fields,
-                language=self.language,
-                sort_by=self.sort_by
+            articles = await asyncio.wait_for(
+                collector.search_articles(
+                    query=search_term,
+                    topic=topic,
+                    max_results=self.page_size,
+                    start_date=start_date,
+                    search_fields=self.search_fields,
+                    language=self.language,
+                    sort_by=self.sort_by
+                ),
+                timeout=SEARCH_TIMEOUT_SECONDS
             )
 
             # Tag articles with provider source
@@ -308,6 +317,12 @@ class KeywordMonitor:
             logger.info(f"{provider}: Found {len(articles)} articles")
             return articles
 
+        except asyncio.TimeoutError:
+            logger.error(
+                f"{provider} search timed out after {SEARCH_TIMEOUT_SECONDS}s "
+                f"for keyword '{keyword_text}' — skipping"
+            )
+            return []
         except Exception as e:
             logger.error(f"{provider} search failed: {e}")
             return []
