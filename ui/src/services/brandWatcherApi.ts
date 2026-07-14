@@ -1100,6 +1100,109 @@ export async function verifyIncidentChain(id: number): Promise<{ items: number; 
   return res.json();
 }
 
+// ---- Incident attachments (search picker, files) + enrichment agent ----
+
+export interface BWAttachSearchResult {
+  uri: string;
+  title?: string | null;
+  news_source?: string | null;
+  publication_date?: string | null;
+  topic_alignment_score?: number | null;
+  is_social: boolean;
+  platform?: string | null;
+  author?: string | null;
+}
+
+export async function incidentAttachSearch(q: string, opts?: { brandId?: number; kind?: 'all' | 'news' | 'social'; daysBack?: number }): Promise<BWAttachSearchResult[]> {
+  const params = new URLSearchParams({ q });
+  if (opts?.brandId) params.append('brand_id', String(opts.brandId));
+  if (opts?.kind) params.append('kind', opts.kind);
+  if (opts?.daysBack) params.append('days_back', String(opts.daysBack));
+  const res = await fetch(`${BASE}/incidents/attach-search?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Attach search failed: ${res.status}`);
+  return (await res.json()).results || [];
+}
+
+export async function uploadIncidentFile(id: number, file: globalThis.File, note?: string): Promise<{ file_id: number; evidence_id: number; filename: string; sha256: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  if (note) form.append('note', note);
+  const res = await fetch(`${BASE}/incidents/${id}/files`, {
+    method: 'POST', credentials: 'include', body: form,
+  });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export function incidentFileUrl(incidentId: number, fileId: number): string {
+  return `${BASE}/incidents/${incidentId}/files/${fileId}`;
+}
+
+export interface BWEnrichmentRun {
+  id: number;
+  status: 'running' | 'completed' | 'failed';
+  stage?: string | null;
+  stats?: Record<string, any> | null;
+  brief?: string | null;
+  error?: string | null;
+  started_by?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface BWEnrichmentCandidate {
+  id: number;
+  run_id: number;
+  candidate_type: 'article' | 'social_post' | 'account_profile';
+  source_ref: string;
+  title?: string | null;
+  snippet?: string | null;
+  score?: number | null;
+  reason?: string | null;
+  meta?: Record<string, any> | null;
+}
+
+export interface BWEnrichmentState {
+  run: BWEnrichmentRun | null;
+  candidates: BWEnrichmentCandidate[];
+  counts: Record<string, number>;
+}
+
+export async function startIncidentEnrichment(id: number): Promise<{ run_id: number }> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrich`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function getIncidentEnrichment(id: number): Promise<BWEnrichmentState> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrichment`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load enrichment: ${res.status}`);
+  return res.json();
+}
+
+export async function decideEnrichmentCandidates(id: number, candidateIds: number[], action: 'attach' | 'dismiss'): Promise<{ attached: number; dismissed: number; failed: Array<{ id: number; source_ref: string; error: string }> }> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrichment/decide`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidate_ids: candidateIds, action }),
+  });
+  if (!res.ok) throw new Error(`Failed to ${action} candidates: ${res.status}`);
+  return res.json();
+}
+
+export async function attachEnrichmentBrief(id: number): Promise<{ id: number }> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrichment/attach-brief`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to attach brief: ${res.status}`);
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Employee / Workforce Risk
 // ---------------------------------------------------------------------------

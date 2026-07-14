@@ -1032,6 +1032,60 @@ async def _auto_screen_high_risk(db) -> None:
         await run_five_signals(uri, brand_id, uri, requested_by="auto")
 
 
+AUTO_ENRICH_DAILY_CAP = 8    # each run costs a vector search + LLM brief (+ xpoz)
+AUTO_ENRICH_PER_CYCLE = 1    # awaited inline; keep the loop responsive
+
+
+async def _auto_enrich_incidents(db) -> None:
+    """Re-enrich open incidents whose brand picked up new risk findings since
+    the incident's last enrichment run. Output is staged candidates only —
+    nothing lands in the evidence locker without analyst confirmation — so
+    running unattended is safe.
+    """
+    from app.services.bw_incident_enrichment import run_incident_enrichment
+    conn = db._temp_get_connection()
+    try:
+        today_auto = conn.execute(text("""
+            SELECT COUNT(*) FROM bw_incident_enrichment_runs
+            WHERE started_by = 'auto:monitor' AND started_at >= CURRENT_DATE
+        """)).fetchone()[0]
+        budget = min(AUTO_ENRICH_PER_CYCLE, AUTO_ENRICH_DAILY_CAP - today_auto)
+        if budget <= 0:
+            return
+        incidents = conn.execute(text("""
+            SELECT i.id
+            FROM bw_incidents i
+            JOIN bw_brands b ON b.id = i.brand_id AND b.enabled = true
+            WHERE i.status IN ('open', 'investigating')
+              AND EXISTS (
+                SELECT 1 FROM bw_article_risks r
+                WHERE r.brand_id = i.brand_id
+                  AND r.detected_at > COALESCE(
+                      (SELECT MAX(er.started_at) FROM bw_incident_enrichment_runs er
+                       WHERE er.incident_id = i.id),
+                      i.created_at))
+              AND NOT EXISTS (
+                SELECT 1 FROM bw_incident_enrichment_runs er2
+                WHERE er2.incident_id = i.id AND er2.status = 'running'
+                  AND er2.started_at > now() - interval '15 minutes')
+            ORDER BY i.updated_at DESC
+            LIMIT :lim
+        """), {"lim": budget}).fetchall()
+        run_ids = []
+        for (incident_id,) in incidents:
+            row = conn.execute(text("""
+                INSERT INTO bw_incident_enrichment_runs (incident_id, started_by)
+                VALUES (:i, 'auto:monitor') RETURNING id
+            """), {"i": incident_id}).fetchone()
+            run_ids.append((row[0], incident_id))
+        conn.commit()
+    finally:
+        conn.close()
+    for run_id, incident_id in run_ids:
+        logger.info(f"Auto-enriching incident {incident_id} (run {run_id})")
+        await run_incident_enrichment(run_id, incident_id, requested_by="auto:monitor")
+
+
 async def run_brand_watcher_monitor():
     """Background task to periodically check and run scheduled brand watcher classification."""
     global _background_task_status
@@ -1092,6 +1146,12 @@ async def run_brand_watcher_monitor():
                     await _auto_screen_high_risk(db)
                 except Exception as e:
                     logger.error(f"Five Signals auto-screen error: {e}")
+                # Re-enrich open incidents with fresh risk activity (staged
+                # candidates only; daily-capped).
+                try:
+                    await _auto_enrich_incidents(db)
+                except Exception as e:
+                    logger.error(f"Incident auto-enrich error: {e}")
                 # Re-poll engagement for on-brand social posts 6h-7d old (collection
                 # snapshots metrics at age ~0, so reach reads 0 forever otherwise).
                 # Per-post ~12h budget inside; sync SDK + HTTP, so off-loop.

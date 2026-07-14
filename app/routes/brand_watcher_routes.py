@@ -7,7 +7,8 @@ competitive positioning, and reputation risk across news articles.
 Classification approach: keyword-based → LLM fallback → SLM (DeBERTa) when 500+ samples.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, timedelta, date, time as dt_time
@@ -5047,8 +5048,8 @@ class IncidentNote(BaseModel):
 
 
 class EvidenceAttach(BaseModel):
-    evidence_type: str            # article | alert_event | risk_finding | note | url
-    source_ref: Optional[str] = None   # article uri / alert event id / risk id / url
+    evidence_type: str            # article | social_post | account_profile | alert_event | note | url
+    source_ref: Optional[str] = None   # article uri / "platform:handle" / alert event id / url
     title: Optional[str] = None        # for manual note/url evidence
     content: Optional[str] = None      # for manual note evidence
 
@@ -5067,12 +5068,49 @@ def _incident_event(conn, incident_id: int, kind: str, actor: str,
            "n": str(new_value) if new_value is not None else None, "nt": note})
 
 
+def _evidence_platform(news_source) -> str:
+    """Platform slug from a social row's news_source ('xpoz:twitter' -> 'twitter')."""
+    s = (news_source or "").lower()
+    if s.startswith("xpoz:"):
+        return s.split(":", 1)[1] or "social"
+    if "reddit" in s:
+        return "reddit"
+    if "bsky" in s or "bluesky" in s:
+        return "bluesky"
+    return "social"
+
+
+def _append_evidence_row(conn, incident_id: int, etype: str, source_ref, title, content,
+                         meta: dict, actor: str) -> dict:
+    """Hash-chain and INSERT one evidence row + its timeline event (shared tail)."""
+    import hashlib
+    prev = conn.execute(text("""
+        SELECT chain_sha256 FROM bw_incident_evidence
+        WHERE incident_id = :i ORDER BY id DESC LIMIT 1
+    """), {"i": incident_id}).fetchone()
+    prev_chain = prev[0] if prev else ""
+    meta_json = json.dumps(meta, sort_keys=True, default=str)
+    content_sha = hashlib.sha256(f"{content}|{meta_json}".encode()).hexdigest()
+    chain_sha = hashlib.sha256(f"{prev_chain}|{content_sha}".encode()).hexdigest()
+    row = conn.execute(text("""
+        INSERT INTO bw_incident_evidence
+            (incident_id, evidence_type, source_ref, title, content, meta,
+             content_sha256, chain_sha256, captured_by)
+        VALUES (:i, :t, :r, :ti, :c, :m, :cs, :ch, :a)
+        RETURNING id, captured_at
+    """), {"i": incident_id, "t": etype, "r": source_ref, "ti": (title or "")[:300],
+           "c": content, "m": meta_json, "cs": content_sha, "ch": chain_sha, "a": actor}).fetchone()
+    _incident_event(conn, incident_id, "evidence_added", actor,
+                    new_value=etype, note=(title or "")[:200])
+    return {"id": row[0], "content_sha256": content_sha, "chain_sha256": chain_sha,
+            "captured_at": row[1].isoformat() if row[1] else None}
+
+
 def _capture_evidence(conn, incident_id: int, req: "EvidenceAttach", actor: str) -> dict:
     """Snapshot the referenced source NOW and append it to the incident's hash chain."""
-    import hashlib
     etype = req.evidence_type
     title, content, meta = req.title, req.content, {}
-    if etype == "article":
+    if etype in ("article", "social_post"):
         if not req.source_ref:
             raise HTTPException(status_code=400, detail="source_ref (article uri) required")
         row = conn.execute(text("""
@@ -5087,11 +5125,48 @@ def _capture_evidence(conn, incident_id: int, req: "EvidenceAttach", actor: str)
         meta = {"news_source": row[2], "publication_date": row[3], "sentiment": row[4],
                 "topic": row[5], "relevance": row[6], "factual_reporting": row[7],
                 "bias": row[8], "social_meta": row[9], "uri": req.source_ref}
+        if etype == "social_post":
+            from app.services.social_sources import is_social_source
+            if not is_social_source(row[2]):
+                raise HTTPException(status_code=400,
+                                    detail="Not a social post — attach as evidence_type 'article'")
+            sm = row[9] if isinstance(row[9], dict) else None
+            if sm is None:
+                try:
+                    sm = json.loads(row[9]) if row[9] else {}
+                except (json.JSONDecodeError, TypeError):
+                    sm = {}
+            meta["platform"] = (sm or {}).get("platform") or _evidence_platform(row[2])
+            meta["author"] = (sm or {}).get("author")
+            meta["engagement"] = {k: (sm or {}).get(k) for k in ("likes", "reposts", "comments")
+                                  if (sm or {}).get(k) is not None}
         risks = conn.execute(text(
             "SELECT risk_type, severity, confidence FROM bw_article_risks WHERE article_uri = :u"
         ), {"u": req.source_ref}).fetchall()
         if risks:
             meta["risks"] = [{"risk_type": r[0], "severity": r[1], "confidence": r[2]} for r in risks]
+    elif etype == "account_profile":
+        if not req.source_ref or ":" not in req.source_ref:
+            raise HTTPException(status_code=400, detail="source_ref must be 'platform:handle'")
+        platform, handle = req.source_ref.split(":", 1)
+        from app.services.social_profile_service import SocialProfileService, norm_handle
+        svc = SocialProfileService()
+        prof = svc.get_stored(get_database_instance(), platform, handle)
+        if not prof:
+            raise HTTPException(status_code=404, detail="Account profile not found — build it first")
+        canon = norm_handle(platform, handle)
+        title = f"@{prof.get('handle') or canon} on {platform}"
+        counts = (f"followers: {prof.get('followers_count')}, following: {prof.get('following_count')}, "
+                  f"posts: {prof.get('posts_count')}")
+        content = "\n\n".join(x for x in [
+            prof.get("display_name"), prof.get("bio"), prof.get("summary"),
+            prof.get("brand_context"), counts] if x)
+        prof_snapshot = {k: v for k, v in prof.items() if k != "sample_posts"}
+        sample = prof.get("sample_posts")
+        if isinstance(sample, list):
+            prof_snapshot["sample_posts"] = sample[:5]
+        meta = {"platform": platform.lower(), "handle": canon,
+                "account_id": prof.get("id"), "profile": prof_snapshot}
     elif etype == "alert_event":
         row = conn.execute(text("""
             SELECT rule, severity, title, body, payload, created_at
@@ -5109,35 +5184,21 @@ def _capture_evidence(conn, incident_id: int, req: "EvidenceAttach", actor: str)
         title = req.title or (req.source_ref or "manual note")[:120]
         content = req.content or req.source_ref or ""
         meta = {"url": req.source_ref} if etype == "url" else {}
+    elif etype == "file":
+        raise HTTPException(status_code=400,
+                            detail="Use POST /incidents/{id}/files to attach a file")
     else:
         raise HTTPException(status_code=400, detail=f"Unknown evidence_type: {etype}")
 
-    prev = conn.execute(text("""
-        SELECT chain_sha256 FROM bw_incident_evidence
-        WHERE incident_id = :i ORDER BY id DESC LIMIT 1
-    """), {"i": incident_id}).fetchone()
-    prev_chain = prev[0] if prev else ""
-    meta_json = json.dumps(meta, sort_keys=True, default=str)
-    content_sha = hashlib.sha256(f"{content}|{meta_json}".encode()).hexdigest()
-    chain_sha = hashlib.sha256(f"{prev_chain}|{content_sha}".encode()).hexdigest()
-    row = conn.execute(text("""
-        INSERT INTO bw_incident_evidence
-            (incident_id, evidence_type, source_ref, title, content, meta,
-             content_sha256, chain_sha256, captured_by)
-        VALUES (:i, :t, :r, :ti, :c, :m, :cs, :ch, :a)
-        RETURNING id, captured_at
-    """), {"i": incident_id, "t": etype, "r": req.source_ref, "ti": (title or "")[:300],
-           "c": content, "m": meta_json, "cs": content_sha, "ch": chain_sha, "a": actor}).fetchone()
-    _incident_event(conn, incident_id, "evidence_added", actor,
-                    new_value=etype, note=(title or "")[:200])
-    return {"id": row[0], "content_sha256": content_sha, "chain_sha256": chain_sha,
-            "captured_at": row[1].isoformat() if row[1] else None}
+    return _append_evidence_row(conn, incident_id, etype, req.source_ref, title, content, meta, actor)
 
 
 @router.post("/incidents", status_code=201)
-async def create_incident(req: IncidentCreate, session=Depends(verify_session)):
+async def create_incident(req: IncidentCreate, background_tasks: BackgroundTasks,
+                          session=Depends(verify_session)):
     if req.severity not in INCIDENT_SEVERITIES:
         raise HTTPException(status_code=400, detail="Invalid severity")
+    from app.services.bw_incident_enrichment import run_incident_enrichment
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
@@ -5149,8 +5210,12 @@ async def create_incident(req: IncidentCreate, session=Depends(verify_session)):
         """), {"b": req.brand_id, "t": req.title.strip()[:300], "d": req.description,
                "s": req.severity, "a": actor}).fetchone()
         _incident_event(conn, row[0], "created", actor, new_value=req.severity)
+        # seed the review queue right away — candidates stage only, nothing
+        # enters the evidence locker without analyst confirmation
+        run_id = _start_enrichment_run(conn, row[0], "auto:create")
         conn.commit()
-        return {"id": row[0]}
+        background_tasks.add_task(run_incident_enrichment, run_id, row[0], "auto:create")
+        return {"id": row[0], "enrichment_run_id": run_id}
     except HTTPException:
         conn.rollback(); raise
     except Exception as e:
@@ -5193,6 +5258,66 @@ async def list_incidents(status: Optional[str] = Query(None), brand_id: Optional
             "resolved_at": r[9].isoformat() if r[9] else None,
             "evidence_count": r[10], "event_count": r[11],
         } for r in rows]}
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/attach-search")
+async def incident_attach_search(q: str = Query(..., min_length=2),
+                                 brand_id: Optional[int] = Query(None),
+                                 kind: str = Query("all"),  # all | news | social
+                                 days_back: int = Query(90, ge=1, le=730),
+                                 limit: int = Query(20, ge=1, le=50),
+                                 session=Depends(verify_session)):
+    """Search articles/posts to attach as incident evidence.
+
+    NB: registered before /incidents/{incident_id} so the literal path wins.
+    """
+    from app.services.social_sources import social_src_sql, is_social_source
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        sd, _ = _get_date_range(days_back)
+        clauses = ["(a.title ILIKE :pat OR a.summary ILIKE :pat)",
+                   "a.publication_date >= :sd",
+                   "(a.topic_alignment_score IS NULL OR a.topic_alignment_score >= 0.3)"]
+        if kind == "news":
+            clauses.append(f"NOT {social_src_sql('a.news_source')}")
+        elif kind == "social":
+            clauses.append(social_src_sql('a.news_source'))
+        params = {"pat": f"%{q}%", "q": q, "sd": sd, "lim": limit}
+        if brand_id:
+            clauses.append(
+                "a.topic = (SELECT 'Brand Monitoring ' || display_name FROM bw_brands WHERE id = :b)")
+            params["b"] = brand_id
+        # an exact-URI paste bypasses the window/relevance/kind filters — the
+        # analyst is naming one specific item, not searching
+        rows = conn.execute(text(f"""
+            SELECT a.uri, a.title, a.news_source, a.publication_date,
+                   a.topic_alignment_score, a.social_meta
+            FROM articles a
+            WHERE a.uri = :q OR ({' AND '.join(clauses)})
+            ORDER BY (a.uri = :q) DESC, a.publication_date DESC
+            LIMIT :lim
+        """), params).fetchall()
+        out = []
+        for r in rows:
+            sm = r[5] if isinstance(r[5], dict) else None
+            if sm is None and r[5]:
+                try:
+                    sm = json.loads(r[5])
+                except (json.JSONDecodeError, TypeError):
+                    sm = None
+            social = is_social_source(r[2])
+            out.append({
+                "uri": r[0], "title": r[1], "news_source": r[2],
+                "publication_date": str(r[3]) if r[3] else None,
+                "topic_alignment_score": round(r[4], 3) if r[4] is not None else None,
+                "is_social": social,
+                "platform": ((sm or {}).get("platform") or _evidence_platform(r[2])) if social else None,
+                "author": (sm or {}).get("author") if social else None,
+            })
+        return {"results": out}
     finally:
         conn.close()
 
@@ -5377,6 +5502,254 @@ async def verify_evidence_chain(incident_id: int, session=Depends(verify_session
                 broken.append(rid)
             prev_chain = chsha
         return {"items": len(rows), "intact": not broken, "broken_ids": broken}
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/files", status_code=201)
+async def upload_incident_file(incident_id: int, file: UploadFile = File(...),
+                               note: Optional[str] = Form(None),
+                               session=Depends(verify_session)):
+    """Attach a file to an incident: bytes to disk, row in bw_incident_files,
+    and an evidence-locker entry whose content embeds the file's sha256 (the
+    hash chain covers the file bytes transitively)."""
+    from app.services import incident_files
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        try:
+            info = await incident_files.save_upload(incident_id, file)
+        except incident_files.FileTooLargeError as e:
+            raise HTTPException(status_code=413, detail=str(e))
+        except incident_files.FileValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        actor = _incident_actor(session)
+        row = conn.execute(text("""
+            INSERT INTO bw_incident_files
+                (incident_id, filename, mime, size_bytes, sha256, stored_path, uploaded_by)
+            VALUES (:i, :fn, :mi, :sz, :sh, :sp, :a)
+            RETURNING id
+        """), {"i": incident_id, "fn": info["filename"], "mi": info["mime"],
+               "sz": info["size_bytes"], "sh": info["sha256"],
+               "sp": info["stored_path"], "a": actor}).fetchone()
+        file_id = row[0]
+        content = (f"Attached file: {info['filename']}\n"
+                   f"size: {info['size_bytes']} bytes\nmime: {info['mime']}\n"
+                   f"sha256: {info['sha256']}" + (f"\n\n{note}" if note else ""))
+        meta = {"file_id": file_id, "filename": info["filename"], "mime": info["mime"],
+                "size_bytes": info["size_bytes"], "sha256": info["sha256"]}
+        ev = _append_evidence_row(conn, incident_id, "file", f"file:{file_id}",
+                                  info["filename"], content, meta, actor)
+        conn.execute(text("UPDATE bw_incident_files SET evidence_id = :e WHERE id = :f"),
+                     {"e": ev["id"], "f": file_id})
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return {"file_id": file_id, "evidence_id": ev["id"], **info}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Incident file upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/{incident_id}/files/{file_id}")
+async def download_incident_file(incident_id: int, file_id: int,
+                                 verify: int = Query(0),
+                                 session=Depends(verify_session)):
+    from app.services import incident_files
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("""
+            SELECT filename, mime, sha256, stored_path FROM bw_incident_files
+            WHERE id = :f AND incident_id = :i
+        """), {"f": file_id, "i": incident_id}).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = incident_files.resolve_path(row[3])
+    if not path:
+        raise HTTPException(status_code=404, detail="File missing from storage")
+    if verify and incident_files.file_sha256(path) != row[2]:
+        raise HTTPException(status_code=409, detail="File integrity check failed (sha256 mismatch)")
+    return FileResponse(path, media_type=row[1] or "application/octet-stream", filename=row[0])
+
+
+# ---------------------------------------------------------------------------
+# Incident enrichment agent — staged review queue. The agent NEVER writes to
+# the evidence locker itself; candidates wait in
+# bw_incident_enrichment_candidates until an analyst attaches or dismisses.
+
+class EnrichmentDecide(BaseModel):
+    candidate_ids: List[int]
+    action: Literal["attach", "dismiss"]
+
+
+def _start_enrichment_run(conn, incident_id: int, started_by: str) -> int:
+    row = conn.execute(text("""
+        INSERT INTO bw_incident_enrichment_runs (incident_id, started_by)
+        VALUES (:i, :a) RETURNING id
+    """), {"i": incident_id, "a": started_by}).fetchone()
+    return row[0]
+
+
+@router.post("/incidents/{incident_id}/enrich", status_code=202)
+async def enrich_incident(incident_id: int, background_tasks: BackgroundTasks,
+                          session=Depends(verify_session)):
+    from app.services.bw_incident_enrichment import run_incident_enrichment
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        running = conn.execute(text("""
+            SELECT id FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i AND status = 'running'
+              AND started_at > NOW() - INTERVAL '15 minutes'
+            LIMIT 1
+        """), {"i": incident_id}).fetchone()
+        if running:
+            raise HTTPException(status_code=409,
+                                detail=f"Enrichment run #{running[0]} is already in progress")
+        actor = _incident_actor(session)
+        run_id = _start_enrichment_run(conn, incident_id, actor)
+        conn.commit()
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+    background_tasks.add_task(run_incident_enrichment, run_id, incident_id, actor)
+    return {"run_id": run_id, "status": "running"}
+
+
+@router.get("/incidents/{incident_id}/enrichment")
+async def get_incident_enrichment(incident_id: int, session=Depends(verify_session)):
+    """Latest run + pending candidates in one poll-friendly payload."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        run = conn.execute(text("""
+            SELECT id, status, stage, stats, brief, error, started_by, started_at, finished_at
+            FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i ORDER BY id DESC LIMIT 1
+        """), {"i": incident_id}).fetchone()
+        cands = conn.execute(text("""
+            SELECT id, run_id, candidate_type, source_ref, title, snippet, score, reason, meta
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND state = 'pending'
+            ORDER BY CASE candidate_type WHEN 'article' THEN 0
+                     WHEN 'social_post' THEN 1 ELSE 2 END, score DESC NULLS LAST, id
+        """), {"i": incident_id}).fetchall()
+        counts = conn.execute(text("""
+            SELECT state, COUNT(*) FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i GROUP BY state
+        """), {"i": incident_id}).fetchall()
+        def _j(v):
+            if v is None or isinstance(v, (dict, list)):
+                return v
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return {
+            "run": None if not run else {
+                "id": run[0], "status": run[1], "stage": run[2], "stats": _j(run[3]),
+                "brief": run[4], "error": run[5], "started_by": run[6],
+                "started_at": run[7].isoformat() if run[7] else None,
+                "finished_at": run[8].isoformat() if run[8] else None,
+            },
+            "candidates": [{"id": c[0], "run_id": c[1], "candidate_type": c[2],
+                            "source_ref": c[3], "title": c[4], "snippet": c[5],
+                            "score": c[6], "reason": c[7], "meta": _j(c[8])} for c in cands],
+            "counts": {s: n for s, n in counts},
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/enrichment/decide")
+async def decide_enrichment_candidates(incident_id: int, req: EnrichmentDecide,
+                                       session=Depends(verify_session)):
+    """Attach (snapshot into the locker) or dismiss pending candidates.
+    Candidates whose source has vanished are skipped and reported, not fatal."""
+    if not req.candidate_ids:
+        raise HTTPException(status_code=400, detail="candidate_ids required")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        actor = _incident_actor(session)
+        rows = conn.execute(text("""
+            SELECT id, run_id, candidate_type, source_ref, title
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND id = ANY(:ids) AND state = 'pending'
+        """), {"i": incident_id, "ids": req.candidate_ids}).fetchall()
+        if not rows:
+            raise HTTPException(status_code=404, detail="No pending candidates match")
+        attached, dismissed, failed = 0, 0, []
+        for cid, run_id, ctype, source_ref, title in rows:
+            new_state = "dismissed"
+            if req.action == "attach":
+                try:
+                    _capture_evidence(conn, incident_id, EvidenceAttach(
+                        evidence_type=ctype, source_ref=source_ref), actor)
+                    _incident_event(conn, incident_id, "note", actor,
+                                    note=f"attached from agent run #{run_id}: {title or source_ref}"[:200])
+                    new_state = "attached"
+                    attached += 1
+                except HTTPException as e:
+                    failed.append({"id": cid, "source_ref": source_ref, "error": e.detail})
+                    continue
+            else:
+                dismissed += 1
+            conn.execute(text("""
+                UPDATE bw_incident_enrichment_candidates
+                SET state = :s, decided_by = :a, decided_at = NOW() WHERE id = :c
+            """), {"s": new_state, "a": actor, "c": cid})
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return {"attached": attached, "dismissed": dismissed, "failed": failed}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/enrichment/attach-brief", status_code=201)
+async def attach_enrichment_brief(incident_id: int, session=Depends(verify_session)):
+    """Snapshot the latest run's brief into the evidence locker as a note."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        run = conn.execute(text("""
+            SELECT id, brief FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i AND brief IS NOT NULL
+            ORDER BY id DESC LIMIT 1
+        """), {"i": incident_id}).fetchone()
+        if not run:
+            raise HTTPException(status_code=404, detail="No enrichment brief available")
+        result = _capture_evidence(conn, incident_id, EvidenceAttach(
+            evidence_type="note", title=f"Agent incident brief (run #{run[0]})",
+            content=run[1]), _incident_actor(session))
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 

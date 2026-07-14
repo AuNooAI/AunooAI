@@ -37,6 +37,9 @@ import {
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
   listIncidents, createIncident, getIncident, updateIncident, deleteIncident, addIncidentNote,
   attachIncidentEvidence, verifyIncidentChain,
+  incidentAttachSearch, uploadIncidentFile, incidentFileUrl,
+  startIncidentEnrichment, getIncidentEnrichment, decideEnrichmentCandidates, attachEnrichmentBrief,
+  type BWAttachSearchResult, type BWEnrichmentState,
   getEmployeeRisk, getRiskSummary, updateBrandConfig, pollOfficialSourcesNow,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
@@ -305,6 +308,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // "Add to incident" picker: holds the source being attached (article or alert event)
   const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event'; ref: string; refs?: string[]; label: string; brandId: number | null } | null>(null);
   const [incAttachNewTitle, setIncAttachNewTitle] = useState('');
+  // Attach pickers: article/post search modal, account-profile picker, file upload
+  const [incSearch, setIncSearch] = useState<{ open: boolean; q: string; kind: 'all' | 'news' | 'social'; results: BWAttachSearchResult[]; sel: Set<string>; busy: boolean; searched: boolean }>({ open: false, q: '', kind: 'all', results: [], sel: new Set(), busy: false, searched: false });
+  const [incProfilePick, setIncProfilePick] = useState<{ open: boolean; filter: string; profiles: BWAccountProfile[] }>({ open: false, filter: '', profiles: [] });
+  const [incFileBusy, setIncFileBusy] = useState(false);
+  const incFileInputRef = useRef<HTMLInputElement>(null);
+  // Enrichment agent: latest run + staged candidates (review queue)
+  const [incEnrich, setIncEnrich] = useState<BWEnrichmentState | null>(null);
+  const [incEnrichSel, setIncEnrichSel] = useState<Set<number>>(new Set());
+  const [incEnrichBusy, setIncEnrichBusy] = useState(false);
+  const [incBriefOpen, setIncBriefOpen] = useState(false);
   // Bulk incident management: selected ids + pending bulk edit values
   const [incSelected, setIncSelected] = useState<Set<number>>(new Set());
   const [incBulk, setIncBulk] = useState<{ status: string; severity: string; owner: string }>({ status: '', severity: '', owner: '' });
@@ -348,6 +361,90 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (incDetail) getIncident(incDetail.id).then(setIncDetail).catch(console.error);
     loadIncidents(incStatusFilter || undefined);
   }, [incDetail, incStatusFilter, loadIncidents]);
+  const loadEnrichment = useCallback((id: number) => {
+    getIncidentEnrichment(id).then(setIncEnrich).catch(() => setIncEnrich(null));
+  }, []);
+  // Load the enrichment state whenever an incident is opened (auto-runs from
+  // creation/monitor surface here without any manual action).
+  useEffect(() => {
+    setIncEnrichSel(new Set()); setIncBriefOpen(false);
+    if (incDetail?.id) loadEnrichment(incDetail.id); else setIncEnrich(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incDetail?.id]);
+  // Poll while a run is in progress; refresh the incident once it lands so the
+  // agent's timeline events appear.
+  useEffect(() => {
+    if (!incDetail?.id || incEnrich?.run?.status !== 'running') return;
+    const id = incDetail.id;
+    const t = setInterval(() => {
+      getIncidentEnrichment(id).then(state => {
+        setIncEnrich(state);
+        if (state.run && state.run.status !== 'running') getIncident(id).then(setIncDetail).catch(console.error);
+      }).catch(() => {});
+    }, 4000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incDetail?.id, incEnrich?.run?.status]);
+  const doIncAttachSearch = useCallback(async () => {
+    if (!incSearch.q.trim()) return;
+    setIncSearch(s => ({ ...s, busy: true }));
+    try {
+      const results = await incidentAttachSearch(incSearch.q.trim(), { kind: incSearch.kind, daysBack: 365 });
+      setIncSearch(s => ({ ...s, results, sel: new Set(), busy: false, searched: true }));
+    } catch (e) { console.error(e); setIncSearch(s => ({ ...s, busy: false, searched: true })); }
+  }, [incSearch.q, incSearch.kind]);
+  const attachSearchSelection = useCallback(async () => {
+    if (!incDetail || !incSearch.sel.size) return;
+    setIncSearch(s => ({ ...s, busy: true }));
+    try {
+      for (const uri of incSearch.sel) {
+        const r = incSearch.results.find(x => x.uri === uri);
+        await attachIncidentEvidence(incDetail.id, { evidence_type: r?.is_social ? 'social_post' : 'article', source_ref: uri });
+      }
+      setIncSearch({ open: false, q: '', kind: 'all', results: [], sel: new Set(), busy: false, searched: false });
+      refreshIncident();
+    } catch (e) { console.error(e); alert('Failed to attach: ' + e); setIncSearch(s => ({ ...s, busy: false })); }
+  }, [incDetail, incSearch.sel, incSearch.results, refreshIncident]);
+  const openProfilePicker = useCallback(() => {
+    setIncProfilePick({ open: true, filter: '', profiles: [] });
+    listAccountProfiles().then(profiles => setIncProfilePick(p => ({ ...p, profiles }))).catch(console.error);
+  }, []);
+  const attachProfile = useCallback(async (p: BWAccountProfile) => {
+    if (!incDetail) return;
+    try {
+      await attachIncidentEvidence(incDetail.id, { evidence_type: 'account_profile', source_ref: `${p.platform}:${p.handle_canonical || p.handle}` });
+      setIncProfilePick({ open: false, filter: '', profiles: [] });
+      refreshIncident();
+    } catch (e) { console.error(e); alert('Failed to attach profile: ' + e); }
+  }, [incDetail, refreshIncident]);
+  const onIncFilePicked = useCallback(async (f: globalThis.File | undefined) => {
+    if (!incDetail || !f) return;
+    setIncFileBusy(true);
+    try {
+      await uploadIncidentFile(incDetail.id, f);
+      refreshIncident();
+    } catch (e) { alert(`File upload failed: ${e instanceof Error ? e.message : e}`); }
+    finally { setIncFileBusy(false); if (incFileInputRef.current) incFileInputRef.current.value = ''; }
+  }, [incDetail, refreshIncident]);
+  const startEnrich = useCallback(async () => {
+    if (!incDetail) return;
+    try {
+      await startIncidentEnrichment(incDetail.id);
+      loadEnrichment(incDetail.id);
+    } catch (e) { alert(`${e instanceof Error ? e.message : e}`); }
+  }, [incDetail, loadEnrichment]);
+  const decideEnrichSel = useCallback(async (action: 'attach' | 'dismiss') => {
+    if (!incDetail || !incEnrichSel.size) return;
+    setIncEnrichBusy(true);
+    try {
+      const res = await decideEnrichmentCandidates(incDetail.id, Array.from(incEnrichSel), action);
+      if (res.failed?.length) alert(`${res.failed.length} item(s) could not be attached (source no longer available)`);
+      setIncEnrichSel(new Set());
+      loadEnrichment(incDetail.id);
+      refreshIncident();
+    } catch (e) { console.error(e); alert(`Failed to ${action}: ` + e); }
+    finally { setIncEnrichBusy(false); }
+  }, [incDetail, incEnrichSel, loadEnrichment, refreshIncident]);
   // Attach the pending source to an incident (existing id, or create-new first).
   const doAttach = useCallback(async (incidentId: number | null) => {
     if (!incAttach) return;
@@ -6380,17 +6477,53 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       </p>
                     )}
                     <div className="space-y-2">
-                      {incDetail.evidence.map(ev => (
+                      {incDetail.evidence.map(ev => {
+                        const typeCls: Record<string, string> = {
+                          article: 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400',
+                          social_post: 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400',
+                          account_profile: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400',
+                          file: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
+                          alert_event: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
+                        };
+                        const m = ev.meta || {};
+                        return (
                         <div key={ev.id} className="p-2.5 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 font-semibold flex-shrink-0">{ev.evidence_type}</span>
+                            {ev.evidence_type === 'account_profile' && m.profile?.avatar_url
+                              ? <img src={m.profile.avatar_url} alt="" className="w-6 h-6 rounded-full flex-shrink-0 object-cover" />
+                              : null}
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${typeCls[ev.evidence_type] || typeCls.article}`}>{ev.evidence_type.replace('_', ' ')}</span>
                             <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate flex-1">{ev.title || ev.source_ref}</span>
                             <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.captured_at || '').slice(0, 16).replace('T', ' ')} · {ev.captured_by}</span>
                           </div>
+                          {ev.evidence_type === 'social_post' && (m.platform || m.author) && (
+                            <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-1">
+                              {m.platform}{m.author ? ` · @${m.author}` : ''}
+                              {m.engagement && Object.keys(m.engagement).length > 0 && (
+                                <span className="text-gray-400"> · {Object.entries(m.engagement).map(([k, v]) => `${v} ${k}`).join(' · ')}</span>
+                              )}
+                            </p>
+                          )}
+                          {ev.evidence_type === 'account_profile' && (
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
+                              {m.profile?.display_name || `@${m.handle}`} · {m.platform}
+                              {m.profile?.followers_count != null && <span className="text-gray-400"> · {Number(m.profile.followers_count).toLocaleString()} followers</span>}
+                            </p>
+                          )}
+                          {ev.evidence_type === 'file' && m.file_id && (
+                            <p className="text-[10px] mt-1">
+                              <a href={incidentFileUrl(incDetail.id, m.file_id)} download
+                                className="text-amber-700 dark:text-amber-400 hover:underline inline-flex items-center gap-1">
+                                <FileDown className="w-3 h-3" /> {m.filename}
+                              </a>
+                              <span className="text-gray-400"> · {m.size_bytes != null ? `${(m.size_bytes / 1024).toFixed(0)} KB` : ''} · {m.mime}</span>
+                            </p>
+                          )}
                           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 whitespace-pre-line">{ev.content}</p>
                           <p className="text-[9px] font-mono text-gray-400 mt-1 truncate" title={`content sha256: ${ev.content_sha256} · chain: ${ev.chain_sha256}`}>sha256 {ev.content_sha256.slice(0, 20)}… · chain {ev.chain_sha256.slice(0, 20)}…</p>
                         </div>
-                      ))}
+                        );
+                      })}
                       {incDetail.evidence.length === 0 && <p className="text-xs text-gray-400">No evidence captured yet.</p>}
                     </div>
                     <div className="flex items-center gap-2 mt-2">
@@ -6407,6 +6540,109 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         }}
                         className="text-xs px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50">Capture</button>
                     </div>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-gray-400">Attach:</span>
+                      <button onClick={() => setIncSearch(s => ({ ...s, open: true }))}
+                        title="Search collected articles and social posts to attach as evidence"
+                        className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-300 inline-flex items-center gap-1">
+                        <Search className="w-3 h-3" /> Article / post…
+                      </button>
+                      <button onClick={openProfilePicker}
+                        title="Attach a snapshot of a profiled social account"
+                        className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-emerald-300 inline-flex items-center gap-1">
+                        <UserCircle className="w-3 h-3" /> Account profile…
+                      </button>
+                      <button onClick={() => incFileInputRef.current?.click()} disabled={incFileBusy}
+                        title="Upload a file (screenshot, PDF, export — max 25 MB); its sha256 goes into the evidence chain"
+                        className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-amber-300 disabled:opacity-50 inline-flex items-center gap-1">
+                        {incFileBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} File…
+                      </button>
+                      <input ref={incFileInputRef} type="file" className="hidden"
+                        onChange={e => onIncFilePicked(e.target.files?.[0])} />
+                    </div>
+                  </div>
+
+                  {/* ---- Enrichment agent: run status, brief, review queue ---- */}
+                  <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5" /> Agent enrichment
+                        {incEnrich?.counts && (incEnrich.counts.attached || incEnrich.counts.dismissed) ? (
+                          <span className="font-normal normal-case text-gray-400">({incEnrich.counts.attached || 0} attached · {incEnrich.counts.dismissed || 0} dismissed)</span>
+                        ) : null}
+                      </h4>
+                      <button onClick={startEnrich} disabled={incEnrich?.run?.status === 'running'}
+                        title="Search for related articles, social posts and author profiles; results are staged below for your review — nothing enters the locker without confirmation"
+                        className="text-[11px] px-2 py-0.5 rounded-md border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 inline-flex items-center gap-1">
+                        {incEnrich?.run?.status === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                        {incEnrich?.run?.status === 'running' ? 'Enriching…' : 'Enrich'}
+                      </button>
+                    </div>
+                    {incEnrich?.run?.status === 'running' && (
+                      <p className="text-[11px] text-blue-600 dark:text-blue-400 mb-2">{incEnrich.run.stage || 'working…'}</p>
+                    )}
+                    {incEnrich?.run?.status === 'failed' && (
+                      <p className="text-[11px] text-red-600 dark:text-red-400 mb-2">Last run failed: {incEnrich.run.error}</p>
+                    )}
+                    {incEnrich?.run?.brief && (
+                      <div className="mb-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+                        <div className="flex items-center justify-between px-2.5 py-1.5">
+                          <button onClick={() => setIncBriefOpen(o => !o)} className="text-[11px] font-medium text-gray-700 dark:text-gray-200 inline-flex items-center gap-1">
+                            {incBriefOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                            Incident brief <span className="text-gray-400 font-normal">(agent, run #{incEnrich.run.id})</span>
+                          </button>
+                          <button onClick={() => attachEnrichmentBrief(incDetail.id).then(refreshIncident).catch(e => alert(String(e)))}
+                            title="Snapshot this brief into the evidence locker as a note"
+                            className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700">Attach to locker</button>
+                        </div>
+                        {incBriefOpen && (
+                          <div className="px-2.5 pb-2 text-[11px] text-gray-600 dark:text-gray-300 whitespace-pre-line max-h-64 overflow-y-auto">{incEnrich.run.brief}</div>
+                        )}
+                      </div>
+                    )}
+                    {(incEnrich?.candidates?.length || 0) > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400">{incEnrich!.candidates.length} candidate(s) awaiting review</span>
+                          <span className="flex-1" />
+                          <button disabled={!incEnrichSel.size || incEnrichBusy} onClick={() => decideEnrichSel('attach')}
+                            className="text-[10px] px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-40">Attach selected</button>
+                          <button disabled={!incEnrichSel.size || incEnrichBusy} onClick={() => decideEnrichSel('dismiss')}
+                            className="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 disabled:opacity-40">Dismiss selected</button>
+                        </div>
+                        <div className="space-y-1 max-h-72 overflow-y-auto">
+                          {incEnrich!.candidates.map(c => {
+                            const tcls: Record<string, string> = {
+                              article: 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400',
+                              social_post: 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400',
+                              account_profile: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400',
+                            };
+                            return (
+                              <label key={c.id} className="flex items-start gap-2 p-1.5 rounded border border-gray-100 dark:border-gray-700 hover:border-blue-200 cursor-pointer">
+                                <input type="checkbox" checked={incEnrichSel.has(c.id)}
+                                  onChange={e => setIncEnrichSel(prev => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(c.id); else next.delete(c.id);
+                                    return next;
+                                  })} className="mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 ${tcls[c.candidate_type]}`}>{c.candidate_type.replace('_', ' ')}</span>
+                                    <span className="text-[11px] text-gray-800 dark:text-gray-100 truncate">{c.title || c.source_ref}</span>
+                                    {c.score != null && <span className="text-[9px] text-gray-400 flex-shrink-0">{c.score}</span>}
+                                  </div>
+                                  <p className="text-[10px] text-gray-400 truncate">{c.reason}{c.snippet ? ` — ${c.snippet}` : ''}</p>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {incEnrich && incEnrich.run && incEnrich.run.status === 'completed' && !incEnrich.candidates.length && (
+                      <p className="text-[11px] text-gray-400">No new candidates — everything the agent found is already attached, staged, or dismissed.</p>
+                    )}
+                    {!incEnrich?.run && <p className="text-[11px] text-gray-400">No agent runs yet.</p>}
                   </div>
 
                   <div>
@@ -6420,6 +6656,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                             {ev.kind === 'note' ? ev.note
                               : ev.kind === 'evidence_added' ? `captured ${ev.new_value} evidence: ${ev.note}`
                               : ev.kind === 'created' ? `opened the incident (${ev.new_value})`
+                              : ev.kind === 'agent_brief' ? `🤖 wrote an incident brief: ${ev.note || ''}`
+                              : ev.kind === 'enrichment' ? `🤖 ${ev.note || 'enrichment run finished'}`
                               : `${ev.kind.replace('_', ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value}${ev.note ? ` (${ev.note})` : ''}`}
                           </span>
                         </div>
@@ -6440,6 +6678,98 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- ADD-TO-INCIDENT PICKER ---- */}
+      {/* ---- INCIDENT ATTACH-SEARCH MODAL ---- */}
+      {incSearch.open && incDetail && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setIncSearch(s => ({ ...s, open: false }))} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Attach articles / posts to incident #{incDetail.id}</h3>
+              <button onClick={() => setIncSearch(s => ({ ...s, open: false }))} className="text-gray-500 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+              <div className="flex items-center gap-2">
+                <input type="text" value={incSearch.q} autoFocus
+                  onChange={e => setIncSearch(s => ({ ...s, q: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') doIncAttachSearch(); }}
+                  placeholder="Search title / summary, or paste a URI…"
+                  className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                <select value={incSearch.kind} onChange={e => setIncSearch(s => ({ ...s, kind: e.target.value as 'all' | 'news' | 'social' }))}
+                  className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                  <option value="all">all</option><option value="news">news</option><option value="social">social</option>
+                </select>
+                <button onClick={doIncAttachSearch} disabled={incSearch.busy || !incSearch.q.trim()}
+                  className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1">
+                  {incSearch.busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />} Search
+                </button>
+              </div>
+              <div className="space-y-1">
+                {incSearch.results.map(r => (
+                  <label key={r.uri} className="flex items-start gap-2 p-2 rounded border border-gray-100 dark:border-gray-700 hover:border-blue-200 cursor-pointer">
+                    <input type="checkbox" checked={incSearch.sel.has(r.uri)}
+                      onChange={e => setIncSearch(s => {
+                        const sel = new Set(s.sel);
+                        if (e.target.checked) sel.add(r.uri); else sel.delete(r.uri);
+                        return { ...s, sel };
+                      })} className="mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 ${r.is_social ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400'}`}>
+                          {r.is_social ? (r.platform || 'social') : 'news'}
+                        </span>
+                        <span className="text-xs text-gray-800 dark:text-gray-100 truncate">{r.title || r.uri}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 truncate">{r.news_source}{r.author ? ` · @${r.author}` : ''} · {(r.publication_date || '').slice(0, 10)}{r.topic_alignment_score != null ? ` · rel ${r.topic_alignment_score}` : ''}</p>
+                    </div>
+                  </label>
+                ))}
+                {incSearch.searched && !incSearch.busy && !incSearch.results.length && (
+                  <p className="text-xs text-gray-400 text-center py-4">No matches in the last year of collected content.</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 p-3 border-t border-gray-200 dark:border-gray-700">
+              <button onClick={() => setIncSearch(s => ({ ...s, open: false }))}
+                className="text-xs px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300">Cancel</button>
+              <button onClick={attachSearchSelection} disabled={!incSearch.sel.size || incSearch.busy}
+                className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                Attach {incSearch.sel.size || ''} selected
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ---- INCIDENT PROFILE PICKER ---- */}
+      {incProfilePick.open && incDetail && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setIncProfilePick(p => ({ ...p, open: false }))} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg max-h-[75vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Attach an account profile to incident #{incDetail.id}</h3>
+              <button onClick={() => setIncProfilePick(p => ({ ...p, open: false }))} className="text-gray-500 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-2 overflow-y-auto flex-1">
+              <input type="text" value={incProfilePick.filter} autoFocus
+                onChange={e => setIncProfilePick(p => ({ ...p, filter: e.target.value }))}
+                placeholder="Filter by handle / name / platform…"
+                className="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+              {incProfilePick.profiles
+                .filter(p => !incProfilePick.filter.trim() || `${p.handle} ${p.display_name || ''} ${p.platform}`.toLowerCase().includes(incProfilePick.filter.toLowerCase()))
+                .map(p => (
+                  <button key={p.id} onClick={() => attachProfile(p)}
+                    className="w-full flex items-center gap-2 p-2 rounded border border-gray-100 dark:border-gray-700 hover:border-emerald-300 text-left">
+                    {p.avatar_url ? <img src={p.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" /> : <UserCircle className="w-7 h-7 text-gray-300 flex-shrink-0" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-gray-800 dark:text-gray-100 truncate">{p.display_name || `@${p.handle}`} <span className="text-gray-400">@{p.handle} · {p.platform}</span></p>
+                      <p className="text-[10px] text-gray-400 truncate">{p.followers_count != null ? `${Number(p.followers_count).toLocaleString()} followers · ` : ''}{p.summary || p.bio || ''}</p>
+                    </div>
+                  </button>
+                ))}
+              {!incProfilePick.profiles.length && <p className="text-xs text-gray-400 text-center py-4">No profiled accounts yet — build profiles from the Social tab first.</p>}
+            </div>
+          </div>
+        </div>
+      )}
       {/* ---- FIVE SIGNALS DETAIL MODAL ---- */}
       {sigModal && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center">
