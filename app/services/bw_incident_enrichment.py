@@ -487,32 +487,46 @@ def _parse_triage_json(raw: str) -> List[Dict]:
 
 async def _triage_candidates(ctx: Dict, run_id: int, incident_id: int) -> Dict[str, int]:
     """Score pending candidates against the incident; auto-dismiss noise,
-    mark strong ones recommendation='attach'. Never raises.
+    mark strong ones recommendation='attach', and ROUTE items that belong to
+    a different open case of the same brand (the sweeps are brand-wide, so
+    without routing every case stages the same items — which then reads as
+    shared evidence and manufactures duplicate-case suggestions). Never raises.
 
     Writes only bw_incident_enrichment_candidates — auto-dismissals show up
     in the disposition history as decided_by='agent:triage'; attaching (the
     locker write) remains a human decision.
     """
     from app.ai_models import LiteLLMModel
-    stats = {"scored": 0, "auto_dismissed": 0, "recommended": 0}
+    stats = {"scored": 0, "auto_dismissed": 0, "recommended": 0, "routed": 0}
     conn = _conn()
     try:
         rows = conn.execute(text("""
-            SELECT id, candidate_type, title, snippet, reason
+            SELECT id, candidate_type, title, snippet, reason, source_ref, score, meta
             FROM bw_incident_enrichment_candidates
             WHERE incident_id = :i AND state = 'pending' AND triage_score IS NULL
             ORDER BY score DESC NULLS LAST, id
             LIMIT :lim
         """), {"i": incident_id, "lim": TRIAGE_MAX_PER_RUN}).fetchall()
+        siblings = conn.execute(text("""
+            SELECT id, title, LEFT(COALESCE(description, ''), 200)
+            FROM bw_incidents
+            WHERE brand_id = :b AND id != :i AND status IN ('open', 'investigating')
+            ORDER BY id
+        """), {"b": ctx["brand_id"], "i": incident_id}).fetchall()
     finally:
         conn.close()
     if not rows:
         return stats
+    sibling_ids = {s[0] for s in siblings}
 
     context = (f"Incident: {ctx['title']}\n"
                f"Brand: {ctx['brand_name']}\n"
                f"Description: {ctx['description'] or '(none)'}\n"
                f"Brand keywords: {', '.join(ctx['keywords'])}")
+    if siblings:
+        context += "\n\nOTHER OPEN CASES for this brand (an item that is really about one "
+        context += "of these belongs there, not here):\n" + "\n".join(
+            f"- case {s[0]}: {s[1]}" + (f" — {s[2]}" if s[2] else "") for s in siblings)
     try:
         model = LiteLLMModel.get_instance(TRIAGE_MODEL)
     except Exception as e:  # noqa: BLE001
@@ -534,8 +548,13 @@ async def _triage_candidates(ctx: Dict, run_id: int, incident_id: int) -> Dict[s
             "specific incident (not the brand in general). Score 0.0-1.0: "
             "0.0-0.3 unrelated or generic brand noise; 0.3-0.7 possibly related, "
             "needs a human look; 0.7-1.0 clearly about this incident. "
-            "Respond with ONLY a JSON array: "
-            '[{"id": <id>, "score": <0.0-1.0>, "why": "<one short sentence>"}]')
+            + ("If a candidate is really about one of the OTHER open cases listed "
+               "above, set \"case\" to that case's number; otherwise omit it. "
+               if siblings else "")
+            + "Respond with ONLY a JSON array: "
+            '[{"id": <id>, "score": <0.0-1.0>, "why": "<one short sentence>"'
+            + (', "case": <other case number, only if it belongs there>' if siblings else '')
+            + '}]')
         try:
             raw = await model.agenerate_response([
                 {"role": "system", "content":
@@ -556,13 +575,44 @@ async def _triage_candidates(ctx: Dict, run_id: int, incident_id: int) -> Dict[s
             except (KeyError, TypeError, ValueError):
                 continue
             if cid in valid_ids and 0.0 <= sc <= 1.0:
-                scored[cid] = (sc, str(item.get("why") or "")[:300])
+                best_case = None
+                try:
+                    if item.get("case") is not None and int(item["case"]) in sibling_ids:
+                        best_case = int(item["case"])
+                except (TypeError, ValueError):
+                    pass
+                scored[cid] = (sc, str(item.get("why") or "")[:300], best_case)
 
     if not scored:
         return stats
+    row_by_id = {r[0]: r for r in rows}
     conn = _conn()
     try:
-        for cid, (sc, why) in scored.items():
+        for cid, (sc, why, best_case) in scored.items():
+            # Route to the better-fitting open case: dismiss here (never
+            # re-proposed on this case) and stage a pending candidate there.
+            if best_case is not None and sc >= TRIAGE_DISMISS_BELOW:
+                src = row_by_id[cid]
+                r = conn.execute(text("""
+                    UPDATE bw_incident_enrichment_candidates
+                    SET triage_score = :s, triage_rationale = :w,
+                        state = 'dismissed', decided_by = 'agent:triage', decided_at = NOW()
+                    WHERE id = :id AND state = 'pending'
+                    RETURNING id
+                """), {"s": sc, "w": f"routed to case #{best_case}: {why}"[:300], "id": cid}).fetchone()
+                if r:
+                    conn.execute(text("""
+                        INSERT INTO bw_incident_enrichment_candidates
+                            (run_id, incident_id, candidate_type, source_ref, title,
+                             snippet, score, reason, meta)
+                        VALUES (:r, :i, :t, :sr, :ti, :sn, :sc, :re, CAST(:m AS jsonb))
+                        ON CONFLICT (incident_id, candidate_type, source_ref) DO NOTHING
+                    """), {"r": run_id, "i": best_case, "t": src[1], "sr": src[5],
+                           "ti": src[2], "sn": src[3], "sc": src[6],
+                           "re": f"routed from case #{incident_id}: {why}"[:300],
+                           "m": json.dumps(_jload(src[7]) or {}, default=str)})
+                    stats["routed"] += 1
+                continue
             if sc < TRIAGE_DISMISS_BELOW:
                 r = conn.execute(text("""
                     UPDATE bw_incident_enrichment_candidates
@@ -896,6 +946,7 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
                  "triage_scored": triage["scored"],
                  "triage_auto_dismissed": triage["auto_dismissed"],
                  "triage_recommended": triage["recommended"],
+                 "triage_routed": triage.get("routed", 0),
                  "suggestions_posted": suggestions,
                  "signals_screened": sig["screened"],
                  "signals_already_screened": sig["already_screened"]}
@@ -938,7 +989,9 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
             triage_note = ""
             if triage["scored"]:
                 triage_note = (f"; triage: {triage['auto_dismissed']} auto-dismissed as noise, "
-                               f"{triage['recommended']} recommended for attach")
+                               f"{triage['recommended']} recommended for attach"
+                               + (f", {triage['routed']} routed to better-fitting cases"
+                                  if triage.get("routed") else ""))
             _event(conn, incident_id, "enrichment", actor,
                    note=f"run #{run_id}: {staged} new candidate(s) staged for review "
                         f"({len(articles)} articles, {len(socials)} social, {len(profiles)} profiles)"
