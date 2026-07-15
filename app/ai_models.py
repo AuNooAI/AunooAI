@@ -1134,6 +1134,18 @@ class LiteLLMModel(AIModel):
             return f"⚠️ An error occurred while using {model_name}. " \
                    f"Please try again or select a different model. Error details: {error_message}"
 
+def _short_model_id(model_path: str) -> str:
+    """Human-readable form of a litellm target, e.g.
+    bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0 -> claude-sonnet-4-5.
+    On tenants whose model_name aliases are repointed (Bedrock-first), this is
+    the model that actually runs; the UI shows it instead of the alias."""
+    tail = model_path.split('/', 1)[1] if '/' in model_path else model_path
+    tail = re.sub(r'^(us|eu|ap)\.', '', tail)
+    tail = re.sub(r'^(anthropic|meta|amazon|mistral|cohere)\.', '', tail)
+    tail = re.sub(r'-\d{8}(-v\d+:\d+)?$', '', tail)
+    return tail
+
+
 def get_available_models():
     """Get models that have API keys configured in the environment."""
     logger.debug("🔍 Scanning for configured models from litellm_config.yaml...")
@@ -1184,7 +1196,8 @@ def get_available_models():
                     if key_value and key_value.strip() and not key_value.startswith('your-'):
                         models.append({
                             "name": model_name,
-                            "provider": provider
+                            "provider": provider,
+                            "resolved_model": _short_model_id(model_path)
                         })
                         logger.debug(f"✅ Found configured model: {model_name} ({provider})")
                     else:
