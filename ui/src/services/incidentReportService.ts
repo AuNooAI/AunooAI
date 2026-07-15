@@ -205,18 +205,16 @@ function humanizeEvent(ev: BWIncidentEvent, titleLookup: (raw: string) => string
   }
 }
 
-/** Chronological rows: original source publication dates first-class, so the
- * report reads as a story (what was posted when), then case activity. */
+/** The report is a client deliverable: its timeline is the STORY — when the
+ * underlying posts/articles appeared — plus the few case milestones a client
+ * needs (opened, severity/status changes). Case handling (research sweeps,
+ * per-item attaches, agent notes, dispositions) stays in the app's case
+ * record and is deliberately excluded here. */
+const CLIENT_TIMELINE_KINDS = new Set(['created', 'status_change', 'severity_change']);
+
 function buildTimelineRows(d: IncidentReportData): TimelineRow[] {
   const rows: TimelineRow[] = [];
-  // evidence_added notes carry the stored (raw) title — map raw → display title
-  const titleLookup = (raw: string): string => {
-    const key = cleanText(raw).slice(0, 60);
-    const hit = key ? (d.incident.evidence || []).find(ev =>
-      cleanText(ev.title || '').slice(0, 60) === key) : undefined;
-    return hit ? displayTitle(hit.title, hit.source_ref, (hit as any).meta)
-               : displayTitle(raw, null, null);
-  };
+  const noop = (raw: string) => raw;
   for (const ev of d.incident.evidence || []) {
     const meta = (ev as any).meta;
     const pub = meta?.publication_date;
@@ -230,8 +228,8 @@ function buildTimelineRows(d: IncidentReportData): TimelineRow[] {
     });
   }
   for (const ev of d.incident.timeline || []) {
-    if (!ev.at) continue;
-    rows.push({ at: ev.at, actor: actorLabel(ev.actor), what: humanizeEvent(ev, titleLookup) });
+    if (!ev.at || !CLIENT_TIMELINE_KINDS.has(ev.kind)) continue;
+    rows.push({ at: ev.at, actor: actorLabel(ev.actor), what: humanizeEvent(ev, noop) });
   }
   rows.sort((a, b) => a.at.localeCompare(b.at));
   return rows;
@@ -385,34 +383,11 @@ export function buildIncidentReportMarkdown(d: IncidentReportData, trans: Transl
   const rows = buildTimelineRows(d);
   if (rows.length) {
     md += `## Timeline\n\n`;
-    md += `Source publication dates and case activity, oldest first.\n\n`;
+    md += `When the source material appeared, plus key case milestones.\n\n`;
     let lastDay = '';
     for (const r of rows) {
       if (day(r.at) !== lastDay) { lastDay = day(r.at); md += `\n**${dayHeading(r.at)}**\n\n`; }
-      md += `- ${hhmm(r.at) || '—'} · *${r.actor}* — ${r.what}\n`;
-    }
-    md += `\n`;
-  }
-
-  const pending = d.enrichment?.candidates || [];
-  if (pending.length) {
-    md += `## Enrichment candidates awaiting review (${pending.length})\n\n`;
-    for (const c of pending) {
-      md += `- [${c.candidate_type.replace('_', ' ')}] ${displayTitle(c.title, c.source_ref, null)}`
-          + (c.reason ? ` — ${c.reason}` : '') + `\n`;
-    }
-    md += `\n`;
-  }
-
-  const history = d.enrichment?.history || [];
-  if (history.length) {
-    md += `## Candidate disposition history (${history.length})\n\n`;
-    md += `Every agent-proposed item an analyst has ruled on. Dismissed items are never re-proposed.\n\n`;
-    md += `| Decision | Type | Item | Found because | Decided by | When |\n|---|---|---|---|---|---|\n`;
-    for (const h of history) {
-      const item = displayTitle(h.title, h.source_ref, null).replace(/\|/g, '\\|');
-      md += `| ${h.state} | ${h.candidate_type.replace('_', ' ')} | ${item} | `
-          + `${(h.reason || '').replace(/\|/g, '\\|')} | ${h.decided_by || ''} | ${minute(h.decided_at)} |\n`;
+      md += `- ${hhmm(r.at) || '—'} — ${r.what}\n`;
     }
     md += `\n`;
   }
@@ -541,37 +516,15 @@ export function buildIncidentReportHtml(d: IncidentReportData, trans: Translatio
   const rows = buildTimelineRows(d);
   let lastDay = '';
   const timelineHtml = rows.length ? `<section id="timeline"><h2>Timeline</h2>
-    <p class="muted" style="margin:0 0 10px">Source publication dates and case activity, oldest first. Rows marked <span class="chip med">source</span> are when the underlying posts/articles appeared; the rest is case handling.</p>
+    <p class="muted" style="margin:0 0 10px">When the source material appeared, plus key case milestones.</p>
     <div class="card">
     ${rows.map(r => {
       const head = day(r.at) !== lastDay ? `<div class="tl-day">${esc(dayHeading(r.at))}</div>` : '';
       lastDay = day(r.at);
       return `${head}<div class="tl-row${r.isSource ? ' tl-src' : ''}"><span class="tl-when">${esc(hhmm(r.at) || '—')}</span>
-        <span class="tl-actor">${r.isSource ? '<span class="chip med">source</span>' : esc(r.actor)}</span>
         <span class="tl-what">${r.whatHtml || esc(r.what)}</span></div>`;
     }).join('')}
   </div></section>` : '';
-
-  const pending = d.enrichment?.candidates || [];
-  const pendingHtml = pending.length ? `<section id="candidates"><h2>Enrichment candidates awaiting review (${pending.length})</h2>
-    <div class="card">${pending.map(c => `<div class="tl-row">
-      <span class="chip neu">${esc(c.candidate_type.replace('_', ' '))}</span>
-      <span class="tl-what">${c.source_ref && String(c.source_ref).startsWith('http') ? `<a href="${esc(c.source_ref)}" target="_blank" rel="noopener">${esc(displayTitle(c.title, c.source_ref, null))}</a>` : esc(displayTitle(c.title, c.source_ref, null))}
-        ${c.reason ? `<span class="muted"> — ${esc(c.reason)}</span>` : ''}</span></div>`).join('')}
-      <p class="muted" style="margin-top:8px">Found by the enrichment agent; not part of the evidence locker until an analyst attaches them.</p>
-    </div></section>` : '';
-
-  const history = d.enrichment?.history || [];
-  const historyHtml = history.length ? `<section id="dispositions"><h2>Candidate disposition history (${history.length})</h2>
-    <div class="card">${history.map(h => `<div class="tl-row">
-      <span class="chip ${h.state === 'attached' ? 'pos' : 'neu'}">${esc(h.state)}</span>
-      <span class="chip neu">${esc(h.candidate_type.replace('_', ' '))}</span>
-      <span class="tl-what">${h.source_ref && String(h.source_ref).startsWith('http') ? `<a href="${esc(h.source_ref)}" target="_blank" rel="noopener">${esc(displayTitle(h.title, h.source_ref, null))}</a>` : esc(displayTitle(h.title, h.source_ref, null))}
-        ${h.reason ? `<span class="muted"> — found: ${esc(h.reason)}</span>` : ''}</span>
-      <span class="tl-actor">${esc(h.decided_by || '')}</span>
-      <span class="tl-when">${esc(minute(h.decided_at))}</span></div>`).join('')}
-      <p class="muted" style="margin-top:8px">Every agent-proposed item an analyst has ruled on. Dismissed items are never re-proposed.</p>
-    </div></section>` : '';
 
   return `<!doctype html>
 <html lang="en"><head>
@@ -645,7 +598,6 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
     ${run?.brief ? '<a href="#brief">Brief</a>' : ''}
     <a href="#evidence">Evidence</a>
     ${rows.length ? '<a href="#timeline">Timeline</a>' : ''}
-    ${history.length ? '<a href="#dispositions">Dispositions</a>' : ''}
   </nav>
   <input class="search" id="q" type="search" placeholder="Filter evidence…" />
 </header>
@@ -668,8 +620,6 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   ${briefSection}
   ${evidenceHtml}
   ${timelineHtml}
-  ${pendingHtml}
-  ${historyHtml}
 
   <footer>Generated by Aunoo AI Brand Watcher · ${gen}<br>
   Parts of this report (AI monitoring brief, Five Signals verdicts, translations) are AI-generated and should be verified before external use.</footer>
@@ -784,7 +734,7 @@ export function buildIncidentReportPdf(d: IncidentReportData, trans: Translation
   if (rows.length) {
     checkPageBreak(20);
     addText('Timeline', 13, true, [214, 64, 159]);
-    addText('Source publication dates and case activity, oldest first.', 8.5, false, [130, 130, 130]);
+    addText('When the source material appeared, plus key case milestones.', 8.5, false, [130, 130, 130]);
     let lastDay = '';
     for (const r of rows) {
       if (day(r.at) !== lastDay) {
@@ -792,19 +742,7 @@ export function buildIncidentReportPdf(d: IncidentReportData, trans: Translation
         checkPageBreak(10);
         addText(dayHeading(r.at), 10, true, [80, 80, 80]);
       }
-      addText(`${hhmm(r.at) || '—'}  ${r.actor} — ${r.what}`, 9, false, [70, 70, 70]);
-    }
-  }
-
-  const history = d.enrichment?.history || [];
-  if (history.length) {
-    checkPageBreak(20);
-    addText(`Candidate disposition history (${history.length})`, 13, true, [214, 64, 159]);
-    addText('Every agent-proposed item an analyst has ruled on. Dismissed items are never re-proposed.', 8.5, false, [130, 130, 130]);
-    for (const h of history) {
-      const decision = h.state === 'attached' ? [22, 130, 60] : [120, 120, 120];
-      addText(`${h.state.toUpperCase()}  [${h.candidate_type.replace('_', ' ')}] ${displayTitle(h.title, h.source_ref, null)}`, 9.5, true, decision);
-      addText(`  ${h.reason ? `found: ${h.reason} · ` : ''}decided by ${h.decided_by || 'unknown'} at ${minute(h.decided_at)}`, 8.5, false, [110, 110, 110]);
+      addText(`${hhmm(r.at) || '—'}  ${r.what}`, 9, false, [70, 70, 70]);
     }
   }
 

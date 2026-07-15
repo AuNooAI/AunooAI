@@ -1236,6 +1236,16 @@ export async function decideEnrichmentCandidates(id: number, candidateIds: numbe
   return res.json();
 }
 
+export async function mergeIncident(id: number, targetId: number): Promise<{ merged: boolean; copied: number; skipped_duplicates: number; skipped_files: number; target_id: number }> {
+  const res = await fetch(`${BASE}/incidents/${id}/merge-into/${targetId}`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
 export async function attachEnrichmentBrief(id: number): Promise<{ id: number }> {
   const res = await fetch(`${BASE}/incidents/${id}/enrichment/attach-brief`, { method: 'POST', credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to attach brief: ${res.status}`);

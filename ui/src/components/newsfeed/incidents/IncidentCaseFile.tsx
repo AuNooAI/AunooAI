@@ -57,6 +57,11 @@ function parseSuggestion(note: string): { type: 'severity' } | { type: 'duplicat
 
 const nf = (n: number) => n >= 10000 ? `${Math.round(n / 1000)}k` : n.toLocaleString();
 
+// Display label (caseSynthesis) → collector platform key, for profile builds.
+const PLATFORM_KEY: Record<string, string> = {
+  Bluesky: 'bluesky', X: 'x', Reddit: 'reddit', TikTok: 'tiktok', Instagram: 'instagram',
+};
+
 export function IncidentCaseFile(props: {
   c: IncidentCase;
   renderSignalsChips: (article: any) => React.ReactNode;
@@ -174,14 +179,20 @@ export function IncidentCaseFile(props: {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {syn.agentFound.length > 0 && (
-            <button disabled={c.enrichBusy} onClick={c.acceptAll}
-              title="Fold everything the AI found into the case in one go — obvious noise was already filtered out. Individual items can still be rejected below."
-              className="text-sm px-3 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 inline-flex items-center gap-1.5 font-medium">
-              {c.enrichBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              Accept {syn.agentFound.length} AI finding{syn.agentFound.length > 1 ? 's' : ''}
-            </button>
-          )}
+          {(() => {
+            // must mirror acceptAll's filter — the button count is a promise
+            const acceptable = (c.enrich?.candidates || []).filter((x: any) =>
+              x.candidate_type !== 'account_profile'
+              && (x.recommendation === 'attach' || x.triage_score == null)).length;
+            return acceptable > 0 && (
+              <button disabled={c.enrichBusy} onClick={c.acceptAll}
+                title="Fold the AI findings the triage agent stands behind into the case in one go. Uncertain or low-scored items stay below for a per-item decision."
+                className="text-sm px-3 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 inline-flex items-center gap-1.5 font-medium">
+                {c.enrichBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Accept {acceptable} recommended finding{acceptable > 1 ? 's' : ''}
+              </button>
+            );
+          })()}
           <button onClick={c.startEnrich} disabled={running}
             title="AI sweeps for related coverage, checks who is spreading it, screens articles for credibility and drafts an assessment"
             className="text-sm px-3 py-1.5 rounded-md border border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-50 inline-flex items-center gap-1.5">
@@ -228,9 +239,13 @@ export function IncidentCaseFile(props: {
                     This case and #{s.otherId} (‘{s.otherTitle}’) contain the same evidence. If they cover one event, work it in a single case and close the other.
                   </p>
                   <div className="flex items-center gap-2 mt-2">
-                    <button onClick={() => c.openIncident(s.otherId)}
+                    <button onClick={() => { dismiss(); c.mergeInto(s.otherId); }}
+                      title={`Copy this case's evidence into #${s.otherId} and close this one with a cross-reference`}
                       className="text-xs px-2.5 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700 font-medium">
-                      Open case #{s.otherId}</button>
+                      Merge into #{s.otherId}</button>
+                    <button onClick={() => c.openIncident(s.otherId)}
+                      className="text-xs px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
+                      View #{s.otherId}</button>
                     <button onClick={dismiss}
                       className="text-xs px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
                       Not a duplicate</button>
@@ -370,6 +385,15 @@ export function IncidentCaseFile(props: {
                     {a.profiled ? ' · profiled' : ''}
                   </p>
                 </div>
+                {!a.profiled && PLATFORM_KEY[a.platform] && (
+                  <button disabled={c.profileBusy != null}
+                    onClick={() => c.profileAndAttach(PLATFORM_KEY[a.platform], a.handle)}
+                    title="Build a full profile of this account (posting history, reach, behavior) and attach the snapshot to the case"
+                    className="text-xs px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-40 flex-shrink-0 inline-flex items-center gap-1">
+                    {c.profileBusy === `${PLATFORM_KEY[a.platform]}:${a.handle}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    Profile
+                  </button>
+                )}
               </div>
             ))}
           </div>

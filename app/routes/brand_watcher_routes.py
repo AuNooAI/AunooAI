@@ -5543,6 +5543,73 @@ async def incident_report_summary(incident_id: int, session=Depends(verify_sessi
         return {"summary": ""}
 
 
+@router.post("/incidents/{incident_id}/merge-into/{target_id}")
+async def merge_incident(incident_id: int, target_id: int, session=Depends(verify_session)):
+    """Merge this case into *target_id*: copy its evidence onto the target's
+    hash chain (skipping refs the target already holds; file evidence stays
+    with the closed case — its bytes are keyed to the source), then close
+    this case with a cross-reference. Both directions of the audit trail
+    record the merge."""
+    if incident_id == target_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a case into itself")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        src = conn.execute(text(
+            "SELECT title, brand_id, status FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone()
+        tgt = conn.execute(text(
+            "SELECT title, brand_id FROM bw_incidents WHERE id = :i"), {"i": target_id}).fetchone()
+        if not src or not tgt:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        if src[1] != tgt[1]:
+            raise HTTPException(status_code=400, detail="Cases belong to different brands")
+        actor = _incident_actor(session)
+
+        existing_refs = {r[0] for r in conn.execute(text(
+            "SELECT source_ref FROM bw_incident_evidence WHERE incident_id = :i AND source_ref IS NOT NULL"
+        ), {"i": target_id}).fetchall()}
+        rows = conn.execute(text("""
+            SELECT evidence_type, source_ref, title, content, meta
+            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+        """), {"i": incident_id}).fetchall()
+        copied, skipped_dup, skipped_files = 0, 0, 0
+        for etype, ref, title, content, meta in rows:
+            if etype == "file":
+                skipped_files += 1
+                continue
+            if ref and ref in existing_refs:
+                skipped_dup += 1
+                continue
+            meta_d = meta if isinstance(meta, dict) else (json.loads(meta) if meta else {})
+            meta_d["merged_from_incident"] = incident_id
+            _append_evidence_row(conn, target_id, etype, ref, title, content or "", meta_d, actor)
+            if ref:
+                existing_refs.add(ref)
+            copied += 1
+
+        _incident_event(conn, target_id, "note", actor,
+                        note=f"merged case #{incident_id} ('{(src[0] or '')[:80]}') into this case: "
+                             f"{copied} item(s) copied"
+                             + (f", {skipped_dup} already present" if skipped_dup else "")
+                             + (f", {skipped_files} file(s) left with the closed case" if skipped_files else ""))
+        conn.execute(text(
+            "UPDATE bw_incidents SET status = 'closed', resolved_at = COALESCE(resolved_at, NOW()),"
+            " updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        _incident_event(conn, incident_id, "status_change", actor, src[2], "closed",
+                        note=f"merged into case #{target_id} ('{(tgt[0] or '')[:80]}')")
+        conn.commit()
+        return {"merged": True, "copied": copied, "skipped_duplicates": skipped_dup,
+                "skipped_files": skipped_files, "target_id": target_id}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Merge of incident {incident_id} into {target_id} failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.put("/incidents/{incident_id}")
 async def update_incident(incident_id: int, req: IncidentUpdate, session=Depends(verify_session)):
     db = get_database_instance()

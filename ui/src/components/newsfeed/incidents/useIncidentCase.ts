@@ -9,14 +9,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  BWAccountProfile, listAccountProfiles,
+  BWAccountProfile, buildAccountProfile, listAccountProfiles,
 } from '../../../services/socialProfileApi';
 import {
   BWAttachSearchResult, BWEnrichmentState, BWIncidentDetail,
   addIncidentNote, attachEnrichmentBrief, attachIncidentEvidence,
   decideEnrichmentCandidates, getIncident, getIncidentEnrichment,
-  incidentAttachSearch, startIncidentEnrichment, uploadIncidentFile,
-  verifyIncidentChain,
+  incidentAttachSearch, mergeIncident, startIncidentEnrichment,
+  uploadIncidentFile, verifyIncidentChain,
 } from '../../../services/brandWatcherApi';
 
 export interface IncidentCase {
@@ -56,6 +56,9 @@ export interface IncidentCase {
   onFilePicked: (f: globalThis.File | undefined) => Promise<void>;
   captureUrl: () => Promise<void>;
   saveNote: () => void;
+  mergeInto: (targetId: number) => Promise<void>;
+  profileAndAttach: (platform: string, handle: string) => Promise<void>;
+  profileBusy: string | null;
 }
 
 export function useIncidentCase(opts: {
@@ -162,12 +165,16 @@ export function useIncidentCase(opts: {
     finally { setEnrichBusy(false); }
   }, [detail, loadEnrichment, refreshIncident]);
 
-  // One-click accept: everything the AI found (noise was already
-  // auto-dismissed by triage) goes into the case.
+  // One-click accept: only what the agent stands behind — triage-recommended
+  // candidates plus ones triage hasn't scored yet. Low/uncertain scores keep
+  // their per-item ✓/✗ below (triage only auto-DISMISSES below 0.3; a
+  // 0.3-scored award post once rode an accept-everything into the
+  // append-only locker).
   const acceptAll = useCallback(async () => {
     if (!detail || !enrich) return;
     const ids = (enrich.candidates || [])
       .filter(c => c.candidate_type !== 'account_profile')
+      .filter(c => c.recommendation === 'attach' || c.triage_score == null)
       .map(c => c.id);
     if (!ids.length) return;
     setEnrichBusy(true);
@@ -259,6 +266,33 @@ export function useIncidentCase(opts: {
     addIncidentNote(detail.id, noteText.trim()).then(() => { setNoteText(''); refreshIncident(); }).catch(console.error);
   }, [detail, noteText, refreshIncident]);
 
+  // Merge this case into another: evidence copies onto the target's chain,
+  // this case closes with a cross-reference, and we land on the target.
+  const mergeInto = useCallback(async (targetId: number) => {
+    if (!detail) return;
+    if (!window.confirm(`Merge this case into #${targetId}? Its evidence is copied over and this case is closed.`)) return;
+    try {
+      const r = await mergeIncident(detail.id, targetId);
+      reloadIncidents();
+      openIncident(r.target_id);
+    } catch (e) { alert(`Merge failed: ${e instanceof Error ? e.message : e}`); }
+  }, [detail, reloadIncidents, openIncident]);
+
+  const [profileBusy, setProfileBusy] = useState<string | null>(null);
+  // Build (or fetch) an account profile for a handle seen in the coverage and
+  // attach the snapshot as evidence — one click from the Accounts section.
+  const profileAndAttach = useCallback(async (platform: string, handle: string) => {
+    if (!detail) return;
+    const key = `${platform}:${handle}`;
+    setProfileBusy(key);
+    try {
+      await buildAccountProfile(platform, handle, detail.brand_name || null);
+      await attachIncidentEvidence(detail.id, { evidence_type: 'account_profile', source_ref: key });
+      refreshIncident();
+    } catch (e) { alert(`Could not profile @${handle}: ${e instanceof Error ? e.message : e}`); }
+    finally { setProfileBusy(null); }
+  }, [detail, refreshIncident]);
+
   return {
     detail, setDetail, chain, enrich, enrichSel, setEnrichSel, enrichBusy,
     briefOpen, setBriefOpen, noteText, setNoteText, evidenceUrl, setEvidenceUrl,
@@ -266,6 +300,6 @@ export function useIncidentCase(opts: {
     openIncident, closeIncident, refreshIncident, runVerifyChain, startEnrich,
     decideEnrichSel, decideOne, acceptAll, attachRecommended, attachBrief, doAttachSearch,
     attachSearchSelection, openProfilePicker, attachProfile, onFilePicked,
-    captureUrl, saveNote,
+    captureUrl, saveNote, mergeInto, profileAndAttach, profileBusy,
   };
 }

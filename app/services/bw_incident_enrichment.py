@@ -38,6 +38,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -67,6 +68,9 @@ TRIAGE_MODEL = os.getenv("BW_TRIAGE_MODEL", "gpt-5.4-mini")
 # evidence + brief on the first enrichment run (any trigger) — analysts often
 # open a case from a single post with just a title.
 DESCRIPTION_MODEL = os.getenv("BW_ENRICH_DESC_MODEL", "gpt-5.4-mini")
+# Candidate-overlap duplicate signal: this many shared topic-scoped candidate
+# refs (story siblings / vector hits, NOT brand-window posts) flags a merge.
+DUP_MIN_SHARED_CANDIDATES = int(os.getenv("BW_DUP_MIN_SHARED_CANDIDATES", "3"))
 TRIAGE_DISMISS_BELOW = float(os.getenv("BW_TRIAGE_DISMISS_BELOW", "0.3"))
 TRIAGE_RECOMMEND_AT = float(os.getenv("BW_TRIAGE_RECOMMEND_AT", "0.7"))
 TRIAGE_MAX_PER_RUN = int(os.getenv("BW_TRIAGE_MAX_PER_RUN", "80"))
@@ -611,16 +615,55 @@ def _post_suggestions(ctx: Dict, incident_id: int) -> int:
             WHERE e1.incident_id = :i AND e1.source_ref IS NOT NULL
               AND e1.source_ref != ''
         """), {"i": incident_id, "b": ctx["brand_id"]}).fetchall()
+        flagged_dup_ids: Set[int] = set()
         for other_id, other_title in dup:
             note = (f"possible duplicate of incident #{other_id} ('{(other_title or '')[:80]}')"
                     f" — they share attached evidence; consider merging")
             if not any(n and n.startswith(f"possible duplicate of incident #{other_id} ") for n in existing):
                 _event(conn, incident_id, "agent_suggestion", "agent:triage", note=note)
                 posted += 1
+            flagged_dup_ids.add(other_id)
 
-        # Severity sanity-check: high/critical incident whose screened
-        # attachments all came back without a confirmed/coordinated verdict.
+        # Possible duplicate (weaker signal): another open incident of the same
+        # brand whose research sweeps keep surfacing the same topic-scoped
+        # material. Brand-matched window posts are excluded — any two concurrent
+        # cases of one brand share those, so they say nothing about the topic.
+        dup2 = conn.execute(text("""
+            SELECT i2.id, i2.title, COUNT(DISTINCT c1.source_ref) AS shared
+            FROM bw_incident_enrichment_candidates c1
+            JOIN bw_incident_enrichment_candidates c2
+              ON c2.source_ref = c1.source_ref AND c2.incident_id != c1.incident_id
+            JOIN bw_incidents i2 ON i2.id = c2.incident_id
+              AND i2.brand_id = :b AND i2.status IN ('open', 'investigating')
+            WHERE c1.incident_id = :i
+              AND c1.candidate_type != 'account_profile'
+              AND c1.reason NOT ILIKE 'brand-matched%'
+              AND c2.reason NOT ILIKE 'brand-matched%'
+            GROUP BY i2.id, i2.title
+            HAVING COUNT(DISTINCT c1.source_ref) >= :minshared
+        """), {"i": incident_id, "b": ctx["brand_id"],
+               "minshared": DUP_MIN_SHARED_CANDIDATES}).fetchall()
+        for other_id, other_title, shared in dup2:
+            if other_id in flagged_dup_ids:
+                continue
+            note = (f"possible duplicate of incident #{other_id} ('{(other_title or '')[:80]}')"
+                    f" — the research sweeps found the same {shared} related items for both;"
+                    f" consider merging")
+            if not any(n and n.startswith(f"possible duplicate of incident #{other_id} ") for n in existing):
+                _event(conn, incident_id, "agent_suggestion", "agent:triage", note=note)
+                posted += 1
+
+        # Severity calibration: a high/critical case whose screened coverage
+        # all came back low-risk gets stepped down one level automatically
+        # (user-directed 2026-07-15: apply, don't nag). Guardrails: fires at
+        # most once per case, and never after ANY severity_change event —
+        # if a human (or a previous auto-adjust) has set severity
+        # deliberately, the agent leaves it alone.
         if ctx["severity"] in ("high", "critical"):
+            prior_sev_changes = conn.execute(text("""
+                SELECT COUNT(*) FROM bw_incident_events
+                WHERE incident_id = :i AND kind = 'severity_change'
+            """), {"i": incident_id}).fetchone()[0]
             vr = conn.execute(text("""
                 SELECT s.verdict FROM bw_incident_evidence e
                 JOIN bw_article_signals s
@@ -630,14 +673,18 @@ def _post_suggestions(ctx: Dict, incident_id: int) -> int:
             """), {"i": incident_id, "b": ctx["brand_id"]}).fetchall()
             verdicts = [r[0] for r in vr]
             risky = {"corroborated", "contested", "likely_coordinated"}
-            if verdicts and not (set(verdicts) & risky):
-                note = (f"severity review: all {len(verdicts)} screened attachment(s) returned "
-                        f"low-risk verdicts ({', '.join(sorted(set(verdicts)))}) — "
-                        f"consider whether '{ctx['severity']}' still fits")
-            else:
-                note = None
-            if note and not any(n and n.startswith("severity review:") for n in existing):
-                _event(conn, incident_id, "agent_suggestion", "agent:triage", note=note)
+            if verdicts and not (set(verdicts) & risky) and prior_sev_changes == 0:
+                new_sev = {"critical": "high", "high": "medium"}[ctx["severity"]]
+                conn.execute(text(
+                    "UPDATE bw_incidents SET severity = :s, updated_at = NOW() WHERE id = :i"
+                ), {"s": new_sev, "i": incident_id})
+                conn.execute(text("""
+                    INSERT INTO bw_incident_events
+                        (incident_id, kind, actor, old_value, new_value, note)
+                    VALUES (:i, 'severity_change', 'agent:triage', :o, :n, :note)
+                """), {"i": incident_id, "o": ctx["severity"], "n": new_sev,
+                       "note": f"auto-adjusted: all {len(verdicts)} screened item(s) are low-risk "
+                               f"({', '.join(sorted(set(verdicts)))}) — revert if you disagree"})
                 posted += 1
         conn.commit()
     finally:
@@ -700,9 +747,21 @@ async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, i
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
-async def _draft_description(ctx: Dict, brief: Optional[str]) -> Optional[str]:
-    """2-3 sentence factual case description for an incident the analyst
-    opened without one. Description only — assessment lives in the brief."""
+def _title_is_placeholder(title: str, brand_name: str) -> bool:
+    """'Wiley Case #1', 'incident 3', bare brand name, one word — anything
+    that doesn't say what the case is about."""
+    t = (title or "").strip()
+    if not t or t.lower() == (brand_name or "").strip().lower():
+        return True
+    if re.search(r"\b(case|incident|test)\s*#?\d*\s*$", t, re.IGNORECASE):
+        return True
+    return len(t.split()) <= 1
+
+
+async def _draft_title_and_description(ctx: Dict, brief: Optional[str]) -> Dict[str, str]:
+    """Factual case title + 2-3 sentence description for an incident the
+    analyst opened with a placeholder name and/or no description. Facts only —
+    assessment lives in the brief. Returns {} on failure."""
     from app.ai_models import LiteLLMModel
 
     ev_lines = []
@@ -713,14 +772,17 @@ async def _draft_description(ctx: Dict, brief: Optional[str]) -> Optional[str]:
                         f"{str(e.get('date') or '')[:10]}: "
                         f"{str(e.get('content') or e.get('title') or '')[:400]}")
     if not ev_lines and not brief:
-        return None
+        return {}
     prompt = (
-        "Write a 2-3 sentence factual description of this brand-monitoring incident for the top "
-        "of its case file: what the incident concerns (the concrete thing that happened or is "
-        "being said), and who raised it where. Plain prose, no markdown, no assessment, no "
-        "recommendations, no hedging about evidence quality. Attribute claims to the exact "
-        "accounts named in the material. Do not invent facts.\n\n"
-        f"Brand: {ctx['brand_name']}\nIncident title: {ctx['title']}\n\n"
+        "You are naming and describing a brand-monitoring incident for its case file.\n"
+        "- title: 4-8 words naming the concrete issue (e.g. \"Consent concerns over AI companion "
+        "tool\"), not the brand alone, never 'Case'/'Incident' + number.\n"
+        "- description: 2-3 factual sentences — what the incident concerns (the concrete thing "
+        "that happened or is being said) and who raised it where. Plain prose, no markdown, no "
+        "assessment, no recommendations, no hedging about evidence quality. Attribute claims to "
+        "the exact accounts named in the material. Do not invent facts.\n\n"
+        'Respond ONLY with JSON: {"title": "...", "description": "..."}\n\n'
+        f"Brand: {ctx['brand_name']}\nCurrent working title: {ctx['title']}\n\n"
         "Attached evidence:\n" + ("\n".join(ev_lines) or "(none)")
         + (f"\n\nAgent brief:\n{brief[:3000]}" if brief else "")
     )
@@ -728,15 +790,22 @@ async def _draft_description(ctx: Dict, brief: Optional[str]) -> Optional[str]:
         model = LiteLLMModel.get_instance(DESCRIPTION_MODEL)
         out = (await model.agenerate_response([
             {"role": "system", "content":
-                "You write concise case-file descriptions. Respond with the description only."},
+                "You write concise case-file titles and descriptions. Respond only with valid JSON."},
             {"role": "user", "content": prompt},
         ])).strip()
         if not out or out.startswith("⚠️"):
-            return None
-        return out[:1000]
+            return {}
+        if out.startswith("```"):
+            out = out.split("```")[1]
+            if out.startswith("json"):
+                out = out[4:]
+            out = out.strip()
+        parsed = json.JSONDecoder().raw_decode(out)[0]
+        return {"title": str(parsed.get("title") or "").strip()[:300],
+                "description": str(parsed.get("description") or "").strip()[:1000]}
     except Exception as e:  # noqa: BLE001
-        logger.warning("Incident description draft failed: %s", e)
-        return None
+        logger.warning("Incident title/description draft failed: %s", e)
+        return {}
 
 
 async def run_incident_enrichment(run_id: int, incident_id: int,
@@ -813,10 +882,12 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
         _stage(run_id, "screening attached articles (Five Signals)")
         sig = await signals_task
 
-        drafted_desc = None
-        if not (ctx.get("description") or "").strip():
-            _stage(run_id, "drafting incident description")
-            drafted_desc = await _draft_description(ctx, brief)
+        desc_missing = not (ctx.get("description") or "").strip()
+        title_placeholder = _title_is_placeholder(ctx.get("title") or "", ctx["brand_name"])
+        drafted: Dict[str, str] = {}
+        if desc_missing or title_placeholder:
+            _stage(run_id, "drafting case name and description")
+            drafted = await _draft_title_and_description(ctx, brief)
 
         stats = {"story_siblings": len(siblings), "vector_similar": len(vector),
                  "social_posts": len(socials), "profiles": len(profiles),
@@ -837,16 +908,28 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
                 WHERE id = :id
             """), {"id": run_id, "s": json.dumps(stats), "b": brief})
             actor = f"agent:{requested_by}"
-            if drafted_desc:
+            if desc_missing and drafted.get("description"):
                 # guarded so an analyst who typed one mid-run wins
                 res = conn.execute(text("""
                     UPDATE bw_incidents SET description = :d, updated_at = NOW()
                     WHERE id = :i AND (description IS NULL OR description = '')
-                """), {"i": incident_id, "d": drafted_desc})
+                """), {"i": incident_id, "d": drafted["description"]})
                 if res.rowcount:
                     _event(conn, incident_id, "note", actor,
                            note="Incident description drafted by the agent from the initial "
                                 "evidence — review and edit as needed.")
+            new_title = drafted.get("title")
+            if (title_placeholder and new_title
+                    and not _title_is_placeholder(new_title, ctx["brand_name"])):
+                # guarded on the old value so an analyst rename mid-run wins
+                res = conn.execute(text("""
+                    UPDATE bw_incidents SET title = :t, updated_at = NOW()
+                    WHERE id = :i AND title = :old
+                """), {"i": incident_id, "t": new_title, "old": ctx.get("title") or ""})
+                if res.rowcount:
+                    _event(conn, incident_id, "note", actor,
+                           note=f"Case renamed by the agent: '{(ctx.get('title') or '')[:80]}' → "
+                                f"'{new_title[:100]}' — edit as needed.")
             if brief:
                 _event(conn, incident_id, "agent_brief", actor,
                        note=brief.replace("\n", " ")[:200])
