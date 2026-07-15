@@ -6498,7 +6498,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"><Lock className="w-3.5 h-3.5" /> Evidence locker <span className="font-normal normal-case">({incDetail.evidence.length} · append-only, hash-chained)</span></h4>
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
+                        title="Append-only and hash-chained: entries can never be edited or removed, and each entry's hash covers everything before it — the locker is tamper-evident by construction.">
+                        <Lock className="w-3.5 h-3.5" /> Evidence <span className="font-normal normal-case">({incDetail.evidence.length})</span></h4>
                       <button onClick={() => verifyIncidentChain(incDetail.id).then(setIncChain).catch(console.error)}
                         className="text-[11px] px-2 py-0.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700">Verify chain</button>
                     </div>
@@ -6524,7 +6526,18 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                               ? <img src={m.profile.avatar_url} alt="" className="w-6 h-6 rounded-full flex-shrink-0 object-cover" />
                               : null}
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${typeCls[ev.evidence_type] || typeCls.article}`}>{ev.evidence_type.replace('_', ' ')}</span>
-                            <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate flex-1">{ev.title || ev.source_ref}</span>
+                            <span className="text-xs font-medium truncate flex-1">
+                              {ev.source_ref && String(ev.source_ref).startsWith('http') ? (
+                                <a href={ev.source_ref} target="_blank" rel="noopener noreferrer" title={ev.source_ref}
+                                  onClick={e => e.stopPropagation()}
+                                  className="text-gray-800 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline">
+                                  {ev.title || ev.source_ref}
+                                  <span className="text-[10px] font-normal text-gray-400 ml-1.5">{(() => { try { return new URL(ev.source_ref).hostname.replace(/^www\./, ''); } catch { return ''; } })()}</span>
+                                </a>
+                              ) : (
+                                <span className="text-gray-800 dark:text-gray-100">{ev.title || ev.source_ref}</span>
+                              )}
+                            </span>
                             {ev.evidence_type === 'article' && ev.source_ref && String(ev.source_ref).startsWith('http') && (
                               <span className="flex-shrink-0" onClick={e => e.stopPropagation()}>
                                 {renderSignalsChips({ uri: ev.source_ref, brand_id: incDetail.brand_id, title: ev.title, signals_summary: ev.signals_summary })}
@@ -6625,7 +6638,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <div className="flex items-center justify-between px-2.5 py-1.5">
                           <button onClick={() => setIncBriefOpen(o => !o)} className="text-[11px] font-medium text-gray-700 dark:text-gray-200 inline-flex items-center gap-1">
                             {incBriefOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                            Incident brief <span className="text-gray-400 font-normal">(agent, run #{incEnrich.run.id})</span>
+                            Agent brief <span className="text-gray-400 font-normal">{incEnrich.run.finished_at ? (incEnrich.run.finished_at.slice(0, 16).replace('T', ' ')) : ''}</span>
                           </button>
                           <button onClick={() => attachEnrichmentBrief(incDetail.id).then(refreshIncident).catch(e => alert(String(e)))}
                             title="Snapshot this brief into the evidence locker as a note"
