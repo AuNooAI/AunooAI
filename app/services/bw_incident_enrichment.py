@@ -21,6 +21,13 @@ Candidates land in bw_incident_enrichment_candidates with a UNIQUE
 (incident_id, candidate_type, source_ref) constraint, so anything already
 staged — including analyst-dismissed items — is never re-proposed.
 
+Assistive triage (user-confirmed 2026-07-15): after staging, an LLM pass
+scores each pending candidate against the incident. Clear noise
+(< TRIAGE_DISMISS_BELOW) is auto-dismissed with decided_by='agent:triage';
+strong matches (>= TRIAGE_RECOMMEND_AT) get recommendation='attach' for a
+one-click human accept. The agent also posts merge/severity SUGGESTIONS as
+'agent_suggestion' timeline events. It never writes the locker itself.
+
 Modeled on bw_signals_service: a never-raises BackgroundTasks/monitor target;
 the outcome lands on the bw_incident_enrichment_runs row. No DB connection is
 held across the slow parts (vector search, xpoz profile builds, LLM call) —
@@ -51,6 +58,15 @@ WINDOW_PAD_DAYS = 7            # window = created_at - pad .. (resolved_at or no
 BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", "gpt-5.4")
 BRIEF_INPUT_CAP = 12000
 MAX_SIGNAL_SCREENS = int(os.getenv("BW_ENRICH_MAX_SIGNAL_SCREENS", "5"))
+
+# Assistive triage (user-confirmed 2026-07-15): the agent may auto-DISMISS
+# clear noise (candidates table only) and RECOMMEND attaches, but never
+# writes the evidence locker itself — attaching stays a human action.
+TRIAGE_MODEL = os.getenv("BW_TRIAGE_MODEL", "gpt-5.4-mini")
+TRIAGE_DISMISS_BELOW = float(os.getenv("BW_TRIAGE_DISMISS_BELOW", "0.3"))
+TRIAGE_RECOMMEND_AT = float(os.getenv("BW_TRIAGE_RECOMMEND_AT", "0.7"))
+TRIAGE_MAX_PER_RUN = int(os.getenv("BW_TRIAGE_MAX_PER_RUN", "80"))
+TRIAGE_CHUNK = 25
 
 STR_CAP = 2000
 LIST_CAP = 12
@@ -429,6 +445,182 @@ async def _write_brief(ctx: Dict, cands: List[Dict]) -> Optional[str]:
     return brief
 
 
+def _parse_triage_json(raw: str) -> List[Dict]:
+    """First JSON array in the response — models append trailing prose."""
+    start = raw.find("[")
+    if start < 0:
+        return []
+    try:
+        parsed, _ = json.JSONDecoder().raw_decode(raw[start:])
+        return parsed if isinstance(parsed, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+async def _triage_candidates(ctx: Dict, run_id: int, incident_id: int) -> Dict[str, int]:
+    """Score pending candidates against the incident; auto-dismiss noise,
+    mark strong ones recommendation='attach'. Never raises.
+
+    Writes only bw_incident_enrichment_candidates — auto-dismissals show up
+    in the disposition history as decided_by='agent:triage'; attaching (the
+    locker write) remains a human decision.
+    """
+    from app.ai_models import LiteLLMModel
+    stats = {"scored": 0, "auto_dismissed": 0, "recommended": 0}
+    conn = _conn()
+    try:
+        rows = conn.execute(text("""
+            SELECT id, candidate_type, title, snippet, reason
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND state = 'pending' AND triage_score IS NULL
+            ORDER BY score DESC NULLS LAST, id
+            LIMIT :lim
+        """), {"i": incident_id, "lim": TRIAGE_MAX_PER_RUN}).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return stats
+
+    context = (f"Incident: {ctx['title']}\n"
+               f"Brand: {ctx['brand_name']}\n"
+               f"Description: {ctx['description'] or '(none)'}\n"
+               f"Brand keywords: {', '.join(ctx['keywords'])}")
+    try:
+        model = LiteLLMModel.get_instance(TRIAGE_MODEL)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Triage model unavailable: %s", e)
+        return stats
+
+    scored: Dict[int, Tuple[float, str]] = {}
+    for off in range(0, len(rows), TRIAGE_CHUNK):
+        chunk = rows[off:off + TRIAGE_CHUNK]
+        listing = "\n".join(
+            f"- id={r[0]} [{r[1]}] {(r[2] or '(untitled)')[:150]}"
+            + (f" :: {(r[3] or '')[:200]}" if r[3] else "")
+            + (f" (found: {(r[4] or '')[:80]})" if r[4] else "")
+            for r in chunk)
+        prompt = (
+            f"{context}\n\n"
+            f"Candidates found by automated search:\n{listing}\n\n"
+            "For EACH candidate, judge how relevant it is as evidence for THIS "
+            "specific incident (not the brand in general). Score 0.0-1.0: "
+            "0.0-0.3 unrelated or generic brand noise; 0.3-0.7 possibly related, "
+            "needs a human look; 0.7-1.0 clearly about this incident. "
+            "Respond with ONLY a JSON array: "
+            '[{"id": <id>, "score": <0.0-1.0>, "why": "<one short sentence>"}]')
+        try:
+            raw = await model.agenerate_response([
+                {"role": "system", "content":
+                    "You triage evidence candidates for a brand-monitoring incident. "
+                    "Judge only from the material given; be conservative — when unsure, "
+                    "score in the middle band so a human reviews it. JSON only."},
+                {"role": "user", "content": prompt},
+            ])
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Triage LLM call failed: %s", e)
+            continue
+        if not raw or raw.startswith("⚠️"):
+            continue
+        valid_ids = {r[0] for r in chunk}
+        for item in _parse_triage_json(raw):
+            try:
+                cid, sc = int(item["id"]), float(item["score"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if cid in valid_ids and 0.0 <= sc <= 1.0:
+                scored[cid] = (sc, str(item.get("why") or "")[:300])
+
+    if not scored:
+        return stats
+    conn = _conn()
+    try:
+        for cid, (sc, why) in scored.items():
+            if sc < TRIAGE_DISMISS_BELOW:
+                r = conn.execute(text("""
+                    UPDATE bw_incident_enrichment_candidates
+                    SET triage_score = :s, triage_rationale = :w,
+                        state = 'dismissed', decided_by = 'agent:triage', decided_at = NOW()
+                    WHERE id = :id AND state = 'pending'
+                    RETURNING id
+                """), {"s": sc, "w": why, "id": cid}).fetchone()
+                if r:
+                    stats["auto_dismissed"] += 1
+            else:
+                rec = "attach" if sc >= TRIAGE_RECOMMEND_AT else None
+                conn.execute(text("""
+                    UPDATE bw_incident_enrichment_candidates
+                    SET triage_score = :s, triage_rationale = :w, recommendation = :r
+                    WHERE id = :id AND state = 'pending'
+                """), {"s": sc, "w": why, "r": rec, "id": cid})
+                if rec:
+                    stats["recommended"] += 1
+        conn.commit()
+    finally:
+        conn.close()
+    stats["scored"] = len(scored)
+    return stats
+
+
+def _post_suggestions(ctx: Dict, incident_id: int) -> int:
+    """Deterministic merge/severity suggestions as timeline events (once each).
+
+    Suggestions only — no state is changed. Never raises past the caller's
+    guard; dedupes by note prefix so re-runs don't spam the timeline.
+    """
+    posted = 0
+    conn = _conn()
+    try:
+        existing = {r[0] for r in conn.execute(text(
+            "SELECT note FROM bw_incident_events"
+            " WHERE incident_id = :i AND kind = 'agent_suggestion'"
+        ), {"i": incident_id}).fetchall()}
+
+        # Possible duplicate: another open incident of the same brand sharing
+        # locker evidence.
+        dup = conn.execute(text("""
+            SELECT DISTINCT i2.id, i2.title
+            FROM bw_incident_evidence e1
+            JOIN bw_incident_evidence e2
+              ON e2.source_ref = e1.source_ref AND e2.incident_id != e1.incident_id
+            JOIN bw_incidents i2 ON i2.id = e2.incident_id
+              AND i2.brand_id = :b AND i2.status IN ('open', 'investigating')
+            WHERE e1.incident_id = :i AND e1.source_ref IS NOT NULL
+              AND e1.source_ref != ''
+        """), {"i": incident_id, "b": ctx["brand_id"]}).fetchall()
+        for other_id, other_title in dup:
+            note = (f"possible duplicate of incident #{other_id} ('{(other_title or '')[:80]}')"
+                    f" — they share attached evidence; consider merging")
+            if not any(n and n.startswith(f"possible duplicate of incident #{other_id} ") for n in existing):
+                _event(conn, incident_id, "agent_suggestion", "agent:triage", note=note)
+                posted += 1
+
+        # Severity sanity-check: high/critical incident whose screened
+        # attachments all came back without a confirmed/coordinated verdict.
+        if ctx["severity"] in ("high", "critical"):
+            vr = conn.execute(text("""
+                SELECT s.verdict FROM bw_incident_evidence e
+                JOIN bw_article_signals s
+                  ON s.article_uri = e.source_ref AND s.brand_id = :b
+                     AND s.status = 'completed' AND s.verdict IS NOT NULL
+                WHERE e.incident_id = :i
+            """), {"i": incident_id, "b": ctx["brand_id"]}).fetchall()
+            verdicts = [r[0] for r in vr]
+            risky = {"corroborated", "contested", "likely_coordinated"}
+            if verdicts and not (set(verdicts) & risky):
+                note = (f"severity review: all {len(verdicts)} screened attachment(s) returned "
+                        f"low-risk verdicts ({', '.join(sorted(set(verdicts)))}) — "
+                        f"consider whether '{ctx['severity']}' still fits")
+            else:
+                note = None
+            if note and not any(n and n.startswith("severity review:") for n in existing):
+                _event(conn, incident_id, "agent_suggestion", "agent:triage", note=note)
+                posted += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return posted
+
+
 async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, int]:
     """Five Signals screens for the incident's attached locker articles.
 
@@ -544,8 +736,16 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
         cands = articles + socials + profiles
         staged = _stage_candidates(run_id, incident_id, cands)
 
-        _stage(run_id, "writing incident brief")
+        _stage(run_id, "triaging candidates and writing brief")
+        triage_task = asyncio.create_task(_triage_candidates(ctx, run_id, incident_id))
         brief = await _write_brief(ctx, cands)
+        triage = await triage_task
+
+        try:
+            suggestions = _post_suggestions(ctx, incident_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Enrichment suggestions failed: %s", e)
+            suggestions = 0
 
         _stage(run_id, "screening attached articles (Five Signals)")
         sig = await signals_task
@@ -554,6 +754,10 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
                  "social_posts": len(socials), "profiles": len(profiles),
                  "candidates_found": len(cands), "staged_new": staged,
                  "brief": bool(brief),
+                 "triage_scored": triage["scored"],
+                 "triage_auto_dismissed": triage["auto_dismissed"],
+                 "triage_recommended": triage["recommended"],
+                 "suggestions_posted": suggestions,
                  "signals_screened": sig["screened"],
                  "signals_already_screened": sig["already_screened"]}
         conn = _conn()
@@ -570,10 +774,14 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
                        note=brief.replace("\n", " ")[:200])
             sig_note = (f"; {sig['screened']} attached article(s) sent through Five Signals"
                         if sig["screened"] else "")
+            triage_note = ""
+            if triage["scored"]:
+                triage_note = (f"; triage: {triage['auto_dismissed']} auto-dismissed as noise, "
+                               f"{triage['recommended']} recommended for attach")
             _event(conn, incident_id, "enrichment", actor,
                    note=f"run #{run_id}: {staged} new candidate(s) staged for review "
                         f"({len(articles)} articles, {len(socials)} social, {len(profiles)} profiles)"
-                        + sig_note)
+                        + triage_note + sig_note)
             conn.commit()
         finally:
             conn.close()

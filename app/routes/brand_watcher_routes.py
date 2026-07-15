@@ -5698,10 +5698,12 @@ async def get_incident_enrichment(incident_id: int, session=Depends(verify_sessi
             WHERE incident_id = :i ORDER BY id DESC LIMIT 1
         """), {"i": incident_id}).fetchone()
         cands = conn.execute(text("""
-            SELECT id, run_id, candidate_type, source_ref, title, snippet, score, reason, meta
+            SELECT id, run_id, candidate_type, source_ref, title, snippet, score, reason, meta,
+                   triage_score, triage_rationale, recommendation
             FROM bw_incident_enrichment_candidates
             WHERE incident_id = :i AND state = 'pending'
-            ORDER BY CASE candidate_type WHEN 'article' THEN 0
+            ORDER BY (recommendation = 'attach') DESC NULLS LAST,
+                     CASE candidate_type WHEN 'article' THEN 0
                      WHEN 'social_post' THEN 1 ELSE 2 END, score DESC NULLS LAST, id
         """), {"i": incident_id}).fetchall()
         decided = conn.execute(text("""
@@ -5731,7 +5733,9 @@ async def get_incident_enrichment(incident_id: int, session=Depends(verify_sessi
             },
             "candidates": [{"id": c[0], "run_id": c[1], "candidate_type": c[2],
                             "source_ref": c[3], "title": c[4], "snippet": c[5],
-                            "score": c[6], "reason": c[7], "meta": _j(c[8])} for c in cands],
+                            "score": c[6], "reason": c[7], "meta": _j(c[8]),
+                            "triage_score": c[9], "triage_rationale": c[10],
+                            "recommendation": c[11]} for c in cands],
             "history": [{"id": h[0], "run_id": h[1], "candidate_type": h[2],
                          "source_ref": h[3], "title": h[4], "reason": h[5],
                          "state": h[6], "decided_by": h[7],

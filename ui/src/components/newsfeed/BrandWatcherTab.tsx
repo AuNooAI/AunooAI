@@ -6671,6 +6671,18 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className="text-[11px] text-gray-500 dark:text-gray-400">{incEnrich!.candidates.length} candidate(s) awaiting review</span>
                           <span className="flex-1" />
+                          {incEnrich!.candidates.some(c => c.recommendation === 'attach') && (
+                            <button disabled={incEnrichBusy}
+                              title="Attach every candidate the triage agent marked as clearly about this incident (score ≥ 0.7) — you remain the one committing them to the locker"
+                              onClick={async () => {
+                                const ids = incEnrich!.candidates.filter(c => c.recommendation === 'attach').map(c => c.id);
+                                setIncEnrichBusy(true);
+                                try { await decideEnrichmentCandidates(incDetail.id, ids, 'attach'); loadEnrichment(incDetail.id); refreshIncident(); }
+                                catch (e) { alert(String(e)); } finally { setIncEnrichBusy(false); }
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded border border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 font-medium hover:bg-emerald-100 disabled:opacity-40">
+                              ✓ Attach {incEnrich!.candidates.filter(c => c.recommendation === 'attach').length} recommended</button>
+                          )}
                           <button disabled={!incEnrichSel.size || incEnrichBusy} onClick={() => decideEnrichSel('attach')}
                             className="text-[10px] px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-40">Attach selected</button>
                           <button disabled={!incEnrichSel.size || incEnrichBusy} onClick={() => decideEnrichSel('dismiss')}
@@ -6694,6 +6706,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5">
                                     <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 ${tcls[c.candidate_type]}`}>{c.candidate_type.replace('_', ' ')}</span>
+                                    {c.recommendation === 'attach' && (
+                                      <span className="text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                        title={`Triage agent: ${c.triage_score != null ? `score ${c.triage_score}` : ''}${c.triage_rationale ? ` — ${c.triage_rationale}` : ''}`}>★ recommended</span>
+                                    )}
                                     <span className="text-[11px] text-gray-800 dark:text-gray-100 truncate">{c.title || c.source_ref}</span>
                                     {c.score != null && <span className="text-[9px] text-gray-400 flex-shrink-0">{c.score}</span>}
                                   </div>
@@ -6724,6 +6740,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                               : ev.kind === 'created' ? `opened the incident (${ev.new_value})`
                               : ev.kind === 'agent_brief' ? `🤖 wrote an incident brief: ${ev.note || ''}`
                               : ev.kind === 'enrichment' ? `🤖 ${ev.note || 'enrichment run finished'}`
+                              : ev.kind === 'agent_suggestion' ? `💡 ${ev.note || 'agent suggestion'}`
                               : `${ev.kind.replace('_', ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value}${ev.note ? ` (${ev.note})` : ''}`}
                           </span>
                         </div>

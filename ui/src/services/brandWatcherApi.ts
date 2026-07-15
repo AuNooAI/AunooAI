@@ -1170,6 +1170,9 @@ export interface BWEnrichmentCandidate {
   score?: number | null;
   reason?: string | null;
   meta?: Record<string, any> | null;
+  triage_score?: number | null;
+  triage_rationale?: string | null;
+  recommendation?: 'attach' | string | null;
 }
 
 export interface BWEnrichmentDecision {
