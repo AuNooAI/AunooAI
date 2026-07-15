@@ -11,6 +11,12 @@ there directly):
   4. account profiles of the authors behind attached/related social posts
   5. an LLM incident brief, stored on the run row (attachable on request)
 
+Separately from the staging flow, already-ATTACHED locker articles are sent
+through the Five Signals screen (bw_signals_service → saas.aunoo.ai): results
+land per-article in bw_article_signals, the same rows the /signals UI reads.
+Screens are skipped without the saas key, deduped against existing rows, and
+capped per run — each fresh screen costs saas-side LLM + web-search quota.
+
 Candidates land in bw_incident_enrichment_candidates with a UNIQUE
 (incident_id, candidate_type, source_ref) constraint, so anything already
 staged — including analyst-dismissed items — is never re-proposed.
@@ -44,6 +50,7 @@ MAX_KEYWORDS = 10
 WINDOW_PAD_DAYS = 7            # window = created_at - pad .. (resolved_at or now)
 BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", "gpt-5.4")
 BRIEF_INPUT_CAP = 12000
+MAX_SIGNAL_SCREENS = int(os.getenv("BW_ENRICH_MAX_SIGNAL_SCREENS", "5"))
 
 STR_CAP = 2000
 LIST_CAP = 12
@@ -130,6 +137,7 @@ def _load_context(incident_id: int) -> Optional[Dict]:
 
         seen: Set[str] = set()
         seed_uris: List[str] = []
+        attached_article_urls: List[str] = []
         attached_social_meta: List[Dict] = []
         ev_summaries: List[Dict] = []
         for etype, ref, title, meta, cap_at in evidence:
@@ -140,6 +148,12 @@ def _load_context(incident_id: int) -> Optional[Dict]:
                 seen.add(meta["uri"])
             if etype in ("article", "social_post") and ref:
                 seed_uris.append(ref)
+            # Five Signals needs a public article URL (same guard as the
+            # /signals/run route — social posts are not screenable)
+            if (etype == "article" and ref
+                    and str(ref).lower().startswith(("http://", "https://"))
+                    and ref not in attached_article_urls):
+                attached_article_urls.append(ref)
             if etype == "social_post":
                 attached_social_meta.append(meta)
             if etype == "account_profile" and meta.get("platform") and meta.get("handle"):
@@ -168,6 +182,7 @@ def _load_context(incident_id: int) -> Optional[Dict]:
             "brand_name": r[9] or r[8],
             "keywords": dedup_kw[:MAX_KEYWORDS],
             "seen": seen, "seed_uris": seed_uris[:20],
+            "attached_article_urls": attached_article_urls,
             "attached_social_meta": attached_social_meta,
             "evidence_summaries": ev_summaries,
         }
@@ -414,6 +429,49 @@ async def _write_brief(ctx: Dict, cands: List[Dict]) -> Optional[str]:
     return brief
 
 
+async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, int]:
+    """Five Signals screens for the incident's attached locker articles.
+
+    Results land per-article in bw_article_signals (bw_signals_service owns the
+    row lifecycle and never raises); this only decides which attachments are
+    screenable and caps the fan-out. Screens with an existing running/completed
+    row are skipped — failed ones get retried. Never raises.
+    """
+    stats = {"eligible": 0, "screened": 0, "already_screened": 0}
+    try:
+        from app.services.bw_signals_service import run_five_signals, signals_available
+        urls = ctx["attached_article_urls"]
+        stats["eligible"] = len(urls)
+        if not urls or not signals_available():
+            return stats
+        conn = _conn()
+        try:
+            rows = conn.execute(text("""
+                SELECT article_uri FROM bw_article_signals
+                WHERE article_uri = ANY(:u) AND brand_id = :b
+                  AND status IN ('running', 'completed')
+            """), {"u": urls, "b": ctx["brand_id"]}).fetchall()
+        finally:
+            conn.close()
+        done = {r[0] for r in rows}
+        stats["already_screened"] = len(done)
+        to_screen = [u for u in urls if u not in done][:MAX_SIGNAL_SCREENS]
+        if not to_screen:
+            return stats
+        # run_five_signals never raises; each screen polls saas for minutes, so
+        # run them concurrently. requested_by is 'agent:…', NOT 'auto' — the
+        # monitor's AUTO_SIGNALS_DAILY_CAP counts only 'auto' rows.
+        await asyncio.gather(*[
+            run_five_signals(u, ctx["brand_id"], u,
+                             requested_by=f"agent:{requested_by}")
+            for u in to_screen
+        ])
+        stats["screened"] = len(to_screen)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Enrichment Five Signals screening failed: %s", e)
+    return stats
+
+
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 async def run_incident_enrichment(run_id: int, incident_id: int,
@@ -436,6 +494,11 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
             finally:
                 conn.close()
             return
+
+        # Kicked off first: the saas jobs poll for minutes, so they overlap the
+        # gather/brief phases instead of extending the run. Awaited at the end.
+        signals_task = asyncio.create_task(
+            _screen_attached_articles(ctx, requested_by))
 
         _stage(run_id, "finding story-group siblings")
         siblings = _story_siblings(ctx)
@@ -474,10 +537,15 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
         _stage(run_id, "writing incident brief")
         brief = await _write_brief(ctx, cands)
 
+        _stage(run_id, "screening attached articles (Five Signals)")
+        sig = await signals_task
+
         stats = {"story_siblings": len(siblings), "vector_similar": len(vector),
                  "social_posts": len(socials), "profiles": len(profiles),
                  "candidates_found": len(cands), "staged_new": staged,
-                 "brief": bool(brief)}
+                 "brief": bool(brief),
+                 "signals_screened": sig["screened"],
+                 "signals_already_screened": sig["already_screened"]}
         conn = _conn()
         try:
             conn.execute(text("""
@@ -490,9 +558,12 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
             if brief:
                 _event(conn, incident_id, "agent_brief", actor,
                        note=brief.replace("\n", " ")[:200])
+            sig_note = (f"; {sig['screened']} attached article(s) sent through Five Signals"
+                        if sig["screened"] else "")
             _event(conn, incident_id, "enrichment", actor,
                    note=f"run #{run_id}: {staged} new candidate(s) staged for review "
-                        f"({len(articles)} articles, {len(socials)} social, {len(profiles)} profiles)")
+                        f"({len(articles)} articles, {len(socials)} social, {len(profiles)} profiles)"
+                        + sig_note)
             conn.commit()
         finally:
             conn.close()
