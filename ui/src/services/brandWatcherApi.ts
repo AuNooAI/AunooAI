@@ -1047,6 +1047,9 @@ export interface BWIncidentEvidence {
 export interface BWIncidentDetail extends BWIncident {
   timeline: BWIncidentEvent[];
   evidence: BWIncidentEvidence[];
+  // Live shared-evidence check (reassigned rows excluded, analyst "not a
+  // duplicate" notes respected) — drives the duplicate cards in the UI.
+  duplicate_candidates?: { id: number; title: string }[];
 }
 
 export async function listIncidents(status?: string, brandId?: number): Promise<BWIncident[]> {

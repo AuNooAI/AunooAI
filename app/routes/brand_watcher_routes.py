@@ -5457,6 +5457,25 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
                                   "propagation", "amplification_integrity")
                     ] if s_parsed else [],
                 }
+        # Live duplicate check — NOT the historical agent_suggestion events.
+        # Shared evidence is evaluated NOW (reassigned rows excluded), and an
+        # analyst's "not a duplicate of case #N" note retires the pair for
+        # good. The UI renders its duplicate cards from this.
+        dup_candidates = conn.execute(text("""
+            SELECT DISTINCT i2.id, i2.title
+            FROM bw_incident_evidence e1
+            JOIN bw_incident_evidence e2
+              ON e2.source_ref = e1.source_ref AND e2.incident_id != e1.incident_id
+            JOIN bw_incidents i2 ON i2.id = e2.incident_id
+              AND i2.brand_id = :b AND i2.status IN ('open', 'investigating')
+            WHERE e1.incident_id = :i AND e1.source_ref IS NOT NULL AND e1.source_ref != ''
+              AND e1.reassigned_to IS NULL AND e2.reassigned_to IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM bw_incident_events ev
+                WHERE ev.incident_id = :i AND ev.kind = 'note'
+                  AND ev.note LIKE 'not a duplicate of case #' || i2.id || '%')
+            ORDER BY i2.id
+        """), {"i": incident_id, "b": r[1]}).fetchall()
         return {
             "id": r[0], "brand_id": r[1], "brand_name": r[2], "title": r[3],
             "description": r[4], "severity": r[5], "status": r[6], "owner": r[7],
@@ -5464,6 +5483,7 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
             "created_at": r[9].isoformat() if r[9] else None,
             "updated_at": r[10].isoformat() if r[10] else None,
             "resolved_at": r[11].isoformat() if r[11] else None,
+            "duplicate_candidates": [{"id": d[0], "title": d[1]} for d in dup_candidates],
             "timeline": [{"kind": e[0], "actor": e[1], "old_value": e[2], "new_value": e[3],
                           "note": e[4], "at": e[5].isoformat() if e[5] else None} for e in events],
             "evidence": [{"id": e[0], "evidence_type": e[1], "source_ref": e[2], "title": e[3],

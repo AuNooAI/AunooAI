@@ -19,7 +19,7 @@ import {
   ArrowLeft, Check, ChevronDown, ChevronRight, FileDown, FileUp, Link2,
   Loader2, Search, ShieldCheck, Sparkles, UserCircle, X,
 } from 'lucide-react';
-import { BWIncident, incidentFileUrl, translateForReport, updateIncident } from '../../../services/brandWatcherApi';
+import { BWIncident, addIncidentNote, incidentFileUrl, translateForReport, updateIncident } from '../../../services/brandWatcherApi';
 import { downloadIncidentReport } from '../../../services/incidentReportService';
 import { IncidentCase } from './useIncidentCase';
 import {
@@ -82,20 +82,20 @@ export function IncidentCaseFile(props: {
   const setField = (updates: Record<string, string>) =>
     updateIncident(inc.id, updates).then(c.refreshIncident).catch(console.error);
 
+  // Duplicate cards are LIVE (computed server-side from current shared
+  // evidence) — historical agent_suggestion events don't drive them anymore,
+  // so a reassignment or merge clears the card immediately and permanently.
+  const liveDuplicates = inc.duplicate_candidates || [];
   const suggestions = (inc.timeline || [])
     .filter(ev => ev.kind === 'agent_suggestion' && ev.note)
     .filter(ev => { void suggHidden; try { return !localStorage.getItem(suggDismissKey(inc.id, ev.at)); } catch { return true; } })
-    // Retire cards that have been overtaken by events: a duplicate pointing at
-    // a merged/closed/deleted case, or a severity nudge after severity dropped.
     .filter(ev => {
       const s = parseSuggestion(ev.note || '');
-      if (s.type === 'duplicate') {
-        const other = incidents.find(i => i.id === s.otherId);
-        if (!other || ['closed', 'resolved'].includes(other.status)) return false;
-      }
+      if (s.type === 'duplicate') return false;   // superseded by liveDuplicates
       if (s.type === 'severity' && !['high', 'critical'].includes(inc.severity)) return false;
       return true;
     });
+  void incidents;
 
   // English display titles/bodies for foreign-language coverage — same
   // translation pass the report uses, fetched once per item and cached.
@@ -253,6 +253,27 @@ export function IncidentCaseFile(props: {
             ))}
           </span>
         </div>
+        {liveDuplicates.map(dup => (
+          <div key={`dup-${dup.id}`} className="p-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Possibly the same incident as case #{dup.id}</p>
+            <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
+              This case and #{dup.id} (‘{dup.title}’) currently share evidence. If they cover one event, work it in a single case and close the other.
+            </p>
+            <div className="flex items-center gap-2 mt-2">
+              <button onClick={() => c.mergeInto(dup.id)}
+                title={`Copy this case's evidence into #${dup.id} and close this one with a cross-reference`}
+                className="text-xs px-2.5 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700 font-medium">
+                Merge into #{dup.id}</button>
+              <button onClick={() => c.openIncident(dup.id)}
+                className="text-xs px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
+                View #{dup.id}</button>
+              <button onClick={() => addIncidentNote(inc.id, `not a duplicate of case #${dup.id} — confirmed by analyst`).then(c.refreshIncident).catch(e => alert(String(e)))}
+                title="Permanently retires this flag for this pair of cases (recorded in the audit log)"
+                className="text-xs px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
+                Not a duplicate</button>
+            </div>
+          </div>
+        ))}
         {suggestions.map((ev, i) => {
           const dismiss = () => { try { localStorage.setItem(suggDismissKey(inc.id, ev.at), '1'); } catch { /* ignore */ } setSuggHidden(n => n + 1); };
           const s = parseSuggestion(ev.note || '');
