@@ -437,10 +437,29 @@ async def _write_brief(ctx: Dict, cands: List[Dict]) -> Optional[str]:
                      if (c.get('meta') or {}).get('publication_date') else "")
                   + (f": {c.get('snippet')}" if c.get("snippet") else "")
                   for c in cands[:25]]
+
+    # Matters tracked by OTHER open cases are excluded by name — the abstract
+    # "stay in scope" instruction alone loses when leftover material from a
+    # case reorganization is present in the (append-only) locker.
+    conn = _conn()
+    try:
+        siblings = conn.execute(text("""
+            SELECT id, title FROM bw_incidents
+            WHERE brand_id = :b AND id != :i AND status IN ('open', 'investigating')
+            ORDER BY id
+        """), {"b": ctx["brand_id"], "i": ctx["id"]}).fetchall()
+    finally:
+        conn.close()
+    exclusions = ("\nEXCLUDE ENTIRELY — these matters are tracked in their own cases and "
+                  "must not appear in this assessment, even if material about them is "
+                  "attached here:\n"
+                  + "\n".join(f"- case #{s[0]}: {s[1]}" for s in siblings) + "\n"
+                  ) if siblings else ""
     prompt = (
         f"Case: {ctx['title']}\n"
         f"Brand: {ctx['brand_name']}\nSeverity: {ctx['severity']}  Status: {ctx['status']}\n"
-        f"Description: {ctx['description'] or '(none)'}\n\n"
+        f"Description: {ctx['description'] or '(none)'}\n"
+        + exclusions + "\n"
         f"MATERIAL IN THE CASE (full captured text follows each item):\n\n"
         + ("\n\n".join(ev_blocks) or "(none)") + "\n\n"
         f"RELATED MATERIAL FOUND BY AUTOMATED SEARCH (snippets):\n"
