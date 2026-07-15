@@ -5350,6 +5350,28 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
                 return json.loads(v)
             except (json.JSONDecodeError, TypeError):
                 return None
+        # Five Signals screens for attached articles (same compact summary
+        # shape the Articles tab rows carry — renderSignalsChips reads it).
+        ev_article_uris = [e[2] for e in evidence
+                           if e[1] == "article" and e[2]
+                           and str(e[2]).lower().startswith(("http://", "https://"))]
+        signals_map: dict = {}
+        if ev_article_uris:
+            for s_uri, s_status, s_verdict, s_comp, s_sigs in conn.execute(text(
+                "SELECT article_uri, status, verdict, composite_score, signals"
+                " FROM bw_article_signals WHERE article_uri = ANY(:us) AND brand_id = :b"
+            ), {"us": ev_article_uris, "b": r[1]}).fetchall():
+                s_parsed = s_sigs if isinstance(s_sigs, dict) else (json.loads(s_sigs) if s_sigs else {})
+                signals_map[s_uri] = {
+                    "status": s_status, "verdict": s_verdict,
+                    "composite": s_comp,
+                    "signals": [
+                        {"key": k, "band": (s_parsed.get(k) or {}).get("band"),
+                         "score": (s_parsed.get(k) or {}).get("score")}
+                        for k in ("veracity", "source_credibility", "corroboration",
+                                  "propagation", "amplification_integrity")
+                    ] if s_parsed else [],
+                }
         return {
             "id": r[0], "brand_id": r[1], "brand_name": r[2], "title": r[3],
             "description": r[4], "severity": r[5], "status": r[6], "owner": r[7],
@@ -5362,7 +5384,8 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
             "evidence": [{"id": e[0], "evidence_type": e[1], "source_ref": e[2], "title": e[3],
                           "content": e[4], "meta": _j(e[5]), "content_sha256": e[6],
                           "chain_sha256": e[7], "captured_by": e[8],
-                          "captured_at": e[9].isoformat() if e[9] else None} for e in evidence],
+                          "captured_at": e[9].isoformat() if e[9] else None,
+                          "signals_summary": signals_map.get(e[2])} for e in evidence],
         }
     finally:
         conn.close()

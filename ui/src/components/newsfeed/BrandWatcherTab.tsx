@@ -371,6 +371,18 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (incDetail?.id) loadEnrichment(incDetail.id); else setIncEnrich(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incDetail?.id]);
+  // Screens the enrichment agent kicked off arrive mid-run: poll any attached
+  // article whose Five Signals row is still running so its chip resolves live.
+  useEffect(() => {
+    if (!incDetail?.evidence) return;
+    for (const ev of incDetail.evidence) {
+      if (ev.evidence_type === 'article' && ev.source_ref
+          && ev.signals_summary?.status === 'running') {
+        pollSignals(ev.source_ref, incDetail.brand_id);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incDetail]);
   // Poll while a run is in progress; refresh the incident once it lands so the
   // agent's timeline events appear.
   useEffect(() => {
@@ -6513,6 +6525,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                               : null}
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${typeCls[ev.evidence_type] || typeCls.article}`}>{ev.evidence_type.replace('_', ' ')}</span>
                             <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate flex-1">{ev.title || ev.source_ref}</span>
+                            {ev.evidence_type === 'article' && ev.source_ref && String(ev.source_ref).startsWith('http') && (
+                              <span className="flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                {renderSignalsChips({ uri: ev.source_ref, brand_id: incDetail.brand_id, title: ev.title, signals_summary: ev.signals_summary })}
+                              </span>
+                            )}
                             <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.captured_at || '').slice(0, 16).replace('T', ' ')} · {ev.captured_by}</span>
                           </div>
                           {ev.evidence_type === 'social_post' && (m.platform || m.author) && (

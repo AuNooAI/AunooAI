@@ -1033,6 +1033,12 @@ export interface BWIncidentEvidence {
   chain_sha256: string;
   captured_by?: string | null;
   captured_at?: string | null;
+  // Five Signals screen summary for article evidence (same shape as the
+  // Articles tab rows' signals_summary; null when unscreened / not an article)
+  signals_summary?: {
+    status: string; verdict?: string | null; composite?: number | null;
+    signals: { key: string; band?: string | null; score?: number | null }[];
+  } | null;
 }
 
 export interface BWIncidentDetail extends BWIncident {
