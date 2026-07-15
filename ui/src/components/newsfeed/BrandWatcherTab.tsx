@@ -20,7 +20,7 @@ import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
 import { downloadSocialReport } from '../../services/socialReportHtml';
 import { downloadPropagationReport } from '../../services/propagationReportHtml';
-import { downloadIncidentReport } from '../../services/incidentReportService';
+import { IncidentsWorkspace } from './incidents/IncidentsWorkspace';
 import { cleanSocialText, stripSocialMarkdown } from '../../services/socialText';
 import {
   buildAccountProfile, getAccountProfile, listAccountProfiles, setAccountTags, setAccountAnnotation,
@@ -36,16 +36,13 @@ import {
   runScheduleNow, getSentimentTrends, getBrandAlerts, exportBrandData, updateBrandConfig,
   getAlertConfig, updateAlertConfig, listAlertEvents, ackAlertEvent, evaluateAlertsNow, setFindingState,
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
-  listIncidents, createIncident, getIncident, updateIncident, deleteIncident, addIncidentNote,
-  attachIncidentEvidence, verifyIncidentChain,
-  incidentAttachSearch, uploadIncidentFile, incidentFileUrl,
-  startIncidentEnrichment, getIncidentEnrichment, decideEnrichmentCandidates, attachEnrichmentBrief,
-  type BWAttachSearchResult, type BWEnrichmentState,
+  listIncidents, createIncident,
+  attachIncidentEvidence,
   getEmployeeRisk, getRiskSummary, updateBrandConfig, pollOfficialSourcesNow,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
-  type BWIncident, type BWIncidentDetail,
+  type BWIncident,
   type BWEmployeeRisk, type BWRiskSummary, type BWGlassdoorOverview,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   searchWikidata, type SuggestionVerification,
@@ -299,165 +296,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   }, [config.selectedBrandIds, config.selectedTopics, config.daysBack]);
   // ---- Incident management + evidence locker ----
   const [incidents, setIncidents] = useState<BWIncident[]>([]);
-  const [incStatusFilter, setIncStatusFilter] = useState<string>('');
-  const [incDetail, setIncDetail] = useState<BWIncidentDetail | null>(null);
   const [incLoading, setIncLoading] = useState(false);
-  const [incNoteText, setIncNoteText] = useState('');
-  const [incEvidenceUrl, setIncEvidenceUrl] = useState('');
-  const [incChain, setIncChain] = useState<{ intact: boolean; items: number; broken_ids: number[] } | null>(null);
-  const [incCreate, setIncCreate] = useState<{ open: boolean; title: string; description: string; severity: string; brandId: number | null }>({ open: false, title: '', description: '', severity: 'medium', brandId: null });
   // "Add to incident" picker: holds the source being attached (article, alert event or account profile)
   const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event' | 'account_profile'; ref: string; refs?: string[]; label: string; brandId: number | null } | null>(null);
   const [incAttachNewTitle, setIncAttachNewTitle] = useState('');
-  // Attach pickers: article/post search modal, account-profile picker, file upload
-  const [incSearch, setIncSearch] = useState<{ open: boolean; q: string; kind: 'all' | 'news' | 'social'; results: BWAttachSearchResult[]; sel: Set<string>; busy: boolean; searched: boolean }>({ open: false, q: '', kind: 'all', results: [], sel: new Set(), busy: false, searched: false });
-  const [incProfilePick, setIncProfilePick] = useState<{ open: boolean; filter: string; profiles: BWAccountProfile[] }>({ open: false, filter: '', profiles: [] });
-  const [incFileBusy, setIncFileBusy] = useState(false);
-  const incFileInputRef = useRef<HTMLInputElement>(null);
-  // Enrichment agent: latest run + staged candidates (review queue)
-  const [incEnrich, setIncEnrich] = useState<BWEnrichmentState | null>(null);
-  const [incEnrichSel, setIncEnrichSel] = useState<Set<number>>(new Set());
-  const [incEnrichBusy, setIncEnrichBusy] = useState(false);
-  const [incBriefOpen, setIncBriefOpen] = useState(false);
-  // Bulk incident management: selected ids + pending bulk edit values
-  const [incSelected, setIncSelected] = useState<Set<number>>(new Set());
-  const [incBulk, setIncBulk] = useState<{ status: string; severity: string; owner: string }>({ status: '', severity: '', owner: '' });
-  const [incBulkBusy, setIncBulkBusy] = useState(false);
   const loadIncidents = useCallback((status?: string) => {
     setIncLoading(true);
     listIncidents(status || undefined).then(setIncidents).catch(console.error).finally(() => setIncLoading(false));
   }, []);
-  const applyIncidentBulk = useCallback(async (action: 'update' | 'delete') => {
-    const ids = Array.from(incSelected);
-    if (!ids.length) return;
-    if (action === 'delete' && !window.confirm(`Delete ${ids.length} incident${ids.length > 1 ? 's' : ''}? Events and evidence are removed with them.`)) return;
-    setIncBulkBusy(true);
-    try {
-      for (const id of ids) {
-        if (action === 'delete') {
-          await deleteIncident(id);
-          if (incDetail?.id === id) setIncDetail(null);
-        } else {
-          const updates: Record<string, string> = {};
-          if (incBulk.status) updates.status = incBulk.status;
-          if (incBulk.severity) updates.severity = incBulk.severity;
-          if (incBulk.owner.trim()) updates.owner = incBulk.owner.trim();
-          if (Object.keys(updates).length) await updateIncident(id, updates);
-        }
-      }
-      setIncSelected(new Set());
-      setIncBulk({ status: '', severity: '', owner: '' });
-      loadIncidents(incStatusFilter || undefined);
-    } catch (err) {
-      console.error('Bulk incident action failed:', err);
-    } finally {
-      setIncBulkBusy(false);
-    }
-  }, [incSelected, incBulk, incDetail, incStatusFilter, loadIncidents]);
-  const openIncident = useCallback((id: number) => {
-    setIncChain(null);
-    getIncident(id).then(setIncDetail).catch(console.error);
-  }, []);
-  const refreshIncident = useCallback(() => {
-    if (incDetail) getIncident(incDetail.id).then(setIncDetail).catch(console.error);
-    loadIncidents(incStatusFilter || undefined);
-  }, [incDetail, incStatusFilter, loadIncidents]);
-  const loadEnrichment = useCallback((id: number) => {
-    getIncidentEnrichment(id).then(setIncEnrich).catch(() => setIncEnrich(null));
-  }, []);
-  // Load the enrichment state whenever an incident is opened (auto-runs from
-  // creation/monitor surface here without any manual action).
-  useEffect(() => {
-    setIncEnrichSel(new Set()); setIncBriefOpen(false);
-    if (incDetail?.id) loadEnrichment(incDetail.id); else setIncEnrich(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incDetail?.id]);
-  // Screens the enrichment agent kicked off arrive mid-run: poll any attached
-  // article whose Five Signals row is still running so its chip resolves live.
-  useEffect(() => {
-    if (!incDetail?.evidence) return;
-    for (const ev of incDetail.evidence) {
-      if (ev.evidence_type === 'article' && ev.source_ref
-          && ev.signals_summary?.status === 'running') {
-        pollSignals(ev.source_ref, incDetail.brand_id);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incDetail]);
-  // Poll while a run is in progress; refresh the incident once it lands so the
-  // agent's timeline events appear.
-  useEffect(() => {
-    if (!incDetail?.id || incEnrich?.run?.status !== 'running') return;
-    const id = incDetail.id;
-    const t = setInterval(() => {
-      getIncidentEnrichment(id).then(state => {
-        setIncEnrich(state);
-        if (state.run && state.run.status !== 'running') getIncident(id).then(setIncDetail).catch(console.error);
-      }).catch(() => {});
-    }, 4000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incDetail?.id, incEnrich?.run?.status]);
-  const doIncAttachSearch = useCallback(async () => {
-    if (!incSearch.q.trim()) return;
-    setIncSearch(s => ({ ...s, busy: true }));
-    try {
-      const results = await incidentAttachSearch(incSearch.q.trim(), { kind: incSearch.kind, daysBack: 365 });
-      setIncSearch(s => ({ ...s, results, sel: new Set(), busy: false, searched: true }));
-    } catch (e) { console.error(e); setIncSearch(s => ({ ...s, busy: false, searched: true })); }
-  }, [incSearch.q, incSearch.kind]);
-  const attachSearchSelection = useCallback(async () => {
-    if (!incDetail || !incSearch.sel.size) return;
-    setIncSearch(s => ({ ...s, busy: true }));
-    try {
-      for (const uri of incSearch.sel) {
-        const r = incSearch.results.find(x => x.uri === uri);
-        await attachIncidentEvidence(incDetail.id, { evidence_type: r?.is_social ? 'social_post' : 'article', source_ref: uri });
-      }
-      setIncSearch({ open: false, q: '', kind: 'all', results: [], sel: new Set(), busy: false, searched: false });
-      refreshIncident();
-    } catch (e) { console.error(e); alert('Failed to attach: ' + e); setIncSearch(s => ({ ...s, busy: false })); }
-  }, [incDetail, incSearch.sel, incSearch.results, refreshIncident]);
-  const openProfilePicker = useCallback(() => {
-    setIncProfilePick({ open: true, filter: '', profiles: [] });
-    listAccountProfiles().then(profiles => setIncProfilePick(p => ({ ...p, profiles }))).catch(console.error);
-  }, []);
-  const attachProfile = useCallback(async (p: BWAccountProfile) => {
-    if (!incDetail) return;
-    try {
-      await attachIncidentEvidence(incDetail.id, { evidence_type: 'account_profile', source_ref: `${p.platform}:${p.handle_canonical || p.handle}` });
-      setIncProfilePick({ open: false, filter: '', profiles: [] });
-      refreshIncident();
-    } catch (e) { console.error(e); alert('Failed to attach profile: ' + e); }
-  }, [incDetail, refreshIncident]);
-  const onIncFilePicked = useCallback(async (f: globalThis.File | undefined) => {
-    if (!incDetail || !f) return;
-    setIncFileBusy(true);
-    try {
-      await uploadIncidentFile(incDetail.id, f);
-      refreshIncident();
-    } catch (e) { alert(`File upload failed: ${e instanceof Error ? e.message : e}`); }
-    finally { setIncFileBusy(false); if (incFileInputRef.current) incFileInputRef.current.value = ''; }
-  }, [incDetail, refreshIncident]);
-  const startEnrich = useCallback(async () => {
-    if (!incDetail) return;
-    try {
-      await startIncidentEnrichment(incDetail.id);
-      loadEnrichment(incDetail.id);
-    } catch (e) { alert(`${e instanceof Error ? e.message : e}`); }
-  }, [incDetail, loadEnrichment]);
-  const decideEnrichSel = useCallback(async (action: 'attach' | 'dismiss') => {
-    if (!incDetail || !incEnrichSel.size) return;
-    setIncEnrichBusy(true);
-    try {
-      const res = await decideEnrichmentCandidates(incDetail.id, Array.from(incEnrichSel), action);
-      if (res.failed?.length) alert(`${res.failed.length} item(s) could not be attached (source no longer available)`);
-      setIncEnrichSel(new Set());
-      loadEnrichment(incDetail.id);
-      refreshIncident();
-    } catch (e) { console.error(e); alert(`Failed to ${action}: ` + e); }
-    finally { setIncEnrichBusy(false); }
-  }, [incDetail, incEnrichSel, loadEnrichment, refreshIncident]);
   // Attach the pending source to an incident (existing id, or create-new first).
   const doAttach = useCallback(async (incidentId: number | null) => {
     if (!incAttach) return;
@@ -472,10 +318,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         await attachIncidentEvidence(id, { evidence_type: incAttach.kind, source_ref: r });
       }
       setIncAttach(null); setIncAttachNewTitle('');
-      loadIncidents(incStatusFilter || undefined);
+      loadIncidents();
       alert(`${refs.length > 1 ? refs.length + ' evidence items' : 'Evidence'} captured into incident #` + id);
     } catch (e) { console.error(e); alert('Failed to attach evidence'); }
-  }, [incAttach, incAttachNewTitle, incStatusFilter, loadIncidents]);
+  }, [incAttach, incAttachNewTitle, loadIncidents]);
   // Per-finding review state (optimistic local overlay over articles payload)
   const [reviewOverrides, setReviewOverrides] = useState<Record<string, string>>({});
   const setReview = useCallback(async (uri: string, brandId: number | null, status: 'reviewed' | 'escalated' | 'dismissed' | 'false_positive') => {
@@ -1800,7 +1646,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       loadAccounts();
     }
     if (tab === 'incidents') {
-      loadIncidents(incStatusFilter || undefined);
+      loadIncidents();
       loadAlertData();
     }
     if (tab === 'insights' && primarySelectedId) {
@@ -6364,495 +6210,21 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       })()}
 
       {activeTab === 'incidents' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            {['', 'open', 'investigating', 'contained', 'resolved', 'closed'].map(st => (
-              <button key={st || 'all'} onClick={() => { setIncStatusFilter(st); loadIncidents(st || undefined); }}
-                className={`text-xs px-2.5 py-1 rounded-full border ${incStatusFilter === st ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>
-                {st || 'all'}
-              </button>
-            ))}
-            <span className="flex-1" />
-            <button onClick={() => setIncCreate({ open: true, title: '', description: '', severity: 'medium', brandId: selectedBrand?.id ?? brands[0]?.id ?? null })}
-              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5" /> New incident
-            </button>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              {/* Alert triage: unacknowledged server alerts — ack here or case them */}
-              {alertEvents.length > 0 && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unacknowledged alerts — triage</span>
-                  {alertEvents.map(ev => (
-                    <div key={`inc-ev-${ev.id}`} className={`flex items-center gap-3 rounded-lg border p-3 ${
-                      ev.severity === 'high' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
-                      <Bell className={`w-4 h-4 flex-shrink-0 ${ev.severity === 'high' ? 'text-red-600' : 'text-amber-600'}`} />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm text-gray-800 dark:text-gray-100 block">{ev.title}</span>
-                        {ev.body && <span className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{ev.body}</span>}
-                      </div>
-                      <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.created_at || '').slice(0, 16).replace('T', ' ')}</span>
-                      <button onClick={() => { setIncAttach({ kind: 'alert_event', ref: String(ev.id), label: ev.title, brandId: ev.brand_id ?? null }); }}
-                        title="Capture this alert as evidence in an incident"
-                        className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 flex-shrink-0">→ incident</button>
-                      <button onClick={() => { ackAlertEvent(ev.id).then(loadAlertData); }}
-                        className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 flex-shrink-0">Ack</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {alertEvents.length === 0 && (
-                <div className="min-h-[120px] flex items-center justify-center text-sm text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-                  No unacknowledged alerts. 🎉
-                </div>
-              )}
-            </div>
-            <div className="space-y-3">
-              {incLoading && <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>}
-              {!incLoading && incidents.length === 0 && <p className="text-xs text-gray-400 py-4 text-center">No incidents{incStatusFilter ? ` with status "${incStatusFilter}"` : ''}. Adverse findings can be captured via "act… → Add to incident" on any article row.</p>}
-              {incidents.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap text-xs">
-                  <label className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400 cursor-pointer"
-                    title="Select all listed incidents for a bulk action">
-                    <input type="checkbox"
-                      checked={incSelected.size > 0 && incSelected.size === incidents.length}
-                      onChange={e => setIncSelected(e.target.checked ? new Set(incidents.map(i => i.id)) : new Set())} />
-                    {incSelected.size > 0 ? `${incSelected.size} selected` : 'Select all'}
-                  </label>
-                  {incSelected.size > 0 && (
-                    <>
-                      <select value={incBulk.status} onChange={e => setIncBulk(b => ({ ...b, status: e.target.value }))}
-                        className="px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-gray-200">
-                        <option value="">status…</option>
-                        {['open', 'investigating', 'contained', 'resolved', 'closed'].map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <select value={incBulk.severity} onChange={e => setIncBulk(b => ({ ...b, severity: e.target.value }))}
-                        className="px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-gray-200">
-                        <option value="">severity…</option>
-                        {['low', 'medium', 'high', 'critical'].map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <input type="text" value={incBulk.owner} placeholder="owner…"
-                        onChange={e => setIncBulk(b => ({ ...b, owner: e.target.value }))}
-                        className="w-24 px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-gray-200" />
-                      <button onClick={() => applyIncidentBulk('update')}
-                        disabled={incBulkBusy || (!incBulk.status && !incBulk.severity && !incBulk.owner.trim())}
-                        title="Apply the chosen status/severity/owner to every selected incident (each change lands in the incident timeline)"
-                        className="px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
-                        {incBulkBusy ? 'Applying…' : 'Apply'}
-                      </button>
-                      <button onClick={() => applyIncidentBulk('delete')} disabled={incBulkBusy}
-                        title="Delete every selected incident, including its timeline and evidence"
-                        className="px-2.5 py-1 rounded border border-red-300 dark:border-red-700 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40">
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-              {incidents.map(inc => {
-                const sevCls: Record<string, string> = { low: 'bg-gray-100 text-gray-600', medium: 'bg-amber-100 text-amber-700', high: 'bg-red-100 text-red-700', critical: 'bg-red-600 text-white' };
-                return (
-                  <div key={inc.id} className="flex items-start gap-2">
-                  <input type="checkbox" checked={incSelected.has(inc.id)}
-                    onChange={e => setIncSelected(prev => {
-                      const next = new Set(prev);
-                      if (e.target.checked) next.add(inc.id); else next.delete(inc.id);
-                      return next;
-                    })}
-                    className="mt-4 flex-shrink-0" title="Select for bulk action" />
-                  <button onClick={() => openIncident(inc.id)}
-                    className={`flex-1 min-w-0 text-left p-3 rounded-lg border transition-colors ${incDetail?.id === inc.id ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${sevCls[inc.severity] || sevCls.medium}`}>{inc.severity}</span>
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex-1">#{inc.id} {inc.title}</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
-                      <span className={`px-1.5 py-0.5 rounded-full ${inc.status === 'open' ? 'bg-red-50 text-red-600' : inc.status === 'investigating' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>{inc.status}</span>
-                      <span>{inc.brand_name}</span>
-                      <span className="flex-1" />
-                      <span className="inline-flex items-center gap-0.5"><Lock className="w-3 h-3" /> {inc.evidence_count}</span>
-                      <span>{(inc.updated_at || '').slice(0, 10)}</span>
-                    </div>
-                  </button>
-                  </div>
-                );
-              })}
-              {!incDetail ? (
-                <div className="min-h-[100px] flex items-center justify-center text-sm text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">Select an incident to see its evidence &amp; timeline</div>
-              ) : (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
-                  <div className="flex items-start gap-3 flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">#{incDetail.id} {incDetail.title}</h3>
-                      <p className="text-xs text-gray-400 mt-0.5">{incDetail.brand_name} · opened {(incDetail.created_at || '').slice(0, 10)} by {incDetail.created_by}{incDetail.resolved_at ? ` · resolved ${incDetail.resolved_at.slice(0, 10)}` : ''}</p>
-                      {incDetail.description && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1.5">{incDetail.description}</p>}
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <select value={incDetail.status} onChange={e => updateIncident(incDetail.id, { status: e.target.value }).then(refreshIncident).catch(console.error)}
-                        className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-                        {['open', 'investigating', 'contained', 'resolved', 'closed'].map(st => <option key={st} value={st}>{st}</option>)}
-                      </select>
-                      <select value={incDetail.severity} onChange={e => updateIncident(incDetail.id, { severity: e.target.value }).then(refreshIncident).catch(console.error)}
-                        className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-                        {['low', 'medium', 'high', 'critical'].map(sv => <option key={sv} value={sv}>{sv}</option>)}
-                      </select>
-                      <input type="text" defaultValue={incDetail.owner || ''} placeholder="owner"
-                        onBlur={e => { if (e.target.value !== (incDetail.owner || '')) updateIncident(incDetail.id, { owner: e.target.value }).then(refreshIncident).catch(console.error); }}
-                        className="w-24 text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-                      <span className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden" title="Download this incident as a report — evidence, Five Signals screens, agent brief and timeline included">
-                        <span className="text-[10px] px-1.5 text-gray-400 inline-flex items-center gap-0.5"><FileDown className="w-3 h-3" /></span>
-                        {(['html', 'pdf', 'md'] as const).map(fmt => (
-                          <button key={fmt}
-                            onClick={() => { try { downloadIncidentReport({ incident: incDetail, enrichment: incEnrich }, fmt); } catch (e) { console.error(e); alert('Report export failed: ' + e); } }}
-                            className="text-[10px] px-1.5 py-1 uppercase text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-l border-gray-200 dark:border-gray-700">
-                            {fmt}
-                          </button>
-                        ))}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
-                        title="Append-only and hash-chained: entries can never be edited or removed, and each entry's hash covers everything before it — the locker is tamper-evident by construction.">
-                        <Lock className="w-3.5 h-3.5" /> Evidence <span className="font-normal normal-case">({incDetail.evidence.length})</span></h4>
-                      <button onClick={() => verifyIncidentChain(incDetail.id).then(setIncChain).catch(console.error)}
-                        className="text-[11px] px-2 py-0.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700">Verify chain</button>
-                    </div>
-                    {incChain && (
-                      <p className={`text-xs mb-2 px-2 py-1 rounded ${incChain.intact ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
-                        {incChain.intact ? `✓ Chain intact — ${incChain.items} item(s) verified.` : `✗ CHAIN BROKEN at item(s) ${incChain.broken_ids.join(', ')} — evidence has been altered.`}
-                      </p>
-                    )}
-                    <div className="space-y-2">
-                      {incDetail.evidence.map(ev => {
-                        const typeCls: Record<string, string> = {
-                          article: 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400',
-                          social_post: 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400',
-                          account_profile: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400',
-                          file: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400',
-                          alert_event: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
-                        };
-                        const m = ev.meta || {};
-                        return (
-                        <div key={ev.id} className="p-2.5 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
-                          <div className="flex items-center gap-2">
-                            {ev.evidence_type === 'account_profile' && m.profile?.avatar_url
-                              ? <img src={m.profile.avatar_url} alt="" className="w-6 h-6 rounded-full flex-shrink-0 object-cover" />
-                              : null}
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${typeCls[ev.evidence_type] || typeCls.article}`}>{ev.evidence_type.replace('_', ' ')}</span>
-                            <span className="text-xs font-medium truncate flex-1">
-                              {ev.source_ref && String(ev.source_ref).startsWith('http') ? (
-                                <a href={ev.source_ref} target="_blank" rel="noopener noreferrer" title={ev.source_ref}
-                                  onClick={e => e.stopPropagation()}
-                                  className="text-gray-800 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline">
-                                  {ev.title || ev.source_ref}
-                                  <span className="text-[10px] font-normal text-gray-400 ml-1.5">{(() => { try { return new URL(ev.source_ref).hostname.replace(/^www\./, ''); } catch { return ''; } })()}</span>
-                                </a>
-                              ) : (
-                                <span className="text-gray-800 dark:text-gray-100">{ev.title || ev.source_ref}</span>
-                              )}
-                            </span>
-                            {ev.evidence_type === 'article' && ev.source_ref && String(ev.source_ref).startsWith('http') && (
-                              <span className="flex-shrink-0" onClick={e => e.stopPropagation()}>
-                                {renderSignalsChips({ uri: ev.source_ref, brand_id: incDetail.brand_id, title: ev.title, signals_summary: ev.signals_summary })}
-                              </span>
-                            )}
-                            <span className="text-[10px] text-gray-400 flex-shrink-0">{(ev.captured_at || '').slice(0, 16).replace('T', ' ')} · {ev.captured_by}</span>
-                          </div>
-                          {ev.evidence_type === 'social_post' && (m.platform || m.author) && (
-                            <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-1">
-                              {m.platform}{m.author ? ` · @${m.author}` : ''}
-                              {m.engagement && Object.keys(m.engagement).length > 0 && (
-                                <span className="text-gray-400"> · {Object.entries(m.engagement).map(([k, v]) => `${v} ${k}`).join(' · ')}</span>
-                              )}
-                            </p>
-                          )}
-                          {ev.evidence_type === 'account_profile' && (
-                            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
-                              {m.profile?.display_name || `@${m.handle}`} · {m.platform}
-                              {m.profile?.followers_count != null && <span className="text-gray-400"> · {Number(m.profile.followers_count).toLocaleString()} followers</span>}
-                            </p>
-                          )}
-                          {ev.evidence_type === 'file' && m.file_id && (
-                            <p className="text-[10px] mt-1">
-                              <a href={incidentFileUrl(incDetail.id, m.file_id)} download
-                                className="text-amber-700 dark:text-amber-400 hover:underline inline-flex items-center gap-1">
-                                <FileDown className="w-3 h-3" /> {m.filename}
-                              </a>
-                              <span className="text-gray-400"> · {m.size_bytes != null ? `${(m.size_bytes / 1024).toFixed(0)} KB` : ''} · {m.mime}</span>
-                            </p>
-                          )}
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 whitespace-pre-line">{ev.content}</p>
-                          <p className="text-[9px] font-mono text-gray-400 mt-1 truncate" title={`content sha256: ${ev.content_sha256} · chain: ${ev.chain_sha256}`}>sha256 {ev.content_sha256.slice(0, 20)}… · chain {ev.chain_sha256.slice(0, 20)}…</p>
-                        </div>
-                        );
-                      })}
-                      {incDetail.evidence.length === 0 && <p className="text-xs text-gray-400">No evidence captured yet.</p>}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <input type="text" value={incEvidenceUrl} onChange={e => setIncEvidenceUrl(e.target.value)}
-                        placeholder="Article URI in the system, or any external URL…"
-                        className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-                      <button disabled={!incEvidenceUrl.trim()} onClick={async () => {
-                          const ref = incEvidenceUrl.trim();
-                          try {
-                            try { await attachIncidentEvidence(incDetail.id, { evidence_type: 'article', source_ref: ref }); }
-                            catch { await attachIncidentEvidence(incDetail.id, { evidence_type: 'url', source_ref: ref, title: ref }); }
-                            setIncEvidenceUrl(''); refreshIncident();
-                          } catch (e) { console.error(e); alert('Failed to capture evidence'); }
-                        }}
-                        className="text-xs px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50">Capture</button>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-2">
-                      <span className="text-[10px] text-gray-400">Attach:</span>
-                      <button onClick={() => setIncSearch(s => ({ ...s, open: true }))}
-                        title="Search collected articles and social posts to attach as evidence"
-                        className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-300 inline-flex items-center gap-1">
-                        <Search className="w-3 h-3" /> Article / post…
-                      </button>
-                      <button onClick={openProfilePicker}
-                        title="Attach a snapshot of a profiled social account"
-                        className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-emerald-300 inline-flex items-center gap-1">
-                        <UserCircle className="w-3 h-3" /> Account profile…
-                      </button>
-                      <button onClick={() => incFileInputRef.current?.click()} disabled={incFileBusy}
-                        title="Upload a file (screenshot, PDF, export — max 25 MB); its sha256 goes into the evidence chain"
-                        className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-amber-300 disabled:opacity-50 inline-flex items-center gap-1">
-                        {incFileBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} File…
-                      </button>
-                      <input ref={incFileInputRef} type="file" className="hidden"
-                        onChange={e => onIncFilePicked(e.target.files?.[0])} />
-                    </div>
-                  </div>
-
-                  {/* ---- Enrichment agent: run status, brief, review queue ---- */}
-                  <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5" /> Agent enrichment
-                        {incEnrich?.counts && (incEnrich.counts.attached || incEnrich.counts.dismissed) ? (
-                          <span className="font-normal normal-case text-gray-400">({incEnrich.counts.attached || 0} attached · {incEnrich.counts.dismissed || 0} dismissed)</span>
-                        ) : null}
-                      </h4>
-                      <button onClick={startEnrich} disabled={incEnrich?.run?.status === 'running'}
-                        title="Search for related articles, social posts and author profiles; results are staged below for your review — nothing enters the locker without confirmation"
-                        className="text-[11px] px-2 py-0.5 rounded-md border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 inline-flex items-center gap-1">
-                        {incEnrich?.run?.status === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                        {incEnrich?.run?.status === 'running' ? 'Enriching…' : 'Enrich'}
-                      </button>
-                    </div>
-                    {incEnrich?.run?.status === 'running' && (
-                      <p className="text-[11px] text-blue-600 dark:text-blue-400 mb-2">{incEnrich.run.stage || 'working…'}</p>
-                    )}
-                    {incEnrich?.run?.status === 'failed' && (
-                      <p className="text-[11px] text-red-600 dark:text-red-400 mb-2">Last run failed: {incEnrich.run.error}</p>
-                    )}
-                    {incEnrich?.run?.brief && (
-                      <div className="mb-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
-                        <div className="flex items-center justify-between px-2.5 py-1.5">
-                          <button onClick={() => setIncBriefOpen(o => !o)} className="text-[11px] font-medium text-gray-700 dark:text-gray-200 inline-flex items-center gap-1">
-                            {incBriefOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                            Agent brief <span className="text-gray-400 font-normal">{incEnrich.run.finished_at ? (incEnrich.run.finished_at.slice(0, 16).replace('T', ' ')) : ''}</span>
-                          </button>
-                          <button onClick={() => attachEnrichmentBrief(incDetail.id).then(refreshIncident).catch(e => alert(String(e)))}
-                            title="Snapshot this brief into the evidence locker as a note"
-                            className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700">Attach to locker</button>
-                        </div>
-                        {incBriefOpen && (
-                          <div className="px-2.5 pb-2 text-[11px] text-gray-600 dark:text-gray-300 whitespace-pre-line max-h-64 overflow-y-auto">{incEnrich.run.brief}</div>
-                        )}
-                      </div>
-                    )}
-                    {(incEnrich?.candidates?.length || 0) > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[11px] text-gray-500 dark:text-gray-400">{incEnrich!.candidates.length} candidate(s) awaiting review</span>
-                          <span className="flex-1" />
-                          {incEnrich!.candidates.some(c => c.recommendation === 'attach') && (
-                            <button disabled={incEnrichBusy}
-                              title="Attach every candidate the triage agent marked as clearly about this incident (score ≥ 0.7) — you remain the one committing them to the locker"
-                              onClick={async () => {
-                                const ids = incEnrich!.candidates.filter(c => c.recommendation === 'attach').map(c => c.id);
-                                setIncEnrichBusy(true);
-                                try { await decideEnrichmentCandidates(incDetail.id, ids, 'attach'); loadEnrichment(incDetail.id); refreshIncident(); }
-                                catch (e) { alert(String(e)); } finally { setIncEnrichBusy(false); }
-                              }}
-                              className="text-[10px] px-2 py-0.5 rounded border border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 font-medium hover:bg-emerald-100 disabled:opacity-40">
-                              ✓ Attach {incEnrich!.candidates.filter(c => c.recommendation === 'attach').length} recommended</button>
-                          )}
-                          <button disabled={!incEnrichSel.size || incEnrichBusy} onClick={() => decideEnrichSel('attach')}
-                            className="text-[10px] px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-40">Attach selected</button>
-                          <button disabled={!incEnrichSel.size || incEnrichBusy} onClick={() => decideEnrichSel('dismiss')}
-                            className="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 disabled:opacity-40">Dismiss selected</button>
-                        </div>
-                        <div className="space-y-1 max-h-72 overflow-y-auto">
-                          {incEnrich!.candidates.map(c => {
-                            const tcls: Record<string, string> = {
-                              article: 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400',
-                              social_post: 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400',
-                              account_profile: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400',
-                            };
-                            return (
-                              <label key={c.id} className="flex items-start gap-2 p-1.5 rounded border border-gray-100 dark:border-gray-700 hover:border-blue-200 cursor-pointer">
-                                <input type="checkbox" checked={incEnrichSel.has(c.id)}
-                                  onChange={e => setIncEnrichSel(prev => {
-                                    const next = new Set(prev);
-                                    if (e.target.checked) next.add(c.id); else next.delete(c.id);
-                                    return next;
-                                  })} className="mt-0.5 flex-shrink-0" />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 ${tcls[c.candidate_type]}`}>{c.candidate_type.replace('_', ' ')}</span>
-                                    {c.recommendation === 'attach' && (
-                                      <span className="text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                                        title={`Triage agent: ${c.triage_score != null ? `score ${c.triage_score}` : ''}${c.triage_rationale ? ` — ${c.triage_rationale}` : ''}`}>★ recommended</span>
-                                    )}
-                                    <span className="text-[11px] text-gray-800 dark:text-gray-100 truncate">{c.title || c.source_ref}</span>
-                                    {c.score != null && <span className="text-[9px] text-gray-400 flex-shrink-0">{c.score}</span>}
-                                  </div>
-                                  <p className="text-[10px] text-gray-400 truncate">{c.reason}{c.snippet ? ` — ${c.snippet}` : ''}</p>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {incEnrich && incEnrich.run && incEnrich.run.status === 'completed' && !incEnrich.candidates.length && (
-                      <p className="text-[11px] text-gray-400">No new candidates — everything the agent found is already attached, staged, or dismissed.</p>
-                    )}
-                    {!incEnrich?.run && <p className="text-[11px] text-gray-400">No agent runs yet.</p>}
-                  </div>
-
-                  <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">Timeline</h4>
-                    <div className="space-y-1 max-h-64 overflow-y-auto">
-                      {incDetail.timeline.map((ev, i) => (
-                        <div key={i} className="flex items-start gap-2 text-xs">
-                          <span className="text-gray-400 flex-shrink-0 w-24 font-mono">{(ev.at || '').slice(5, 16).replace('T', ' ')}</span>
-                          <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">{ev.actor}</span>
-                          <span className="text-gray-700 dark:text-gray-200">
-                            {ev.kind === 'note' ? ev.note
-                              : ev.kind === 'evidence_added' ? `captured ${ev.new_value} evidence: ${ev.note}`
-                              : ev.kind === 'created' ? `opened the incident (${ev.new_value})`
-                              : ev.kind === 'agent_brief' ? `🤖 wrote an incident brief: ${ev.note || ''}`
-                              : ev.kind === 'enrichment' ? `🤖 ${ev.note || 'enrichment run finished'}`
-                              : ev.kind === 'agent_suggestion' ? `💡 ${ev.note || 'agent suggestion'}`
-                              : `${ev.kind.replace('_', ' ')}: ${ev.old_value ?? '—'} → ${ev.new_value}${ev.note ? ` (${ev.note})` : ''}`}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <input type="text" value={incNoteText} onChange={e => setIncNoteText(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && incNoteText.trim()) { addIncidentNote(incDetail.id, incNoteText.trim()).then(() => { setIncNoteText(''); refreshIncident(); }).catch(console.error); } }}
-                        placeholder="Add a note (Enter to save)…"
-                        className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <IncidentsWorkspace
+          incidents={incidents}
+          incidentsLoading={incLoading}
+          reloadIncidents={() => loadIncidents()}
+          brands={brands}
+          defaultBrandId={selectedBrand?.id ?? brands[0]?.id ?? null}
+          alertEvents={alertEvents}
+          onAckAlert={id => { ackAlertEvent(id).then(loadAlertData); }}
+          onCaseAlert={ev => { setIncAttach({ kind: 'alert_event', ref: String(ev.id), label: ev.title, brandId: ev.brand_id ?? null }); }}
+          renderSignalsChips={renderSignalsChips}
+          pollSignals={pollSignals}
+        />
       )}
 
       {/* ---- ADD-TO-INCIDENT PICKER ---- */}
-      {/* ---- INCIDENT ATTACH-SEARCH MODAL ---- */}
-      {incSearch.open && incDetail && (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setIncSearch(s => ({ ...s, open: false }))} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Attach articles / posts to incident #{incDetail.id}</h3>
-              <button onClick={() => setIncSearch(s => ({ ...s, open: false }))} className="text-gray-500 hover:text-gray-600"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-              <div className="flex items-center gap-2">
-                <input type="text" value={incSearch.q} autoFocus
-                  onChange={e => setIncSearch(s => ({ ...s, q: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') doIncAttachSearch(); }}
-                  placeholder="Search title / summary, or paste a URI…"
-                  className="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-                <select value={incSearch.kind} onChange={e => setIncSearch(s => ({ ...s, kind: e.target.value as 'all' | 'news' | 'social' }))}
-                  className="text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-                  <option value="all">all</option><option value="news">news</option><option value="social">social</option>
-                </select>
-                <button onClick={doIncAttachSearch} disabled={incSearch.busy || !incSearch.q.trim()}
-                  className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1">
-                  {incSearch.busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />} Search
-                </button>
-              </div>
-              <div className="space-y-1">
-                {incSearch.results.map(r => (
-                  <label key={r.uri} className="flex items-start gap-2 p-2 rounded border border-gray-100 dark:border-gray-700 hover:border-blue-200 cursor-pointer">
-                    <input type="checkbox" checked={incSearch.sel.has(r.uri)}
-                      onChange={e => setIncSearch(s => {
-                        const sel = new Set(s.sel);
-                        if (e.target.checked) sel.add(r.uri); else sel.delete(r.uri);
-                        return { ...s, sel };
-                      })} className="mt-0.5 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[9px] px-1 py-0.5 rounded-full font-semibold flex-shrink-0 ${r.is_social ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400'}`}>
-                          {r.is_social ? (r.platform || 'social') : 'news'}
-                        </span>
-                        <span className="text-xs text-gray-800 dark:text-gray-100 truncate">{r.title || r.uri}</span>
-                      </div>
-                      <p className="text-[10px] text-gray-400 truncate">{r.news_source}{r.author ? ` · @${r.author}` : ''} · {(r.publication_date || '').slice(0, 10)}{r.topic_alignment_score != null ? ` · rel ${r.topic_alignment_score}` : ''}</p>
-                    </div>
-                  </label>
-                ))}
-                {incSearch.searched && !incSearch.busy && !incSearch.results.length && (
-                  <p className="text-xs text-gray-400 text-center py-4">No matches in the last year of collected content.</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2 p-3 border-t border-gray-200 dark:border-gray-700">
-              <button onClick={() => setIncSearch(s => ({ ...s, open: false }))}
-                className="text-xs px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300">Cancel</button>
-              <button onClick={attachSearchSelection} disabled={!incSearch.sel.size || incSearch.busy}
-                className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                Attach {incSearch.sel.size || ''} selected
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* ---- INCIDENT PROFILE PICKER ---- */}
-      {incProfilePick.open && incDetail && (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setIncProfilePick(p => ({ ...p, open: false }))} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg max-h-[75vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Attach an account profile to incident #{incDetail.id}</h3>
-              <button onClick={() => setIncProfilePick(p => ({ ...p, open: false }))} className="text-gray-500 hover:text-gray-600"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="p-4 space-y-2 overflow-y-auto flex-1">
-              <input type="text" value={incProfilePick.filter} autoFocus
-                onChange={e => setIncProfilePick(p => ({ ...p, filter: e.target.value }))}
-                placeholder="Filter by handle / name / platform…"
-                className="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-              {incProfilePick.profiles
-                .filter(p => !incProfilePick.filter.trim() || `${p.handle} ${p.display_name || ''} ${p.platform}`.toLowerCase().includes(incProfilePick.filter.toLowerCase()))
-                .map(p => (
-                  <button key={p.id} onClick={() => attachProfile(p)}
-                    className="w-full flex items-center gap-2 p-2 rounded border border-gray-100 dark:border-gray-700 hover:border-emerald-300 text-left">
-                    {p.avatar_url ? <img src={p.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" /> : <UserCircle className="w-7 h-7 text-gray-300 flex-shrink-0" />}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs text-gray-800 dark:text-gray-100 truncate">{p.display_name || `@${p.handle}`} <span className="text-gray-400">@{p.handle} · {p.platform}</span></p>
-                      <p className="text-[10px] text-gray-400 truncate">{p.followers_count != null ? `${Number(p.followers_count).toLocaleString()} followers · ` : ''}{p.summary || p.bio || ''}</p>
-                    </div>
-                  </button>
-                ))}
-              {!incProfilePick.profiles.length && <p className="text-xs text-gray-400 text-center py-4">No profiled accounts yet — build profiles from the Social tab first.</p>}
-            </div>
-          </div>
-        </div>
-      )}
       {/* ---- FIVE SIGNALS DETAIL MODAL ---- */}
       {sigModal && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center">
@@ -7184,45 +6556,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         </div>
       )}
 
-      {/* ---- NEW INCIDENT MODAL ---- */}
-      {incCreate.open && (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setIncCreate(c => ({ ...c, open: false }))} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">New incident</h3>
-              <button onClick={() => setIncCreate(c => ({ ...c, open: false }))} className="text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="p-4 space-y-3">
-              <select value={incCreate.brandId ?? ''} onChange={e => setIncCreate(c => ({ ...c, brandId: Number(e.target.value) }))}
-                className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-                {brands.map(b => <option key={b.id} value={b.id}>{b.display_name}</option>)}
-              </select>
-              <input type="text" value={incCreate.title} onChange={e => setIncCreate(c => ({ ...c, title: e.target.value }))} placeholder="Title"
-                className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-              <textarea value={incCreate.description} onChange={e => setIncCreate(c => ({ ...c, description: e.target.value }))} placeholder="Description (optional)" rows={3}
-                className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500">Severity</label>
-                <select value={incCreate.severity} onChange={e => setIncCreate(c => ({ ...c, severity: e.target.value }))}
-                  className="text-sm px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-                  {['low', 'medium', 'high', 'critical'].map(sv => <option key={sv} value={sv}>{sv}</option>)}
-                </select>
-                <span className="flex-1" />
-                <button disabled={!incCreate.title.trim() || !incCreate.brandId} onClick={async () => {
-                    try {
-                      const r = await createIncident(incCreate.brandId!, incCreate.title.trim(), incCreate.description || undefined, incCreate.severity);
-                      setIncCreate(c => ({ ...c, open: false }));
-                      loadIncidents(incStatusFilter || undefined);
-                      openIncident(r.id);
-                    } catch (e) { console.error(e); alert('Failed to create incident'); }
-                  }}
-                  className="text-sm px-4 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Create</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ---- BRAND CONFIG MODAL ---- */}
       {showAlertSettings && (
