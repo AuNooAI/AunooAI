@@ -305,8 +305,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [incEvidenceUrl, setIncEvidenceUrl] = useState('');
   const [incChain, setIncChain] = useState<{ intact: boolean; items: number; broken_ids: number[] } | null>(null);
   const [incCreate, setIncCreate] = useState<{ open: boolean; title: string; description: string; severity: string; brandId: number | null }>({ open: false, title: '', description: '', severity: 'medium', brandId: null });
-  // "Add to incident" picker: holds the source being attached (article or alert event)
-  const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event'; ref: string; refs?: string[]; label: string; brandId: number | null } | null>(null);
+  // "Add to incident" picker: holds the source being attached (article, alert event or account profile)
+  const [incAttach, setIncAttach] = useState<{ kind: 'article' | 'alert_event' | 'account_profile'; ref: string; refs?: string[]; label: string; brandId: number | null } | null>(null);
   const [incAttachNewTitle, setIncAttachNewTitle] = useState('');
   // Attach pickers: article/post search modal, account-profile picker, file upload
   const [incSearch, setIncSearch] = useState<{ open: boolean; q: string; kind: 'all' | 'news' | 'social'; results: BWAttachSearchResult[]; sel: Set<string>; busy: boolean; searched: boolean }>({ open: false, q: '', kind: 'all', results: [], sel: new Set(), busy: false, searched: false });
@@ -943,6 +943,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         {p.verified && <BadgeCheck className="w-3 h-3 text-blue-500" />}
         {p.followers_count != null && <span className="text-[10px] text-gray-400 font-mono">{fmtCount(p.followers_count)}</span>}
         {atype && <span className={`text-[9px] px-1 py-px rounded-full font-semibold ${atype.cls}`}>{atype.label}</span>}
+        <button onClick={e => { e.stopPropagation(); addProfileToIncident(p); }} title="Add this account's profile to an incident"
+          className="text-gray-300 dark:text-gray-500 hover:text-amber-600 dark:hover:text-amber-400"><ShieldAlert className="w-3 h-3" /></button>
       </span>
     );
   };
@@ -1346,6 +1348,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const selectedBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
   // With no header selection, the "X only" social scope means the primary brand.
   const selectedBrand = selectedBrands[0] || brands.find(b => b.is_primary) || brands[0] || undefined;
+
+  // "Add to incident" from the Accounts side: opens the incident picker with the
+  // stored profile as the pending evidence (backend snapshots it via get_stored).
+  const addProfileToIncident = useCallback((p: BWAccountProfile) => {
+    setIncAttach({ kind: 'account_profile',
+      ref: `${p.platform}:${p.handle_canonical || p.handle}`,
+      label: `@${p.handle} on ${platLabel(p.platform)}`,
+      brandId: selectedBrand?.id ?? null });
+    loadIncidents();
+  }, [selectedBrand?.id, loadIncidents]);
 
   // Brand risk score from weekly news sentiment + spike alerts. Mirrors the backend
   // narrative formula: base negative level + worsening-trend penalty + alert weight.
@@ -5146,6 +5158,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <span className="text-xs text-gray-400 truncate">@{a.handle}</span>
                       </div>
                     </div>
+                    <button onClick={e => { e.stopPropagation(); addProfileToIncident(a); }} title="Add to incident"
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-amber-600 flex-shrink-0"><ShieldAlert className="w-3.5 h-3.5" /></button>
                     <button onClick={e => { e.stopPropagation(); handleDeleteAccount(a.id); }} title="Delete profile"
                       className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 flex-shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
@@ -5174,6 +5188,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         {p.bio && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{p.bio}</p>}
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={() => addProfileToIncident(p)}
+                          title="Add to incident — snapshots this profile into the tamper-evident evidence locker"
+                          className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-amber-500 hover:text-amber-600 inline-flex items-center gap-1">
+                          <ShieldAlert className="w-3 h-3" /> Incident
+                        </button>
                         <button
                           onClick={async () => {
                             try {
