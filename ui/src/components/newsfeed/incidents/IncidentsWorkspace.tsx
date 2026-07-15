@@ -43,7 +43,8 @@ export function IncidentsWorkspace(props: {
           alertEvents, onAckAlert, onCaseAlert, renderSignalsChips, pollSignals } = props;
 
   const c = useIncidentCase({ reloadIncidents, pollSignals });
-  const [statusFilter, setStatusFilter] = useState('');
+  // Default to working cases — closed/merged ones live behind the filter pills.
+  const [statusFilter, setStatusFilter] = useState('active');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulk, setBulk] = useState({ status: '', severity: '', owner: '' });
   const [bulkBusy, setBulkBusy] = useState(false);

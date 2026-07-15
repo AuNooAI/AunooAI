@@ -47,9 +47,14 @@ export function IncidentListRail(props: {
   const { incidents, loading, statusFilter, setStatusFilter, activeId, onOpen, onNew,
           selected, setSelected, bulk, setBulk, bulkBusy, applyBulk,
           alertEvents, onAckAlert, onCaseAlert, alertsOpen, setAlertsOpen } = props;
-  const counts: Record<string, number> = { '': incidents.length };
+  const ACTIVE = ['open', 'investigating', 'contained'];
+  const counts: Record<string, number> = {
+    active: incidents.filter(i => ACTIVE.includes(i.status)).length,
+    '': incidents.length,
+  };
   for (const st of INCIDENT_STATUSES) counts[st] = incidents.filter(i => i.status === st).length;
-  const shown = statusFilter ? incidents.filter(i => i.status === statusFilter) : incidents;
+  const shown = statusFilter === 'active' ? incidents.filter(i => ACTIVE.includes(i.status))
+    : statusFilter ? incidents.filter(i => i.status === statusFilter) : incidents;
 
   return (
     <div className="space-y-3">
@@ -90,12 +95,12 @@ export function IncidentListRail(props: {
         <Plus className="w-4 h-4" /> New incident
       </button>
       <div className="flex items-center gap-1 flex-wrap">
-        {['', ...INCIDENT_STATUSES].map(st => (
+        {['active', '', ...INCIDENT_STATUSES].map(st => (
           <button key={st || 'all'} onClick={() => setStatusFilter(st)}
             className={`text-xs px-2 py-0.5 rounded-full border ${statusFilter === st
               ? 'bg-blue-600 text-white border-blue-600'
               : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:border-blue-300'}`}>
-            {st || 'all'}{counts[st] ? ` ${counts[st]}` : st ? '' : ' 0'}
+            {st === 'active' ? 'active' : st || 'all'}{counts[st] ? ` ${counts[st]}` : st === 'active' || !st ? ' 0' : ''}
           </button>
         ))}
       </div>
