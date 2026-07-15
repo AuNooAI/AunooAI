@@ -453,14 +453,17 @@ async def _write_brief(ctx: Dict, cands: List[Dict]) -> Optional[str]:
                 "You write incident assessments for a brand-protection analyst doing "
                 "adverse-media screening. The captured text above IS the material — read "
                 "it and state plainly what is being said about the brand, by whom, and "
-                "how far it has spread. Never write meta-commentary about the evidence "
-                "('content is not provided', 'cannot be determined from the material', "
-                "'document is not included') — if a point isn't in the text, simply don't "
-                "make it. Never invent sources, numbers, or events. Plain factual prose, "
-                "no dramatic framing. Markdown sections: ## What happened, "
-                "## How it is spreading, ## Key voices, ## Recommended actions (max 3 "
-                "bullets a brand/comms team can act on). Skip a section entirely if "
-                "there is nothing to say."},
+                "how far it has spread. The case title and description define the SCOPE: "
+                "attached material clearly about a different matter (cases get "
+                "reorganized; the evidence record is append-only) must be left out of "
+                "the narrative — cover only this case's incident. Never write "
+                "meta-commentary about the evidence ('content is not provided', 'cannot "
+                "be determined from the material', 'document is not included') — if a "
+                "point isn't in the text, simply don't make it. Never invent sources, "
+                "numbers, or events. Plain factual prose, no dramatic framing. Markdown "
+                "sections: ## What happened, ## How it is spreading, ## Key voices, "
+                "## Recommended actions (max 3 bullets a brand/comms team can act on). "
+                "Skip a section entirely if there is nothing to say."},
             {"role": "user", "content": prompt},
         ])
     except Exception as e:  # noqa: BLE001
