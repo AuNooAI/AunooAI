@@ -3670,9 +3670,27 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         older_neg = sum(weekly_sentiments[w].get("Negative", 0) for w in older_4)
         older_total = sum(weekly_sentiments[w].get("total", 0) for w in older_4)
 
+        if older_total == 0:
+            # Short windows (e.g. a 7-day narrative) contain no in-window baseline;
+            # compare against the 28 days before the window instead of a 0% one,
+            # which made the trend delta equal the level itself.
+            baseline_start = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=28)).strftime("%Y-%m-%d")
+            base_row = conn.execute(text("""
+                SELECT COUNT(*) FILTER (WHERE LOWER(a.sentiment) IN ('negative', 'pessimistic',
+                           'concerning', 'concerned', 'critical', 'alarming')) AS neg,
+                       COUNT(*) AS total
+                FROM bw_article_categories bac
+                JOIN articles a ON bac.article_uri = a.uri
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                AND a.publication_date >= :bstart AND a.publication_date < :start
+                AND a.sentiment IS NOT NULL AND a.sentiment != ''
+            """), {"bid": request.brand_id, "bstart": baseline_start, "start": start_date}).fetchone()
+            older_neg, older_total = int(base_row[0] or 0), int(base_row[1] or 0)
+
         recent_neg_pct = (recent_neg / recent_total * 100) if recent_total > 0 else 0
-        older_neg_pct = (older_neg / older_total * 100) if older_total > 0 else 0
-        neg_trend = recent_neg_pct - older_neg_pct  # positive = worsening
+        # No baseline data at all -> no trend claim, rather than treating it as 0%.
+        older_neg_pct = (older_neg / older_total * 100) if older_total > 0 else None
+        neg_trend = (recent_neg_pct - older_neg_pct) if older_neg_pct is not None else 0.0  # positive = worsening
 
         # Category spike alerts (recent 7d vs prior 30d avg)
         recent_alert = conn.execute(text("""
@@ -3707,9 +3725,14 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         alert_count = len(alerts)
         high_alerts = sum(1 for a in alerts if a["severity"] == "high")
 
+        # Damp the sentiment terms by sample size: a 40% negative rate over 5 scored
+        # articles is weak evidence, over 50+ it is real. Trend is additionally damped
+        # by the baseline sample so a thin prior period can't manufacture a swing.
+        sample_damp = min(1.0, recent_total / 20.0)
+        trend_damp = sample_damp * min(1.0, older_total / 20.0)
         risk_score = min(100, round(
-            (recent_neg_pct * 1.5) +
-            (neg_trend * 2 if neg_trend > 0 else 0) +
+            (recent_neg_pct * 1.5 * sample_damp) +
+            (neg_trend * 2 * trend_damp if neg_trend > 0 else 0) +
             (alert_count * 5) +
             (high_alerts * 10)
         ))
@@ -3773,19 +3796,28 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         # Build risk assessment text for the prompt
         risk_factors = []
         if recent_neg_pct >= 15:
-            risk_factors.append(f"High negative sentiment volume ({recent_neg_pct:.1f}% of recent coverage)")
-        if neg_trend > 2:
-            risk_factors.append(f"Negative sentiment trending upward (+{neg_trend:.1f} percentage points vs prior 4 weeks)")
+            risk_factors.append(f"High negative sentiment volume ({recent_neg_pct:.1f}% of recent coverage, "
+                                f"{recent_neg} of {recent_total} scored articles)")
+        if neg_trend > 2 and older_neg_pct is not None:
+            risk_factors.append(f"Negative sentiment trending upward (+{neg_trend:.1f} percentage points vs the "
+                                f"prior 4 weeks: {older_neg_pct:.1f}% across {older_total} scored articles)")
         if high_alerts > 0:
             risk_factors.append(f"{high_alerts} high-severity category spike(s): " +
                                 ", ".join(a['category'] for a in alerts if a['severity'] == 'high'))
         if alert_count > 0 and high_alerts == 0:
             risk_factors.append(f"{alert_count} category spike alert(s): " +
                                 ", ".join(a['category'] for a in alerts))
+        if recent_total < 20:
+            risk_factors.append(f"LOW SAMPLE CAVEAT: only {recent_total} scored article(s) in this window — "
+                                "percentages are volatile and the risk score has been damped accordingly")
 
         risk_assessment = f"Risk Level: {risk_level} (Score: {risk_score}/100)\n"
-        risk_assessment += f"Recent Negative Sentiment: {recent_neg_pct:.1f}%\n"
-        risk_assessment += f"Negative Trend (4-week change): {'+' if neg_trend > 0 else ''}{neg_trend:.1f} percentage points\n"
+        risk_assessment += f"Recent Negative Sentiment: {recent_neg_pct:.1f}% ({recent_neg} of {recent_total} scored articles)\n"
+        if older_neg_pct is not None:
+            risk_assessment += (f"Negative Trend (4-week change): {'+' if neg_trend > 0 else ''}{neg_trend:.1f} percentage points "
+                                f"(prior 4 weeks: {older_neg_pct:.1f}% across {older_total} scored articles)\n")
+        else:
+            risk_assessment += "Negative Trend: no prior-period coverage to compare against — do not claim an increase or decrease\n"
         risk_assessment += f"Active Alerts: {alert_count}" + (f" ({high_alerts} high-severity)" if high_alerts > 0 else "") + "\n"
         if risk_factors:
             risk_assessment += "Contributing Factors:\n" + "\n".join(f"- {f}" for f in risk_factors)

@@ -20,6 +20,7 @@ import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
 import { downloadSocialReport } from '../../services/socialReportHtml';
 import { downloadPropagationReport } from '../../services/propagationReportHtml';
+import { downloadIncidentReport } from '../../services/incidentReportService';
 import { cleanSocialText, stripSocialMarkdown } from '../../services/socialText';
 import {
   buildAccountProfile, getAccountProfile, listAccountProfiles, setAccountTags, setAccountAnnotation,
@@ -1387,13 +1388,19 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     const weeks = Object.keys(weekly).sort();
     const sum = (ws: string[], k: 'neg' | 'total') => ws.reduce((a, w) => a + weekly[w][k], 0);
     const recent = weeks.slice(-4), older = weeks.slice(-8, -4);
-    const recentNegPct = sum(recent, 'total') ? (sum(recent, 'neg') / sum(recent, 'total')) * 100 : 0;
-    const olderNegPct = sum(older, 'total') ? (sum(older, 'neg') / sum(older, 'total')) * 100 : 0;
-    const negTrend = recentNegPct - olderNegPct;
+    const recentTotal = sum(recent, 'total'), olderTotal = sum(older, 'total');
+    const recentNegPct = recentTotal ? (sum(recent, 'neg') / recentTotal) * 100 : 0;
+    // No prior-period data means no trend claim — a 0% baseline would make the
+    // trend delta equal the level itself and double-count it in the score.
+    const negTrend = olderTotal ? recentNegPct - (sum(older, 'neg') / olderTotal) * 100 : 0;
     const alertCount = brandAlerts.length;
     const highAlerts = brandAlerts.filter(a => a.severity === 'high').length;
+    // Damp sentiment terms by sample size (matches the backend narrative formula):
+    // high negative % over a handful of scored articles is weak evidence.
+    const sampleDamp = Math.min(1, recentTotal / 20);
+    const trendDamp = sampleDamp * Math.min(1, olderTotal / 20);
     const riskScore = Math.min(100, Math.round(
-      recentNegPct * 1.5 + (negTrend > 0 ? negTrend * 2 : 0) + alertCount * 5 + highAlerts * 10));
+      recentNegPct * 1.5 * sampleDamp + (negTrend > 0 ? negTrend * 2 * trendDamp : 0) + alertCount * 5 + highAlerts * 10));
     const riskLevel = riskScore >= 60 ? 'High' : riskScore >= 30 ? 'Elevated' : 'Low';
     return { riskScore, riskLevel, recentNegPct, negTrend, alertCount, highAlerts };
   }, [sentimentTrends, brandAlerts]);
@@ -6493,6 +6500,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <input type="text" defaultValue={incDetail.owner || ''} placeholder="owner"
                         onBlur={e => { if (e.target.value !== (incDetail.owner || '')) updateIncident(incDetail.id, { owner: e.target.value }).then(refreshIncident).catch(console.error); }}
                         className="w-24 text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+                      <span className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden" title="Download this incident as a report — evidence, Five Signals screens, agent brief and timeline included">
+                        <span className="text-[10px] px-1.5 text-gray-400 inline-flex items-center gap-0.5"><FileDown className="w-3 h-3" /></span>
+                        {(['html', 'pdf', 'md'] as const).map(fmt => (
+                          <button key={fmt}
+                            onClick={() => { try { downloadIncidentReport({ incident: incDetail, enrichment: incEnrich }, fmt); } catch (e) { console.error(e); alert('Report export failed: ' + e); } }}
+                            className="text-[10px] px-1.5 py-1 uppercase text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-l border-gray-200 dark:border-gray-700">
+                            {fmt}
+                          </button>
+                        ))}
+                      </span>
                     </div>
                   </div>
 

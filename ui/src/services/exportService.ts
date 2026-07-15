@@ -3098,22 +3098,27 @@ export class ExportService {
   } {
     const recent = sentimentTrends.slice(-4);
     const prior = sentimentTrends.slice(-8, -4);
-    const calcNegPct = (weeks: any[]) => {
+    const calc = (weeks: any[]) => {
       let neg = 0, total = 0;
       for (const w of weeks) {
         const s = this.bwNormalizeSentiment(w.sentiments || {});
         neg += s.negative;
         total += s.positive + s.neutral + s.negative;
       }
-      return total > 0 ? (neg / total) * 100 : 0;
+      return { pct: total > 0 ? (neg / total) * 100 : 0, total };
     };
-    const recentNegPct = calcNegPct(recent);
-    const priorNegPct = calcNegPct(prior);
-    const negTrend = recentNegPct - priorNegPct;
+    const rec = calc(recent);
+    const pri = calc(prior);
+    const recentNegPct = rec.pct;
+    // No prior-period data -> no trend claim (a 0% baseline would double-count the level).
+    const negTrend = pri.total > 0 ? recentNegPct - pri.pct : 0;
     const highAlerts = alerts.filter(a => a.severity === 'high').length;
     const alertCount = alerts.length;
+    // Damp sentiment terms by sample size, matching the backend narrative formula.
+    const sampleDamp = Math.min(1, rec.total / 20);
+    const trendDamp = sampleDamp * Math.min(1, pri.total / 20);
     const score = Math.min(100, Math.round(
-      (recentNegPct * 1.5) + (negTrend > 0 ? negTrend * 2 : 0) + (alertCount * 5) + (highAlerts * 10)
+      (recentNegPct * 1.5 * sampleDamp) + (negTrend > 0 ? negTrend * 2 * trendDamp : 0) + (alertCount * 5) + (highAlerts * 10)
     ));
     const level = score >= 60 ? 'High' : score >= 30 ? 'Elevated' : 'Low';
     return { score, level, recentNegPct: Math.round(recentNegPct * 10) / 10, negTrend: Math.round(negTrend * 10) / 10, alertCount, highAlerts };
