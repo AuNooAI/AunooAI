@@ -106,7 +106,7 @@ export function IncidentsWorkspace(props: {
 
         <div className={`flex-1 min-w-0 ${!c.detail ? 'hidden lg:block' : ''}`}>
           {c.detail ? (
-            <IncidentCaseFile c={c} renderSignalsChips={renderSignalsChips} showBack />
+            <IncidentCaseFile c={c} renderSignalsChips={renderSignalsChips} showBack incidents={incidents} />
           ) : (
             <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-8">
               {incidents.length === 0 && !incidentsLoading ? (

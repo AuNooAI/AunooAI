@@ -13,17 +13,17 @@
  * caseSynthesis.ts. AI-found items carry a violet dot; accepting them into
  * the case is one click (noise was already filtered by the triage agent).
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   ArrowLeft, Check, ChevronDown, ChevronRight, FileDown, FileUp, Link2,
   Loader2, Search, ShieldCheck, Sparkles, UserCircle, X,
 } from 'lucide-react';
-import { incidentFileUrl, updateIncident } from '../../../services/brandWatcherApi';
+import { BWIncident, incidentFileUrl, translateForReport, updateIncident } from '../../../services/brandWatcherApi';
 import { downloadIncidentReport } from '../../../services/incidentReportService';
 import { IncidentCase } from './useIncidentCase';
 import {
-  CoverageItem, RISKY_VERDICTS, VERDICT_LABEL, cleanText, hostOf, synthesizeCase,
+  CoverageItem, RISKY_VERDICTS, VERDICT_LABEL, cleanText, hostOf, needsTranslation, synthesizeCase,
 } from './caseSynthesis';
 
 const SEV_SELECT_CLS: Record<string, string> = {
@@ -66,8 +66,9 @@ export function IncidentCaseFile(props: {
   c: IncidentCase;
   renderSignalsChips: (article: any) => React.ReactNode;
   showBack: boolean;
+  incidents: BWIncident[];
 }) {
-  const { c, renderSignalsChips, showBack } = props;
+  const { c, renderSignalsChips, showBack, incidents } = props;
   const inc = c.detail!;
   const [platFilter, setPlatFilter] = useState('');
   const [briefFull, setBriefFull] = useState(false);
@@ -83,13 +84,49 @@ export function IncidentCaseFile(props: {
 
   const suggestions = (inc.timeline || [])
     .filter(ev => ev.kind === 'agent_suggestion' && ev.note)
-    .filter(ev => { void suggHidden; try { return !localStorage.getItem(suggDismissKey(inc.id, ev.at)); } catch { return true; } });
+    .filter(ev => { void suggHidden; try { return !localStorage.getItem(suggDismissKey(inc.id, ev.at)); } catch { return true; } })
+    // Retire cards that have been overtaken by events: a duplicate pointing at
+    // a merged/closed/deleted case, or a severity nudge after severity dropped.
+    .filter(ev => {
+      const s = parseSuggestion(ev.note || '');
+      if (s.type === 'duplicate') {
+        const other = incidents.find(i => i.id === s.otherId);
+        if (!other || ['closed', 'resolved'].includes(other.status)) return false;
+      }
+      if (s.type === 'severity' && !['high', 'critical'].includes(inc.severity)) return false;
+      return true;
+    });
+
+  // English display titles/bodies for foreign-language coverage — same
+  // translation pass the report uses, fetched once per item and cached.
+  const [translations, setTranslations] = useState<Record<string, string>>({});
+  const translationRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const items: { id: string; text: string }[] = [];
+    for (const it of syn.coverage) {
+      if (translationRequested.current.has(it.key)) continue;
+      if (needsTranslation(it.title)) items.push({ id: `${it.key}|t`, text: it.title });
+      if (it.body && needsTranslation(it.body)) items.push({ id: `${it.key}|b`, text: it.body.slice(0, 800) });
+      translationRequested.current.add(it.key);
+    }
+    if (!items.length) return;
+    translateForReport(items)
+      .then(map => setTranslations(prev => {
+        const next = { ...prev };
+        for (const it of items) { if (map[it.id]?.text) next[it.id] = map[it.id].text; }
+        return next;
+      }))
+      .catch(() => { /* originals stay */ });
+  }, [syn.coverage]);
 
   const brief = cleanText(c.enrich?.run?.brief || '');
   const coverageShown = platFilter ? syn.coverage.filter(it => it.platform === platFilter) : syn.coverage;
 
   const coverageRow = (it: CoverageItem) => {
     const open = openItems.has(it.key);
+    const tTitle = translations[`${it.key}|t`];
+    const tBody = translations[`${it.key}|b`];
+    const shownTitle = tTitle || it.title;
     return (
       <div key={it.key} className={`rounded-md border ${it.inCase
         ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
@@ -98,12 +135,15 @@ export function IncidentCaseFile(props: {
           {!it.inCase && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" title="Found by AI — not yet part of the case" />}
           <span className="text-sm truncate flex-1 min-w-0">
             {it.url && String(it.url).startsWith('http') ? (
-              <a href={it.url} target="_blank" rel="noopener noreferrer" title={it.url}
+              <a href={it.url} target="_blank" rel="noopener noreferrer" title={tTitle ? `${it.title}\n${it.url}` : it.url}
                 className="text-gray-800 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline">
-                {it.title}
+                {shownTitle}
+                {tTitle && <span className="text-[10px] font-semibold text-blue-400 ml-1" title={`Translated — original: ${it.title}`}>EN</span>}
                 {it.type === 'article' && <span className="text-xs font-normal text-gray-400 ml-1.5">{hostOf(it.url)}</span>}
               </a>
-            ) : <span className="text-gray-800 dark:text-gray-100">{it.title}</span>}
+            ) : <span className="text-gray-800 dark:text-gray-100" title={tTitle ? `Original: ${it.title}` : undefined}>
+                {shownTitle}{tTitle && <span className="text-[10px] font-semibold text-blue-400 ml-1">EN</span>}
+              </span>}
           </span>
           {it.signals && (
             <span className="flex-shrink-0" onClick={e => e.stopPropagation()}>
@@ -131,7 +171,8 @@ export function IncidentCaseFile(props: {
         </div>
         {open && (
           <div className="px-2.5 pb-2 space-y-1 border-t border-gray-100 dark:border-gray-700 pt-1.5">
-            {it.body && <p className="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line max-h-32 overflow-y-auto">{it.body}</p>}
+            {tBody && <p className="text-xs text-gray-600 dark:text-gray-300 whitespace-pre-line max-h-32 overflow-y-auto"><span className="text-[10px] font-semibold text-blue-400 mr-1">EN</span>{tBody}</p>}
+            {it.body && <p className={`text-xs whitespace-pre-line max-h-32 overflow-y-auto ${tBody ? 'text-gray-400 dark:text-gray-500' : 'text-gray-500 dark:text-gray-400'}`}>{it.body}</p>}
             {it.aiReason && <p className="text-xs text-violet-500 dark:text-violet-400">AI: {it.aiReason}</p>}
           </div>
         )}

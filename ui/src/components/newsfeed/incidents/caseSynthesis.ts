@@ -57,6 +57,18 @@ export function hostOf(url?: string | null): string {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : ''; } catch { return ''; }
 }
 
+// Cyrillic → CJK ranges; mirrors the report generator's heuristic.
+const NON_LATIN_RE = /[Ѐ-ӿ԰-֏֐-׿؀-ۿ܀-޿ऀ-෿฀-໿ᄀ-ᇿ一-鿿぀-ヿ가-힯]/g;
+
+/** True when the text is substantially non-English and worth translating. */
+export function needsTranslation(s: string): boolean {
+  const t = cleanText(s);
+  const nonLatin = (t.match(NON_LATIN_RE) || []).length;
+  if (nonLatin < 10) return false;
+  const latin = (t.match(/[A-Za-z]/g) || []).length;
+  return nonLatin / (nonLatin + latin) > 0.3;
+}
+
 /** One row of coverage — a post or article about this incident. */
 export interface CoverageItem {
   key: string;
