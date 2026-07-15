@@ -14,6 +14,7 @@
  * the case is one click (noise was already filtered by the triage agent).
  */
 import { useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   ArrowLeft, Check, ChevronDown, ChevronRight, FileDown, FileUp, Link2,
   Loader2, Search, ShieldCheck, Sparkles, UserCircle, X,
@@ -43,6 +44,17 @@ function suggDismissKey(incidentId: number, at?: string | null) {
   return `bw_inc_sugg_dismissed:${incidentId}:${at || ''}`;
 }
 
+const SEV_ORDER = ['low', 'medium', 'high', 'critical'];
+const lowerSeverity = (sev: string) => SEV_ORDER[Math.max(0, SEV_ORDER.indexOf(sev) - 1)] || 'low';
+
+/** Structured read of an agent_suggestion note (prefixes are stable backend contract). */
+function parseSuggestion(note: string): { type: 'severity' } | { type: 'duplicate'; otherId: number; otherTitle: string } | { type: 'other' } {
+  if (note.startsWith('severity review:')) return { type: 'severity' };
+  const m = /^possible duplicate of incident #(\d+) \('([^']*)'\)/.exec(note);
+  if (m) return { type: 'duplicate', otherId: Number(m[1]), otherTitle: m[2] };
+  return { type: 'other' };
+}
+
 const nf = (n: number) => n >= 10000 ? `${Math.round(n / 1000)}k` : n.toLocaleString();
 
 export function IncidentCaseFile(props: {
@@ -69,7 +81,6 @@ export function IncidentCaseFile(props: {
     .filter(ev => { void suggHidden; try { return !localStorage.getItem(suggDismissKey(inc.id, ev.at)); } catch { return true; } });
 
   const brief = cleanText(c.enrich?.run?.brief || '');
-  const briefPreview = brief.split('\n').slice(0, 8).join('\n');
   const coverageShown = platFilter ? syn.coverage.filter(it => it.platform === platFilter) : syn.coverage;
 
   const coverageRow = (it: CoverageItem) => {
@@ -94,7 +105,7 @@ export function IncidentCaseFile(props: {
               {renderSignalsChips({ uri: it.url, brand_id: inc.brand_id, title: it.title, signals_summary: it.signals })}
             </span>
           )}
-          {it.engagementLine && <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline">{it.engagementLine}</span>}
+          {it.engagementLine && <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">{it.engagementLine}</span>}
           {it.date && <span className="text-xs text-gray-400 flex-shrink-0">{it.date}</span>}
           {!it.inCase && it.candidateId != null && (
             <span className="flex items-center gap-1 flex-shrink-0">
@@ -190,14 +201,50 @@ export function IncidentCaseFile(props: {
             ))}
           </span>
         </div>
-        {suggestions.map((ev, i) => (
-          <div key={`sugg-${i}`} className="flex items-start gap-2 p-2.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-            <span className="flex-shrink-0">💡</span>
-            <span className="text-xs text-amber-800 dark:text-amber-200 flex-1">{ev.note}</span>
-            <button onClick={() => { try { localStorage.setItem(suggDismissKey(inc.id, ev.at), '1'); } catch { /* ignore */ } setSuggHidden(n => n + 1); }}
-              title="Hide" className="text-amber-500 hover:text-amber-700 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
-          </div>
-        ))}
+        {suggestions.map((ev, i) => {
+          const dismiss = () => { try { localStorage.setItem(suggDismissKey(inc.id, ev.at), '1'); } catch { /* ignore */ } setSuggHidden(n => n + 1); };
+          const s = parseSuggestion(ev.note || '');
+          return (
+            <div key={`sugg-${i}`} className="p-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              {s.type === 'severity' ? (
+                <>
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Severity may be overstated</p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
+                    Every screened item in this case came back low-risk — nothing is independently confirmed or coordinated. Severity is currently ‘{inc.severity}’.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button onClick={() => { setField({ severity: lowerSeverity(inc.severity) }); dismiss(); }}
+                      className="text-xs px-2.5 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700 font-medium">
+                      Lower to {lowerSeverity(inc.severity)}</button>
+                    <button onClick={dismiss}
+                      className="text-xs px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
+                      Keep {inc.severity}</button>
+                  </div>
+                </>
+              ) : s.type === 'duplicate' ? (
+                <>
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Possibly the same incident as case #{s.otherId}</p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
+                    This case and #{s.otherId} (‘{s.otherTitle}’) contain the same evidence. If they cover one event, work it in a single case and close the other.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button onClick={() => c.openIncident(s.otherId)}
+                      className="text-xs px-2.5 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700 font-medium">
+                      Open case #{s.otherId}</button>
+                    <button onClick={dismiss}
+                      className="text-xs px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
+                      Not a duplicate</button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-start gap-2">
+                  <span className="text-xs text-amber-800 dark:text-amber-200 flex-1">{ev.note}</span>
+                  <button onClick={dismiss} className="text-amber-500 hover:text-amber-700 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* ── Situation: how big is this ──────────────────────────────── */}
@@ -238,15 +285,26 @@ export function IncidentCaseFile(props: {
               <Sparkles className="w-3 h-3" /> AI assessment
               <span className="text-gray-400 normal-case font-normal">{c.enrich?.run?.finished_at ? ` · ${c.enrich.run.finished_at.slice(0, 16).replace('T', ' ')}` : ''}</span>
             </p>
-            <p className="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-line">{briefFull ? brief : briefPreview}</p>
+            <div className={`text-sm text-gray-700 dark:text-gray-200 ${briefFull ? '' : 'max-h-44 overflow-hidden relative'}`}>
+              <ReactMarkdown components={{
+                h1: p => <h5 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-3 mb-1" {...p} />,
+                h2: p => <h5 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-3 mb-1" {...p} />,
+                h3: p => <h6 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mt-2.5 mb-1" {...p} />,
+                h4: p => <h6 className="text-xs font-semibold text-gray-800 dark:text-gray-200 mt-2 mb-0.5" {...p} />,
+                p: p => <p className="my-1.5" {...p} />,
+                ul: p => <ul className="list-disc pl-5 my-1.5 space-y-0.5" {...p} />,
+                ol: p => <ol className="list-decimal pl-5 my-1.5 space-y-0.5" {...p} />,
+                strong: p => <strong className="font-semibold text-gray-900 dark:text-gray-100" {...p} />,
+                a: p => <a className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer" {...p} />,
+              }}>{brief}</ReactMarkdown>
+              {!briefFull && <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white dark:from-gray-800 to-transparent" />}
+            </div>
             <div className="flex items-center gap-3 mt-1.5">
-              {brief.length > briefPreview.length && (
-                <button onClick={() => setBriefFull(f => !f)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
-                  {briefFull ? 'Show less' : 'Read the full assessment'}
-                </button>
-              )}
+              <button onClick={() => setBriefFull(f => !f)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                {briefFull ? 'Collapse' : 'Read full assessment'}
+              </button>
               <button onClick={c.attachBrief} className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
-                title="Preserve this assessment in the case record">Save to case record</button>
+                title="Preserve this assessment in the audit log">Save to record</button>
             </div>
           </div>
         )}
@@ -264,10 +322,10 @@ export function IncidentCaseFile(props: {
       {/* ── What's out there ────────────────────────────────────────── */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2.5">
         <div className="flex items-center gap-2 flex-wrap">
-          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">What's out there</h4>
+          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Coverage</h4>
           <span className="text-xs text-gray-400">
-            {syn.coverage.filter(i => i.inCase).length} in the case
-            {syn.agentFound.length ? ` · ${syn.agentFound.length} found by AI (violet) — ✓ add or ✕ reject` : ''}
+            {syn.coverage.filter(i => i.inCase).length} in case
+            {syn.agentFound.length ? ` · ${syn.agentFound.length} AI-found awaiting your ✓ / ✕` : ''}
           </span>
           <span className="flex-1" />
           <div className="relative">
@@ -295,7 +353,7 @@ export function IncidentCaseFile(props: {
       {/* ── Who's involved ──────────────────────────────────────────── */}
       {syn.accounts.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2.5">Who's involved</h4>
+          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2.5">Accounts</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
             {syn.accounts.map(a => (
               <div key={a.key} className="flex items-center gap-2.5 p-2 rounded-md border border-gray-100 dark:border-gray-700">
@@ -321,7 +379,7 @@ export function IncidentCaseFile(props: {
       {/* ── How it unfolded ─────────────────────────────────────────── */}
       {syn.chronology.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2.5">How it unfolded</h4>
+          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2.5">Timeline</h4>
           <div className="space-y-1.5 max-h-72 overflow-y-auto">
             {syn.chronology.map((row, i) => (
               <div key={i} className="flex items-baseline gap-3 text-sm">
@@ -341,8 +399,8 @@ export function IncidentCaseFile(props: {
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <button onClick={() => setRecordOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
           {recordOpen ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Case record</h4>
-          <span className="text-xs text-gray-400">tamper-evident audit trail · {(inc.timeline || []).length} entries</span>
+          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Audit log</h4>
+          <span className="text-xs text-gray-400">{(inc.timeline || []).length} entries · tamper-evident</span>
           <span className="flex-1" />
           <button onClick={e => { e.stopPropagation(); c.runVerifyChain(); }}
             title="Recompute every entry's hash chain to prove nothing was altered or removed"

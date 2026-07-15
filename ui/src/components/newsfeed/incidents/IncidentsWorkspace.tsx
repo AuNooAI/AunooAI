@@ -20,11 +20,11 @@ import { IncidentCaseFile } from './IncidentCaseFile';
 import { AttachSearchDialog, ProfilePickerDialog } from './AttachModals';
 
 const WORKFLOW_STEPS: [string, string][] = [
-  ['1 · Open', 'Create a case, or promote an alert / article / post into one'],
-  ['2 · Gather', 'Attach evidence — the locker is append-only and hash-chained'],
-  ['3 · Enrich', 'The agent finds related coverage, screens articles, writes a brief'],
-  ['4 · Review', 'You decide what the agent found is worth — attach or dismiss'],
-  ['5 · Resolve', 'Set the outcome; export the case as HTML / PDF / Markdown'],
+  ['Open', 'Start a case from an alert, article or post — or from scratch'],
+  ['Investigate', 'AI sweeps for coverage, checks who is spreading it and how credible it is'],
+  ['Accept', 'One click folds the AI findings into the case; reject anything off-target'],
+  ['Assess', 'Coverage, reach, accounts and credibility in one view — set severity accordingly'],
+  ['Resolve', 'Close it out and export the case file (HTML / PDF / Markdown)'],
 ];
 
 export function IncidentsWorkspace(props: {

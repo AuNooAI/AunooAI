@@ -118,12 +118,16 @@ function itemEngagement(m: any): number {
 }
 
 function engagementLine(m: any): string {
-  const sm = m?.social_meta || m?.engagement || m || {};
+  const sm = (m?.social_meta && typeof m.social_meta === 'object') ? m.social_meta
+    : (m?.engagement && typeof m.engagement === 'object') ? m.engagement : m || {};
   const parts: string[] = [];
   if (sm.likes != null) parts.push(`${sm.likes} likes`);
   if (sm.reposts != null) parts.push(`${sm.reposts} reposts`);
   if (sm.comments != null) parts.push(`${sm.comments} comments`);
-  return parts.join(' · ');
+  if (parts.length) return parts.join(' · ');
+  // Some payloads only carry a precomputed total
+  const total = itemEngagement(m);
+  return total > 0 ? `${total} engagement` : '';
 }
 
 function socialTitle(title: string | null | undefined, ref: string | null | undefined, m: any): { title: string; author?: string; platform: string } {
