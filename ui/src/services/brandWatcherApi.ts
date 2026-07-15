@@ -1109,6 +1109,14 @@ export async function translateForReport(items: { id: string; text: string }[]):
   return (await res.json()).translations || {};
 }
 
+export async function incidentReportSummary(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/incidents/${id}/report-summary`, {
+    method: 'POST', credentials: 'include',
+  });
+  if (!res.ok) throw new Error(`Failed to summarize: ${res.status}`);
+  return (await res.json()).summary || '';
+}
+
 export async function verifyIncidentChain(id: number): Promise<{ items: number; intact: boolean; broken_ids: number[] }> {
   const res = await fetch(`${BASE}/incidents/${id}/verify-chain`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to verify chain: ${res.status}`);

@@ -56,13 +56,17 @@ MAX_NEW_PROFILE_BUILDS = 3     # each build costs xpoz + LLM calls
 MAX_KEYWORDS = 10
 WINDOW_PAD_DAYS = 7            # window = created_at - pad .. (resolved_at or now)
 BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", "gpt-5.4")
-BRIEF_INPUT_CAP = 12000
+BRIEF_INPUT_CAP = 32000   # room for full evidence text — see _write_brief
 MAX_SIGNAL_SCREENS = int(os.getenv("BW_ENRICH_MAX_SIGNAL_SCREENS", "5"))
 
 # Assistive triage (user-confirmed 2026-07-15): the agent may auto-DISMISS
 # clear noise (candidates table only) and RECOMMEND attaches, but never
 # writes the evidence locker itself — attaching stays a human action.
 TRIAGE_MODEL = os.getenv("BW_TRIAGE_MODEL", "gpt-5.4-mini")
+# Incidents created without a description get one drafted from the initial
+# evidence + brief on the first enrichment run (any trigger) — analysts often
+# open a case from a single post with just a title.
+DESCRIPTION_MODEL = os.getenv("BW_ENRICH_DESC_MODEL", "gpt-5.4-mini")
 TRIAGE_DISMISS_BELOW = float(os.getenv("BW_TRIAGE_DISMISS_BELOW", "0.3"))
 TRIAGE_RECOMMEND_AT = float(os.getenv("BW_TRIAGE_RECOMMEND_AT", "0.7"))
 TRIAGE_MAX_PER_RUN = int(os.getenv("BW_TRIAGE_MAX_PER_RUN", "80"))
@@ -140,7 +144,7 @@ def _load_context(incident_id: int) -> Optional[Dict]:
         if not r:
             return None
         evidence = conn.execute(text("""
-            SELECT evidence_type, source_ref, title, meta, captured_at
+            SELECT evidence_type, source_ref, title, meta, captured_at, content
             FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
         """), {"i": incident_id}).fetchall()
         staged = conn.execute(text("""
@@ -156,7 +160,7 @@ def _load_context(incident_id: int) -> Optional[Dict]:
         attached_article_urls: List[str] = []
         attached_social_meta: List[Dict] = []
         ev_summaries: List[Dict] = []
-        for etype, ref, title, meta, cap_at in evidence:
+        for etype, ref, title, meta, cap_at, content in evidence:
             meta = _jload(meta) or {}
             if ref:
                 seen.add(ref)
@@ -176,7 +180,12 @@ def _load_context(incident_id: int) -> Optional[Dict]:
                 seen.add(f"{meta['platform']}:{meta['handle']}")
             ev_summaries.append({"type": etype, "title": title,
                                  "date": meta.get("publication_date"),
-                                 "source": meta.get("news_source")})
+                                 "source": meta.get("news_source"),
+                                 "author": meta.get("author"),
+                                 "platform": meta.get("platform"),
+                                 # the locker snapshot IS the material — the
+                                 # brief is useless without it
+                                 "content": (content or "")[:1500]})
         for _ctype, ref in staged:
             seen.add(ref)
 
@@ -407,32 +416,47 @@ def _stage_candidates(run_id: int, incident_id: int, cands: List[Dict]) -> int:
 
 async def _write_brief(ctx: Dict, cands: List[Dict]) -> Optional[str]:
     from app.ai_models import LiteLLMModel
-    ev_lines = [f"- [{e['type']}] {e['title'] or '(untitled)'}"
-                + (f" ({e['date']})" if e.get("date") else "")
-                for e in ctx["evidence_summaries"][:30]]
+
+    # Full evidence text goes in — a brief written from titles alone can only
+    # hedge ("content not provided"), which is worthless to an analyst.
+    ev_blocks = []
+    for e in ctx["evidence_summaries"][:20]:
+        head = f"[{e['type']}] {e.get('title') or '(untitled)'}"
+        if e.get("author"):
+            head += f" — @{e['author']}" + (f" on {e['platform']}" if e.get("platform") else "")
+        if e.get("date"):
+            head += f" ({str(e['date'])[:10]})"
+        body = (e.get("content") or "").strip()
+        ev_blocks.append(head + (f"\n{body}" if body else ""))
     cand_lines = [f"- [{c['candidate_type']}] {c.get('title') or c['source_ref']}"
-                  + (f" — {c.get('reason')}" if c.get("reason") else "")
+                  + (f" ({(c.get('meta') or {}).get('publication_date', '')[:10]})"
+                     if (c.get('meta') or {}).get('publication_date') else "")
                   + (f": {c.get('snippet')}" if c.get("snippet") else "")
                   for c in cands[:25]]
     prompt = (
-        f"Incident: {ctx['title']}\n"
+        f"Case: {ctx['title']}\n"
         f"Brand: {ctx['brand_name']}\nSeverity: {ctx['severity']}  Status: {ctx['status']}\n"
-        f"Window: {ctx['window'][0]} to {ctx['window'][1]}\n"
         f"Description: {ctx['description'] or '(none)'}\n\n"
-        f"Attached evidence:\n" + ("\n".join(ev_lines) or "(none)") + "\n\n"
-        f"Related material found by automated search:\n" + ("\n".join(cand_lines) or "(none)")
+        f"MATERIAL IN THE CASE (full captured text follows each item):\n\n"
+        + ("\n\n".join(ev_blocks) or "(none)") + "\n\n"
+        f"RELATED MATERIAL FOUND BY AUTOMATED SEARCH (snippets):\n"
+        + ("\n".join(cand_lines) or "(none)")
     )[:BRIEF_INPUT_CAP]
     try:
         model = LiteLLMModel.get_instance(BRIEF_MODEL)
         brief = await model.agenerate_response([
             {"role": "system", "content":
-                "You summarize brand-monitoring incidents for an analyst. Use only the "
-                "material provided; never invent sources, numbers, or events. Write plain, "
-                "factual prose — no dramatic framing, no marketing language. Markdown with "
-                "these sections: ## What happened, ## How it is spreading, ## Key voices, "
-                "## Assessment and next steps (max 3 bullets, scoped to what a brand/comms "
-                "team can act on). If the material is too thin for a section, say so in one "
-                "line rather than padding."},
+                "You write incident assessments for a brand-protection analyst doing "
+                "adverse-media screening. The captured text above IS the material — read "
+                "it and state plainly what is being said about the brand, by whom, and "
+                "how far it has spread. Never write meta-commentary about the evidence "
+                "('content is not provided', 'cannot be determined from the material', "
+                "'document is not included') — if a point isn't in the text, simply don't "
+                "make it. Never invent sources, numbers, or events. Plain factual prose, "
+                "no dramatic framing. Markdown sections: ## What happened, "
+                "## How it is spreading, ## Key voices, ## Recommended actions (max 3 "
+                "bullets a brand/comms team can act on). Skip a section entirely if "
+                "there is nothing to say."},
             {"role": "user", "content": prompt},
         ])
     except Exception as e:  # noqa: BLE001
@@ -676,6 +700,45 @@ async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, i
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
+async def _draft_description(ctx: Dict, brief: Optional[str]) -> Optional[str]:
+    """2-3 sentence factual case description for an incident the analyst
+    opened without one. Description only — assessment lives in the brief."""
+    from app.ai_models import LiteLLMModel
+
+    ev_lines = []
+    for e in ctx["evidence_summaries"][:10]:
+        who = e.get("author") or ""
+        plat = e.get("platform") or e.get("source") or ""
+        ev_lines.append(f"- [{e['type']}] {who and '@' + str(who) + ' '}{plat and 'on ' + str(plat) + ' '}"
+                        f"{str(e.get('date') or '')[:10]}: "
+                        f"{str(e.get('content') or e.get('title') or '')[:400]}")
+    if not ev_lines and not brief:
+        return None
+    prompt = (
+        "Write a 2-3 sentence factual description of this brand-monitoring incident for the top "
+        "of its case file: what the incident concerns (the concrete thing that happened or is "
+        "being said), and who raised it where. Plain prose, no markdown, no assessment, no "
+        "recommendations, no hedging about evidence quality. Attribute claims to the exact "
+        "accounts named in the material. Do not invent facts.\n\n"
+        f"Brand: {ctx['brand_name']}\nIncident title: {ctx['title']}\n\n"
+        "Attached evidence:\n" + ("\n".join(ev_lines) or "(none)")
+        + (f"\n\nAgent brief:\n{brief[:3000]}" if brief else "")
+    )
+    try:
+        model = LiteLLMModel.get_instance(DESCRIPTION_MODEL)
+        out = (await model.agenerate_response([
+            {"role": "system", "content":
+                "You write concise case-file descriptions. Respond with the description only."},
+            {"role": "user", "content": prompt},
+        ])).strip()
+        if not out or out.startswith("⚠️"):
+            return None
+        return out[:1000]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Incident description draft failed: %s", e)
+        return None
+
+
 async def run_incident_enrichment(run_id: int, incident_id: int,
                                   requested_by: str = "user") -> None:
     """BackgroundTasks / monitor-loop target — never raises; the outcome lands
@@ -750,6 +813,11 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
         _stage(run_id, "screening attached articles (Five Signals)")
         sig = await signals_task
 
+        drafted_desc = None
+        if not (ctx.get("description") or "").strip():
+            _stage(run_id, "drafting incident description")
+            drafted_desc = await _draft_description(ctx, brief)
+
         stats = {"story_siblings": len(siblings), "vector_similar": len(vector),
                  "social_posts": len(socials), "profiles": len(profiles),
                  "candidates_found": len(cands), "staged_new": staged,
@@ -769,6 +837,16 @@ async def run_incident_enrichment(run_id: int, incident_id: int,
                 WHERE id = :id
             """), {"id": run_id, "s": json.dumps(stats), "b": brief})
             actor = f"agent:{requested_by}"
+            if drafted_desc:
+                # guarded so an analyst who typed one mid-run wins
+                res = conn.execute(text("""
+                    UPDATE bw_incidents SET description = :d, updated_at = NOW()
+                    WHERE id = :i AND (description IS NULL OR description = '')
+                """), {"i": incident_id, "d": drafted_desc})
+                if res.rowcount:
+                    _event(conn, incident_id, "note", actor,
+                           note="Incident description drafted by the agent from the initial "
+                                "evidence — review and edit as needed.")
             if brief:
                 _event(conn, incident_id, "agent_brief", actor,
                        note=brief.replace("\n", " ")[:200])

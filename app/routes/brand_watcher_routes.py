@@ -5476,6 +5476,73 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
         conn.close()
 
 
+@router.post("/incidents/{incident_id}/report-summary")
+async def incident_report_summary(incident_id: int, session=Depends(verify_session)):
+    """One plain-language 'Situation' paragraph for the client-facing report:
+    what the incident is, who is involved, spread, credibility. Written by the
+    LLM from the incident row + evidence + latest agent brief at export time
+    (nothing is stored)."""
+    from app.ai_models import LiteLLMModel
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        r = conn.execute(text("""
+            SELECT i.title, i.description, i.severity, i.created_at, b.display_name
+            FROM bw_incidents i JOIN bw_brands b ON b.id = i.brand_id WHERE i.id = :i
+        """), {"i": incident_id}).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        evidence = conn.execute(text("""
+            SELECT evidence_type, title, content, meta FROM bw_incident_evidence
+            WHERE incident_id = :i ORDER BY id LIMIT 8
+        """), {"i": incident_id}).fetchall()
+        brief = conn.execute(text("""
+            SELECT brief FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i AND brief IS NOT NULL ORDER BY id DESC LIMIT 1
+        """), {"i": incident_id}).fetchone()
+    finally:
+        conn.close()
+
+    ev_lines = []
+    for et, ti, co, me in evidence:
+        m = me if isinstance(me, dict) else {}
+        if me and not isinstance(me, dict):
+            try:
+                m = json.loads(me)
+            except (json.JSONDecodeError, TypeError):
+                m = {}
+        who = m.get("author") or (m.get("social_meta") or {}).get("author") or ""
+        plat = m.get("platform") or (m.get("social_meta") or {}).get("platform") or ""
+        when = str(m.get("publication_date") or "")[:10]
+        ev_lines.append(f"- [{et}] {who and '@' + who + ' '}{plat and 'on ' + plat + ' '}{when}: "
+                        f"{(co or ti or '')[:600]}")
+    prompt = (
+        "You are writing the opening 'Situation' paragraph of a client-facing brand-protection "
+        "incident report. From the material below, state plainly in 3-5 sentences: what the "
+        "incident concerns (the concrete thing that happened or is being said), who is saying it "
+        "and where, how far it has spread, and how credible/serious it currently looks. Plain "
+        "prose, no markdown, no bullet lists, no hedging boilerplate — if the trigger is unclear, "
+        "one clause on what IS known and what is missing. Do not invent facts. Attribute every "
+        "quote or claim to the exact account named on the evidence line it came from; never merge "
+        "different accounts' statements into one voice.\n\n"
+        f"Brand: {r[4]}\nIncident title: {r[0]}\nSeverity set by analyst: {r[2]}\n"
+        f"Analyst description: {r[1] or '(none)'}\n\nAttached evidence:\n"
+        + "\n".join(ev_lines)
+        + (f"\n\nLatest agent brief:\n{brief[0][:3000]}" if brief and brief[0] else "")
+    )
+    try:
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        summary = (await model.agenerate_response([
+            {"role": "system", "content": "You are a senior brand-protection analyst. Respond with the paragraph only."},
+            {"role": "user", "content": prompt},
+        ])).strip()
+        return {"summary": summary[:2500]}
+    except Exception as e:
+        logger.error(f"incident report summary failed: {e}")
+        return {"summary": ""}
+
+
 @router.put("/incidents/{incident_id}")
 async def update_incident(incident_id: int, req: IncidentUpdate, session=Depends(verify_session)):
     db = get_database_instance()

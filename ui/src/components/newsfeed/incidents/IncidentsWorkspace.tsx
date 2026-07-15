@@ -145,7 +145,7 @@ export function IncidentsWorkspace(props: {
             </select>
             <input type="text" value={create.title} onChange={e => setCreate(cr => ({ ...cr, title: e.target.value }))} placeholder="Title"
               className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
-            <textarea value={create.description} onChange={e => setCreate(cr => ({ ...cr, description: e.target.value }))} placeholder="Description (optional)" rows={3}
+            <textarea value={create.description} onChange={e => setCreate(cr => ({ ...cr, description: e.target.value }))} placeholder="Description — what is this incident? (leave blank and the agent drafts one from the evidence)" rows={3}
               className="w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-500">Severity</label>

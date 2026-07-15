@@ -15,7 +15,7 @@
  */
 import { jsPDF } from 'jspdf';
 import type { BWIncidentDetail, BWIncidentEvent } from './brandWatcherApi';
-import { translateForReport } from './brandWatcherApi';
+import { incidentReportSummary, translateForReport } from './brandWatcherApi';
 
 export interface IncidentReportData {
   incident: BWIncidentDetail & { description?: string | null; owner?: string | null };
@@ -247,6 +247,47 @@ const dayHeading = (iso: string) => {
 
 // ─── Translations ────────────────────────────────────────────────────────────
 
+/** Key facts computed from the evidence itself — the non-AI half of the
+ * Situation section. */
+function situationFacts(d: IncidentReportData): string[] {
+  const items = (d.incident.evidence || []).filter(ev =>
+    ev.evidence_type === 'article' || ev.evidence_type === 'social_post');
+  const dates = items.map(ev => postedDate((ev as any).meta)).filter(Boolean).sort();
+  const facts: string[] = [];
+  if (dates.length) {
+    facts.push(dates[0] === dates[dates.length - 1]
+      ? `Source material from ${dates[0]}`
+      : `Source material spans ${dates[0]} → ${dates[dates.length - 1]}`);
+  }
+  const platCounts: Record<string, number> = {};
+  let engagement = 0;
+  for (const ev of items) {
+    const meta = (ev as any).meta || {};
+    const key = String(meta.platform || meta.social_meta?.platform || '').toLowerCase();
+    const plat = PLATFORM_LABEL[key] || (ev.evidence_type === 'article' && !key ? 'News' : '');
+    if (plat) platCounts[plat] = (platCounts[plat] || 0) + 1;
+    const sm = meta.social_meta || meta.engagement || {};
+    engagement += (Number(sm.likes) || 0) + (Number(sm.reposts) || 0) + (Number(sm.comments) || 0);
+  }
+  const plats = Object.entries(platCounts).map(([n, c]) => `${c} on ${n}`).join(', ');
+  if (items.length) facts.push(`${items.length} attached item${items.length === 1 ? '' : 's'}${plats ? ` (${plats})` : ''}`);
+  if (engagement) facts.push(`${engagement} total engagement observed`);
+  const verdicts = (d.incident.evidence || [])
+    .map(ev => (ev as any).signals_summary)
+    .filter(s => s?.status === 'completed' && s.verdict);
+  if (verdicts.length) facts.push(`credibility screening: ${verdicts.map((s: any) => s.verdict).join(', ')}`);
+  return facts;
+}
+
+async function fetchSituationSummary(d: IncidentReportData): Promise<string> {
+  try {
+    return await incidentReportSummary(d.incident.id);
+  } catch (e) {
+    console.error('report summary failed — exporting without it', e);
+    return '';
+  }
+}
+
 async function fetchTranslations(d: IncidentReportData): Promise<TranslationMap> {
   const items = (d.incident.evidence || [])
     .filter(ev => ev.content && needsTranslation(String(ev.content)))
@@ -277,7 +318,7 @@ const screenedEvidence = (d: IncidentReportData) =>
 
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
-export function buildIncidentReportMarkdown(d: IncidentReportData, trans: TranslationMap = {}): string {
+export function buildIncidentReportMarkdown(d: IncidentReportData, trans: TranslationMap = {}, situation = ''): string {
   const inc = d.incident;
   const run = d.enrichment?.run;
   let md = `# Incident #${inc.id}: ${inc.title}\n\n`;
@@ -289,7 +330,14 @@ export function buildIncidentReportMarkdown(d: IncidentReportData, trans: Transl
   md += `| Opened | ${day(inc.created_at)} by ${inc.created_by || 'unknown'} |\n`;
   if (inc.resolved_at) md += `| Resolved | ${day(inc.resolved_at)} |\n`;
   md += `| Report generated | ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC |\n\n`;
-  if (inc.description) md += `${cleanText(inc.description)}\n\n`;
+
+  const facts = situationFacts(d);
+  if (inc.description || situation || facts.length) {
+    md += `## Situation\n\n`;
+    if (inc.description) md += `${cleanText(inc.description)}\n\n`;
+    if (situation) md += `${situation}\n\n*AI-generated situation summary — verify before external use.*\n\n`;
+    if (facts.length) md += facts.map(f => `- ${f}`).join('\n') + '\n\n';
+  }
 
   const screened = screenedEvidence(d);
   if (screened.length) {
@@ -403,7 +451,7 @@ const BAND_COLOR: Record<string, string> = {
   good: '#16a34a', warn: '#E8A838', bad: '#dc2626', nodata: '#9ca3af',
 };
 
-export function buildIncidentReportHtml(d: IncidentReportData, trans: TranslationMap = {}): string {
+export function buildIncidentReportHtml(d: IncidentReportData, trans: TranslationMap = {}, situation = ''): string {
   const inc = d.incident;
   const run = d.enrichment?.run;
   const gen = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
@@ -419,6 +467,15 @@ export function buildIncidentReportHtml(d: IncidentReportData, trans: Translatio
       ? `<a href="${esc(ev.source_ref)}" target="_blank" rel="noopener">${esc(t)}</a>`
       : esc(t);
   };
+
+  const facts = situationFacts(d);
+  const situationHtml = (inc.description || situation || facts.length) ? `<section id="situation"><h2>Situation</h2>
+    <div class="card">
+      ${inc.description ? `<p style="margin:0 0 8px;color:var(--text2)">${linkifyEscaped(esc(cleanText(inc.description)))}</p>` : ''}
+      ${situation ? `<p style="margin:0;color:var(--text2)">${linkifyEscaped(esc(situation))}</p>
+      <p class="muted" style="margin:6px 0 0">AI-generated situation summary — verify before external use.</p>` : ''}
+      ${facts.length ? `<p class="muted" style="margin:${situation || inc.description ? '10px' : '0'} 0 0;font-style:normal">${facts.map(esc).join(' · ')}</p>` : ''}
+    </div></section>` : '';
 
   const screened = screenedEvidence(d);
   const signalsHtml = screened.length ? `<section id="signals"><h2>Five Signals screening</h2>
@@ -583,6 +640,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   <span class="meta">${esc(inc.brand_name || '')} · generated ${gen}</span>
   <nav class="nav">
     <a href="#overview">Overview</a>
+    ${situationHtml ? '<a href="#situation">Situation</a>' : ''}
     ${screened.length ? '<a href="#signals">Signals</a>' : ''}
     ${run?.brief ? '<a href="#brief">Brief</a>' : ''}
     <a href="#evidence">Evidence</a>
@@ -603,9 +661,9 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
       ${statCard('Evidence items', String((inc.evidence || []).length), 'hash-chained')}
       ${statCard('Owner', inc.owner || '—')}
     </div>
-    ${inc.description ? `<div class="card"><p style="margin:0;color:var(--text2)">${linkifyEscaped(esc(cleanText(inc.description)))}</p></div>` : ''}
   </section>
 
+  ${situationHtml}
   ${signalsHtml}
   ${briefSection}
   ${evidenceHtml}
@@ -633,7 +691,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
 
 // ─── PDF (text-based, jsPDF) ─────────────────────────────────────────────────
 
-export function buildIncidentReportPdf(d: IncidentReportData, trans: TranslationMap = {}): void {
+export function buildIncidentReportPdf(d: IncidentReportData, trans: TranslationMap = {}, situation = ''): void {
   const inc = d.incident;
   const run = d.enrichment?.run;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -662,7 +720,18 @@ export function buildIncidentReportPdf(d: IncidentReportData, trans: Translation
   addText(`${inc.brand_name || ''} · Severity: ${inc.severity.toUpperCase()} · Status: ${inc.status}${inc.owner ? ` · Owner: ${inc.owner}` : ''}`, 11, true, sevColor);
   addText(`Opened ${day(inc.created_at)} by ${inc.created_by || 'unknown'}${inc.resolved_at ? ` · Resolved ${day(inc.resolved_at)}` : ''} · Report generated ${new Date().toLocaleString()}`, 9, false, [120, 120, 120]);
   y += 3;
-  if (inc.description) { addText(cleanText(inc.description), 10.5); y += 3; }
+
+  const facts = situationFacts(d);
+  if (inc.description || situation || facts.length) {
+    addText('Situation', 13, true, [214, 64, 159]);
+    if (inc.description) addText(cleanText(inc.description), 10.5);
+    if (situation) {
+      addText(situation, 10.5);
+      addText('AI-generated situation summary — verify before external use.', 8.5, false, [130, 130, 130]);
+    }
+    if (facts.length) addText(facts.join(' · '), 9, false, [100, 100, 100]);
+    y += 3;
+  }
 
   const screened = screenedEvidence(d);
   if (screened.length) {
@@ -753,9 +822,9 @@ export function buildIncidentReportPdf(d: IncidentReportData, trans: Translation
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 export async function downloadIncidentReport(d: IncidentReportData, format: 'md' | 'html' | 'pdf'): Promise<void> {
-  const trans = await fetchTranslations(d);
+  const [trans, situation] = await Promise.all([fetchTranslations(d), fetchSituationSummary(d)]);
   const base = `incident-${d.incident.id}-${slug(d.incident.title)}-${new Date().toISOString().slice(0, 10)}`;
-  if (format === 'md') download(buildIncidentReportMarkdown(d, trans), `${base}.md`, 'text/markdown');
-  else if (format === 'html') download(buildIncidentReportHtml(d, trans), `${base}.html`, 'text/html');
-  else buildIncidentReportPdf(d, trans);
+  if (format === 'md') download(buildIncidentReportMarkdown(d, trans, situation), `${base}.md`, 'text/markdown');
+  else if (format === 'html') download(buildIncidentReportHtml(d, trans, situation), `${base}.html`, 'text/html');
+  else buildIncidentReportPdf(d, trans, situation);
 }
