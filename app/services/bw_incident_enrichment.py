@@ -444,31 +444,36 @@ async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, i
         stats["eligible"] = len(urls)
         if not urls or not signals_available():
             return stats
-        conn = _conn()
-        try:
+        def _already_screened(url: str) -> bool:
             # Same rule as the /signals/run cached-return: a completed row only
             # counts when BOTH engine payloads landed — a ceiling-timeout run
-            # composes from xnet alone and should be retried next time.
-            rows = conn.execute(text("""
-                SELECT article_uri FROM bw_article_signals
-                WHERE article_uri = ANY(:u) AND brand_id = :b
-                  AND (status = 'running'
-                       OR (status = 'completed'
-                           AND validation IS NOT NULL AND reach IS NOT NULL))
-            """), {"u": urls, "b": ctx["brand_id"]}).fetchall()
-        finally:
-            conn.close()
-        done = {r[0] for r in rows}
-        stats["already_screened"] = len(done)
-        to_screen = [u for u in urls if u not in done][:MAX_SIGNAL_SCREENS]
-        if not to_screen:
-            return stats
+            # composes from xnet alone and should be retried next time. Checked
+            # per-URL right before each screen (screens take minutes; another
+            # run — the same article can be attached to several incidents —
+            # may have screened it since this run started).
+            conn = _conn()
+            try:
+                return bool(conn.execute(text("""
+                    SELECT 1 FROM bw_article_signals
+                    WHERE article_uri = :u AND brand_id = :b
+                      AND (status = 'running'
+                           OR (status = 'completed'
+                               AND validation IS NOT NULL AND reach IS NOT NULL))
+                """), {"u": url, "b": ctx["brand_id"]}).fetchone())
+            finally:
+                conn.close()
+
         # Sequential on purpose: saas runs screen jobs from a small worker
         # pool, and concurrent screens starve each other into the 600s job
         # ceiling (observed: 2 parallel screens = all 4 jobs timing out).
         # run_five_signals never raises. requested_by is 'agent:…', NOT
         # 'auto' — the monitor's AUTO_SIGNALS_DAILY_CAP counts only 'auto'.
-        for u in to_screen:
+        for u in urls:
+            if stats["screened"] >= MAX_SIGNAL_SCREENS:
+                break
+            if _already_screened(u):
+                stats["already_screened"] += 1
+                continue
             await run_five_signals(u, ctx["brand_id"], u,
                                    requested_by=f"agent:{requested_by}")
             stats["screened"] += 1
