@@ -3,8 +3,8 @@
  * counts, compact case cards, and a bulk-action bar that appears when any
  * card is checkbox-selected.
  */
-import { Lock, Plus } from 'lucide-react';
-import { BWIncident } from '../../../services/brandWatcherApi';
+import { Bell, ChevronDown, ChevronRight, Lock, Plus } from 'lucide-react';
+import { BWAlertEvent, BWIncident } from '../../../services/brandWatcherApi';
 import { INCIDENT_STATUSES } from './StatusStepper';
 
 const SEV_DOT: Record<string, string> = {
@@ -38,15 +38,53 @@ export function IncidentListRail(props: {
   setBulk: React.Dispatch<React.SetStateAction<{ status: string; severity: string; owner: string }>>;
   bulkBusy: boolean;
   applyBulk: (action: 'update' | 'delete') => void;
+  alertEvents: BWAlertEvent[];
+  onAckAlert: (id: number) => void;
+  onCaseAlert: (ev: BWAlertEvent) => void;
+  alertsOpen: boolean;
+  setAlertsOpen: (open: boolean) => void;
 }) {
   const { incidents, loading, statusFilter, setStatusFilter, activeId, onOpen, onNew,
-          selected, setSelected, bulk, setBulk, bulkBusy, applyBulk } = props;
+          selected, setSelected, bulk, setBulk, bulkBusy, applyBulk,
+          alertEvents, onAckAlert, onCaseAlert, alertsOpen, setAlertsOpen } = props;
   const counts: Record<string, number> = { '': incidents.length };
   for (const st of INCIDENT_STATUSES) counts[st] = incidents.filter(i => i.status === st).length;
   const shown = statusFilter ? incidents.filter(i => i.status === statusFilter) : incidents;
 
   return (
     <div className="space-y-3">
+      {alertEvents.length > 0 && (
+        <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 overflow-hidden">
+          <button onClick={() => setAlertsOpen(!alertsOpen)} className="w-full flex items-center gap-2 px-2.5 py-2 text-left">
+            <Bell className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span className="text-xs font-medium text-amber-800 dark:text-amber-200 flex-1">
+              {alertEvents.length} new alert{alertEvents.length > 1 ? 's' : ''} — triage
+            </span>
+            {alertsOpen ? <ChevronDown className="w-4 h-4 text-amber-500" /> : <ChevronRight className="w-4 h-4 text-amber-500" />}
+          </button>
+          {alertsOpen && (
+            <div className="px-2 pb-2 space-y-1.5">
+              {alertEvents.map(ev => (
+                <div key={`inc-ev-${ev.id}`} className="rounded-md border border-amber-200 dark:border-amber-800 bg-white dark:bg-gray-800 p-2">
+                  <div className="flex items-start gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${ev.severity === 'high' ? 'bg-red-500' : 'bg-amber-400'}`} />
+                    <span className="text-xs text-gray-800 dark:text-gray-100 flex-1">{ev.title}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1.5 pl-3">
+                    <button onClick={() => onCaseAlert(ev)}
+                      title="Open a case from this alert (or add it to an existing one)"
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50">Open case</button>
+                    <button onClick={() => onAckAlert(ev.id)}
+                      title="Acknowledge — no case needed"
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700">Dismiss</button>
+                    <span className="text-[10px] text-gray-400 ml-auto">{(ev.created_at || '').slice(5, 16).replace('T', ' ')}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <button onClick={onNew}
         className="w-full text-sm px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center justify-center gap-1.5 font-medium">
         <Plus className="w-4 h-4" /> New incident

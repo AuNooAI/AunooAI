@@ -9,7 +9,7 @@
  * shared with the Articles tab), and alert data (feeds the header bell).
  */
 import { useCallback, useState } from 'react';
-import { Bell, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import {
   BWAlertEvent, BWIncident, createIncident, deleteIncident, updateIncident,
 } from '../../../services/brandWatcherApi';
@@ -48,7 +48,7 @@ export function IncidentsWorkspace(props: {
   const [bulk, setBulk] = useState({ status: '', severity: '', owner: '' });
   const [bulkBusy, setBulkBusy] = useState(false);
   const [create, setCreate] = useState({ open: false, title: '', description: '', severity: 'medium', brandId: null as number | null });
-  const [alertsOpen, setAlertsOpen] = useState<boolean | null>(null); // null = auto
+  const [alertsOpen, setAlertsOpen] = useState<boolean | null>(null); // alerts strip in the rail
 
   const applyBulk = useCallback(async (action: 'update' | 'delete') => {
     const ids = Array.from(selected);
@@ -89,46 +89,8 @@ export function IncidentsWorkspace(props: {
     } catch (e) { console.error(e); alert('Failed to create incident'); }
   }, [create, reloadIncidents, c]);
 
-  // Alert banner: auto-expanded while alerts wait and no case is open.
-  const alertsExpanded = alertsOpen ?? (alertEvents.length > 0 && !c.detail);
-
   return (
     <div className="space-y-4">
-      {alertEvents.length > 0 && (
-        <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 overflow-hidden">
-          <button onClick={() => setAlertsOpen(!alertsExpanded)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left">
-            <Bell className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              {alertEvents.length} unacknowledged alert{alertEvents.length > 1 ? 's' : ''} to triage
-            </span>
-            <span className="flex-1" />
-            {alertsExpanded ? <ChevronDown className="w-4 h-4 text-amber-500" /> : <ChevronRight className="w-4 h-4 text-amber-500" />}
-          </button>
-          {alertsExpanded && (
-            <div className="px-3 pb-2.5 space-y-1.5">
-              {alertEvents.map(ev => (
-                <div key={`inc-ev-${ev.id}`} className={`flex items-center gap-3 rounded-md border p-2.5 bg-white dark:bg-gray-800 ${
-                  ev.severity === 'high' ? 'border-red-200 dark:border-red-800' : 'border-amber-200 dark:border-amber-800'}`}>
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.severity === 'high' ? 'bg-red-500' : 'bg-amber-400'}`} />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm text-gray-800 dark:text-gray-100 block truncate">{ev.title}</span>
-                    {ev.body && <span className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{ev.body}</span>}
-                  </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0">{(ev.created_at || '').slice(0, 16).replace('T', ' ')}</span>
-                  <button onClick={() => onCaseAlert(ev)}
-                    title="Capture this alert as evidence in an incident"
-                    className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-300 flex-shrink-0">→ incident</button>
-                  <button onClick={() => onAckAlert(ev.id)}
-                    title="Acknowledge without opening a case"
-                    className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 hover:text-gray-700 flex-shrink-0">Ack</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="flex gap-4 items-start">
         <div className={`w-full lg:w-[340px] lg:shrink-0 ${c.detail ? 'hidden lg:block' : ''}`}>
           <IncidentListRail
@@ -137,7 +99,9 @@ export function IncidentsWorkspace(props: {
             activeId={c.detail?.id ?? null} onOpen={c.openIncident}
             onNew={() => setCreate({ open: true, title: '', description: '', severity: 'medium', brandId: defaultBrandId })}
             selected={selected} setSelected={setSelected}
-            bulk={bulk} setBulk={setBulk} bulkBusy={bulkBusy} applyBulk={applyBulk} />
+            bulk={bulk} setBulk={setBulk} bulkBusy={bulkBusy} applyBulk={applyBulk}
+            alertEvents={alertEvents} onAckAlert={onAckAlert} onCaseAlert={onCaseAlert}
+            alertsOpen={alertsOpen ?? false} setAlertsOpen={setAlertsOpen} />
         </div>
 
         <div className={`flex-1 min-w-0 ${!c.detail ? 'hidden lg:block' : ''}`}>

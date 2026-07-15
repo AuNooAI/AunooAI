@@ -4,10 +4,18 @@
  *
  * Everything is generated client-side from the data the incident panel
  * already holds: the incident detail (evidence + timeline + Five Signals
- * summaries) and the latest enrichment state (agent brief + stats).
+ * summaries) and the latest enrichment state (agent brief + stats). The one
+ * network call is an optional translation pass — non-English evidence is sent
+ * to the backend for an AI English translation embedded under the original.
+ *
+ * The evidence locker stores raw captures (append-only, some with literal
+ * "\n" sequences and lost-emoji U+FFFD runs from upstream ingestion), so all
+ * text is cleaned at render time and titles are derived from evidence meta
+ * (author/platform) rather than raw post text.
  */
 import { jsPDF } from 'jspdf';
-import type { BWIncidentDetail } from './brandWatcherApi';
+import type { BWIncidentDetail, BWIncidentEvent } from './brandWatcherApi';
+import { translateForReport } from './brandWatcherApi';
 
 export interface IncidentReportData {
   incident: BWIncidentDetail & { description?: string | null; owner?: string | null };
@@ -22,6 +30,9 @@ export interface IncidentReportData {
     counts?: Record<string, number>;
   } | null;
 }
+
+/** id → AI English translation, keyed by String(evidence.id). */
+type TranslationMap = Record<string, { language: string; text: string }>;
 
 const SIG_TITLES: Record<string, string> = {
   veracity: 'Claim veracity', source_credibility: 'Source credibility',
@@ -38,10 +49,217 @@ const esc = (s: any): string => String(s ?? '')
 
 const day = (iso?: string | null) => (iso || '').slice(0, 10);
 const minute = (iso?: string | null) => (iso || '').slice(0, 16).replace('T', ' ');
+const hhmm = (iso?: string | null) => (iso || '').slice(11, 16);
 const hostOf = (url?: string | null) => {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : ''; } catch { return ''; }
 };
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+
+/** Undo ingestion artifacts: literal "\n" sequences, U+FFFD runs where astral
+ * emoji were lost upstream, and whitespace noise. Applied to ALL report text. */
+function cleanText(s: any): string {
+  return String(s ?? '')
+    .replace(/\\n/g, '\n')
+    .replace(/�+ ?/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function truncate(s: string, n: number): string {
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (t.length <= n) return t;
+  const cut = t.slice(0, n);
+  return (cut.slice(0, cut.lastIndexOf(' ') > n - 25 ? cut.lastIndexOf(' ') : n)).trim() + '…';
+}
+
+// ─── Language detection (report-side heuristic; the model double-checks) ────
+
+// Cyrillic, Armenian, Hebrew, Arabic, Syriac/Thaana, Devanagari→Sinhala,
+// Thai/Lao, Hangul jamo, CJK, kana, Hangul syllables
+const NON_LATIN_RE = /[Ѐ-ӿ԰-֏֐-׿؀-ۿ܀-޿ऀ-෿฀-໿ᄀ-ᇿ一-鿿぀-ヿ가-힯]/g;
+
+function needsTranslation(s: string): boolean {
+  const t = cleanText(s);
+  const nonLatin = (t.match(NON_LATIN_RE) || []).length;
+  if (nonLatin < 15) return false;
+  const latin = (t.match(/[A-Za-z]/g) || []).length;
+  return nonLatin / (nonLatin + latin) > 0.3;
+}
+
+// ─── Display titles (never raw post text) ───────────────────────────────────
+
+const PLATFORM_LABEL: Record<string, string> = {
+  bluesky: 'Bluesky', twitter: 'X', x: 'X', instagram: 'Instagram',
+  reddit: 'Reddit', tiktok: 'TikTok', mastodon: 'Mastodon',
+};
+
+function authorFromUrl(ref?: string | null): { handle?: string; platform?: string } {
+  const r = String(ref || '');
+  let m = /bsky\.app\/profile\/([^/?]+)/.exec(r);
+  if (m) return { handle: m[1], platform: 'Bluesky' };
+  m = /(?:^|\/\/)(?:www\.)?(?:x|twitter)\.com\/([^/?]+)\/status/.exec(r);
+  if (m) return { handle: m[1], platform: 'X' };
+  m = /reddit\.com\/(?:user|u)\/([^/?]+)/.exec(r);
+  if (m) return { handle: m[1], platform: 'Reddit' };
+  m = /tiktok\.com\/@([^/?]+)/.exec(r);
+  if (m) return { handle: m[1], platform: 'TikTok' };
+  if (/instagram\.com\//.test(r)) return { platform: 'Instagram' };
+  if (/reddit\.com\//.test(r)) return { platform: 'Reddit' };
+  return {};
+}
+
+/** Client-facing label for any evidence/candidate row. Prefers meta author +
+ * platform; falls back to the source URL's shape; only uses (cleaned,
+ * truncated) text when nothing better exists. */
+function displayTitle(title?: string | null, sourceRef?: string | null, meta?: any): string {
+  const t = cleanText(title || '');
+  const briefMatch = /^Agent incident brief(?:\s*\(run #(\d+)\))?/i.exec(t);
+  if (briefMatch) return 'AI monitoring brief';
+  const author = meta?.author || meta?.social_meta?.author;
+  const platformKey = String(meta?.platform || meta?.social_meta?.platform || '').toLowerCase();
+  const urlInfo = authorFromUrl(sourceRef);
+  const platform = PLATFORM_LABEL[platformKey] || urlInfo.platform || '';
+  const handle = author || urlInfo.handle;
+  if (handle) return `Post by @${handle}${platform ? ` on ${platform}` : ''}`;
+  const fromPostBy = /^Post by (@[^\s]+)/.exec(t);
+  if (fromPostBy) return `Post by ${fromPostBy[1]}${platform ? ` on ${platform}` : ''}`;
+  if (platform && t) return `${platform} post: “${truncate(t, 70)}”`;
+  if (platform) return `${platform} post`;
+  return truncate(t || String(sourceRef || '(untitled)'), 90);
+}
+
+/** "18 likes · 4 reposts · 3 comments" from evidence meta, or ''. */
+function engagementLine(meta?: any): string {
+  const e = meta?.social_meta || meta?.engagement || {};
+  const parts: string[] = [];
+  if (e.likes != null) parts.push(`${e.likes} like${e.likes === 1 ? '' : 's'}`);
+  if (e.reposts != null) parts.push(`${e.reposts} repost${e.reposts === 1 ? '' : 's'}`);
+  if (e.comments != null) parts.push(`${e.comments} comment${e.comments === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
+const postedDate = (meta?: any): string => day(meta?.publication_date || null);
+
+// ─── Linkify (after HTML-escaping) ───────────────────────────────────────────
+
+/** Turn URLs inside already-escaped text into anchors. Display-truncated URLs
+ * (ending in … or ..) stay plain text — a faked link would 404. */
+function linkifyEscaped(escaped: string): string {
+  return escaped.replace(/\b(https?:\/\/|www\.)[^\s<>"']+/g, (m) => {
+    if (/\.{2,}$|…$/.test(m)) return m; // display-truncated URL — a faked link would 404
+    const trimmed = m.replace(/[).,;:!?]+$/, '');
+    const trail = m.slice(trimmed.length);
+    const href = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
+    return `<a href="${href}" target="_blank" rel="noopener">${trimmed}</a>${trail}`;
+  });
+}
+
+const bodyHtml = (raw: string, limit = 2000) =>
+  linkifyEscaped(esc(truncateBlock(cleanText(raw), limit)));
+
+function truncateBlock(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n) + ' …';
+}
+
+// ─── Timeline (merged story + case activity, humanized) ─────────────────────
+
+interface TimelineRow { at: string; actor: string; what: string; whatHtml?: string; isSource?: boolean }
+
+const ACTOR_LABEL: Record<string, string> = {
+  'agent:auto:create': 'agent (auto)', 'agent:user': 'agent',
+  'agent:triage': 'agent (triage)', 'agent:monitor': 'agent (monitor)',
+};
+const actorLabel = (a?: string | null) => ACTOR_LABEL[a || ''] || a || 'system';
+
+function humanizeEvent(ev: BWIncidentEvent, titleLookup: (raw: string) => string): string {
+  const note = cleanText(ev.note || '');
+  switch (ev.kind) {
+    case 'created':
+      return `Incident opened${ev.new_value ? ` at severity ${ev.new_value}` : ''}`;
+    case 'status_change':
+      return `Status changed: ${ev.old_value || '?'} → ${ev.new_value || '?'}${note ? ` — ${truncate(note, 140)}` : ''}`;
+    case 'severity_change':
+      return `Severity changed: ${ev.old_value || '?'} → ${ev.new_value || '?'}${note ? ` — ${truncate(note, 140)}` : ''}`;
+    case 'owner_change':
+      return `Owner changed: ${ev.old_value || '—'} → ${ev.new_value || '—'}`;
+    case 'evidence_added':
+      return `Evidence attached: ${titleLookup(note)}`;
+    case 'agent_brief':
+      return 'AI monitoring brief updated (full text in the Brief section)';
+    case 'enrichment': {
+      const m = /^run #(\d+):\s*(.*)$/s.exec(note);
+      return m ? `Agent research sweep: ${truncate(m[2], 220)}` : `Agent research sweep: ${truncate(note, 220)}`;
+    }
+    case 'agent_suggestion':
+      return `Agent suggestion: ${truncate(note, 220)}`;
+    case 'note': {
+      // The attach action logs "attached from agent run #N: <raw title>" — the
+      // matching evidence_added row already names the item, so keep provenance only.
+      const m = /^attached from agent run #(\d+)/.exec(note);
+      if (m) return `Attached an agent-found item (from research sweep #${m[1]})`;
+      return truncate(note, 300) || 'Note added';
+    }
+    default:
+      return truncate(note, 220) || ev.kind;
+  }
+}
+
+/** Chronological rows: original source publication dates first-class, so the
+ * report reads as a story (what was posted when), then case activity. */
+function buildTimelineRows(d: IncidentReportData): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  // evidence_added notes carry the stored (raw) title — map raw → display title
+  const titleLookup = (raw: string): string => {
+    const key = cleanText(raw).slice(0, 60);
+    const hit = key ? (d.incident.evidence || []).find(ev =>
+      cleanText(ev.title || '').slice(0, 60) === key) : undefined;
+    return hit ? displayTitle(hit.title, hit.source_ref, (hit as any).meta)
+               : displayTitle(raw, null, null);
+  };
+  for (const ev of d.incident.evidence || []) {
+    const meta = (ev as any).meta;
+    const pub = meta?.publication_date;
+    if (!pub) continue;
+    const title = displayTitle(ev.title, ev.source_ref, meta);
+    const link = ev.source_ref && String(ev.source_ref).startsWith('http')
+      ? `<a href="${esc(ev.source_ref)}" target="_blank" rel="noopener">${esc(title)}</a>` : esc(title);
+    rows.push({
+      at: String(pub), actor: 'source', isSource: true,
+      what: `Published: ${title}`, whatHtml: `Published: ${link}`,
+    });
+  }
+  for (const ev of d.incident.timeline || []) {
+    if (!ev.at) continue;
+    rows.push({ at: ev.at, actor: actorLabel(ev.actor), what: humanizeEvent(ev, titleLookup) });
+  }
+  rows.sort((a, b) => a.at.localeCompare(b.at));
+  return rows;
+}
+
+const dayHeading = (iso: string) => {
+  try {
+    return new Date(iso.slice(0, 10) + 'T00:00:00Z').toLocaleDateString('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+    });
+  } catch { return iso.slice(0, 10); }
+};
+
+// ─── Translations ────────────────────────────────────────────────────────────
+
+async function fetchTranslations(d: IncidentReportData): Promise<TranslationMap> {
+  const items = (d.incident.evidence || [])
+    .filter(ev => ev.content && needsTranslation(String(ev.content)))
+    .slice(0, 10)
+    .map(ev => ({ id: String(ev.id), text: cleanText(String(ev.content)).slice(0, 1500) }));
+  if (!items.length) return {};
+  try {
+    return await translateForReport(items);
+  } catch (e) {
+    console.error('report translation failed — exporting without translations', e);
+    return {};
+  }
+}
 
 function download(content: string, filename: string, mime: string): void {
   const blob = new Blob([content], { type: mime });
@@ -59,7 +277,7 @@ const screenedEvidence = (d: IncidentReportData) =>
 
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
-export function buildIncidentReportMarkdown(d: IncidentReportData): string {
+export function buildIncidentReportMarkdown(d: IncidentReportData, trans: TranslationMap = {}): string {
   const inc = d.incident;
   const run = d.enrichment?.run;
   let md = `# Incident #${inc.id}: ${inc.title}\n\n`;
@@ -71,7 +289,7 @@ export function buildIncidentReportMarkdown(d: IncidentReportData): string {
   md += `| Opened | ${day(inc.created_at)} by ${inc.created_by || 'unknown'} |\n`;
   if (inc.resolved_at) md += `| Resolved | ${day(inc.resolved_at)} |\n`;
   md += `| Report generated | ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC |\n\n`;
-  if (inc.description) md += `${inc.description}\n\n`;
+  if (inc.description) md += `${cleanText(inc.description)}\n\n`;
 
   const screened = screenedEvidence(d);
   if (screened.length) {
@@ -79,7 +297,7 @@ export function buildIncidentReportMarkdown(d: IncidentReportData): string {
     md += `Attached articles screened via the Aunoo validation platform (claim validation + social propagation):\n\n`;
     for (const ev of screened) {
       const s = (ev as any).signals_summary;
-      md += `### ${ev.title || ev.source_ref}\n\n`;
+      md += `### ${displayTitle(ev.title, ev.source_ref, (ev as any).meta)}\n\n`;
       if (ev.source_ref) md += `<${ev.source_ref}>\n\n`;
       md += `**Verdict:** ${s.verdict || 'n/a'} · **Composite score:** ${s.composite ?? 'n/a'}/100\n\n`;
       md += `| Signal | Band | Score |\n|---|---|---|\n`;
@@ -91,7 +309,7 @@ export function buildIncidentReportMarkdown(d: IncidentReportData): string {
   }
 
   if (run?.brief) {
-    md += `## Agent brief\n\n`;
+    md += `## AI monitoring brief\n\n`;
     md += `*Written by the enrichment agent${run.finished_at ? ` on ${minute(run.finished_at)}` : ''}. `;
     md += `AI-generated from the attached material — verify before acting.*\n\n`;
     md += `${run.brief}\n\n`;
@@ -100,22 +318,30 @@ export function buildIncidentReportMarkdown(d: IncidentReportData): string {
   md += `## Evidence (${(inc.evidence || []).length})\n\n`;
   md += `The evidence locker is append-only and hash-chained; each entry's sha256 is listed for audit.\n\n`;
   (inc.evidence || []).forEach((ev, i) => {
-    md += `### ${i + 1}. [${ev.evidence_type.replace('_', ' ')}] ${ev.title || ev.source_ref || '(untitled)'}\n\n`;
+    const meta = (ev as any).meta;
+    md += `### ${i + 1}. ${displayTitle(ev.title, ev.source_ref, meta)}\n\n`;
     if (ev.source_ref && String(ev.source_ref).startsWith('http')) md += `<${ev.source_ref}>\n\n`;
-    md += `*Captured ${minute(ev.captured_at)} by ${ev.captured_by || 'unknown'}*\n\n`;
-    if (ev.content) md += `${String(ev.content).slice(0, 1500)}\n\n`;
+    const facts: string[] = [];
+    if (postedDate(meta)) facts.push(`Posted ${postedDate(meta)}`);
+    const eng = engagementLine(meta);
+    if (eng) facts.push(eng);
+    if (meta?.sentiment) facts.push(`sentiment: ${meta.sentiment}`);
+    facts.push(`captured ${minute(ev.captured_at)} by ${ev.captured_by || 'unknown'}`);
+    md += `*${facts.join(' · ')}*\n\n`;
+    if (ev.content) md += `${truncateBlock(cleanText(String(ev.content)), 1500)}\n\n`;
+    const tr = trans[String(ev.id)];
+    if (tr) md += `> **English translation (from ${tr.language}, AI-generated):** ${tr.text}\n\n`;
     md += `\`sha256 ${ev.content_sha256}\` · \`chain ${ev.chain_sha256}\`\n\n`;
   });
 
-  const timeline = inc.timeline || [];
-  if (timeline.length) {
+  const rows = buildTimelineRows(d);
+  if (rows.length) {
     md += `## Timeline\n\n`;
-    // stored newest-first; a report reads oldest-first
-    for (const ev of [...timeline].reverse()) {
-      const what = ev.kind === 'status_change'
-        ? `status ${ev.old_value || '?'} → ${ev.new_value || '?'}`
-        : ev.note || ev.kind;
-      md += `- **${minute(ev.at)}** (${ev.actor || 'system'}) — ${what}\n`;
+    md += `Source publication dates and case activity, oldest first.\n\n`;
+    let lastDay = '';
+    for (const r of rows) {
+      if (day(r.at) !== lastDay) { lastDay = day(r.at); md += `\n**${dayHeading(r.at)}**\n\n`; }
+      md += `- ${hhmm(r.at) || '—'} · *${r.actor}* — ${r.what}\n`;
     }
     md += `\n`;
   }
@@ -124,7 +350,7 @@ export function buildIncidentReportMarkdown(d: IncidentReportData): string {
   if (pending.length) {
     md += `## Enrichment candidates awaiting review (${pending.length})\n\n`;
     for (const c of pending) {
-      md += `- [${c.candidate_type.replace('_', ' ')}] ${c.title || c.source_ref}`
+      md += `- [${c.candidate_type.replace('_', ' ')}] ${displayTitle(c.title, c.source_ref, null)}`
           + (c.reason ? ` — ${c.reason}` : '') + `\n`;
     }
     md += `\n`;
@@ -136,37 +362,38 @@ export function buildIncidentReportMarkdown(d: IncidentReportData): string {
     md += `Every agent-proposed item an analyst has ruled on. Dismissed items are never re-proposed.\n\n`;
     md += `| Decision | Type | Item | Found because | Decided by | When |\n|---|---|---|---|---|---|\n`;
     for (const h of history) {
-      const item = (h.title || h.source_ref || '').replace(/\|/g, '\\|');
+      const item = displayTitle(h.title, h.source_ref, null).replace(/\|/g, '\\|');
       md += `| ${h.state} | ${h.candidate_type.replace('_', ' ')} | ${item} | `
           + `${(h.reason || '').replace(/\|/g, '\\|')} | ${h.decided_by || ''} | ${minute(h.decided_at)} |\n`;
     }
     md += `\n`;
   }
 
-  md += `---\n\n*Generated by Aunoo AI Brand Watcher. Parts of this report (agent brief, `
-      + `Five Signals verdicts) are AI-generated and should be verified before external use.*\n`;
+  md += `---\n\n*Generated by Aunoo AI Brand Watcher. Parts of this report (AI monitoring brief, `
+      + `Five Signals verdicts, translations) are AI-generated and should be verified before external use.*\n`;
   return md;
 }
 
 // ─── Interactive HTML (house style) ──────────────────────────────────────────
 
-/** Minimal markdown → HTML for the agent brief (headings, bold, bullets). */
+/** Minimal markdown → HTML for the agent brief (headings, bold, bullets),
+ * with URLs linkified. */
 function briefHtml(md: string): string {
   const lines = md.split('\n');
   let out = '', inList = false;
   for (const raw of lines) {
     const line = raw.trimEnd();
-    const bold = (s: string) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    const fmt = (s: string) => linkifyEscaped(esc(s)).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
     if (/^\s*[-*]\s+/.test(line)) {
       if (!inList) { out += '<ul>'; inList = true; }
-      out += `<li>${bold(line.replace(/^\s*[-*]\s+/, ''))}</li>`;
+      out += `<li>${fmt(line.replace(/^\s*[-*]\s+/, ''))}</li>`;
       continue;
     }
     if (inList) { out += '</ul>'; inList = false; }
-    if (/^###\s+/.test(line)) out += `<h4>${bold(line.replace(/^###\s+/, ''))}</h4>`;
-    else if (/^##\s+/.test(line)) out += `<h3>${bold(line.replace(/^##\s+/, ''))}</h3>`;
-    else if (/^#\s+/.test(line)) out += `<h3>${bold(line.replace(/^#\s+/, ''))}</h3>`;
-    else if (line) out += `<p>${bold(line)}</p>`;
+    if (/^###\s+/.test(line)) out += `<h4>${fmt(line.replace(/^###\s+/, ''))}</h4>`;
+    else if (/^##\s+/.test(line)) out += `<h3>${fmt(line.replace(/^##\s+/, ''))}</h3>`;
+    else if (/^#\s+/.test(line)) out += `<h3>${fmt(line.replace(/^#\s+/, ''))}</h3>`;
+    else if (line) out += `<p>${fmt(line)}</p>`;
   }
   if (inList) out += '</ul>';
   return out;
@@ -176,7 +403,7 @@ const BAND_COLOR: Record<string, string> = {
   good: '#16a34a', warn: '#E8A838', bad: '#dc2626', nodata: '#9ca3af',
 };
 
-export function buildIncidentReportHtml(d: IncidentReportData): string {
+export function buildIncidentReportHtml(d: IncidentReportData, trans: TranslationMap = {}): string {
   const inc = d.incident;
   const run = d.enrichment?.run;
   const gen = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
@@ -186,12 +413,20 @@ export function buildIncidentReportHtml(d: IncidentReportData): string {
   const statCard = (label: string, val: string, sub = '') =>
     `<div class="stat"><div class="eyebrow">${esc(label)}</div><div class="val">${esc(val)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>`;
 
+  const titleLink = (ev: { title?: string | null; source_ref?: string | null }, meta: any) => {
+    const t = displayTitle(ev.title, ev.source_ref, meta);
+    return ev.source_ref && String(ev.source_ref).startsWith('http')
+      ? `<a href="${esc(ev.source_ref)}" target="_blank" rel="noopener">${esc(t)}</a>`
+      : esc(t);
+  };
+
   const screened = screenedEvidence(d);
   const signalsHtml = screened.length ? `<section id="signals"><h2>Five Signals screening</h2>
     ${screened.map(ev => {
       const s = (ev as any).signals_summary;
+      const meta = (ev as any).meta;
       return `<div class="card">
-        <h3>${ev.source_ref ? `<a href="${esc(ev.source_ref)}" target="_blank" rel="noopener">${esc(ev.title || ev.source_ref)}</a>` : esc(ev.title || '')}
+        <h3>${titleLink(ev, meta)}
           <span class="muted" style="font-weight:400">${esc(hostOf(ev.source_ref))}</span></h3>
         <p style="margin:4px 0 10px"><span class="chip ${s.verdict === 'corroborated' ? 'pos' : s.verdict ? 'med' : 'neu'}">verdict: ${esc(s.verdict || 'n/a')}</span>
           <span class="chip neu">composite ${s.composite ?? '—'}/100</span></p>
@@ -205,7 +440,7 @@ export function buildIncidentReportHtml(d: IncidentReportData): string {
     <p class="muted">Screens run two engines on the Aunoo platform — claim validation and social story-reach — composed into five 0–100 signals. Propagation measures spread magnitude (wide spread of an adverse story is the risky case).</p>
   </section>` : '';
 
-  const briefSection = run?.brief ? `<section id="brief"><h2>Agent brief</h2>
+  const briefSection = run?.brief ? `<section id="brief"><h2>AI monitoring brief</h2>
     <div class="card prose">${briefHtml(run.brief)}
       <p class="muted" style="margin-top:10px">Written by the enrichment agent${run.finished_at ? ` on ${esc(minute(run.finished_at))}` : ''} — AI-generated from the attached material; verify before acting.</p>
     </div></section>` : '';
@@ -214,34 +449,49 @@ export function buildIncidentReportHtml(d: IncidentReportData): string {
     <p class="muted" style="margin:0 0 10px">Append-only, hash-chained locker — entries can never be edited or removed. sha256 digests below allow independent verification.</p>
     ${(inc.evidence || []).map((ev, i) => {
       const s = (ev as any).signals_summary;
+      const meta = (ev as any).meta;
       const chips = s?.status === 'completed'
         ? `<span class="sigchips">${(s.signals || []).map((sig: any) =>
             `<span class="sigchip" style="background:${BAND_COLOR[sig.band || 'nodata']}" title="${esc(SIG_TITLES[sig.key] || sig.key)}: ${sig.score != null ? sig.score + '/100' : 'no data'}">${SIG_SHORT[sig.key] || '?'}</span>`).join('')}</span>`
         : '';
+      const typeLabel = (meta?.platform || meta?.social_meta?.platform)
+        ? 'social post' : ev.evidence_type.replace('_', ' ');
+      const facts: string[] = [];
+      if (postedDate(meta)) facts.push(`posted ${postedDate(meta)}`);
+      const eng = engagementLine(meta);
+      if (eng) facts.push(eng);
+      const sentChip = meta?.sentiment
+        ? `<span class="chip ${String(meta.sentiment).toLowerCase() === 'negative' ? 'neg' : String(meta.sentiment).toLowerCase() === 'positive' ? 'pos' : 'neu'}">${esc(String(meta.sentiment).toLowerCase())}</span>` : '';
+      const tr = trans[String(ev.id)];
       return `<details class="alert evi" ${i < 3 ? 'open' : ''}>
         <summary><span class="chev">▸</span>
-          <span class="chip neu">${esc(ev.evidence_type.replace('_', ' '))}</span>
-          <span class="a-cat">${ev.source_ref && String(ev.source_ref).startsWith('http')
-            ? `<a href="${esc(ev.source_ref)}" target="_blank" rel="noopener">${esc(ev.title || ev.source_ref)}</a> <span class="muted" style="font-weight:400">${esc(hostOf(ev.source_ref))}</span>`
-            : esc(ev.title || ev.source_ref || '(untitled)')}</span>
+          <span class="chip neu">${esc(typeLabel)}</span>
+          <span class="a-cat">${titleLink(ev, meta)} <span class="muted" style="font-weight:400">${esc(hostOf(ev.source_ref))}</span></span>
+          ${sentChip}
           ${chips}
-          <span class="a-meta">${esc(minute(ev.captured_at))}</span></summary>
+          <span class="a-meta">${esc(postedDate(meta) ? `posted ${postedDate(meta)}` : minute(ev.captured_at))}</span></summary>
         <div class="a-body">
-          ${ev.content ? `<p style="white-space:pre-wrap">${esc(String(ev.content).slice(0, 2000))}</p>` : ''}
-          <p class="muted">captured by ${esc(ev.captured_by || 'unknown')} · sha256 <code>${esc(ev.content_sha256)}</code> · chain <code>${esc(ev.chain_sha256)}</code></p>
+          ${facts.length ? `<p class="muted" style="margin:6px 0 4px">${esc(facts.join(' · '))}</p>` : ''}
+          ${ev.content ? (ev.evidence_type === 'note'
+            ? `<div class="prose">${briefHtml(truncateBlock(cleanText(String(ev.content)), 4000))}</div>`
+            : `<p style="white-space:pre-wrap">${bodyHtml(String(ev.content))}</p>`) : ''}
+          ${tr ? `<div class="trans"><b>English translation (from ${esc(tr.language)}, AI-generated):</b><br>${esc(tr.text)}</div>` : ''}
+          <p class="muted">captured ${esc(minute(ev.captured_at))} by ${esc(ev.captured_by || 'unknown')} · sha256 <code>${esc(ev.content_sha256)}</code> · chain <code>${esc(ev.chain_sha256)}</code></p>
         </div></details>`;
     }).join('')}
   </section>`;
 
-  const timeline = [...(inc.timeline || [])].reverse();
-  const timelineHtml = timeline.length ? `<section id="timeline"><h2>Timeline</h2><div class="card">
-    ${timeline.map(ev => {
-      const what = ev.kind === 'status_change'
-        ? `status <b>${esc(ev.old_value || '?')}</b> → <b>${esc(ev.new_value || '?')}</b>`
-        : esc(ev.note || ev.kind);
-      return `<div class="tl-row"><span class="tl-when">${esc(minute(ev.at))}</span>
-        <span class="tl-actor">${esc(ev.actor || 'system')}</span>
-        <span class="tl-what">${what}</span></div>`;
+  const rows = buildTimelineRows(d);
+  let lastDay = '';
+  const timelineHtml = rows.length ? `<section id="timeline"><h2>Timeline</h2>
+    <p class="muted" style="margin:0 0 10px">Source publication dates and case activity, oldest first. Rows marked <span class="chip med">source</span> are when the underlying posts/articles appeared; the rest is case handling.</p>
+    <div class="card">
+    ${rows.map(r => {
+      const head = day(r.at) !== lastDay ? `<div class="tl-day">${esc(dayHeading(r.at))}</div>` : '';
+      lastDay = day(r.at);
+      return `${head}<div class="tl-row${r.isSource ? ' tl-src' : ''}"><span class="tl-when">${esc(hhmm(r.at) || '—')}</span>
+        <span class="tl-actor">${r.isSource ? '<span class="chip med">source</span>' : esc(r.actor)}</span>
+        <span class="tl-what">${r.whatHtml || esc(r.what)}</span></div>`;
     }).join('')}
   </div></section>` : '';
 
@@ -249,7 +499,7 @@ export function buildIncidentReportHtml(d: IncidentReportData): string {
   const pendingHtml = pending.length ? `<section id="candidates"><h2>Enrichment candidates awaiting review (${pending.length})</h2>
     <div class="card">${pending.map(c => `<div class="tl-row">
       <span class="chip neu">${esc(c.candidate_type.replace('_', ' '))}</span>
-      <span class="tl-what">${c.source_ref && String(c.source_ref).startsWith('http') ? `<a href="${esc(c.source_ref)}" target="_blank" rel="noopener">${esc(c.title || c.source_ref)}</a>` : esc(c.title || c.source_ref)}
+      <span class="tl-what">${c.source_ref && String(c.source_ref).startsWith('http') ? `<a href="${esc(c.source_ref)}" target="_blank" rel="noopener">${esc(displayTitle(c.title, c.source_ref, null))}</a>` : esc(displayTitle(c.title, c.source_ref, null))}
         ${c.reason ? `<span class="muted"> — ${esc(c.reason)}</span>` : ''}</span></div>`).join('')}
       <p class="muted" style="margin-top:8px">Found by the enrichment agent; not part of the evidence locker until an analyst attaches them.</p>
     </div></section>` : '';
@@ -259,7 +509,7 @@ export function buildIncidentReportHtml(d: IncidentReportData): string {
     <div class="card">${history.map(h => `<div class="tl-row">
       <span class="chip ${h.state === 'attached' ? 'pos' : 'neu'}">${esc(h.state)}</span>
       <span class="chip neu">${esc(h.candidate_type.replace('_', ' '))}</span>
-      <span class="tl-what">${h.source_ref && String(h.source_ref).startsWith('http') ? `<a href="${esc(h.source_ref)}" target="_blank" rel="noopener">${esc(h.title || h.source_ref)}</a>` : esc(h.title || h.source_ref)}
+      <span class="tl-what">${h.source_ref && String(h.source_ref).startsWith('http') ? `<a href="${esc(h.source_ref)}" target="_blank" rel="noopener">${esc(displayTitle(h.title, h.source_ref, null))}</a>` : esc(displayTitle(h.title, h.source_ref, null))}
         ${h.reason ? `<span class="muted"> — found: ${esc(h.reason)}</span>` : ''}</span>
       <span class="tl-actor">${esc(h.decided_by || '')}</span>
       <span class="tl-when">${esc(minute(h.decided_at))}</span></div>`).join('')}
@@ -308,10 +558,13 @@ details.alert .chev{color:var(--muted);transition:transform .15s}details.alert[o
 .a-cat{flex:1;font-weight:600;font-size:13px;min-width:200px}.a-meta{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .a-body{padding:4px 12px 10px 34px;border-top:1px solid #f0f0f4;font-size:12.5px;color:var(--text2)}
 .a-body code{font-size:10px;word-break:break-all}
+.trans{margin:8px 0;padding:8px 10px;border-left:3px solid var(--accent);background:var(--accent-tint);border-radius:0 8px 8px 0;font-size:12.5px}
 .sigchips{display:inline-flex;gap:1px;border-radius:999px;overflow:hidden}
 .sigchip{color:#fff;font-size:9px;font-weight:700;padding:1px 5px}
+.tl-day{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);padding:10px 0 4px;border-bottom:1px solid #f4f4f7}
 .tl-row{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #f4f4f7;font-size:12.5px;align-items:baseline}
 .tl-row:last-child{border-bottom:none}
+.tl-row.tl-src{background:#fdf7fb}
 .tl-when{color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0;width:120px}
 .tl-actor{color:var(--accent);flex-shrink:0;width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tl-what{flex:1;color:var(--text2)}
@@ -333,7 +586,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
     ${screened.length ? '<a href="#signals">Signals</a>' : ''}
     ${run?.brief ? '<a href="#brief">Brief</a>' : ''}
     <a href="#evidence">Evidence</a>
-    ${timeline.length ? '<a href="#timeline">Timeline</a>' : ''}
+    ${rows.length ? '<a href="#timeline">Timeline</a>' : ''}
     ${history.length ? '<a href="#dispositions">Dispositions</a>' : ''}
   </nav>
   <input class="search" id="q" type="search" placeholder="Filter evidence…" />
@@ -350,7 +603,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
       ${statCard('Evidence items', String((inc.evidence || []).length), 'hash-chained')}
       ${statCard('Owner', inc.owner || '—')}
     </div>
-    ${inc.description ? `<div class="card"><p style="margin:0;color:var(--text2)">${esc(inc.description)}</p></div>` : ''}
+    ${inc.description ? `<div class="card"><p style="margin:0;color:var(--text2)">${linkifyEscaped(esc(cleanText(inc.description)))}</p></div>` : ''}
   </section>
 
   ${signalsHtml}
@@ -361,7 +614,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   ${historyHtml}
 
   <footer>Generated by Aunoo AI Brand Watcher · ${gen}<br>
-  Parts of this report (agent brief, Five Signals verdicts) are AI-generated and should be verified before external use.</footer>
+  Parts of this report (AI monitoring brief, Five Signals verdicts, translations) are AI-generated and should be verified before external use.</footer>
 </main>
 <script>
 (function(){
@@ -380,7 +633,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
 
 // ─── PDF (text-based, jsPDF) ─────────────────────────────────────────────────
 
-export function buildIncidentReportPdf(d: IncidentReportData): void {
+export function buildIncidentReportPdf(d: IncidentReportData, trans: TranslationMap = {}): void {
   const inc = d.incident;
   const run = d.enrichment?.run;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -409,7 +662,7 @@ export function buildIncidentReportPdf(d: IncidentReportData): void {
   addText(`${inc.brand_name || ''} · Severity: ${inc.severity.toUpperCase()} · Status: ${inc.status}${inc.owner ? ` · Owner: ${inc.owner}` : ''}`, 11, true, sevColor);
   addText(`Opened ${day(inc.created_at)} by ${inc.created_by || 'unknown'}${inc.resolved_at ? ` · Resolved ${day(inc.resolved_at)}` : ''} · Report generated ${new Date().toLocaleString()}`, 9, false, [120, 120, 120]);
   y += 3;
-  if (inc.description) { addText(inc.description, 10.5); y += 3; }
+  if (inc.description) { addText(cleanText(inc.description), 10.5); y += 3; }
 
   const screened = screenedEvidence(d);
   if (screened.length) {
@@ -418,7 +671,7 @@ export function buildIncidentReportPdf(d: IncidentReportData): void {
     for (const ev of screened) {
       const s = (ev as any).signals_summary;
       checkPageBreak(30);
-      addText(ev.title || ev.source_ref || '', 11, true);
+      addText(displayTitle(ev.title, ev.source_ref, (ev as any).meta), 11, true);
       if (ev.source_ref) addText(ev.source_ref, 8, false, [100, 100, 180]);
       addText(`Verdict: ${s.verdict || 'n/a'} · Composite: ${s.composite ?? 'n/a'}/100`, 10, true);
       for (const sig of s.signals || []) {
@@ -430,7 +683,7 @@ export function buildIncidentReportPdf(d: IncidentReportData): void {
 
   if (run?.brief) {
     checkPageBreak(25);
-    addText('Agent brief', 13, true, [214, 64, 159]);
+    addText('AI monitoring brief', 13, true, [214, 64, 159]);
     addText(`AI-generated${run.finished_at ? ` ${minute(run.finished_at)}` : ''} — verify before acting.`, 8.5, false, [130, 130, 130]);
     // Strip markdown headers/bold for the PDF's plain text
     const plain = run.brief.replace(/^#{1,4}\s+/gm, '').replace(/\*\*/g, '');
@@ -441,24 +694,36 @@ export function buildIncidentReportPdf(d: IncidentReportData): void {
   checkPageBreak(20);
   addText(`Evidence (${(inc.evidence || []).length}) — append-only, hash-chained`, 13, true, [214, 64, 159]);
   (inc.evidence || []).forEach((ev, i) => {
+    const meta = (ev as any).meta;
     checkPageBreak(24);
-    addText(`${i + 1}. [${ev.evidence_type.replace('_', ' ')}] ${ev.title || ev.source_ref || '(untitled)'}`, 10.5, true);
+    addText(`${i + 1}. ${displayTitle(ev.title, ev.source_ref, meta)}`, 10.5, true);
     if (ev.source_ref && String(ev.source_ref).startsWith('http')) addText(ev.source_ref, 8, false, [100, 100, 180]);
-    addText(`Captured ${minute(ev.captured_at)} by ${ev.captured_by || 'unknown'}`, 8.5, false, [130, 130, 130]);
-    if (ev.content) addText(String(ev.content).slice(0, 600), 9, false, [60, 60, 60]);
+    const facts: string[] = [];
+    if (postedDate(meta)) facts.push(`Posted ${postedDate(meta)}`);
+    const eng = engagementLine(meta);
+    if (eng) facts.push(eng);
+    facts.push(`captured ${minute(ev.captured_at)} by ${ev.captured_by || 'unknown'}`);
+    addText(facts.join(' · '), 8.5, false, [130, 130, 130]);
+    if (ev.content) addText(truncateBlock(cleanText(String(ev.content)), 600), 9, false, [60, 60, 60]);
+    const tr = trans[String(ev.id)];
+    if (tr) addText(`English translation (from ${tr.language}, AI-generated): ${tr.text}`, 9, false, [120, 60, 120]);
     addText(`sha256 ${ev.content_sha256} · chain ${ev.chain_sha256}`, 7, false, [150, 150, 150]);
     y += 2;
   });
 
-  const timeline = [...(inc.timeline || [])].reverse();
-  if (timeline.length) {
+  const rows = buildTimelineRows(d);
+  if (rows.length) {
     checkPageBreak(20);
     addText('Timeline', 13, true, [214, 64, 159]);
-    for (const ev of timeline) {
-      const what = ev.kind === 'status_change'
-        ? `status ${ev.old_value || '?'} -> ${ev.new_value || '?'}`
-        : ev.note || ev.kind;
-      addText(`${minute(ev.at)}  ${ev.actor || 'system'} — ${what}`, 9, false, [70, 70, 70]);
+    addText('Source publication dates and case activity, oldest first.', 8.5, false, [130, 130, 130]);
+    let lastDay = '';
+    for (const r of rows) {
+      if (day(r.at) !== lastDay) {
+        lastDay = day(r.at);
+        checkPageBreak(10);
+        addText(dayHeading(r.at), 10, true, [80, 80, 80]);
+      }
+      addText(`${hhmm(r.at) || '—'}  ${r.actor} — ${r.what}`, 9, false, [70, 70, 70]);
     }
   }
 
@@ -469,7 +734,7 @@ export function buildIncidentReportPdf(d: IncidentReportData): void {
     addText('Every agent-proposed item an analyst has ruled on. Dismissed items are never re-proposed.', 8.5, false, [130, 130, 130]);
     for (const h of history) {
       const decision = h.state === 'attached' ? [22, 130, 60] : [120, 120, 120];
-      addText(`${h.state.toUpperCase()}  [${h.candidate_type.replace('_', ' ')}] ${h.title || h.source_ref || ''}`, 9.5, true, decision);
+      addText(`${h.state.toUpperCase()}  [${h.candidate_type.replace('_', ' ')}] ${displayTitle(h.title, h.source_ref, null)}`, 9.5, true, decision);
       addText(`  ${h.reason ? `found: ${h.reason} · ` : ''}decided by ${h.decided_by || 'unknown'} at ${minute(h.decided_at)}`, 8.5, false, [110, 110, 110]);
     }
   }
@@ -487,9 +752,10 @@ export function buildIncidentReportPdf(d: IncidentReportData): void {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-export function downloadIncidentReport(d: IncidentReportData, format: 'md' | 'html' | 'pdf'): void {
+export async function downloadIncidentReport(d: IncidentReportData, format: 'md' | 'html' | 'pdf'): Promise<void> {
+  const trans = await fetchTranslations(d);
   const base = `incident-${d.incident.id}-${slug(d.incident.title)}-${new Date().toISOString().slice(0, 10)}`;
-  if (format === 'md') download(buildIncidentReportMarkdown(d), `${base}.md`, 'text/markdown');
-  else if (format === 'html') download(buildIncidentReportHtml(d), `${base}.html`, 'text/html');
-  else buildIncidentReportPdf(d);
+  if (format === 'md') download(buildIncidentReportMarkdown(d, trans), `${base}.md`, 'text/markdown');
+  else if (format === 'html') download(buildIncidentReportHtml(d, trans), `${base}.html`, 'text/html');
+  else buildIncidentReportPdf(d, trans);
 }

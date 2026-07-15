@@ -5354,6 +5354,59 @@ async def incident_attach_search(q: str = Query(..., min_length=2),
         conn.close()
 
 
+class ReportTranslateRequest(BaseModel):
+    # [{id: "<any client key>", text: "<original>"}] — capped server-side
+    items: List[Dict[str, str]]
+
+
+@router.post("/incidents/translate")
+async def translate_for_report(req: ReportTranslateRequest, session=Depends(verify_session)):
+    """Translate non-English evidence excerpts to English for client-facing
+    report exports. Returns {translations: {id: {language, text}}}; items the
+    model judges already-English come back empty and the client skips them.
+
+    NB: registered before /incidents/{incident_id} so the literal path wins.
+    """
+    from app.ai_models import LiteLLMModel
+
+    items = [{"id": str(it.get("id", "")), "text": str(it.get("text", ""))[:1500]}
+             for it in (req.items or []) if str(it.get("text", "")).strip()][:10]
+    if not items:
+        return {"translations": {}}
+    numbered = "\n\n".join(f"[{it['id']}]\n{it['text']}" for it in items)
+    prompt = (
+        "Below are social media posts collected as evidence, each preceded by its [id]. "
+        "For every post that is not in English, translate it faithfully into English — keep the tone, "
+        "do not summarise, drop emoji and decorative symbols. Name the source language. "
+        "For posts already in English, return an empty string for text.\n\n"
+        'Respond ONLY with JSON: {"translations": [{"id": "...", "language": "...", "text": "..."}]}\n\n'
+        f"{numbered}"
+    )
+    try:
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        response = await model.agenerate_response([
+            {"role": "system", "content": "You are a professional translator. Respond only with valid JSON."},
+            {"role": "user", "content": prompt},
+        ])
+        response_text = response.strip()
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+        # tolerate trailing prose after the JSON object
+        parsed = json.JSONDecoder().raw_decode(response_text)[0]
+        out = {}
+        for tr in parsed.get("translations", []):
+            tid, ttext = str(tr.get("id", "")), (tr.get("text") or "").strip()
+            if tid and ttext:
+                out[tid] = {"language": tr.get("language") or "unknown", "text": ttext[:3000]}
+        return {"translations": out}
+    except Exception as e:
+        logger.error(f"incident report translation failed: {e}")
+        return {"translations": {}}
+
+
 @router.get("/incidents/{incident_id}")
 async def get_incident(incident_id: int, session=Depends(verify_session)):
     db = get_database_instance()

@@ -45,6 +45,8 @@ export interface IncidentCase {
   runVerifyChain: () => void;
   startEnrich: () => Promise<void>;
   decideEnrichSel: (action: 'attach' | 'dismiss') => Promise<void>;
+  decideOne: (candidateId: number, action: 'attach' | 'dismiss') => Promise<void>;
+  acceptAll: () => Promise<void>;
   attachRecommended: () => Promise<void>;
   attachBrief: () => void;
   doAttachSearch: () => Promise<void>;
@@ -148,6 +150,36 @@ export function useIncidentCase(opts: {
     finally { setEnrichBusy(false); }
   }, [detail, enrichSel, loadEnrichment, refreshIncident]);
 
+  const decideOne = useCallback(async (candidateId: number, action: 'attach' | 'dismiss') => {
+    if (!detail) return;
+    setEnrichBusy(true);
+    try {
+      const res = await decideEnrichmentCandidates(detail.id, [candidateId], action);
+      if (res.failed?.length) alert('That item could not be attached (source no longer available)');
+      loadEnrichment(detail.id);
+      if (action === 'attach') refreshIncident();
+    } catch (e) { console.error(e); alert(`Failed to ${action}: ` + e); }
+    finally { setEnrichBusy(false); }
+  }, [detail, loadEnrichment, refreshIncident]);
+
+  // One-click accept: everything the AI found (noise was already
+  // auto-dismissed by triage) goes into the case.
+  const acceptAll = useCallback(async () => {
+    if (!detail || !enrich) return;
+    const ids = (enrich.candidates || [])
+      .filter(c => c.candidate_type !== 'account_profile')
+      .map(c => c.id);
+    if (!ids.length) return;
+    setEnrichBusy(true);
+    try {
+      const res = await decideEnrichmentCandidates(detail.id, ids, 'attach');
+      if (res.failed?.length) alert(`${res.failed.length} item(s) could not be attached (source no longer available)`);
+      loadEnrichment(detail.id);
+      refreshIncident();
+    } catch (e) { alert(String(e)); }
+    finally { setEnrichBusy(false); }
+  }, [detail, enrich, loadEnrichment, refreshIncident]);
+
   const attachRecommended = useCallback(async () => {
     if (!detail || !enrich) return;
     const ids = (enrich.candidates || []).filter(c => c.recommendation === 'attach').map(c => c.id);
@@ -232,7 +264,7 @@ export function useIncidentCase(opts: {
     briefOpen, setBriefOpen, noteText, setNoteText, evidenceUrl, setEvidenceUrl,
     search, setSearch, profilePick, setProfilePick, fileBusy, fileInputRef,
     openIncident, closeIncident, refreshIncident, runVerifyChain, startEnrich,
-    decideEnrichSel, attachRecommended, attachBrief, doAttachSearch,
+    decideEnrichSel, decideOne, acceptAll, attachRecommended, attachBrief, doAttachSearch,
     attachSearchSelection, openProfilePicker, attachProfile, onFilePicked,
     captureUrl, saveNote,
   };

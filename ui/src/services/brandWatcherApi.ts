@@ -1100,6 +1100,15 @@ export async function attachIncidentEvidence(id: number, evidence: { evidence_ty
   return res.json();
 }
 
+export async function translateForReport(items: { id: string; text: string }[]): Promise<Record<string, { language: string; text: string }>> {
+  const res = await fetch(`${BASE}/incidents/translate`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error(`Failed to translate: ${res.status}`);
+  return (await res.json()).translations || {};
+}
+
 export async function verifyIncidentChain(id: number): Promise<{ items: number; intact: boolean; broken_ids: number[] }> {
   const res = await fetch(`${BASE}/incidents/${id}/verify-chain`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to verify chain: ${res.status}`);
