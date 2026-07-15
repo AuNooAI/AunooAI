@@ -446,10 +446,15 @@ async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, i
             return stats
         conn = _conn()
         try:
+            # Same rule as the /signals/run cached-return: a completed row only
+            # counts when BOTH engine payloads landed — a ceiling-timeout run
+            # composes from xnet alone and should be retried next time.
             rows = conn.execute(text("""
                 SELECT article_uri FROM bw_article_signals
                 WHERE article_uri = ANY(:u) AND brand_id = :b
-                  AND status IN ('running', 'completed')
+                  AND (status = 'running'
+                       OR (status = 'completed'
+                           AND validation IS NOT NULL AND reach IS NOT NULL))
             """), {"u": urls, "b": ctx["brand_id"]}).fetchall()
         finally:
             conn.close()
@@ -458,15 +463,15 @@ async def _screen_attached_articles(ctx: Dict, requested_by: str) -> Dict[str, i
         to_screen = [u for u in urls if u not in done][:MAX_SIGNAL_SCREENS]
         if not to_screen:
             return stats
-        # run_five_signals never raises; each screen polls saas for minutes, so
-        # run them concurrently. requested_by is 'agent:…', NOT 'auto' — the
-        # monitor's AUTO_SIGNALS_DAILY_CAP counts only 'auto' rows.
-        await asyncio.gather(*[
-            run_five_signals(u, ctx["brand_id"], u,
-                             requested_by=f"agent:{requested_by}")
-            for u in to_screen
-        ])
-        stats["screened"] = len(to_screen)
+        # Sequential on purpose: saas runs screen jobs from a small worker
+        # pool, and concurrent screens starve each other into the 600s job
+        # ceiling (observed: 2 parallel screens = all 4 jobs timing out).
+        # run_five_signals never raises. requested_by is 'agent:…', NOT
+        # 'auto' — the monitor's AUTO_SIGNALS_DAILY_CAP counts only 'auto'.
+        for u in to_screen:
+            await run_five_signals(u, ctx["brand_id"], u,
+                                   requested_by=f"agent:{requested_by}")
+            stats["screened"] += 1
     except Exception as e:  # noqa: BLE001
         logger.warning("Enrichment Five Signals screening failed: %s", e)
     return stats
