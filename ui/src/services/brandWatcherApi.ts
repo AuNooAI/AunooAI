@@ -1172,9 +1172,22 @@ export interface BWEnrichmentCandidate {
   meta?: Record<string, any> | null;
 }
 
+export interface BWEnrichmentDecision {
+  id: number;
+  run_id: number;
+  candidate_type: string;
+  source_ref?: string | null;
+  title?: string | null;
+  reason?: string | null;
+  state: 'attached' | 'dismissed' | string;
+  decided_by?: string | null;
+  decided_at?: string | null;
+}
+
 export interface BWEnrichmentState {
   run: BWEnrichmentRun | null;
   candidates: BWEnrichmentCandidate[];
+  history?: BWEnrichmentDecision[];
   counts: Record<string, number>;
 }
 

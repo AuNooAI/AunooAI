@@ -5704,6 +5704,13 @@ async def get_incident_enrichment(incident_id: int, session=Depends(verify_sessi
             ORDER BY CASE candidate_type WHEN 'article' THEN 0
                      WHEN 'social_post' THEN 1 ELSE 2 END, score DESC NULLS LAST, id
         """), {"i": incident_id}).fetchall()
+        decided = conn.execute(text("""
+            SELECT id, run_id, candidate_type, source_ref, title, reason, state,
+                   decided_by, decided_at
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND state != 'pending'
+            ORDER BY decided_at DESC NULLS LAST, id DESC
+        """), {"i": incident_id}).fetchall()
         counts = conn.execute(text("""
             SELECT state, COUNT(*) FROM bw_incident_enrichment_candidates
             WHERE incident_id = :i GROUP BY state
@@ -5725,6 +5732,10 @@ async def get_incident_enrichment(incident_id: int, session=Depends(verify_sessi
             "candidates": [{"id": c[0], "run_id": c[1], "candidate_type": c[2],
                             "source_ref": c[3], "title": c[4], "snippet": c[5],
                             "score": c[6], "reason": c[7], "meta": _j(c[8])} for c in cands],
+            "history": [{"id": h[0], "run_id": h[1], "candidate_type": h[2],
+                         "source_ref": h[3], "title": h[4], "reason": h[5],
+                         "state": h[6], "decided_by": h[7],
+                         "decided_at": h[8].isoformat() if h[8] else None} for h in decided],
             "counts": {s: n for s, n in counts},
         }
     finally:
