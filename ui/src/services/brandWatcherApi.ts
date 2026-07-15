@@ -1033,6 +1033,9 @@ export interface BWIncidentEvidence {
   chain_sha256: string;
   captured_by?: string | null;
   captured_at?: string | null;
+  // Set when the item now belongs to another case after a split — the row
+  // stays on this case's hash chain but is excluded from its working views.
+  reassigned_to?: number | null;
   // Five Signals screen summary for article evidence (same shape as the
   // Articles tab rows' signals_summary; null when unscreened / not an article)
   signals_summary?: {

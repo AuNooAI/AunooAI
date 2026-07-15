@@ -382,6 +382,7 @@ export function IncidentCaseFile(props: {
           <span className="text-xs text-gray-400">
             {syn.coverage.filter(i => i.inCase).length} in case
             {syn.agentFound.length ? ` · ${syn.agentFound.length} AI-found awaiting your ✓ / ✕` : ''}
+            {syn.reassignedCount ? ` · ${syn.reassignedCount} reassigned to other cases (audit record retained)` : ''}
           </span>
           <span className="flex-1" />
           <div className="relative">

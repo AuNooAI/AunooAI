@@ -5425,7 +5425,7 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
         """), {"i": incident_id}).fetchall()
         evidence = conn.execute(text("""
             SELECT id, evidence_type, source_ref, title, content, meta,
-                   content_sha256, chain_sha256, captured_by, captured_at
+                   content_sha256, chain_sha256, captured_by, captured_at, reassigned_to
             FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
         """), {"i": incident_id}).fetchall()
         def _j(v):
@@ -5470,6 +5470,7 @@ async def get_incident(incident_id: int, session=Depends(verify_session)):
                           "content": e[4], "meta": _j(e[5]), "content_sha256": e[6],
                           "chain_sha256": e[7], "captured_by": e[8],
                           "captured_at": e[9].isoformat() if e[9] else None,
+                          "reassigned_to": e[10],
                           "signals_summary": signals_map.get(e[2])} for e in evidence],
         }
     finally:
@@ -5541,6 +5542,41 @@ async def incident_report_summary(incident_id: int, session=Depends(verify_sessi
     except Exception as e:
         logger.error(f"incident report summary failed: {e}")
         return {"summary": ""}
+
+
+@router.post("/incidents/{incident_id}/evidence/{evidence_id}/reassign/{target_id}")
+async def reassign_evidence(incident_id: int, evidence_id: int, target_id: int,
+                            session=Depends(verify_session)):
+    """Mark an evidence item as belonging to another case (after a split).
+
+    The row and its hash chain are untouched — the marker only moves the item
+    out of this case's working evidence list and reports. It does NOT copy the
+    item to the target (splits/merges do that)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text(
+            "SELECT title FROM bw_incident_evidence WHERE id = :e AND incident_id = :i"
+        ), {"e": evidence_id, "i": incident_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Evidence not found on this incident")
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :t"), {"t": target_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Target incident not found")
+        conn.execute(text(
+            "UPDATE bw_incident_evidence SET reassigned_to = :t WHERE id = :e"
+        ), {"t": target_id, "e": evidence_id})
+        _incident_event(conn, incident_id, "note", _incident_actor(session),
+                        note=f"evidence '{(row[0] or '')[:80]}' reassigned to case #{target_id} "
+                             f"(record retained here, hash chain unchanged)")
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 @router.post("/incidents/{incident_id}/merge-into/{target_id}")

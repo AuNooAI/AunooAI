@@ -34,6 +34,19 @@ export interface IncidentReportData {
 /** id → AI English translation, keyed by String(evidence.id). */
 type TranslationMap = Record<string, { language: string; text: string }>;
 
+/** Report data with evidence reassigned to other cases (after a split)
+ * removed — those rows stay on the source case's hash chain but are not its
+ * material. The count feeds a one-line provenance note. */
+function scopedReportData(d: IncidentReportData): { data: IncidentReportData; reassignedCount: number } {
+  const all = d.incident.evidence || [];
+  const kept = all.filter((e: any) => !e.reassigned_to);
+  if (kept.length === all.length) return { data: d, reassignedCount: 0 };
+  return {
+    data: { ...d, incident: { ...d.incident, evidence: kept } },
+    reassignedCount: all.length - kept.length,
+  };
+}
+
 const SIG_TITLES: Record<string, string> = {
   veracity: 'Claim veracity', source_credibility: 'Source credibility',
   corroboration: 'Corroboration', propagation: 'Propagation & reach',
@@ -317,6 +330,11 @@ const screenedEvidence = (d: IncidentReportData) =>
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
 export function buildIncidentReportMarkdown(d: IncidentReportData, trans: TranslationMap = {}, situation = ''): string {
+  const scoped = scopedReportData(d);
+  d = scoped.data;
+  const reassignedNote = scoped.reassignedCount
+    ? `${scoped.reassignedCount} item(s) captured here were reassigned to other cases after a case split; they remain on this case's hash chain but are reported with their own cases.`
+    : '';
   const inc = d.incident;
   const run = d.enrichment?.run;
   let md = `# Incident #${inc.id}: ${inc.title}\n\n`;
@@ -362,6 +380,7 @@ export function buildIncidentReportMarkdown(d: IncidentReportData, trans: Transl
   }
 
   md += `## Evidence (${(inc.evidence || []).length})\n\n`;
+  if (reassignedNote) md += `*${reassignedNote}*\n\n`;
   md += `The evidence locker is append-only and hash-chained; each entry's sha256 is listed for audit.\n\n`;
   (inc.evidence || []).forEach((ev, i) => {
     const meta = (ev as any).meta;
@@ -427,6 +446,11 @@ const BAND_COLOR: Record<string, string> = {
 };
 
 export function buildIncidentReportHtml(d: IncidentReportData, trans: TranslationMap = {}, situation = ''): string {
+  const scoped = scopedReportData(d);
+  d = scoped.data;
+  const reassignedNote = scoped.reassignedCount
+    ? `${scoped.reassignedCount} item(s) captured here were reassigned to other cases after a case split; they remain on this case's hash chain but are reported with their own cases.`
+    : '';
   const inc = d.incident;
   const run = d.enrichment?.run;
   const gen = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
@@ -478,6 +502,7 @@ export function buildIncidentReportHtml(d: IncidentReportData, trans: Translatio
     </div></section>` : '';
 
   const evidenceHtml = `<section id="evidence"><h2>Evidence (${(inc.evidence || []).length})</h2>
+    ${reassignedNote ? `<p class="muted">${esc(reassignedNote)}</p>` : ''}
     <p class="muted" style="margin:0 0 10px">Append-only, hash-chained locker — entries can never be edited or removed. sha256 digests below allow independent verification.</p>
     ${(inc.evidence || []).map((ev, i) => {
       const s = (ev as any).signals_summary;
@@ -642,6 +667,11 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
 // ─── PDF (text-based, jsPDF) ─────────────────────────────────────────────────
 
 export function buildIncidentReportPdf(d: IncidentReportData, trans: TranslationMap = {}, situation = ''): void {
+  const scoped = scopedReportData(d);
+  d = scoped.data;
+  const reassignedNote = scoped.reassignedCount
+    ? `${scoped.reassignedCount} item(s) captured here were reassigned to other cases after a case split; they remain on this case's hash chain but are reported with their own cases.`
+    : '';
   const inc = d.incident;
   const run = d.enrichment?.run;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });

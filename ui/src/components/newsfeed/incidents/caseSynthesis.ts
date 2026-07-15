@@ -118,6 +118,7 @@ export interface CaseSynthesis {
   worstVerdict: string | null;
   chronology: ChronologyRow[];     // oldest first
   otherEvidence: BWIncidentEvidence[]; // files, notes, alert events — non-content locker items
+  reassignedCount: number;         // locker rows that now belong to other cases
 }
 
 const meta = (o: any) => o?.meta || {};
@@ -156,8 +157,11 @@ function socialTitle(title: string | null | undefined, ref: string | null | unde
 export function synthesizeCase(inc: BWIncidentDetail, enrich: BWEnrichmentState | null): CaseSynthesis {
   const coverage: CoverageItem[] = [];
   const otherEvidence: BWIncidentEvidence[] = [];
+  let reassignedCount = 0;
 
   for (const ev of inc.evidence || []) {
+    // Belongs to another case after a split — keep out of this case's views.
+    if (ev.reassigned_to) { reassignedCount += 1; continue; }
     const m = meta(ev);
     if (ev.evidence_type === 'article') {
       coverage.push({
@@ -224,7 +228,7 @@ export function synthesizeCase(inc: BWIncidentDetail, enrich: BWEnrichmentState 
   // Who's involved: profiled accounts + authors seen in coverage
   const accounts = new Map<string, InvolvedAccount>();
   for (const ev of inc.evidence || []) {
-    if (ev.evidence_type !== 'account_profile') continue;
+    if (ev.reassigned_to || ev.evidence_type !== 'account_profile') continue;
     const m = meta(ev);
     const p = m.profile || {};
     const key = `${(m.platform || '').toLowerCase()}:${(m.handle || p.handle || '').toLowerCase()}`;
@@ -289,6 +293,7 @@ export function synthesizeCase(inc: BWIncidentDetail, enrich: BWEnrichmentState 
     verdicts, worstVerdict,
     chronology,
     otherEvidence,
+    reassignedCount,
   };
 }
 

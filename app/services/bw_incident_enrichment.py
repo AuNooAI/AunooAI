@@ -147,9 +147,12 @@ def _load_context(incident_id: int) -> Optional[Dict]:
         """), {"i": incident_id}).fetchone()
         if not r:
             return None
+        # reassigned_to = item belongs to another case after a split — it
+        # stays in this locker (append-only) but is not this case's material.
         evidence = conn.execute(text("""
             SELECT evidence_type, source_ref, title, meta, captured_at, content
-            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+            FROM bw_incident_evidence
+            WHERE incident_id = :i AND reassigned_to IS NULL ORDER BY id
         """), {"i": incident_id}).fetchall()
         staged = conn.execute(text("""
             SELECT candidate_type, source_ref FROM bw_incident_enrichment_candidates
@@ -686,6 +689,7 @@ def _post_suggestions(ctx: Dict, incident_id: int) -> int:
               AND i2.brand_id = :b AND i2.status IN ('open', 'investigating')
             WHERE e1.incident_id = :i AND e1.source_ref IS NOT NULL
               AND e1.source_ref != ''
+              AND e1.reassigned_to IS NULL AND e2.reassigned_to IS NULL
         """), {"i": incident_id, "b": ctx["brand_id"]}).fetchall()
         flagged_dup_ids: Set[int] = set()
         for other_id, other_title in dup:
@@ -741,7 +745,7 @@ def _post_suggestions(ctx: Dict, incident_id: int) -> int:
                 JOIN bw_article_signals s
                   ON s.article_uri = e.source_ref AND s.brand_id = :b
                      AND s.status = 'completed' AND s.verdict IS NOT NULL
-                WHERE e.incident_id = :i
+                WHERE e.incident_id = :i AND e.reassigned_to IS NULL
             """), {"i": incident_id, "b": ctx["brand_id"]}).fetchall()
             verdicts = [r[0] for r in vr]
             risky = {"corroborated", "contested", "likely_coordinated"}
