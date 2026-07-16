@@ -62,7 +62,9 @@ _SUPERVISOR_SYSTEM = (
     "sharing an article or paper about a grim topic that happens to be published by the brand, "
     "a complaint about a third party, or general industry criticism that does not target the "
     "brand all count as false. A complaint about the brand's own product misbehaving counts "
-    "as true.\n"
+    "as true. Pay attention to WHO is criticized: if the brand is the one acting — suing "
+    "someone, criticizing a third party, winning a dispute — the negativity is directed at "
+    "the other party, not the brand, so answer false.\n"
     "2. spam_or_solicitation — is the post advertising, solicitation, a piracy/PDF/textbook "
     "request, or other spam, rather than a genuine opinion or experience?\n"
     'Respond with ONLY a JSON object: {"negative_toward_brand": true|false, '
