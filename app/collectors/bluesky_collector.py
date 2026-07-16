@@ -47,6 +47,7 @@ class BlueskyCollector(ArticleCollector):
             raise ValueError("Bluesky credentials not configured")
         
         self.client = Client()
+        self.requests_today = 0  # rate-counter expected by keyword_monitor logging
         self._auth()
 
     def _auth(self):
@@ -128,6 +129,7 @@ class BlueskyCollector(ArticleCollector):
             logger.debug(f"Searching Bluesky with params: {params}")
             
             response = self.client.app.bsky.feed.search_posts(params=params)
+            self.requests_today += 1
             
             if not response or not hasattr(response, 'posts'):
                 logger.warning(f"No posts found for query '{query}'")
