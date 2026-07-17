@@ -3956,6 +3956,13 @@ class _RunSignalRequest(BaseModel):
             return re.sub(r'\s+', ' ', v.strip())
         return v
 
+# Safety ceiling for the scheduled runner's candidate fetch. Candidates are
+# bounded by the days_back window minus already-alerted URIs, not by
+# max_articles — a 1000-row cap was silently hiding most of the window on
+# high-volume tenants.
+_SIGNAL_CANDIDATE_CEILING = 20000
+
+
 def _normalize_uri(uri: str) -> str:
     """Matching key for LLM-echoed article URIs — models drop trailing
     slashes or add/remove 'www.' when copying URIs into match JSON, which
@@ -5188,15 +5195,21 @@ async def _run_signal_instruction_internal(
                 search_strategy = 'recent'  # Fall through to date query below
 
         if search_strategy != 'semantic':
-            # Standard date-range query
+            # Standard date-range query. Already-alerted URIs are excluded in
+            # SQL so the whole remaining window is fetched — max_articles no
+            # longer caps this path (it silently dropped everything but the
+            # newest N articles when the window outgrew it).
             query = """
             SELECT uri, title, summary, news_source, publication_date, category, sentiment,
                    tags, extracted_article_topics, extracted_article_keywords
             FROM articles
             WHERE publication_date >= ? AND publication_date <= ?
             AND category IS NOT NULL AND sentiment IS NOT NULL
+            AND uri NOT IN (SELECT article_uri FROM signal_alerts
+                            WHERE instruction_id = ? AND article_uri IS NOT NULL)
             """
-            params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+            params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                      instruction_id]
 
             from app.core.modules import is_dedicated_bw
             if is_dedicated_bw():
@@ -5212,9 +5225,14 @@ async def _run_signal_instruction_internal(
                 params.extend([topic, topic_pattern, topic_pattern])
 
             query += " ORDER BY publication_date DESC LIMIT ?"
-            params.append(max_articles)
+            params.append(_SIGNAL_CANDIDATE_CEILING)
 
             articles = db.fetch_all(query, params)
+            if len(articles) >= _SIGNAL_CANDIDATE_CEILING:
+                logger.warning(
+                    f"{instruction['name']}: candidate fetch hit the "
+                    f"{_SIGNAL_CANDIDATE_CEILING}-row safety ceiling — oldest window "
+                    f"articles are being dropped; consider reducing days_back")
 
         if not articles:
             logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
