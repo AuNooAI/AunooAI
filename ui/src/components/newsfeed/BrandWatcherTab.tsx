@@ -22,6 +22,8 @@ import { downloadSocialReport } from '../../services/socialReportHtml';
 import { downloadPropagationReport } from '../../services/propagationReportHtml';
 import { IncidentsWorkspace } from './incidents/IncidentsWorkspace';
 import { cleanSocialText, stripSocialMarkdown } from '../../services/socialText';
+import { GroupSettingsModal } from '../gather/GroupSettingsModal';
+import { getKeywordGroups } from '../../services/gatherApi';
 import {
   buildAccountProfile, getAccountProfile, listAccountProfiles, setAccountTags, setAccountAnnotation,
   deepDiveAccount, deleteAccountProfile, setAccountWatchlist, emailAccountReport,
@@ -1531,12 +1533,33 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   }, [accountProfile, selectedBrand]);
 
   // Create/refresh this brand's social monitoring group (Reddit + Bluesky) and re-fetch.
+  // Social collection settings (platforms + cadence) for the selected brand's
+  // "{Brand} - Social" keyword group. Dedicated BW tenants hide the Gather
+  // page, so the group-settings modal is surfaced here instead.
+  const [socialSettingsGroup, setSocialSettingsGroup] = useState<{ id: number; name: string } | null>(null);
+  const handleOpenSocialSettings = useCallback(async () => {
+    if (!primarySelectedId) { alert('Select a brand first.'); return; }
+    const brandName = brands.find(b => b.id === primarySelectedId)?.display_name;
+    if (!brandName) { alert('Select a brand first.'); return; }
+    try {
+      const groups = await getKeywordGroups();
+      const match = groups.find(g => g.name === `${brandName} - Social`);
+      if (!match) {
+        alert(`No social monitoring group exists for "${brandName}" yet — use "Add social monitoring" first.`);
+        return;
+      }
+      setSocialSettingsGroup({ id: match.id, name: match.name });
+    } catch (e: any) {
+      alert('Failed to load social group: ' + e.message);
+    }
+  }, [primarySelectedId, brands]);
+
   const handleAddSocialMonitoring = useCallback(async () => {
     if (!primarySelectedId) { alert('Select a brand first.'); return; }
     setEnablingSocial(true);
     try {
       const r = await setupSocialMonitoring(primarySelectedId, 24);
-      alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune providers/interval/model in Gather → group Settings.`);
+      alert(`Social monitoring ${r.created ? 'enabled' : 'updated'}: "${r.group_name}" — ${r.keywords_added} keywords, polling every ${r.interval_hours}h. Posts collect on the next cycle; tune platforms/interval via the Social settings gear.`);
       fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
     } catch (e: any) {
       alert('Failed to enable social monitoring: ' + e.message);
@@ -4539,6 +4562,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               {enablingSocial ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
               {enablingSocial ? 'Enabling…' : 'Add / refresh social monitoring'}
             </button>
+            <button
+              onClick={handleOpenSocialSettings}
+              disabled={!primarySelectedId}
+              className="text-xs px-3 py-1 rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 disabled:opacity-50 inline-flex items-center gap-1.5"
+              title={primarySelectedId ? 'Social collection settings — platforms (credit cost) and fetch schedule' : 'Select a brand first'}
+            >
+              <Settings className="w-3.5 h-3.5" /> Social settings
+            </button>
           </div>
 
           {loadingSocial && (
@@ -6681,6 +6712,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- OFFICIAL SOURCES MODAL ---- */}
+      {socialSettingsGroup && (
+        <GroupSettingsModal
+          isOpen={!!socialSettingsGroup}
+          onClose={() => setSocialSettingsGroup(null)}
+          groupId={socialSettingsGroup.id}
+          groupName={socialSettingsGroup.name}
+        />
+      )}
+
       {showSourcesModal && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowSourcesModal(false)} />
