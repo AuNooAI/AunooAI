@@ -3956,6 +3956,20 @@ class _RunSignalRequest(BaseModel):
             return re.sub(r'\s+', ' ', v.strip())
         return v
 
+def _normalize_uri(uri: str) -> str:
+    """Matching key for LLM-echoed article URIs — models drop trailing
+    slashes or add/remove 'www.' when copying URIs into match JSON, which
+    saved alerts under URIs no article has (and broke repeat suppression)."""
+    u = (uri or '').strip().lower().rstrip('/')
+    for prefix in ('https://', 'http://'):
+        if u.startswith(prefix):
+            u = u[len(prefix):]
+            break
+    if u.startswith('www.'):
+        u = u[4:]
+    return u
+
+
 def _previously_alerted_uris(db, instruction_id: int) -> set:
     """URIs this instruction has already alerted on. signal_alerts upserts on
     (article_uri, instruction_id), so one row = already reported once; these
@@ -4184,6 +4198,9 @@ async def run_signal_instructions(
                 logger.info(f"{instruction['name']}: no new articles to analyze, skipping")
                 continue
 
+            norm_uri_lookup = {_normalize_uri(get_field(a, 'uri')): get_field(a, 'uri')
+                               for a in articles_to_analyze}
+
             # Determine batch processing based on strategy
             BATCH_SIZE = 50
             if search_strategy == 'chunked' and len(articles_to_analyze) > BATCH_SIZE:
@@ -4269,7 +4286,13 @@ async def run_signal_instructions(
                                 # Process each match
                                 for match in matches:
                                     if isinstance(match, dict) and match.get('signal_detected'):
-                                        article_uri = match.get('article_uri')
+                                        article_uri = norm_uri_lookup.get(
+                                            _normalize_uri(match.get('article_uri')))
+                                        if not article_uri:
+                                            logger.warning(
+                                                f"{instruction['name']}: match URI not in candidate set, "
+                                                f"skipping: {match.get('article_uri')}")
+                                            continue
                                         confidence = match.get('confidence', 0.5)
                                         threat_level = match.get('threat_level', 'medium')
                                         summary = match.get('summary', 'Signal detected')
@@ -5237,6 +5260,7 @@ IMPORTANT: Prioritize articles that mention any of these specific entities. If a
 
         # Build article lookup by URI for later
         article_lookup = {get_field(a, 'uri'): a for a in articles}
+        norm_uri_lookup = {_normalize_uri(u): u for u in article_lookup if u}
 
         for batch_articles in article_batches:
             if not batch_articles:
@@ -5291,8 +5315,12 @@ If no articles match, return an empty array: []"""
                         matches = json.loads(json_match.group())
                         for match in matches:
                             if isinstance(match, dict) and match.get('signal_detected'):
-                                article_uri = match.get('article_uri')
+                                article_uri = norm_uri_lookup.get(
+                                    _normalize_uri(match.get('article_uri')))
                                 if not article_uri:
+                                    logger.warning(
+                                        f"{instruction['name']}: match URI not in candidate set, "
+                                        f"skipping: {match.get('article_uri')}")
                                     continue
                                 # Create alert in database
                                 try:
