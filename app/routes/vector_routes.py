@@ -3956,6 +3956,23 @@ class _RunSignalRequest(BaseModel):
             return re.sub(r'\s+', ' ', v.strip())
         return v
 
+def _previously_alerted_uris(db, instruction_id: int) -> set:
+    """URIs this instruction has already alerted on. signal_alerts upserts on
+    (article_uri, instruction_id), so one row = already reported once; these
+    are excluded from re-analysis so alert emails only ever contain new
+    articles."""
+    try:
+        rows = db.fetch_all(
+            "SELECT article_uri FROM signal_alerts WHERE instruction_id = ?",
+            [instruction_id])
+        return {(r.get('article_uri') if hasattr(r, 'get') else r[0])
+                for r in rows}
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            f"Could not load previously-alerted URIs for instruction {instruction_id}: {e}")
+        return set()
+
+
 @router.post("/run-signals")
 async def run_signal_instructions(
     req: _RunSignalRequest,
@@ -4150,6 +4167,22 @@ async def run_signal_instructions(
             else:
                 # Use fetched articles (recent or chunked will process them differently)
                 articles_to_analyze = articles[:max_articles_config]
+
+            # Suppress repeats: drop articles this instruction has already
+            # alerted on, so notifications only ever carry new articles.
+            alerted_uris = _previously_alerted_uris(db, instruction['id'])
+            if alerted_uris:
+                before_suppress = len(articles_to_analyze)
+                articles_to_analyze = [a for a in articles_to_analyze
+                                       if get_field(a, 'uri') not in alerted_uris]
+                if before_suppress != len(articles_to_analyze):
+                    logger.info(
+                        f"{instruction['name']}: suppressed "
+                        f"{before_suppress - len(articles_to_analyze)} previously-alerted "
+                        f"article(s), {len(articles_to_analyze)} left to analyze")
+            if not articles_to_analyze:
+                logger.info(f"{instruction['name']}: no new articles to analyze, skipping")
+                continue
 
             # Determine batch processing based on strategy
             BATCH_SIZE = 50
@@ -5163,6 +5196,22 @@ async def _run_signal_instruction_internal(
         if not articles:
             logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
             return {"success": True, "alerts_created": 0, "message": "No articles found"}
+
+        # Suppress repeats: drop articles this instruction has already alerted
+        # on, so daily emails only ever carry new articles (the lookback
+        # window re-scans the same days every run).
+        alerted_uris = _previously_alerted_uris(db, instruction_id)
+        if alerted_uris:
+            before_suppress = len(articles)
+            articles = [a for a in articles if get_field(a, 'uri') not in alerted_uris]
+            suppressed = before_suppress - len(articles)
+            if suppressed:
+                logger.info(
+                    f"{instruction['name']}: suppressed {suppressed} previously-alerted "
+                    f"article(s), {len(articles)} left to analyze")
+            if not articles:
+                return {"success": True, "alerts_created": 0,
+                        "message": f"All {before_suppress} candidate articles previously alerted"}
 
         # Build entities section (matching inline runner)
         entities = config.get('entities_to_monitor', [])
