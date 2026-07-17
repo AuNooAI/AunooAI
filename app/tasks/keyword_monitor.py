@@ -988,9 +988,22 @@ class KeywordMonitor:
 
         logger.info(f"Initializing collectors for group '{group_settings.get('name')}': {providers}")
 
+        # Per-group xpoz platform subset (NULL = XPOZ_PLATFORMS env default)
+        social_platforms = None
+        raw_social = group_settings.get('social_platforms')
+        if raw_social:
+            try:
+                social_platforms = json.loads(raw_social) if isinstance(raw_social, str) else raw_social
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Invalid social_platforms JSON for group '{group_settings.get('name')}': {raw_social!r}")
+
         for provider in providers:
             try:
-                collector = self._create_collector(provider)
+                if provider == 'xpoz' and social_platforms:
+                    from app.collectors.xpoz_collector import XpozCollector
+                    collector = XpozCollector(platforms=social_platforms)
+                else:
+                    collector = self._create_collector(provider)
                 if collector:
                     collectors[provider] = collector
                     logger.debug(f"Initialized {provider} collector for group")
@@ -1018,6 +1031,7 @@ class KeywordMonitor:
             'interval_unit': group.get('interval_unit') or group.get('global_interval_unit', 3600),
             'search_date_range': group.get('search_date_range') or self.search_date_range,
             'providers': group.get('providers'),
+            'social_platforms': group.get('social_platforms'),
             'auto_ingest_enabled': group.get('auto_ingest_enabled'),
             'min_relevance_threshold': group.get('min_relevance_threshold'),
             'quality_control_enabled': group.get('quality_control_enabled'),

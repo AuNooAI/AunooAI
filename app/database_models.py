@@ -460,6 +460,7 @@ t_keyword_groups = Table(
     Column('interval_unit', Integer, nullable=True),  # 60=minutes, 3600=hours, 86400=days
     Column('search_date_range', Integer, nullable=True),
     Column('providers', Text, nullable=True),  # JSON array e.g., '["thenewsapi", "arxiv"]'
+    Column('social_platforms', Text, nullable=True),  # JSON array of xpoz platforms; NULL = XPOZ_PLATFORMS env default
     # Processing settings
     Column('auto_ingest_enabled', Boolean, nullable=True),
     Column('min_relevance_threshold', REAL, nullable=True),

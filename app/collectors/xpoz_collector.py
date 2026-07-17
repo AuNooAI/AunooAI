@@ -132,13 +132,19 @@ def _post_matches_terms(row: Dict, tokens: List[str]) -> bool:
 class XpozCollector(ArticleCollector):
     """Collector for social posts via the xpoz.ai SDK (one search per platform)."""
 
-    def __init__(self):
+    def __init__(self, platforms: Optional[List[str]] = None):
         self.api_key = _api_key()
         if not self.api_key:
             raise ValueError(
                 "Xpoz API key not configured. Set XPOZ_API_KEY environment variable."
             )
-        self.platforms = _platforms()
+        # Explicit platform list (per-group setting) wins over the
+        # XPOZ_PLATFORMS env default; unknown names are dropped.
+        if platforms:
+            want = [p.strip().lower() for p in platforms if p and p.strip()]
+            self.platforms = [p for p in want if p in _ALL_PLATFORMS] or _platforms()
+        else:
+            self.platforms = _platforms()
         self.requests_today = 0  # rate-counter expected by keyword_monitor logging
         logger.info("XpozCollector initialized (platforms=%s)", ",".join(self.platforms))
 

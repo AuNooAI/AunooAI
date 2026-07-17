@@ -3660,7 +3660,7 @@ class DatabaseQueryFacade:
             SELECT
                 id, name, topic, created_at, provider, source,
                 is_active, check_interval, interval_unit, search_date_range,
-                providers, auto_ingest_enabled, min_relevance_threshold,
+                providers, social_platforms, auto_ingest_enabled, min_relevance_threshold,
                 quality_control_enabled, auto_save_approved_only,
                 default_llm_model, llm_temperature, llm_max_tokens,
                 last_checked_at, next_check_at, last_error, updated_at
@@ -3691,6 +3691,7 @@ class DatabaseQueryFacade:
             'interval_unit': 'interval_unit',
             'search_date_range': 'search_date_range',
             'providers': 'providers',
+            'social_platforms': 'social_platforms',
             'auto_ingest_enabled': 'auto_ingest_enabled',
             'min_relevance_threshold': 'min_relevance_threshold',
             'quality_control_enabled': 'quality_control_enabled',
@@ -3752,6 +3753,7 @@ class DatabaseQueryFacade:
                     interval_unit = NULL,
                     search_date_range = NULL,
                     providers = NULL,
+                    social_platforms = NULL,
                     auto_ingest_enabled = NULL,
                     min_relevance_threshold = NULL,
                     quality_control_enabled = NULL,
@@ -3768,7 +3770,7 @@ class DatabaseQueryFacade:
         # Build dynamic update
         allowed_fields = [
             'is_active', 'check_interval', 'interval_unit', 'search_date_range',
-            'providers', 'auto_ingest_enabled', 'min_relevance_threshold',
+            'providers', 'social_platforms', 'auto_ingest_enabled', 'min_relevance_threshold',
             'quality_control_enabled', 'auto_save_approved_only',
             'default_llm_model', 'llm_temperature', 'llm_max_tokens',
         ]
@@ -3804,7 +3806,7 @@ class DatabaseQueryFacade:
             SELECT
                 kg.id, kg.name, kg.topic, kg.is_active,
                 kg.check_interval, kg.interval_unit, kg.search_date_range,
-                kg.providers, kg.auto_ingest_enabled, kg.min_relevance_threshold,
+                kg.providers, kg.social_platforms, kg.auto_ingest_enabled, kg.min_relevance_threshold,
                 kg.quality_control_enabled, kg.auto_save_approved_only,
                 kg.default_llm_model, kg.llm_temperature, kg.llm_max_tokens,
                 kg.last_checked_at, kg.next_check_at, kg.last_error,

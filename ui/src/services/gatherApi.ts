@@ -109,6 +109,7 @@ export interface KeywordGroupSettings {
   interval_unit?: number;      // 60=minutes, 3600=hours, 86400=days
   search_date_range?: number;
   providers?: string;          // JSON array e.g., '["thenewsapi", "arxiv"]'
+  social_platforms?: string;   // JSON array of xpoz platforms; null = env default
   auto_ingest_enabled?: boolean;
   min_relevance_threshold?: number;
   quality_control_enabled?: boolean;
@@ -140,6 +141,7 @@ export interface GroupSettingsUpdateRequest {
   interval_unit?: number;
   search_date_range?: number;
   providers?: string;
+  social_platforms?: string | null;   // JSON array of xpoz platforms; null clears override (env default)
   auto_ingest_enabled?: boolean;
   min_relevance_threshold?: number;
   quality_control_enabled?: boolean;
@@ -177,6 +179,7 @@ export interface AvailableProvider {
   name: string;
   description: string;
   configured: boolean;
+  platform_options?: string[];  // xpoz: selectable social platforms
 }
 
 const API_BASE = '/api/keyword-monitor';
