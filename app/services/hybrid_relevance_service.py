@@ -399,11 +399,29 @@ Score:"""
         try:
             from app.ai_models import AIModelFactory, extract_content
 
-            ai = AIModelFactory.get_model()
+            # Highest-volume LLM path on the box (50k+ calls/day on wileytest).
+            # Output is a single number, the exact task shape saas runs on
+            # Nova Lite at scale — 13x cheaper than Haiku (cost directive
+            # 2026-07-16: avoid Haiku unless necessary). Env knob for instant
+            # revert: HYBRID_RELEVANCE_LLM_MODEL=gpt-5.4-mini. (Not
+            # RELEVANCE_FALLBACK_MODEL — that's services/relevance_scorer.py's
+            # outage-fallback knob and is pinned to bedrock-claude-haiku in
+            # the tenant .envs.)
+            ai = AIModelFactory.get_model(
+                os.getenv("HYBRID_RELEVANCE_LLM_MODEL", "nova-lite")
+            )
             response = ai.generate_sync(prompt, max_tokens=10, temperature=0.0)
 
             response_text = extract_content(response)
-            score = float(response_text.strip())
+            # Extract the first number rather than strict float(): Bedrock
+            # models often prefix text ("Score: 0.2"), and a parse failure
+            # here becomes score None upstream — silently dropping the LLM
+            # verdict. Mirrors _compute_local_llm_score.
+            match = re.search(r'(\d+\.?\d*)', response_text)
+            if not match:
+                logger.warning(f"Could not parse external LLM score: {response_text!r}")
+                return None
+            score = float(match.group(1))
             score = max(0.0, min(1.0, score))
             logger.info(f"☁️ External GPT relevance score: {score:.3f}")
             return score

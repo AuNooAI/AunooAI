@@ -60,6 +60,15 @@ async def lifespan(app: FastAPI):
         # Set higher log levels for noisy modules
         logging.getLogger('numba').setLevel(logging.ERROR)
         logging.getLogger('httpx').setLevel(logging.WARNING)
+
+        # LLM usage ledger — global litellm callbacks + batch writer.
+        # Installed before any background task can make an LLM call so
+        # spend is measured from call one.
+        try:
+            from app.services.llm_usage_logger import install as _install_llm_ledger
+            _install_llm_ledger()
+        except Exception:
+            logger.exception("llm_usage_logger install failed (non-fatal)")
         logging.getLogger('httpcore').setLevel(logging.WARNING)
         logging.getLogger('litellm').setLevel(logging.WARNING)
         logging.getLogger('app.analyzers.prompt_manager').setLevel(logging.WARNING)

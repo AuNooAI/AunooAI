@@ -189,6 +189,23 @@ model_list:
 
 # Bedrock-only tenant: primaries are already Bedrock. Keep a Haiku fallback for the
 # Sonnet-backed names so a Sonnet hiccup still answers (Bedrock -> Bedrock).
+
+  # Nova tier — cost directive 2026-07-16: avoid Haiku 4.5 unless necessary.
+  # nova-lite is 13x cheaper than haiku-4-5; use for numeric scoring /
+  # bulk classification. nova-pro for structured extraction.
+  - model_name: nova-lite
+    litellm_params:
+      model: bedrock/us.amazon.nova-lite-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
+  - model_name: nova-pro
+    litellm_params:
+      model: bedrock/us.amazon.nova-pro-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
+
 fallbacks:
   - gpt-4o:
       - bedrock-claude-haiku
