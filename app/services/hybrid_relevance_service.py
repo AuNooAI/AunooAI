@@ -314,22 +314,32 @@ class HybridRelevanceService:
         brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
         entity = brand_match.group(1).strip() if brand_match else None
         kw_line = f"\nKey entities / search terms for this topic: {', '.join(keywords[:20])}" if keywords else ""
-        topic_line = (
-            f'Topic: news coverage of the company/organization "{entity}" (brand monitoring)'
-            if entity else f"Topic: {topic}"
-        )
-        brand_rule = (
-            f"""
-- BRAND MONITORING: the topic tracks the company "{entity}". Any article whose main
-  subject is that company — financial results/filings, stock or dividend news, deals,
-  partnerships, product/imprint news, journal or editorial changes, controversies, or
-  executive moves — IS directly about the topic and scores 0.7+. Articles about
-  unrelated people or things that merely share the name score 0.0-0.1.""" if entity else ""
-        )
-        # Materiality demotion of local/single-institution items applies to THEME topics
-        # only. For brand monitoring, company-specific items (a single deal, filing or
-        # journal move) ARE the signal — demoting them hides exactly what we track.
-        materiality_rules = "" if entity else """
+        if entity:
+            # Brand-monitoring topics: BROAD relevance. The brand, its products, its named
+            # competitors, and the industry/sector/policy it operates in all count as
+            # relevant even when the brand is not named — this recovers sector coverage
+            # (e.g. "academic publishing" news for a publisher watch) that a strict
+            # "must be mainly about the entity" prompt wrongly drops. `keywords` carry the
+            # brand / product / competitor context.
+            prompt = f"""You are a relevance auditor for a brand monitor.
+
+Brand/organization monitored: "{entity}"{kw_line}
+
+Article Title: {title}
+Article Summary: {summary}
+
+Score 0.0-1.0 how relevant this article is to monitoring "{entity}":
+- 0.7-1.0: primarily about {entity}, its products/services, its named competitors, or the industry/sector/policy it operates in.
+- 0.3-0.6: {entity} or its sector is a notable part of a broader story.
+- 0.0-0.2: only a coincidental name/keyword match about an unrelated subject (a different person, place or product of the same name), or unrelated local trivia.
+
+Respond with ONLY a number between 0.0 and 1.0.
+
+Score:"""
+        else:
+            # Theme topics keep the strict "must be primarily about the topic" auditor —
+            # it works well for them and their trained classifier is reliable.
+            materiality_rules = """
 - MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
   local administrative trivia. Purely LOCAL or single-institution items with no wider
   significance — e.g. one local college's admissions, exam results, fee notices, campus
@@ -338,14 +348,14 @@ class HybridRelevanceService:
 - Items of genuine global or strategic significance score normally regardless of where
   they occur or are reported — e.g. national R&D/science-funding policy, patent-cliff or
   generic-drug dynamics, major institutions, or developments affecting the field broadly."""
-        prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
+            prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
 
-{topic_line}{kw_line}
+Topic: {topic}{kw_line}
 
 Article Title: {title}
 Article Summary: {summary}
 
-Rules:{brand_rule}
+Rules:
 - The article must be DIRECTLY about the topic, not just tangentially related
 - Sharing a keyword is NOT enough — the article's main subject must match the topic
 - Generic news that mentions a related term in passing scores 0.1-0.2
@@ -538,6 +548,16 @@ Score:"""
             result["confidence"] = "high"
         else:
             result["confidence"] = "medium"
+
+        # Don't let the cheap LLM override a CONFIDENT relevance classifier on trained
+        # THEME topics: a 0.98-confident classifier being flipped down to 0.2 by the LLM
+        # was dropping genuinely-relevant articles (e.g. Geopolitical coverage). When the
+        # classifier is strongly positive we trust it and skip the LLM. Brand-monitoring
+        # topics are EXEMPT — their classifier is unreliable on entity relevance (it
+        # scores real brand coverage ~0.03), so the LLM remains the arbiter there.
+        is_brand_topic = bool(re.match(r'^Brand Monitoring\s+', topic or ''))
+        if not is_brand_topic and classifier_score is not None and classifier_score >= 0.90:
+            result["confidence"] = "high"
 
         # Cross-encoder tier: for borderline cases, try the CE before paying
         # for an LLM call. Populates ce_score either way when enabled so we
