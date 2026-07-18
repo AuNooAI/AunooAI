@@ -42,6 +42,28 @@ def main():
     conn = psycopg2.connect(host=env("DB_HOST") or "localhost", port=env("DB_PORT") or 5432,
                             dbname=env("DB_NAME"), user=env("DB_USER"), password=env("DB_PASSWORD"))
     cur = conn.cursor()
+    # Effective per-topic relevance threshold, matching production: a topic's own
+    # keyword_group.min_relevance_threshold, falling back to the global setting.
+    # Brand topics ("Brand Monitoring X") map to the "X ... - Brand Watch" group.
+    cur.execute("SELECT name, min_relevance_threshold FROM keyword_groups")
+    _groups = [(n, t) for n, t in cur.fetchall()]
+    cur.execute("SELECT min_relevance_threshold FROM keyword_monitor_settings WHERE id=1")
+    _row = cur.fetchone()
+    GLOBAL_THR = float(_row[0]) if _row and _row[0] is not None else 0.5
+    def resolve_threshold(topic):
+        if topic.startswith("Brand Monitoring"):
+            entity = topic[len("Brand Monitoring"):].strip().lower()
+            for name, thr in _groups:
+                nl = (name or "").strip().lower()
+                if "brand watch" in nl and entity and nl.startswith(entity):
+                    return float(thr) if thr is not None else GLOBAL_THR
+        else:
+            tl = topic.strip().lower()
+            for name, thr in _groups:
+                if (name or "").strip().lower() == tl:
+                    return float(thr) if thr is not None else GLOBAL_THR
+        return GLOBAL_THR
+
     # topics that actually have recent news on this tenant
     cur.execute("""SELECT topic, count(*) FROM articles
                    WHERE topic IS NOT NULL AND topic<>'' AND news_source NOT LIKE 'xpoz:%%'
@@ -50,7 +72,7 @@ def main():
     topics = [r[0] for r in cur.fetchall()]
     fixtures = []
     for topic in topics:
-        thr = 0.1 if topic.startswith("Brand Monitoring") else 0.5
+        thr = resolve_threshold(topic)
         cur.execute("""SELECT title, COALESCE(summary,'') FROM articles
                        WHERE topic=%s AND title IS NOT NULL AND news_source NOT LIKE 'xpoz:%%'
                          AND news_source<>'bluesky' AND submission_date > (now()-interval '14 days')::text
