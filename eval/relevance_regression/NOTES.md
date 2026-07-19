@@ -25,3 +25,23 @@ Score a sample of recent brand articles through `hybrid_relevance_service`
   '%- Brand Watch'`). Read live per collection run — no restart. Golden-test
   precision **62% → 100%**, recall held **100%**. (wbm is not a git repo; this note
   is the record. Other tenants keep their own per-group thresholds.)
+
+## Trend tracking
+
+Every `run.py` run (golden or live) appends a row to a **`relevance_test_runs`**
+table in the tenant's own DB — on top of the text `history.log`:
+
+    run_at | mode | n_items | acc | prec | rec | passed
+
+The table is harness-owned and self-creating (`CREATE TABLE IF NOT EXISTS`), kept
+outside alembic on purpose (test tooling, not app schema). Logging is best-effort
+— a DB hiccup never fails the test.
+
+Watch the trend:
+
+- `run.py --trend 20` — prints the last 20 runs as a table (no model load, instant).
+- Or query directly to chart precision/recall over time and catch a slow slide
+  before it trips the pass/fail gate:
+
+      SELECT run_at, mode, acc, prec, rec, passed
+      FROM relevance_test_runs ORDER BY run_at DESC;
