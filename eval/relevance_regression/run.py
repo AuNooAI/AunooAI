@@ -153,12 +153,62 @@ def run_live(svc, n):
     log_run("live", acc, prec, rec, cm, len(pairs))
     return acc,prec,rec
 
+REVIEW_MODEL = os.getenv("RELEVANCE_REVIEW_MODEL", "nova-lite")   # cost-conscious reviewer
+
+def run_review(limit=30):
+    """Have a cost-conscious LLM review the run-history trend and issue a verdict.
+    Complements the mechanical gate — catches slow slides the pass/fail threshold
+    would miss. Prints the review; persists it to relevance_test_reviews."""
+    try:
+        conn=db_conn(); cur=conn.cursor()
+        cur.execute("""SELECT run_at, mode, n_items, acc, prec, rec, passed
+                       FROM relevance_test_runs ORDER BY run_at DESC LIMIT %s""", (limit,))
+        rows=cur.fetchall(); cur.close(); conn.close()
+    except Exception as e:
+        log(f"review: cannot read trend ({str(e)[:60]})"); return None
+    if not rows:
+        log("review: no runs logged yet"); return None
+    history="\n".join(
+        f"{str(r[0])[:16]} {r[1]:6} n={r[2]} acc={r[3]:.2f} prec={r[4]:.2f} rec={r[5]:.2f} "
+        f"{'PASS' if r[6] else 'FAIL'}" for r in reversed(rows))
+    prompt=(
+        "You are QA-reviewing an automated relevance-scoring quality test for a news "
+        "monitoring pipeline. RECALL = fraction of truly-relevant articles KEPT (most "
+        "important; a decline means relevant news is being dropped). PRECISION = fraction "
+        "of kept articles that are actually relevant (a decline means more noise). 'golden' "
+        "= a fixed hand-labelled set (catches code regressions); 'live' = fresh articles "
+        "judged by a model (catches data drift).\n\nRun history (oldest first):\n"+history+
+        "\n\nIn 3-4 sentences, assess whether relevance quality is stable, improving, or "
+        "degrading, explicitly noting any downward slide in recall or precision. Finish with "
+        "a final line EXACTLY: VERDICT: <STABLE|WATCH|REGRESSING> - <one short recommendation>")
+    try:
+        from app.ai_models import AIModelFactory, extract_content
+        out=extract_content(AIModelFactory.get_model(REVIEW_MODEL).generate_sync(
+            prompt, max_tokens=280, temperature=0.2)).strip()
+    except Exception as e:
+        log(f"review: LLM call failed ({str(e)[:70]})"); return None
+    log(f"\n=== LLM REVIEW ({REVIEW_MODEL}, over {len(rows)} runs) ===\n{out}")
+    try:
+        conn=db_conn(); cur=conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS relevance_test_reviews (
+            id serial PRIMARY KEY, reviewed_at timestamptz NOT NULL DEFAULT now(),
+            model text, n_runs int, review text)""")
+        cur.execute("INSERT INTO relevance_test_reviews (model,n_runs,review) VALUES (%s,%s,%s)",
+                    (REVIEW_MODEL, len(rows), out))
+        conn.commit(); cur.close(); conn.close()
+    except Exception as e:
+        log(f"  (review-log skipped: {str(e)[:60]})")
+    return out
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--live", type=int, default=0, help="sample N recent articles, judge with nova-lite")
     ap.add_argument("--golden", action="store_true")
     ap.add_argument("--trend", type=int, default=0, help="print the last N logged runs and exit")
+    ap.add_argument("--review", action="store_true", help="LLM-review the trend history and exit")
     args=ap.parse_args()
+    if args.review:
+        run_review(); sys.exit(0)
     if args.trend:
         try:
             conn=db_conn(); cur=conn.cursor()

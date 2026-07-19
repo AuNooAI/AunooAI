@@ -45,3 +45,17 @@ Watch the trend:
 
       SELECT run_at, mode, acc, prec, rec, passed
       FROM relevance_test_runs ORDER BY run_at DESC;
+
+## Automatic LLM review
+
+The mechanical gate only fires on a hard pass/fail; a slow slide can stay under it.
+So a cost-conscious model (nova-lite, override with `RELEVANCE_REVIEW_MODEL`) reviews
+the trend on a schedule and issues a qualitative verdict:
+
+- `run.py --review` — reads the run history from `relevance_test_runs`, asks the LLM
+  whether quality is stable / improving / degrading (with emphasis on any recall
+  slide = relevant news being dropped), prints it, and stores the verdict + text in
+  a self-creating `relevance_test_reviews` table. Ends with a `VERDICT: <STABLE|WATCH|
+  REGRESSING> - <recommendation>` line.
+- `cron.sh review` — runs the review and emails the digest via Resend. Scheduled
+  **weekly** (root crontab). One nova-lite call per tenant per week — negligible cost.
