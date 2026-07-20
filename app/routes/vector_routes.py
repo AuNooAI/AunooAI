@@ -3935,6 +3935,82 @@ def _org_persona_report_prefix(db) -> str:
         return ""
 
 
+def _is_empty_report(content) -> bool:
+    """A report call counts as failed if it returned nothing usable — an empty
+    string (Bedrock intermittently returns empty completions) or one of the
+    provider-unavailable placeholder strings."""
+    if not content or not str(content).strip():
+        return True
+    lowered = str(content).lower()
+    return "⚠️" in content or "unavailable" in lowered
+
+
+async def _generate_report_with_retry(ai_model, messages, *, label="report",
+                                      attempts=3, base_delay=1.5):
+    """Generate a signal report, retrying on empty/placeholder output.
+
+    The batch report is a single extra LLM call on top of per-article scoring,
+    and Bedrock (Haiku 4.5 in particular) intermittently returns an empty
+    completion — roughly 1 run in 8 on high-volume tenants. Because the report
+    is customer-facing, retry a few times before giving up. Returns the report
+    text, or None if every attempt came back empty."""
+    import asyncio
+    from fastapi.concurrency import run_in_threadpool
+    for attempt in range(1, attempts + 1):
+        try:
+            content = await run_in_threadpool(ai_model.generate_response, messages)
+        except Exception as e:
+            logger.warning(f"Report generation attempt {attempt}/{attempts} for "
+                           f"'{label}' raised: {e}")
+            content = None
+        if not _is_empty_report(content):
+            if attempt > 1:
+                logger.info(f"Report generation for '{label}' succeeded on "
+                            f"attempt {attempt}/{attempts}")
+            return content
+        logger.warning(f"Report generation attempt {attempt}/{attempts} for "
+                       f"'{label}' returned empty/placeholder")
+        if attempt < attempts:
+            await asyncio.sleep(base_delay * attempt)
+    return None
+
+
+def _build_fallback_report(instruction_name: str, alerts: list) -> str:
+    """Deterministic markdown roll-up of matched alerts.
+
+    Guard for when the LLM report call keeps returning empty after retries:
+    the customer alert still gets an analysis section (threat breakdown + the
+    matched articles) instead of silently shipping as a bare list of links.
+    Labelled as automated so it is not mistaken for the AI analyst report."""
+    from collections import Counter
+    alerts = alerts or []
+    threat_counts = Counter((str(a.get('threat_level') or 'UNKNOWN')).upper()
+                            for a in alerts)
+    order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
+    threat_line = ", ".join(f"{threat_counts[t]} {t.title()}"
+                            for t in order if threat_counts.get(t))
+    lines = [
+        f"# Signal Summary: {instruction_name}",
+        "",
+        f"_Automated summary — the AI analyst report was unavailable for this "
+        f"run, so this is a direct roll-up of the {len(alerts)} matched "
+        f"article(s)._",
+        "",
+    ]
+    if threat_line:
+        lines += [f"**Threat levels:** {threat_line}", ""]
+    lines.append("## Matched Articles")
+    for i, a in enumerate(alerts[:10], 1):
+        level = str(a.get('threat_level') or 'N/A').upper()
+        summary = (a.get('summary') or '').strip() or '(no summary)'
+        lines.append(f"{i}. **[{level}]** {summary}")
+        if a.get('article_uri'):
+            lines.append(f"   {a['article_uri']}")
+    if len(alerts) > 10:
+        lines.append(f"\n_…and {len(alerts) - 10} more matched article(s)._")
+    return "\n".join(lines)
+
+
 class _RunSignalRequest(BaseModel):
     """Request for running specific signal instructions."""
     instruction_ids: List[int] = Field(..., description="Signal instruction IDs to run")
@@ -4444,9 +4520,11 @@ Use the timeline only to distinguish new developments from ongoing ones; do not 
                     {"role": "user", "content": full_prompt}
                 ]
 
-                report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+                report_content = await _generate_report_with_retry(
+                    ai_model, report_messages,
+                    label=', '.join(instruction_names) or 'signal report')
 
-                if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                if report_content:
                     # Generate report name if not provided
                     from datetime import datetime
                     report_name = req.report_name or f"Signal Report - {instruction_names[0]} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -4475,7 +4553,16 @@ Use the timeline only to distinguish new developments from ongoing ones; do not 
                     }
                     logger.info(f"Generated signal report ID: {report_id}")
                 else:
-                    logger.warning("Report generation returned empty or error response")
+                    # Guard: report empty after retries. Provide a deterministic
+                    # fallback so a single-instruction run's email still carries
+                    # an analysis section (not saved as a report — id=None).
+                    logger.warning("Report generation returned empty after retries; using deterministic fallback summary")
+                    report_data = {
+                        'id': None,
+                        'name': f"Signal Summary - {instruction_names[0]}" if instruction_names else "Signal Summary",
+                        'content': _build_fallback_report(', '.join(instruction_names), alerts_created),
+                        'articles_used': len(alerts_created)
+                    }
 
             except Exception as report_error:
                 logger.error(f"Error generating signal report: {report_error}")
@@ -4789,12 +4876,21 @@ Format as a concise markdown report.
                                                 {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control."},
                                                 {"role": "user", "content": per_inst_prompt}
                                             ]
-                                            per_inst_report = await run_in_threadpool(ai_model.generate_response, per_inst_messages)
-                                            if per_inst_report and not ("⚠️" in per_inst_report or "unavailable" in per_inst_report.lower()):
+                                            per_inst_report = await _generate_report_with_retry(
+                                                ai_model, per_inst_messages, label=instruction['name'])
+                                            if per_inst_report:
                                                 email_report_content = per_inst_report
                                                 logger.info(f"Generated per-instruction report for email: {instruction['name']}")
+                                            else:
+                                                # Guard: don't email a bare match list with no analysis.
+                                                email_report_content = _build_fallback_report(
+                                                    instruction['name'], instruction_alerts)
+                                                logger.warning(f"Per-instruction report empty after retries for "
+                                                               f"{instruction['name']}; using fallback summary")
                                         except Exception as per_inst_error:
                                             logger.error(f"Error generating per-instruction report for {instruction['name']}: {per_inst_error}")
+                                            email_report_content = _build_fallback_report(
+                                                instruction['name'], instruction_alerts)
                                     elif report_data:
                                         # Single instruction run - use the shared report
                                         email_report_content = report_data.get('content')
@@ -5425,9 +5521,10 @@ Format as a concise markdown report.
                         {"role": "system", "content": report_system_prompt},
                         {"role": "user", "content": full_prompt}
                     ]
-                    report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+                    report_content = await _generate_report_with_retry(
+                        ai_model, report_messages, label=instruction['name'])
 
-                    if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                    if report_content:
                         from datetime import datetime as dt_now
                         report_name = f"Signal Report - {instruction['name']} - {dt_now.now().strftime('%Y-%m-%d %H:%M')}"
                         report_id = db.facade.create_saved_signal_report(
@@ -5446,11 +5543,17 @@ Format as a concise markdown report.
                         )
                         logger.info(f"Generated signal report ID: {report_id} for {instruction['name']}")
                     else:
-                        report_content = None
-                        logger.warning(f"Report generation returned empty response for {instruction['name']}")
+                        # Guard: the LLM report came back empty on every attempt.
+                        # Never ship a customer alert with no analysis — fall back
+                        # to a deterministic roll-up (not saved as a report, so it
+                        # is not mistaken for the AI analyst output).
+                        report_content = _build_fallback_report(instruction['name'], instruction_alerts)
+                        logger.warning(f"Report generation returned empty after retries for "
+                                       f"{instruction['name']}; using deterministic fallback summary")
                 except Exception as report_error:
-                    report_content = None
                     logger.error(f"Error generating report for {instruction['name']}: {report_error}")
+                    # Even on an unexpected error, still give the email an analysis section.
+                    report_content = _build_fallback_report(instruction['name'], instruction_alerts)
 
             # Send Email if configured
             if config.get('send_email') and instruction_alerts and meets_threshold:
