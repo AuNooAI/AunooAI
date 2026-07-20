@@ -517,7 +517,9 @@ def _sig_corroboration(validation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _sig_propagation(reach: Optional[Dict[str, Any]],
-                     xnet: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     xnet: Optional[Dict[str, Any]] = None,
+                     seed_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    import math
     key, label = "propagation", SIGNAL_LABELS["propagation"]
     xplats = (xnet or {}).get("platforms") or {}
     xposts = sum(int(p.get("posts") or 0) for p in xplats.values())
@@ -527,13 +529,45 @@ def _sig_propagation(reach: Optional[Dict[str, Any]],
         xnet_txt = " Other networks: " + ", ".join(
             f"{plat} {p['posts']}" for plat, p in
             sorted(xplats.items(), key=lambda kv: -kv[1]["posts"])) + "."
+
+    # The attached post's own captured engagement. When the live search finds
+    # no wider pickup of the story, this is still real propagation of the seed
+    # post and must not read as a flat 0 / "nothing spreading".
+    sm = seed_meta or {}
+    seed_likes = int(sm.get("likes") or 0)
+    seed_reposts = int(sm.get("reposts") or 0)
+    seed_comments = int(sm.get("comments") or 0)
+    seed_eng = seed_likes + 2 * seed_reposts + seed_comments
+    seed_txt = ""
+    seed_ev = {}
+    if seed_eng > 0:
+        parts = [f"{seed_likes} likes", f"{seed_reposts} reposts"]
+        if seed_comments:
+            parts.append(f"{seed_comments} comments")
+        seed_txt = " The attached post itself drew " + ", ".join(parts) + "."
+        seed_ev = {"seed_engagement": {"likes": seed_likes, "reposts": seed_reposts,
+                                       "comments": seed_comments}}
+
+    def _seed_floor(base_summary: str, extra_ev: Dict[str, Any]) -> Dict[str, Any]:
+        """No wider pickup found — report the seed post's own engagement as a
+        small non-zero floor rather than a bare 0."""
+        if seed_eng <= 0:
+            return {"key": key, "label": label, "score": 0, "band": "good",
+                    "summary": base_summary, "evidence": extra_ev}
+        fscore = min(19, round(6 * math.log10(1 + seed_eng)))
+        return {"key": key, "label": label, "score": fscore, "band": "good",
+                "summary": base_summary + seed_txt,
+                "evidence": {**extra_ev, **seed_ev}}
+
     has_bsky = bool(reach and reach.get("search_available", False))
     if not has_bsky and not xplats:
         if xnet is not None:
-            return {"key": key, "label": label, "score": 0, "band": "good",
-                    "summary": "No pickup found: Bluesky lookup unavailable and no cross-network shares in the monitoring corpus"
-                               + ("/live query." if xnet.get("live_available") else " (live query not provisioned)."),
-                    "evidence": {"networks": xplats}}
+            return _seed_floor(
+                "No wider pickup found: Bluesky lookup unavailable and no cross-network shares in the monitoring corpus"
+                + ("/live query." if xnet.get("live_available") else " (live query not provisioned)."),
+                {"networks": xplats})
+        if seed_eng > 0:
+            return _seed_floor("Bluesky lookup unavailable.", {})
         return {"key": key, "label": label, "score": None, "band": "nodata",
                 "summary": "Social propagation lookup unavailable (Bluesky search not configured or job failed).",
                 "evidence": {}}
@@ -543,11 +577,10 @@ def _sig_propagation(reach: Optional[Dict[str, Any]],
     engagement = sum(int(totals.get(k) or 0) for k in ("likes", "reposts", "replies", "quotes"))
     exposure = (reach or {}).get("total_followers") or (reach or {}).get("exposure") or 0
     if posts == 0 and xposts == 0:
-        return {"key": key, "label": label, "score": 0, "band": "good",
-                "summary": "No social pickup found in the window (Bluesky + other networks).",
-                "evidence": {"totals": totals, "networks": xplats,
-                             "window_days": (reach or {}).get("window_days")}}
-    import math
+        return _seed_floor(
+            "No wider social pickup found in the window (Bluesky + other networks).",
+            {"totals": totals, "networks": xplats,
+             "window_days": (reach or {}).get("window_days")})
     # Spread magnitude 0-100: log-scaled Bluesky posts/accounts/exposure plus
     # cross-network posts + engagement.
     score = min(100, round(
@@ -624,14 +657,15 @@ def _sig_amplification(reach: Optional[Dict[str, Any]],
 
 def _compose_signals(validation: Optional[Dict[str, Any]],
                      reach: Optional[Dict[str, Any]],
-                     xnet: Optional[Dict[str, Any]] = None
+                     xnet: Optional[Dict[str, Any]] = None,
+                     seed_meta: Optional[Dict[str, Any]] = None
                      ) -> Tuple[Dict[str, Any], Optional[str], Optional[float]]:
     """Build the five signal entries + headline verdict + composite score."""
     signals = {
         "veracity": _sig_veracity(validation),
         "source_credibility": _sig_source(validation),
         "corroboration": _sig_corroboration(validation),
-        "propagation": _sig_propagation(reach, xnet),
+        "propagation": _sig_propagation(reach, xnet, seed_meta),
         "amplification_integrity": _sig_amplification(reach, validation),
     }
     verdict = (validation or {}).get("verdict")
@@ -731,7 +765,7 @@ async def run_five_signals(article_uri: str, brand_id: int, article_url: str,
                 " WHERE article_uri = :u AND brand_id = :b"
             ), {"u": article_uri, "b": brand_id}).fetchone()
             title_row = conn.execute(text(
-                "SELECT title FROM articles WHERE uri = :u"), {"u": article_uri}).fetchone()
+                "SELECT title, social_meta FROM articles WHERE uri = :u"), {"u": article_uri}).fetchone()
         finally:
             conn.close()
         def _pj(v):
@@ -740,6 +774,9 @@ async def run_five_signals(article_uri: str, brand_id: int, article_url: str,
         prior_reach = _pj(prior[1]) if prior else None
         prior_xnet = _pj(prior[2]) if prior else None
         article_title = (title_row[0] if title_row else "") or ""
+        # The attached post's own captured metrics — a floor for propagation
+        # when the live Bluesky search finds no wider pickup of the story.
+        seed_meta = (_pj(title_row[1]) if title_row and title_row[1] else None) or {}
 
         _upsert_row(article_uri, brand_id, status="running",
                     requested_by=requested_by)
@@ -791,7 +828,7 @@ async def run_five_signals(article_uri: str, brand_id: int, article_url: str,
                         error=" | ".join(errors)[:1000], requested_by=requested_by)
             return
 
-        signals, verdict, composite = _compose_signals(validation, reach, xnet)
+        signals, verdict, composite = _compose_signals(validation, reach, xnet, seed_meta)
         # Only fresh payloads are written; COALESCE in the upsert keeps the
         # other engine's stored payload intact on partial runs.
         _upsert_row(article_uri, brand_id, status="completed",

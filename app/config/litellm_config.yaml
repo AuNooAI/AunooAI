@@ -206,6 +206,16 @@ model_list:
       aws_region_name: "us-east-1"
       additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
+  # Kimi K2.5 — staged 2026-07-20 as enrichment default on bugfixing only.
+  # Benchmark run 29beea1b525e: beat Haiku 4.5 89.3% pairwise (dual judge) on the
+  # production enrichment prompt at ~half the cost ($0.60/$3.00 vs $1.00/$5.00 per 1M).
+  - model_name: bedrock-kimi-k2-5
+    litellm_params:
+      model: bedrock/moonshotai.kimi-k2.5
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
+
 fallbacks:
   - gpt-4o:
       - bedrock-claude-haiku

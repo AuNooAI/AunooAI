@@ -169,6 +169,13 @@ def _load_context(incident_id: int) -> Optional[Dict]:
         ev_summaries: List[Dict] = []
         for etype, ref, title, meta, cap_at, content in evidence:
             meta = _jload(meta) or {}
+            # Captured engagement lives nested: meta["engagement"] for
+            # social_post attachments, else inside the raw social_meta blob.
+            _eng_src = meta.get("engagement") or {}
+            _sm = _jload(meta.get("social_meta")) or {}
+            engagement = {k: int(_eng_src.get(k) or _sm.get(k) or 0)
+                          for k in ("likes", "reposts", "comments")
+                          if _eng_src.get(k) or _sm.get(k)}
             if ref:
                 seen.add(ref)
             if meta.get("uri"):
@@ -190,6 +197,9 @@ def _load_context(incident_id: int) -> Optional[Dict]:
                                  "source": meta.get("news_source"),
                                  "author": meta.get("author"),
                                  "platform": meta.get("platform"),
+                                 # captured engagement on the post itself — the
+                                 # brief's "how it is spreading" is blind without it
+                                 "engagement": engagement,
                                  # the locker snapshot IS the material — the
                                  # brief is useless without it
                                  "content": (content or "")[:1500]})
@@ -433,6 +443,10 @@ async def _write_brief(ctx: Dict, cands: List[Dict]) -> Optional[str]:
             head += f" — @{e['author']}" + (f" on {e['platform']}" if e.get("platform") else "")
         if e.get("date"):
             head += f" ({str(e['date'])[:10]})"
+        eng = e.get("engagement") or {}
+        eng_parts = [f"{eng[k]} {k}" for k in ("likes", "reposts", "comments") if eng.get(k)]
+        if eng_parts:
+            head += " — " + ", ".join(eng_parts)
         body = (e.get("content") or "").strip()
         ev_blocks.append(head + (f"\n{body}" if body else ""))
     cand_lines = [f"- [{c['candidate_type']}] {c.get('title') or c['source_ref']}"
