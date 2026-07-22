@@ -37,8 +37,12 @@ class DataQualityService:
 
     def _get_ai(self):
         if not self._ai_model:
+            import os
             from app.ai_models import AIModelFactory
-            self._ai_model = AIModelFactory.get_model()
+            # Relevance auditing is a cheap binary check — pin to nova-lite. The
+            # default (gpt-5.4-mini) is remapped to Haiku in litellm_config.yaml,
+            # which made this the top ongoing Haiku cost. Override via env if needed.
+            self._ai_model = AIModelFactory.get_model(os.getenv("DATA_QUALITY_MODEL", "nova-lite"))
         return self._ai_model
 
     def _check_single_article(self, topic: str, title: str, summary: str) -> Dict[str, Any]:

@@ -13,6 +13,7 @@ Uses multi-step LLM-driven pipeline:
 
 import logging
 import json as json_module
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -176,6 +177,10 @@ class EmergingTopicsService:
 
         # Use config.model as primary, fallback to summarization_model
         model_to_use = self.config.model or self.config.summarization_model
+        # topic_summarizer is a cheap cluster-labeling step — kimi matched Sonnet
+        # at ~7x less cost in the 2026-07-21 validation, so it runs on kimi while
+        # theme_proposer (kept on Sonnet) stays on the primary model.
+        summarizer_model = os.getenv("TOPIC_SUMMARIZER_MODEL", "bedrock-kimi-k2-5")
 
         # V2 services
         self.theme_proposer = ThemeProposer(
@@ -204,7 +209,7 @@ class EmergingTopicsService:
         self.temporal_tracker = TemporalTracker(self.config.temporal_config)
         self.topic_summarizer = TopicSummarizer(
             ai_model_getter=ai_model_getter,
-            default_model=model_to_use
+            default_model=summarizer_model
         )
 
     def _get_connection(self):
