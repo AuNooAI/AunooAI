@@ -2,6 +2,43 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-22 — observer agents: stop excluding social posts from alerting
+
+### Symptom
+No alert emails from the wbm Observer (Explore tab). The one active agent (id 10,
+*Negative Social Sentinel — Wiley*, `send_email=true → wiley@aunoo.ai`) ran daily and
+succeeded but created 0 alerts since 07-13. Emails only fire when an agent creates alerts
+meeting threshold (`vector_routes.py` `if config.get('send_email') and instruction_alerts
+and meets_threshold`), so 0 alerts = 0 email — working as designed, but with an empty pool.
+
+### Root cause
+The observer article-retrieval queries require `category IS NOT NULL AND sentiment IS NOT
+NULL`. On wbm, social posts never get a `category` (SocialEval sets `sentiment` only —
+0 of 5,486 social rows have a category). So all 662 Wiley social posts in the 14-day window
+were filtered out; the *Social* Sentinel was scanning only ~10 categorized news articles/day
+and finding nothing negative. Long-standing (clause dates to `b4a604f6`, 2026-02), not caused
+by today's collection change — re-enabling ig/tiktok just enlarged the pool being discarded.
+
+### Fix — `app/routes/vector_routes.py` (all 4 observer retrieval queries)
+Relax the requirement so social posts (which legitimately have no category) are included,
+still requiring sentiment:
+`AND category IS NOT NULL AND sentiment IS NOT NULL`
+→ `AND sentiment IS NOT NULL AND (category IS NOT NULL OR (social_meta IS NOT NULL AND
+social_meta::text <> 'null'))`
+Applied to all four observer queries: interactive `run_signal_instructions`, background
+`_run_signals_background`, and the entity + dedup queries in `_run_signal_instruction_internal`.
+The four NON-observer queries (trend/summary/date-range stats) were left unchanged. Noise is
+handled downstream as before — the LLM sentinel + threshold sift entity-collision posts
+(e.g. *Maya Wiley* the politician, journal-piracy chatter).
+
+### Verification
+wbm observer pool for *Brand Monitoring Wiley* (14-day window): **10 → 672** articles, incl.
+**28 Negative** candidate posts previously unseen. Applied + `py_compile` clean + service
+restart on bugfixing (canonical), wbm, wiley, wileytest. `social_meta` confirmed jsonb on all
+four (clause is safe). Not committed inside wiley/wileytest/wbm repos (deploy-copy model; wbm
+is not a git repo). Next scheduled wbm run 2026-07-23 08:00 will scan social and email if
+anything clears threshold.
+
 ## 2026-07-22 — xpoz social collection: ig/tiktok re-enable, reliability fixes, recall widening
 
 ### Summary

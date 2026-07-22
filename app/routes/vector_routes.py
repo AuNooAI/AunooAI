@@ -4143,7 +4143,8 @@ async def run_signal_instructions(
                tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
+        AND sentiment IS NOT NULL
+        AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'))
         """
 
         # Format dates to match database TEXT format (space separator, not 'T')
@@ -5039,7 +5040,8 @@ async def _run_signals_background(
                tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
+        AND sentiment IS NOT NULL
+        AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'))
         """
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
 
@@ -5270,7 +5272,8 @@ async def _run_signal_instruction_internal(
                     FROM articles
                     WHERE ({entity_conditions})
                     AND publication_date >= ? AND publication_date <= ?
-                    AND category IS NOT NULL AND sentiment IS NOT NULL
+                    AND sentiment IS NOT NULL
+                    AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'))
                     ORDER BY publication_date DESC LIMIT ?
                     """
                     entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
@@ -5300,7 +5303,8 @@ async def _run_signal_instruction_internal(
                    tags, extracted_article_topics, extracted_article_keywords
             FROM articles
             WHERE publication_date >= ? AND publication_date <= ?
-            AND category IS NOT NULL AND sentiment IS NOT NULL
+            AND sentiment IS NOT NULL
+            AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'))
             AND uri NOT IN (SELECT article_uri FROM signal_alerts
                             WHERE instruction_id = ? AND article_uri IS NOT NULL)
             """
