@@ -3315,11 +3315,49 @@ _RECOMMENDATIONS_OFF = (
 )
 
 
+# Client-facing reports must not carry raw source/post links — not in the emailed
+# body and not in the saved (loadable) report. We instruct the model to omit them
+# and strip any that leak (see _strip_source_links).
+_NO_SOURCE_LINKS = (
+    "\n\nDo NOT include any URLs, hyperlinks, bare web addresses or source/post "
+    "links anywhere in the report — even if instructed above. Refer to sources by "
+    "@handle and platform only, never by URL."
+)
+
+
 def _apply_recommendations_pref(prompt: str, instr_config) -> str:
-    """Append the include/suppress-recommendations directive to a report prompt."""
+    """Append report output-policy directives (recommendations + no source links)."""
+    prompt = prompt or ""
     if (instr_config or {}).get("include_recommendations"):
-        return (prompt or "") + _RECOMMENDATIONS_ON
-    return (prompt or "") + _RECOMMENDATIONS_OFF
+        prompt += _RECOMMENDATIONS_ON
+    else:
+        prompt += _RECOMMENDATIONS_OFF
+    return prompt + _NO_SOURCE_LINKS
+
+
+def _strip_source_links(md: str) -> str:
+    """Remove source/post URLs and hyperlinks from generated report content so
+    client-facing reports (emailed and saved/loadable) never carry raw links.
+    report_content holds no links we need to keep — the 'view full report' link is
+    added during email assembly, not stored in the content."""
+    if not md:
+        return md
+    import re
+    # [text](url) -> text  (drop the link, keep the visible label)
+    md = re.sub(r'\[([^\]]+)\]\((?:https?://|www\.|/)[^)]*\)', r'\1', md)
+    # bare URLs and <autolinks> -> removed
+    md = re.sub(r'(?:<)?(?:https?://|www\.)[^\s>)\]]+>?', '', md, flags=re.IGNORECASE)
+    # drop label-only lines left empty by URL removal (e.g. "- URI:", "**URI:**")
+    kept = []
+    for line in md.split('\n'):
+        # normalise: drop leading bullets/emphasis and trailing emphasis/space so a
+        # now-empty "- **URI:**" style label line is recognised and dropped.
+        core = re.sub(r'^[\s>*_\-•]+|[\s*_]+$', '', line).strip()
+        if re.match(r'(?i)^(uri|url|link|source)\s*:?\s*$', core):
+            continue
+        kept.append(line)
+    md = '\n'.join(kept)
+    return re.sub(r'\n{3,}', '\n\n', md)  # collapse blank runs left behind
 
 
 def _report_email_extras(report_id, report_title, report_content, instr_config) -> dict:
@@ -3967,7 +4005,7 @@ async def _generate_report_with_retry(ai_model, messages, *, label="report",
             if attempt > 1:
                 logger.info(f"Report generation for '{label}' succeeded on "
                             f"attempt {attempt}/{attempts}")
-            return content
+            return _strip_source_links(content)
         logger.warning(f"Report generation attempt {attempt}/{attempts} for "
                        f"'{label}' returned empty/placeholder")
         if attempt < attempts:
@@ -4004,8 +4042,6 @@ def _build_fallback_report(instruction_name: str, alerts: list) -> str:
         level = str(a.get('threat_level') or 'N/A').upper()
         summary = (a.get('summary') or '').strip() or '(no summary)'
         lines.append(f"{i}. **[{level}]** {summary}")
-        if a.get('article_uri'):
-            lines.append(f"   {a['article_uri']}")
     if len(alerts) > 10:
         lines.append(f"\n_…and {len(alerts) - 10} more matched article(s)._")
     return "\n".join(lines)

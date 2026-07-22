@@ -2,6 +2,33 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-22 — signal reports: no raw source/post links (email + loadable report)
+
+### Ask
+Client-facing signal reports should not carry the raw source-post links (bsky/reddit/etc.)
+— not in the emailed body and not in the downloadable/saved ("loadable") report.
+
+### Fix — `app/routes/vector_routes.py`
+Two layers, so links are suppressed at generation and stripped if any leak:
+1. **Prompt directive.** `_apply_recommendations_pref` (the report-prompt finalizer both
+   runners call) now also appends `_NO_SOURCE_LINKS`: *"Do NOT include any URLs, hyperlinks
+   … refer to sources by @handle and platform only, never by URL"* — overrides a per-instruction
+   prompt that says "link the URI" (e.g. wbm instr 10).
+2. **Post-generation strip.** New `_strip_source_links(md)` removes `[text](url)`→`text`, bare
+   URLs/autolinks, and the now-empty `- **URI:**`-style label lines. Applied to `report_content`
+   before it is saved AND emailed, so both channels are covered from one value.
+   - bugfixing/wiley/wileytest (retry variant): strip inside `_generate_report_with_retry`'s
+     return; also removed the `article_uri` line from `_build_fallback_report`.
+   - wbm (older, direct variant): strip at both direct `generate_response` report sites.
+Our own "view full report" download link and podcast link are added during email assembly
+(not part of `report_content`), so they are unaffected.
+
+### Verification
+Ran `_strip_source_links` on the real saved report 642: 5 bsky/reddit URLs → 0, empty URI
+label lines → 0, Quote/Significance prose intact (5703→5338 chars). Directive append confirmed.
+py_compile clean + restart on all 4 tenants. Note: already-sent report 642 keeps its links
+(history); the next scheduled run generates clean.
+
 ## 2026-07-22 — observer agents: honor the instruction's configured model
 
 ### Symptom
