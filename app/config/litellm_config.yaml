@@ -217,6 +217,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
 fallbacks:
+  - bedrock-kimi-k2-5:
+      - bedrock-claude-haiku
   - gpt-4o:
       - bedrock-claude-haiku
   - gpt-4.1:
