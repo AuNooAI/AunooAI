@@ -5145,7 +5145,7 @@ async def _run_signal_instruction_internal(
     instruction_id: int,
     days_back: int = 7,
     tag_articles: bool = True,
-    model: str = "gpt-5.4-mini"
+    model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Internal function to run a single signal instruction.
@@ -5188,6 +5188,9 @@ async def _run_signal_instruction_internal(
         config = instruction.get('config') or {}
         max_articles = config.get('max_articles', 100)
         search_strategy = config.get('search_strategy', 'recent')
+        # Honor the instruction's configured model (e.g. bedrock-kimi-k2-5);
+        # the `model` arg only overrides when a caller passes one explicitly.
+        model = model or config.get('model') or "gpt-5.4-mini"
 
         # Initialize LLM
         from app.ai_models import LiteLLMModel

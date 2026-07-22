@@ -2,6 +2,33 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-22 — observer agents: honor the instruction's configured model
+
+### Symptom
+Observer agents ran on `gpt-5.4-mini` (→ Bedrock Haiku via the yaml alias) regardless of
+the model saved on the instruction. wbm's *Negative Social Sentinel — Wiley* has
+`config.model = bedrock-kimi-k2-5` but every scheduled run used Haiku — pricier, and not what
+the instruction was configured with.
+
+### Root cause
+`_run_signal_instruction_internal` (the scheduler's entry point) took `model: str =
+"gpt-5.4-mini"` and never read `config['model']`. The scheduler
+(`observer_agent_monitor.run_agent`) calls it without a `model` arg, so every scheduled run
+silently used the hardcoded default.
+
+### Fix — `app/routes/vector_routes.py`
+Default the param to `None` and resolve from config:
+`model: str = "gpt-5.4-mini"` → `model: Optional[str] = None`, then after loading config:
+`model = model or config.get('model') or "gpt-5.4-mini"`.
+Precedence: explicit caller arg > instruction's `config.model` > historic default. The
+interactive runner (`_run_signals_background`) still passes `req.model` explicitly, so its
+user-selected model continues to win — only the scheduler path (which passed nothing) changes.
+
+### Verification
+Stubbed `LiteLLMModel.get_instance` to capture the requested model without an LLM call: the
+scheduler path (`instruction_id=10`, no model arg) now requests **bedrock-kimi-k2-5** (was
+gpt-5.4-mini). Applied + py_compile clean + restart on all 4 tenants.
+
 ## 2026-07-22 — observer agents: stop excluding social posts from alerting
 
 ### Symptom
