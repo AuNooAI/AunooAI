@@ -14,7 +14,9 @@ Xpoz serves a rolling ~60-day window; older ``start_date`` values are best-effor
 import os
 import re
 import asyncio
+import concurrent.futures
 import logging
+import threading
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -107,26 +109,88 @@ def _strict_terms_enabled() -> bool:
     return os.getenv("XPOZ_STRICT_TERMS", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
+def _safe_close(client) -> None:
+    """Best-effort xpoz client close; runs in a daemon thread so a hung in-flight
+    request can't block the collector's return (and get its results discarded)."""
+    try:
+        client.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _platform_timeout() -> float:
+    """Per-platform xpoz call cap in seconds (env XPOZ_PLATFORM_TIMEOUT, default 25).
+
+    With 4 platforms the worst case (4 * 25 = 100s) stays under the keyword_monitor
+    120s SEARCH_TIMEOUT_SECONDS, so a single hung platform no longer causes the whole
+    keyword's results to be discarded.
+    """
+    try:
+        return max(1.0, float(os.getenv("XPOZ_PLATFORM_TIMEOUT", "25")))
+    except ValueError:
+        return 25.0
+
+
+def _term_match_mode() -> str:
+    """How many of a multi-word query's tokens a post must contain (XPOZ_TERM_MATCH).
+
+    The brand root (first) token is ALWAYS required so a post lands in the right
+    brand lane; this only controls the remaining product tokens:
+    - ``root``     : product tokens optional — brand root alone qualifies (widest
+                     recall; relies on the downstream topic_alignment_score>=0.4
+                     filter to suppress the extra noise). Default.
+    - ``majority`` : brand root + a majority of the product tokens.
+    - ``all``      : every query token must appear (original, highest precision).
+    """
+    return os.getenv("XPOZ_TERM_MATCH", "root").strip().lower()
+
+
 def _term_tokens(term: str) -> List[str]:
     """Meaningful words of the search query, lowercased (punctuation/&/quotes dropped)."""
     return [t for t in re.findall(r"[a-z0-9']+", (term or "").lower()) if len(t) >= 2]
 
 
+def _tok_present(tok: str, hay: str) -> bool:
+    """Word-start match with light plural/singular tolerance.
+
+    ``tok`` matches at a word start and may be a prefix of a longer word, so
+    "wiley" hits "#Wiley"/"@wileyglobal"/"WileyGlobal". A trailing-``s`` stem
+    variant is also tried so "publications" matches "publication" and vice-versa.
+    """
+    variants = {tok, tok[:-1] if tok.endswith("s") and len(tok) > 4 else tok + "s"}
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(v), hay) for v in variants)
+
+
 def _post_matches_terms(row: Dict, tokens: List[str]) -> bool:
-    """True when EVERY query token appears in the post (word-start match).
+    """True when the post matches the query per the configured match mode.
 
     Xpoz keyword search is loose: a multi-word query like "Wiley eBooks"
     returns posts containing ANY of the words — which put a French Sony/
-    PlayStation ebook complaint into the Wiley brand lane. Enforce the AND
-    semantics the query claims: each token must occur at a word start, so
-    "wiley" still matches "#Wiley", "@wileyglobal" or "WileyGlobal", and the
-    author handle / subreddit count as brand context alongside the text.
+    PlayStation ebook complaint into the Wiley brand lane. The brand root
+    (first) token is always required so a post stays in the right brand lane;
+    XPOZ_TERM_MATCH decides how many of the remaining product tokens are needed.
+    The author handle / subreddit count as brand context alongside the text.
     """
+    if not tokens:
+        return True
     meta = row.get("social_meta") or {}
     hay = " ".join(str(x) for x in (
         row.get("title"), row.get("summary"),
         meta.get("author"), meta.get("subreddit")) if x).lower()
-    return all(re.search(r"(?<![a-z0-9])" + re.escape(tok), hay) for tok in tokens)
+
+    root, rest = tokens[0], tokens[1:]
+    if not _tok_present(root, hay):
+        return False
+    if not rest:
+        return True
+
+    mode = _term_match_mode()
+    if mode == "root":
+        return True
+    matched = sum(1 for t in rest if _tok_present(t, hay))
+    if mode == "majority":
+        return 2 * matched >= len(rest)
+    return matched == len(rest)  # "all" (default fall-through): every token present
 
 
 class XpozCollector(ArticleCollector):
@@ -195,19 +259,36 @@ class XpozCollector(ArticleCollector):
         out: List[Dict] = []
         tokens = _term_tokens(term) if _strict_terms_enabled() else []
         client = XpozClient(self.api_key, check_update=False)
+        # Cap each platform's blocking SDK call so one slow/hung platform can't
+        # burn the caller's 120s budget and discard every platform's results.
+        # Sequential (max_workers=1 per submit) — no extra concurrency on the
+        # shared xpoz key; worst case len(platforms) * XPOZ_PLATFORM_TIMEOUT.
+        plat_timeout = _platform_timeout()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(self.platforms) or 1)
         try:
             for plat in self.platforms:
                 try:
                     ns = getattr(client, plat, None)
                     if ns is None:
                         continue
-                    result = ns.search_posts(
+                    fut = pool.submit(
+                        ns.search_posts,
                         term,
                         fields=_FIELDS.get(plat),
                         start_date=start_date,
                         end_date=end_date,
                         limit=per_platform,
                     )
+                    try:
+                        result = fut.result(timeout=plat_timeout)
+                    except concurrent.futures.TimeoutError:
+                        fut.cancel()
+                        logger.warning(
+                            "Xpoz %s exceeded %.0fs for '%s' — skipping this platform, "
+                            "keeping other platforms' posts",
+                            plat, plat_timeout, term[:60],
+                        )
+                        continue
                     posts = getattr(result, "data", None) or []
                     mapper = getattr(self, f"_map_{plat}")
                     dropped = 0
@@ -227,10 +308,13 @@ class XpozCollector(ArticleCollector):
                 except Exception as e:  # noqa: BLE001 - one platform failing shouldn't kill the rest
                     logger.warning("Xpoz %s search error: %s: %s", plat, type(e).__name__, e)
         finally:
-            try:
-                client.close()
-            except Exception:  # noqa: BLE001
-                pass
+            # Don't block on a hung search_posts thread; it dies with the process.
+            pool.shutdown(wait=False, cancel_futures=True)
+            # client.close() joins in-flight HTTP requests, so a still-hung
+            # platform thread makes it block for the whole 120s wrapper budget —
+            # discarding the posts we DID collect. Close in a daemon thread we
+            # never wait on so _search_sync returns as soon as the loop is done.
+            threading.Thread(target=_safe_close, args=(client,), daemon=True).start()
         self.requests_today += len(self.platforms)
         return out
 
