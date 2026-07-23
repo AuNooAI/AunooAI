@@ -3320,8 +3320,9 @@ _RECOMMENDATIONS_OFF = (
 # and strip any that leak (see _strip_source_links).
 _NO_SOURCE_LINKS = (
     "\n\nDo NOT include any URLs, hyperlinks, bare web addresses or source/post "
-    "links anywhere in the report — even if instructed above. Refer to sources by "
-    "@handle and platform only, never by URL."
+    "links anywhere in the report — even if instructed above. Refer to accounts by "
+    "their short @handle only (e.g. @name), WITHOUT the platform domain suffix "
+    "(never @name.bsky.social or a full profile address)."
 )
 
 
@@ -3357,6 +3358,13 @@ def _strip_source_links(md: str) -> str:
             continue
         kept.append(line)
     md = '\n'.join(kept)
+    # Shorten social account handles to a bare @handle so email clients don't
+    # autolink the platform-domain suffix (e.g. @x.bsky.social rendered as a
+    # broken link while a plain @x did not — inconsistent). Targets the common
+    # ATProto PDS / bridge suffixes seen in social reports.
+    md = re.sub(
+        r'(?i)@?\b([a-z0-9][a-z0-9_-]*)\.(?:[a-z0-9.-]+\.)?(?:bsky\.social|eurosky\.social|brid\.gy)\b',
+        r'@\1', md)
     return re.sub(r'\n{3,}', '\n\n', md)  # collapse blank runs left behind
 
 

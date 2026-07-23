@@ -2,6 +2,27 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-23 — signal reports: shorten social handles so email clients don't autolink them
+
+### Symptom
+In the alert email, account references rendered inconsistently — some as active
+(broken) links, some as plain text — "especially for accounts". e.g.
+`@rmounce.mastodon.social.ap.brid.gy` and `@x.bsky.social` became clickable while
+`@jenom0urz` stayed text.
+
+### Root cause
+Our HTML has no `<a>` for these — the report body is link-free after `_strip_source_links`.
+But email clients (Gmail etc.) **auto-linkify any bare hostname**, and ATProto/fediverse
+handles carry a domain suffix (`.bsky.social`, `.eurosky.social`, `.mastodon.social.ap.brid.gy`),
+so those get turned into links client-side while plain handles don't.
+
+### Fix — `app/routes/vector_routes.py`
+`_strip_source_links` now shortens social handles to a bare `@name` (drops the platform
+domain suffix) for the common PDS/bridge suffixes (`bsky.social`, `eurosky.social`, `brid.gy`),
+so nothing in the body looks like a hostname. `_NO_SOURCE_LINKS` directive reinforced to ask the
+model for short `@handle` only. News domains (`reuters.com`, `example.org`) are untouched.
+Applies to email + saved/loadable report (one strip feeds both). All 4 tenants, restart.
+
 ## 2026-07-23 — observer: only alert on social the product actually shows (on-brand ≥0.4, non-FP)
 
 ### Symptom
