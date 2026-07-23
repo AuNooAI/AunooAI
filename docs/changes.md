@@ -2,6 +2,35 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-23 — signal reports: inline account/post links + complete online report
+
+### Ask
+The alert email/report should link accounts and posts inline (click an @handle → the
+profile, a post → the post), and the online "View full report" page was incomplete —
+it showed only the narrative, not the matched source posts the email lists.
+
+### Fix — `app/services/email_service.py` + `app/routes/vector_routes.py`
+New shared helpers in `email_service.py`:
+- `social_ref(uri)` → `{short, profile, post, platform}` parsed from a bsky/x/reddit post URL.
+- `linkify_handles_md(md, matches)` → turns plain `@handle` in the report markdown into
+  `[@handle](profile_url)` using the matched posts' URLs (deterministic — no LLM/hallucination).
+- `render_matched_sources_html(matches)` → clean linked source cards (account link · platform ·
+  view-post link · summary · threat/confidence).
+
+Wired into both channels so they match:
+- **Email** (`send_signal_alert_email`): linkify the narrative before render; the old
+  raw-URL "Matched Articles" list replaced by `render_matched_sources_html` ("Matched posts").
+- **Online report** (`/signal-reports/{id}/download`): now also SELECTs `alerts_data`, linkifies
+  the narrative, and appends a **Sources** section (same cards) — so the loadable report is as
+  complete as the email. Render-time, so already-saved reports gain it on next open.
+
+Handles remain shortened (`@name`) as anchor text; no bare URLs in prose (strip still runs).
+
+### Verification
+Online report 647: 25 `@handle→profile` links in the narrative, Sources section with all 7
+matched posts + "view post" links, 0 raw bare URLs, heading renders. Email sent through the new
+path. Applied + py_compile + restart on all 4 tenants.
+
 ## 2026-07-23 — reports: render leading-space markdown headers (raw "# Title" in loadable report)
 
 ### Symptom

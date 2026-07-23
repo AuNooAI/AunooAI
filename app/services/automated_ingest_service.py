@@ -684,10 +684,22 @@ class AutomatedIngestService:
             
             # Process in batches to avoid overwhelming the system
             for i in range(0, total_articles, batch_size):
+                # Cooperative shutdown: bail between batches on SIGTERM so a
+                # restart doesn't wait out the whole run (each batch can take
+                # minutes). In-flight batch tasks already submitted finish; we
+                # just stop launching new ones.
+                from app.utils.shutdown import is_shutting_down
+                if is_shutting_down():
+                    self.logger.info(
+                        f"🛑 Shutdown requested — stopping ingest after "
+                        f"{(i // batch_size)}/{(total_articles + batch_size - 1) // batch_size} batches"
+                    )
+                    break
+
                 batch = articles[i:i + batch_size]
                 batch_number = (i // batch_size) + 1
                 total_batches = (total_articles + batch_size - 1) // batch_size
-                
+
                 self.logger.info(f"📦 Processing batch {batch_number}/{total_batches} ({len(batch)} articles)")
                 
                 # Process batch concurrently

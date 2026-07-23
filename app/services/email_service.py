@@ -143,6 +143,76 @@ def _legacy_markdown_to_html(text: str) -> str:
     return text
 
 
+def social_ref(uri: str, fallback: Optional[str] = None) -> dict:
+    """Parse a social post URL into {short, profile, post, platform}.
+
+    `short` is the display handle (with @) used as anchor text; `profile`/`post`
+    are the account and post URLs. Falls back to the raw uri for unknown hosts."""
+    u = (uri or "").strip()
+    m = re.match(r'https?://(?:www\.)?bsky\.app/profile/([^/?#]+)/post/', u)
+    if m:
+        h = m.group(1)
+        return {"short": "@" + h.split('.')[0], "profile": f"https://bsky.app/profile/{h}",
+                "post": u, "platform": "Bluesky"}
+    m = re.match(r'https?://(?:www\.)?(?:x|twitter)\.com/([^/?#]+)/status/', u)
+    if m:
+        h = m.group(1)
+        return {"short": "@" + h, "profile": f"https://x.com/{h}", "post": u, "platform": "X"}
+    m = re.match(r'https?://(?:www\.)?reddit\.com/(r/[^/?#]+)', u)
+    if m:
+        sub = m.group(1)
+        return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u, "platform": "Reddit"}
+    return {"short": fallback or "source", "profile": u or "#", "post": u or "#", "platform": "Social"}
+
+
+def linkify_handles_md(md: str, matches: Optional[List[dict]]) -> str:
+    """Turn plain @handles in report markdown into links to the account profile,
+    using the URLs from the matched posts. Longest handles first so overlapping
+    prefixes don't mis-link; skips handles already inside a link."""
+    if not md or not matches:
+        return md
+    prof = {}
+    for m in matches:
+        r = social_ref(m.get("article_uri", ""))
+        if r["short"].startswith("@") and r["profile"] and r["profile"] != "#":
+            prof.setdefault(r["short"], r["profile"])
+    for h in sorted(prof, key=len, reverse=True):
+        md = re.sub(r'(?<![\[\w/])' + re.escape(h) + r'(?![\w.])',
+                    f'[{h}]({prof[h]})', md)
+    return md
+
+
+def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
+    """Clean, linked 'sources' cards for the matched posts — account link,
+    platform, quote/summary, and a post link. Shared by the alert email and the
+    online report so both show the same complete, navigable source list."""
+    if not matches:
+        return ""
+    cards = []
+    for m in matches:
+        r = social_ref(m.get("article_uri", ""))
+        summary = (m.get("summary") or "").strip()
+        threat = (m.get("threat_level") or "medium").lower()
+        conf = m.get("confidence", 0) or 0
+        try:
+            conf_s = f"{float(conf):.0%}"
+        except Exception:
+            conf_s = str(conf)
+        color = {"high": "#dc3545", "medium": "#d39e00", "low": "#28a745"}.get(threat, "#6c757d")
+        post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">view post ↗</a>'
+                     if r["post"] and r["post"] != "#" else "")
+        cards.append(
+            '<div style="margin:0 0 12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-radius:8px;">'
+            '<p style="margin:0 0 6px 0;">'
+            f'<a href="{r["profile"]}" style="color:#4055c6;font-weight:bold;text-decoration:none;">{r["short"]}</a>'
+            f'<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
+            f'<p style="margin:0 0 6px 0;color:#333;">{summary}</p>'
+            '<p style="margin:0;font-size:12px;color:#555;"><strong>Threat:</strong> '
+            f'<span style="color:{color};font-weight:bold;">{threat.upper()}</span> &nbsp;|&nbsp; '
+            f'<strong>Confidence:</strong> {conf_s}</p></div>')
+    return "\n".join(cards)
+
+
 class EmailProvider(ABC):
     """Abstract base class for email providers."""
 
@@ -438,6 +508,8 @@ class EmailService:
 
         # Add Report Section if available
         if report_content:
+            # Link @handles in the narrative to their account profiles (inline).
+            report_content = linkify_handles_md(report_content, matches)
             # Extract podcast section if embedded (so it doesn't get truncated)
             podcast_section = ""
             main_content = report_content
@@ -500,38 +572,8 @@ class EmailService:
             """)
 
         html_parts.append("<hr>")
-        html_parts.append("<h3>Matched Articles:</h3>")
-
-        for i, match in enumerate(matches[:10], 1):
-            article_uri = match.get('article_uri', 'N/A')
-            summary = match.get('summary', 'No summary available')
-            threat_level = match.get('threat_level', 'medium')
-            confidence = match.get('confidence', 0)
-            reasoning = match.get('reasoning', '')
-
-            threat_color = {
-                'high': '#dc3545',
-                'medium': '#ffc107',
-                'low': '#28a745'
-            }.get(threat_level, '#6c757d')
-
-            html_parts.append(f"""
-            <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
-                <h4 style="margin-top: 0;">Match {i}</h4>
-                <p><strong>Article:</strong> <a href="{article_uri}">{article_uri}</a></p>
-                <p><strong>Summary:</strong> {summary}</p>
-                <p>
-                    <strong>Threat Level:</strong>
-                    <span style="color: {threat_color}; font-weight: bold;">{threat_level.upper()}</span>
-                    &nbsp;|&nbsp;
-                    <strong>Confidence:</strong> {confidence:.0%}
-                </p>
-                {f'<p><strong>Reasoning:</strong> {reasoning}</p>' if reasoning else ''}
-            </div>
-            """)
-
-        if len(matches) > 10:
-            html_parts.append(f"<p><em>... and {len(matches) - 10} more matches.</em></p>")
+        html_parts.append("<h3>Matched posts:</h3>")
+        html_parts.append(render_matched_sources_html(matches))
 
         html_parts.extend([
             "<hr>",

@@ -3403,13 +3403,20 @@ async def download_signal_report(report_id: int, exp: int, token: str,
     from app.database import get_database_instance
     db = get_database_instance()
     rows = db.fetch_all(
-        "SELECT name, instruction_name, report_content, created_at "
+        "SELECT name, instruction_name, report_content, created_at, alerts_data "
         "FROM saved_signal_reports WHERE id = ?", [report_id])
     if not rows:
         raise HTTPException(status_code=404, detail="Report not found")
     r = rows[0]
     title = r.get("name") or r.get("instruction_name") or f"Signal report {report_id}"
     content = r.get("report_content") or ""
+    alerts = r.get("alerts_data")
+    if isinstance(alerts, str):
+        try:
+            import json as _json
+            alerts = _json.loads(alerts)
+        except Exception:
+            alerts = None
 
     if fmt == "pdf":
         from app.services.report_pdf import markdown_report_to_pdf
@@ -3418,8 +3425,16 @@ async def download_signal_report(report_id: int, exp: int, token: str,
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
 
-    from app.services.email_service import markdown_to_html
-    body = markdown_to_html(content)
+    from app.services.email_service import (markdown_to_html, linkify_handles_md,
+                                            render_matched_sources_html)
+    # Inline @handle→profile links in the narrative, and append the full linked
+    # source-post list so the online report is as complete as the alert email.
+    body = markdown_to_html(linkify_handles_md(content, alerts))
+    sources = render_matched_sources_html(alerts)
+    sources_block = (f'<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">'
+                     f'<h2 style="font-size:18px;color:#333;margin:18px 0 12px 0;">Sources '
+                     f'<span style="font-size:13px;color:#888;font-weight:normal;">'
+                     f'({len(alerts)} matched posts)</span></h2>{sources}') if sources else ""
     page = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title></head>
@@ -3429,6 +3444,7 @@ async def download_signal_report(report_id: int, exp: int, token: str,
 <p style="color:#888;font-size:12px;margin:0 0 20px 0;">Generated {str(r.get('created_at') or '')[:16]} · AuNoo Observer Agent report ·
 <a href="{build_report_download_url(report_id, 'pdf')}" style="color:#4055c6;">download PDF</a></p>
 {body}
+{sources_block}
 </div></body></html>"""
     return HTMLResponse(content=page)
 
