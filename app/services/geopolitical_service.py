@@ -1753,16 +1753,6 @@ class GeopoliticalService:
             "stable": 0
         }
 
-        def sentiment_to_score(sentiment: str) -> float:
-            """Convert sentiment string to numeric score."""
-            sentiment_map = {
-                'Positive': 1.0,
-                'Negative': -1.0,
-                'Neutral': 0.0,
-                'Mixed': 0.0,
-            }
-            return sentiment_map.get(sentiment, 0.0)
-
         def calculate_trend(recent_avg: float, older_avg: float,
                           recent_count: int, older_count: int) -> str:
             """Calculate trend from sentiment comparison."""
@@ -1795,63 +1785,55 @@ class GeopoliticalService:
             hotspots = cursor.fetchall()
             stats["total_hotspots"] = len(hotspots)
 
+            # Aggregate per-hotspot sentiment in ONE bulk query rather than
+            # 1-2 queries per hotspot. The old per-hotspot loop issued ~10k+
+            # round-trips (one linked-article SELECT each, plus a full-table
+            # ILIKE scan when unlinked) — that's what stalled the worker for
+            # seconds every run. recent/older split via FILTER; sentiment score
+            # computed in SQL (Positive=+1, Negative=-1, else 0).
+            cursor.execute("""
+                SELECT ha.hotspot_id,
+                       COUNT(*) FILTER (WHERE a.submission_date::timestamp >= :recent_cutoff) AS recent_count,
+                       COALESCE(SUM(CASE a.sentiment WHEN 'Positive' THEN 1.0 WHEN 'Negative' THEN -1.0 ELSE 0.0 END)
+                                FILTER (WHERE a.submission_date::timestamp >= :recent_cutoff), 0) AS recent_sum,
+                       COUNT(*) FILTER (WHERE a.submission_date::timestamp < :recent_cutoff) AS older_count,
+                       COALESCE(SUM(CASE a.sentiment WHEN 'Positive' THEN 1.0 WHEN 'Negative' THEN -1.0 ELSE 0.0 END)
+                                FILTER (WHERE a.submission_date::timestamp < :recent_cutoff), 0) AS older_sum
+                FROM hotspot_articles ha
+                JOIN articles a ON a.uri = ha.article_uri
+                WHERE a.submission_date::timestamp >= :older_cutoff
+                  AND a.sentiment IS NOT NULL
+                GROUP BY ha.hotspot_id
+            """, {'recent_cutoff': recent_cutoff, 'older_cutoff': older_cutoff})
+            agg = {row[0]: (int(row[1]), float(row[2]), int(row[3]), float(row[4]))
+                   for row in cursor.fetchall()}
+
             for hotspot in hotspots:
                 hotspot_id, location_name, country_name, current_trend = hotspot
 
-                # Get articles linked to this hotspot
-                cursor.execute("""
-                    SELECT a.sentiment, a.submission_date::timestamp as submission_date
-                    FROM articles a
-                    JOIN hotspot_articles ha ON ha.article_uri = a.uri
-                    WHERE ha.hotspot_id = :hotspot_id
-                      AND a.submission_date::timestamp >= :older_cutoff
-                      AND a.sentiment IS NOT NULL
-                    ORDER BY a.submission_date::timestamp DESC
-                """, {
-                    'hotspot_id': hotspot_id,
-                    'older_cutoff': older_cutoff
-                })
-                articles = cursor.fetchall()
+                # Hotspots absent from agg have no recent sentiment-bearing
+                # linked articles -> treated as quiet (stable). The old code ran
+                # a per-hotspot `title ILIKE '%location%'` full-table scan here
+                # for every such hotspot (~6.7k seq scans over 474k rows per
+                # run) — the dominant cost, and a noisy heuristic: a hotspot's
+                # trend should follow its linked coverage, not every article
+                # that merely mentions the place name.
+                recent_count, recent_sum, older_count, older_sum = agg.get(
+                    hotspot_id, (0, 0.0, 0, 0.0)
+                )
 
-                if not articles:
-                    # Try matching by location name in article content
-                    cursor.execute("""
-                        SELECT sentiment, submission_date::timestamp as submission_date
-                        FROM articles
-                        WHERE (title ILIKE :location_pattern
-                               OR summary ILIKE :location_pattern)
-                          AND submission_date::timestamp >= :older_cutoff
-                          AND sentiment IS NOT NULL
-                        ORDER BY submission_date::timestamp DESC
-                        LIMIT 100
-                    """, {
-                        'location_pattern': f'%{location_name}%',
-                        'older_cutoff': older_cutoff
-                    })
-                    articles = cursor.fetchall()
-
-                if len(articles) < 3:
+                if (recent_count + older_count) < 3:
                     stats["stable"] += 1
                     continue
 
-                # Split into recent and older periods
-                recent_articles = [a for a in articles if a[1] >= recent_cutoff]
-                older_articles = [a for a in articles if a[1] < recent_cutoff]
+                recent_avg = recent_sum / recent_count if recent_count else 0
+                older_avg = older_sum / older_count if older_count else 0
 
-                # Calculate average sentiment for each period
-                recent_scores = [sentiment_to_score(a[0]) for a in recent_articles]
-                older_scores = [sentiment_to_score(a[0]) for a in older_articles]
-
-                recent_avg = sum(recent_scores) / len(recent_scores) if recent_scores else 0
-                older_avg = sum(older_scores) / len(older_scores) if older_scores else 0
-
-                # Calculate new trend
                 new_trend = calculate_trend(
-                    recent_avg, older_avg,
-                    len(recent_articles), len(older_articles)
+                    recent_avg, older_avg, recent_count, older_count
                 )
 
-                # Update if changed
+                # Update if changed (typically a few dozen per run)
                 if new_trend != current_trend:
                     cursor.execute("""
                         UPDATE geopolitical_hotspots
@@ -1859,7 +1841,7 @@ class GeopoliticalService:
                         WHERE id = :id
                     """, {'trend': new_trend, 'id': hotspot_id})
                     stats["updated"] += 1
-                    logger.info(f"Hotspot trend updated: {location_name} ({country_name}): {current_trend} → {new_trend}")
+                    logger.debug(f"Hotspot trend changed: {location_name} ({country_name}): {current_trend} → {new_trend}")
 
                 # Count trends
                 if new_trend == "escalating":

@@ -2,6 +2,31 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-23 — back-port prod-only fixes into canonical (drift audit: PROD ahead)
+
+A drift audit of bugfixing (canonical) vs wileytest (active prod) found several fixes that
+were made in place on prod's `training` branch and never flowed back to canonical — so any
+tenant cloned from canonical would be stale. Back-ported the three that matter:
+
+- **`automated_ingest_service.py`** — unknown-topic guard (prod commit `6229dc9f`). If an
+  article's topic isn't in the loaded config, mark it `skipped_unknown_topic` and make ZERO
+  LLM calls, instead of never marking it done and re-selecting it forever (~5 LLM calls/pass).
+  This loop is what drained the OpenAI account on 2026-06-18. Canonical (and clones) lacked it.
+- **`geopolitical_service.py`** — bulk `GROUP BY … FILTER` aggregation (prod `9ee94a21` +
+  `7d24219d`) replacing a per-hotspot loop that ran a full-table ILIKE seq-scan per unlinked
+  hotspot (~6.7k scans/run); also drops the now-dead `sentiment_to_score` helper.
+- **`geopolitical_hotspots_monitor.py`** — wrap `update_country_stats` / `update_hotspot_trends`
+  in `asyncio.to_thread` on the `run_schedule` path (prod extended `9203117b`) so the scheduled
+  stats run doesn't block the event loop.
+
+Each was a confined change (verified: only diffs were the intended fix, no unrelated prod-local
+content), so canonical adopted prod's version of the file wholesale. py_compile clean.
+
+NOT touched: `vector_store_pgvector.py` (intentional per-tenant DeBERTa-768d vs OpenAI-1536d
+split — schema-bound), `training_routes.py` (ce_score tied to the `ce_001` migration prod lacks),
+`server_run.py`/CORS, `database_query_facade.py` (prod-local xpoz `social_meta`), the xpoz
+collector registration, and the Threat-Intelligence module — all intentional divergence.
+
 ## 2026-07-23 — signal reports: inline account/post links + complete online report
 
 ### Ask
