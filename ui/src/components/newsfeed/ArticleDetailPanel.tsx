@@ -5,8 +5,10 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle, Newspaper } from 'lucide-react';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle, Newspaper, BadgeCheck } from 'lucide-react';
 import { type NewsArticle, type ClusterRelatedArticle, recordArticlePreference } from '../../services/newsFeedApi';
+import { getSignalsDetail, runSignals, type BWArticleSignals } from '../../services/brandWatcherApi';
+import { downloadPropagationReport } from '../../services/propagationReportHtml';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
@@ -48,6 +50,96 @@ export function ArticleDetailPanel({
   const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
+
+  // Five Signals screen (Brand Watcher articles carry brand_id; detail rows
+  // live in bw_article_signals). Fetched when the article has been screened —
+  // or on demand via the Run button — and polled while a run is live.
+  const [bwSignals, setBwSignals] = useState<BWArticleSignals | null>(null);
+  const [bwSignalsStarting, setBwSignalsStarting] = useState(false);
+  const bwSigPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bwBrandId: number | null = (article as any)?.brand_id ?? null;
+  const bwScreenable = !!(bwBrandId && typeof article?.uri === 'string' && article.uri.startsWith('http'));
+  const stopBwSigPoll = () => { if (bwSigPollRef.current) { clearInterval(bwSigPollRef.current); bwSigPollRef.current = null; } };
+  const pollBwSignals = (uri: string, brandId: number) => {
+    stopBwSigPoll();
+    bwSigPollRef.current = setInterval(async () => {
+      try {
+        const d = await getSignalsDetail(uri, brandId);
+        setBwSignals(d);
+        if (d.status !== 'running') stopBwSigPoll();
+      } catch { /* transient; keep polling */ }
+    }, 5000);
+  };
+  useEffect(() => {
+    setBwSignals(null); setBwSignalsStarting(false); stopBwSigPoll();
+    if (!article?.uri || !bwBrandId) return;
+    if (!(article as any)?.signals_summary) return;
+    getSignalsDetail(article.uri, bwBrandId).then(d => {
+      setBwSignals(d);
+      if (d.status === 'running') pollBwSignals(article.uri, bwBrandId);
+    }).catch(() => {});
+    return stopBwSigPoll;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.uri, bwBrandId]);
+  const startBwSignals = async (mode: 'full' | 'validation' | 'reach' = 'full') => {
+    if (!article?.uri || !bwBrandId) return;
+    setBwSignalsStarting(true);
+    try {
+      const r = await runSignals(article.uri, bwBrandId, false, mode);
+      if (r.status === 'completed') {
+        // Already screened (cached server-side) — show it immediately.
+        setBwSignals(await getSignalsDetail(article.uri, bwBrandId));
+      } else {
+        setBwSignals({ status: 'running', signals: null, verdict: null, composite_score: null, validation: null, reach: null, error: null, requested_by: 'user' });
+        pollBwSignals(article.uri, bwBrandId);
+      }
+    } catch (e) {
+      console.error('Five Signals run failed to start', e);
+      setBwSignals({ status: 'failed', signals: null, verdict: null, composite_score: null, validation: null, reach: null,
+        error: 'could not start — the saas integration may not be configured on this server', requested_by: null });
+    } finally {
+      setBwSignalsStarting(false);
+    }
+  };
+  const BW_SIG_ORDER = ['veracity', 'source_credibility', 'corroboration', 'propagation', 'amplification_integrity'];
+  const BW_SIG_BAND: Record<string, string> = {
+    good: 'bg-emerald-100 text-emerald-800', warn: 'bg-amber-100 text-amber-800',
+    bad: 'bg-red-100 text-red-800', nodata: 'bg-gray-100 text-gray-400',
+  };
+  const BW_SIG_SHORT: Record<string, string> = {
+    veracity: 'V', source_credibility: 'S', corroboration: 'C',
+    propagation: 'P', amplification_integrity: 'A',
+  };
+
+  // Sentiment bucket for the Full Coverage spread (news labels are richer than pos/neu/neg)
+  const sentimentBucket = (s?: string | null): 'positive' | 'neutral' | 'negative' | null => {
+    const t = (s || '').toLowerCase();
+    if (!t) return null;
+    if (t.includes('pos') || t.includes('optimis')) return 'positive';
+    if (t.includes('neg') || t.includes('concern') || t.includes('pessimis') || t.includes('critical') || t.includes('alarm')) return 'negative';
+    return 'neutral';
+  };
+  const SENT_CHIP: Record<string, string> = {
+    positive: 'bg-emerald-100 text-emerald-700',
+    neutral: 'bg-gray-100 text-gray-600',
+    negative: 'bg-red-100 text-red-700',
+  };
+  const factChip = (f?: string | null) => {
+    if (!f) return null;
+    const t = f.toLowerCase();
+    const cls = t.includes('very high') || t === 'high' ? 'bg-emerald-100 text-emerald-700'
+      : t.includes('mixed') || t.includes('mostly') ? 'bg-amber-100 text-amber-700'
+      : t.includes('low') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600';
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${cls}`} title="MBFC factual reporting">{f}</span>;
+  };
+  // Spread across primary + related (only sources that carry a sentiment)
+  const coverageSentiments = [article?.sentiment, ...relatedArticles.map(r => (r as any).sentiment)]
+    .map(sentimentBucket).filter(Boolean) as ('positive' | 'neutral' | 'negative')[];
+  const spread = {
+    positive: coverageSentiments.filter(x => x === 'positive').length,
+    neutral: coverageSentiments.filter(x => x === 'neutral').length,
+    negative: coverageSentiments.filter(x => x === 'negative').length,
+  };
 
   // Initialize preference from article data when article changes
   useEffect(() => {
@@ -362,6 +454,129 @@ Please provide:
             </div>
           )}
 
+          {/* Five Signals screen (Brand Watcher articles only) */}
+          {bwScreenable && (
+            <div className="mt-4 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5 cursor-help"
+                  title="Independent article screen: claim validation (verdict + per-claim checks, source reputation, corroboration) plus Bluesky propagation (spread, coordinated-amplification checks). Full documentation is on the Brand Watcher Help tab.">
+                  <BadgeCheck className="w-4 h-4 text-blue-500" /> Five Signals screen
+                </h3>
+                <span className="flex-1" />
+                {bwSignals?.status === 'completed' && bwSignals.composite_score != null && (
+                  <span className="text-xs text-gray-500 cursor-help"
+                    title="Mean of the available signal scores with Propagation inverted — 0-100, higher is healthier.">
+                    composite <span className="font-semibold text-gray-700 dark:text-gray-200">{bwSignals.composite_score}</span>/100
+                  </span>
+                )}
+                {bwSignals?.status === 'completed' && (
+                  <button onClick={() => downloadPropagationReport({
+                      articleTitle: article?.title || article?.uri || 'article', articleUri: article?.uri || '',
+                      brandName: (article as any)?.brand_name || null,
+                      signals: bwSignals, generatedAt: new Date().toISOString(),
+                    })}
+                    title="Download the story propagation report — spread sequence, timeline, per-network pickup, amplification read, claims context. Self-contained HTML."
+                    className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700">
+                    propagation report ↓
+                  </button>
+                )}
+              </div>
+              {!bwSignals && !bwSignalsStarting && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Not screened yet.</p>
+                  <button onClick={() => startBwSignals('full')}
+                    title="Runs both engines — claim validation + Bluesky propagation — and composes all five signals (2-4 min; result is cached)"
+                    className="text-xs px-2.5 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1">
+                    <BadgeCheck className="w-3.5 h-3.5" /> Run Five Signals
+                  </button>
+                  <span className="text-[11px] text-gray-400">or one engine:</span>
+                  <button onClick={() => startBwSignals('validation')}
+                    title="Claim validation only (~1-3 min) — fills Veracity, Source credibility and Corroboration"
+                    className="text-xs px-2 py-1 rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 hover:text-blue-600 hover:border-blue-400">
+                    claim validation
+                  </button>
+                  <button onClick={() => startBwSignals('reach')}
+                    title="Bluesky story-reach only (~1-2 min) — fills Propagation and Amplification integrity"
+                    className="text-xs px-2 py-1 rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 hover:text-blue-600 hover:border-blue-400">
+                    bsky reach
+                  </button>
+                </div>
+              )}
+              {(bwSignalsStarting || bwSignals?.status === 'running') && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Screening — claim validation and propagation take 2–4 minutes; this panel updates automatically.
+                </p>
+              )}
+              {bwSignals?.status === 'failed' && (
+                <p className="text-xs text-red-500">Screen failed{bwSignals.error ? `: ${bwSignals.error}` : ''}.</p>
+              )}
+              {bwSignals?.status === 'completed' && (
+                <div className="space-y-1.5">
+                  {bwSignals.verdict && (
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      Claim-validation verdict: <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
+                        ['contested', 'non_independent', 'satire'].includes(bwSignals.verdict) ? 'bg-red-100 text-red-800'
+                        : bwSignals.verdict === 'corroborated' ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'}`}>{bwSignals.verdict}</span>
+                    </p>
+                  )}
+                  {BW_SIG_ORDER.map(k => {
+                    const s = bwSignals.signals?.[k];
+                    if (!s) return null;
+                    return (
+                      <div key={k} className="flex items-start gap-2 text-xs">
+                        <span className={`shrink-0 w-5 text-center py-0.5 rounded font-bold ${BW_SIG_BAND[s.band || 'nodata']}`}
+                          title={`${s.label}${s.score != null ? `: ${s.score}/100` : ''}`}>{BW_SIG_SHORT[k]}</span>
+                        <span className="text-gray-600 dark:text-gray-300">
+                          <span className="font-medium">{s.label}{s.score != null ? ` (${s.score})` : ''}:</span> {s.summary}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {!(bwSignals as any).validation && (
+                    <button onClick={() => startBwSignals('validation')}
+                      title="Claim validation has not been queried for this article yet (~1-3 min)"
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">Validate claims →</button>
+                  )}
+                  {(() => {
+                    const rp: any = (bwSignals as any).reach;
+                    const xn: any = (bwSignals as any).xnet;
+                    const xplats = Object.entries<any>((xn?.platforms) || {}).filter(([, p]) => p.posts > 0);
+                    if (!rp && !xn) return (
+                      <button onClick={() => startBwSignals('reach')}
+                        title="The social propagation lookup (Bluesky live trace + other networks) has not been queried for this article yet (~1-2 min)"
+                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">Query social reach →</button>
+                    );
+                    const posts: any[] = rp?.posts || [];
+                    return (
+                      <div className="pt-1">
+                        {posts.length > 0 && (
+                          <>
+                            <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300 cursor-help"
+                              title="Bluesky posts sharing this article's URL, ordered by engagement — the raw material behind the Propagation signal.">Bluesky pickup ({rp.totals?.posts ?? posts.length} post{(rp.totals?.posts ?? posts.length) !== 1 ? 's' : ''}):</p>
+                            {posts.slice(0, 3).map((p: any, i: number) => (
+                              <p key={i} className="text-[11px] text-gray-500 dark:text-gray-400 truncate" title={p.text || ''}>
+                                @{p.handle} · {p.total_engagement ?? 0} eng
+                                {p.post_url && <> — <a href={p.post_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">view post</a></>}
+                                {p.text ? <> — {p.text}</> : null}
+                              </p>
+                            ))}
+                          </>
+                        )}
+                        {xplats.length > 0 && (
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 cursor-help"
+                            title="Cross-network shares from the monitoring corpus + live xpoz query. Full breakdown and sample posts are in the propagation report.">
+                            Other networks: {xplats.map(([k, p]) => `${k} ${p.posts}`).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Summary */}
           <div className="mt-6">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Summary</h3>
@@ -528,6 +743,30 @@ Please provide:
               <p className="text-xs text-gray-700 dark:text-gray-300">
                 {relatedArticles.length + 1} sources reporting on this story
               </p>
+              {coverageSentiments.length >= 2 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[11px] text-gray-500">Sentiment across coverage:</span>
+                  <div className="flex h-2.5 w-40 rounded-full overflow-hidden bg-gray-100">
+                    {spread.positive > 0 && <div className="bg-emerald-400" style={{ width: `${(spread.positive / coverageSentiments.length) * 100}%` }} />}
+                    {spread.neutral > 0 && <div className="bg-gray-300" style={{ width: `${(spread.neutral / coverageSentiments.length) * 100}%` }} />}
+                    {spread.negative > 0 && <div className="bg-red-400" style={{ width: `${(spread.negative / coverageSentiments.length) * 100}%` }} />}
+                  </div>
+                  <span className="text-[11px] text-gray-500">{spread.positive}+ {spread.neutral}· {spread.negative}−</span>
+                </div>
+              )}
+              {/* Screening flags: consensus negativity and acute polarization are the
+                  two coverage patterns that warrant attention beyond any single article. */}
+              {coverageSentiments.length >= 3 && spread.negative / coverageSentiments.length >= 0.7 && (
+                <div className="mt-2 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
+                  ⚠ Negative consensus — {spread.negative} of {coverageSentiments.length} scored sources frame this story negatively. This is the story's framing, not one outlet's take.
+                </div>
+              )}
+              {coverageSentiments.length >= 4 && spread.negative / coverageSentiments.length < 0.7
+                && Math.min(spread.positive, spread.negative) / coverageSentiments.length >= 0.3 && (
+                <div className="mt-2 px-3 py-2 rounded-md bg-purple-50 border border-purple-200 text-xs text-purple-700 font-medium">
+                  ⚡ Polarized coverage — sources split {spread.positive} positive vs {spread.negative} negative. The narrative is contested; check which outlets take which side.
+                </div>
+              )}
             </div>
 
             {/* Primary article (current) */}
@@ -552,7 +791,7 @@ Please provide:
                   className="w-full text-left p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-xs flex-wrap">
                       <span className="font-medium text-gray-700">{related.news_source}</span>
                       {related.publication_date && (
                         <>
@@ -560,8 +799,17 @@ Please provide:
                           <span className="text-gray-700 dark:text-gray-300">{formatRelativeTime(related.publication_date)}</span>
                         </>
                       )}
+                      {sentimentBucket((related as any).sentiment) && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${SENT_CHIP[sentimentBucket((related as any).sentiment)!]}`}>
+                          {sentimentBucket((related as any).sentiment)}
+                        </span>
+                      )}
+                      {factChip(related.factual_reporting)}
+                      {related.bias && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600" title="MBFC bias rating">{related.bias}</span>
+                      )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300 flex-shrink-0" />
                   </div>
                   <h4 className="font-medium text-gray-900 mb-2 line-clamp-2">{related.title}</h4>
                   {related.summary && (

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -431,14 +432,14 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.extraction_model,
+                **resolve_litellm_call_params(self.config.extraction_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.extraction_temperature,
                 max_tokens=2000,
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             return result
 
         except Exception as e:
@@ -482,14 +483,14 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.extraction_model,
+                **resolve_litellm_call_params(self.config.extraction_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.extraction_temperature,
                 max_tokens=3000,
                 response_format={"type": "json_object"}
             )
 
-            return json.loads(response.choices[0].message.content)
+            return extract_json_response(response.choices[0].message.content)
 
         except Exception as e:
             logger.error(f"Cluster extraction failed: {e}")
@@ -569,14 +570,14 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=2000,
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
 
             verification_results = []
             for v in result.get("verifications", []):
@@ -647,14 +648,14 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=1500,
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             return result.get("contradictions", [])
 
         except Exception as e:
@@ -697,14 +698,14 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=1500,
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             return result.get("contradictions", [])
 
         except Exception as e:
@@ -736,7 +737,7 @@ Keep it to 2-3 paragraphs."""
 
         try:
             response = await litellm.acompletion(
-                model=self.config.extraction_model,
+                **resolve_litellm_call_params(self.config.extraction_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=500
@@ -781,14 +782,14 @@ Respond with JSON:
 
         try:
             response = await litellm.acompletion(
-                model=self.config.analysis_model,
+                **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
                 max_tokens=1000,
                 response_format={"type": "json_object"}
             )
 
-            return json.loads(response.choices[0].message.content)
+            return extract_json_response(response.choices[0].message.content)
 
         except Exception as e:
             logger.error(f"Impact assessment failed: {e}")

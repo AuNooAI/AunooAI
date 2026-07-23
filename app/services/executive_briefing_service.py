@@ -21,6 +21,7 @@ from enum import Enum
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
 
@@ -523,7 +524,7 @@ Select the articles that will best inform executive decision-making."""
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are an executive news curator specializing in selecting strategically relevant articles for busy executives. You prioritize quality, relevance, and diversity."},
                     {"role": "user", "content": prompt}
@@ -533,7 +534,7 @@ Select the articles that will best inform executive decision-making."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.selected_articles = result.get("selected_articles", [])
 
         except Exception as e:
@@ -650,7 +651,7 @@ Write as if this will be the only thing the executive reads about this topic tod
 
             try:
                 response = await litellm.acompletion(
-                    model=model,
+                    **resolve_litellm_call_params(model),
                     messages=[
                         {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst specializing in distilling complex news into actionable insights. You write with precision and brevity for busy executives."},
                         {"role": "user", "content": prompt}
@@ -660,7 +661,7 @@ Write as if this will be the only thing the executive reads about this topic tod
                     response_format={"type": "json_object"}
                 )
 
-                result = json.loads(response.choices[0].message.content)
+                result = extract_json_response(response.choices[0].message.content)
                 analyzed = result.get("analyzed_article", {})
 
                 briefing_article = BriefingArticle(
@@ -751,6 +752,8 @@ CREATE A SYNTHESIS WITH:
    - Deduplicate similar actions from individual articles
    - Prioritize by urgency and impact
    - Include urgency level and rationale
+   - CRITICAL: Every action must be one a {config.persona} can personally initiate — a decision, directive to their own organization, partnership, resourcing, or monitoring/hedging move that is within their actual sphere of control. NEVER recommend actions for governments, regulators, health authorities, NGOs, or any third party the reader does not run. If the news is about a crisis the reader cannot directly act on, the action is how the {config.persona} should respond within their own remit (e.g. commissioning, editorial, portfolio, research, or communication decisions), not how the crisis itself should be managed.
+   - Name the actor for each action: it must be the {config.persona} or a function they command.
 
 4. RISK SUMMARY:
    - Overall risk level: low/moderate/elevated/high
@@ -780,7 +783,8 @@ Return JSON with:
     ],
     "priority_actions": [
         {{
-            "action": "Specific action",
+            "action": "Specific action the {config.persona} can personally initiate",
+            "actor": "The {config.persona} or a function they command",
             "urgency": "immediate/this_week/this_month/this_quarter",
             "rationale": "Why this matters",
             "related_themes": ["Theme name"]
@@ -819,7 +823,7 @@ Enable the {config.persona} to make better decisions in the next 24-48 hours."""
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing multiple article analyses into actionable executive briefings. You identify patterns, prioritize actions, and provide strategic guidance."},
                     {"role": "user", "content": prompt}
@@ -829,7 +833,7 @@ Enable the {config.persona} to make better decisions in the next 24-48 hours."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.briefing_summary = result.get("briefing_summary", "")
             state.themes = result.get("themes", [])
             state.priority_actions = result.get("priority_actions", [])
@@ -940,7 +944,7 @@ Generate a polished podcast script that an executive would want to listen to dur
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}

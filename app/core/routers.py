@@ -61,6 +61,7 @@ def register_routers(app: FastAPI):
     from app.routes.emerging_topics_routes import router as emerging_topics_router
     from app.routes.rss_feeds_routes import router as rss_feeds_router
     from app.routes.module_routes import router as module_routes_router
+    from app.routes.timeline_routes import router as timeline_router
     from app.routes.daily_reports_routes import router as desk_briefings_router
     from app.routes.slm_routes import router as slm_router
     from app.routes.training_routes import router as training_router
@@ -195,6 +196,9 @@ def register_routers(app: FastAPI):
 
     # Module metadata API (always-on)
     app.include_router(module_routes_router)
+
+    # Timeline mementos (per-brand/per-topic event timeline)
+    app.include_router(timeline_router)
 
     # Dynamically register enabled analysis modules
     for module in get_enabled_modules():

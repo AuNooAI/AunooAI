@@ -394,14 +394,19 @@ Article text:
             return []
 
         try:
+            # Keep tags as human-readable phrases: normalize whitespace and strip
+            # stray markdown emphasis, but do NOT remove the spaces between words.
+            def _clean(tag: str) -> str:
+                return ' '.join(tag.strip().strip('*').split())
+
             # If already a list, clean each tag
             if isinstance(tags_input, list):
-                return [tag.strip().replace(' ', '') for tag in tags_input if tag.strip()]
-            
+                return [_clean(tag) for tag in tags_input if _clean(tag)]
+
             # If string, remove brackets and split by commas
             if isinstance(tags_input, str):
                 tags = tags_input.strip('[]').split(',')
-                return [tag.strip().replace(' ', '') for tag in tags if tag.strip()]
+                return [_clean(tag) for tag in tags if _clean(tag)]
             
             raise ArticleAnalyzerError(f"Invalid tags input type: {type(tags_input)}")
         except Exception as e:

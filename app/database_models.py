@@ -397,6 +397,7 @@ t_articles = Table(
     Column('preference_date', DateTime),  # when preference was set
     Column('article_origin', Text, server_default=text("'unknown'")),  # 'aunoo', 'external', 'unknown'
     Column('opoint_entities', JSONB),  # Opoint per-article entity/topic enrichment (brand/competitor signal)
+    Column('social_meta', JSONB),  # Social post media + engagement (thumbnail, likes/reposts/comments/plays) for xpoz posts
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),
@@ -459,6 +460,7 @@ t_keyword_groups = Table(
     Column('interval_unit', Integer, nullable=True),  # 60=minutes, 3600=hours, 86400=days
     Column('search_date_range', Integer, nullable=True),
     Column('providers', Text, nullable=True),  # JSON array e.g., '["thenewsapi", "arxiv"]'
+    Column('social_platforms', Text, nullable=True),  # JSON array of xpoz platforms; NULL = XPOZ_PLATFORMS env default
     # Processing settings
     Column('auto_ingest_enabled', Boolean, nullable=True),
     Column('min_relevance_threshold', REAL, nullable=True),

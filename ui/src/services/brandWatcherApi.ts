@@ -99,6 +99,51 @@ export interface BWArticle {
   matched_keywords: string[];
   // Opoint entity verification (Wikidata-ID match), present when available.
   entity_match?: { brands: string[]; relevance: number | null; verified: boolean } | null;
+  // Story clustering: republication count ("×N sources") + cluster key for dedup.
+  story_size?: number | null;
+  story_group_id?: string | null;
+  story_neg?: number | null;
+  story_pos?: number | null;
+  story_scored?: number | null;
+  // MBFC source authority (when the source is in the mediabias dataset).
+  factual_reporting?: string | null;
+  // Adverse risk findings [{risk_type, severity, confidence}] + case state.
+  risks?: { risk_type: string; severity: string; confidence?: number | null }[];
+  review_status?: string | null;
+  // Five Signals screen summary (bw_article_signals) — compact row chips;
+  // full breakdown via getSignalsDetail.
+  signals_summary?: {
+    status: string;
+    verdict: string | null;
+    composite: number | null;
+    signals: { key: string; band: string | null; score: number | null }[];
+  } | null;
+}
+
+// ---- Adverse alerting ----
+export interface BWAlertConfig {
+  id: number;
+  enabled: boolean;
+  rules: Record<string, any>;
+  channels: { in_app?: boolean; email?: boolean; webhook?: boolean; digest?: { enabled?: boolean; frequency?: 'daily' | 'weekly'; hour_utc?: number } };
+  email_recipients: string[];
+  webhook_url: string | null;
+  cooldown_hours: number;
+}
+
+export interface BWAlertEvent {
+  id: number;
+  brand_id: number | null;
+  brand_name: string | null;
+  rule: string;
+  severity: string;
+  title: string;
+  body: string | null;
+  payload: any;
+  delivered: Record<string, boolean> | null;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  created_at: string | null;
 }
 
 export interface BWOpointCoverage {
@@ -147,6 +192,18 @@ export async function getOpointPoV(brandId: number, daysBack: number = 90): Prom
   return res.json();
 }
 
+export interface BWSocialMeta {
+  platform?: string;
+  external_id?: string;
+  author?: string;
+  thumbnail?: string | null;
+  likes?: number | null;
+  reposts?: number | null;
+  comments?: number | null;
+  plays?: number | null;
+  subreddit?: string | null;
+}
+
 export interface BWSocialPost {
   uri: string;
   title: string;
@@ -157,16 +214,21 @@ export interface BWSocialPost {
   relevance: number | null;
   sentiment: string | null;
   topic: string | null;
+  matched_keywords?: string[];
+  social_meta?: BWSocialMeta | null;
+  review_status?: string | null;
 }
 
 export interface BWSocialResponse {
   window_days: number;
   min_relevance: number;
   include_unevaluated?: boolean;
+  keyword?: string | null;
   total: number;
   evaluated: number;
   by_platform: Record<string, number>;
   by_sentiment: Record<string, number>;
+  by_keyword?: Record<string, number>;
   posts: BWSocialPost[];
 }
 
@@ -176,6 +238,34 @@ export interface BWArticlesResponse {
   page: number;
   per_page: number;
   total_pages: number;
+  // False when the backend has no saas MCP key — hide the Five Signals action.
+  signals_available?: boolean;
+}
+
+// ---- Five Signals article screening ----
+export interface BWSignalEntry {
+  key: string;
+  label: string;
+  score: number | null;
+  band: 'good' | 'warn' | 'bad' | 'nodata';
+  summary: string;
+  evidence: any;
+}
+
+export interface BWArticleSignals {
+  status: 'none' | 'running' | 'completed' | 'failed';
+  signals: Record<string, BWSignalEntry> | null;
+  verdict: string | null;
+  composite_score: number | null;
+  validation: any;
+  reach: any;
+  // Cross-network pickup (xpoz corpus match + optional live query):
+  // { gathered_at, window_days, live_available, platforms: { twitter: {posts, engagement, first_seen, last_seen, sample[]}, ... } }
+  xnet?: any;
+  error: string | null;
+  requested_by: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface BWTemporalData {
@@ -382,18 +472,70 @@ export async function setupBrandMonitoring(brandId: number): Promise<{
 
 // --- Keyword Suggestions ---
 
-export async function suggestKeywords(brandName: string, description?: string): Promise<{
+export interface VerifiedPerson {
+  name: string;
+  role?: string;
+  qid?: string;
+  verified: boolean;
+  source: 'wikidata' | 'llm' | 'both';
+}
+
+export interface VerifiedFirm {
+  name: string;
+  qid?: string;
+  description?: string;
+  verified: boolean;
+  source: string;
+  relation?: string;
+}
+
+export interface WikidataCandidate {
+  qid: string;
+  label: string;
+  description?: string;
+}
+
+export interface SuggestionVerification {
+  available: boolean;
+  retrieved_at?: string;
+  brand?: {
+    qid?: string;
+    label?: string;
+    description?: string;
+    matched: boolean;
+    candidates: WikidataCandidate[];
+  };
+  people?: VerifiedPerson[];
+  competitors?: VerifiedFirm[];
+}
+
+export async function suggestKeywords(
+  brandName: string,
+  description?: string,
+  opts?: { qid?: string },
+): Promise<{
   brand_keywords: string[];
   product_keywords: string[];
   people_keywords: string[];
   competitor_keywords: string[];
+  verification?: SuggestionVerification;
 }> {
   const res = await fetch(`${BASE}/suggest-keywords`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ brand_name: brandName, description }),
+    body: JSON.stringify({ brand_name: brandName, description, qid: opts?.qid }),
   });
   if (!res.ok) throw new Error(`Failed to suggest keywords: ${res.status}`);
+  return res.json();
+}
+
+export async function searchWikidata(query: string): Promise<{ candidates: WikidataCandidate[] }> {
+  const res = await fetch(`${BASE}/wikidata/search`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) throw new Error(`Failed to search Wikidata: ${res.status}`);
   return res.json();
 }
 
@@ -437,6 +579,34 @@ export async function getClassifyRuns(limit: number = 10): Promise<{ runs: BWCla
 
 // --- Stats & Analytics ---
 
+export interface BWPerceptionDimension {
+  score: number | null;         // net sentiment -100..100 (employee: scaled Glassdoor rating)
+  n: number;
+  positive?: number;
+  neutral?: number;
+  negative?: number;
+  rating?: number | null;       // employee only: Glassdoor 1-5
+  outlook?: number | null;      // employee only: business outlook 0-1
+  review_count?: number | null;
+  reviews_net?: number | null;
+  reviews_n?: number;
+}
+
+export interface BWPerceptionBrand {
+  brand_id: number;
+  name: string;
+  display_name: string;
+  color: string | null;
+  is_primary: boolean;
+  dimensions: Record<'media' | 'social' | 'community' | 'employee' | 'investor', BWPerceptionDimension>;
+}
+
+export async function getPerception(daysBack: number = 90): Promise<{ days_back: number; brands: BWPerceptionBrand[] }> {
+  const res = await fetch(`${BASE}/perception?days_back=${daysBack}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch perception: ${res.status}`);
+  return res.json();
+}
+
 export async function getStats(brandIds?: number[], daysBack: number = 365, topics?: string[]): Promise<BWStats> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
   if (brandIds?.length) params.append('brand_ids', brandIds.join(','));
@@ -472,10 +642,16 @@ export async function setupSocialMonitoring(brandId: number, intervalHours: numb
   return res.json();
 }
 
-export async function getSocialPosts(topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true): Promise<BWSocialResponse> {
-  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), include_unevaluated: includeUnevaluated.toString(), limit: '200' });
+export async function getSocialPosts(
+  topics?: string[], daysBack: number = 30, minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true,
+  opts?: { startDate?: string; endDate?: string; limit?: number; keyword?: string },
+): Promise<BWSocialResponse> {
+  const params = new URLSearchParams({ days_back: daysBack.toString(), min_relevance: minRelevance.toString(), include_unevaluated: includeUnevaluated.toString(), limit: (opts?.limit ?? 200).toString() });
   if (topics?.length) params.append('topics', topics.join(','));
   if (source) params.append('source', source);
+  if (opts?.startDate) params.append('start_date', opts.startDate);
+  if (opts?.endDate) params.append('end_date', opts.endDate);
+  if (opts?.keyword) params.append('keyword', opts.keyword);
   const res = await fetch(`${BASE}/social?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get social posts: ${res.status}`);
   return res.json();
@@ -722,3 +898,472 @@ export const CATEGORY_SHORT_NAMES: Record<string, string> = {
   'Market Strategy & Expansion': 'Strategy',
   'Media & Advertising': 'Media',
 };
+
+
+// ---- Adverse alerting API ----
+export async function getAlertConfig(): Promise<BWAlertConfig> {
+  const res = await fetch(`${BASE}/alert-config`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get alert config: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAlertConfig(cfg: Partial<BWAlertConfig>): Promise<BWAlertConfig> {
+  const res = await fetch(`${BASE}/alert-config`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  });
+  if (!res.ok) throw new Error(`Failed to update alert config: ${res.status}`);
+  return res.json();
+}
+
+export async function listAlertEvents(unackedOnly = false, limit = 50): Promise<BWAlertEvent[]> {
+  const res = await fetch(`${BASE}/alert-events?unacked_only=${unackedOnly}&limit=${limit}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to list alert events: ${res.status}`);
+  return (await res.json()).events || [];
+}
+
+export async function ackAlertEvent(id: number): Promise<void> {
+  await fetch(`${BASE}/alert-events/${id}/ack`, { method: 'POST', credentials: 'include' });
+}
+
+export async function evaluateAlertsNow(): Promise<{ created: number }> {
+  const res = await fetch(`${BASE}/alert-events/evaluate-now`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to evaluate alerts: ${res.status}`);
+  return res.json();
+}
+
+// ---- Finding case states ----
+export async function setFindingState(articleUri: string, brandId: number, status: 'new' | 'reviewed' | 'escalated' | 'dismissed' | 'false_positive', note?: string): Promise<void> {
+  const res = await fetch(`${BASE}/findings/state`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ article_uri: articleUri, brand_id: brandId, status, note: note || null }),
+  });
+  if (!res.ok) throw new Error(`Failed to set finding state: ${res.status}`);
+}
+
+// ---- Official / scholarly sources (SEC EDGAR, CourtListener, regulations.gov, Crossref, OpenAlex) ----
+export interface BWOfficialSource {
+  key: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  available: boolean;          // false when a required API key is not configured server-side
+  requires_key: string | null;
+  last_polled_at: string | null;
+  article_count: number;
+}
+
+export interface BWBrandSources {
+  brand_id: number;
+  display_name: string;
+  sources: BWOfficialSource[];
+}
+
+export async function getOfficialSourcesStatus(): Promise<BWBrandSources[]> {
+  const res = await fetch(`${BASE}/official-sources/status`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load official sources status: ${res.status}`);
+  return (await res.json()).brands || [];
+}
+
+export async function pollOfficialSourcesNow(brandId?: number): Promise<{
+  polled: number; new_articles: number; risk_flagged: number; errors: number;
+}> {
+  const qs = brandId ? `?brand_id=${brandId}` : '';
+  const res = await fetch(`${BASE}/official-sources/poll-now${qs}`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to poll official sources: ${res.status}`);
+  return res.json();
+}
+
+export interface BWStorySibling {
+  uri: string;
+  title: string;
+  summary?: string | null;
+  news_source?: string | null;
+  publication_date?: string | null;
+  bias?: string | null;
+  factual_reporting?: string | null;
+  sentiment?: string | null;
+}
+
+export async function getStorySiblings(groupId: string, brandId?: number | null): Promise<BWStorySibling[]> {
+  const q = new URLSearchParams({ group_id: groupId });
+  if (brandId) q.append('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/story-siblings?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load story siblings: ${res.status}`);
+  return (await res.json()).articles || [];
+}
+
+// ---- Incident management + evidence locker ----
+export interface BWIncident {
+  id: number;
+  brand_id: number;
+  brand_name: string;
+  title: string;
+  description?: string | null;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  status: 'open' | 'investigating' | 'contained' | 'resolved' | 'closed';
+  owner?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  resolved_at?: string | null;
+  evidence_count?: number;
+  event_count?: number;
+}
+
+export interface BWIncidentEvent {
+  kind: string;
+  actor?: string | null;
+  old_value?: string | null;
+  new_value?: string | null;
+  note?: string | null;
+  at?: string | null;
+}
+
+export interface BWIncidentEvidence {
+  id: number;
+  evidence_type: string;
+  source_ref?: string | null;
+  title?: string | null;
+  content: string;
+  meta?: Record<string, any> | null;
+  content_sha256: string;
+  chain_sha256: string;
+  captured_by?: string | null;
+  captured_at?: string | null;
+  // Set when the item now belongs to another case after a split — the row
+  // stays on this case's hash chain but is excluded from its working views.
+  reassigned_to?: number | null;
+  // Five Signals screen summary for article evidence (same shape as the
+  // Articles tab rows' signals_summary; null when unscreened / not an article)
+  signals_summary?: {
+    status: string; verdict?: string | null; composite?: number | null;
+    signals: { key: string; band?: string | null; score?: number | null }[];
+  } | null;
+}
+
+export interface BWIncidentDetail extends BWIncident {
+  timeline: BWIncidentEvent[];
+  evidence: BWIncidentEvidence[];
+  // Live shared-evidence check (reassigned rows excluded, analyst "not a
+  // duplicate" notes respected) — drives the duplicate cards in the UI.
+  duplicate_candidates?: { id: number; title: string }[];
+}
+
+export async function listIncidents(status?: string, brandId?: number): Promise<BWIncident[]> {
+  const q = new URLSearchParams();
+  if (status) q.append('status', status);
+  if (brandId) q.append('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/incidents?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to list incidents: ${res.status}`);
+  return (await res.json()).incidents || [];
+}
+
+export async function createIncident(brandId: number, title: string, description?: string, severity: string = 'medium'): Promise<{ id: number }> {
+  const res = await fetch(`${BASE}/incidents`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_id: brandId, title, description: description || null, severity }),
+  });
+  if (!res.ok) throw new Error(`Failed to create incident: ${res.status}`);
+  return res.json();
+}
+
+export async function getIncident(id: number): Promise<BWIncidentDetail> {
+  const res = await fetch(`${BASE}/incidents/${id}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load incident: ${res.status}`);
+  return res.json();
+}
+
+export async function updateIncident(id: number, updates: { title?: string; description?: string; severity?: string; status?: string; owner?: string; note?: string }): Promise<void> {
+  const res = await fetch(`${BASE}/incidents/${id}`, {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`Failed to update incident: ${res.status}`);
+}
+
+export async function deleteIncident(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/incidents/${id}`, { method: 'DELETE', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to delete incident: ${res.status}`);
+}
+
+export async function addIncidentNote(id: number, note: string): Promise<void> {
+  const res = await fetch(`${BASE}/incidents/${id}/note`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) throw new Error(`Failed to add note: ${res.status}`);
+}
+
+export async function attachIncidentEvidence(id: number, evidence: { evidence_type: string; source_ref?: string; title?: string; content?: string }): Promise<{ id: number; content_sha256: string; chain_sha256: string }> {
+  const res = await fetch(`${BASE}/incidents/${id}/evidence`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(evidence),
+  });
+  if (!res.ok) throw new Error(`Failed to attach evidence: ${res.status}`);
+  return res.json();
+}
+
+export async function translateForReport(items: { id: string; text: string }[]): Promise<Record<string, { language: string; text: string }>> {
+  const res = await fetch(`${BASE}/incidents/translate`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error(`Failed to translate: ${res.status}`);
+  return (await res.json()).translations || {};
+}
+
+export async function incidentReportSummary(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/incidents/${id}/report-summary`, {
+    method: 'POST', credentials: 'include',
+  });
+  if (!res.ok) throw new Error(`Failed to summarize: ${res.status}`);
+  return (await res.json()).summary || '';
+}
+
+export async function verifyIncidentChain(id: number): Promise<{ items: number; intact: boolean; broken_ids: number[] }> {
+  const res = await fetch(`${BASE}/incidents/${id}/verify-chain`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to verify chain: ${res.status}`);
+  return res.json();
+}
+
+// ---- Incident attachments (search picker, files) + enrichment agent ----
+
+export interface BWAttachSearchResult {
+  uri: string;
+  title?: string | null;
+  news_source?: string | null;
+  publication_date?: string | null;
+  topic_alignment_score?: number | null;
+  is_social: boolean;
+  platform?: string | null;
+  author?: string | null;
+}
+
+export async function incidentAttachSearch(q: string, opts?: { brandId?: number; kind?: 'all' | 'news' | 'social'; daysBack?: number }): Promise<BWAttachSearchResult[]> {
+  const params = new URLSearchParams({ q });
+  if (opts?.brandId) params.append('brand_id', String(opts.brandId));
+  if (opts?.kind) params.append('kind', opts.kind);
+  if (opts?.daysBack) params.append('days_back', String(opts.daysBack));
+  const res = await fetch(`${BASE}/incidents/attach-search?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Attach search failed: ${res.status}`);
+  return (await res.json()).results || [];
+}
+
+export async function uploadIncidentFile(id: number, file: globalThis.File, note?: string): Promise<{ file_id: number; evidence_id: number; filename: string; sha256: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  if (note) form.append('note', note);
+  const res = await fetch(`${BASE}/incidents/${id}/files`, {
+    method: 'POST', credentials: 'include', body: form,
+  });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export function incidentFileUrl(incidentId: number, fileId: number): string {
+  return `${BASE}/incidents/${incidentId}/files/${fileId}`;
+}
+
+export interface BWEnrichmentRun {
+  id: number;
+  status: 'running' | 'completed' | 'failed';
+  stage?: string | null;
+  stats?: Record<string, any> | null;
+  brief?: string | null;
+  error?: string | null;
+  started_by?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface BWEnrichmentCandidate {
+  id: number;
+  run_id: number;
+  candidate_type: 'article' | 'social_post' | 'account_profile';
+  source_ref: string;
+  title?: string | null;
+  snippet?: string | null;
+  score?: number | null;
+  reason?: string | null;
+  meta?: Record<string, any> | null;
+  triage_score?: number | null;
+  triage_rationale?: string | null;
+  recommendation?: 'attach' | string | null;
+}
+
+export interface BWEnrichmentDecision {
+  id: number;
+  run_id: number;
+  candidate_type: string;
+  source_ref?: string | null;
+  title?: string | null;
+  reason?: string | null;
+  state: 'attached' | 'dismissed' | string;
+  decided_by?: string | null;
+  decided_at?: string | null;
+}
+
+export interface BWEnrichmentState {
+  run: BWEnrichmentRun | null;
+  candidates: BWEnrichmentCandidate[];
+  history?: BWEnrichmentDecision[];
+  counts: Record<string, number>;
+}
+
+export async function startIncidentEnrichment(id: number): Promise<{ run_id: number }> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrich`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function getIncidentEnrichment(id: number): Promise<BWEnrichmentState> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrichment`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load enrichment: ${res.status}`);
+  return res.json();
+}
+
+export async function decideEnrichmentCandidates(id: number, candidateIds: number[], action: 'attach' | 'dismiss'): Promise<{ attached: number; dismissed: number; failed: Array<{ id: number; source_ref: string; error: string }> }> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrichment/decide`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidate_ids: candidateIds, action }),
+  });
+  if (!res.ok) throw new Error(`Failed to ${action} candidates: ${res.status}`);
+  return res.json();
+}
+
+export async function mergeIncident(id: number, targetId: number): Promise<{ merged: boolean; copied: number; skipped_duplicates: number; skipped_files: number; target_id: number }> {
+  const res = await fetch(`${BASE}/incidents/${id}/merge-into/${targetId}`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function attachEnrichmentBrief(id: number): Promise<{ id: number }> {
+  const res = await fetch(`${BASE}/incidents/${id}/enrichment/attach-brief`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to attach brief: ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Employee / Workforce Risk
+// ---------------------------------------------------------------------------
+
+export interface BWGlassdoorOverview {
+  company_id?: number | string | null;
+  name?: string | null;
+  rating?: number | null;
+  review_count?: number | null;
+  business_outlook_rating?: number | null;
+  career_opportunities_rating?: number | null;
+  ceo?: string | null;
+  ceo_rating?: number | null;
+  compensation_and_benefits_rating?: number | null;
+  culture_and_values_rating?: number | null;
+  diversity_and_inclusion_rating?: number | null;
+  recommend_to_friend_rating?: number | null;
+  senior_management_rating?: number | null;
+  work_life_balance_rating?: number | null;
+  company_size?: string | null;
+  industry?: string | null;
+  headquarters_location?: string | null;
+  reviews_link?: string | null;
+}
+
+export interface BWEmployeeReview {
+  uri: string;
+  title: string;
+  summary?: string | null;
+  sentiment?: string | null;
+  publication_date: string;
+}
+
+export interface BWWorkforceRisk {
+  uri: string;
+  title: string;
+  news_source?: string | null;
+  severity: string;
+  confidence?: number | null;
+  method?: string | null;
+  detected_at?: string | null;
+  case_status: string;
+  publication_date: string;
+}
+
+export interface BWGlassdoorSnapshot {
+  date: string;
+  rating?: number | null;
+  business_outlook_rating?: number | null;
+  ceo_rating?: number | null;
+  recommend_to_friend_rating?: number | null;
+  senior_management_rating?: number | null;
+  work_life_balance_rating?: number | null;
+  compensation_and_benefits_rating?: number | null;
+  culture_and_values_rating?: number | null;
+  review_count?: number | null;
+}
+
+export interface BWEmployeeRisk {
+  brand_id: number;
+  glassdoor_enabled: boolean;
+  overview: BWGlassdoorOverview | null;
+  reviews: BWEmployeeReview[];
+  review_sentiment: { pos: number; neu: number; neg: number; scored: number; net: number | null };
+  workforce_risks: BWWorkforceRisk[];
+  competitors: { brand_id: number; brand_name: string; color?: string | null; overview: BWGlassdoorOverview }[];
+  history: BWGlassdoorSnapshot[];
+}
+
+export async function getEmployeeRisk(brandId: number, daysBack: number = 90, refresh: boolean = false): Promise<BWEmployeeRisk> {
+  const res = await fetch(`${BASE}/brands/${brandId}/employee-risk?days_back=${daysBack}${refresh ? '&refresh=true' : ''}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch employee risk: ${res.status}`);
+  return res.json();
+}
+
+export interface BWRiskSummary {
+  brand_id: number;
+  days_back: number;
+  by_type: Record<string, { high: number; medium: number; low: number; total: number }>;
+  top_findings: { uri: string; title: string; risk_type: string; severity: string; confidence?: number | null; publication_date: string; news_source?: string | null; case_status: string }[];
+  official_sources: Record<string, number>;
+  alert_events: number;
+  open_incidents: number;
+}
+
+export async function getRiskSummary(brandId: number, daysBack: number = 90): Promise<BWRiskSummary> {
+  const res = await fetch(`${BASE}/brands/${brandId}/risk-summary?days_back=${daysBack}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch risk summary: ${res.status}`);
+  return res.json();
+}
+
+export type BWSignalsMode = 'full' | 'validation' | 'reach';
+
+export async function runSignals(articleUri: string, brandId: number, force: boolean = false, mode: BWSignalsMode = 'full'): Promise<{ status: string; cached?: boolean }> {
+  const res = await fetch(`${BASE}/signals/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ article_uri: articleUri, brand_id: brandId, force, mode }),
+  });
+  if (!res.ok) throw new Error(`Failed to start Five Signals run: ${res.status}`);
+  return res.json();
+}
+
+export async function getSignalsDetail(articleUri: string, brandId: number): Promise<BWArticleSignals> {
+  const res = await fetch(`${BASE}/signals/detail?article_uri=${encodeURIComponent(articleUri)}&brand_id=${brandId}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch Five Signals detail: ${res.status}`);
+  return res.json();
+}

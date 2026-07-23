@@ -108,6 +108,11 @@ async def get_topics_unified(
                     'is_tracked_only': True,
                 })
 
+        # Dedicated Brand Watcher tenants only expose brand monitoring topics
+        from app.core.modules import is_dedicated_bw
+        if is_dedicated_bw():
+            all_topics = [t for t in all_topics if str(t.get('name', '')).startswith('Brand Monitoring')]
+
         # If not including full config, return minimal information
         if not include_config:
             return [

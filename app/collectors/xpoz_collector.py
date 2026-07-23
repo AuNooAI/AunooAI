@@ -1,0 +1,448 @@
+"""Xpoz collector — social brand mentions across Twitter/X, Reddit, Instagram, TikTok.
+
+Uses the xpoz.ai SDK (``pip install xpoz``) to run one keyword search per platform
+and return standardized article dicts. Built for the social brand-monitoring path
+(high volume, cheap downstream eval), mirroring ``reddit_collector.py``.
+
+Auth: ``XPOZ_API_KEY`` (or ``PROVIDER_XPOZ_API_KEY``).
+Platforms: ``XPOZ_PLATFORMS`` env, comma-separated (default: all four).
+
+The SDK client is synchronous, so the whole per-search workload runs in a worker
+thread via ``asyncio.to_thread`` to keep the collector's ``async`` contract.
+Xpoz serves a rolling ~60-day window; older ``start_date`` values are best-effort.
+"""
+import os
+import re
+import asyncio
+import concurrent.futures
+import logging
+import threading
+from typing import Dict, List, Optional
+from datetime import datetime, timezone
+
+from .base_collector import ArticleCollector
+
+logger = logging.getLogger(__name__)
+
+_ALL_PLATFORMS = ("twitter", "reddit", "instagram", "tiktok")
+
+# Xpoz returns a minimal default projection, so URL/metric fields must be requested
+# explicitly per platform or they come back null (and rows get dropped for lack of URL).
+_FIELDS = {
+    "twitter": ["id", "text", "author_username", "like_count", "retweet_count",
+                "reply_count", "media_urls", "created_at", "created_at_date"],
+    "reddit": ["id", "title", "selftext", "permalink", "post_url", "url",
+               "thumbnail", "author_username", "subreddit_name", "score",
+               "comments_count", "created_at", "created_at_date"],
+    "instagram": ["id", "caption", "code_url", "image_url", "username",
+                  "like_count", "comment_count", "media_type", "created_at",
+                  "created_at_date"],
+    "tiktok": ["id", "description", "username", "video_url", "video_thumbnail",
+               "like_count", "comment_count", "play_count", "created_at",
+               "created_at_date"],
+}
+
+
+def _api_key() -> Optional[str]:
+    return os.getenv("XPOZ_API_KEY") or os.getenv("PROVIDER_XPOZ_API_KEY")
+
+
+def _platforms() -> List[str]:
+    raw = os.getenv("XPOZ_PLATFORMS", "")
+    if not raw.strip():
+        return list(_ALL_PLATFORMS)
+    want = [p.strip().lower() for p in raw.split(",") if p.strip()]
+    return [p for p in want if p in _ALL_PLATFORMS] or list(_ALL_PLATFORMS)
+
+
+def _max_per_platform() -> int:
+    """Hard cap on posts fetched per platform per keyword (cost control).
+
+    The keyword monitor passes its global page_size (often 100), which — multiplied
+    by keywords × 4 platforms × 4 brands — is a large paid-API + eval bill. Cap it
+    low for brand-monitoring volume; override with XPOZ_MAX_RESULTS.
+    """
+    try:
+        return max(1, int(os.getenv("XPOZ_MAX_RESULTS", "25")))
+    except ValueError:
+        return 25
+
+
+def _to_date_str(value) -> Optional[str]:
+    """Coerce a datetime/ISO string to the ``YYYY-MM-DD`` xpoz expects."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    s = str(value)
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return s[:10] if len(s) >= 10 else None
+
+
+def _pub_iso(post) -> str:
+    """Best-effort ISO timestamp from a post's created_at / created_at_date."""
+    ca = getattr(post, "created_at", None)
+    if isinstance(ca, (int, float)) and ca:
+        try:
+            return datetime.fromtimestamp(ca, tz=timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            pass
+    if isinstance(ca, str) and ca.strip():
+        try:
+            return datetime.fromisoformat(ca.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            return ca
+    cad = getattr(post, "created_at_date", None)
+    return str(cad) if cad else ""
+
+
+def _clean(text: Optional[str], limit: int = 1000) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", str(text)).strip()[:limit]
+
+
+def _strict_terms_enabled() -> bool:
+    """Kill-switch for the term gate (XPOZ_STRICT_TERMS=0 disables)."""
+    return os.getenv("XPOZ_STRICT_TERMS", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _safe_close(client) -> None:
+    """Best-effort xpoz client close; runs in a daemon thread so a hung in-flight
+    request can't block the collector's return (and get its results discarded)."""
+    try:
+        client.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _platform_timeout() -> float:
+    """Per-platform xpoz call cap in seconds (env XPOZ_PLATFORM_TIMEOUT, default 25).
+
+    With 4 platforms the worst case (4 * 25 = 100s) stays under the keyword_monitor
+    120s SEARCH_TIMEOUT_SECONDS, so a single hung platform no longer causes the whole
+    keyword's results to be discarded.
+    """
+    try:
+        return max(1.0, float(os.getenv("XPOZ_PLATFORM_TIMEOUT", "25")))
+    except ValueError:
+        return 25.0
+
+
+def _term_match_mode() -> str:
+    """How many of a multi-word query's tokens a post must contain (XPOZ_TERM_MATCH).
+
+    The brand root (first) token is ALWAYS required so a post lands in the right
+    brand lane; this only controls the remaining product tokens:
+    - ``root``     : product tokens optional — brand root alone qualifies (widest
+                     recall; relies on the downstream topic_alignment_score>=0.4
+                     filter to suppress the extra noise). Default.
+    - ``majority`` : brand root + a majority of the product tokens.
+    - ``all``      : every query token must appear (original, highest precision).
+    """
+    return os.getenv("XPOZ_TERM_MATCH", "root").strip().lower()
+
+
+def _term_tokens(term: str) -> List[str]:
+    """Meaningful words of the search query, lowercased (punctuation/&/quotes dropped)."""
+    return [t for t in re.findall(r"[a-z0-9']+", (term or "").lower()) if len(t) >= 2]
+
+
+def _tok_present(tok: str, hay: str) -> bool:
+    """Word-start match with light plural/singular tolerance.
+
+    ``tok`` matches at a word start and may be a prefix of a longer word, so
+    "wiley" hits "#Wiley"/"@wileyglobal"/"WileyGlobal". A trailing-``s`` stem
+    variant is also tried so "publications" matches "publication" and vice-versa.
+    """
+    variants = {tok, tok[:-1] if tok.endswith("s") and len(tok) > 4 else tok + "s"}
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(v), hay) for v in variants)
+
+
+def _post_matches_terms(row: Dict, tokens: List[str]) -> bool:
+    """True when the post matches the query per the configured match mode.
+
+    Xpoz keyword search is loose: a multi-word query like "Wiley eBooks"
+    returns posts containing ANY of the words — which put a French Sony/
+    PlayStation ebook complaint into the Wiley brand lane. The brand root
+    (first) token is always required so a post stays in the right brand lane;
+    XPOZ_TERM_MATCH decides how many of the remaining product tokens are needed.
+    The author handle / subreddit count as brand context alongside the text.
+    """
+    if not tokens:
+        return True
+    meta = row.get("social_meta") or {}
+    hay = " ".join(str(x) for x in (
+        row.get("title"), row.get("summary"),
+        meta.get("author"), meta.get("subreddit")) if x).lower()
+
+    root, rest = tokens[0], tokens[1:]
+    if not _tok_present(root, hay):
+        return False
+    if not rest:
+        return True
+
+    mode = _term_match_mode()
+    if mode == "root":
+        return True
+    matched = sum(1 for t in rest if _tok_present(t, hay))
+    if mode == "majority":
+        return 2 * matched >= len(rest)
+    return matched == len(rest)  # "all" (default fall-through): every token present
+
+
+class XpozCollector(ArticleCollector):
+    """Collector for social posts via the xpoz.ai SDK (one search per platform)."""
+
+    def __init__(self, platforms: Optional[List[str]] = None):
+        self.api_key = _api_key()
+        if not self.api_key:
+            raise ValueError(
+                "Xpoz API key not configured. Set XPOZ_API_KEY environment variable."
+            )
+        # Explicit platform list (per-group setting) wins over the
+        # XPOZ_PLATFORMS env default; unknown names are dropped.
+        if platforms:
+            want = [p.strip().lower() for p in platforms if p and p.strip()]
+            self.platforms = [p for p in want if p in _ALL_PLATFORMS] or _platforms()
+        else:
+            self.platforms = _platforms()
+        self.requests_today = 0  # rate-counter expected by keyword_monitor logging
+        logger.info("XpozCollector initialized (platforms=%s)", ",".join(self.platforms))
+
+    async def search_articles(
+        self,
+        query: str,
+        topic: str,
+        max_results: int = 10,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        language: str = "en",
+        locale: Optional[str] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        sort_by: Optional[str] = None,
+        source_ids: Optional[List[str]] = None,
+        exclude_source_ids: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
+        exclude_categories: Optional[List[str]] = None,
+        search_fields: Optional[List[str]] = None,
+        page: int = 1,
+    ) -> List[Dict]:
+        """Search each configured platform for ``query`` and return standardized dicts.
+
+        ``max_results`` is applied per platform, so up to ``max_results * len(platforms)``
+        posts may be returned per cycle — appropriate for high-volume brand monitoring.
+        """
+        term = (query or "").strip()
+        if not term:
+            return []
+        per_platform = min(max(1, int(max_results or 10)), _max_per_platform())
+        try:
+            return await asyncio.to_thread(
+                self._search_sync,
+                term,
+                topic,
+                per_platform,
+                _to_date_str(start_date),
+                _to_date_str(end_date),
+            )
+        except Exception as e:  # noqa: BLE001 - best-effort collector
+            logger.error("Xpoz search failed: %s: %s", type(e).__name__, e)
+            return []
+
+    def _search_sync(self, term, topic, per_platform, start_date, end_date) -> List[Dict]:
+        from xpoz import XpozClient
+
+        out: List[Dict] = []
+        tokens = _term_tokens(term) if _strict_terms_enabled() else []
+        client = XpozClient(self.api_key, check_update=False)
+        # Cap each platform's blocking SDK call so one slow/hung platform can't
+        # burn the caller's 120s budget and discard every platform's results.
+        # Sequential (max_workers=1 per submit) — no extra concurrency on the
+        # shared xpoz key; worst case len(platforms) * XPOZ_PLATFORM_TIMEOUT.
+        plat_timeout = _platform_timeout()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(self.platforms) or 1)
+        try:
+            for plat in self.platforms:
+                try:
+                    ns = getattr(client, plat, None)
+                    if ns is None:
+                        continue
+                    fut = pool.submit(
+                        ns.search_posts,
+                        term,
+                        fields=_FIELDS.get(plat),
+                        start_date=start_date,
+                        end_date=end_date,
+                        limit=per_platform,
+                    )
+                    try:
+                        result = fut.result(timeout=plat_timeout)
+                    except concurrent.futures.TimeoutError:
+                        fut.cancel()
+                        logger.warning(
+                            "Xpoz %s exceeded %.0fs for '%s' — skipping this platform, "
+                            "keeping other platforms' posts",
+                            plat, plat_timeout, term[:60],
+                        )
+                        continue
+                    posts = getattr(result, "data", None) or []
+                    mapper = getattr(self, f"_map_{plat}")
+                    dropped = 0
+                    for post in posts[:per_platform]:
+                        row = mapper(post, topic)
+                        if not row:
+                            continue
+                        if tokens and not _post_matches_terms(row, tokens):
+                            dropped += 1
+                            continue
+                        out.append(row)
+                    logger.info(
+                        "Xpoz %s returned %d posts for '%s'%s",
+                        plat, len(posts), term[:60],
+                        f" ({dropped} dropped: missing query terms)" if dropped else "",
+                    )
+                except Exception as e:  # noqa: BLE001 - one platform failing shouldn't kill the rest
+                    logger.warning("Xpoz %s search error: %s: %s", plat, type(e).__name__, e)
+        finally:
+            # Don't block on a hung search_posts thread; it dies with the process.
+            pool.shutdown(wait=False, cancel_futures=True)
+            # client.close() joins in-flight HTTP requests, so a still-hung
+            # platform thread makes it block for the whole 120s wrapper budget —
+            # discarding the posts we DID collect. Close in a daemon thread we
+            # never wait on so _search_sync returns as soon as the loop is done.
+            threading.Thread(target=_safe_close, args=(client,), daemon=True).start()
+        self.requests_today += len(self.platforms)
+        return out
+
+    # -- per-platform mappers -> standardized article dict --------------------
+
+    def _row(self, *, title, body, author, pub, url, platform, external_id, topic, meta):
+        if not url or not external_id:
+            return None
+        # social_meta carries what the ingest pipeline would otherwise discard:
+        # normalized engagement (likes/reposts/comments/plays) + a thumbnail URL.
+        social_meta = {"platform": platform, "external_id": str(external_id)}
+        if author:
+            social_meta["author"] = author
+        for k, v in (meta or {}).items():
+            if v is not None and v != "":
+                social_meta[k] = v
+        return {
+            "title": _clean(title, 300) or (body[:120] if body else platform),
+            "summary": body,
+            "content": body,
+            "authors": [author] if author else [],
+            "published_date": pub,
+            "url": url,
+            "source": f"xpoz:{platform}",
+            "topic": topic,
+            "social_meta": social_meta,
+            "raw_data": {"platform": platform, "external_id": str(external_id), "provider": "xpoz"},
+        }
+
+    def _map_twitter(self, p, topic):
+        author = getattr(p, "author_username", None)
+        pid = getattr(p, "id", None)
+        handle = author or "i"
+        url = f"https://x.com/{handle}/status/{pid}" if pid else None
+        media = getattr(p, "media_urls", None)
+        return self._row(
+            title=getattr(p, "text", None),
+            body=_clean(getattr(p, "text", None)),
+            author=author,
+            pub=_pub_iso(p),
+            url=url,
+            platform="twitter",
+            external_id=pid,
+            topic=topic,
+            meta={
+                "likes": getattr(p, "like_count", None),
+                "reposts": getattr(p, "retweet_count", None),
+                "comments": getattr(p, "reply_count", None),
+                "thumbnail": media[0] if isinstance(media, (list, tuple)) and media else None,
+            },
+        )
+
+    def _map_reddit(self, p, topic):
+        permalink = getattr(p, "permalink", None)
+        pid = getattr(p, "id", None)
+        url = getattr(p, "post_url", None)
+        if not url and permalink:
+            url = permalink if permalink.startswith("http") else "https://www.reddit.com" + permalink
+        if not url:
+            url = getattr(p, "url", None) or (f"https://redd.it/{pid}" if pid else None)
+        title = getattr(p, "title", None)
+        body = _clean(getattr(p, "selftext", None)) or _clean(title)
+        thumb = getattr(p, "thumbnail", None)
+        if not (isinstance(thumb, str) and thumb.startswith("http")):
+            thumb = None  # reddit uses 'self'/'default'/'nsfw' placeholders
+        return self._row(
+            title=title,
+            body=body,
+            author=getattr(p, "author_username", None),
+            pub=_pub_iso(p),
+            url=url,
+            platform="reddit",
+            external_id=getattr(p, "id", None),
+            topic=topic,
+            meta={
+                "subreddit": getattr(p, "subreddit_name", None),
+                "likes": getattr(p, "score", None),
+                "comments": getattr(p, "comments_count", None),
+                "thumbnail": thumb,
+            },
+        )
+
+    def _map_instagram(self, p, topic):
+        caption = _clean(getattr(p, "caption", None))
+        username = getattr(p, "username", None)
+        url = getattr(p, "code_url", None) or (
+            f"https://www.instagram.com/{username}/" if username else None)
+        return self._row(
+            title=caption,
+            body=caption,
+            author=username,
+            pub=_pub_iso(p),
+            url=url,
+            platform="instagram",
+            external_id=getattr(p, "id", None),
+            topic=topic,
+            meta={
+                "likes": getattr(p, "like_count", None),
+                "comments": getattr(p, "comment_count", None),
+                "media_type": getattr(p, "media_type", None),
+                "thumbnail": getattr(p, "image_url", None),
+            },
+        )
+
+    def _map_tiktok(self, p, topic):
+        desc = _clean(getattr(p, "description", None))
+        username = getattr(p, "username", None)
+        pid = getattr(p, "id", None)
+        url = getattr(p, "video_url", None)
+        if not url and username and pid:
+            url = f"https://www.tiktok.com/@{username}/video/{pid}"
+        return self._row(
+            title=desc,
+            body=desc,
+            author=username,
+            pub=_pub_iso(p),
+            url=url,
+            platform="tiktok",
+            external_id=pid,
+            topic=topic,
+            meta={
+                "likes": getattr(p, "like_count", None),
+                "comments": getattr(p, "comment_count", None),
+                "plays": getattr(p, "play_count", None),
+                "thumbnail": getattr(p, "video_thumbnail", None),
+            },
+        )
+
+    async def fetch_article_content(self, url: str) -> Optional[Dict]:
+        """Xpoz posts are self-contained (search returns full text) — no re-fetch."""
+        return None

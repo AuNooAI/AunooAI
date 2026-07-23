@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.security.session import verify_session
-from app.core.modules import get_all_modules, get_enabled_module_ids, set_module_enabled
+from app.core.modules import get_all_modules, get_enabled_module_ids, set_module_enabled, is_dedicated_bw
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def _build_module_list():
 @router.get("/api/modules")
 async def list_modules(session=Depends(verify_session)):
     """Return metadata about all analysis modules with enabled state."""
-    return {"modules": _build_module_list()}
+    return {"modules": _build_module_list(), "dedicated_mode": is_dedicated_bw()}
 
 
 @router.put("/api/modules/{module_id}/toggle")
@@ -55,4 +55,4 @@ async def toggle_module(module_id: str, body: ToggleRequest, session=Depends(ver
     user = session.get("user") if isinstance(session, dict) else None
     username = user.get("username") if isinstance(user, dict) else user
     set_module_enabled(module_id, body.enabled, username)
-    return {"modules": _build_module_list()}
+    return {"modules": _build_module_list(), "dedicated_mode": is_dedicated_bw()}

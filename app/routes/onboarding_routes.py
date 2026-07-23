@@ -532,6 +532,11 @@ async def onboarding_page(
     redo: bool = Query(False)
 ):
     """Display Bootstrap onboarding wizard (Community edition)."""
+    from app.core.modules import is_dedicated_bw
+    if is_dedicated_bw():
+        # Dedicated Brand Watcher tenants have no topic wizard — brands are
+        # configured in the Brand Watcher tab.
+        return RedirectResponse(url="/explore")
     # Check if user has completed onboarding
     db = Database()
     user = request.session.get("user")

@@ -7,9 +7,10 @@ competitive positioning, and reputation risk across news articles.
 Classification approach: keyword-based → LLM fallback → SLM (DeBERTa) when 500+ samples.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, timedelta, date, time as dt_time
 from sqlalchemy import text
 import logging
@@ -24,6 +25,68 @@ from app.utils.keyword_normalizer import normalize_keyword_list
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/brand-watcher", tags=["Brand Watcher"])
+
+# ---------------------------------------------------------------------------
+# Read-endpoint response cache (stale-while-revalidate).
+#
+# A dashboard load fires ~18 GET requests whose handlers each re-aggregate a
+# multi-GB articles table with sync SQL inside async defs — so the calls
+# serialize on the event loop and a cold first paint takes tens of seconds.
+# Responses here are tenant-global (no per-user data) and only change when a
+# collection/classification cycle lands, so short TTL caching is invisible to
+# freshness but makes repeat loads instant. Entries fresher than
+# _BW_CACHE_FRESH are served directly; older-but-usable entries are served
+# stale while one background task recomputes them.
+import asyncio as _bw_asyncio
+import functools as _bw_functools
+import time as _bw_time
+
+_BW_CACHE: Dict[str, tuple] = {}
+_BW_CACHE_REFRESHING: set = set()
+_BW_CACHE_FRESH = 180      # seconds: serve as-is
+_BW_CACHE_STALE = 1800     # seconds: serve + refresh in background
+_BW_CACHE_MAX_ENTRIES = 200
+
+
+def bw_cache_clear():
+    _BW_CACHE.clear()
+
+
+def bw_cached(fn):
+    @_bw_functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        key = fn.__name__ + "|" + "|".join(
+            f"{k}={v}" for k, v in sorted(kwargs.items())
+            if isinstance(v, (str, int, float, bool)) or v is None
+        )
+        now = _bw_time.monotonic()
+        hit = _BW_CACHE.get(key)
+        if hit is not None:
+            age = now - hit[0]
+            if age < _BW_CACHE_FRESH:
+                return hit[1]
+            if age < _BW_CACHE_STALE:
+                if key not in _BW_CACHE_REFRESHING:
+                    _BW_CACHE_REFRESHING.add(key)
+
+                    async def _refresh():
+                        try:
+                            _BW_CACHE[key] = (_bw_time.monotonic(), await fn(*args, **kwargs))
+                        except Exception as refresh_err:
+                            logger.warning(f"bw_cached refresh failed for {key}: {refresh_err}")
+                        finally:
+                            _BW_CACHE_REFRESHING.discard(key)
+
+                    _bw_asyncio.create_task(_refresh())
+                return hit[1]
+        result = await fn(*args, **kwargs)
+        if len(_BW_CACHE) >= _BW_CACHE_MAX_ENTRIES:
+            oldest = min(_BW_CACHE, key=lambda k: _BW_CACHE[k][0])
+            _BW_CACHE.pop(oldest, None)
+        _BW_CACHE[key] = (_bw_time.monotonic(), result)
+        return result
+    return wrapper
+
 
 
 # ============================================================================
@@ -199,6 +262,15 @@ NARRATIVE_ANALYSIS_PROMPT = """You are generating an analytical brand intelligen
 **Social Pulse (Reddit/Bluesky):**
 {social_signal}
 
+**Adverse Risk Findings:**
+{risk_findings}
+
+**Open Incidents:**
+{incident_summary}
+
+**Employee / Workforce Signal (Glassdoor):**
+{employee_signal}
+
 ## Analysis Approach
 
 Your job is to SYNTHESIZE the articles into coherent themes and narratives, not to cherry-pick or list individual articles. Read all the provided articles and identify the underlying patterns, recurring themes, and emerging storylines. When you reference specific articles, use them as evidence supporting a broader theme — not as standalone items.
@@ -213,7 +285,7 @@ For example, instead of "Article X reports a data breach", write: "Data security
 
 ## Required Sections
 
-Write a comprehensive brand intelligence narrative (600-1000 words) with these EXACT section headers (use ## markdown format):
+Write a comprehensive brand intelligence narrative (600-1000 words) with these EXACT section headers (use ## markdown format). Do NOT add a document title, H1 heading, or any preamble — begin directly with "## Executive Summary":
 
 ## Executive Summary
 Key findings in 3-4 sentences. Synthesize the dominant narrative threads around this brand. What requires immediate attention? If the Brand Risk Assessment shows Elevated or High risk, explain what themes in the coverage are driving it.
@@ -231,6 +303,12 @@ YOU MUST use bullet points in this section. Format EXACTLY like this:
 ## Social Pulse
 Summarize what social conversation (Reddit/Bluesky) adds beyond the news coverage, using ONLY the Social Pulse data provided. Cover: overall volume and the platform split, net sentiment among on-brand posts, and the dominant themes in the top on-brand posts. Note how social sentiment compares to the news coverage (aligned or diverging). If no social data is provided, say so in one sentence and move on. Keep to 2-4 sentences or bullets. Do NOT invent posts, handles, or numbers — ground every claim in the provided social data.
 
+## Risk & Compliance
+Cover the adverse risk findings and open incidents using ONLY the Adverse Risk Findings and Open Incidents data provided. State the counts by type plainly, name the most severe findings with their article links, and list open incidents with severity and status. If both blocks report none, write one sentence saying no adverse risk findings or open incidents were recorded in the period and move on. Do NOT speculate beyond the data.
+
+## Workforce Signal
+Summarize the employee picture using ONLY the Employee / Workforce Signal data provided: overall Glassdoor rating and review volume, CEO approval and business outlook, the weakest sub-ratings, recent employee-review sentiment, workforce risk findings, and how the rating compares to the competitor ratings given. If the block reports no employee data, write one sentence and move on. Keep to 2-4 sentences or bullets. Do NOT invent numbers.
+
 ## Forward-Looking Concerns
 YOU MUST use bullet points in this section. List 3-5 specific concerns synthesized from patterns across multiple articles:
 
@@ -247,6 +325,23 @@ CRITICAL FORMATTING REQUIREMENTS:
 - Use **bold** for bullet point headers
 - Include specific numbers from the data
 - Be analytical and evidence-based, grounding all claims in the provided articles"""
+
+NARRATIVE_REVIEWER_PROMPT = """You are an exacting editor reviewing a brand intelligence report before it reaches executives. Below are the SOURCE BRIEF (the only permitted evidence) and the DRAFT report.
+
+Rewrite the draft so that:
+1. Every number, event, ranking and date is supported by the source brief. Remove or reword anything unsupported down to what the brief actually shows. Never add facts of your own.
+2. Reporting periods are unambiguous. Companies with non-calendar fiscal years report a "Q4" in June — label such periods explicitly, e.g. "fiscal Q4 2026 (quarter ended April 2026), announced mid-June 2026", so no reader mistakes a fiscal quarter for a calendar one or flags it as an error.
+3. The writing is plain data narration. Remove storytelling framings and verdicts — "entered a recovery phase", "signaling underlying strength", "momentum is worsening" — and state what the data shows instead; readers draw their own conclusions.
+4. Keep the same markdown heading structure and roughly the same length. No recommendations, no advice, no greeting, no notes about your edits.
+
+Return ONLY the corrected markdown report.
+
+SOURCE BRIEF:
+{brief}
+
+DRAFT:
+{draft}"""
+
 
 CATEGORY_INSIGHT_PROMPT = """You are a brand intelligence analyst providing insights on a specific category for a brand.
 
@@ -359,6 +454,23 @@ class ArticleResponse(BaseModel):
     # Opoint entity verification: {brands:[...], relevance:float} when the article's
     # Opoint organization entities resolve (by Wikidata ID) to a tracked brand.
     entity_match: Optional[dict] = None
+    # Story clustering (bw_article_stories): how many articles share this story
+    # (syndicated republications) and the cluster key for display-side dedup.
+    story_size: Optional[int] = None
+    story_neg: Optional[int] = None
+    story_pos: Optional[int] = None
+    story_scored: Optional[int] = None
+    story_group_id: Optional[str] = None
+    # MBFC source authority (when the source is in the mediabias dataset).
+    factual_reporting: Optional[str] = None
+    # Adverse risk findings: [{risk_type, severity, confidence}] (bw_article_risks).
+    risks: List[dict] = []
+    # Case state (bw_finding_reviews): new | reviewed | escalated | dismissed.
+    review_status: Optional[str] = None
+    # Five Signals screen (bw_article_signals): {status, verdict, composite,
+    # signals: [{key, band, score}]} — compact row summary; full detail via
+    # GET /signals/detail.
+    signals_summary: Optional[dict] = None
 
 
 class ArticlesListResponse(BaseModel):
@@ -367,6 +479,9 @@ class ArticlesListResponse(BaseModel):
     page: int
     per_page: int
     total_pages: int
+    # False when AUNOO_SAAS_MCP_KEY is unset — the UI hides the Five Signals
+    # run action entirely.
+    signals_available: bool = False
 
 
 class TemporalDataResponse(BaseModel):
@@ -395,7 +510,9 @@ class ShareOfVoiceResponse(BaseModel):
 class NarrativeRequest(BaseModel):
     brand_id: int
     days_back: int = 365
-    model: str = "gpt-5.4-mini"
+    # Standard tier, not mini: this is the most executive-facing text in Brand
+    # Watcher, and it gets a same-tier reviewer pass on top (see generate_narrative).
+    model: str = "gpt-5.4"
 
 
 class NarrativeResponse(BaseModel):
@@ -1245,13 +1362,18 @@ incremental article volume.</p>
 
 
 @router.get("/social")
+@bw_cached
 async def get_social_posts(
     topics: Optional[str] = Query(None, description="Comma-separated brand topic(s)"),
     days_back: int = Query(30, ge=1, le=365),
     min_relevance: float = Query(0.0, ge=0.0, le=1.0),
     source: Optional[str] = Query(None, description="Filter: 'reddit' or 'bluesky'"),
+    keyword: Optional[str] = Query(None, description="Only posts triggered by this brand keyword (case-insensitive)"),
+    start_date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD); overrides days_back window start"),
+    end_date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD); overrides days_back window end (inclusive)"),
     include_unevaluated: bool = Query(True, description="When no min_relevance, include posts the social eval hasn't scored yet"),
-    limit: int = Query(100, ge=1, le=500),
+    include_flagged: bool = Query(False, description="Include posts flagged as false positives (hidden by default)"),
+    limit: int = Query(100, ge=1, le=20000),
     session=Depends(verify_session),
 ):
     """Social (Reddit/Bluesky) brand mentions with basic relevance + sentiment.
@@ -1264,7 +1386,14 @@ async def get_social_posts(
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
-        start_date, end_date = _get_date_range(days_back)
+        # Explicit start/end (from the export modal date range) override days_back.
+        # end is made inclusive of the whole day; publication_date is ISO text so
+        # 'T23:59:59' sorts as the day's max under lexicographic comparison.
+        if start_date or end_date:
+            win_start = start_date or '1900-01-01'
+            win_end = (end_date or datetime.now().strftime('%Y-%m-%d')) + 'T23:59:59'
+        else:
+            win_start, win_end = _get_date_range(days_back)
         topic_clause, topic_params = _build_topics_filter(topics)
 
         # social-source filter: either a specific source, or any of the social sources
@@ -1273,7 +1402,7 @@ async def get_social_posts(
         else:
             src_keys = list(SOCIAL_SOURCES)
         src_clause = "(" + " OR ".join(f"LOWER(a.news_source) LIKE :_src_{i}" for i in range(len(src_keys))) + ")"
-        params = {"start": start_date, "end": end_date, "min_rel": min_relevance, "lim": limit, **topic_params}
+        params = {"start": win_start, "end": win_end, "min_rel": min_relevance, "lim": limit, **topic_params}
         for i, k in enumerate(src_keys):
             params[f"_src_{i}"] = f"%{k}%"
 
@@ -1288,20 +1417,30 @@ async def get_social_posts(
         else:
             rel_clause = ""
 
+        # Posts flagged as false positives (essay-mill spam etc.) are removed from
+        # the feed and all rollups, but the rows stay in `articles` +
+        # bw_finding_reviews as labeled data for relevance fine-tuning.
+        fp_clause = "" if include_flagged else (
+            "AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr"
+            " WHERE _fpr.article_uri = a.uri AND _fpr.status = 'false_positive')")
+
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
-                   a.topic_alignment_score, a.sentiment, a.topic
+                   a.topic_alignment_score, a.sentiment, a.topic, a.social_meta
             FROM articles a
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               AND {src_clause}
               {topic_clause}
               {rel_clause}
+              {fp_clause}
             ORDER BY a.publication_date DESC
             LIMIT :lim
         """), params).fetchall()
 
         def _platform(ns):
             s = (ns or "").lower()
+            if s.startswith("xpoz:"):
+                return s.split(":", 1)[1] or "social"
             if "reddit" in s:
                 return "reddit"
             if "bsky" in s or "bluesky" in s:
@@ -1314,21 +1453,74 @@ async def get_social_posts(
             "publication_date": str(r[4]) if r[4] else None,
             "relevance": round(r[5], 3) if r[5] is not None else None,
             "sentiment": r[6], "topic": r[7],
+            "social_meta": (r[8] if isinstance(r[8], dict)
+                            else (json.loads(r[8]) if r[8] else None)),
         } for r in rows]
+
+        # Attach the brand keyword(s) that triggered each post so the UI can show a
+        # chip and filter by it. The keyword monitor records matches in
+        # keyword_article_matches (comma-separated monitored_keywords ids); resolve
+        # those ids to names. Done in two small lookups to avoid ::int[] cast pitfalls
+        # on any stray/blank ids.
+        kw_map: dict = {}
+        uris = [p["uri"] for p in posts]
+        if uris:
+            match_rows = conn.execute(text(
+                "SELECT article_uri, keyword_ids FROM keyword_article_matches "
+                "WHERE article_uri = ANY(:uris)"
+            ), {"uris": uris}).fetchall()
+            uri_ids: dict = {}
+            id_set: set = set()
+            for m_uri, kids in match_rows:
+                ids = [int(x) for x in (kids or "").split(",") if x.strip().isdigit()]
+                if not ids:
+                    continue
+                uri_ids.setdefault(m_uri, set()).update(ids)
+                id_set.update(ids)
+            id_to_kw: dict = {}
+            if id_set:
+                for kid, kw in conn.execute(text(
+                    "SELECT id, keyword FROM monitored_keywords WHERE id = ANY(:ids)"
+                ), {"ids": list(id_set)}).fetchall():
+                    id_to_kw[kid] = kw
+            for m_uri, ids in uri_ids.items():
+                kw_map[m_uri] = sorted({id_to_kw[i] for i in ids if i in id_to_kw})
+        for p in posts:
+            p["matched_keywords"] = kw_map.get(p["uri"], [])
+
+        # Attach review/case status so the UI can render + toggle the FP flag.
+        # A false_positive flag under ANY brand wins (spam is spam for all brands).
+        st_map: dict = {}
+        if uris:
+            for s_uri, s_status in conn.execute(text(
+                "SELECT article_uri, status FROM bw_finding_reviews WHERE article_uri = ANY(:uris)"
+            ), {"uris": uris}).fetchall():
+                if st_map.get(s_uri) != "false_positive":
+                    st_map[s_uri] = s_status
+        for p in posts:
+            p["review_status"] = st_map.get(p["uri"])
+
+        # Optional filter: only posts triggered by a specific keyword (case-insensitive).
+        if keyword:
+            kw_lc = keyword.strip().lower()
+            posts = [p for p in posts if any(k.lower() == kw_lc for k in p["matched_keywords"])]
 
         # sentiment + platform rollups for the tab summary
         from collections import Counter
         sent_counts = Counter((p["sentiment"] or "Unrated") for p in posts)
         plat_counts = Counter(p["platform"] for p in posts)
+        kw_counts = Counter(k for p in posts for k in p["matched_keywords"])
         evaluated = sum(1 for p in posts if p["relevance"] is not None)
         return {
             "window_days": days_back,
             "min_relevance": min_relevance,
             "include_unevaluated": include_unevaluated,
+            "keyword": keyword,
             "total": len(posts),
             "evaluated": evaluated,
             "by_platform": dict(plat_counts),
             "by_sentiment": dict(sent_counts),
+            "by_keyword": dict(kw_counts.most_common()),
             "posts": posts,
         }
     except Exception as e:
@@ -1440,6 +1632,7 @@ async def update_brand(brand_id: int, updates: BrandUpdate, session=Depends(veri
         if not row:
             raise HTTPException(status_code=404, detail="Brand not found")
         conn.commit()
+        bw_cache_clear()
         return BrandResponse(**_brand_row_to_dict(row))
     except HTTPException:
         raise
@@ -1507,7 +1700,7 @@ async def delete_brand(
                 facade = DatabaseQueryFacade(db, logger)
                 groups = facade.get_all_group_ids_associated_to_topic(topic_name)
                 for g in (groups or []):
-                    gid = g['id'] if isinstance(g, dict) else g[0]
+                    gid = g['id'] if hasattr(g, 'keys') else g[0]  # RowMapping is dict-like, not dict
                     facade.delete_group_keywords(gid)
                     facade.delete_keyword_group(gid)
                     logger.info(f"Deleted keyword group {gid} for topic '{topic_name}'")
@@ -1595,6 +1788,7 @@ async def update_brand_config(brand_id: int, config_update: dict, session=Depend
             UPDATE bw_brands SET config = :config, updated_at = NOW() WHERE id = :id
         """), {"id": brand_id, "config": json.dumps(current_config)})
         conn.commit()
+        bw_cache_clear()
         return {"config": current_config}
     except HTTPException:
         raise
@@ -1755,7 +1949,7 @@ async def setup_social_monitoring(brand_id: int, req: SocialMonitoringRequest = 
     conn = db._temp_get_connection()
     try:
         brand = conn.execute(text(
-            "SELECT id, display_name, brand_keywords, product_keywords, people_keywords "
+            "SELECT id, display_name, brand_keywords, product_keywords, people_keywords, config "
             "FROM bw_brands WHERE id = :id"), {"id": brand_id}).fetchone()
         if not brand:
             raise HTTPException(status_code=404, detail="Brand not found")
@@ -1764,6 +1958,16 @@ async def setup_social_monitoring(brand_id: int, req: SocialMonitoringRequest = 
         def _kw(v):
             return v if isinstance(v, list) else (json.loads(v) if v else [])
         keywords = normalize_keyword_list(_kw(brand[2]) + _kw(brand[3]) + _kw(brand[4]))
+
+        # Social keyword cleanup: brands can list overly-ambiguous keywords (bare
+        # surnames, idioms like "For Dummies", typos) that collide with everyday
+        # social chatter and flood the feed with off-brand posts. Those are kept for
+        # the news path (where relevance scoring disambiguates) but excluded from
+        # social collection. Stored in bw_brands.config.social_keyword_excludes.
+        cfg = brand[5] if isinstance(brand[5], dict) else (json.loads(brand[5]) if brand[5] else {})
+        excludes = {str(x).strip().lower() for x in (cfg.get("social_keyword_excludes") or [])}
+        if excludes:
+            keywords = [k for k in keywords if k.strip().lower() not in excludes]
 
         topic_name = f"Brand Monitoring {display_name}"
         group_name = f"{display_name} - Social"
@@ -1819,11 +2023,20 @@ async def setup_social_monitoring(brand_id: int, req: SocialMonitoringRequest = 
 class SuggestKeywordsRequest(BaseModel):
     brand_name: str
     description: Optional[str] = None
+    qid: Optional[str] = None  # user-confirmed Wikidata QID (skips disambiguation)
+    verify: bool = True
+    unverified_policy: Literal["flag", "drop"] = "flag"
 
 @router.post("/suggest-keywords")
 async def suggest_keywords(request: SuggestKeywordsRequest, session=Depends(verify_session)):
-    """Use LLM to suggest brand keywords, product keywords, people keywords, and competitor keywords."""
+    """Use LLM to suggest brand keywords, product keywords, people keywords, and competitor keywords.
+
+    When verify=True (default), executives and competitor firms are cross-checked
+    against Wikidata and a `verification` block with per-item provenance is added
+    to the response. The four keyword arrays keep their legacy plain-string shape.
+    """
     from app.ai_models import LiteLLMModel
+    from app.services.brand_entity_verifier import verify_suggestions
 
     prompt = f"""You are a brand intelligence analyst. Given the brand name and optional description, suggest comprehensive keyword lists for monitoring this brand in news articles.
 
@@ -1833,36 +2046,89 @@ Brand name: {request.brand_name}
 Return a JSON object with these four arrays:
 - "brand_keywords": Variations of the brand/company name that would appear in news (full legal name, common abbreviations, stock ticker symbols, former names, parent company names). Include the brand name itself.
 - "product_keywords": Major products, services, platforms, or publications associated with this brand.
-- "people_keywords": Key executives, founders, or notable people associated with this brand (CEO, CFO, board members).
-- "competitor_keywords": Major direct competitors in the same industry.
+- "people_keywords": Key executives, founders, or notable people associated with this brand (CEO, CFO, board members). Only include real, named individuals you are confident hold or held these roles; if unsure, omit.
+- "competitor_keywords": Major direct competitors in the same industry. Company names only, no products.
 
 Be thorough but only include terms that would realistically appear in news articles. Each keyword should be specific enough to avoid false positives.
 
 Respond ONLY with valid JSON, no markdown formatting."""
 
-    try:
+    async def _llm_suggest() -> dict:
         model = LiteLLMModel.get_instance("gpt-5.4-mini")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
         ])
-
         response_text = response.strip()
         if response_text.startswith("```"):
             response_text = response_text.split("```")[1]
             if response_text.startswith("json"):
                 response_text = response_text[4:]
-        result = json.loads(response_text)
+        return json.loads(response_text)
 
-        return {
-            "brand_keywords": result.get("brand_keywords", []),
-            "product_keywords": result.get("product_keywords", []),
-            "people_keywords": result.get("people_keywords", []),
-            "competitor_keywords": result.get("competitor_keywords", []),
-        }
+    try:
+        result = await _llm_suggest()
     except Exception as e:
         logger.error(f"Error suggesting keywords: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    payload = {
+        "brand_keywords": result.get("brand_keywords", []),
+        "product_keywords": result.get("product_keywords", []),
+        "people_keywords": result.get("people_keywords", []),
+        "competitor_keywords": result.get("competitor_keywords", []),
+    }
+
+    if not request.verify:
+        payload["verification"] = {"available": False}
+        return payload
+
+    verification = await verify_suggestions(
+        request.brand_name, payload, qid=request.qid
+    )
+    payload["verification"] = verification
+
+    if verification.get("available"):
+        verified_people = {p["name"] for p in verification.get("people", []) if p.get("verified")}
+        verified_comps = {c["name"] for c in verification.get("competitors", []) if c.get("verified")}
+        if request.unverified_policy == "drop":
+            payload["people_keywords"] = [p for p in payload["people_keywords"] if p in verified_people]
+            payload["competitor_keywords"] = [c for c in payload["competitor_keywords"] if c in verified_comps]
+        # Append Wikidata-only people/firms (deduped, case-insensitive) so plain-array
+        # consumers like the onboarding wizard benefit from verified additions too.
+        have_people = {p.casefold() for p in payload["people_keywords"]}
+        for p in verification.get("people", []):
+            if p.get("source") == "wikidata" and p["name"].casefold() not in have_people:
+                payload["people_keywords"].append(p["name"])
+                have_people.add(p["name"].casefold())
+        have_comps = {c.casefold() for c in payload["competitor_keywords"]}
+        for c in verification.get("competitors", []):
+            if c.get("source") == "wikidata" and c["name"].casefold() not in have_comps:
+                payload["competitor_keywords"].append(c["name"])
+                have_comps.add(c["name"].casefold())
+
+    return payload
+
+
+class WikidataSearchRequest(BaseModel):
+    query: str
+    limit: int = 8
+
+@router.post("/wikidata/search")
+async def wikidata_search(request: WikidataSearchRequest, session=Depends(verify_session)):
+    """Search Wikidata entities by name — powers the 'Change entity' picker."""
+    from app.services.wikidata_client import WikidataClient
+
+    try:
+        async with WikidataClient() as wd:
+            hits = await wd.search(request.query, limit=min(request.limit, 20))
+        return {"candidates": [
+            {"qid": h["qid"], "label": h["label"], "description": h.get("description")}
+            for h in hits
+        ]}
+    except Exception as e:
+        logger.error(f"Wikidata search failed: {e}")
+        return {"candidates": []}
 
 
 # ============================================================================
@@ -1917,6 +2183,32 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
     db = get_database_instance()
     conn = db._temp_get_connection()
 
+    # Overlap guard: two concurrent runs contend on the same
+    # bw_article_categories rows (ON CONFLICT DO UPDATE takes the same row
+    # locks), which under per-article LLM latency becomes multi-minute lock
+    # waits. Refuse to start while another run is live. The 2h staleness
+    # cutoff keeps a crashed run's orphaned 'running' row from wedging the
+    # schedule forever.
+    try:
+        other = conn.execute(text("""
+            SELECT id FROM bw_tracker_runs
+            WHERE status = 'running' AND id <> :run_id
+              AND started_at > NOW() - INTERVAL '2 hours'
+            LIMIT 1
+        """), {"run_id": run_id}).fetchone()
+        if other:
+            logger.info(f"BW Run {run_id}: run {other[0]} already in progress — skipping (overlap guard)")
+            conn.execute(text("""
+                UPDATE bw_tracker_runs SET status = 'skipped_overlap', completed_at = NOW(),
+                    error_message = :msg
+                WHERE id = :run_id
+            """), {"run_id": run_id, "msg": f"run {other[0]} already in progress"})
+            conn.commit()
+            conn.close()
+            return
+    except Exception as guard_err:
+        logger.warning(f"BW Run {run_id}: overlap guard check failed ({guard_err}) — continuing")
+
     # Try SLM
     slm_available = False
     try:
@@ -1927,6 +2219,29 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             logger.info("Brand Watcher SLM classifier available")
     except Exception as e:
         logger.info(f"Brand Watcher SLM not loaded ({e})")
+
+    # Per-brand relevance scorer: bw_article_categories.relevance_score is judged
+    # against the BRAND (not the article's owning topic), so cross-topic articles
+    # (e.g. a Wiley story owned by "Scientific Publishers") aren't hidden by the
+    # display filter just because their global score targets another topic.
+    _brand_rel_svc = None
+    try:
+        from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+        _brand_rel_svc = get_hybrid_relevance_service()
+        _brand_rel_svc.load_models()
+    except Exception as e:
+        logger.warning(f"Brand relevance scorer unavailable ({e}) — relevance_score will fall back to topic score")
+
+    # MBFC source-authority stamp: keyword-monitor / cross-topic articles bypass the
+    # auto-ingest bias enrichment, so most BW articles had NULL factual_reporting and
+    # the authority weighting silently defaulted to 0.5. Stamp them here (in-memory
+    # domain lookup — effectively free).
+    _mbfc = None
+    try:
+        from app.models.media_bias import MediaBias
+        _mbfc = MediaBias(db)
+    except Exception as e:
+        logger.warning(f"MediaBias unavailable for BW stamp ({e})")
 
     try:
         # For "incremental_since_last", look up last completed run date
@@ -2008,7 +2323,8 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             # Query articles that mention this brand (only enriched/analyzed articles)
             if run_type == "full":
                 art_result = conn.execute(text(f"""
-                    SELECT a.uri, a.title, a.summary FROM articles a
+                    SELECT a.uri, a.title, a.summary, a.topic, a.topic_alignment_score,
+                           a.news_source, a.factual_reporting, a.sentiment FROM articles a
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
                     AND a.analyzed = true
                     {social_excl}
@@ -2018,7 +2334,8 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             else:
                 # Incremental: only articles not yet classified for this brand
                 art_result = conn.execute(text(f"""
-                    SELECT a.uri, a.title, a.summary FROM articles a
+                    SELECT a.uri, a.title, a.summary, a.topic, a.topic_alignment_score,
+                           a.news_source, a.factual_reporting, a.sentiment FROM articles a
                     LEFT JOIN bw_article_categories bac ON a.uri = bac.article_uri AND bac.brand_id = :bid
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
                     AND a.analyzed = true
@@ -2045,9 +2362,29 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             logger.info(f"BW Run {run_id}: brand '{brand['display_name']}' (id={bid}): "
                         f"{len(articles)} new articles to classify matching {search_terms}")
 
-            for uri, title, summary in articles:
+            brand_topic = f"Brand Monitoring {brand['display_name']}"
+            for uri, title, summary, art_topic, art_score, art_source, art_factual, art_sent in articles:
                 title = title or ''
                 summary = summary or ''
+
+                # Source-authority stamp for articles that missed ingest-time enrichment.
+                if _mbfc is not None and not art_factual and art_source:
+                    try:
+                        bi = _mbfc.get_bias_for_source(art_source)
+                        if bi:
+                            conn.execute(text("""
+                                UPDATE articles SET
+                                    bias = COALESCE(NULLIF(bias, ''), :bias),
+                                    factual_reporting = :fact,
+                                    mbfc_credibility_rating = COALESCE(mbfc_credibility_rating, :cred),
+                                    bias_source = COALESCE(bias_source, :bsrc),
+                                    bias_country = COALESCE(bias_country, :bctry)
+                                WHERE uri = :u
+                            """), {"bias": bi.get('bias'), "fact": bi.get('factual_reporting'),
+                                   "cred": bi.get('mbfc_credibility_rating'),
+                                   "bsrc": bi.get('source') or 'mbfc', "bctry": bi.get('country'), "u": uri})
+                    except Exception as me:
+                        logger.debug(f"MBFC stamp failed for {uri}: {me}")
 
                 articles_processed += 1
                 text_input = f"{title}. {summary}" if summary else title
@@ -2088,22 +2425,57 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     confidence = None
 
                 if categories:
+                    # Per-brand relevance: reuse the article's own score when it already
+                    # lives in this brand's topic (that score IS brand relevance); for
+                    # cross-topic articles, judge against the brand explicitly.
+                    brand_rel = None
+                    if art_topic == brand_topic and art_score is not None:
+                        brand_rel = float(art_score)
+                    elif _brand_rel_svc is not None:
+                        try:
+                            _r = _brand_rel_svc.score_relevance(
+                                brand_topic, title, (summary or '')[:2000], keywords=search_terms)
+                            brand_rel = float(_r.get("score") or 0.0)
+                        except Exception as e:
+                            logger.debug(f"brand relevance scoring failed for {uri}: {e}")
                     for cat in categories:
                         try:
                             conn.execute(text("""
                                 INSERT INTO bw_article_categories
-                                (article_uri, brand_id, category, classification_method, confidence)
-                                VALUES (:uri, :bid, :cat, :method, :conf)
+                                (article_uri, brand_id, category, classification_method, confidence, relevance_score)
+                                VALUES (:uri, :bid, :cat, :method, :conf, :rel)
                                 ON CONFLICT (article_uri, brand_id, category)
                                 DO UPDATE SET classification_method = :method,
-                                    confidence = :conf, classified_at = NOW()
-                            """), {"uri": uri, "bid": bid, "cat": cat, "method": method, "conf": confidence})
+                                    confidence = :conf, classified_at = NOW(),
+                                    relevance_score = COALESCE(:rel, bw_article_categories.relevance_score)
+                            """), {"uri": uri, "bid": bid, "cat": cat, "method": method, "conf": confidence, "rel": brand_rel})
                         except Exception as e:
                             logger.warning(f"Failed to store category {cat} for {uri}: {e}")
                     articles_categorized += 1
 
+                    # Adverse-risk pass: only for negative or risk-vocabulary articles
+                    # (bounds LLM cost to the adverse sliver of the stream).
+                    try:
+                        risk_gate = bool(_NEG_SENT_RE.search(str(art_sent or ''))) or bool(_RISK_TRIGGER_RE.search(text_input))
+                        if risk_gate:
+                            risks = await _llm_detect_risks(title, summary, brand['display_name'])
+                            method_r = 'llm'
+                            if risks is None:
+                                risks = _keyword_risk_fallback(text_input)
+                                method_r = 'keyword'
+                            if risks:
+                                _store_article_risks(conn, uri, bid, risks, method_r)
+                    except Exception as re_err:
+                        logger.debug(f"risk pass failed for {uri}: {re_err}")
+
+                # Commit this article's writes NOW. The loop awaits Bedrock
+                # calls between writes; holding uncommitted row locks across
+                # them let a concurrent run block for the whole LLM window
+                # (12+ min observed), and the resulting sync lock waits froze
+                # the event loop → sitewide /explore 504s (2026-07-06).
+                conn.commit()
+
                 if articles_processed % 25 == 0:
-                    conn.commit()
                     conn.execute(text("""
                         UPDATE bw_tracker_runs SET articles_processed = :p, articles_categorized = :c
                         WHERE id = :run_id
@@ -2120,6 +2492,21 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 _update_daily_stats(conn, bid, cat, today, count)
             conn.commit()
 
+            # Story dedup: cluster the brand's not-yet-assigned classified
+            # articles into syndication groups (bw_article_stories) so
+            # story-level analytics and story-keyed alert dedup stay current.
+            try:
+                from app.services.brand_watcher_stories import assign_story_groups
+                assigned = assign_story_groups(conn, bid, brand.get("config") or {})
+                if assigned:
+                    logger.info(f"BW Run {run_id}: assigned {assigned} articles to story groups for brand {bid}")
+            except Exception as se:
+                logger.warning(f"BW Run {run_id}: story-group assignment failed for brand {bid}: {se}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
         # Mark run complete
         conn.execute(text("""
             UPDATE bw_tracker_runs SET status = 'completed', completed_at = NOW(),
@@ -2127,6 +2514,7 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             WHERE id = :run_id
         """), {"run_id": run_id, "p": articles_processed, "c": articles_categorized})
         conn.commit()
+        bw_cache_clear()  # aggregates change after a classification run
         logger.info(f"Brand Watcher run {run_id}: {articles_processed} processed, {articles_categorized} categorized")
 
         # Send notification on completion
@@ -2390,6 +2778,7 @@ def _build_topics_filter(topics_param: Optional[str], alias: str = "a") -> tuple
 # ============================================================================
 
 @router.get("/stats", response_model=StatsResponse)
+@bw_cached
 async def get_stats(
     brand_id: Optional[int] = Query(None, description="Filter by brand ID"),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
@@ -2411,7 +2800,7 @@ async def get_stats(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2462,6 +2851,7 @@ async def get_stats(
 
 
 @router.get("/categories", response_model=List[CategoryDistribution])
+@bw_cached
 async def get_category_distribution(
     brand_id: Optional[int] = Query(None),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
@@ -2482,7 +2872,7 @@ async def get_category_distribution(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as count
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2497,7 +2887,7 @@ async def get_category_distribution(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as count
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :prev_start AND a.publication_date < :start AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :prev_start AND a.publication_date < :start AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), prev_params)
@@ -2529,6 +2919,7 @@ async def get_category_distribution(
 
 
 @router.get("/temporal", response_model=List[TemporalDataResponse])
+@bw_cached
 async def get_temporal_data(
     brand_id: Optional[int] = Query(None),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
@@ -2551,7 +2942,7 @@ async def get_temporal_data(
                    COUNT(DISTINCT a.uri)
             FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
@@ -2564,7 +2955,7 @@ async def get_temporal_data(
                    bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), bac.category
             ORDER BY month
@@ -2592,6 +2983,7 @@ async def get_temporal_data(
 
 
 @router.get("/comparison", response_model=List[ComparisonDataResponse])
+@bw_cached
 async def get_brand_comparison(
     topics: Optional[str] = Query(None),
     brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs to compare"),
@@ -2629,7 +3021,7 @@ async def get_brand_comparison(
                 SELECT bac.category, COUNT(DISTINCT bac.article_uri)
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY bac.category
@@ -2643,7 +3035,7 @@ async def get_brand_comparison(
                 SELECT COALESCE(a.sentiment, 'Unknown') as sentiment, COUNT(DISTINCT bac.article_uri)
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY COALESCE(a.sentiment, 'Unknown')
@@ -2667,6 +3059,7 @@ async def get_brand_comparison(
 
 
 @router.get("/share-of-voice", response_model=List[ShareOfVoiceResponse])
+@bw_cached
 async def get_share_of_voice(
     topics: Optional[str] = Query(None),
     days_back: int = Query(365, ge=0, le=730),
@@ -2686,7 +3079,7 @@ async def get_share_of_voice(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             JOIN bw_brands b ON bac.brand_id = b.id
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND b.enabled = true
             {topic_filter}
             GROUP BY bac.brand_id, b.display_name, b.color
@@ -2716,6 +3109,7 @@ async def get_share_of_voice(
 # ============================================================================
 
 @router.get("/brands/{brand_id}/sentiment-trends")
+@bw_cached
 async def get_sentiment_trends(
     brand_id: int,
     topics: Optional[str] = Query(None),
@@ -2737,7 +3131,7 @@ async def get_sentiment_trends(
                    COUNT(*) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
@@ -2783,6 +3177,7 @@ async def get_sentiment_trends(
 # ============================================================================
 
 @router.get("/brands/{brand_id}/alerts")
+@bw_cached
 async def get_brand_alerts(
     brand_id: int,
     days_back: int = Query(30, ge=1, le=365),
@@ -2797,7 +3192,7 @@ async def get_brand_alerts(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
         """), {"bid": brand_id})
@@ -2808,7 +3203,7 @@ async def get_brand_alerts(
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
             AND a.publication_date < (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
@@ -2840,7 +3235,7 @@ async def get_brand_alerts(
                 SELECT bac.category, a.uri, a.title, a.publication_date, a.sentiment, a.news_source
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
                 AND bac.category IN ({ph})
                 ORDER BY a.publication_date DESC
@@ -2894,9 +3289,19 @@ async def export_brand_data(
         result = conn.execute(text("""
             SELECT a.publication_date, a.title, bac.category,
                    a.sentiment, a.news_source, bac.confidence,
-                   bac.classification_method, a.uri
+                   bac.classification_method, a.uri,
+                   COALESCE(bac.relevance_score, a.topic_alignment_score) AS relevance,
+                   a.factual_reporting, a.bias,
+                   rk.risks, fr.status AS case_status
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
+            LEFT JOIN (
+                SELECT article_uri, brand_id,
+                       STRING_AGG(risk_type || ' (' || severity || ')', '; '
+                                  ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END) AS risks
+                FROM bw_article_risks GROUP BY article_uri, brand_id
+            ) rk ON rk.article_uri = a.uri AND rk.brand_id = bac.brand_id
+            LEFT JOIN bw_finding_reviews fr ON fr.article_uri = a.uri AND fr.brand_id = bac.brand_id
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY a.publication_date DESC
@@ -2920,6 +3325,11 @@ async def export_brand_data(
                     "confidence": float(r[5]) if r[5] else None,
                     "method": r[6],
                     "uri": r[7],
+                    "relevance": float(r[8]) if r[8] is not None else None,
+                    "factuality": r[9],
+                    "bias": r[10],
+                    "risks": r[11],
+                    "case_status": r[12] or "new",
                 }
                 for r in rows
             ]
@@ -2928,7 +3338,8 @@ async def export_brand_data(
         # CSV export
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Date", "Title", "Category", "Sentiment", "Source", "Confidence", "Method", "URI"])
+        writer.writerow(["Date", "Title", "Category", "Sentiment", "Source", "Confidence", "Method", "URI",
+                         "Relevance", "Factuality", "Bias", "Risks", "Case Status"])
         for r in rows:
             writer.writerow([
                 str(r[0]) if r[0] else "",
@@ -2939,6 +3350,11 @@ async def export_brand_data(
                 f"{r[5]:.2f}" if r[5] else "",
                 r[6] or "",
                 r[7] or "",
+                f"{r[8]:.2f}" if r[8] is not None else "",
+                r[9] or "",
+                r[10] or "",
+                r[11] or "",
+                r[12] or "new",
             ])
 
         output.seek(0)
@@ -2967,7 +3383,7 @@ async def get_articles(
     days_back: int = Query(365, ge=0, le=730),
     sort_by: str = Query("date"),
     page: int = Query(1, ge=1),
-    per_page: int = Query(25, ge=1, le=100),
+    per_page: int = Query(25, ge=1, le=200),
     session=Depends(verify_session),
 ):
     """Paginated classified articles list."""
@@ -2996,17 +3412,42 @@ async def get_articles(
                        ARRAY_AGG(DISTINCT bac.category) as categories,
                        COUNT(DISTINCT bac.category) as cat_count,
                        a.tags, a.extracted_article_keywords, b.name as brand_slug,
-                       a.opoint_entities
+                       a.opoint_entities, a.factual_reporting,
+                       MAX(st.story_group_id) as story_group_id,
+                       MAX(stc.story_size) as story_size,
+                       MAX(stc.story_neg) as story_neg,
+                       MAX(stc.story_pos) as story_pos,
+                       MAX(stc.story_scored) as story_scored
                 FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 JOIN bw_brands b ON bac.brand_id = b.id
+                -- Story clustering: syndicated republications share a story_group_id;
+                -- story_size ("×N sources") is an amplification/velocity signal.
+                LEFT JOIN bw_article_stories st
+                    ON st.article_uri = a.uri AND st.brand_id = bac.brand_id
+                LEFT JOIN (
+                    -- Per-story sentiment mix across the syndicated copies: powers the
+                    -- "negative consensus" / "polarized coverage" screening flags.
+                    SELECT st2.brand_id, st2.story_group_id, COUNT(*) AS story_size,
+                           COUNT(*) FILTER (WHERE a2.sentiment ~* 'neg|concern|pessim|critical|alarm') AS story_neg,
+                           COUNT(*) FILTER (WHERE a2.sentiment ~* 'pos|optimis') AS story_pos,
+                           COUNT(*) FILTER (WHERE COALESCE(a2.sentiment, '') <> '') AS story_scored
+                    FROM bw_article_stories st2
+                    JOIN articles a2 ON a2.uri = st2.article_uri
+                    GROUP BY st2.brand_id, st2.story_group_id
+                ) stc ON stc.brand_id = st.brand_id AND stc.story_group_id = st.story_group_id
                 WHERE a.publication_date >= :start AND a.publication_date <= :end
                 AND a.analyzed = true
-                AND a.topic_alignment_score >= 0.4
+                AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                -- items flagged false-positive (any brand) are hidden from the list
+                -- but kept in the DB as labeled data for relevance fine-tuning
+                AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                                WHERE _fpr.article_uri = a.uri AND _fpr.status = 'false_positive')
                 {brand_clause} {cat_clause} {topic_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name,
-                         a.tags, a.extracted_article_keywords, b.name, a.opoint_entities
+                         a.tags, a.extracted_article_keywords, b.name, a.opoint_entities,
+                         a.factual_reporting
             )
         """
 
@@ -3033,8 +3474,43 @@ async def get_articles(
             logger.debug(f"opoint brand_wikidata load failed: {e}")
             brand_wikidata = {}
 
+        rows_all = result.fetchall()
+        # Bulk-load adverse risk findings + case states for this page.
+        risk_map: dict = {}
+        review_map: dict = {}
+        uris_page = [r[0] for r in rows_all]
+        if uris_page:
+            for r_uri, r_bid, r_type, r_sev, r_conf in conn.execute(text(
+                "SELECT article_uri, brand_id, risk_type, severity, confidence FROM bw_article_risks WHERE article_uri = ANY(:us)"
+            ), {"us": uris_page}).fetchall():
+                risk_map.setdefault((r_uri, r_bid), []).append(
+                    {"risk_type": r_type, "severity": r_sev, "confidence": r_conf})
+            for v_uri, v_bid, v_status in conn.execute(text(
+                "SELECT article_uri, brand_id, status FROM bw_finding_reviews WHERE article_uri = ANY(:us)"
+            ), {"us": uris_page}).fetchall():
+                review_map[(v_uri, v_bid)] = v_status
+
+        # Bulk-load Five Signals screens for this page (compact row summary).
+        signals_map: dict = {}
+        if uris_page:
+            for s_uri, s_bid, s_status, s_verdict, s_comp, s_sigs in conn.execute(text(
+                "SELECT article_uri, brand_id, status, verdict, composite_score, signals"
+                " FROM bw_article_signals WHERE article_uri = ANY(:us)"
+            ), {"us": uris_page}).fetchall():
+                s_parsed = s_sigs if isinstance(s_sigs, dict) else (json.loads(s_sigs) if s_sigs else {})
+                signals_map[(s_uri, s_bid)] = {
+                    "status": s_status, "verdict": s_verdict,
+                    "composite": s_comp,
+                    "signals": [
+                        {"key": k, "band": (s_parsed.get(k) or {}).get("band"),
+                         "score": (s_parsed.get(k) or {}).get("score")}
+                        for k in ("veracity", "source_credibility", "corroboration",
+                                  "propagation", "amplification_integrity")
+                    ] if s_parsed else [],
+                }
+
         articles = []
-        for row in result.fetchall():
+        for row in rows_all:
             row_brand_id = row[6]
             if row_brand_id and row_brand_id not in brand_terms_cache:
                 br = conn.execute(text(f"SELECT {BRAND_SELECT_COLS} FROM bw_brands WHERE id = :id"), {"id": row_brand_id}).fetchone()
@@ -3065,11 +3541,22 @@ async def get_articles(
                 categories=list(row[8]) if row[8] else [],
                 matched_keywords=matched,
                 entity_match=entity_match,
+                factual_reporting=row[14],
+                story_group_id=row[15],
+                story_size=row[16],
+                story_neg=row[17],
+                story_pos=row[18],
+                story_scored=row[19],
+                risks=risk_map.get((row[0], row[6]), []),
+                review_status=review_map.get((row[0], row[6])),
+                signals_summary=signals_map.get((row[0], row[6])),
             ))
 
+        from app.services.bw_signals_service import signals_available
         return ArticlesListResponse(
             articles=articles, total_count=total_count,
             page=page, per_page=per_page, total_pages=total_pages,
+            signals_available=signals_available(),
         )
     except Exception as e:
         logger.error(f"Error fetching brand watcher articles: {e}")
@@ -3105,7 +3592,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             SELECT bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             GROUP BY bac.category ORDER BY COUNT(DISTINCT bac.article_uri) DESC
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
@@ -3124,7 +3611,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             art_result = conn.execute(text("""
                 SELECT DISTINCT a.title, a.summary FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
-                WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 AND a.publication_date >= :start AND a.publication_date <= :end
             """), {"bid": request.brand_id, "start": start_date, "end": end_date})
             for atitle, asumm in art_result.fetchall():
@@ -3146,7 +3633,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                    a.sentiment, COUNT(*) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             GROUP BY week, a.sentiment
@@ -3183,16 +3670,34 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         older_neg = sum(weekly_sentiments[w].get("Negative", 0) for w in older_4)
         older_total = sum(weekly_sentiments[w].get("total", 0) for w in older_4)
 
+        if older_total == 0:
+            # Short windows (e.g. a 7-day narrative) contain no in-window baseline;
+            # compare against the 28 days before the window instead of a 0% one,
+            # which made the trend delta equal the level itself.
+            baseline_start = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=28)).strftime("%Y-%m-%d")
+            base_row = conn.execute(text("""
+                SELECT COUNT(*) FILTER (WHERE LOWER(a.sentiment) IN ('negative', 'pessimistic',
+                           'concerning', 'concerned', 'critical', 'alarming')) AS neg,
+                       COUNT(*) AS total
+                FROM bw_article_categories bac
+                JOIN articles a ON bac.article_uri = a.uri
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                AND a.publication_date >= :bstart AND a.publication_date < :start
+                AND a.sentiment IS NOT NULL AND a.sentiment != ''
+            """), {"bid": request.brand_id, "bstart": baseline_start, "start": start_date}).fetchone()
+            older_neg, older_total = int(base_row[0] or 0), int(base_row[1] or 0)
+
         recent_neg_pct = (recent_neg / recent_total * 100) if recent_total > 0 else 0
-        older_neg_pct = (older_neg / older_total * 100) if older_total > 0 else 0
-        neg_trend = recent_neg_pct - older_neg_pct  # positive = worsening
+        # No baseline data at all -> no trend claim, rather than treating it as 0%.
+        older_neg_pct = (older_neg / older_total * 100) if older_total > 0 else None
+        neg_trend = (recent_neg_pct - older_neg_pct) if older_neg_pct is not None else 0.0  # positive = worsening
 
         # Category spike alerts (recent 7d vs prior 30d avg)
         recent_alert = conn.execute(text("""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
         """), {"bid": request.brand_id})
@@ -3202,7 +3707,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
             AND a.publication_date < (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
@@ -3220,9 +3725,14 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         alert_count = len(alerts)
         high_alerts = sum(1 for a in alerts if a["severity"] == "high")
 
+        # Damp the sentiment terms by sample size: a 40% negative rate over 5 scored
+        # articles is weak evidence, over 50+ it is real. Trend is additionally damped
+        # by the baseline sample so a thin prior period can't manufacture a swing.
+        sample_damp = min(1.0, recent_total / 20.0)
+        trend_damp = sample_damp * min(1.0, older_total / 20.0)
         risk_score = min(100, round(
-            (recent_neg_pct * 1.5) +
-            (neg_trend * 2 if neg_trend > 0 else 0) +
+            (recent_neg_pct * 1.5 * sample_damp) +
+            (neg_trend * 2 * trend_damp if neg_trend > 0 else 0) +
             (alert_count * 5) +
             (high_alerts * 10)
         ))
@@ -3234,7 +3744,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('negative', 'pessimistic', 'concerning',
                                         'concerned', 'critical', 'alarming')
@@ -3262,7 +3772,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('positive', 'optimistic', 'positive development')
             ORDER BY a.publication_date DESC
@@ -3286,19 +3796,28 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         # Build risk assessment text for the prompt
         risk_factors = []
         if recent_neg_pct >= 15:
-            risk_factors.append(f"High negative sentiment volume ({recent_neg_pct:.1f}% of recent coverage)")
-        if neg_trend > 2:
-            risk_factors.append(f"Negative sentiment trending upward (+{neg_trend:.1f} percentage points vs prior 4 weeks)")
+            risk_factors.append(f"High negative sentiment volume ({recent_neg_pct:.1f}% of recent coverage, "
+                                f"{recent_neg} of {recent_total} scored articles)")
+        if neg_trend > 2 and older_neg_pct is not None:
+            risk_factors.append(f"Negative sentiment trending upward (+{neg_trend:.1f} percentage points vs the "
+                                f"prior 4 weeks: {older_neg_pct:.1f}% across {older_total} scored articles)")
         if high_alerts > 0:
             risk_factors.append(f"{high_alerts} high-severity category spike(s): " +
                                 ", ".join(a['category'] for a in alerts if a['severity'] == 'high'))
         if alert_count > 0 and high_alerts == 0:
             risk_factors.append(f"{alert_count} category spike alert(s): " +
                                 ", ".join(a['category'] for a in alerts))
+        if recent_total < 20:
+            risk_factors.append(f"LOW SAMPLE CAVEAT: only {recent_total} scored article(s) in this window — "
+                                "percentages are volatile and the risk score has been damped accordingly")
 
         risk_assessment = f"Risk Level: {risk_level} (Score: {risk_score}/100)\n"
-        risk_assessment += f"Recent Negative Sentiment: {recent_neg_pct:.1f}%\n"
-        risk_assessment += f"Negative Trend (4-week change): {'+' if neg_trend > 0 else ''}{neg_trend:.1f} percentage points\n"
+        risk_assessment += f"Recent Negative Sentiment: {recent_neg_pct:.1f}% ({recent_neg} of {recent_total} scored articles)\n"
+        if older_neg_pct is not None:
+            risk_assessment += (f"Negative Trend (4-week change): {'+' if neg_trend > 0 else ''}{neg_trend:.1f} percentage points "
+                                f"(prior 4 weeks: {older_neg_pct:.1f}% across {older_total} scored articles)\n")
+        else:
+            risk_assessment += "Negative Trend: no prior-period coverage to compare against — do not claim an increase or decrease\n"
         risk_assessment += f"Active Alerts: {alert_count}" + (f" ({high_alerts} high-severity)" if high_alerts > 0 else "") + "\n"
         if risk_factors:
             risk_assessment += "Contributing Factors:\n" + "\n".join(f"- {f}" for f in risk_factors)
@@ -3371,6 +3890,121 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             social_summary = {"total": len(social_rows), "by_platform": plat,
                               "evaluated": scored, "net_sentiment": net, "on_brand": len(on_brand)}
 
+        # Adverse risk findings (taxonomy) recorded against articles in the window
+        nrisk_rows = conn.execute(text("""
+            SELECT r.risk_type, r.severity, a.title, a.uri
+            FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
+            WHERE r.brand_id = :bid
+              AND a.publication_date >= :start AND a.publication_date <= :end
+            ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                     a.publication_date DESC
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        nrisk_by_type: Dict[str, int] = {}
+        for _rt, _sev, _t, _u in nrisk_rows:
+            nrisk_by_type[_rt] = nrisk_by_type.get(_rt, 0) + 1
+        if nrisk_rows:
+            _rf = ["Counts by type: " + ", ".join(
+                f"{k}: {v}" for k, v in sorted(nrisk_by_type.items(), key=lambda x: -x[1]))]
+            for _rt, _sev, _t, _u in nrisk_rows[:8]:
+                _rf.append(f"- {_rt} ({_sev}): [{_t}]({_u})")
+            risk_findings = "\n".join(_rf)
+        else:
+            risk_findings = "None recorded in this period."
+
+        # Five Signals screens (saas claim-validation + propagation) on articles
+        # in the window — feeds the same Risk & Compliance section.
+        nsig_rows = conn.execute(text("""
+            SELECT s.verdict, s.composite_score, s.signals, a.title, a.uri
+            FROM bw_article_signals s JOIN articles a ON a.uri = s.article_uri
+            WHERE s.brand_id = :bid AND s.status = 'completed'
+              AND a.publication_date >= :start AND a.publication_date <= :end
+            ORDER BY s.composite_score ASC NULLS LAST
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        nsig_verdicts: Dict[str, int] = {}
+        nsig_flagged = []
+        for _sv, _sc, _ss, _st, _su in nsig_rows:
+            if _sv:
+                nsig_verdicts[_sv] = nsig_verdicts.get(_sv, 0) + 1
+            _ssp = _ss if isinstance(_ss, dict) else (json.loads(_ss) if _ss else {})
+            _amp = (_ssp.get("amplification_integrity") or {})
+            if _sv in ("contested", "non_independent") or _amp.get("band") == "bad":
+                nsig_flagged.append((_st, _su, _sv, _amp.get("summary")))
+        if nsig_rows:
+            _sf = [f"\nFive Signals screening: {len(nsig_rows)} articles screened "
+                   f"(claim validation + social propagation). Verdicts: "
+                   + ", ".join(f"{k}: {v}" for k, v in sorted(nsig_verdicts.items(), key=lambda x: -x[1]))
+                   + "."]
+            for _st, _su, _sv, _amps in nsig_flagged[:5]:
+                _line = f"- Flagged: [{_st}]({_su}) — verdict {_sv}"
+                if _amps:
+                    _line += f"; {_amps}"
+                _sf.append(_line)
+            risk_findings += "\n" + "\n".join(_sf)
+
+        # Open incidents (managed cases)
+        ninc_rows = conn.execute(text("""
+            SELECT title, severity, status, created_at::text FROM bw_incidents
+            WHERE brand_id = :bid AND status NOT IN ('resolved', 'closed')
+            ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                     WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC
+            LIMIT 10
+        """), {"bid": request.brand_id}).fetchall()
+        incident_summary = "\n".join(
+            f"- [{_sev}/{_st}] {_t} (opened {str(_ca)[:10]})"
+            for _t, _sev, _st, _ca in ninc_rows) or "None open."
+
+        # Employee / workforce signal: cached Glassdoor aggregates + landed reviews
+        nemp_lines = []
+        _cfg_raw = conn.execute(text(
+            "SELECT COALESCE(config, '{}') FROM bw_brands WHERE id = :bid"
+        ), {"bid": request.brand_id}).fetchone()
+        _cfg = _cfg_raw[0] if isinstance(_cfg_raw[0], dict) else json.loads(_cfg_raw[0] or "{}")
+        _gd = ((_cfg.get("glassdoor_overview") or {}).get("data")) or None
+        if _gd:
+            nemp_lines.append(
+                f"Glassdoor: {_gd.get('rating')}/5 overall ({_gd.get('review_count')} reviews), "
+                f"CEO approval {round((_gd.get('ceo_rating') or 0) * 100)}%, "
+                f"business outlook {round((_gd.get('business_outlook_rating') or 0) * 100)}% positive, "
+                f"recommend-to-friend {round((_gd.get('recommend_to_friend_rating') or 0) * 100)}%")
+            _subs = {
+                "work-life balance": _gd.get("work_life_balance_rating"),
+                "culture & values": _gd.get("culture_and_values_rating"),
+                "compensation": _gd.get("compensation_and_benefits_rating"),
+                "senior management": _gd.get("senior_management_rating"),
+                "career opportunities": _gd.get("career_opportunities_rating"),
+                "diversity & inclusion": _gd.get("diversity_and_inclusion_rating"),
+            }
+            _subs = {k: v for k, v in _subs.items() if v is not None}
+            if _subs:
+                nemp_lines.append("Sub-ratings (weakest first): " + ", ".join(
+                    f"{k} {v}" for k, v in sorted(_subs.items(), key=lambda x: x[1])))
+        _gr = conn.execute(text("""
+            SELECT a.sentiment, COUNT(*) FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :bid
+            WHERE a.news_source = 'Glassdoor'
+              AND a.publication_date >= :start AND a.publication_date <= :end
+            GROUP BY a.sentiment
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        _gpos = sum(n for s, n in _gr if s and "positiv" in s.lower())
+        _gneg = sum(n for s, n in _gr if s and "negativ" in s.lower())
+        _gtot = sum(n for _s, n in _gr)
+        if _gtot:
+            nemp_lines.append(f"Employee reviews landed this period: {_gtot} ({_gpos} positive, {_gneg} negative)")
+        _wf_count = nrisk_by_type.get("workforce_labor", 0)
+        if _wf_count:
+            nemp_lines.append(f"Workforce risk findings in period: {_wf_count}")
+        _comp_bits = []
+        for _cname, _ccfg_raw in conn.execute(text(
+            "SELECT display_name, COALESCE(config, '{}') FROM bw_brands "
+            "WHERE enabled = true AND id <> :bid"), {"bid": request.brand_id}).fetchall():
+            _ccfg = _ccfg_raw if isinstance(_ccfg_raw, dict) else json.loads(_ccfg_raw or "{}")
+            _cgd = ((_ccfg.get("glassdoor_overview") or {}).get("data")) or {}
+            if _cgd.get("rating") is not None:
+                _comp_bits.append(f"{_cname} {_cgd['rating']}/5")
+        if _comp_bits:
+            nemp_lines.append("Competitor Glassdoor ratings: " + ", ".join(_comp_bits))
+        employee_signal = "\n".join(nemp_lines) or "No employee data available."
+
         prompt = NARRATIVE_ANALYSIS_PROMPT.format(
             brand_name=brand["display_name"],
             date_range=f"{start_date} to {end_date}",
@@ -3380,6 +4014,9 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             risk_assessment=risk_assessment,
             key_articles=key_articles,
             social_signal=social_signal,
+            risk_findings=risk_findings,
+            incident_summary=incident_summary,
+            employee_signal=employee_signal,
         )
 
         model = LiteLLMModel.get_instance(request.model)
@@ -3388,7 +4025,41 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             {"role": "user", "content": prompt}
         ])
 
+        # LiteLLMModel signals failure by RETURNING error text ("⚠️ <model> is
+        # currently unavailable...") instead of raising. Never persist that as a
+        # report — fail the request so the last good narrative stays "latest".
+        if not narrative or not str(narrative).strip() or str(narrative).lstrip().startswith("⚠️"):
+            detail = str(narrative).strip() if narrative else "the model returned no content"
+            raise HTTPException(status_code=503, detail=f"Narrative generation failed: {detail}")
+
+        # Reviewer pass: a second capable-model edit that (a) strips claims the
+        # source brief doesn't support, (b) disambiguates fiscal periods (the
+        # sources title June announcements "Q4 2026" — unlabeled fiscal quarters
+        # read as calendar errors), (c) converts story framing to plain data
+        # narration. Best-effort: any failure ships the unreviewed draft.
+        reviewed = False
+        reviewer_model_name = os.getenv("BW_NARRATIVE_REVIEWER_MODEL") or request.model
+        try:
+            reviewer = LiteLLMModel.get_instance(reviewer_model_name)
+            revised = await reviewer.agenerate_response([
+                {"role": "system", "content": "You are an exacting editor of brand intelligence reports. You never invent facts."},
+                {"role": "user", "content": NARRATIVE_REVIEWER_PROMPT.format(
+                    brief=prompt[:60000], draft=narrative)},
+            ])
+            revised = (revised or "").strip()
+            if revised and not revised.startswith("⚠️") and "##" in revised \
+                    and len(revised) >= max(400, int(len(narrative) * 0.4)):
+                narrative = revised
+                reviewed = True
+            else:
+                logger.warning("Narrative reviewer output failed sanity guards — keeping the draft")
+        except Exception as rev_err:  # noqa: BLE001
+            logger.warning(f"Narrative reviewer pass failed ({rev_err}) — keeping the draft")
+
         data_summary = {
+            "model": request.model,
+            "reviewed": reviewed,
+            "reviewer_model": reviewer_model_name if reviewed else None,
             "total_articles": total_articles,
             "date_range": {"start": start_date, "end": end_date},
             "categories": category_data,
@@ -3403,6 +4074,16 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 "contributing_factors": risk_factors,
             },
             "social": social_summary,
+            "risks": {"total": len(nrisk_rows), "by_type": nrisk_by_type},
+            "signals": {"screened": len(nsig_rows), "verdicts": nsig_verdicts,
+                        "flagged": len(nsig_flagged)},
+            "open_incidents": len(ninc_rows),
+            "employee": {
+                "glassdoor_rating": _gd.get("rating") if _gd else None,
+                "business_outlook": _gd.get("business_outlook_rating") if _gd else None,
+                "reviews_in_period": _gtot,
+                "workforce_risks": _wf_count,
+            },
         }
 
         # Save narrative
@@ -3444,13 +4125,19 @@ async def get_latest_narrative(
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
+        # Full LLM reports outrank auto-detected cluster stubs regardless of age
+        # (the stubs share this table and used to bury the real report); rows
+        # holding persisted model-error text ("⚠️ ...") are never served.
         result = conn.execute(text("""
             SELECT n.id, n.brand_id, b.display_name, n.narrative, n.data_summary,
                    n.days_back, n.date_range_start, n.date_range_end, n.generated_at
             FROM bw_tracker_narratives n
             JOIN bw_brands b ON n.brand_id = b.id
             WHERE n.brand_id = :bid
-            ORDER BY n.generated_at DESC LIMIT 1
+              AND n.narrative NOT LIKE '⚠️%'
+            ORDER BY (COALESCE(n.data_summary->>'auto_generated','') = 'true') ASC,
+                     n.generated_at DESC
+            LIMIT 1
         """), {"bid": brand_id})
 
         row = result.fetchone()
@@ -3519,7 +4206,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             SELECT COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4 AND bac.category = :cat
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
         article_count = count_result.fetchone()[0]
@@ -3529,7 +4216,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             SELECT COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         total = total_result.fetchone()[0] or 1
@@ -3539,7 +4226,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
         sample_result = conn.execute(text("""
             SELECT a.title FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
-            WHERE bac.brand_id = :bid AND a.topic_alignment_score >= 0.4 AND bac.category = :cat
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY a.publication_date DESC LIMIT 10
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
@@ -3670,13 +4357,17 @@ async def retrain_classifier(
 @router.get("/topics")
 async def get_topics(session=Depends(verify_session)):
     """List topics that have articles available for brand classification."""
+    from app.core.modules import is_dedicated_bw
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
-        result = conn.execute(text("""
+        # Dedicated Brand Watcher tenants only expose brand monitoring topics
+        dedicated_clause = "AND topic LIKE 'Brand Monitoring %'" if is_dedicated_bw() else ""
+        result = conn.execute(text(f"""
             SELECT topic, COUNT(*) as article_count
             FROM articles
             WHERE topic IS NOT NULL AND topic != ''
+            {dedicated_clause}
             GROUP BY topic
             ORDER BY article_count DESC
         """))
@@ -3973,3 +4664,2002 @@ async def run_schedule_now(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ============================================================================
+# Adverse risk taxonomy (cross-cutting dimension; see bw_article_risks)
+# ============================================================================
+
+RISK_TYPES = ["legal_regulatory", "financial_distress", "fraud_integrity",
+              "esg", "executive_misconduct", "data_breach", "workforce_labor"]
+
+# Cheap pre-screen: only articles that are negative OR contain risk vocabulary get
+# the LLM risk pass, bounding cost to the adverse sliver of the stream.
+_RISK_TRIGGER_RE = re.compile(
+    r"lawsuit|\bsues?\b|\bsued\b|litigat|\bcourt\b|regulator|antitrust|\bprobe\b|investigat|\bfine[sd]?\b|penalty|"
+    r"\bfraud|scandal|misconduct|bribe|corrupt|plagiar|retract|falsif|"
+    r"\bbreach|\bhack|ransom|\bleak\b|cyberattack|"
+    r"bankrupt|insolven|default|downgrade|layoff|restructur|going concern|"
+    r"boycott|discriminat|harass|greenwash|child labor|resign|ousted|fired|"
+    r"\bstrikes?\b|\bunion\b|redundanc|walkout|tribunal|unfair dismissal|"
+    r"toxic (workplace|culture)|pay dispute|wage theft|understaff",
+    re.IGNORECASE)
+
+_NEG_SENT_RE = re.compile(r"negativ|concern|pessimis|critical|alarm", re.IGNORECASE)
+
+
+def _keyword_risk_fallback(text_content: str) -> list:
+    """Heuristic risk tagging when the LLM is unavailable."""
+    t = (text_content or "").lower()
+    found = []
+    def add(rt, sev): found.append({"risk_type": rt, "severity": sev, "confidence": 0.4})
+    if re.search(r"lawsuit|\bsues?\b|\bsued\b|litigat|regulator|antitrust|\bprobe\b|investigat|\bfine[sd]?\b|penalty|\bcourt\b", t): add("legal_regulatory", "medium")
+    if re.search(r"bankrupt|insolven|default|downgrade|going concern|layoff|restructur", t): add("financial_distress", "medium")
+    if re.search(r"fraud|scandal|bribe|corrupt|plagiar|retract|falsif", t): add("fraud_integrity", "high")
+    if re.search(r"boycott|discriminat|harass|greenwash|child labor|environmental damage", t): add("esg", "medium")
+    if re.search(r"misconduct|resign|ousted|fired.*(ceo|cfo|executive|director)|(ceo|cfo|executive|director).*(misconduct|resign|ousted|fired)", t): add("executive_misconduct", "medium")
+    if re.search(r"\bbreach|\bhack|ransom|cyberattack|data leak", t): add("data_breach", "high")
+    # Bare "union"/"strike" collide with ordinary prose ("union of ideas", "striking
+    # design") — the fallback (which tags directly, no LLM adjudication) needs the
+    # compound forms only.
+    if re.search(r"(trade|labou?r|staff) union|union (members?|dispute|vote|action|strike)|(staff|workers?|employees?) (strike|walkout)|strike (action|ballot)|redundanc|tribunal|unfair dismissal|toxic (workplace|culture)|pay dispute|wage theft|mass layoff", t): add("workforce_labor", "medium")
+    return found
+
+
+async def _llm_detect_risks(title: str, summary: str, brand_name: str) -> Optional[list]:
+    """LLM risk classification. Returns list of {risk_type, severity, confidence} or None on failure."""
+    from app.ai_models import LiteLLMModel, extract_content
+    prompt = f"""You are an adverse-media screening analyst. Does this article describe an ADVERSE event involving the company "{brand_name}"?
+
+Article Title: {title}
+Article Summary: {(summary or "")[:1500]}
+
+Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action, fines, probes), financial_distress (bankruptcy risk, downgrades, defaults), fraud_integrity (fraud, corruption, research/publication integrity, retractions), esg (environmental/social harms, consumer discrimination, boycotts), executive_misconduct (leadership scandals, forced departures), data_breach (hacks, breaches, ransomware), workforce_labor (strikes, union disputes, mass layoffs/redundancies, employment tribunals, unfair-dismissal or workplace-discrimination claims, toxic-culture allegations, pay disputes).
+
+Rules:
+- Only flag risks where {brand_name} is the SUBJECT of the adverse event (not merely mentioned, not the plaintiff suing someone else unless it exposes them to counter-risk).
+- Routine negative sentiment (bad quarter, critical review) is NOT a risk finding unless it fits a type above.
+- severity: high = material/ongoing threat; medium = notable; low = minor/speculative.
+
+Respond with ONLY a JSON array (empty [] if none): [{{"risk_type": "...", "severity": "high|medium|low", "confidence": 0.0-1.0}}]"""
+    try:
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        response = await model.agenerate_response(
+            [{"role": "user", "content": prompt}], max_tokens=200, temperature=0.0)
+        raw = extract_content(response).strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
+        # The model sometimes appends prose after the array — parse the FIRST JSON
+        # value and ignore trailing text.
+        start = raw.find("[")
+        if start < 0:
+            return []
+        data, _ = json.JSONDecoder().raw_decode(raw[start:])
+        out = []
+        for item in (data if isinstance(data, list) else []):
+            rt = (item.get("risk_type") or "").strip()
+            if rt in RISK_TYPES:
+                sev = item.get("severity") if item.get("severity") in ("high", "medium", "low") else "medium"
+                out.append({"risk_type": rt, "severity": sev,
+                            "confidence": max(0.0, min(1.0, float(item.get("confidence") or 0.5)))})
+        return out
+    except Exception as e:
+        logger.debug(f"LLM risk detection failed: {e}")
+        return None
+
+
+def _store_article_risks(conn, uri: str, brand_id: int, risks: list, method: str) -> None:
+    for r in risks:
+        try:
+            conn.execute(text("""
+                INSERT INTO bw_article_risks (article_uri, brand_id, risk_type, severity, confidence, method)
+                VALUES (:u, :b, :rt, :sev, :c, :m)
+                ON CONFLICT (article_uri, brand_id, risk_type)
+                DO UPDATE SET severity = :sev, confidence = :c, method = :m, detected_at = NOW()
+            """), {"u": uri, "b": brand_id, "rt": r["risk_type"], "sev": r["severity"],
+                   "c": r.get("confidence"), "m": method})
+        except Exception as e:
+            logger.warning(f"risk store failed for {uri}: {e}")
+
+
+# ============================================================================
+# Adverse-media alerting: config + event history
+# ============================================================================
+
+class AlertConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    rules: Optional[dict] = None
+    channels: Optional[dict] = None
+    email_recipients: Optional[List[str]] = None
+    webhook_url: Optional[str] = None
+    cooldown_hours: Optional[int] = None
+
+
+@router.get("/alert-config")
+async def get_alert_config_ep(session=Depends(verify_session)):
+    """Tenant-wide adverse-alert configuration (creates a default row if absent)."""
+    from app.services.brand_alert_service import get_alert_config
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        cfg = get_alert_config(conn)
+        if not cfg:
+            conn.execute(text("INSERT INTO bw_alert_config (brand_id) VALUES (NULL)"))
+            conn.commit()
+            cfg = get_alert_config(conn)
+        return cfg
+    finally:
+        conn.close()
+
+
+@router.put("/alert-config")
+async def update_alert_config_ep(req: AlertConfigUpdate, session=Depends(verify_session)):
+    from app.services.brand_alert_service import get_alert_config
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        cfg = get_alert_config(conn)
+        if not cfg:
+            conn.execute(text("INSERT INTO bw_alert_config (brand_id) VALUES (NULL)"))
+            conn.commit()
+            cfg = get_alert_config(conn)
+        sets, params = [], {"id": cfg["id"]}
+        if req.enabled is not None:
+            sets.append("enabled = :en"); params["en"] = req.enabled
+        if req.rules is not None:
+            sets.append("rules = :ru"); params["ru"] = json.dumps(req.rules)
+        if req.channels is not None:
+            sets.append("channels = :ch"); params["ch"] = json.dumps(req.channels)
+        if req.email_recipients is not None:
+            sets.append("email_recipients = :er"); params["er"] = json.dumps(req.email_recipients)
+        if req.webhook_url is not None:
+            sets.append("webhook_url = :wh"); params["wh"] = req.webhook_url or None
+        if req.cooldown_hours is not None:
+            sets.append("cooldown_hours = :cd"); params["cd"] = max(1, min(168, req.cooldown_hours))
+        if sets:
+            conn.execute(text(f"UPDATE bw_alert_config SET {', '.join(sets)}, updated_at = NOW() WHERE id = :id"), params)
+            conn.commit()
+        return get_alert_config(conn)
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/alert-events")
+async def list_alert_events(limit: int = Query(50, ge=1, le=200), unacked_only: bool = Query(False), session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        # rule='digest' rows are send-idempotence bookkeeping, not adverse alerts.
+        where = "WHERE e.rule <> 'digest'" + (" AND acknowledged_at IS NULL" if unacked_only else "")
+        rows = conn.execute(text(f"""
+            SELECT e.id, e.brand_id, b.display_name, e.rule, e.severity, e.title, e.body,
+                   e.payload, e.delivered, e.acknowledged_by, e.acknowledged_at, e.created_at
+            FROM bw_alert_events e LEFT JOIN bw_brands b ON b.id = e.brand_id
+            {where} ORDER BY e.created_at DESC LIMIT :lim
+        """), {"lim": limit}).fetchall()
+        return {"events": [{
+            "id": r[0], "brand_id": r[1], "brand_name": r[2], "rule": r[3], "severity": r[4],
+            "title": r[5], "body": r[6], "payload": r[7], "delivered": r[8],
+            "acknowledged_by": r[9],
+            "acknowledged_at": r[10].isoformat() if r[10] else None,
+            "created_at": r[11].isoformat() if r[11] else None,
+        } for r in rows]}
+    finally:
+        conn.close()
+
+
+@router.post("/alert-events/{event_id}/ack")
+async def ack_alert_event(event_id: int, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        actor = (session or {}).get("sub") or (session or {}).get("username") or "user"
+        conn.execute(text("""
+            UPDATE bw_alert_events SET acknowledged_by = :a, acknowledged_at = NOW()
+            WHERE id = :i AND acknowledged_at IS NULL
+        """), {"a": str(actor)[:100], "i": event_id})
+        conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/alert-events/evaluate-now")
+async def evaluate_alerts_now(session=Depends(verify_session)):
+    """Manual trigger of the adverse-alert evaluation (also used for testing)."""
+    import asyncio
+    from app.tasks.brand_watcher_monitor import evaluate_adverse_alerts
+    db = get_database_instance()
+    # Off-loop: evaluation narrates social-alert posts (blocking LLM call).
+    created = await asyncio.to_thread(evaluate_adverse_alerts, db)
+    return {"created": created}
+
+
+# ============================================================================
+# Finding-level case states (reviewed / escalated / dismissed + audit log)
+# ============================================================================
+
+FINDING_STATUSES = ("new", "reviewed", "escalated", "dismissed", "false_positive")
+
+
+class FindingStateRequest(BaseModel):
+    article_uri: str
+    brand_id: int
+    status: str
+    note: Optional[str] = None
+
+
+@router.post("/findings/state")
+async def set_finding_state(req: FindingStateRequest, session=Depends(verify_session)):
+    if req.status not in FINDING_STATUSES:
+        raise HTTPException(status_code=400, detail=f"status must be one of {FINDING_STATUSES}")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        actor = str((session or {}).get("sub") or (session or {}).get("username") or "user")[:100]
+        old = conn.execute(text(
+            "SELECT status FROM bw_finding_reviews WHERE article_uri = :u AND brand_id = :b"
+        ), {"u": req.article_uri, "b": req.brand_id}).fetchone()
+        old_status = old[0] if old else None
+        conn.execute(text("""
+            INSERT INTO bw_finding_reviews (article_uri, brand_id, status, actor, note)
+            VALUES (:u, :b, :s, :a, :n)
+            ON CONFLICT (article_uri, brand_id)
+            DO UPDATE SET status = :s, actor = :a, note = :n, updated_at = NOW()
+        """), {"u": req.article_uri, "b": req.brand_id, "s": req.status, "a": actor, "n": req.note})
+        conn.execute(text("""
+            INSERT INTO bw_finding_review_log (article_uri, brand_id, old_status, new_status, actor, note)
+            VALUES (:u, :b, :o, :s, :a, :n)
+        """), {"u": req.article_uri, "b": req.brand_id, "o": old_status, "s": req.status, "a": actor, "n": req.note})
+        conn.commit()
+        # False-positive flags change what cached views (/social, /articles, stats)
+        # should return, so drop the whole BW cache on any transition touching one.
+        if req.status == "false_positive" or old_status == "false_positive":
+            bw_cache_clear()
+        return {"ok": True, "status": req.status, "previous": old_status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/findings/false-positives")
+async def list_false_positives(brand_id: Optional[int] = Query(None),
+                               limit: int = Query(500, ge=1, le=5000),
+                               session=Depends(verify_session)):
+    """Items flagged as false positives, with full article context.
+
+    This is the labeled dataset for relevance fine-tuning: each row is a
+    human-confirmed "matched the brand keywords but is NOT about the brand"
+    example. Rows are never deleted — unflag via POST /findings/state.
+    """
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bclause = "AND fr.brand_id = :bid" if brand_id else ""
+        params: dict = {"lim": limit}
+        if brand_id:
+            params["bid"] = brand_id
+        rows = conn.execute(text(f"""
+            SELECT fr.article_uri, fr.brand_id, b.display_name, fr.actor, fr.note, fr.updated_at,
+                   a.title, a.summary, a.news_source, a.publication_date, a.sentiment,
+                   a.topic, a.topic_alignment_score, a.social_meta IS NOT NULL AS is_social
+            FROM bw_finding_reviews fr
+            JOIN bw_brands b ON b.id = fr.brand_id
+            LEFT JOIN articles a ON a.uri = fr.article_uri
+            WHERE fr.status = 'false_positive' {bclause}
+            ORDER BY fr.updated_at DESC LIMIT :lim
+        """), params).fetchall()
+        return {"total": len(rows), "false_positives": [{
+            "uri": r[0], "brand_id": r[1], "brand": r[2], "flagged_by": r[3], "note": r[4],
+            "flagged_at": r[5].isoformat() if r[5] else None,
+            "title": r[6], "summary": r[7], "news_source": r[8],
+            "publication_date": str(r[9]) if r[9] else None, "sentiment": r[10],
+            "topic": r[11], "topic_alignment_score": r[12], "is_social": bool(r[13]),
+        } for r in rows]}
+    finally:
+        conn.close()
+
+
+@router.get("/findings/log")
+async def get_finding_log(uri: str = Query(...), brand_id: Optional[int] = Query(None), session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bclause = "AND brand_id = :b" if brand_id else ""
+        params = {"u": uri}
+        if brand_id:
+            params["b"] = brand_id
+        rows = conn.execute(text(f"""
+            SELECT old_status, new_status, actor, note, at FROM bw_finding_review_log
+            WHERE article_uri = :u {bclause} ORDER BY at DESC LIMIT 50
+        """), params).fetchall()
+        return {"log": [{"old_status": r[0], "new_status": r[1], "actor": r[2], "note": r[3],
+                          "at": r[4].isoformat() if r[4] else None} for r in rows]}
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Official / scholarly sources (SEC EDGAR, CourtListener, regulations.gov,
+# Crossref, OpenAlex) — per-brand opt-in, polled daily by the monitor loop
+# ============================================================================
+
+@router.get("/official-sources/status")
+async def get_official_sources_status(session=Depends(verify_session)):
+    """Per-brand per-source enablement + last-poll + landed-count, for the Sources modal."""
+    from app.services.bw_official_sources import official_sources_status
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        return {"brands": official_sources_status(conn)}
+    finally:
+        conn.close()
+
+
+@router.post("/official-sources/poll-now")
+async def poll_official_sources_now(brand_id: Optional[int] = Query(None),
+                                    session=Depends(verify_session)):
+    """Force an immediate poll of all opted-in sources (ignores the 24h cursor)."""
+    from app.services.bw_official_sources import poll_official_sources
+    db = get_database_instance()
+    result = await poll_official_sources(db, force=True, only_brand_id=brand_id)
+    bw_cache_clear()
+    return result
+
+
+@router.get("/story-siblings")
+async def get_story_siblings(group_id: str = Query(...), brand_id: Optional[int] = Query(None),
+                             session=Depends(verify_session)):
+    """All articles sharing a story_group_id — powers the multi-article detail view
+    for '×N sources' syndicated stories."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bclause = "AND st.brand_id = :b" if brand_id else ""
+        params = {"g": group_id}
+        if brand_id:
+            params["b"] = brand_id
+        rows = conn.execute(text(f"""
+            SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                   a.bias, a.factual_reporting, a.sentiment
+            FROM bw_article_stories st
+            JOIN articles a ON a.uri = st.article_uri
+            WHERE st.story_group_id = :g {bclause}
+            ORDER BY a.publication_date DESC
+            LIMIT 25
+        """), params).fetchall()
+        return {"articles": [{
+            "uri": r[0], "title": r[1], "summary": r[2], "news_source": r[3],
+            "publication_date": r[4], "bias": r[5], "factual_reporting": r[6],
+            "sentiment": r[7],
+        } for r in rows]}
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Incident management + evidence locker
+# ============================================================================
+# Incidents group adverse findings into managed cases. Evidence is captured
+# SERVER-SIDE at attach time (the client only names the source) and stored as
+# an immutable snapshot with a sha256 chained to the previous item — sources
+# get deleted or edited; the locker entry is the durable, tamper-evident record.
+
+INCIDENT_STATUSES = ["open", "investigating", "contained", "resolved", "closed"]
+INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"]
+
+
+class IncidentCreate(BaseModel):
+    brand_id: int
+    title: str
+    description: Optional[str] = None
+    severity: str = "medium"
+
+
+class IncidentUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    owner: Optional[str] = None
+    note: Optional[str] = None  # optional context recorded with the change
+
+
+class IncidentNote(BaseModel):
+    note: str
+
+
+class EvidenceAttach(BaseModel):
+    evidence_type: str            # article | social_post | account_profile | alert_event | note | url
+    source_ref: Optional[str] = None   # article uri / "platform:handle" / alert event id / url
+    title: Optional[str] = None        # for manual note/url evidence
+    content: Optional[str] = None      # for manual note evidence
+
+
+def _incident_actor(session) -> str:
+    return str((session or {}).get("sub") or (session or {}).get("username") or "user")[:100]
+
+
+def _incident_event(conn, incident_id: int, kind: str, actor: str,
+                    old_value=None, new_value=None, note=None):
+    conn.execute(text("""
+        INSERT INTO bw_incident_events (incident_id, kind, actor, old_value, new_value, note)
+        VALUES (:i, :k, :a, :o, :n, :nt)
+    """), {"i": incident_id, "k": kind, "a": actor,
+           "o": str(old_value) if old_value is not None else None,
+           "n": str(new_value) if new_value is not None else None, "nt": note})
+
+
+def _evidence_platform(news_source) -> str:
+    """Platform slug from a social row's news_source ('xpoz:twitter' -> 'twitter')."""
+    s = (news_source or "").lower()
+    if s.startswith("xpoz:"):
+        return s.split(":", 1)[1] or "social"
+    if "reddit" in s:
+        return "reddit"
+    if "bsky" in s or "bluesky" in s:
+        return "bluesky"
+    return "social"
+
+
+def _append_evidence_row(conn, incident_id: int, etype: str, source_ref, title, content,
+                         meta: dict, actor: str) -> dict:
+    """Hash-chain and INSERT one evidence row + its timeline event (shared tail)."""
+    import hashlib
+    prev = conn.execute(text("""
+        SELECT chain_sha256 FROM bw_incident_evidence
+        WHERE incident_id = :i ORDER BY id DESC LIMIT 1
+    """), {"i": incident_id}).fetchone()
+    prev_chain = prev[0] if prev else ""
+    meta_json = json.dumps(meta, sort_keys=True, default=str)
+    content_sha = hashlib.sha256(f"{content}|{meta_json}".encode()).hexdigest()
+    chain_sha = hashlib.sha256(f"{prev_chain}|{content_sha}".encode()).hexdigest()
+    row = conn.execute(text("""
+        INSERT INTO bw_incident_evidence
+            (incident_id, evidence_type, source_ref, title, content, meta,
+             content_sha256, chain_sha256, captured_by)
+        VALUES (:i, :t, :r, :ti, :c, :m, :cs, :ch, :a)
+        RETURNING id, captured_at
+    """), {"i": incident_id, "t": etype, "r": source_ref, "ti": (title or "")[:300],
+           "c": content, "m": meta_json, "cs": content_sha, "ch": chain_sha, "a": actor}).fetchone()
+    _incident_event(conn, incident_id, "evidence_added", actor,
+                    new_value=etype, note=(title or "")[:200])
+    return {"id": row[0], "content_sha256": content_sha, "chain_sha256": chain_sha,
+            "captured_at": row[1].isoformat() if row[1] else None}
+
+
+def _capture_evidence(conn, incident_id: int, req: "EvidenceAttach", actor: str) -> dict:
+    """Snapshot the referenced source NOW and append it to the incident's hash chain."""
+    etype = req.evidence_type
+    title, content, meta = req.title, req.content, {}
+    if etype in ("article", "social_post"):
+        if not req.source_ref:
+            raise HTTPException(status_code=400, detail="source_ref (article uri) required")
+        row = conn.execute(text("""
+            SELECT title, summary, news_source, publication_date, sentiment, topic,
+                   topic_alignment_score, factual_reporting, bias, social_meta
+            FROM articles WHERE uri = :u
+        """), {"u": req.source_ref}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Article not found")
+        title = row[0]
+        content = f"{row[0] or ''}\n\n{row[1] or ''}"
+        meta = {"news_source": row[2], "publication_date": row[3], "sentiment": row[4],
+                "topic": row[5], "relevance": row[6], "factual_reporting": row[7],
+                "bias": row[8], "social_meta": row[9], "uri": req.source_ref}
+        if etype == "social_post":
+            from app.services.social_sources import is_social_source
+            if not is_social_source(row[2]):
+                raise HTTPException(status_code=400,
+                                    detail="Not a social post — attach as evidence_type 'article'")
+            sm = row[9] if isinstance(row[9], dict) else None
+            if sm is None:
+                try:
+                    sm = json.loads(row[9]) if row[9] else {}
+                except (json.JSONDecodeError, TypeError):
+                    sm = {}
+            meta["platform"] = (sm or {}).get("platform") or _evidence_platform(row[2])
+            meta["author"] = (sm or {}).get("author")
+            meta["engagement"] = {k: (sm or {}).get(k) for k in ("likes", "reposts", "comments")
+                                  if (sm or {}).get(k) is not None}
+        risks = conn.execute(text(
+            "SELECT risk_type, severity, confidence FROM bw_article_risks WHERE article_uri = :u"
+        ), {"u": req.source_ref}).fetchall()
+        if risks:
+            meta["risks"] = [{"risk_type": r[0], "severity": r[1], "confidence": r[2]} for r in risks]
+    elif etype == "account_profile":
+        if not req.source_ref or ":" not in req.source_ref:
+            raise HTTPException(status_code=400, detail="source_ref must be 'platform:handle'")
+        platform, handle = req.source_ref.split(":", 1)
+        from app.services.social_profile_service import SocialProfileService, norm_handle
+        svc = SocialProfileService()
+        prof = svc.get_stored(get_database_instance(), platform, handle)
+        if not prof:
+            raise HTTPException(status_code=404, detail="Account profile not found — build it first")
+        canon = norm_handle(platform, handle)
+        title = f"@{prof.get('handle') or canon} on {platform}"
+        counts = (f"followers: {prof.get('followers_count')}, following: {prof.get('following_count')}, "
+                  f"posts: {prof.get('posts_count')}")
+        content = "\n\n".join(x for x in [
+            prof.get("display_name"), prof.get("bio"), prof.get("summary"),
+            prof.get("brand_context"), counts] if x)
+        prof_snapshot = {k: v for k, v in prof.items() if k != "sample_posts"}
+        sample = prof.get("sample_posts")
+        if isinstance(sample, list):
+            prof_snapshot["sample_posts"] = sample[:5]
+        meta = {"platform": platform.lower(), "handle": canon,
+                "account_id": prof.get("id"), "profile": prof_snapshot}
+    elif etype == "alert_event":
+        row = conn.execute(text("""
+            SELECT rule, severity, title, body, payload, created_at
+            FROM bw_alert_events WHERE id = :i
+        """), {"i": int(req.source_ref or 0)}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Alert event not found")
+        title = row[2]
+        content = f"{row[2] or ''}\n\n{row[3] or ''}"
+        meta = {"rule": row[0], "severity": row[1], "payload": row[4],
+                "created_at": row[5].isoformat() if row[5] else None, "event_id": req.source_ref}
+    elif etype in ("note", "url"):
+        if not (req.content or req.source_ref):
+            raise HTTPException(status_code=400, detail="content or source_ref required")
+        title = req.title or (req.source_ref or "manual note")[:120]
+        content = req.content or req.source_ref or ""
+        meta = {"url": req.source_ref} if etype == "url" else {}
+    elif etype == "file":
+        raise HTTPException(status_code=400,
+                            detail="Use POST /incidents/{id}/files to attach a file")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown evidence_type: {etype}")
+
+    return _append_evidence_row(conn, incident_id, etype, req.source_ref, title, content, meta, actor)
+
+
+@router.post("/incidents", status_code=201)
+async def create_incident(req: IncidentCreate, background_tasks: BackgroundTasks,
+                          session=Depends(verify_session)):
+    if req.severity not in INCIDENT_SEVERITIES:
+        raise HTTPException(status_code=400, detail="Invalid severity")
+    from app.services.bw_incident_enrichment import run_incident_enrichment
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        actor = _incident_actor(session)
+        row = conn.execute(text("""
+            INSERT INTO bw_incidents (brand_id, title, description, severity, created_by, owner)
+            VALUES (:b, :t, :d, :s, :a, :a)
+            RETURNING id
+        """), {"b": req.brand_id, "t": req.title.strip()[:300], "d": req.description,
+               "s": req.severity, "a": actor}).fetchone()
+        _incident_event(conn, row[0], "created", actor, new_value=req.severity)
+        # seed the review queue right away — candidates stage only, nothing
+        # enters the evidence locker without analyst confirmation
+        run_id = _start_enrichment_run(conn, row[0], "auto:create")
+        conn.commit()
+        background_tasks.add_task(run_incident_enrichment, run_id, row[0], "auto:create")
+        return {"id": row[0], "enrichment_run_id": run_id}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/incidents")
+async def list_incidents(status: Optional[str] = Query(None), brand_id: Optional[int] = Query(None),
+                         limit: int = Query(50, ge=1, le=200), session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        clauses, params = [], {"lim": limit}
+        if status:
+            clauses.append("i.status = :st"); params["st"] = status
+        if brand_id:
+            clauses.append("i.brand_id = :b"); params["b"] = brand_id
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = conn.execute(text(f"""
+            SELECT i.id, i.brand_id, b.display_name, i.title, i.severity, i.status,
+                   i.owner, i.created_at, i.updated_at, i.resolved_at,
+                   (SELECT COUNT(*) FROM bw_incident_evidence e WHERE e.incident_id = i.id) AS evidence_count,
+                   (SELECT COUNT(*) FROM bw_incident_events ev WHERE ev.incident_id = i.id) AS event_count
+            FROM bw_incidents i JOIN bw_brands b ON b.id = i.brand_id
+            {where}
+            ORDER BY CASE i.status WHEN 'open' THEN 0 WHEN 'investigating' THEN 1
+                     WHEN 'contained' THEN 2 WHEN 'resolved' THEN 3 ELSE 4 END,
+                     CASE i.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                     WHEN 'medium' THEN 2 ELSE 3 END, i.updated_at DESC
+            LIMIT :lim
+        """), params).fetchall()
+        return {"incidents": [{
+            "id": r[0], "brand_id": r[1], "brand_name": r[2], "title": r[3],
+            "severity": r[4], "status": r[5], "owner": r[6],
+            "created_at": r[7].isoformat() if r[7] else None,
+            "updated_at": r[8].isoformat() if r[8] else None,
+            "resolved_at": r[9].isoformat() if r[9] else None,
+            "evidence_count": r[10], "event_count": r[11],
+        } for r in rows]}
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/attach-search")
+async def incident_attach_search(q: str = Query(..., min_length=2),
+                                 brand_id: Optional[int] = Query(None),
+                                 kind: str = Query("all"),  # all | news | social
+                                 days_back: int = Query(90, ge=1, le=730),
+                                 limit: int = Query(20, ge=1, le=50),
+                                 session=Depends(verify_session)):
+    """Search articles/posts to attach as incident evidence.
+
+    NB: registered before /incidents/{incident_id} so the literal path wins.
+    """
+    from app.services.social_sources import social_src_sql, is_social_source
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        sd, _ = _get_date_range(days_back)
+        clauses = ["(a.title ILIKE :pat OR a.summary ILIKE :pat)",
+                   "a.publication_date >= :sd",
+                   "(a.topic_alignment_score IS NULL OR a.topic_alignment_score >= 0.3)"]
+        if kind == "news":
+            clauses.append(f"NOT {social_src_sql('a.news_source')}")
+        elif kind == "social":
+            clauses.append(social_src_sql('a.news_source'))
+        params = {"pat": f"%{q}%", "q": q, "sd": sd, "lim": limit}
+        if brand_id:
+            clauses.append(
+                "a.topic = (SELECT 'Brand Monitoring ' || display_name FROM bw_brands WHERE id = :b)")
+            params["b"] = brand_id
+        # an exact-URI paste bypasses the window/relevance/kind filters — the
+        # analyst is naming one specific item, not searching
+        rows = conn.execute(text(f"""
+            SELECT a.uri, a.title, a.news_source, a.publication_date,
+                   a.topic_alignment_score, a.social_meta
+            FROM articles a
+            WHERE a.uri = :q OR ({' AND '.join(clauses)})
+            ORDER BY (a.uri = :q) DESC, a.publication_date DESC
+            LIMIT :lim
+        """), params).fetchall()
+        out = []
+        for r in rows:
+            sm = r[5] if isinstance(r[5], dict) else None
+            if sm is None and r[5]:
+                try:
+                    sm = json.loads(r[5])
+                except (json.JSONDecodeError, TypeError):
+                    sm = None
+            social = is_social_source(r[2])
+            out.append({
+                "uri": r[0], "title": r[1], "news_source": r[2],
+                "publication_date": str(r[3]) if r[3] else None,
+                "topic_alignment_score": round(r[4], 3) if r[4] is not None else None,
+                "is_social": social,
+                "platform": ((sm or {}).get("platform") or _evidence_platform(r[2])) if social else None,
+                "author": (sm or {}).get("author") if social else None,
+            })
+        return {"results": out}
+    finally:
+        conn.close()
+
+
+class ReportTranslateRequest(BaseModel):
+    # [{id: "<any client key>", text: "<original>"}] — capped server-side
+    items: List[Dict[str, str]]
+
+
+@router.post("/incidents/translate")
+async def translate_for_report(req: ReportTranslateRequest, session=Depends(verify_session)):
+    """Translate non-English evidence excerpts to English for client-facing
+    report exports. Returns {translations: {id: {language, text}}}; items the
+    model judges already-English come back empty and the client skips them.
+
+    NB: registered before /incidents/{incident_id} so the literal path wins.
+    """
+    from app.ai_models import LiteLLMModel
+
+    items = [{"id": str(it.get("id", "")), "text": str(it.get("text", ""))[:1500]}
+             for it in (req.items or []) if str(it.get("text", "")).strip()][:10]
+    if not items:
+        return {"translations": {}}
+    numbered = "\n\n".join(f"[{it['id']}]\n{it['text']}" for it in items)
+    prompt = (
+        "Below are social media posts collected as evidence, each preceded by its [id]. "
+        "For every post that is not in English, translate it faithfully into English — keep the tone, "
+        "do not summarise, drop emoji and decorative symbols. Name the source language. "
+        "For posts already in English, return an empty string for text.\n\n"
+        'Respond ONLY with JSON: {"translations": [{"id": "...", "language": "...", "text": "..."}]}\n\n'
+        f"{numbered}"
+    )
+    try:
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        response = await model.agenerate_response([
+            {"role": "system", "content": "You are a professional translator. Respond only with valid JSON."},
+            {"role": "user", "content": prompt},
+        ])
+        response_text = response.strip()
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+        # tolerate trailing prose after the JSON object
+        parsed = json.JSONDecoder().raw_decode(response_text)[0]
+        out = {}
+        for tr in parsed.get("translations", []):
+            tid, ttext = str(tr.get("id", "")), (tr.get("text") or "").strip()
+            if tid and ttext:
+                out[tid] = {"language": tr.get("language") or "unknown", "text": ttext[:3000]}
+        return {"translations": out}
+    except Exception as e:
+        logger.error(f"incident report translation failed: {e}")
+        return {"translations": {}}
+
+
+@router.get("/incidents/{incident_id}")
+async def get_incident(incident_id: int, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        r = conn.execute(text("""
+            SELECT i.id, i.brand_id, b.display_name, i.title, i.description, i.severity,
+                   i.status, i.owner, i.created_by, i.created_at, i.updated_at, i.resolved_at
+            FROM bw_incidents i JOIN bw_brands b ON b.id = i.brand_id WHERE i.id = :i
+        """), {"i": incident_id}).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        events = conn.execute(text("""
+            SELECT kind, actor, old_value, new_value, note, at
+            FROM bw_incident_events WHERE incident_id = :i ORDER BY at DESC, id DESC LIMIT 200
+        """), {"i": incident_id}).fetchall()
+        evidence = conn.execute(text("""
+            SELECT id, evidence_type, source_ref, title, content, meta,
+                   content_sha256, chain_sha256, captured_by, captured_at, reassigned_to
+            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+        """), {"i": incident_id}).fetchall()
+        def _j(v):
+            if v is None or isinstance(v, (dict, list)):
+                return v
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        # Five Signals screens for attached articles (same compact summary
+        # shape the Articles tab rows carry — renderSignalsChips reads it).
+        ev_article_uris = [e[2] for e in evidence
+                           if e[1] == "article" and e[2]
+                           and str(e[2]).lower().startswith(("http://", "https://"))]
+        signals_map: dict = {}
+        if ev_article_uris:
+            for s_uri, s_status, s_verdict, s_comp, s_sigs in conn.execute(text(
+                "SELECT article_uri, status, verdict, composite_score, signals"
+                " FROM bw_article_signals WHERE article_uri = ANY(:us) AND brand_id = :b"
+            ), {"us": ev_article_uris, "b": r[1]}).fetchall():
+                s_parsed = s_sigs if isinstance(s_sigs, dict) else (json.loads(s_sigs) if s_sigs else {})
+                signals_map[s_uri] = {
+                    "status": s_status, "verdict": s_verdict,
+                    "composite": s_comp,
+                    "signals": [
+                        {"key": k, "band": (s_parsed.get(k) or {}).get("band"),
+                         "score": (s_parsed.get(k) or {}).get("score")}
+                        for k in ("veracity", "source_credibility", "corroboration",
+                                  "propagation", "amplification_integrity")
+                    ] if s_parsed else [],
+                }
+        # Live duplicate check — NOT the historical agent_suggestion events.
+        # Shared evidence is evaluated NOW (reassigned rows excluded), and an
+        # analyst's "not a duplicate of case #N" note retires the pair for
+        # good. The UI renders its duplicate cards from this.
+        dup_candidates = conn.execute(text("""
+            SELECT DISTINCT i2.id, i2.title
+            FROM bw_incident_evidence e1
+            JOIN bw_incident_evidence e2
+              ON e2.source_ref = e1.source_ref AND e2.incident_id != e1.incident_id
+            JOIN bw_incidents i2 ON i2.id = e2.incident_id
+              AND i2.brand_id = :b AND i2.status IN ('open', 'investigating')
+            WHERE e1.incident_id = :i AND e1.source_ref IS NOT NULL AND e1.source_ref != ''
+              AND e1.reassigned_to IS NULL AND e2.reassigned_to IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM bw_incident_events ev
+                WHERE ev.incident_id = :i AND ev.kind = 'note'
+                  AND ev.note LIKE 'not a duplicate of case #' || i2.id || '%')
+            ORDER BY i2.id
+        """), {"i": incident_id, "b": r[1]}).fetchall()
+        return {
+            "id": r[0], "brand_id": r[1], "brand_name": r[2], "title": r[3],
+            "description": r[4], "severity": r[5], "status": r[6], "owner": r[7],
+            "created_by": r[8],
+            "created_at": r[9].isoformat() if r[9] else None,
+            "updated_at": r[10].isoformat() if r[10] else None,
+            "resolved_at": r[11].isoformat() if r[11] else None,
+            "duplicate_candidates": [{"id": d[0], "title": d[1]} for d in dup_candidates],
+            "timeline": [{"kind": e[0], "actor": e[1], "old_value": e[2], "new_value": e[3],
+                          "note": e[4], "at": e[5].isoformat() if e[5] else None} for e in events],
+            "evidence": [{"id": e[0], "evidence_type": e[1], "source_ref": e[2], "title": e[3],
+                          "content": e[4], "meta": _j(e[5]), "content_sha256": e[6],
+                          "chain_sha256": e[7], "captured_by": e[8],
+                          "captured_at": e[9].isoformat() if e[9] else None,
+                          "reassigned_to": e[10],
+                          "signals_summary": signals_map.get(e[2])} for e in evidence],
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/report-summary")
+async def incident_report_summary(incident_id: int, session=Depends(verify_session)):
+    """One plain-language 'Situation' paragraph for the client-facing report:
+    what the incident is, who is involved, spread, credibility. Written by the
+    LLM from the incident row + evidence + latest agent brief at export time
+    (nothing is stored)."""
+    from app.ai_models import LiteLLMModel
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        r = conn.execute(text("""
+            SELECT i.title, i.description, i.severity, i.created_at, b.display_name
+            FROM bw_incidents i JOIN bw_brands b ON b.id = i.brand_id WHERE i.id = :i
+        """), {"i": incident_id}).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        evidence = conn.execute(text("""
+            SELECT evidence_type, title, content, meta FROM bw_incident_evidence
+            WHERE incident_id = :i ORDER BY id LIMIT 8
+        """), {"i": incident_id}).fetchall()
+        brief = conn.execute(text("""
+            SELECT brief FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i AND brief IS NOT NULL ORDER BY id DESC LIMIT 1
+        """), {"i": incident_id}).fetchone()
+    finally:
+        conn.close()
+
+    ev_lines = []
+    for et, ti, co, me in evidence:
+        m = me if isinstance(me, dict) else {}
+        if me and not isinstance(me, dict):
+            try:
+                m = json.loads(me)
+            except (json.JSONDecodeError, TypeError):
+                m = {}
+        who = m.get("author") or (m.get("social_meta") or {}).get("author") or ""
+        plat = m.get("platform") or (m.get("social_meta") or {}).get("platform") or ""
+        when = str(m.get("publication_date") or "")[:10]
+        ev_lines.append(f"- [{et}] {who and '@' + who + ' '}{plat and 'on ' + plat + ' '}{when}: "
+                        f"{(co or ti or '')[:600]}")
+    prompt = (
+        "You are writing the opening 'Situation' paragraph of a client-facing brand-protection "
+        "incident report. From the material below, state plainly in 3-5 sentences: what the "
+        "incident concerns (the concrete thing that happened or is being said), who is saying it "
+        "and where, how far it has spread, and how credible/serious it currently looks. Plain "
+        "prose, no markdown, no bullet lists, no hedging boilerplate — if the trigger is unclear, "
+        "one clause on what IS known and what is missing. Do not invent facts. Attribute every "
+        "quote or claim to the exact account named on the evidence line it came from; never merge "
+        "different accounts' statements into one voice.\n\n"
+        f"Brand: {r[4]}\nIncident title: {r[0]}\nSeverity set by analyst: {r[2]}\n"
+        f"Analyst description: {r[1] or '(none)'}\n\nAttached evidence:\n"
+        + "\n".join(ev_lines)
+        + (f"\n\nLatest agent brief:\n{brief[0][:3000]}" if brief and brief[0] else "")
+    )
+    try:
+        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        summary = (await model.agenerate_response([
+            {"role": "system", "content": "You are a senior brand-protection analyst. Respond with the paragraph only."},
+            {"role": "user", "content": prompt},
+        ])).strip()
+        return {"summary": summary[:2500]}
+    except Exception as e:
+        logger.error(f"incident report summary failed: {e}")
+        return {"summary": ""}
+
+
+@router.post("/incidents/{incident_id}/evidence/{evidence_id}/reassign/{target_id}")
+async def reassign_evidence(incident_id: int, evidence_id: int, target_id: int,
+                            session=Depends(verify_session)):
+    """Mark an evidence item as belonging to another case (after a split).
+
+    The row and its hash chain are untouched — the marker only moves the item
+    out of this case's working evidence list and reports. It does NOT copy the
+    item to the target (splits/merges do that)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text(
+            "SELECT title FROM bw_incident_evidence WHERE id = :e AND incident_id = :i"
+        ), {"e": evidence_id, "i": incident_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Evidence not found on this incident")
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :t"), {"t": target_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Target incident not found")
+        conn.execute(text(
+            "UPDATE bw_incident_evidence SET reassigned_to = :t WHERE id = :e"
+        ), {"t": target_id, "e": evidence_id})
+        _incident_event(conn, incident_id, "note", _incident_actor(session),
+                        note=f"evidence '{(row[0] or '')[:80]}' reassigned to case #{target_id} "
+                             f"(record retained here, hash chain unchanged)")
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/merge-into/{target_id}")
+async def merge_incident(incident_id: int, target_id: int, session=Depends(verify_session)):
+    """Merge this case into *target_id*: copy its evidence onto the target's
+    hash chain (skipping refs the target already holds; file evidence stays
+    with the closed case — its bytes are keyed to the source), then close
+    this case with a cross-reference. Both directions of the audit trail
+    record the merge."""
+    if incident_id == target_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a case into itself")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        src = conn.execute(text(
+            "SELECT title, brand_id, status FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone()
+        tgt = conn.execute(text(
+            "SELECT title, brand_id FROM bw_incidents WHERE id = :i"), {"i": target_id}).fetchone()
+        if not src or not tgt:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        if src[1] != tgt[1]:
+            raise HTTPException(status_code=400, detail="Cases belong to different brands")
+        actor = _incident_actor(session)
+
+        existing_refs = {r[0] for r in conn.execute(text(
+            "SELECT source_ref FROM bw_incident_evidence WHERE incident_id = :i AND source_ref IS NOT NULL"
+        ), {"i": target_id}).fetchall()}
+        rows = conn.execute(text("""
+            SELECT evidence_type, source_ref, title, content, meta
+            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+        """), {"i": incident_id}).fetchall()
+        copied, skipped_dup, skipped_files = 0, 0, 0
+        for etype, ref, title, content, meta in rows:
+            if etype == "file":
+                skipped_files += 1
+                continue
+            if ref and ref in existing_refs:
+                skipped_dup += 1
+                continue
+            meta_d = meta if isinstance(meta, dict) else (json.loads(meta) if meta else {})
+            meta_d["merged_from_incident"] = incident_id
+            _append_evidence_row(conn, target_id, etype, ref, title, content or "", meta_d, actor)
+            if ref:
+                existing_refs.add(ref)
+            copied += 1
+
+        _incident_event(conn, target_id, "note", actor,
+                        note=f"merged case #{incident_id} ('{(src[0] or '')[:80]}') into this case: "
+                             f"{copied} item(s) copied"
+                             + (f", {skipped_dup} already present" if skipped_dup else "")
+                             + (f", {skipped_files} file(s) left with the closed case" if skipped_files else ""))
+        conn.execute(text(
+            "UPDATE bw_incidents SET status = 'closed', resolved_at = COALESCE(resolved_at, NOW()),"
+            " updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        _incident_event(conn, incident_id, "status_change", actor, src[2], "closed",
+                        note=f"merged into case #{target_id} ('{(tgt[0] or '')[:80]}')")
+        conn.commit()
+        return {"merged": True, "copied": copied, "skipped_duplicates": skipped_dup,
+                "skipped_files": skipped_files, "target_id": target_id}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Merge of incident {incident_id} into {target_id} failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.put("/incidents/{incident_id}")
+async def update_incident(incident_id: int, req: IncidentUpdate, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        cur = conn.execute(text(
+            "SELECT title, description, severity, status, owner FROM bw_incidents WHERE id = :i"
+        ), {"i": incident_id}).fetchone()
+        if not cur:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        actor = _incident_actor(session)
+        sets, params = [], {"i": incident_id}
+        if req.status is not None and req.status != cur[3]:
+            if req.status not in INCIDENT_STATUSES:
+                raise HTTPException(status_code=400, detail="Invalid status")
+            sets.append("status = :st"); params["st"] = req.status
+            if req.status in ("resolved", "closed"):
+                sets.append("resolved_at = COALESCE(resolved_at, NOW())")
+            _incident_event(conn, incident_id, "status_change", actor, cur[3], req.status, req.note)
+        if req.severity is not None and req.severity != cur[2]:
+            if req.severity not in INCIDENT_SEVERITIES:
+                raise HTTPException(status_code=400, detail="Invalid severity")
+            sets.append("severity = :sv"); params["sv"] = req.severity
+            _incident_event(conn, incident_id, "severity_change", actor, cur[2], req.severity, req.note)
+        if req.owner is not None and req.owner != cur[4]:
+            sets.append("owner = :ow"); params["ow"] = req.owner[:100]
+            _incident_event(conn, incident_id, "owner_change", actor, cur[4], req.owner, req.note)
+        if req.title is not None and req.title.strip() and req.title != cur[0]:
+            sets.append("title = :ti"); params["ti"] = req.title.strip()[:300]
+        if req.description is not None and req.description != cur[1]:
+            sets.append("description = :de"); params["de"] = req.description
+        if sets:
+            conn.execute(text(f"UPDATE bw_incidents SET {', '.join(sets)}, updated_at = NOW() WHERE id = :i"), params)
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.delete("/incidents/{incident_id}")
+async def delete_incident(incident_id: int, session=Depends(verify_session)):
+    """Delete an incident (events and evidence cascade)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("SELECT title FROM bw_incidents WHERE id = :i"),
+                           {"i": incident_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        conn.execute(text("DELETE FROM bw_incidents WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        logger.info(f"Incident {incident_id} ('{row[0]}') deleted by {_incident_actor(session)}")
+        return {"message": "Incident deleted", "id": incident_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error deleting incident {incident_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/note")
+async def add_incident_note(incident_id: int, req: IncidentNote, session=Depends(verify_session)):
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        _incident_event(conn, incident_id, "note", _incident_actor(session), note=req.note[:2000])
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback(); raise
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/evidence", status_code=201)
+async def attach_evidence(incident_id: int, req: EvidenceAttach, session=Depends(verify_session)):
+    """Capture a server-side snapshot of the source into the incident's evidence chain.
+    Evidence is append-only by design — there is no update or delete endpoint."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        result = _capture_evidence(conn, incident_id, req, _incident_actor(session))
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/{incident_id}/verify-chain")
+async def verify_evidence_chain(incident_id: int, session=Depends(verify_session)):
+    """Recompute the evidence hash chain and report whether it is intact."""
+    import hashlib
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        rows = conn.execute(text("""
+            SELECT id, content, meta, content_sha256, chain_sha256
+            FROM bw_incident_evidence WHERE incident_id = :i ORDER BY id
+        """), {"i": incident_id}).fetchall()
+        prev_chain = ""
+        broken = []
+        for rid, content, meta, csha, chsha in rows:
+            meta_json = meta if isinstance(meta, str) else json.dumps(meta or {}, sort_keys=True, default=str)
+            # meta round-trips through JSONB, so recompute from the canonical form
+            try:
+                meta_json = json.dumps(meta if isinstance(meta, (dict, list)) else json.loads(meta or "{}"),
+                                       sort_keys=True, default=str)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            expect_c = hashlib.sha256(f"{content}|{meta_json}".encode()).hexdigest()
+            expect_ch = hashlib.sha256(f"{prev_chain}|{expect_c}".encode()).hexdigest()
+            if expect_c != csha or expect_ch != chsha:
+                broken.append(rid)
+            prev_chain = chsha
+        return {"items": len(rows), "intact": not broken, "broken_ids": broken}
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/files", status_code=201)
+async def upload_incident_file(incident_id: int, file: UploadFile = File(...),
+                               note: Optional[str] = Form(None),
+                               session=Depends(verify_session)):
+    """Attach a file to an incident: bytes to disk, row in bw_incident_files,
+    and an evidence-locker entry whose content embeds the file's sha256 (the
+    hash chain covers the file bytes transitively)."""
+    from app.services import incident_files
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        try:
+            info = await incident_files.save_upload(incident_id, file)
+        except incident_files.FileTooLargeError as e:
+            raise HTTPException(status_code=413, detail=str(e))
+        except incident_files.FileValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        actor = _incident_actor(session)
+        row = conn.execute(text("""
+            INSERT INTO bw_incident_files
+                (incident_id, filename, mime, size_bytes, sha256, stored_path, uploaded_by)
+            VALUES (:i, :fn, :mi, :sz, :sh, :sp, :a)
+            RETURNING id
+        """), {"i": incident_id, "fn": info["filename"], "mi": info["mime"],
+               "sz": info["size_bytes"], "sh": info["sha256"],
+               "sp": info["stored_path"], "a": actor}).fetchone()
+        file_id = row[0]
+        content = (f"Attached file: {info['filename']}\n"
+                   f"size: {info['size_bytes']} bytes\nmime: {info['mime']}\n"
+                   f"sha256: {info['sha256']}" + (f"\n\n{note}" if note else ""))
+        meta = {"file_id": file_id, "filename": info["filename"], "mime": info["mime"],
+                "size_bytes": info["size_bytes"], "sha256": info["sha256"]}
+        ev = _append_evidence_row(conn, incident_id, "file", f"file:{file_id}",
+                                  info["filename"], content, meta, actor)
+        conn.execute(text("UPDATE bw_incident_files SET evidence_id = :e WHERE id = :f"),
+                     {"e": ev["id"], "f": file_id})
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return {"file_id": file_id, "evidence_id": ev["id"], **info}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Incident file upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/incidents/{incident_id}/files/{file_id}")
+async def download_incident_file(incident_id: int, file_id: int,
+                                 verify: int = Query(0),
+                                 session=Depends(verify_session)):
+    from app.services import incident_files
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("""
+            SELECT filename, mime, sha256, stored_path FROM bw_incident_files
+            WHERE id = :f AND incident_id = :i
+        """), {"f": file_id, "i": incident_id}).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = incident_files.resolve_path(row[3])
+    if not path:
+        raise HTTPException(status_code=404, detail="File missing from storage")
+    if verify and incident_files.file_sha256(path) != row[2]:
+        raise HTTPException(status_code=409, detail="File integrity check failed (sha256 mismatch)")
+    return FileResponse(path, media_type=row[1] or "application/octet-stream", filename=row[0])
+
+
+# ---------------------------------------------------------------------------
+# Incident enrichment agent — staged review queue. The agent NEVER writes to
+# the evidence locker itself; candidates wait in
+# bw_incident_enrichment_candidates until an analyst attaches or dismisses.
+
+class EnrichmentDecide(BaseModel):
+    candidate_ids: List[int]
+    action: Literal["attach", "dismiss"]
+
+
+def _start_enrichment_run(conn, incident_id: int, started_by: str) -> int:
+    row = conn.execute(text("""
+        INSERT INTO bw_incident_enrichment_runs (incident_id, started_by)
+        VALUES (:i, :a) RETURNING id
+    """), {"i": incident_id, "a": started_by}).fetchone()
+    return row[0]
+
+
+@router.post("/incidents/{incident_id}/enrich", status_code=202)
+async def enrich_incident(incident_id: int, background_tasks: BackgroundTasks,
+                          session=Depends(verify_session)):
+    from app.services.bw_incident_enrichment import run_incident_enrichment
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if not conn.execute(text("SELECT 1 FROM bw_incidents WHERE id = :i"), {"i": incident_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Incident not found")
+        running = conn.execute(text("""
+            SELECT id FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i AND status = 'running'
+              AND started_at > NOW() - INTERVAL '15 minutes'
+            LIMIT 1
+        """), {"i": incident_id}).fetchone()
+        if running:
+            raise HTTPException(status_code=409,
+                                detail=f"Enrichment run #{running[0]} is already in progress")
+        actor = _incident_actor(session)
+        run_id = _start_enrichment_run(conn, incident_id, actor)
+        conn.commit()
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+    background_tasks.add_task(run_incident_enrichment, run_id, incident_id, actor)
+    return {"run_id": run_id, "status": "running"}
+
+
+@router.get("/incidents/{incident_id}/enrichment")
+async def get_incident_enrichment(incident_id: int, session=Depends(verify_session)):
+    """Latest run + pending candidates in one poll-friendly payload."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        run = conn.execute(text("""
+            SELECT id, status, stage, stats, brief, error, started_by, started_at, finished_at
+            FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i ORDER BY id DESC LIMIT 1
+        """), {"i": incident_id}).fetchone()
+        cands = conn.execute(text("""
+            SELECT id, run_id, candidate_type, source_ref, title, snippet, score, reason, meta,
+                   triage_score, triage_rationale, recommendation
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND state = 'pending'
+            ORDER BY (recommendation = 'attach') DESC NULLS LAST,
+                     CASE candidate_type WHEN 'article' THEN 0
+                     WHEN 'social_post' THEN 1 ELSE 2 END, score DESC NULLS LAST, id
+        """), {"i": incident_id}).fetchall()
+        decided = conn.execute(text("""
+            SELECT id, run_id, candidate_type, source_ref, title, reason, state,
+                   decided_by, decided_at
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND state != 'pending'
+            ORDER BY decided_at DESC NULLS LAST, id DESC
+        """), {"i": incident_id}).fetchall()
+        counts = conn.execute(text("""
+            SELECT state, COUNT(*) FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i GROUP BY state
+        """), {"i": incident_id}).fetchall()
+        def _j(v):
+            if v is None or isinstance(v, (dict, list)):
+                return v
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return {
+            "run": None if not run else {
+                "id": run[0], "status": run[1], "stage": run[2], "stats": _j(run[3]),
+                "brief": run[4], "error": run[5], "started_by": run[6],
+                "started_at": run[7].isoformat() if run[7] else None,
+                "finished_at": run[8].isoformat() if run[8] else None,
+            },
+            "candidates": [{"id": c[0], "run_id": c[1], "candidate_type": c[2],
+                            "source_ref": c[3], "title": c[4], "snippet": c[5],
+                            "score": c[6], "reason": c[7], "meta": _j(c[8]),
+                            "triage_score": c[9], "triage_rationale": c[10],
+                            "recommendation": c[11]} for c in cands],
+            "history": [{"id": h[0], "run_id": h[1], "candidate_type": h[2],
+                         "source_ref": h[3], "title": h[4], "reason": h[5],
+                         "state": h[6], "decided_by": h[7],
+                         "decided_at": h[8].isoformat() if h[8] else None} for h in decided],
+            "counts": {s: n for s, n in counts},
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/enrichment/decide")
+async def decide_enrichment_candidates(incident_id: int, req: EnrichmentDecide,
+                                       session=Depends(verify_session)):
+    """Attach (snapshot into the locker) or dismiss pending candidates.
+    Candidates whose source has vanished are skipped and reported, not fatal."""
+    if not req.candidate_ids:
+        raise HTTPException(status_code=400, detail="candidate_ids required")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        actor = _incident_actor(session)
+        rows = conn.execute(text("""
+            SELECT id, run_id, candidate_type, source_ref, title
+            FROM bw_incident_enrichment_candidates
+            WHERE incident_id = :i AND id = ANY(:ids) AND state = 'pending'
+        """), {"i": incident_id, "ids": req.candidate_ids}).fetchall()
+        if not rows:
+            raise HTTPException(status_code=404, detail="No pending candidates match")
+        attached, dismissed, failed = 0, 0, []
+        for cid, run_id, ctype, source_ref, title in rows:
+            new_state = "dismissed"
+            if req.action == "attach":
+                try:
+                    _capture_evidence(conn, incident_id, EvidenceAttach(
+                        evidence_type=ctype, source_ref=source_ref), actor)
+                    _incident_event(conn, incident_id, "note", actor,
+                                    note=f"attached from agent run #{run_id}: {title or source_ref}"[:200])
+                    new_state = "attached"
+                    attached += 1
+                except HTTPException as e:
+                    failed.append({"id": cid, "source_ref": source_ref, "error": e.detail})
+                    continue
+            else:
+                dismissed += 1
+            conn.execute(text("""
+                UPDATE bw_incident_enrichment_candidates
+                SET state = :s, decided_by = :a, decided_at = NOW() WHERE id = :c
+            """), {"s": new_state, "a": actor, "c": cid})
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return {"attached": attached, "dismissed": dismissed, "failed": failed}
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/incidents/{incident_id}/enrichment/attach-brief", status_code=201)
+async def attach_enrichment_brief(incident_id: int, session=Depends(verify_session)):
+    """Snapshot the latest run's brief into the evidence locker as a note."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        run = conn.execute(text("""
+            SELECT id, brief FROM bw_incident_enrichment_runs
+            WHERE incident_id = :i AND brief IS NOT NULL
+            ORDER BY id DESC LIMIT 1
+        """), {"i": incident_id}).fetchone()
+        if not run:
+            raise HTTPException(status_code=404, detail="No enrichment brief available")
+        result = _capture_evidence(conn, incident_id, EvidenceAttach(
+            evidence_type="note", title=f"Agent incident brief (run #{run[0]})",
+            content=run[1]), _incident_actor(session))
+        conn.execute(text("UPDATE bw_incidents SET updated_at = NOW() WHERE id = :i"), {"i": incident_id})
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Employee / Workforce Risk API
+# ============================================================================
+
+def _cfg_dict(raw):
+    return raw if isinstance(raw, dict) else json.loads(raw or "{}")
+
+
+_SENT_POS_RE = re.compile(r"positiv|optimis", re.I)
+_SENT_NEG_RE = re.compile(r"negativ|pessimis|concern|critical|alarm", re.I)
+
+
+def _net_sentiment(pos: int, neu: int, neg: int):
+    """Standard rollup: (positive − negative) ÷ scored × 100, or None unscored."""
+    scored = pos + neu + neg
+    return round(((pos - neg) / scored) * 100) if scored else None
+
+
+@router.get("/perception")
+@bw_cached
+async def get_perception_dimensions(
+    days_back: int = Query(90, ge=1, le=730),
+    session=Depends(verify_session),
+):
+    """Perception across five dimensions per brand: media (news sentiment),
+    social (Bluesky/X/Instagram/TikTok), community (Reddit), employee
+    (Glassdoor rating + landed reviews), investor (Financial Performance
+    category sentiment). Text dimensions use the standard net-sentiment
+    rollup over relevance-filtered items (topic_alignment_score >= 0.4)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brands = conn.execute(text("""
+            SELECT id, name, display_name, color, is_primary, COALESCE(config, '{}')
+            FROM bw_brands WHERE enabled = true ORDER BY is_primary DESC, display_name
+        """)).fetchall()
+        if not brands:
+            return {"days_back": days_back, "brands": []}
+        topic_by_brand = {b[0]: f"Brand Monitoring {b[2]}" for b in brands}
+        brand_by_topic = {v: k for k, v in topic_by_brand.items()}
+
+        sd, ed = _get_date_range(days_back)
+
+        # Media / social / community in one grouped pass over brand-topic articles.
+        # Source buckets are matched strictly (not the substring helper) so news
+        # sites like financetwitter.com don't land in the social bucket.
+        topic_keys = {f"_t{i}": t for i, t in enumerate(brand_by_topic)}
+        topic_in = ", ".join(f":{k}" for k in topic_keys)
+        rows = conn.execute(text(f"""
+            SELECT a.topic,
+                   CASE
+                     WHEN LOWER(a.news_source) LIKE 'reddit%' OR LOWER(a.news_source) LIKE 'www.reddit%'
+                          OR LOWER(a.news_source) = 'xpoz:reddit' THEN 'community'
+                     WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
+                          OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
+                     WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
+                     ELSE 'media'
+                   END AS dim,
+                   a.sentiment, COUNT(*)
+            FROM articles a
+            WHERE a.publication_date >= :sd AND a.publication_date <= :ed
+              AND a.topic IN ({topic_in})
+              AND a.topic_alignment_score >= 0.4
+            GROUP BY 1, 2, 3
+        """), {"sd": sd, "ed": ed, **topic_keys}).fetchall()
+
+        counts = {}  # (brand_id, dim) -> [pos, neu, neg]
+        for topic, dim, sentiment, n in rows:
+            bid = brand_by_topic.get(topic)
+            if bid is None:
+                continue
+            c = counts.setdefault((bid, dim), [0, 0, 0])
+            s = sentiment or ""
+            if _SENT_NEG_RE.search(s):
+                c[2] += n
+            elif _SENT_POS_RE.search(s):
+                c[0] += n
+            elif s:
+                c[1] += n
+
+        # Investor: sentiment of articles classified Financial Performance per brand
+        inv_rows = conn.execute(text("""
+            SELECT bac.brand_id, a.sentiment, COUNT(*)
+            FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri
+            WHERE bac.category = 'Financial Performance'
+              AND a.publication_date >= :sd AND a.publication_date <= :ed
+              AND a.topic_alignment_score >= 0.4
+            GROUP BY 1, 2
+        """), {"sd": sd, "ed": ed}).fetchall()
+        for bid, sentiment, n in inv_rows:
+            c = counts.setdefault((bid, "investor"), [0, 0, 0])
+            s = sentiment or ""
+            if _SENT_NEG_RE.search(s):
+                c[2] += n
+            elif _SENT_POS_RE.search(s):
+                c[0] += n
+            elif s:
+                c[1] += n
+
+        out = []
+        for bid, name, display_name, color, is_primary, cfg_raw in brands:
+            dims = {}
+            for dim in ("media", "social", "community", "investor"):
+                pos, neu, neg = counts.get((bid, dim), (0, 0, 0))
+                dims[dim] = {"score": _net_sentiment(pos, neu, neg),
+                             "n": pos + neu + neg,
+                             "positive": pos, "neutral": neu, "negative": neg}
+
+            # Employee: Glassdoor aggregate rating (1-5 scaled to -100..100)
+            # plus net sentiment of landed review articles as detail
+            cfg = _cfg_dict(cfg_raw)
+            gd = ((cfg.get("glassdoor_overview") or {}).get("data") or {})
+            rating = gd.get("rating")
+            rpos, rneu, rneg = counts.get((bid, "employee_reviews"), (0, 0, 0))
+            dims["employee"] = {
+                "score": round((float(rating) - 3.0) / 2.0 * 100) if rating else None,
+                "rating": rating,
+                "outlook": gd.get("business_outlook_rating"),
+                "review_count": gd.get("review_count"),
+                "reviews_net": _net_sentiment(rpos, rneu, rneg),
+                "reviews_n": rpos + rneu + rneg,
+                "n": gd.get("review_count") or (rpos + rneu + rneg),
+            }
+            out.append({"brand_id": bid, "name": name, "display_name": display_name,
+                        "color": color, "is_primary": bool(is_primary), "dimensions": dims})
+
+        return {"days_back": days_back, "brands": out}
+    except Exception as e:
+        logger.error(f"Error building perception dimensions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/brands/{brand_id}/employee-risk")
+@bw_cached
+async def get_employee_risk(
+    brand_id: int,
+    days_back: int = Query(90, ge=0, le=730),
+    refresh: bool = Query(False, description="Force-refresh the Glassdoor overview cache"),
+    session=Depends(verify_session),
+):
+    """Workforce picture for a brand: Glassdoor aggregate ratings (cached 24h),
+    landed employee reviews, workforce_labor risk findings, and competitor
+    aggregates for every other glassdoor-enabled brand."""
+    from app.services.bw_official_sources import refresh_glassdoor_overview
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        brands = conn.execute(text("""
+            SELECT id, display_name, color, COALESCE(config, '{}') AS config
+            FROM bw_brands WHERE enabled = true ORDER BY is_primary DESC, display_name
+        """)).fetchall()
+        me = next((b for b in brands if b[0] == brand_id), None)
+        if not me:
+            raise HTTPException(status_code=404, detail="Brand not found")
+
+        overview = None
+        glassdoor_enabled = False
+        competitors = []
+        for bid, name, color, cfg_raw in brands:
+            cfg = _cfg_dict(cfg_raw)
+            if "glassdoor" not in (cfg.get("extra_sources") or []):
+                continue
+            if bid == brand_id:
+                glassdoor_enabled = True
+            ov = await refresh_glassdoor_overview(conn, bid, name, cfg,
+                                                  force=(refresh and bid == brand_id))
+            if bid == brand_id:
+                overview = ov
+            elif ov:
+                competitors.append({"brand_id": bid, "brand_name": name,
+                                    "color": color, "overview": ov})
+
+        sd, ed = _get_date_range(days_back)
+        review_rows = conn.execute(text("""
+            SELECT a.uri, a.title, a.summary, a.sentiment, a.publication_date
+            FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+            WHERE a.news_source = 'Glassdoor'
+              AND a.publication_date >= :sd AND a.publication_date <= :ed
+            ORDER BY a.publication_date DESC LIMIT 100
+        """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
+        pos = neu = neg = 0
+        reviews = []
+        for uri, title, summary, sentiment, pub in review_rows:
+            s = sentiment or ""
+            if _SENT_NEG_RE.search(s):
+                neg += 1
+            elif _SENT_POS_RE.search(s):
+                pos += 1
+            elif s:
+                neu += 1
+            reviews.append({"uri": uri, "title": title, "summary": summary,
+                            "sentiment": sentiment, "publication_date": str(pub or "")})
+        scored = pos + neu + neg
+        net = round(((pos - neg) / scored) * 100) if scored else None
+
+        risk_rows = conn.execute(text("""
+            SELECT r.article_uri, a.title, a.news_source, r.severity, r.confidence,
+                   r.method, r.detected_at::text, fr.status, a.publication_date
+            FROM bw_article_risks r
+            JOIN articles a ON a.uri = r.article_uri
+            LEFT JOIN bw_finding_reviews fr
+                ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
+            WHERE r.brand_id = :b AND r.risk_type = 'workforce_labor'
+            ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                     a.publication_date DESC
+            LIMIT 50
+        """), {"b": brand_id}).fetchall()
+        workforce_risks = [
+            {"uri": r[0], "title": r[1], "news_source": r[2], "severity": r[3],
+             "confidence": float(r[4]) if r[4] is not None else None, "method": r[5],
+             "detected_at": r[6], "case_status": r[7] or "new",
+             "publication_date": str(r[8] or "")}
+            for r in risk_rows
+        ]
+
+        history = []
+        try:
+            for snap_date, snap_data in conn.execute(text("""
+                SELECT snapshot_date, data FROM bw_glassdoor_snapshots
+                WHERE brand_id = :b ORDER BY snapshot_date ASC LIMIT 400
+            """), {"b": brand_id}).fetchall():
+                sd_ = snap_data if isinstance(snap_data, dict) else json.loads(snap_data or "{}")
+                history.append({"date": str(snap_date),
+                                "rating": sd_.get("rating"),
+                                "business_outlook_rating": sd_.get("business_outlook_rating"),
+                                "ceo_rating": sd_.get("ceo_rating"),
+                                "recommend_to_friend_rating": sd_.get("recommend_to_friend_rating"),
+                                "senior_management_rating": sd_.get("senior_management_rating"),
+                                "work_life_balance_rating": sd_.get("work_life_balance_rating"),
+                                "compensation_and_benefits_rating": sd_.get("compensation_and_benefits_rating"),
+                                "culture_and_values_rating": sd_.get("culture_and_values_rating"),
+                                "review_count": sd_.get("review_count")})
+        except Exception as _he:
+            logger.warning(f"glassdoor history read failed for brand {brand_id}: {_he}")
+            conn.rollback()
+
+        return {
+            "brand_id": brand_id,
+            "glassdoor_enabled": glassdoor_enabled,
+            "overview": overview,
+            "reviews": reviews,
+            "review_sentiment": {"pos": pos, "neu": neu, "neg": neg,
+                                 "scored": scored, "net": net},
+            "workforce_risks": workforce_risks,
+            "competitors": competitors,
+            "history": history,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"employee-risk failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/brands/{brand_id}/risk-summary")
+@bw_cached
+async def get_risk_summary(
+    brand_id: int,
+    days_back: int = Query(90, ge=0, le=730),
+    session=Depends(verify_session),
+):
+    """Per-brand adverse-risk rollup: counts by type x severity, top findings,
+    official-source record counts, and alert-event count for the window."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        sd, ed = _get_date_range(days_back)
+        by_type: dict = {}
+        for rt, sev, n in conn.execute(text("""
+            SELECT r.risk_type, r.severity, COUNT(*)
+            FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
+            WHERE r.brand_id = :b AND a.publication_date >= :sd AND a.publication_date <= :ed
+            GROUP BY r.risk_type, r.severity
+        """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall():
+            slot = by_type.setdefault(rt, {"high": 0, "medium": 0, "low": 0, "total": 0})
+            slot[sev if sev in ("high", "medium", "low") else "low"] += n
+            slot["total"] += n
+
+        top = [
+            {"uri": r[0], "title": r[1], "risk_type": r[2], "severity": r[3],
+             "confidence": float(r[4]) if r[4] is not None else None,
+             "publication_date": str(r[5] or ""), "news_source": r[6],
+             "case_status": r[7] or "new"}
+            for r in conn.execute(text("""
+                SELECT r.article_uri, a.title, r.risk_type, r.severity, r.confidence,
+                       a.publication_date, a.news_source, fr.status
+                FROM bw_article_risks r
+                JOIN articles a ON a.uri = r.article_uri
+                LEFT JOIN bw_finding_reviews fr
+                    ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
+                WHERE r.brand_id = :b AND a.publication_date >= :sd AND a.publication_date <= :ed
+                ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                         a.publication_date DESC
+                LIMIT 10
+            """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
+        ]
+
+        official = {
+            ns: n for ns, n in conn.execute(text("""
+                SELECT a.news_source, COUNT(DISTINCT a.uri)
+                FROM articles a
+                JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
+                WHERE a.bias_source LIKE 'official:%'
+                  AND a.publication_date >= :sd AND a.publication_date <= :ed
+                GROUP BY a.news_source
+            """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
+        }
+
+        alert_events = conn.execute(text("""
+            SELECT COUNT(*) FROM bw_alert_events
+            WHERE brand_id = :b AND rule <> 'digest'
+              AND created_at >= now() - (:d || ' days')::interval
+        """), {"b": brand_id, "d": str(days_back or 3650)}).fetchone()[0]
+
+        open_incidents = conn.execute(text("""
+            SELECT COUNT(*) FROM bw_incidents
+            WHERE brand_id = :b AND status NOT IN ('resolved', 'closed')
+        """), {"b": brand_id}).fetchone()[0]
+
+        return {"brand_id": brand_id, "days_back": days_back, "by_type": by_type,
+                "top_findings": top, "official_sources": official,
+                "alert_events": alert_events, "open_incidents": open_incidents}
+    except Exception as e:
+        logger.error(f"risk-summary failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Five Signals article screening (saas.aunoo.ai claim validation + propagation)
+# ============================================================================
+
+class SignalsRunRequest(BaseModel):
+    article_uri: str
+    brand_id: int
+    force: bool = False
+    # Which engine(s) to query: 'full' (both), 'validation' (claim validation
+    # only), 'reach' (Bluesky story-reach only). Partial runs merge into the
+    # stored row and the five signals recompose over both payloads.
+    mode: str = "full"
+
+
+@router.post("/signals/run")
+async def run_article_signals(
+    request: SignalsRunRequest,
+    background_tasks: BackgroundTasks,
+    session=Depends(verify_session),
+):
+    """Kick off a Five Signals screen for one article (background).
+
+    The screen calls saas.aunoo.ai's claim-validation and deep story-reach
+    jobs (2-4 min wall clock) and composes the result into
+    ``bw_article_signals``; the frontend polls GET /signals/detail until the
+    row leaves 'running'. Completed rows are returned as-is unless force.
+    """
+    from app.services.bw_signals_service import signals_available, run_five_signals
+    if not signals_available():
+        raise HTTPException(status_code=503,
+                            detail="Five Signals is not configured (AUNOO_SAAS_MCP_KEY missing)")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text(
+            "SELECT uri FROM articles WHERE uri = :u"
+        ), {"u": request.article_uri}).fetchone()
+        if not row or not str(row[0]).lower().startswith(("http://", "https://")):
+            raise HTTPException(status_code=400,
+                                detail="Five Signals needs a public article URL "
+                                       "(social posts and employee reviews are not screenable)")
+        if request.mode not in ("full", "validation", "reach"):
+            raise HTTPException(status_code=400, detail="mode must be full | validation | reach")
+        existing = conn.execute(text(
+            "SELECT status, validation IS NOT NULL, reach IS NOT NULL FROM bw_article_signals"
+            " WHERE article_uri = :u AND brand_id = :b"
+        ), {"u": request.article_uri, "b": request.brand_id}).fetchone()
+        if existing and existing[0] == "running":
+            return {"status": "running"}
+        # Cached-return only when every engine the caller asked for has already
+        # run — a partial run may still fill in the missing engine.
+        if existing and existing[0] == "completed" and not request.force:
+            has_val, has_reach = bool(existing[1]), bool(existing[2])
+            wanted_done = (has_val if request.mode == "validation"
+                           else has_reach if request.mode == "reach"
+                           else (has_val and has_reach))
+            if wanted_done:
+                return {"status": "completed", "cached": True}
+        background_tasks.add_task(
+            run_five_signals, request.article_uri, request.brand_id,
+            request.article_uri, 90, request.force, "user", request.mode,
+        )
+        return {"status": "running"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"signals/run failed for {request.article_uri}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/signals/detail")
+async def get_article_signals(
+    article_uri: str,
+    brand_id: int,
+    session=Depends(verify_session),
+):
+    """Full Five Signals row for one article (poll target for the modal)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("""
+            SELECT status, signals, verdict, composite_score, validation, reach,
+                   xnet, error, requested_by, created_at::text, updated_at::text
+            FROM bw_article_signals WHERE article_uri = :u AND brand_id = :b
+        """), {"u": article_uri, "b": brand_id}).fetchone()
+        if not row:
+            return {"status": "none"}
+        def _j(v):
+            return v if isinstance(v, (dict, list)) or v is None else json.loads(v)
+        return {
+            "status": row[0], "signals": _j(row[1]), "verdict": row[2],
+            "composite_score": row[3], "validation": _j(row[4]), "reach": _j(row[5]),
+            "xnet": _j(row[6]),
+            "error": row[7], "requested_by": row[8],
+            "created_at": row[9], "updated_at": row[10],
+        }
+    except Exception as e:
+        logger.error(f"signals/detail failed for {article_uri}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ─── Account Profiles (xpoz-powered per-account brand intelligence, Phase 2) ───
+# Recovered 2026-07-06: originally tenant-local on wileytest and lost in a file
+# convergence — now canonical here. Service: app/services/social_profile_service.py
+
+class AccountProfileRequest(BaseModel):
+    platform: str
+    handle: str
+    brand: Optional[str] = None
+
+
+class AccountTagsRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+
+
+class AccountAnnotationRequest(BaseModel):
+    text: Optional[str] = None
+
+
+def _social_profile_service():
+    from app.services.social_profile_service import SocialProfileService
+    return SocialProfileService()
+
+
+@router.post("/accounts/profile")
+async def build_account_profile(req: AccountProfileRequest, session=Depends(verify_session)):
+    """Build/refresh a lean account profile from xpoz (explicit user action only)."""
+    svc = _social_profile_service()
+    try:
+        prof = await svc.build_profile(get_database_instance(), req.platform, req.handle, brand=req.brand)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"build_account_profile error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to build profile")
+    if not prof:
+        raise HTTPException(status_code=404, detail=f"No {req.platform} account found for '{req.handle}'")
+    return prof
+
+
+@router.get("/accounts/profile")
+async def get_account_profile(platform: str, handle: str, session=Depends(verify_session)):
+    prof = _social_profile_service().get_stored(get_database_instance(), platform, handle)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.get("/accounts/profiles")
+async def list_account_profiles(session=Depends(verify_session)):
+    return {"profiles": _social_profile_service().list_profiles(get_database_instance())}
+
+
+@router.get("/accounts/deepdive")
+async def account_deep_dive(platform: str, handle: str, brand: Optional[str] = None,
+                            session=Depends(verify_session)):
+    """On-demand deeper pull: post timeline, engagement, connections. No stored state."""
+    svc = _social_profile_service()
+    try:
+        dd = await svc.deep_dive(get_database_instance(), platform, handle, brand=brand)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"account_deep_dive error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Deep dive failed")
+    if not dd:
+        raise HTTPException(status_code=404, detail="No data")
+    return dd
+
+
+@router.put("/accounts/profile/{account_id}/tags")
+async def set_account_tags(account_id: int, req: AccountTagsRequest, session=Depends(verify_session)):
+    prof = _social_profile_service().set_tags(get_database_instance(), account_id, req.tags)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.post("/accounts/profile/{account_id}/annotation")
+async def set_account_annotation(account_id: int, req: AccountAnnotationRequest, session=Depends(verify_session)):
+    by = session.get("user") if isinstance(session, dict) else None
+    prof = _social_profile_service().set_annotation(get_database_instance(), account_id, req.text, by)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.delete("/accounts/profile/{account_id}")
+async def delete_account_profile(account_id: int, session=Depends(verify_session)):
+    _social_profile_service().delete_profile(get_database_instance(), account_id)
+    return {"status": "deleted", "id": account_id}
+
+
+class AccountWatchlistRequest(BaseModel):
+    watchlisted: bool
+
+
+class AccountEmailReportRequest(BaseModel):
+    to: str
+    html: str          # the report exactly as the download button builds it
+    subject: Optional[str] = None
+
+
+@router.put("/accounts/profile/{account_id}/watchlist")
+async def set_account_watchlist(account_id: int, req: AccountWatchlistRequest,
+                                session=Depends(verify_session)):
+    """Add/remove an account from the watchlist (watched accounts list first)."""
+    prof = _social_profile_service().set_watchlist(get_database_instance(), account_id, req.watchlisted)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+
+
+@router.post("/accounts/profile/{account_id}/email")
+async def email_account_report(account_id: int, req: AccountEmailReportRequest,
+                               session=Depends(verify_session)):
+    """Email an account report. The client sends the same self-contained HTML
+    the download button produces; it goes out as an attachment so the mailbox
+    copy is identical to the downloaded one."""
+    svc = _social_profile_service()
+    prof = svc._by_id(get_database_instance(), account_id)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    to = (req.to or "").strip()
+    if "@" not in to or " " in to:
+        raise HTTPException(status_code=400, detail="Invalid recipient address")
+    if not req.html or len(req.html) > 2_000_000:
+        raise HTTPException(status_code=400, detail="Report HTML missing or too large")
+
+    from app.services.email_service import get_email_service
+    email_svc = get_email_service()
+    if not email_svc.is_available():
+        raise HTTPException(status_code=400, detail="Email service is not configured on this tenant")
+
+    handle = prof.get("handle") or f"account {account_id}"
+    platform = prof.get("platform") or ""
+    subject = req.subject or f"[AuNoo AI] Account report — @{handle} ({platform})"
+    fname = "".join(c if c.isalnum() or c in "-_" else "_" for c in f"{platform}_{handle}")[:60] or "account"
+    body = f"""
+    <h2>Account report — @{handle}</h2>
+    <p>The full interactive report for <strong>@{handle}</strong> ({platform}) is attached
+    as a self-contained HTML file — open it in any browser.</p>
+    <p style="color:#888;font-size:12px">{prof.get('display_name') or ''} ·
+    {prof.get('followers_count') or 0:,} followers · profiled {str(prof.get('last_profiled_at') or '')[:16]}</p>
+    """
+    ok = email_svc.send_email(
+        to_addresses=[to], subject=subject, body_html=body,
+        body_text=f"Account report for @{handle} ({platform}) attached as HTML.",
+        attachments=[{"filename": f"{fname}_report.html",
+                      "content": req.html.encode("utf-8"),
+                      "mime_type": "text/html"}],
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to send the email")
+    logger.info(f"Account report for @{handle} emailed to {to}")
+    return {"message": "sent", "to": to}

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 import uuid
 import threading
 
+from app.ai_models import resolve_litellm_call_params
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -1366,7 +1367,7 @@ async def vector_summary(
     try:
         # Use litellm directly (same as six articles generation)
         response = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=messages,
             temperature=0.3,
             max_tokens=2000
@@ -1505,7 +1506,7 @@ async def vector_summary_raw(
 
     try:
         resp = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=messages,
             temperature=0.2,
             max_tokens=2000,
@@ -1629,7 +1630,7 @@ async def article_insights(
         generated_at = datetime.utcnow().isoformat() + "Z"
         
         resp = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=messages,
             temperature=0.3,
             max_tokens=2000,
@@ -3269,6 +3270,196 @@ class _UpdateSignalInstructionRequest(BaseModel):
             return re.sub(r'\s+', ' ', v.strip())
         return v
 
+# ─── Signed no-auth report downloads ────────────────────────────────────────
+# Report emails carry a download link that must work without a session. The
+# link is signed (HMAC over report id + expiry with the app secret) so it
+# grants access to exactly one report for a bounded time.
+
+_REPORT_LINK_TTL_SECONDS = 30 * 24 * 3600  # 30 days
+
+
+def _report_link_secret() -> bytes:
+    return (os.environ.get("FLASK_SECRET_KEY") or "aunoo-report-link").encode()
+
+
+def _report_token(report_id: int, exp: int) -> str:
+    import hashlib
+    import hmac as _hmac
+    return _hmac.new(_report_link_secret(),
+                     f"signal-report:{report_id}:{exp}".encode(),
+                     hashlib.sha256).hexdigest()
+
+
+def build_report_download_url(report_id: int, fmt: str = "html") -> str:
+    import time as _time
+    exp = int(_time.time()) + _REPORT_LINK_TTL_SECONDS
+    token = _report_token(report_id, exp)
+    domain = os.getenv("DOMAIN", "localhost:10015")
+    protocol = "https" if "localhost" not in domain else "http"
+    return (f"{protocol}://{domain}/api/signal-reports/{report_id}/download"
+            f"?exp={exp}&token={token}&fmt={fmt}")
+
+
+# Recommendations are opt-in per agent (config.include_recommendations) — by
+# default reports state findings, themes and significance without advice.
+_RECOMMENDATIONS_ON = (
+    "\n\nInclude a short 'Recommendations & guidance' section with actionable "
+    "recommendations scoped strictly to the report reader's own organization and "
+    "remit. Never address recommendations to governments, regulators, industries "
+    "or other outside actors."
+)
+_RECOMMENDATIONS_OFF = (
+    "\n\nDo NOT include recommendations, guidance, suggested actions or advice of "
+    "any kind — even if instructed above. Report findings, themes and significance "
+    "only; the reader decides what to do."
+)
+
+
+# Client-facing reports must not carry raw source/post links — not in the emailed
+# body and not in the saved (loadable) report. We instruct the model to omit them
+# and strip any that leak (see _strip_source_links).
+_NO_SOURCE_LINKS = (
+    "\n\nDo NOT include any URLs, hyperlinks, bare web addresses or source/post "
+    "links anywhere in the report — even if instructed above. Refer to accounts by "
+    "their short @handle only (e.g. @name), WITHOUT the platform domain suffix "
+    "(never @name.bsky.social or a full profile address)."
+)
+
+
+def _apply_recommendations_pref(prompt: str, instr_config) -> str:
+    """Append report output-policy directives (recommendations + no source links)."""
+    prompt = prompt or ""
+    if (instr_config or {}).get("include_recommendations"):
+        prompt += _RECOMMENDATIONS_ON
+    else:
+        prompt += _RECOMMENDATIONS_OFF
+    return prompt + _NO_SOURCE_LINKS
+
+
+def _strip_source_links(md: str) -> str:
+    """Remove source/post URLs and hyperlinks from generated report content so
+    client-facing reports (emailed and saved/loadable) never carry raw links.
+    report_content holds no links we need to keep — the 'view full report' link is
+    added during email assembly, not stored in the content."""
+    if not md:
+        return md
+    import re
+    # [text](url) -> text  (drop the link, keep the visible label)
+    md = re.sub(r'\[([^\]]+)\]\((?:https?://|www\.|/)[^)]*\)', r'\1', md)
+    # bare URLs and <autolinks> -> removed
+    md = re.sub(r'(?:<)?(?:https?://|www\.)[^\s>)\]]+>?', '', md, flags=re.IGNORECASE)
+    # drop label-only lines left empty by URL removal (e.g. "- URI:", "**URI:**")
+    kept = []
+    for line in md.split('\n'):
+        # normalise: drop leading bullets/emphasis and trailing emphasis/space so a
+        # now-empty "- **URI:**" style label line is recognised and dropped.
+        core = re.sub(r'^[\s>*_\-•]+|[\s*_]+$', '', line).strip()
+        if re.match(r'(?i)^(uri|url|link|source)\s*:?\s*$', core):
+            continue
+        kept.append(line)
+    md = '\n'.join(kept)
+    # Shorten social account handles to a bare @handle so email clients don't
+    # autolink the platform-domain suffix (e.g. @x.bsky.social rendered as a
+    # broken link while a plain @x did not — inconsistent). Targets the common
+    # ATProto PDS / bridge suffixes seen in social reports.
+    md = re.sub(
+        r'(?i)@?\b([a-z0-9][a-z0-9_-]*)\.(?:[a-z0-9.-]+\.)?(?:bsky\.social|eurosky\.social|brid\.gy)\b',
+        r'@\1', md)
+    return re.sub(r'\n{3,}', '\n\n', md)  # collapse blank runs left behind
+
+
+def _report_email_extras(report_id, report_title, report_content, instr_config) -> dict:
+    """kwargs for send_signal_alert_email: signed no-auth download link, plus a
+    PDF attachment when the agent's config asks for it (attach_pdf_report)."""
+    log = logging.getLogger(__name__)
+    extras = {}
+    if report_id:
+        extras["report_download_url"] = build_report_download_url(report_id)
+    if (instr_config or {}).get("attach_pdf_report") and report_content:
+        try:
+            from app.services.report_pdf import markdown_report_to_pdf
+            pdf = markdown_report_to_pdf(report_title or "Signal report", report_content)
+            safe = "".join(c if c.isalnum() or c in " -_" else "_"
+                           for c in (report_title or "report"))[:60].strip() or "report"
+            extras["attachments"] = [{"filename": f"{safe}.pdf", "content": pdf,
+                                      "mime_type": "application/pdf"}]
+        except Exception as e:
+            log.warning(f"PDF attachment generation failed (sending without): {e}")
+    return extras
+
+
+@router.get("/signal-reports/{report_id}/download")
+async def download_signal_report(report_id: int, exp: int, token: str,
+                                 fmt: str = "html"):
+    """Tokenized report download — NO session required (links land in email)."""
+    import hmac as _hmac
+    import time as _time
+    from fastapi.responses import HTMLResponse, Response
+    if _time.time() > exp:
+        raise HTTPException(status_code=410, detail="Download link has expired")
+    if not _hmac.compare_digest(token, _report_token(report_id, exp)):
+        raise HTTPException(status_code=403, detail="Invalid download token")
+
+    from app.database import get_database_instance
+    db = get_database_instance()
+    rows = db.fetch_all(
+        "SELECT name, instruction_name, report_content, created_at, alerts_data "
+        "FROM saved_signal_reports WHERE id = ?", [report_id])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Report not found")
+    r = rows[0]
+    title = r.get("name") or r.get("instruction_name") or f"Signal report {report_id}"
+    content = r.get("report_content") or ""
+    alerts = r.get("alerts_data")
+    if isinstance(alerts, str):
+        try:
+            import json as _json
+            alerts = _json.loads(alerts)
+        except Exception:
+            alerts = None
+
+    if fmt == "pdf":
+        from app.services.report_pdf import markdown_report_to_pdf
+        pdf = markdown_report_to_pdf(title, content)
+        safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)[:60].strip() or "report"
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
+
+    from app.services.email_service import (markdown_to_html, linkify_handles_md,
+                                            render_matched_sources_html)
+    # Inline @handle→profile links in the narrative, and append the full linked
+    # source-post list so the online report is as complete as the alert email.
+    body = markdown_to_html(linkify_handles_md(content, alerts))
+    sources = render_matched_sources_html(alerts)
+    sources_block = (f'<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">'
+                     f'<h2 style="font-size:18px;color:#333;margin:18px 0 12px 0;">Sources '
+                     f'<span style="font-size:13px;color:#888;font-weight:normal;">'
+                     f'({len(alerts)} matched posts)</span></h2>{sources}') if sources else ""
+    page = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title></head>
+<body style="margin:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:820px;margin:24px auto;background:#fff;border-radius:8px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+<h1 style="font-size:22px;color:#333;margin:0 0 4px 0;">{title}</h1>
+<p style="color:#888;font-size:12px;margin:0 0 20px 0;">Generated {str(r.get('created_at') or '')[:16]} · AuNoo Observer Agent report ·
+<a href="{build_report_download_url(report_id, 'pdf')}" style="color:#4055c6;">download PDF</a></p>
+{body}
+{sources_block}
+</div></body></html>"""
+    return HTMLResponse(content=page)
+
+
+def _enforce_dedicated_bw_topic(topic):
+    """Dedicated Brand Watcher tenants: observer agents may only report on brand data."""
+    from app.core.modules import is_dedicated_bw
+    if is_dedicated_bw() and not (topic or "").startswith("Brand Monitoring"):
+        raise HTTPException(
+            status_code=400,
+            detail="This tenant restricts observer agents to brand data — "
+                   "choose a 'Brand Monitoring …' topic",
+        )
+
+
 @router.post("/signal-instructions")
 async def save_signal_instruction(
     req: _SignalInstructionRequest,
@@ -3276,6 +3467,7 @@ async def save_signal_instruction(
 ):
     """Save a custom signal instruction for threat hunting."""
     logger = logging.getLogger(__name__)
+    _enforce_dedicated_bw_topic(req.topic)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
@@ -3314,6 +3506,7 @@ async def update_signal_instruction(
 ):
     """Update a signal instruction by ID."""
     logger = logging.getLogger(__name__)
+    _enforce_dedicated_bw_topic(req.topic)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
@@ -3737,6 +3930,147 @@ async def debug_articles(
 # Independent signal runner for real-time monitoring
 # ------------------------------------------------------------------
 
+# Base system prompt for signal-report generation. The reader-scoping constraint
+# (no directives to governments/third parties) is baked in here; the org persona
+# for the specific reader is appended per-run via _org_persona_report_prefix().
+_SIGNAL_REPORT_SYSTEM_BASE = (
+    "You are an intelligence analyst creating comprehensive reports from signal detection data. "
+    "Always format reports as readable markdown with headers, bullet points, and paragraphs. "
+    "Never return raw JSON in reports. Any recommendations must be actions the report's READER can take "
+    "within their own remit (decisions, directives to their own organization, monitoring, or hedging moves). "
+    "Do NOT issue directives to governments, regulators, health authorities, emergency agencies, or other "
+    "third parties the reader does not control; if a matched signal concerns a crisis the reader cannot act "
+    "on directly, frame recommendations as how the reader should respond within their own sphere, not how the "
+    "crisis itself should be managed."
+)
+
+
+def _org_persona_report_prefix(db) -> str:
+    """Persona framing for signal-report generation, from the tenant's default org profile.
+
+    Returns a system-prompt suffix that names the reader organization so recommendations
+    are scoped to that org's remit (e.g. a scientific publisher's editorial/portfolio moves).
+    Empty string if no profile is configured or on any error (report still generates, just
+    with the generic reader-scoping constraint from _SIGNAL_REPORT_SYSTEM_BASE).
+    """
+    try:
+        from app.database_query_facade import DatabaseQueryFacade
+        import json as _json
+        profiles = DatabaseQueryFacade(db, logger).get_organisational_profiles() or []
+        # NOTE: seed data flags several profiles is_default=true, so pick deterministically
+        # by lowest id (the tenant's primary/first-seeded profile) rather than trusting the
+        # ambiguous flag or the name-sorted facade order.
+        by_id = sorted(profiles, key=lambda p: p.get('id') or 1_000_000)
+        defaults = [p for p in by_id if p.get('is_default')]
+        prof = (defaults or by_id or [None])[0]
+        if not prof:
+            return ""
+
+        def _fmt(v):
+            if isinstance(v, str):
+                try:
+                    v = _json.loads(v)
+                except Exception:
+                    return v
+            if isinstance(v, (list, tuple)):
+                return ", ".join(str(x) for x in v)
+            return v
+
+        name = prof.get('name') or "the reader organization"
+        lines = [f"Organization: {name} ({prof.get('organization_type') or ''} in {prof.get('industry') or 'General'})"]
+        for label, key in (("Key concerns", "key_concerns"),
+                           ("Strategic priorities", "strategic_priorities"),
+                           ("Regulatory environment", "regulatory_environment")):
+            val = _fmt(prof.get(key))
+            if val:
+                lines.append(f"{label}: {str(val)[:400]}")
+        if prof.get('custom_context'):
+            lines.append(f"Context: {str(prof['custom_context'])[:400]}")
+        profile_text = "\n".join(lines)
+        return (
+            f"\n\nThis report is written specifically for the organization below. Frame the analysis, and "
+            f"especially the recommendations, for THIS reader — every recommended action must be one that "
+            f"{name} can take within its own remit.\n{profile_text}"
+        )
+    except Exception as e:
+        logger.warning(f"Signal-report org persona prefix failed: {e}")
+        return ""
+
+
+def _is_empty_report(content) -> bool:
+    """A report call counts as failed if it returned nothing usable — an empty
+    string (Bedrock intermittently returns empty completions) or one of the
+    provider-unavailable placeholder strings."""
+    if not content or not str(content).strip():
+        return True
+    lowered = str(content).lower()
+    return "⚠️" in content or "unavailable" in lowered
+
+
+async def _generate_report_with_retry(ai_model, messages, *, label="report",
+                                      attempts=3, base_delay=1.5):
+    """Generate a signal report, retrying on empty/placeholder output.
+
+    The batch report is a single extra LLM call on top of per-article scoring,
+    and Bedrock (Haiku 4.5 in particular) intermittently returns an empty
+    completion — roughly 1 run in 8 on high-volume tenants. Because the report
+    is customer-facing, retry a few times before giving up. Returns the report
+    text, or None if every attempt came back empty."""
+    import asyncio
+    from fastapi.concurrency import run_in_threadpool
+    for attempt in range(1, attempts + 1):
+        try:
+            content = await run_in_threadpool(ai_model.generate_response, messages)
+        except Exception as e:
+            logger.warning(f"Report generation attempt {attempt}/{attempts} for "
+                           f"'{label}' raised: {e}")
+            content = None
+        if not _is_empty_report(content):
+            if attempt > 1:
+                logger.info(f"Report generation for '{label}' succeeded on "
+                            f"attempt {attempt}/{attempts}")
+            return _strip_source_links(content)
+        logger.warning(f"Report generation attempt {attempt}/{attempts} for "
+                       f"'{label}' returned empty/placeholder")
+        if attempt < attempts:
+            await asyncio.sleep(base_delay * attempt)
+    return None
+
+
+def _build_fallback_report(instruction_name: str, alerts: list) -> str:
+    """Deterministic markdown roll-up of matched alerts.
+
+    Guard for when the LLM report call keeps returning empty after retries:
+    the customer alert still gets an analysis section (threat breakdown + the
+    matched articles) instead of silently shipping as a bare list of links.
+    Labelled as automated so it is not mistaken for the AI analyst report."""
+    from collections import Counter
+    alerts = alerts or []
+    threat_counts = Counter((str(a.get('threat_level') or 'UNKNOWN')).upper()
+                            for a in alerts)
+    order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
+    threat_line = ", ".join(f"{threat_counts[t]} {t.title()}"
+                            for t in order if threat_counts.get(t))
+    lines = [
+        f"# Signal Summary: {instruction_name}",
+        "",
+        f"_Automated summary — the AI analyst report was unavailable for this "
+        f"run, so this is a direct roll-up of the {len(alerts)} matched "
+        f"article(s)._",
+        "",
+    ]
+    if threat_line:
+        lines += [f"**Threat levels:** {threat_line}", ""]
+    lines.append("## Matched Articles")
+    for i, a in enumerate(alerts[:10], 1):
+        level = str(a.get('threat_level') or 'N/A').upper()
+        summary = (a.get('summary') or '').strip() or '(no summary)'
+        lines.append(f"{i}. **[{level}]** {summary}")
+    if len(alerts) > 10:
+        lines.append(f"\n_…and {len(alerts) - 10} more matched article(s)._")
+    return "\n".join(lines)
+
+
 class _RunSignalRequest(BaseModel):
     """Request for running specific signal instructions."""
     instruction_ids: List[int] = Field(..., description="Signal instruction IDs to run")
@@ -3757,6 +4091,44 @@ class _RunSignalRequest(BaseModel):
             import re
             return re.sub(r'\s+', ' ', v.strip())
         return v
+
+# Safety ceiling for the scheduled runner's candidate fetch. Candidates are
+# bounded by the days_back window minus already-alerted URIs, not by
+# max_articles — a 1000-row cap was silently hiding most of the window on
+# high-volume tenants.
+_SIGNAL_CANDIDATE_CEILING = 20000
+
+
+def _normalize_uri(uri: str) -> str:
+    """Matching key for LLM-echoed article URIs — models drop trailing
+    slashes or add/remove 'www.' when copying URIs into match JSON, which
+    saved alerts under URIs no article has (and broke repeat suppression)."""
+    u = (uri or '').strip().lower().rstrip('/')
+    for prefix in ('https://', 'http://'):
+        if u.startswith(prefix):
+            u = u[len(prefix):]
+            break
+    if u.startswith('www.'):
+        u = u[4:]
+    return u
+
+
+def _previously_alerted_uris(db, instruction_id: int) -> set:
+    """URIs this instruction has already alerted on. signal_alerts upserts on
+    (article_uri, instruction_id), so one row = already reported once; these
+    are excluded from re-analysis so alert emails only ever contain new
+    articles."""
+    try:
+        rows = db.fetch_all(
+            "SELECT article_uri FROM signal_alerts WHERE instruction_id = ?",
+            [instruction_id])
+        return {(r.get('article_uri') if hasattr(r, 'get') else r[0])
+                for r in rows}
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            f"Could not load previously-alerted URIs for instruction {instruction_id}: {e}")
+        return set()
+
 
 @router.post("/run-signals")
 async def run_signal_instructions(
@@ -3831,13 +4203,27 @@ async def run_signal_instructions(
                tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
+        AND sentiment IS NOT NULL
+        AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
+             AND topic_alignment_score >= 0.4
+             AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                             WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
         """
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
         
-        if req.topic:
+        from app.core.modules import is_dedicated_bw
+        if is_dedicated_bw():
+            # Dedicated Brand Watcher tenants: agents only ever see brand articles.
+            # Strict topic match (no title/summary LIKE — it would leak non-brand
+            # articles that merely mention the topic string).
+            if req.topic and req.topic.startswith("Brand Monitoring"):
+                query += " AND topic = ?"
+                params.append(req.topic)
+            else:
+                query += " AND topic LIKE 'Brand Monitoring %'"
+        elif req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
@@ -3943,6 +4329,25 @@ async def run_signal_instructions(
                 # Use fetched articles (recent or chunked will process them differently)
                 articles_to_analyze = articles[:max_articles_config]
 
+            # Suppress repeats: drop articles this instruction has already
+            # alerted on, so notifications only ever carry new articles.
+            alerted_uris = _previously_alerted_uris(db, instruction['id'])
+            if alerted_uris:
+                before_suppress = len(articles_to_analyze)
+                articles_to_analyze = [a for a in articles_to_analyze
+                                       if get_field(a, 'uri') not in alerted_uris]
+                if before_suppress != len(articles_to_analyze):
+                    logger.info(
+                        f"{instruction['name']}: suppressed "
+                        f"{before_suppress - len(articles_to_analyze)} previously-alerted "
+                        f"article(s), {len(articles_to_analyze)} left to analyze")
+            if not articles_to_analyze:
+                logger.info(f"{instruction['name']}: no new articles to analyze, skipping")
+                continue
+
+            norm_uri_lookup = {_normalize_uri(get_field(a, 'uri')): get_field(a, 'uri')
+                               for a in articles_to_analyze}
+
             # Determine batch processing based on strategy
             BATCH_SIZE = 50
             if search_strategy == 'chunked' and len(articles_to_analyze) > BATCH_SIZE:
@@ -4028,7 +4433,13 @@ async def run_signal_instructions(
                                 # Process each match
                                 for match in matches:
                                     if isinstance(match, dict) and match.get('signal_detected'):
-                                        article_uri = match.get('article_uri')
+                                        article_uri = norm_uri_lookup.get(
+                                            _normalize_uri(match.get('article_uri')))
+                                        if not article_uri:
+                                            logger.warning(
+                                                f"{instruction['name']}: match URI not in candidate set, "
+                                                f"skipping: {match.get('article_uri')}")
+                                            continue
                                         confidence = match.get('confidence', 0.5)
                                         threat_level = match.get('threat_level', 'medium')
                                         summary = match.get('summary', 'Signal detected')
@@ -4106,8 +4517,7 @@ Analyze the following signal matches and create a comprehensive intelligence rep
 1. Summarize the key findings across all matched articles
 2. Identify common themes and patterns
 3. Assess the overall significance and urgency
-4. Provide actionable recommendations
-5. Note any gaps or areas requiring further investigation
+4. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.
 """
@@ -4117,6 +4527,9 @@ Format your response as a structured markdown report with clear sections.
                     report_prompt = instructions_with_report[0].get('report_prompt')
                 if not report_prompt:
                     report_prompt = default_prompt
+                report_prompt = _apply_recommendations_pref(
+                    report_prompt,
+                    instructions_with_report[0].get('config') if instructions_with_report else None)
 
                 # Build article summaries for report
                 alerts_summary = "\n\n".join([
@@ -4129,9 +4542,35 @@ Format your response as a structured markdown report with clear sections.
                     for i, a in enumerate(alerts_created)
                 ])
 
+                # Situational timeline for the topic: lets the report say what
+                # is genuinely NEW versus ongoing instead of re-reporting the
+                # same developments every run.
+                timeline_block = ""
+                if req.topic:
+                    try:
+                        from app.services.timeline_rollup import (
+                            build_timeline_context, resolve_scope_for_topic)
+                        _tconn = db._temp_get_connection()
+                        try:
+                            _st, _sid = resolve_scope_for_topic(_tconn, req.topic)
+                            timeline_block = build_timeline_context(_tconn, _st, _sid)
+                        finally:
+                            _tconn.close()
+                    except Exception as _te:
+                        logger.debug(f"timeline context for report skipped: {_te}")
+
+                timeline_section = ""
+                if timeline_block:
+                    timeline_section = f"""
+## Situational timeline (background — already known)
+{timeline_block}
+
+Use the timeline only to distinguish new developments from ongoing ones; do not restate it as findings.
+"""
+
                 full_prompt = f"""
 {report_prompt}
-
+{timeline_section}
 ## Signal Instructions Analyzed
 {', '.join(instruction_names)}
 
@@ -4139,14 +4578,17 @@ Format your response as a structured markdown report with clear sections.
 {alerts_summary}
 """
 
+                report_system_prompt = _SIGNAL_REPORT_SYSTEM_BASE + _org_persona_report_prefix(db)
                 report_messages = [
-                    {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
+                    {"role": "system", "content": report_system_prompt},
                     {"role": "user", "content": full_prompt}
                 ]
 
-                report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+                report_content = await _generate_report_with_retry(
+                    ai_model, report_messages,
+                    label=', '.join(instruction_names) or 'signal report')
 
-                if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                if report_content:
                     # Generate report name if not provided
                     from datetime import datetime
                     report_name = req.report_name or f"Signal Report - {instruction_names[0]} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -4175,7 +4617,16 @@ Format your response as a structured markdown report with clear sections.
                     }
                     logger.info(f"Generated signal report ID: {report_id}")
                 else:
-                    logger.warning("Report generation returned empty or error response")
+                    # Guard: report empty after retries. Provide a deterministic
+                    # fallback so a single-instruction run's email still carries
+                    # an analysis section (not saved as a report — id=None).
+                    logger.warning("Report generation returned empty after retries; using deterministic fallback summary")
+                    report_data = {
+                        'id': None,
+                        'name': f"Signal Summary - {instruction_names[0]}" if instruction_names else "Signal Summary",
+                        'content': _build_fallback_report(', '.join(instruction_names), alerts_created),
+                        'articles_used': len(alerts_created)
+                    }
 
             except Exception as report_error:
                 logger.error(f"Error generating signal report: {report_error}")
@@ -4464,9 +4915,11 @@ Write the complete podcast script:
                                             # Generate a quick report for this instruction only
                                             instruction_report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings, significance, and any recommended actions.
+Summarize key findings and significance.
 Format as a concise markdown report.
 """
+                                            instruction_report_prompt = _apply_recommendations_pref(
+                                                instruction_report_prompt, instruction.get('config'))
                                             alerts_summary = "\n\n".join([
                                                 f"**Article:** {a['article_uri']}\n"
                                                 f"**Threat Level:** {a['threat_level']}\n"
@@ -4484,15 +4937,24 @@ Format as a concise markdown report.
 {alerts_summary}
 """
                                             per_inst_messages = [
-                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports."},
+                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control."},
                                                 {"role": "user", "content": per_inst_prompt}
                                             ]
-                                            per_inst_report = await run_in_threadpool(ai_model.generate_response, per_inst_messages)
-                                            if per_inst_report and not ("⚠️" in per_inst_report or "unavailable" in per_inst_report.lower()):
+                                            per_inst_report = await _generate_report_with_retry(
+                                                ai_model, per_inst_messages, label=instruction['name'])
+                                            if per_inst_report:
                                                 email_report_content = per_inst_report
                                                 logger.info(f"Generated per-instruction report for email: {instruction['name']}")
+                                            else:
+                                                # Guard: don't email a bare match list with no analysis.
+                                                email_report_content = _build_fallback_report(
+                                                    instruction['name'], instruction_alerts)
+                                                logger.warning(f"Per-instruction report empty after retries for "
+                                                               f"{instruction['name']}; using fallback summary")
                                         except Exception as per_inst_error:
                                             logger.error(f"Error generating per-instruction report for {instruction['name']}: {per_inst_error}")
+                                            email_report_content = _build_fallback_report(
+                                                instruction['name'], instruction_alerts)
                                     elif report_data:
                                         # Single instruction run - use the shared report
                                         email_report_content = report_data.get('content')
@@ -4505,7 +4967,9 @@ Format as a concise markdown report.
                                     topic=req.topic,
                                     report_content=email_report_content,
                                     podcast_url=None,  # No longer sent separately - now embedded in report
-                                    report_id=email_report_id
+                                    report_id=email_report_id,
+                                    **_report_email_extras(email_report_id, instruction['name'],
+                                                           email_report_content, config)
                                 )
                                 if success:
                                     email_sent = True
@@ -4572,7 +5036,9 @@ Format as a concise markdown report.
                             topic=req.topic,
                             report_content=report_content,
                             podcast_url=None,
-                            report_id=report_id
+                            report_id=report_id,
+                            **_report_email_extras(report_id, unified_instruction_name,
+                                                   report_content, None)
                         )
                         if success:
                             email_sent = True
@@ -4637,11 +5103,25 @@ async def _run_signals_background(
                tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
+        AND sentiment IS NOT NULL
+        AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
+             AND topic_alignment_score >= 0.4
+             AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                             WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
         """
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
 
-        if req.topic:
+        from app.core.modules import is_dedicated_bw
+        if is_dedicated_bw():
+            # Dedicated Brand Watcher tenants: agents only ever see brand articles.
+            # Strict topic match (no title/summary LIKE — it would leak non-brand
+            # articles that merely mention the topic string).
+            if req.topic and req.topic.startswith("Brand Monitoring"):
+                query += " AND topic = ?"
+                params.append(req.topic)
+            else:
+                query += " AND topic LIKE 'Brand Monitoring %'"
+        elif req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
@@ -4731,7 +5211,7 @@ async def _run_signal_instruction_internal(
     instruction_id: int,
     days_back: int = 7,
     tag_articles: bool = True,
-    model: str = "gpt-5.4-mini"
+    model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Internal function to run a single signal instruction.
@@ -4774,6 +5254,9 @@ async def _run_signal_instruction_internal(
         config = instruction.get('config') or {}
         max_articles = config.get('max_articles', 100)
         search_strategy = config.get('search_strategy', 'recent')
+        # Honor the instruction's configured model (e.g. bedrock-kimi-k2-5);
+        # the `model` arg only overrides when a caller passes one explicitly.
+        model = model or config.get('model') or "gpt-5.4-mini"
 
         # Initialize LLM
         from app.ai_models import LiteLLMModel
@@ -4858,7 +5341,11 @@ async def _run_signal_instruction_internal(
                     FROM articles
                     WHERE ({entity_conditions})
                     AND publication_date >= ? AND publication_date <= ?
-                    AND category IS NOT NULL AND sentiment IS NOT NULL
+                    AND sentiment IS NOT NULL
+                    AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
+             AND topic_alignment_score >= 0.4
+             AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                             WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
                     ORDER BY publication_date DESC LIMIT ?
                     """
                     entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
@@ -4879,29 +5366,68 @@ async def _run_signal_instruction_internal(
                 search_strategy = 'recent'  # Fall through to date query below
 
         if search_strategy != 'semantic':
-            # Standard date-range query
+            # Standard date-range query. Already-alerted URIs are excluded in
+            # SQL so the whole remaining window is fetched — max_articles no
+            # longer caps this path (it silently dropped everything but the
+            # newest N articles when the window outgrew it).
             query = """
             SELECT uri, title, summary, news_source, publication_date, category, sentiment,
                    tags, extracted_article_topics, extracted_article_keywords
             FROM articles
             WHERE publication_date >= ? AND publication_date <= ?
-            AND category IS NOT NULL AND sentiment IS NOT NULL
+            AND sentiment IS NOT NULL
+            AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
+             AND topic_alignment_score >= 0.4
+             AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
+                             WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
+            AND uri NOT IN (SELECT article_uri FROM signal_alerts
+                            WHERE instruction_id = ? AND article_uri IS NOT NULL)
             """
-            params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+            params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                      instruction_id]
 
-            if topic:
+            from app.core.modules import is_dedicated_bw
+            if is_dedicated_bw():
+                # Dedicated Brand Watcher tenants: agents only ever see brand articles.
+                if topic and topic.startswith("Brand Monitoring"):
+                    query += " AND topic = ?"
+                    params.append(topic)
+                else:
+                    query += " AND topic LIKE 'Brand Monitoring %'"
+            elif topic:
                 query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
                 topic_pattern = f"%{topic}%"
                 params.extend([topic, topic_pattern, topic_pattern])
 
             query += " ORDER BY publication_date DESC LIMIT ?"
-            params.append(max_articles)
+            params.append(_SIGNAL_CANDIDATE_CEILING)
 
             articles = db.fetch_all(query, params)
+            if len(articles) >= _SIGNAL_CANDIDATE_CEILING:
+                logger.warning(
+                    f"{instruction['name']}: candidate fetch hit the "
+                    f"{_SIGNAL_CANDIDATE_CEILING}-row safety ceiling — oldest window "
+                    f"articles are being dropped; consider reducing days_back")
 
         if not articles:
             logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
             return {"success": True, "alerts_created": 0, "message": "No articles found"}
+
+        # Suppress repeats: drop articles this instruction has already alerted
+        # on, so daily emails only ever carry new articles (the lookback
+        # window re-scans the same days every run).
+        alerted_uris = _previously_alerted_uris(db, instruction_id)
+        if alerted_uris:
+            before_suppress = len(articles)
+            articles = [a for a in articles if get_field(a, 'uri') not in alerted_uris]
+            suppressed = before_suppress - len(articles)
+            if suppressed:
+                logger.info(
+                    f"{instruction['name']}: suppressed {suppressed} previously-alerted "
+                    f"article(s), {len(articles)} left to analyze")
+            if not articles:
+                return {"success": True, "alerts_created": 0,
+                        "message": f"All {before_suppress} candidate articles previously alerted"}
 
         # Build entities section (matching inline runner)
         entities = config.get('entities_to_monitor', [])
@@ -4927,6 +5453,7 @@ IMPORTANT: Prioritize articles that mention any of these specific entities. If a
 
         # Build article lookup by URI for later
         article_lookup = {get_field(a, 'uri'): a for a in articles}
+        norm_uri_lookup = {_normalize_uri(u): u for u in article_lookup if u}
 
         for batch_articles in article_batches:
             if not batch_articles:
@@ -4981,8 +5508,12 @@ If no articles match, return an empty array: []"""
                         matches = json.loads(json_match.group())
                         for match in matches:
                             if isinstance(match, dict) and match.get('signal_detected'):
-                                article_uri = match.get('article_uri')
+                                article_uri = norm_uri_lookup.get(
+                                    _normalize_uri(match.get('article_uri')))
                                 if not article_uri:
+                                    logger.warning(
+                                        f"{instruction['name']}: match URI not in candidate set, "
+                                        f"skipping: {match.get('article_uri')}")
                                     continue
                                 # Create alert in database
                                 try:
@@ -5043,9 +5574,10 @@ If no articles match, return an empty array: []"""
                 try:
                     report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings, significance, and any recommended actions.
+Summarize key findings and significance.
 Format as a concise markdown report.
 """
+                    report_prompt = _apply_recommendations_pref(report_prompt, config)
                     alerts_summary = "\n\n".join([
                         f"**Article:** {a['article_uri']}\n"
                         f"**Threat Level:** {a['threat_level']}\n"
@@ -5063,13 +5595,15 @@ Format as a concise markdown report.
 ## Matched Articles ({len(instruction_alerts)} matches)
 {alerts_summary}
 """
+                    report_system_prompt = _SIGNAL_REPORT_SYSTEM_BASE + _org_persona_report_prefix(db)
                     report_messages = [
-                        {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
+                        {"role": "system", "content": report_system_prompt},
                         {"role": "user", "content": full_prompt}
                     ]
-                    report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+                    report_content = await _generate_report_with_retry(
+                        ai_model, report_messages, label=instruction['name'])
 
-                    if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                    if report_content:
                         from datetime import datetime as dt_now
                         report_name = f"Signal Report - {instruction['name']} - {dt_now.now().strftime('%Y-%m-%d %H:%M')}"
                         report_id = db.facade.create_saved_signal_report(
@@ -5088,11 +5622,17 @@ Format as a concise markdown report.
                         )
                         logger.info(f"Generated signal report ID: {report_id} for {instruction['name']}")
                     else:
-                        report_content = None
-                        logger.warning(f"Report generation returned empty response for {instruction['name']}")
+                        # Guard: the LLM report came back empty on every attempt.
+                        # Never ship a customer alert with no analysis — fall back
+                        # to a deterministic roll-up (not saved as a report, so it
+                        # is not mistaken for the AI analyst output).
+                        report_content = _build_fallback_report(instruction['name'], instruction_alerts)
+                        logger.warning(f"Report generation returned empty after retries for "
+                                       f"{instruction['name']}; using deterministic fallback summary")
                 except Exception as report_error:
-                    report_content = None
                     logger.error(f"Error generating report for {instruction['name']}: {report_error}")
+                    # Even on an unexpected error, still give the email an analysis section.
+                    report_content = _build_fallback_report(instruction['name'], instruction_alerts)
 
             # Send Email if configured
             if config.get('send_email') and instruction_alerts and meets_threshold:
@@ -5115,7 +5655,9 @@ Format as a concise markdown report.
                                 topic=topic,
                                 report_content=report_content,
                                 podcast_url=None,
-                                report_id=report_id
+                                report_id=report_id,
+                                **_report_email_extras(report_id, instruction['name'],
+                                                       report_content, config)
                             )
                             if success:
                                 email_sent = True
@@ -5558,7 +6100,7 @@ async def article_deep_dive(
         generated_at = datetime.utcnow().isoformat() + "Z"
         
         resp = await litellm.acompletion(
-            model=model_name,
+            **resolve_litellm_call_params(model_name),
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": user_msg},

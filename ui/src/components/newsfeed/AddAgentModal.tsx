@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useModules } from '../../hooks/useModules';
 import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic, Star, Clock } from 'lucide-react';
 import {
   Dialog,
@@ -51,8 +52,7 @@ const DEFAULT_REPORT_PROMPT = `Analyze the following signal matches and create a
 1. Summarize the key findings across all matched articles
 2. Identify common themes and patterns
 3. Assess the overall significance and urgency
-4. Provide actionable recommendations
-5. Note any gaps or areas requiring further investigation
+4. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.`;
 
@@ -75,6 +75,8 @@ export function AddAgentModal({
   loading = false,
   editAgent = null,
 }: AddAgentModalProps) {
+  // Dedicated Brand Watcher tenants: agents must target a Brand Monitoring topic
+  const { dedicatedMode } = useModules();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [instruction, setInstruction] = useState('');
@@ -93,9 +95,11 @@ export function AddAgentModal({
   const [actionReport, setActionReport] = useState(false);
   const [reportPrompt, setReportPrompt] = useState(DEFAULT_REPORT_PROMPT);
   const [showReportPrompt, setShowReportPrompt] = useState(false);
+  const [includeRecommendations, setIncludeRecommendations] = useState(false);
   const [actionDeepResearch, setActionDeepResearch] = useState(false);
   const [actionSendEmail, setActionSendEmail] = useState(false);
   const [emailRecipient, setEmailRecipient] = useState('');
+  const [attachPdfReport, setAttachPdfReport] = useState(false);
   const [showEmailConfig, setShowEmailConfig] = useState(false);
   const [actionBlueskyDm, setActionBlueskyDm] = useState(false);
   const [blueskyRecipient, setBlueskyRecipient] = useState('');
@@ -190,6 +194,8 @@ export function AddAgentModal({
       setActionDeepResearch(configDeepResearch || false);
       setActionSendEmail(configSendEmail || false);
       setEmailRecipient(configEmailRecipient || '');
+      setAttachPdfReport((editAgent.config?.attach_pdf_report as boolean | undefined) || false);
+      setIncludeRecommendations((editAgent.config?.include_recommendations as boolean | undefined) || false);
       setShowEmailConfig(configSendEmail || false);
       setActionBlueskyDm(configBlueskyDm || false);
       setBlueskyRecipient(configBlueskyRecipient || '');
@@ -267,6 +273,10 @@ export function AddAgentModal({
       setError('Research instruction is required');
       return;
     }
+    if (dedicatedMode === true && !topic.startsWith('Brand Monitoring')) {
+      setError('Agents on this tenant report on brand data only — choose a brand topic');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -277,11 +287,13 @@ export function AddAgentModal({
       if (model) config.model = model;
       // Always save days_back for scheduled runs
       config.days_back = scheduleDaysBack;
+      if (includeRecommendations) config.include_recommendations = true;
       if (actionStarArticles) config.star_flagged_articles = true;
       if (actionDeepResearch) config.deep_research = true;
       if (actionSendEmail) {
         config.send_email = true;
         if (emailRecipient.trim()) config.email_recipient = emailRecipient.trim();
+        if (attachPdfReport) config.attach_pdf_report = true;
       }
       if (actionBlueskyDm) {
         config.bluesky_dm = true;
@@ -449,10 +461,12 @@ export function AddAgentModal({
             <Label htmlFor="agent-topic">Topic Filter</Label>
             <Select value={topic || '__all__'} onValueChange={(val) => setTopic(val === '__all__' ? '' : val)} disabled={saving || loading}>
               <SelectTrigger>
-                <SelectValue placeholder="All Topics (Global)" />
+                <SelectValue placeholder={dedicatedMode === true ? 'Choose a brand topic' : 'All Topics (Global)'} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">All Topics (Global)</SelectItem>
+                {dedicatedMode !== true && (
+                  <SelectItem value="__all__">All Topics (Global)</SelectItem>
+                )}
                 {topics.map((t) => (
                   <SelectItem key={t} value={t}>
                     {t}
@@ -461,7 +475,9 @@ export function AddAgentModal({
               </SelectContent>
             </Select>
             <p className="text-xs text-gray-700 dark:text-gray-300">
-              Optionally limit this agent to articles from a specific topic
+              {dedicatedMode === true
+                ? 'Agents on this tenant report on brand data only — pick which brand this agent watches'
+                : 'Optionally limit this agent to articles from a specific topic'}
             </p>
           </div>
 
@@ -727,6 +743,13 @@ export function AddAgentModal({
                           disabled={saving || loading}
                           className="font-mono text-sm"
                         />
+                        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                          title="Off by default: reports state findings, themes and significance only. Turn on to add a 'Recommendations & guidance' section scoped to your organization's remit.">
+                          <input type="checkbox" checked={includeRecommendations}
+                            onChange={(e) => setIncludeRecommendations(e.target.checked)}
+                            disabled={saving || loading} />
+                          Include recommendations &amp; guidance
+                        </label>
                         <div className="flex justify-between items-center">
                           <p className="text-xs text-gray-600 dark:text-gray-300">
                             This prompt tells the AI how to analyze and summarize matched articles
@@ -915,6 +938,13 @@ export function AddAgentModal({
                         <p className="text-xs text-gray-600 dark:text-gray-300">
                           Leave blank to use the default notification email
                         </p>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                          title="Also attach the generated report to the email as a PDF file. Emails always carry a no-login download link; the attachment makes the report readable offline and forwardable.">
+                          <input type="checkbox" checked={attachPdfReport}
+                            onChange={(e) => setAttachPdfReport(e.target.checked)}
+                            disabled={saving || loading} />
+                          Attach report as PDF
+                        </label>
                       </div>
                     )}
                   </div>

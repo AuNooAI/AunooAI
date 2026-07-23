@@ -51,6 +51,7 @@ class AutoComposeRequest(BaseModel):
     days_back: int = Field(7, ge=1, le=30, description="Look-back window in days")
     run_detection: bool = Field(False, description="Re-run Emerging Topics detection inline (slow; default reads recently-detected topics)")
     model: str = Field("gpt-5.4", description="Model for detection")
+    history_days: int = Field(7, ge=0, le=90, description="Skip items already shared in finalized briefings this many days back (0 = no historical dedup)")
 
 
 class ComposeConfigRequest(BaseModel):
@@ -366,6 +367,7 @@ async def auto_compose_briefing_stream(
             days_back=request.days_back,
             run_detection=request.run_detection,
             model=request.model,
+            history_days=request.history_days,
         ).__aiter__()
         try:
             nxt = asyncio.ensure_future(agen.__anext__())

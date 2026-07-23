@@ -60,6 +60,15 @@ async def lifespan(app: FastAPI):
         # Set higher log levels for noisy modules
         logging.getLogger('numba').setLevel(logging.ERROR)
         logging.getLogger('httpx').setLevel(logging.WARNING)
+
+        # LLM usage ledger — global litellm callbacks + batch writer.
+        # Installed before any background task can make an LLM call so
+        # spend is measured from call one.
+        try:
+            from app.services.llm_usage_logger import install as _install_llm_ledger
+            _install_llm_ledger()
+        except Exception:
+            logger.exception("llm_usage_logger install failed (non-fatal)")
         logging.getLogger('httpcore').setLevel(logging.WARNING)
         logging.getLogger('litellm').setLevel(logging.WARNING)
         logging.getLogger('app.analyzers.prompt_manager').setLevel(logging.WARNING)
@@ -82,159 +91,66 @@ async def lifespan(app: FastAPI):
         else:
             logger.error("Failed to initialize application")
 
-        # Start the keyword monitor background task with a delay to prevent blocking startup
-        async def delayed_keyword_monitor_start():
-            """Start keyword monitor after a short delay to prevent blocking startup"""
-            await asyncio.sleep(5)  # Wait 5 seconds after startup
-            try:
-                from app.tasks.keyword_monitor import run_keyword_monitor
-                logger.info("Starting keyword monitor background task...")
-                asyncio.create_task(run_keyword_monitor())
-                logger.info("Keyword monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start keyword monitor background task: {str(e)}")
-
-        # Start the delayed task
-        asyncio.create_task(delayed_keyword_monitor_start())
-        logger.info("Scheduled keyword monitor to start in 5 seconds")
-
-        # Start the emerging topics monitor background task with a delay
-        async def delayed_emerging_topics_monitor_start():
-            """Start emerging topics monitor after keyword monitor"""
-            await asyncio.sleep(10)  # Wait 10 seconds after startup
-            try:
-                from app.tasks.emerging_topics_monitor import run_emerging_topics_monitor
-                logger.info("Starting emerging topics monitor background task...")
-                asyncio.create_task(run_emerging_topics_monitor())
-                logger.info("Emerging topics monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start emerging topics monitor: {str(e)}")
-
-        asyncio.create_task(delayed_emerging_topics_monitor_start())
-        logger.info("Scheduled emerging topics monitor to start in 10 seconds")
-
-        # Start the observer agent monitor background task with a delay
-        async def delayed_observer_agent_monitor_start():
-            """Start observer agent monitor after other monitors"""
-            await asyncio.sleep(15)  # Wait 15 seconds after startup
-            try:
-                from app.tasks.observer_agent_monitor import run_observer_agent_monitor
-                logger.info("Starting observer agent monitor background task...")
-                asyncio.create_task(run_observer_agent_monitor())
-                logger.info("Observer agent monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start observer agent monitor: {str(e)}")
-
-        asyncio.create_task(delayed_observer_agent_monitor_start())
-        logger.info("Scheduled observer agent monitor to start in 15 seconds")
-
-        # Start the newsfeed dashboard monitor background task with a delay
-        async def delayed_newsfeed_dashboard_monitor_start():
-            """Start newsfeed dashboard monitor after other monitors"""
-            await asyncio.sleep(20)  # Wait 20 seconds after startup
-            try:
-                from app.tasks.newsfeed_dashboard_monitor import run_newsfeed_dashboard_monitor
-                logger.info("Starting newsfeed dashboard monitor background task...")
-                asyncio.create_task(run_newsfeed_dashboard_monitor())
-                logger.info("Newsfeed dashboard monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start newsfeed dashboard monitor: {str(e)}")
-
-        asyncio.create_task(delayed_newsfeed_dashboard_monitor_start())
-        logger.info("Scheduled newsfeed dashboard monitor to start in 20 seconds")
-
-        # Start the RSS feed monitor background task with a delay
-        async def delayed_rss_feed_monitor_start():
-            """Start RSS feed monitor after other monitors"""
-            await asyncio.sleep(25)  # Wait 25 seconds after startup
-            try:
-                from app.tasks.rss_feed_monitor import run_rss_feed_monitor
-                logger.info("Starting RSS feed monitor background task...")
-                asyncio.create_task(run_rss_feed_monitor())
-                logger.info("RSS feed monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start RSS feed monitor: {str(e)}")
-
-        asyncio.create_task(delayed_rss_feed_monitor_start())
-        logger.info("Scheduled RSS feed monitor to start in 25 seconds")
-
-        # Event-loop health monitor. Always on — overhead is one sleep+timestamp
-        # every 5s. Logs WARNING when scheduling lag exceeds 1s; samples
-        # available at GET /api/admin/event-loop-status.
-        async def delayed_event_loop_monitor_start():
-            await asyncio.sleep(3)
-            try:
-                from app.utils.event_loop_monitor import run_event_loop_monitor
-                logger.info("Starting event-loop monitor background task...")
-                asyncio.create_task(run_event_loop_monitor())
-            except Exception as e:
-                logger.error(f"Failed to start event-loop monitor: {e}")
-
-        asyncio.create_task(delayed_event_loop_monitor_start())
-
-        # Forecast tracker auto-reassessment. Gated by FORECAST_TRACKER_AUTO_RUN
-        # env flag — the monitor exits immediately if it's not set, so it's
-        # safe to always register here.
-        async def delayed_forecast_tracker_monitor_start():
-            await asyncio.sleep(30)
-            try:
-                from app.tasks.forecast_tracker_monitor import run_forecast_tracker_monitor
-                logger.info("Starting forecast tracker monitor background task...")
-                asyncio.create_task(run_forecast_tracker_monitor())
-                logger.info("Forecast tracker monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start forecast tracker monitor: {e}")
-
-        asyncio.create_task(delayed_forecast_tracker_monitor_start())
-        logger.info("Scheduled forecast tracker monitor to start in 30 seconds")
-
-        # Weekly Wiley candidate-discovery scan (+ daily snooze sweeper).
-        # Gated by WILEY_CANDIDATE_SCAN_ENABLED env (default on). Honest
-        # cost: one HDBSCAN run on the corpus + N LLM calls per scan, once
-        # a week. Sleeps 24h between ticks; sweeper runs every tick.
-        async def delayed_wiley_candidate_scheduler_start():
-            await asyncio.sleep(45)
-            try:
-                from app.tasks.wiley_candidate_scheduler import (
-                    run_wiley_candidate_scheduler,
-                )
-                logger.info("Starting Wiley candidate scheduler background task...")
-                asyncio.create_task(run_wiley_candidate_scheduler())
-                logger.info("Wiley candidate scheduler background task started")
-            except Exception as e:
-                logger.error(f"Failed to start Wiley candidate scheduler: {e}")
-
-        asyncio.create_task(delayed_wiley_candidate_scheduler_start())
-        logger.info("Scheduled Wiley candidate scheduler to start in 45 seconds")
-
-        # Dynamically schedule background tasks for enabled analysis modules
+        # ── Background monitor tasks ──────────────────────────────────────
+        # Each starts after a stagger delay so startup isn't blocked, and each
+        # registers its task handle with the shutdown coordinator. On SIGTERM
+        # the lifespan handler cancels these instead of letting them run until
+        # systemd's stop-timeout SIGKILLs the process (which caused ~90s of
+        # full 502 downtime on every restart).
         import importlib
-        from app.core.modules import get_enabled_modules
+        from app.utils.shutdown import register_task, is_shutting_down
 
-        def _schedule_module_task(task_module, task_function, delay, label):
-            async def delayed_start():
+        def _schedule_background_task(task_module, task_function, delay, label):
+            """Import ``task_module.task_function`` after ``delay`` seconds and
+            run it as a tracked background task."""
+            async def _delayed_start():
                 await asyncio.sleep(delay)
+                # Don't spawn a fresh long-lived task if a restart already began
+                # during the stagger window.
+                if is_shutting_down():
+                    return
                 try:
                     mod = importlib.import_module(task_module)
                     func = getattr(mod, task_function)
                     logger.info(f"Starting {label} background task...")
-                    asyncio.create_task(func())
+                    register_task(asyncio.create_task(func()))
                     logger.info(f"{label} background task started successfully")
                 except Exception as e:
                     logger.error(f"Failed to start {label}: {e}")
-            asyncio.create_task(delayed_start())
+            register_task(asyncio.create_task(_delayed_start()))
+            logger.info(f"Scheduled {label} to start in {delay}s")
+
+        # (module, function, delay_seconds, label). Event-loop monitor first so
+        # loop-lag telemetry covers the whole startup window. Forecast tracker
+        # and Wiley candidate scheduler self-gate on their env flags (the task
+        # exits immediately when the flag is unset), so they're always safe to
+        # schedule here.
+        _BACKGROUND_TASKS = [
+            ("app.utils.event_loop_monitor", "run_event_loop_monitor", 3, "event-loop monitor"),
+            ("app.tasks.keyword_monitor", "run_keyword_monitor", 5, "keyword monitor"),
+            ("app.tasks.emerging_topics_monitor", "run_emerging_topics_monitor", 10, "emerging topics monitor"),
+            ("app.tasks.observer_agent_monitor", "run_observer_agent_monitor", 15, "observer agent monitor"),
+            ("app.tasks.newsfeed_dashboard_monitor", "run_newsfeed_dashboard_monitor", 20, "newsfeed dashboard monitor"),
+            ("app.tasks.rss_feed_monitor", "run_rss_feed_monitor", 25, "RSS feed monitor"),
+            ("app.tasks.timeline_task", "run_timeline_task", 30, "timeline mementos"),
+            ("app.tasks.forecast_tracker_monitor", "run_forecast_tracker_monitor", 30, "forecast tracker monitor"),
+            ("app.tasks.wiley_candidate_scheduler", "run_wiley_candidate_scheduler", 45, "Wiley candidate scheduler"),
+        ]
+        for _mod, _func, _delay, _label in _BACKGROUND_TASKS:
+            _schedule_background_task(_mod, _func, _delay, _label)
+
+        # Dynamically schedule background tasks for enabled analysis modules
+        from app.core.modules import get_enabled_modules
 
         for module in get_enabled_modules():
             if module.task_module and module.task_function:
-                _schedule_module_task(
+                _schedule_background_task(
                     module.task_module, module.task_function,
                     module.task_delay, module.name)
-                logger.info(f"Scheduled {module.name} monitor to start in {module.task_delay}s")
                 for extra in module.extra_tasks:
-                    _schedule_module_task(
+                    _schedule_background_task(
                         extra.module, extra.function,
                         extra.delay, f"{module.name} ({extra.function})")
-                    logger.info(f"Scheduled {module.name} extra task to start in {extra.delay}s")
 
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
@@ -246,6 +162,14 @@ async def lifespan(app: FastAPI):
     try:
         logger = logging.getLogger('main')
         logger.info("Application shutting down...")
+
+        # Signal cooperative loops to stop, then cancel the registered
+        # background tasks so we don't wait out systemd's stop-timeout.
+        try:
+            from app.utils.shutdown import cancel_registered_tasks
+            await cancel_registered_tasks(timeout=15.0)
+        except Exception as e:
+            logger.error(f"Failed to cancel background tasks: {e}")
 
         # Close async database pool
         try:
@@ -286,6 +210,11 @@ def create_app() -> FastAPI:
 
     # Initialize FastAPI app with lifespan management
     app = FastAPI(title="AuNoo AI", lifespan=lifespan)
+
+    # Dedicated Brand Watcher tenants: server-rendered templates read this via
+    # request.app.state to trim the shared nav (React pages use /api/modules)
+    from app.core.modules import is_dedicated_bw
+    app.state.dedicated_bw = is_dedicated_bw()
 
     # Add validation error handler for debugging
     @app.exception_handler(RequestValidationError)

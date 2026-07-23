@@ -180,12 +180,15 @@ class AutomatedIngestService:
             bias_info = self.media_bias.get_bias_for_source(source)
             
             if bias_info:
+                # NB: the MediaBias lookup returns keys 'source'/'country' — the old
+                # .get('bias_source')/.get('bias_country') always returned None, which
+                # left articles.bias_source/bias_country permanently NULL (0% coverage).
                 article_data.update({
                     'bias': bias_info.get('bias'),
                     'factual_reporting': bias_info.get('factual_reporting'),
                     'mbfc_credibility_rating': bias_info.get('mbfc_credibility_rating'),
-                    'bias_source': bias_info.get('bias_source'),
-                    'bias_country': bias_info.get('bias_country'),
+                    'bias_source': bias_info.get('source') or 'mbfc',
+                    'bias_country': bias_info.get('country'),
                     'press_freedom': bias_info.get('press_freedom'),
                     'media_type': bias_info.get('media_type'),
                     'popularity': bias_info.get('popularity')
@@ -331,6 +334,21 @@ class AutomatedIngestService:
 
             research.set_topic(topic)
 
+            # Backstop guard: never fire the ontology LLM calls below for a
+            # topic that isn't in the loaded config. set_topic() silently
+            # retains the previous topic on an unknown name, so without this
+            # the 5 calls below would run against the wrong ontology (and, if
+            # the caller never marks the article done, loop forever). Mirrors
+            # the entry guard in _process_single_article_async.
+            if topic not in research.topic_configs:
+                self.logger.error(
+                    f"⛔ analyze_article_content: topic '{topic}' not in configuration — "
+                    f"skipping ontology LLM calls for {article_data.get('uri', '?')}"
+                )
+                article_data['analyzed'] = False
+                article_data['ingest_status'] = 'skipped_unknown_topic'
+                return article_data
+
             try:
                 loop = asyncio.get_running_loop()
                 def run_async_in_thread(coro_func, *args):
@@ -466,7 +484,8 @@ class AutomatedIngestService:
                 threshold=self.get_relevance_threshold(),
                 use_llm_fallback=use_llm_fallback,
                 force_llm=force_llm,
-                use_local_llm=use_local_llm
+                use_local_llm=use_local_llm,
+                keywords=keywords,
             )
 
             # Map hybrid result to expected pipeline format
@@ -680,10 +699,22 @@ class AutomatedIngestService:
             
             # Process in batches to avoid overwhelming the system
             for i in range(0, total_articles, batch_size):
+                # Cooperative shutdown: bail between batches on SIGTERM so a
+                # restart doesn't wait out the whole run (each batch can take
+                # minutes). In-flight batch tasks already submitted finish; we
+                # just stop launching new ones.
+                from app.utils.shutdown import is_shutting_down
+                if is_shutting_down():
+                    self.logger.info(
+                        f"🛑 Shutdown requested — stopping ingest after "
+                        f"{(i // batch_size)}/{(total_articles + batch_size - 1) // batch_size} batches"
+                    )
+                    break
+
                 batch = articles[i:i + batch_size]
                 batch_number = (i // batch_size) + 1
                 total_batches = (total_articles + batch_size - 1) // batch_size
-                
+
                 self.logger.info(f"📦 Processing batch {batch_number}/{total_batches} ({len(batch)} articles)")
                 
                 # Process batch concurrently
@@ -839,6 +870,52 @@ class AutomatedIngestService:
         try:
             self.logger.debug(f"🔄 Processing article: {article_title}")
             self.logger.debug(f"📝 Original title: {original_title[:100]}")
+
+            # Step 0: UNKNOWN-TOPIC GUARD (before any LLM work).
+            # If the article's topic is not present in the loaded topic config
+            # (e.g. a topic added in the DB/UI but never synced to config.json),
+            # the ontology lookup can never succeed. Without this guard the
+            # article is never marked done, so the ingest loop re-selects and
+            # re-processes it forever — each pass burning ~5 LLM calls. That is
+            # exactly what drained the OpenAI account on 2026-06-18. Mark it
+            # terminally (same mechanism as the relevance filter) and skip ALL
+            # work so a config/DB desync degrades gracefully instead of looping.
+            research = self._get_research(self.get_llm_client())
+            if topic not in research.topic_configs:
+                try:
+                    research.load_config()  # one reload in case it was just added
+                except Exception as reload_err:
+                    self.logger.debug(f"Topic-config reload failed: {reload_err}")
+            if topic not in research.topic_configs:
+                self.logger.error(
+                    f"⛔ Article {article_uri}: topic '{topic}' not in configuration "
+                    f"(available: {list(research.topic_configs.keys())}). "
+                    f"Marking 'skipped_unknown_topic' — no LLM calls made."
+                )
+                article.update({
+                    "topic": topic,
+                    "ingest_status": "skipped_unknown_topic",
+                    "keyword_relevance_score": 0.0,
+                    "topic_alignment_score": 0.0,
+                    "confidence_score": 0.0,
+                    "overall_match_explanation": (
+                        f"Topic '{topic}' not found in configuration — skipped "
+                        f"to avoid an LLM reprocessing loop."
+                    ),
+                })
+                try:
+                    await self.async_db.save_below_threshold_article(article)
+                    self.db.facade.mark_article_as_below_threshold(article_uri)
+                except Exception as save_err:
+                    self.logger.warning(
+                        f"Failed to persist skipped_unknown_topic for {article_uri}: {save_err}"
+                    )
+                return {
+                    "status": "filtered",
+                    "uri": article_uri,
+                    "reason": "unknown_topic",
+                    "topic": topic,
+                }
 
             # Step 1: QUICK relevance check FIRST (before expensive operations)
             # Use only title and existing summary to save costs
@@ -1713,14 +1790,21 @@ class AutomatedIngestService:
             loop = asyncio.get_event_loop()
 
             self.logger.info(f"Submitting to dedicated blocking I/O executor (poll_interval=5, wait_timeout=300)")
-            batch_job = await loop.run_in_executor(
-                self._blocking_executor,  # Use dedicated executor instead of None
-                lambda: firecrawl_app.batch_scrape(
-                    uris,
-                    formats=['markdown'],
-                    poll_interval=5,  # Check every 5 seconds
-                    wait_timeout=300  # Wait up to 5 minutes
-                )
+            # wait_timeout only bounds the SDK's polling loop; its individual HTTP
+            # requests have no socket timeout and can block the executor thread
+            # forever (seen 2026-07-11: result-page GET hung 2 days and froze the
+            # keyword monitor). asyncio.wait_for puts a hard ceiling on the await.
+            batch_job = await asyncio.wait_for(
+                loop.run_in_executor(
+                    self._blocking_executor,  # Use dedicated executor instead of None
+                    lambda: firecrawl_app.batch_scrape(
+                        uris,
+                        formats=['markdown'],
+                        poll_interval=5,  # Check every 5 seconds
+                        wait_timeout=300  # Wait up to 5 minutes
+                    )
+                ),
+                timeout=360  # hard ceiling above the SDK's 300s wait_timeout
             )
 
             if not batch_job:

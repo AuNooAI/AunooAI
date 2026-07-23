@@ -30,6 +30,7 @@ import { RunAgentModal, type RunAgentOptions } from './RunAgentModal';
 import { ScheduleTimelineBar, type SystemSchedule } from './ScheduleTimelineBar';
 import { AgentStatsTable } from './AgentStatsTable';
 import { type ResearchAgent, type SignalAlert, type CreateAgentRequest, type UpdateAgentRequest, type PodcastSummary } from '../../services/researchAgentsApi';
+import { useModules } from '../../hooks/useModules';
 
 interface ResearchAgentsSectionProps {
   agents: ResearchAgent[];
@@ -79,9 +80,17 @@ export function ResearchAgentsSection({
   const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
   const [runningAll, setRunningAll] = useState(false);
   const [systemSchedules, setSystemSchedules] = useState<SystemSchedule[]>([]);
+  // Dedicated Brand Watcher tenants: internal system schedules (emerging topics,
+  // newsfeed dashboard, article collection, geo) are ops plumbing, not something
+  // a brand monitoring team acts on — keep the table to actual observer agents.
+  const { dedicatedMode } = useModules();
 
   // Fetch system schedules (Emerging Topics, Newsfeed, Autoprocessing)
   const fetchSystemSchedules = useCallback(async () => {
+    if (dedicatedMode !== false) {
+      setSystemSchedules([]);
+      return;
+    }
     const schedules: SystemSchedule[] = [];
 
     // Fetch Emerging Topics schedule
@@ -170,7 +179,7 @@ export function ResearchAgentsSection({
     }
 
     setSystemSchedules(schedules);
-  }, []);
+  }, [dedicatedMode]);
 
   // Fetch system schedules on mount and periodically
   useEffect(() => {

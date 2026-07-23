@@ -231,9 +231,13 @@ def get_current_username(request: Request) -> Optional[str]:
     try:
         session = verify_session(request)
 
-        # Traditional user
-        if session.get("user"):
-            return session.get("user")
+        # Traditional user. Some login paths store the bare username, others a
+        # user dict — normalize to a string so callers can compare/lower() it.
+        u = session.get("user")
+        if u:
+            if isinstance(u, dict):
+                return u.get("username") or u.get("email")
+            return u
 
         # OAuth user
         oauth_user = get_oauth_user_by_session(session)

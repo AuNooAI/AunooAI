@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import yaml
 import time
 import asyncio
@@ -25,6 +27,86 @@ from litellm import (
 from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
 from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
+
+
+def minimal_reasoning_effort(model_name: str) -> str:
+    """Smallest ``reasoning_effort`` the given gpt-5 model actually accepts.
+
+    The gpt-5.0/5.1 family used ``'minimal'``; gpt-5.4+ removed it and rejects
+    it with a 400 (``Unsupported value: 'reasoning_effort' does not support
+    'minimal'``), exposing ``'none'`` as the new floor. Parse the version so the
+    cost-saving "lowest effort" default keeps working across the family instead
+    of breaking the call.
+    """
+    name = str(model_name or "").split("/")[-1]  # tolerate a 'provider/' prefix
+    m = re.match(r"gpt-(\d+)(?:\.(\d+))?", name)
+    if m:
+        major, minor = int(m.group(1)), int(m.group(2) or 0)
+        if major > 5 or (major == 5 and minor >= 4):
+            return "none"
+    return "minimal"
+
+
+def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
+    """Resolve a litellm_config.yaml alias into kwargs for a DIRECT
+    ``litellm.completion()`` / ``litellm.acompletion()`` call.
+
+    Direct litellm calls bypass the Router, so a bare alias like ``"gpt-5.4"``
+    makes litellm infer the provider from the name (OpenAI) and ignore the
+    yaml routing entirely — on Bedrock-routed tenants that silently keeps the
+    call on OpenAI. This maps the alias to the concrete provider path plus the
+    credentials/params the yaml pins to it (api_key indirection resolved,
+    aws_region_name, thinking, additional_drop_params). Unknown names pass
+    through unchanged so concrete ``provider/model`` strings keep working.
+
+    Usage: ``litellm.acompletion(**resolve_litellm_call_params(name), ...)``
+    """
+    params: Dict[str, Any] = {"model": model_name}
+    try:
+        cfg = load_model_config().get(model_name)
+    except Exception:
+        cfg = None
+    if not cfg:
+        return params
+    params["model"] = cfg.get("model", model_name)
+    api_key = cfg.get("api_key")
+    if isinstance(api_key, str) and api_key.startswith("os.environ/"):
+        api_key = os.environ.get(api_key.split("/", 1)[1])
+    if api_key:
+        params["api_key"] = api_key
+    for key in ("api_base", "aws_region_name", "thinking", "additional_drop_params"):
+        if cfg.get(key) is not None:
+            params[key] = cfg[key]
+    return params
+
+
+def extract_json_response(text: Optional[str]):
+    """Parse JSON out of an LLM reply that may wrap it in markdown fences or prose.
+
+    OpenAI json_object mode returns bare JSON, but Bedrock/Anthropic targets
+    (where response_format is dropped — litellm's tool-call emulation wraps the
+    payload in a nondeterministic envelope) return plain text that often leads
+    with a markdown code fence or a sentence of preamble. A strict ``json.loads``
+    on that raises at char 0 and silently trips fallback paths. Tries, in
+    order: fence-stripped strict parse, then ``raw_decode`` from the first
+    ``{``/``[`` (tolerates trailing prose). Raises ``json.JSONDecodeError``
+    like a plain ``json.loads`` would so existing except-blocks keep working.
+    """
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\s*\n?", "", s)
+        s = re.sub(r"\n?```\s*$", "", s).strip()
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError as first_err:
+        decoder = json.JSONDecoder()
+        for m in re.finditer(r"[\{\[]", s):
+            try:
+                obj, _ = decoder.raw_decode(s[m.start():])
+                return obj
+            except json.JSONDecodeError:
+                continue
+        raise first_err
 
 
 # ── Global LLM concurrency gate ───────────────────────────────────────────
@@ -188,7 +270,16 @@ class AIModel:
     def __init__(self, model_config: Dict[str, Any]):
         self.config = model_config
         self.model = model_config["model"]
+        # Configs derived from litellm_config.yaml carry the key as the
+        # UNRESOLVED indirection string "os.environ/<VAR>" (liteLLM router
+        # syntax). Resolve it here — passing the literal string on (or not
+        # passing the key at all, as generate_sync used to) makes boto3 fall
+        # back to the host's SigV4 credentials (~/.aws → aws_aunoo), which
+        # have no bedrock:InvokeModel rights.
         self.api_key = model_config.get("api_key")
+        if isinstance(self.api_key, str) and self.api_key.startswith("os.environ/"):
+            self.api_key = os.environ.get(self.api_key.split("/", 1)[1])
+        self.aws_region_name = model_config.get("aws_region_name")
         self.max_tokens = model_config.get("max_tokens", 2000)
         self.temperature = model_config.get("temperature", 0.7)
         # Ensure a uniform attribute name that other components expect.
@@ -198,20 +289,26 @@ class AIModel:
     def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Synchronous version of generate() for use in sync contexts."""
         try:
-            # Set API key if provided
-            if self.api_key:
-                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
-
             # Use provided values or fall back to instance defaults
             tokens = max_tokens if max_tokens is not None else self.max_tokens
             temp = temperature if temperature is not None else self.temperature
+
+            # Pass provider credentials explicitly — the old behaviour
+            # (stuffing self.api_key into a mangled env var) never worked
+            # for bedrock/ models and left the call on SigV4 fallback.
+            extra: Dict[str, Any] = {}
+            if self.api_key:
+                extra["api_key"] = self.api_key
+            if self.aws_region_name:
+                extra["aws_region_name"] = self.aws_region_name
 
             # Generate completion
             response = completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=tokens,
-                temperature=temp
+                temperature=temp,
+                **extra
             )
 
             return response.choices[0]
@@ -246,16 +343,19 @@ class AIModel:
         """
 
         try:
-            # Set API key if provided (important when multiple models/
-            # providers coexist)
+            # Pass provider credentials explicitly (see generate_sync).
+            extra: Dict[str, Any] = {}
             if self.api_key:
-                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
+                extra["api_key"] = self.api_key
+            if self.aws_region_name:
+                extra["aws_region_name"] = self.aws_region_name
 
             response = completion(
                 model=self.model,
                 messages=messages,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
+                **extra
             )
 
             # Extract the content field in a generic way.
@@ -730,7 +830,7 @@ class LiteLLMModel(AIModel):
                 "reasoning_effort" not in call_kwargs
                 and str(self.model_name).startswith("gpt-5")
             ):
-                call_kwargs["reasoning_effort"] = "minimal"
+                call_kwargs["reasoning_effort"] = minimal_reasoning_effort(self.model_name)
 
             response = self.router.completion(
                 model=self.model_name,
@@ -1034,6 +1134,18 @@ class LiteLLMModel(AIModel):
             return f"⚠️ An error occurred while using {model_name}. " \
                    f"Please try again or select a different model. Error details: {error_message}"
 
+def _short_model_id(model_path: str) -> str:
+    """Human-readable form of a litellm target, e.g.
+    bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0 -> claude-sonnet-4-5.
+    On tenants whose model_name aliases are repointed (Bedrock-first), this is
+    the model that actually runs; the UI shows it instead of the alias."""
+    tail = model_path.split('/', 1)[1] if '/' in model_path else model_path
+    tail = re.sub(r'^(us|eu|ap)\.', '', tail)
+    tail = re.sub(r'^(anthropic|meta|amazon|mistral|cohere)\.', '', tail)
+    tail = re.sub(r'-\d{8}(-v\d+:\d+)?$', '', tail)
+    return tail
+
+
 def get_available_models():
     """Get models that have API keys configured in the environment."""
     logger.debug("🔍 Scanning for configured models from litellm_config.yaml...")
@@ -1084,7 +1196,8 @@ def get_available_models():
                     if key_value and key_value.strip() and not key_value.startswith('your-'):
                         models.append({
                             "name": model_name,
-                            "provider": provider
+                            "provider": provider,
+                            "resolved_model": _short_model_id(model_path)
                         })
                         logger.debug(f"✅ Found configured model: {model_name} ({provider})")
                     else:

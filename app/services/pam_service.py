@@ -28,7 +28,7 @@ import litellm
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 from app.vector_store_pgvector import search_articles as vector_search_articles
-from app.ai_models import get_ai_model
+from app.ai_models import get_ai_model, resolve_litellm_call_params
 
 # Import new agent architecture
 from app.services.pam_agents import (
@@ -1416,7 +1416,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=synthesis_model,
+                **resolve_litellm_call_params(synthesis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=synthesis_temp
             )
@@ -1827,7 +1827,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -1929,7 +1929,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -2031,7 +2031,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -2113,7 +2113,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -2188,7 +2188,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -2259,7 +2259,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4
             )
@@ -2670,7 +2670,7 @@ Return ONLY valid JSON."""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=self.model,
+                **resolve_litellm_call_params(self.model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -2820,7 +2820,7 @@ JSON array:"""
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4
             )

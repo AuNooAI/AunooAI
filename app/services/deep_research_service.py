@@ -28,6 +28,7 @@ from enum import Enum
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_loader import get_tool_loader
@@ -631,7 +632,7 @@ The more specific your question, the better insights I can provide!"""
             content = "\n".join(content_items)
 
             response = await litellm.acompletion(
-                model="gpt-5.4-mini",
+                **resolve_litellm_call_params("gpt-5.4-mini"),
                 messages=[
                     {
                         "role": "system",
@@ -652,7 +653,7 @@ Example output: {"themes": ["Tesla electric vehicles", "Federal Reserve rates", 
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             themes = result.get("themes", [])
             logger.info(f"Extracted {len(themes)} themes from sample")
             return themes
@@ -686,7 +687,7 @@ Respond with valid JSON matching the expected schema."""
 
         try:
             response = await litellm.acompletion(
-                model=config.planning_model,
+                **resolve_litellm_call_params(config.planning_model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -697,7 +698,7 @@ Respond with valid JSON matching the expected schema."""
             )
 
             result_text = response.choices[0].message.content
-            result = json.loads(result_text)
+            result = extract_json_response(result_text)
 
             state.research_objectives = result.get("research_objectives", [])
             state.search_queries = result.get("search_queries", [])
@@ -1481,7 +1482,7 @@ Respond with valid JSON:
             try:
                 response = await asyncio.wait_for(
                     litellm.acompletion(
-                        model=config.synthesis_model,
+                        **resolve_litellm_call_params(config.synthesis_model),
                         messages=[
                             {"role": "system", "content": synthesizer_prompt},
                             {"role": "user", "content": batch_prompt}
@@ -1494,7 +1495,7 @@ Respond with valid JSON:
                 )
 
                 result_text = response.choices[0].message.content
-                batch_result = json.loads(result_text)
+                batch_result = extract_json_response(result_text)
                 batch_results.append(batch_result)
 
                 # Collect findings with full data
@@ -1909,7 +1910,7 @@ Discuss: What does this sentiment distribution reveal? Are there concerning tren
 Cross-reference findings with predictions. Identify patterns and implications.
 
 ### 7. CONCLUSIONS (write 2-3 paragraphs)
-Actionable recommendations based on findings.
+Actionable recommendations based on findings. Frame every recommendation as an action the reader/commissioning organization can take within its own remit; do NOT issue directives to governments, regulators, health authorities, or other third parties the reader does not control.
 
 ### 8. LIMITATIONS (write 1-2 paragraphs)
 Data gaps, potential biases, confidence levels.
@@ -1943,7 +1944,7 @@ Format inline citations as: [Article Title](URL)
 
         # FIXED: Correct async streaming pattern for litellm
         response = await litellm.acompletion(
-            model=config.writing_model,
+            **resolve_litellm_call_params(config.writing_model),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -2262,7 +2263,7 @@ Assess the coverage and identify gaps that need follow-up searches."""
 
         try:
             response = await litellm.acompletion(
-                model=config.planning_model,
+                **resolve_litellm_call_params(config.planning_model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -2273,7 +2274,7 @@ Assess the coverage and identify gaps that need follow-up searches."""
             )
 
             result_text = response.choices[0].message.content
-            assessment = json.loads(result_text)
+            assessment = extract_json_response(result_text)
 
             logger.info(
                 f"Coverage assessment: overall={assessment.get('overall_coverage', 0):.1%}, "

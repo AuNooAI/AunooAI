@@ -22,6 +22,7 @@ from enum import Enum
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -487,7 +488,7 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a contrarian analyst specializing in identifying weak signals and early warning indicators that mainstream analysis overlooks."},
                     {"role": "user", "content": prompt}
@@ -497,7 +498,7 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.weak_signals = result.get("weak_signals", [])
 
         except Exception as e:
@@ -579,7 +580,7 @@ Generate 6-10 amplified pathways across the three categories:
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a systems analyst specializing in cascade effects and amplification dynamics. You identify how small signals can grow into major disruptions."},
                     {"role": "user", "content": prompt}
@@ -589,7 +590,7 @@ Generate 6-10 amplified pathways across the three categories:
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.amplified_pathways = result.get("amplified_pathways", [])
 
         except Exception as e:
@@ -683,7 +684,7 @@ Return JSON:
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are an analytical forecaster. You construct logical extrapolations from weak signals - projecting how outlier positions could develop if their premises prove correct. Ground all scenarios in source data."},
                     {"role": "user", "content": prompt}
@@ -693,7 +694,7 @@ Return JSON:
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             state.raw_scenarios = result.get("scenarios", [])
 
             yield {"status": "scenarios_built", "progress": 0.9, "count": len(state.raw_scenarios)}
@@ -730,7 +731,7 @@ SCENARIOS:
 For each scenario, add:
 1. Early warning signs (3-5 observable indicators that would signal this scenario is materializing)
 2. Strategic implications (what it would mean for organizations in this space)
-3. Preparation actions (3-5 concrete steps to hedge against or prepare for this scenario)
+3. Preparation actions (3-5 concrete steps to hedge against or prepare for this scenario). Each preparation action must be one the READER's own organization can take within its remit — do NOT recommend actions for governments, regulators, or other third parties the reader does not control; frame them as how the reader should prepare, not how the wider world should manage the scenario.
 
 Return JSON with:
 {{
@@ -756,7 +757,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
 
         try:
             response = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=[
                     {"role": "system", "content": agent_prompt or "You are a strategic advisor specializing in risk hedging and contingency planning for extreme scenarios."},
                     {"role": "user", "content": prompt}
@@ -766,7 +767,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_response(response.choices[0].message.content)
             enhancements = {e["scenario_id"]: e for e in result.get("enhanced_scenarios", [])}
 
             yield {"status": "merging", "progress": 0.7}

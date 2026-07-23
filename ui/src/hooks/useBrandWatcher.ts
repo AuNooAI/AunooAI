@@ -2,7 +2,7 @@
  * Custom React hook for Brand Watcher functionality
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   getBrands,
   createBrand,
@@ -98,9 +98,14 @@ export function useBrandWatcher() {
   // Pagination
   const [totalArticles, setTotalArticles] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  // Five Signals availability (backend has a saas MCP key configured)
+  const [signalsAvailable, setSignalsAvailable] = useState(false);
 
   // Loading
   const [loadingBrands, setLoadingBrands] = useState(false);
+  // True once the brands list has been fetched successfully (gates the
+  // first-run onboarding wizard so it never flashes during load).
+  const [brandsLoaded, setBrandsLoaded] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingTemporal, setLoadingTemporal] = useState(false);
@@ -116,7 +121,6 @@ export function useBrandWatcher() {
 
   const topicsOrUndefined = config.selectedTopics.length > 0 ? config.selectedTopics : undefined;
   const brandIdsOrUndefined = config.selectedBrandIds.length > 0 ? config.selectedBrandIds : undefined;
-
   // Save config
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)); }
@@ -129,6 +133,7 @@ export function useBrandWatcher() {
     try {
       const data = await getBrands();
       setBrands(data);
+      setBrandsLoaded(true);
     } catch (err) {
       console.error('Error fetching brands:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch brands');
@@ -242,17 +247,33 @@ export function useBrandWatcher() {
     }
   }, [config.daysBack]);
 
-  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true) => {
+  const fetchSocial = useCallback(async (minRelevance: number = 0, source?: string, includeUnevaluated: boolean = true, scope: 'selected' | 'all' = 'selected') => {
     setLoadingSocial(true);
     try {
-      const data = await getSocialPosts(topicsOrUndefined, config.daysBack, minRelevance, source, includeUnevaluated);
+      // scope 'all' = primary + competitors (every brand's topic).
+      // scope 'selected' = the header-selected brand(s). Falls back to the primary
+      // brand (else the first brand) when nothing is selected, so the "only"
+      // toggle never silently widens to everything.
+      const headerBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
+      const focusBrands = headerBrands.length ? headerBrands
+        : [brands.find(b => b.is_primary) || brands[0]].filter(Boolean);
+      if (scope === 'selected' && !focusBrands.length) {
+        // Brands haven't loaded yet — fetching now would show ALL brands' posts
+        // under a "<brand> only" toggle. The brands-arrival effect refetches.
+        setLoadingSocial(false);
+        return;
+      }
+      const topics = scope === 'all'
+        ? brands.map(b => `Brand Monitoring ${b.display_name}`)
+        : focusBrands.map(b => `Brand Monitoring ${b.display_name}`);
+      const data = await getSocialPosts(topics && topics.length ? topics : undefined, config.daysBack, minRelevance, source, includeUnevaluated, { limit: 500 });
       setSocial(data);
     } catch (err) {
       console.error('Error fetching social posts:', err);
     } finally {
       setLoadingSocial(false);
     }
-  }, [config.daysBack, topicsOrUndefined]);
+  }, [config.daysBack, config.selectedBrandIds, brands]);
 
   // Fetch temporal
   const fetchTemporal = useCallback(async () => {
@@ -283,6 +304,7 @@ export function useBrandWatcher() {
       setArticles(res.articles);
       setTotalArticles(res.total_count);
       setTotalPages(res.total_pages);
+      setSignalsAvailable(!!res.signals_available);
     } catch (err) {
       console.error('Error fetching articles:', err);
     } finally {
@@ -346,8 +368,8 @@ export function useBrandWatcher() {
   return {
     brands, topics, stats, categories, temporalData, articles,
     comparison, shareOfVoice, opointCoverage, opointPoV, social, config,
-    totalArticles, totalPages,
-    loading, loadingBrands, loadingStats, loadingCategories,
+    totalArticles, totalPages, signalsAvailable,
+    loading, loadingBrands, brandsLoaded, loadingStats, loadingCategories,
     loadingTemporal, loadingArticles, loadingComparison, loadingShareOfVoice,
     loadingOpoint, loadingPoV, loadingSocial,
     error,

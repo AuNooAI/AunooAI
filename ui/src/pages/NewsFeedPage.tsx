@@ -28,6 +28,7 @@ import {
   Target,
   Shield,
   BarChart3,
+  CalendarDays,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -47,7 +48,7 @@ import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsigh
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
-import { useModules } from '../hooks/useModules';
+import { useModules, getCachedDedicatedMode } from '../hooks/useModules';
 import { ModuleConfigModal } from '../components/newsfeed/ModuleConfigModal';
 
 const PolicyTrackerTab = React.lazy(() =>
@@ -60,6 +61,8 @@ const BrandWatcherTab = React.lazy(() =>
   import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
 const ThreatIntelligenceTab = React.lazy(() =>
   import('../components/newsfeed/ThreatIntelligenceTab').then(m => ({ default: m.ThreatIntelligenceTab })));
+const TimelineTab = React.lazy(() =>
+  import('../components/newsfeed/TimelineTab').then(m => ({ default: m.TimelineTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -204,10 +207,31 @@ export function NewsFeedPage() {
   };
 
   // Analysis modules
-  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
+  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel'>('feed');
+  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel' | 'timeline';
+  const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
+  // Restore the last-viewed Explore tab across page loads.
+  // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
+  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents', 'timeline'];
+  const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
+    try {
+      const saved = localStorage.getItem('explore_last_tab');
+      if (getCachedDedicatedMode() === true) {
+        return saved && (DEDICATED_TABS as string[]).includes(saved) ? saved as ExploreTab : 'brand_watcher';
+      }
+      if (saved && (EXPLORE_TABS as string[]).includes(saved)) return saved as ExploreTab;
+    } catch { /* localStorage unavailable */ }
+    return getCachedDedicatedMode() === true ? 'brand_watcher' : 'feed';
+  });
+  useEffect(() => {
+    try { localStorage.setItem('explore_last_tab', currentTab); } catch { /* ignore */ }
+  }, [currentTab]);
+  // Dedicated Brand Watcher tenants only expose the Brand Watcher + Agents tabs.
+  useEffect(() => {
+    if (dedicatedMode && !DEDICATED_TABS.includes(currentTab)) setCurrentTab('brand_watcher');
+  }, [dedicatedMode, currentTab]);
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -437,6 +461,25 @@ export function NewsFeedPage() {
   // Handler to fetch full article data and open detail panel
   // Used by Narratives and Highlights which may have partial article data
   // Accepts optional related articles from clusters
+  // Build the best-possible detail view from the click payload alone (used when
+  // the by-uri fetch can't find the article server-side).
+  const stubFromClickData = (article: any): NewsArticle => ({
+    uri: article.uri,
+    title: article.title || 'Unknown Title',
+    summary: article.summary || '',
+    url: article.url || article.uri,
+    publication_date: article.publication_date,
+    sentiment: article.sentiment,
+    category: article.category,
+    topic: article.topic,
+    source: {
+      name: article.news_source || article.source?.name || 'Unknown Source',
+      bias: article.bias,
+      factuality: article.factual_reporting,
+    },
+    tags: [],
+  } as NewsArticle);
+
   const handleArticleClick = useCallback(async (
     article: NewsArticle | { uri: string; title?: string },
     relatedArticles?: ClusterRelatedArticle[]
@@ -461,25 +504,13 @@ export function NewsFeedPage() {
       if (fullArticle) {
         setSelectedArticle(hasBWData ? { ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } : fullArticle);
       } else {
-        // Fallback to partial data if fetch fails
-        setSelectedArticle({
-          uri: article.uri,
-          title: article.title || 'Unknown Title',
-          summary: '',
-          source: { name: 'Unknown Source' },
-          tags: [],
-        });
+        // The by-uri fetch can miss (alert-payload/syndicated URLs) — keep every
+        // field the caller passed rather than degrading to an "Unknown" stub.
+        setSelectedArticle(stubFromClickData(article));
       }
     } catch (err) {
       console.error('Failed to fetch article details:', err);
-      // Fallback to partial data
-      setSelectedArticle({
-        uri: article.uri,
-        title: article.title || 'Unknown Title',
-        summary: '',
-        source: { name: 'Unknown Source' },
-        tags: [],
-      });
+      setSelectedArticle(stubFromClickData(article));
     } finally {
       setLoadingArticleDetail(false);
     }
@@ -793,7 +824,7 @@ export function NewsFeedPage() {
     <div className="gather-app">
       <div className="gather-layout">
         {/* Shared Navigation Sidebar */}
-        <SharedNavigation currentPage="investigate" />
+        <SharedNavigation currentPage="investigate" dedicatedMode={dedicatedMode} />
 
       {/* Main Content */}
       <div className="gather-content-area">
@@ -803,7 +834,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', threat_intel: 'Threat Intelligence' }[currentTab] ?? 'News Feed'}
+              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence', timeline: 'Timeline' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -819,6 +850,7 @@ export function NewsFeedPage() {
               />
             )}
             <NotificationBell />
+            {dedicatedMode === false && (
             <button
               onClick={() => setIsOnboardingOpen(true)}
               className="gather-top-bar-setup-btn"
@@ -826,10 +858,12 @@ export function NewsFeedPage() {
               Set up topic
               <Plus className="w-4 h-4" />
             </button>
+            )}
           </div>
         </div>
 
-        {/* Filters Header - visible on all tabs for consistent UI */}
+        {/* Filters Header - visible on all tabs for consistent UI (hidden in dedicated Brand Watcher mode) */}
+        {dedicatedMode === false && (
         <NewsFeedHeader
           config={config}
           narrativeConfig={narrativeConfig}
@@ -843,9 +877,11 @@ export function NewsFeedPage() {
           onScheduleClick={() => setIsScheduleModalOpen(true)}
           onConfigureProfile={() => setIsProfileModalOpen(true)}
         />
+        )}
 
         {/* Tab Navigation */}
         <div className="explore-tab-navigation">
+          {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'feed' ? 'active' : ''}`}
             onClick={() => setCurrentTab('feed')}
@@ -853,6 +889,7 @@ export function NewsFeedPage() {
             <Rss className="w-4 h-4" />
             News Feed
           </button>
+          )}
           {isModuleEnabled('geopolitical') && (
           <button
             className={`explore-tab-btn ${currentTab === 'geopolitical' ? 'active' : ''}`}
@@ -898,6 +935,7 @@ export function NewsFeedPage() {
             Threat Intelligence
           </button>
           )}
+          {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -908,6 +946,10 @@ export function NewsFeedPage() {
               <span className="explore-tab-badge">{emergingTopicsCount}</span>
             )}
           </button>
+          )}
+          {/* Observer Agents: available in dedicated mode too (agents are
+              restricted to Brand Monitoring topics there) */}
+          {dedicatedMode !== null && (
           <button
             className={`explore-tab-btn ${currentTab === 'agents' ? 'active' : ''}`}
             onClick={() => setCurrentTab('agents')}
@@ -918,6 +960,18 @@ export function NewsFeedPage() {
               <span className="explore-tab-badge">{researchAlertsCount}</span>
             )}
           </button>
+          )}
+          {/* Timeline mementos: per-brand/per-topic event timeline */}
+          {dedicatedMode !== null && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'timeline' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('timeline')}
+          >
+            <CalendarDays className="w-4 h-4" />
+            Timeline
+          </button>
+          )}
+          {dedicatedMode === false && (<>
           <button
             className={`explore-tab-btn ${currentTab === 'saved' ? 'active' : ''}`}
             onClick={() => setCurrentTab('saved')}
@@ -949,6 +1003,7 @@ export function NewsFeedPage() {
               <Settings2 className="w-4 h-4" />
             </button>
           </div>
+          </>)}
         </div>
 
         {/* Error Alerts */}
@@ -1194,12 +1249,12 @@ export function NewsFeedPage() {
                 onAddAgent={addAgent}
                 onUpdateAgent={updateAgent}
                 onDeleteAgent={removeAgent}
-                onRunAgent={(agentId, options) => runAgent(agentId, { topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
-                onRunAllAgents={(options) => runAllAgents({ topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles, generateUnifiedReport: options?.generateUnifiedReport })}
+                onRunAgent={(agentId, options) => runAgent(agentId, { topic: dedicatedMode ? undefined : config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
+                onRunAllAgents={(options) => runAllAgents({ topic: dedicatedMode ? undefined : config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles, generateUnifiedReport: options?.generateUnifiedReport })}
                 onAcknowledgeAlert={acknowledgeOne}
                 onAcknowledgeAll={acknowledgeAll}
                 onDismissPodcast={handleDismissPodcast}
-                topics={topics.map(t => t.name)}
+                topics={(dedicatedMode ? topics.filter(t => t.name.startsWith('Brand Monitoring')) : topics).map(t => t.name)}
               />
             )}
 
@@ -1252,6 +1307,13 @@ export function NewsFeedPage() {
             {currentTab === 'threat_intel' && isModuleEnabled('threat_intel') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
                 <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
+              </Suspense>
+            )}
+
+            {/* Timeline Tab Content */}
+            {currentTab === 'timeline' && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}>
+                <TimelineTab />
               </Suspense>
             )}
 

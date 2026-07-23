@@ -11,6 +11,7 @@ from app.schemas.news_feed import (
     RelatedArticle, ArticleSource, BiasRating, FactualityRating,
     NewsFeedRequest, NewsFeedResponse
 )
+from app.ai_models import resolve_litellm_call_params
 from app.database import Database, get_database_instance
 from app.services.auspex_service import get_auspex_service
 from app.database_query_facade import DatabaseQueryFacade
@@ -590,7 +591,7 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             
             # Get AI response using litellm directly with settings optimized for JSON
             response = await litellm.acompletion(
-                model=request.model,
+                **resolve_litellm_call_params(request.model),
                 messages=messages,
                 temperature=0.3,  # Lower temperature for more consistent JSON output
                 max_tokens=4000,
@@ -680,7 +681,7 @@ Please try again and return ONLY articles with URIs from this list."""}
                 ]
 
                 retry_response = await litellm.acompletion(
-                    model=request.model,
+                    **resolve_litellm_call_params(request.model),
                     messages=retry_messages,
                     temperature=0.1,  # Even lower temperature for retry
                     max_tokens=4000,
@@ -949,7 +950,7 @@ DO NOT create new URIs. DO NOT modify URIs. DO NOT summarize URIs. COPY THEM EXA
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             
             response = await litellm.acompletion(
-                model=request.model,
+                **resolve_litellm_call_params(request.model),
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt}
@@ -1037,7 +1038,7 @@ Please try again and return ONLY articles with URIs from this list."""}
                 ]
 
                 retry_response = await litellm.acompletion(
-                    model=request.model,
+                    **resolve_litellm_call_params(request.model),
                     messages=retry_messages,
                     temperature=0.1,
                     max_tokens=4000,
@@ -1202,7 +1203,7 @@ FULL ARTICLE CONTENT:
 Extract detailed strategic intelligence from this article."""
 
             response = await litellm.acompletion(
-                model="gpt-5.4-mini",  # Use faster model for per-article analysis
+                **resolve_litellm_call_params("gpt-5.4-mini"),  # Use faster model for per-article analysis
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -1566,7 +1567,7 @@ Choose exactly {article_count} articles from the provided corpus (news, filings,
 **time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
 **risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
 **signal_strength** — "weak" | "moderate" | "strong" with a short justification
-**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**executive_action** — Array of 1–2 bullets: what the reader should watch, decide, or delegate now, within their own remit. Never a directive to governments, regulators, or third parties the reader does not control.
 **category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
 **scores** — Optional scoring object: {{"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}}
 
@@ -1913,7 +1914,7 @@ Choose exactly {article_count} articles from the provided corpus (news, filings,
 **time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
 **risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
 **signal_strength** — "weak" | "moderate" | "strong" with a short justification
-**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**executive_action** — Array of 1–2 bullets: what the reader should watch, decide, or delegate now, within their own remit. Never a directive to governments, regulators, or third parties the reader does not control.
 **category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
 **scores** — Optional scoring object: {{"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}}
 

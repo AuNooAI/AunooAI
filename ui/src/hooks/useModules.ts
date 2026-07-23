@@ -17,8 +17,27 @@ export interface ModuleInfo {
   enabled: boolean;
 }
 
+const DEDICATED_CACHE_KEY = 'aunoo_dedicated_mode';
+
+/** Last-known dedicated-mode state, cached per browser session to avoid a
+ * full-menu flash before /api/modules resolves. null = not known yet. */
+export function getCachedDedicatedMode(): boolean | null {
+  try {
+    const v = sessionStorage.getItem(DEDICATED_CACHE_KEY);
+    return v === null ? null : v === '1';
+  } catch {
+    return null;
+  }
+}
+
 export function useModules() {
   const [modules, setModules] = useState<ModuleInfo[] | null>(null);
+  const [dedicatedMode, setDedicatedMode] = useState<boolean | null>(getCachedDedicatedMode);
+
+  const applyDedicated = (dm: boolean) => {
+    setDedicatedMode(dm);
+    try { sessionStorage.setItem(DEDICATED_CACHE_KEY, dm ? '1' : '0'); } catch { /* ignore */ }
+  };
 
   const fetchModules = useCallback(() => {
     fetch('/api/modules')
@@ -26,10 +45,14 @@ export function useModules() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
-      .then(data => setModules(data.modules))
+      .then(data => {
+        setModules(data.modules);
+        applyDedicated(Boolean(data.dedicated_mode));
+      })
       .catch(err => {
         console.warn('Failed to fetch modules, showing all tabs:', err);
         setModules(null); // null = fallback (show all)
+        setDedicatedMode(dm => dm ?? false); // unblock the chrome on fetch failure
       });
   }, []);
 
@@ -52,6 +75,7 @@ export function useModules() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setModules(data.modules);
+      applyDedicated(Boolean(data.dedicated_mode));
     } catch (err) {
       console.error('Failed to toggle module:', err);
       // Refetch to get actual state
@@ -59,5 +83,5 @@ export function useModules() {
     }
   }, [fetchModules]);
 
-  return { modules, isEnabled, toggleModule };
+  return { modules, isEnabled, toggleModule, dedicatedMode };
 }

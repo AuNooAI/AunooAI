@@ -52,6 +52,8 @@ export interface AIModel {
   id: string;
   name: string;
   provider: string;
+  /** Underlying model the router actually runs (differs from name on repointed tenants) */
+  resolved_model?: string;
 }
 
 export interface UseNewsFeedReturn {

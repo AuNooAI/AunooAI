@@ -50,6 +50,7 @@ export function GroupSettingsModal({
   const [settingsData, setSettingsData] = useState<GroupSettingsResponse | null>(null);
   const [formData, setFormData] = useState<GroupSettingsUpdateRequest>({});
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
+  const [selectedSocialPlatforms, setSelectedSocialPlatforms] = useState<string[]>([]);
   const [availableProviders, setAvailableProviders] = useState<AvailableProvider[]>([]);
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [useGlobalSettings, setUseGlobalSettings] = useState(true);
@@ -104,6 +105,14 @@ export function GroupSettingsModal({
       } catch {
         setSelectedProviders([]);
       }
+
+      // Parse social platforms (empty = use env default = all platforms)
+      try {
+        const socialJson = settings.settings.social_platforms;
+        setSelectedSocialPlatforms(socialJson ? JSON.parse(socialJson) : []);
+      } catch {
+        setSelectedSocialPlatforms([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
@@ -116,6 +125,14 @@ export function GroupSettingsModal({
       checked
         ? [...prev, providerId]
         : prev.filter(p => p !== providerId)
+    );
+  };
+
+  const handleSocialPlatformToggle = (platform: string, checked: boolean) => {
+    setSelectedSocialPlatforms(prev =>
+      checked
+        ? [...prev, platform]
+        : prev.filter(p => p !== platform)
     );
   };
 
@@ -134,6 +151,10 @@ export function GroupSettingsModal({
         requestData = {
           ...formData,
           providers: JSON.stringify(selectedProviders),
+          // Empty selection = clear the override, inherit the tenant-wide default
+          social_platforms: selectedSocialPlatforms.length > 0
+            ? JSON.stringify(selectedSocialPlatforms)
+            : null,
         };
       }
 
@@ -333,6 +354,37 @@ export function GroupSettingsModal({
                       ))}
                     </div>
                   </div>
+
+                  {/* Social Platforms (xpoz) — shown only when xpoz is selected */}
+                  {selectedProviders.includes('xpoz') && (
+                    <div className="gather-modal-section">
+                      <h4 className="gather-modal-section-title">
+                        Social Platforms
+                        {isFieldCustom('social_platforms') && (
+                          <span className="gather-custom-badge">Custom</span>
+                        )}
+                      </h4>
+                      <p className="gather-form-hint">
+                        Each platform costs one Xpoz search per keyword per run — fewer
+                        platforms means fewer credits. Leave all unchecked to use the
+                        tenant default.
+                      </p>
+                      <div className="gather-providers-grid">
+                        {(availableProviders.find(p => p.id === 'xpoz')?.platform_options || []).map(platform => (
+                          <div key={platform} className="gather-provider-item">
+                            <Checkbox
+                              id={`social-platform-${platform}`}
+                              checked={selectedSocialPlatforms.includes(platform)}
+                              onCheckedChange={checked => handleSocialPlatformToggle(platform, checked as boolean)}
+                            />
+                            <Label htmlFor={`social-platform-${platform}`}>
+                              <span className="gather-provider-name" style={{ textTransform: 'capitalize' }}>{platform}</span>
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Processing Settings */}
                   <div className="gather-modal-section">

@@ -273,3 +273,77 @@ async def change_own_password(
     except Exception as e:
         logger.error(f"Error changing password for {username}: {str(e)}")
         raise HTTPException(status_code=500, detail="Error changing password")
+
+
+# ==================== Admin password reset ====================
+
+class AdminPasswordReset(BaseModel):
+    """mode: auto = email the reset link when possible, else temp password."""
+    mode: str = "auto"  # auto | email | temp
+
+
+@router.post("/{username}/reset-password")
+async def admin_reset_password(
+    username: str,
+    req: AdminPasswordReset,
+    request: Request,
+    session=Depends(require_admin),
+):
+    """Reset a user's password (admin only).
+
+    email: sends a signed, 24h reset link to the user's email — the admin
+    never sees the new secret. temp: sets a temporary password (returned
+    once) with a forced change on first login. auto picks email when the
+    user has an address and email is configured.
+    """
+    db = get_database_instance()
+    user = db.facade.get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.get("password_hash"):
+        raise HTTPException(status_code=400,
+                            detail="OAuth account — password is managed by the identity provider")
+
+    from app.services.email_service import get_email_service
+    email_svc = get_email_service()
+    has_email = bool(user.get("email")) and "@" in (user.get("email") or "")
+    mode = (req.mode or "auto").lower()
+    if mode == "auto":
+        mode = "email" if (has_email and email_svc.is_available()) else "temp"
+
+    admin_name = get_current_username(request)
+
+    if mode == "email":
+        if not has_email:
+            raise HTTPException(status_code=400, detail="User has no email address on file")
+        if not email_svc.is_available():
+            raise HTTPException(status_code=400, detail="Email service is not configured on this tenant")
+        from app.routes.auth_routes import build_password_reset_link
+        link = build_password_reset_link(username, db)
+        html = f"""
+        <h2>Password reset</h2>
+        <p>An administrator requested a password reset for your account <strong>{username}</strong>.</p>
+        <p style="margin:20px 0"><a href="{link}" style="display:inline-block;background:#667eea;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Set a new password</a></p>
+        <p style="color:#888;font-size:12px">The link is valid for 24 hours and can be used once. If you did not expect this, you can ignore this email — your current password keeps working.</p>
+        """
+        ok = email_svc.send_email(
+            to_addresses=[user["email"]],
+            subject="[AuNoo AI] Password reset",
+            body_html=html,
+            body_text=f"Set a new password for {username}: {link}\n(Valid 24 hours, single use.)",
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to send the reset email")
+        logger.info(f"Password reset link emailed to {user['email']} for {username} by {admin_name}")
+        return {"method": "email", "email": user["email"], "expires_hours": 24}
+
+    if mode != "temp":
+        raise HTTPException(status_code=400, detail="mode must be auto, email or temp")
+    import secrets as _secrets
+    temp_password = _secrets.token_urlsafe(9)
+    db.facade.update_user(username,
+                          password_hash=get_password_hash(temp_password),
+                          force_password_change=True)
+    logger.info(f"Temporary password set for {username} by {admin_name}")
+    return {"method": "temp", "temp_password": temp_password,
+            "note": "Shown once — the user must change it on first login"}

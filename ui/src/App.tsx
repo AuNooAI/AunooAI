@@ -8,9 +8,10 @@ import { SharedNavigation } from './components/SharedNavigation';
 import { TabNavigation, TabSettingsDropdown } from './components/TabNavigation';
 import { TimelineBar } from './components/TimelineBar';
 import { ConvergenceCard } from './components/ConvergenceCard';
-import ConsensusCategoryCard from './components/ConsensusCategoryCard';
 import { ImpactTimelineCard } from './components/ImpactTimelineCard';
-import { FutureHorizons } from './components/FutureHorizons';
+import { ConsensusView } from './components/foresight/ConsensusView';
+import { HorizonsPanel } from './components/foresight/HorizonsView';
+import { toConsensusResponse, toHorizonsResponse } from './components/foresight/foresightAdapters';
 import { ForecastAssessmentTab } from './components/ForecastAssessment';
 import { AllTopicsForecastView } from './components/AllTopicsForecastView';
 import { TopicsDashboard } from './components/TopicsDashboard';
@@ -2548,56 +2549,61 @@ function App() {
               {/* Consensus Analysis Tab */}
               {activeTab === 'consensus' && (
                 <>
-                  {/* Dashboard Description + Interactive HTML download */}
-                  <div className="mb-6 flex items-start gap-3">
-                    <div className="flex-1 p-4 bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 rounded-r-lg">
-                      <p className="text-sm text-gray-700 dark:text-gray-200">
-                        <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
-                      </p>
-                    </div>
-                    {(data?.analysis_id) && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const resp = await fetch(`/api/trend-convergence/consensus/${encodeURIComponent(data.analysis_id)}/download.html`);
-                            if (!resp.ok) {
-                              const body = await resp.text();
-                              throw new Error(`${resp.status} ${body || resp.statusText}`);
+                  {/* Shared-dashboard Consensus view (ported from the saas /consensus page) */}
+                  {(data.categories || []).length > 0 && (
+                    <ConsensusView
+                      data={toConsensusResponse(data, config.topic)}
+                      days={data.timeframe_days || null}
+                      actions={data?.analysis_id ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const resp = await fetch(`/api/trend-convergence/consensus/${encodeURIComponent(data.analysis_id)}/download.html`);
+                              if (!resp.ok) {
+                                const body = await resp.text();
+                                throw new Error(`${resp.status} ${body || resp.statusText}`);
+                              }
+                              const blob = await resp.blob();
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `consensus-analysis-${(config.topic || 'topic').toLowerCase().replace(/\s+/g, '-')}.html`;
+                              document.body.appendChild(a);
+                              a.click();
+                              setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                            } catch (e: any) {
+                              // eslint-disable-next-line no-alert
+                              alert(`HTML download failed: ${e?.message || e}`);
                             }
-                            const blob = await resp.blob();
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `consensus-analysis-${(config.topic || 'topic').toLowerCase().replace(/\s+/g, '-')}.html`;
-                            document.body.appendChild(a);
-                            a.click();
-                            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-                          } catch (e: any) {
-                            // eslint-disable-next-line no-alert
-                            alert(`HTML download failed: ${e?.message || e}`);
-                          }
-                        }}
-                        title="Download a standalone, interactive HTML view of this Consensus Analysis"
-                        className="shrink-0 inline-flex items-center gap-2 text-sm px-3 py-2 border border-green-300 dark:border-green-700 text-green-800 dark:text-green-200 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-md"
-                      >
-                        <Download className="w-4 h-4" />
-                        Interactive HTML
-                      </button>
-                    )}
-                  </div>
+                          }}
+                          title="Download a standalone, interactive HTML view of this Consensus Analysis"
+                          className="shrink-0 inline-flex items-center gap-2 text-sm px-3 py-2 border border-green-300 text-green-800 hover:bg-green-100 rounded-md bg-white/70"
+                        >
+                          <Download className="w-4 h-4" />
+                          Interactive HTML
+                        </button>
+                      ) : null}
+                    />
+                  )}
 
-                  {/* Consensus Category Cards (New Auspex Structure) */}
+                  {/* Loaded data has no consensus categories (e.g. a saved dashboard
+                      from another tab) — offer generation instead of a dead end */}
+                  {(!data.categories || data.categories.length === 0) && (!data.convergences || data.convergences.length === 0) && (
+                    <div className="flex items-center justify-center h-64">
+                      <div className="text-center">
+                        <TrendingUp className="w-16 h-16 text-pink-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-950 mb-2">No consensus analysis yet for "{config.topic}"</h3>
+                        <p className="text-gray-600 mb-4">This will analyze articles and generate insights (30-60s)</p>
+                        <Button onClick={() => generateAnalysis()}>
+                          <Zap className="w-4 h-4 mr-2" />
+                          Generate Analysis
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-4">
-                    {(data.categories || []).map((category, idx) => (
-                      <ConsensusCategoryCard
-                        key={idx}
-                        category={category}
-                        articleList={data.article_list || []}
-                        index={idx}
-                      />
-                    ))}
-
                     {/* Fallback to legacy convergence structure if categories not present */}
                     {(!data.categories || data.categories.length === 0) && (data.convergences || []).map((convergence, idx) => {
                       const colors = ['purple', 'orange', 'blue', 'green', 'pink', 'indigo'];
@@ -2634,36 +2640,6 @@ function App() {
                       );
                     })}
                   </div>
-
-                  {/* Key Insights from Evidence Synthesis */}
-                  {data.key_insights && data.key_insights.length > 0 && (
-                    <div className="mt-8 bg-cyan-50 dark:bg-cyan-900/30 border border-cyan-200 dark:border-cyan-800 rounded-xl p-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <FileText className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
-                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Key Insights from Evidence Synthesis</h2>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        {data.key_insights.map((insight, idx) => {
-                          const dotColors = ['bg-blue-500', 'bg-green-500', 'bg-red-500', 'bg-orange-500'];
-                          const dotColor = dotColors[idx % dotColors.length];
-
-                          return (
-                            <div key={idx} className="flex gap-3">
-                              <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
-                              <div>
-                                <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
-                                  {typeof insight === 'string' ? insight : insight.quote || insight.insight}
-                                </div>
-                                <div className="text-xs text-gray-700 dark:text-gray-400">
-                                  {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
 
                   {/* AI Disclosure Footer */}
                   <AIDisclosureFooter
@@ -2860,24 +2836,74 @@ function App() {
               {/* Future Horizons Tab */}
               {activeTab === 'future-horizons' && (
                 <>
-                  {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 border-l-4 border-indigo-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700 dark:text-gray-200">
-                      <strong>Future Horizons:</strong> Explore long-term scenarios and future possibilities to prepare for what's ahead.
-                    </p>
-                  </div>
+                  {horizonsExecSummaryError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-md">
+                      {horizonsExecSummaryError}
+                    </div>
+                  )}
 
-                  <FutureHorizons
-                    scenarios={(data?.scenarios && data.scenarios.length ? data.scenarios : fallbackHorizons?.scenarios) || []}
-                    articleList={articleList}
-                    analysisId={data?.analysis_id || fallbackHorizons?.analysisId}
-                    topic={config.topic}
-                    executiveSummary={horizonsExecutiveSummary}
-                    executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
-                    isLoadingExecutiveSummary={isLoadingHorizonsExecSummary}
-                    executiveSummaryError={horizonsExecSummaryError}
-                    onGenerateExecutiveSummary={handleGenerateHorizonsExecSummary}
-                    onExport={handleHorizonsExport}
+                  {/* Shared-dashboard Horizons view (ported from the saas /horizons page) */}
+                  <HorizonsPanel
+                    data={toHorizonsResponse({
+                      scenarios: (data?.scenarios && data.scenarios.length ? data.scenarios : fallbackHorizons?.scenarios) || [],
+                      articleList,
+                      execSummaries: horizonsExecutiveSummary,
+                      topic: config.topic,
+                      articleCount: data?.articles_analyzed || undefined,
+                    })}
+                    onGenerate={() => generateAnalysis()}
+                    actions={
+                      <>
+                        {!horizonsExecutiveSummary &&
+                          ((data?.scenarios?.length || 0) > 0 || (fallbackHorizons?.scenarios?.length || 0) > 0) && (
+                          <button
+                            type="button"
+                            onClick={handleGenerateHorizonsExecSummary}
+                            disabled={isLoadingHorizonsExecSummary}
+                            title="Generate the Strategic Consensus cards from the current scenarios"
+                            className="shrink-0 inline-flex items-center gap-2 text-sm px-3 py-2 border border-indigo-300 text-indigo-800 hover:bg-indigo-100 rounded-md bg-white/70 disabled:opacity-50"
+                          >
+                            {isLoadingHorizonsExecSummary ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Zap className="w-4 h-4" />
+                            )}
+                            {isLoadingHorizonsExecSummary ? 'Generating…' : 'Executive Summary'}
+                          </button>
+                        )}
+                        {(data?.analysis_id || fallbackHorizons?.analysisId) && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const runId = data?.analysis_id || fallbackHorizons?.analysisId;
+                              try {
+                                const resp = await fetch(`/api/trend-convergence/horizons/${encodeURIComponent(runId!)}/download.html`);
+                                if (!resp.ok) {
+                                  const body = await resp.text();
+                                  throw new Error(`${resp.status} ${body || resp.statusText}`);
+                                }
+                                const blob = await resp.blob();
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `future-horizons-${(config.topic || 'topic').toLowerCase().replace(/\s+/g, '-')}.html`;
+                                document.body.appendChild(a);
+                                a.click();
+                                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                              } catch (e: any) {
+                                // eslint-disable-next-line no-alert
+                                alert(`HTML download failed: ${e?.message || e}`);
+                              }
+                            }}
+                            title="Download a standalone, interactive HTML view of this Future Horizons analysis"
+                            className="shrink-0 inline-flex items-center gap-2 text-sm px-3 py-2 border border-indigo-300 text-indigo-800 hover:bg-indigo-100 rounded-md bg-white/70"
+                          >
+                            <Download className="w-4 h-4" />
+                            Interactive HTML
+                          </button>
+                        )}
+                      </>
+                    }
                   />
 
                   {/* AI Disclosure Footer */}

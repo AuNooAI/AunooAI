@@ -70,6 +70,7 @@ export interface ClusterRelatedArticle {
   similarity_score: number;
   bias?: string;
   factual_reporting?: string;
+  sentiment?: string;
 }
 
 export interface ArticleCluster {
@@ -549,6 +550,7 @@ export async function getAvailableModels(): Promise<Array<{
   id: string;
   name: string;
   provider: string;
+  resolved_model?: string;
 }>> {
   const response = await fetch('/api/available_models', {
     credentials: 'include',
@@ -558,9 +560,9 @@ export async function getAvailableModels(): Promise<Array<{
     throw new Error(`Failed to fetch models: ${response.status}`);
   }
 
-  // API returns {name, provider} - add id field for Select component
-  const models = await response.json() as Array<{name: string; provider: string}>;
-  return models.map(m => ({ id: m.name, name: m.name, provider: m.provider }));
+  // API returns {name, provider, resolved_model} - add id field for Select component
+  const models = await response.json() as Array<{name: string; provider: string; resolved_model?: string}>;
+  return models.map(m => ({ id: m.name, name: m.name, provider: m.provider, resolved_model: m.resolved_model }));
 }
 
 /**

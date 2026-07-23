@@ -247,9 +247,17 @@ export function NewsFeedHeader({
             </SelectTrigger>
             <SelectContent>
               {models.length > 0 ? (
-                models.map((model) => (
+                // On repointed tenants many aliases run the same underlying
+                // model — show the model that actually runs, deduped (the
+                // currently selected alias always stays listed).
+                models.filter((model, i, all) => {
+                  const key = (m: AIModel) => `${m.resolved_model || m.name}|${m.provider}`;
+                  return model.name === localModel || all.findIndex(m => key(m) === key(model)) === i;
+                }).map((model) => (
                   <SelectItem key={model.name} value={model.name}>
-                    {model.name} ({model.provider})
+                    {model.resolved_model && model.resolved_model !== model.name
+                      ? `${model.resolved_model} (${model.provider})`
+                      : `${model.name} (${model.provider})`}
                   </SelectItem>
                 ))
               ) : (

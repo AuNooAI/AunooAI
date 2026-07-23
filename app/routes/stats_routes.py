@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
@@ -86,6 +86,10 @@ async def index(
     session=Depends(verify_session),
     db: Database = Depends(get_database_instance)
 ):
+    from app.core.modules import is_dedicated_bw
+    if is_dedicated_bw():
+        # Dedicated Brand Watcher tenants land on the Explore page (Brand Watcher tab)
+        return RedirectResponse(url="/explore")
     try:
         # Test database connection
         try:

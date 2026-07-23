@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Any, Tuple
 import uuid
 from dataclasses import dataclass
 
+from app.ai_models import resolve_litellm_call_params
 from app.database import get_database_instance
 import litellm
 from sqlalchemy import text
@@ -326,7 +327,7 @@ Example output:
         try:
             logger.info(f"Extracting financial events using model: {self._model}")
             response = await litellm.acompletion(
-                model=self._model,
+                **resolve_litellm_call_params(self._model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=4000,
@@ -512,7 +513,7 @@ Example:
         try:
             logger.info(f"Extracting regulatory events using model: {self._model}")
             response = await litellm.acompletion(
-                model=self._model,
+                **resolve_litellm_call_params(self._model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=4000,

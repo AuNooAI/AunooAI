@@ -20,7 +20,7 @@ from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
 from app.services.article_stats import compute_article_stats
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
-from app.ai_models import get_ai_model
+from app.ai_models import get_ai_model, resolve_litellm_call_params
 from app.retrieval.reranker import rerank, overfetch_limit
 
 # Import sampling framework for strategy-based article selection
@@ -41,8 +41,22 @@ from app.services.conversation_compactor import (
 logger = logging.getLogger(__name__)
 
 
+def _bedrock_routed(model: str) -> bool:
+    """True when litellm_config.yaml routes this model alias to a Bedrock
+    target. On Bedrock-repointed tenants the gpt-5.x aliases land on Claude
+    models whose real limits (200k window, 64k output) are far below the
+    alias's nominal OpenAI limits — Bedrock hard-rejects requests sized to
+    the nominal numbers."""
+    try:
+        from app.ai_models import resolve_litellm_call_params
+        return str(resolve_litellm_call_params(model).get("model", "")).startswith("bedrock/")
+    except Exception:
+        return False
+
+
 def _llm_call_kwargs(model: str, *, output_tokens: int,
-                     temperature: float = 0.7) -> dict:
+                     temperature: float = 0.7,
+                     context_budget: Optional[int] = None) -> dict:
     """Build per-model completion kwargs for a litellm call.
 
     GPT-5 is a reasoning model: it burns the output-token budget on
@@ -65,8 +79,20 @@ def _llm_call_kwargs(model: str, *, output_tokens: int,
         # Consensus Analysis JSON at ~17k chars mid-document.
         completion = max(output_tokens * 4, 16000)
         completion = min(completion, 128000)
+        from app.ai_models import minimal_reasoning_effort
+        # On Bedrock-routed tenants the gpt-5.x alias resolves to a Claude
+        # model whose output cap is 64k — Bedrock hard-rejects anything above
+        # it ("maximum tokens you requested exceeds the model limit of 64000").
+        if _bedrock_routed(model):
+            completion = min(completion, 64000)
+        # A caller that already sized output against the remaining context
+        # window passes context_budget; the 4x reasoning headroom must not
+        # re-inflate past it or Bedrock rejects with "Input is too long"
+        # (input + max_tokens must fit inside the window).
+        if context_budget is not None:
+            completion = min(completion, max(1024, context_budget))
         return {
-            "reasoning_effort": "minimal",
+            "reasoning_effort": minimal_reasoning_effort(model),
             "max_completion_tokens": completion,
         }
     return {"max_tokens": output_tokens, "temperature": temperature}
@@ -233,6 +259,45 @@ def get_format_block(query_depth: str) -> str:
     }.get(query_depth, AUSPEX_STANDARD_FORMAT)
 
 
+_dedicated_bw_cache = {"block": None, "at": 0.0}
+
+
+def _dedicated_bw_block() -> str:
+    """Brand-focus block for dedicated Brand Watcher tenants (cached 10 min).
+
+    Names the tenant's actual brands and monitoring topics so Auspex scopes
+    its research to brand data and steers off-topic requests back."""
+    from app.core.modules import is_dedicated_bw
+    if not is_dedicated_bw():
+        return ""
+    import time as _time
+    now = _time.time()
+    if _dedicated_bw_cache["block"] is not None and now - _dedicated_bw_cache["at"] < 600:
+        return _dedicated_bw_cache["block"]
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        rows = db.fetch_all(
+            "SELECT display_name, is_primary FROM bw_brands WHERE enabled = true "
+            "ORDER BY is_primary DESC, display_name", [])
+        names = [f"{r['display_name']} (primary)" if r['is_primary'] else r['display_name'] for r in rows]
+        topics = ", ".join(f'"Brand Monitoring {r["display_name"]}"' for r in rows)
+    except Exception:
+        names, topics = [], ""
+    block = f"""
+
+## Dedicated Brand Monitoring Workspace
+This tenant is a dedicated brand monitoring workspace. Brands under watch: {', '.join(names) or 'see the Brand Watcher tab'}.
+- Focus every answer on brand perception, reputation, risk, coverage and competitive positioning for these brands.
+- When searching the database, scope searches to the brand monitoring topics: {topics or 'topics starting with "Brand Monitoring"'}.
+- Do not use articles from other topics — this workspace's users only work with brand data.
+- If asked about unrelated subjects, answer briefly if trivial, then steer back to what this workspace covers: brand and competitor intelligence.
+"""
+    _dedicated_bw_cache["block"] = block
+    _dedicated_bw_cache["at"] = now
+    return block
+
+
 def build_system_prompt(query: str = None, query_depth: str = None) -> str:
     """Build the complete system prompt based on query depth."""
     if query_depth is None and query:
@@ -241,7 +306,7 @@ def build_system_prompt(query: str = None, query_depth: str = None) -> str:
         query_depth = 'standard'
 
     format_block = get_format_block(query_depth)
-    return AUSPEX_CORE_PROMPT + format_block
+    return AUSPEX_CORE_PROMPT + _dedicated_bw_block() + format_block
 
 
 # Legacy compatibility - default to standard format
@@ -395,7 +460,8 @@ def build_versatile_prompt(query: str) -> str:
     core_with_date = AUSPEX_VERSATILE_CORE.format(current_date=current_date)
 
     # Always start with versatile core and data integrity
-    prompt_parts = [core_with_date, AUSPEX_DATA_INTEGRITY]
+    # (+ the brand-focus block on dedicated Brand Watcher tenants)
+    prompt_parts = [core_with_date, _dedicated_bw_block(), AUSPEX_DATA_INTEGRITY]
 
     # Add intent-specific guidance
     if intent == 'system':
@@ -1587,12 +1653,35 @@ class AuspexService:
                 metadata=metadata
             )
 
-            # Add system message with current prompt
+            # Add system message with current prompt, plus the topic's
+            # auto-maintained timeline (state doc + recent mementos) so the
+            # session starts with situational memory instead of a cold start.
             prompt = self.get_system_prompt()
+            content = prompt['content']
+            if topic:
+                try:
+                    from app.services.timeline_rollup import (
+                        build_timeline_context, resolve_scope_for_topic)
+                    _tconn = self.db._temp_get_connection()
+                    try:
+                        _st, _sid = resolve_scope_for_topic(_tconn, topic)
+                        _block = build_timeline_context(_tconn, _st, _sid)
+                    finally:
+                        _tconn.close()
+                    if _block:
+                        content += (
+                            "\n\n# Situational timeline (auto-maintained)\n"
+                            f"{_block}\n\n"
+                            "Treat this as background state of play, not as "
+                            "evidence — verify anything time-sensitive with "
+                            "your tools before asserting it."
+                        )
+                except Exception as _te:  # noqa: BLE001
+                    logger.debug(f"timeline context injection skipped: {_te}")
             self.db.add_auspex_message(
                 chat_id=chat_id,
                 role="system",
-                content=prompt['content'],
+                content=content,
                 metadata={"prompt_name": prompt['name']}
             )
 
@@ -2547,7 +2636,7 @@ User message:
 Extracted search query (respond with ONLY the query, no explanation):"""
 
             response = litellm.completion(
-                model="gpt-5.4-mini",  # Fast and cheap model for extraction
+                **resolve_litellm_call_params("gpt-5.4-mini"),  # Fast and cheap model for extraction
                 messages=[
                     {"role": "user", "content": extraction_prompt.format(message=message[:3000])}  # Limit to 3000 chars to avoid huge costs
                 ],
@@ -3642,26 +3731,34 @@ Article Details (First {detail_limit}):
             context_limit = self._get_model_context_limit(model)
             max_output_tokens = self._get_model_output_limit(model)
             
-            # Estimate tokens used by input (rough approximation)
+            # Estimate tokens used by input (rough approximation).
+            # Bedrock rejects the whole request when input + max_tokens
+            # exceeds the window ("Input is too long"), so there we estimate
+            # conservatively (3 chars/token) — undercounting the input
+            # inflates max_tokens past what the window can actually hold.
             input_text = " ".join([msg.get("content", "") for msg in messages])
-            estimated_input_tokens = len(input_text) // 4  # Rough estimate: 4 chars per token
-            
+            chars_per_token = 3 if _bedrock_routed(model) else 4
+            estimated_input_tokens = len(input_text) // chars_per_token
+
             # Calculate max_tokens based on model's actual output limit and available context
             available_context = context_limit - estimated_input_tokens - 1000  # Reserve 1000 for safety
             max_tokens = min(max_output_tokens, available_context)
-            
+
             # Ensure we have at least some tokens for response
             max_tokens = max(500, max_tokens)
-            
+
             logger.info(f"Model: {model}, Context limit: {context_limit}, Max output limit: {max_output_tokens}, Estimated input tokens: {estimated_input_tokens}, Final max_tokens: {max_tokens}")
 
             # Create the streaming response. gpt-5.4 needs ``reasoning_effort``
             # + ``max_completion_tokens`` instead of ``max_tokens`` /
             # ``temperature`` — otherwise it emits 0 chars and JSON parsing
             # downstream fails with "No valid JSON found in AI response".
-            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens)
+            # context_budget stops the 4x reasoning headroom from re-inflating
+            # past what the window has left after the input.
+            call_kwargs = _llm_call_kwargs(model, output_tokens=max_tokens,
+                                           context_budget=max_tokens)
             response_stream = await litellm.acompletion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=messages,
                 stream=True,
                 **call_kwargs,
@@ -3729,7 +3826,7 @@ Article Details (First {detail_limit}):
                                            temperature=temperature)
             try:
                 response = await litellm.acompletion(
-                    model=model,
+                    **resolve_litellm_call_params(model),
                     messages=messages,
                     response_format={"type": "json_object"},
                     **call_kwargs,
@@ -3738,7 +3835,7 @@ Article Details (First {detail_limit}):
                 # Fallback without JSON mode if not supported
                 logger.warning(f"JSON mode not supported for {model}, falling back to regular completion: {e}")
                 response = await litellm.acompletion(
-                    model=model,
+                    **resolve_litellm_call_params(model),
                     messages=messages,
                     **call_kwargs,
                 )
@@ -3898,7 +3995,7 @@ Article Details (First {detail_limit}):
         prompt = "\n".join(prompt_parts)
 
         try:
-            response = litellm.completion(model=DEFAULT_MODEL, messages=[{"role": "user", "content": prompt}])
+            response = litellm.completion(**resolve_litellm_call_params(DEFAULT_MODEL), messages=[{"role": "user", "content": prompt}])
             text = response.choices[0].message["content"].strip()
             options = [o.strip() for o in text.replace("\n", ",").split(",") if o.strip()]
             if not options:
@@ -3949,9 +4046,15 @@ Article Details (First {detail_limit}):
         # Handle versioned model names
         base_model = model.split("-")[0:2]  # Get first two parts
         base_model_key = "-".join(base_model)
-        
+
         # Try exact match first, then base model, then default
-        return model_limits.get(model, model_limits.get(base_model_key, 16385))
+        limit = model_limits.get(model, model_limits.get(base_model_key, 16385))
+        # Bedrock Claude targets have a 200k window regardless of the
+        # alias's nominal (OpenAI) window — sizing input to 400k gets the
+        # request rejected with "Input is too long".
+        if _bedrock_routed(model):
+            limit = min(limit, 200000)
+        return limit
     
     def _get_model_output_limit(self, model: str) -> int:
         """Get maximum output token limit for different models."""
@@ -4000,7 +4103,12 @@ Article Details (First {detail_limit}):
         base_model_key = "-".join(base_model)
         
         # Try exact match first, then base model, then reasonable default
-        return model_output_limits.get(model, model_output_limits.get(base_model_key, 4096))
+        limit = model_output_limits.get(model, model_output_limits.get(base_model_key, 4096))
+        # Bedrock Claude targets cap output at 64k regardless of the alias's
+        # nominal (OpenAI) output limit.
+        if _bedrock_routed(model):
+            limit = min(limit, 64000)
+        return limit
     
     def _update_context_manager_for_model(self, model: str):
         """Update context manager with correct model limits."""

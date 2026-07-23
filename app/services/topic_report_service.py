@@ -27,6 +27,8 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
+from app.ai_models import resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
 INTRO_TEMPLATE_PATH = os.path.join(
@@ -265,6 +267,8 @@ def _build_topic_report_prompt(topic: str, article_rows: list) -> str:
     return f"""You are a strategic foresight expert producing a forward-looking
 report on "{topic}" for a scientific-publisher executive audience.
 
+AUDIENCE CONSTRAINT: every strategic_recommendation, next_step, and executive_decision_framework principle must be an action a scientific publisher can actually take within its own remit (editorial, commissioning, portfolio, licensing, research-integrity, partnership, or communication decisions). Never recommend actions for governments, regulators, funders, health authorities, or other third parties the publisher does not control; if the topic involves a crisis the publisher cannot act on directly, frame the action as how the publisher should respond within its remit, not how the crisis itself should be managed.
+
 Analyse {len(article_rows)} articles and return a SINGLE JSON object with
 EVERY field below populated. No prose outside the JSON. No code fences.
 
@@ -394,12 +398,13 @@ async def generate_executive_summary_for_run(
     import litellm
     import asyncio as _asyncio
     call_kwargs: dict = {
-        "model": model,
+        **resolve_litellm_call_params(model),
         "messages": [{"role": "user", "content": full_prompt}],
         "caching": False,
     }
     if model.startswith("gpt-5"):
-        call_kwargs["reasoning_effort"] = "minimal"
+        from app.ai_models import minimal_reasoning_effort
+        call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
     else:
         call_kwargs["max_tokens"] = 8000
@@ -524,12 +529,13 @@ async def _rerun_future_horizons_for_topic(
     import litellm
     import asyncio as _asyncio
     call_kwargs: dict = {
-        "model": model,
+        **resolve_litellm_call_params(model),
         "messages": [{"role": "user", "content": formatted_prompt}],
         "caching": False,
     }
     if model.startswith("gpt-5"):
-        call_kwargs["reasoning_effort"] = "minimal"
+        from app.ai_models import minimal_reasoning_effort
+        call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
     else:
         call_kwargs["max_tokens"] = 8000

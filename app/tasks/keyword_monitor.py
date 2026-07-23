@@ -29,6 +29,12 @@ except ImportError:
 # Strip before sending to collectors; keep the prefixed form in the DB.
 _ENTITY_PREFIXES = ("tech:", "company:", "person:", "location:")
 
+# Hard cap on a single collector search. A provider that accepts the
+# connection but never responds otherwise freezes the whole monitor loop
+# (2026-07-13: a hung NewsFirehose backend stalled every tenant's keyword
+# monitor until the services were restarted).
+SEARCH_TIMEOUT_SECONDS = 120
+
 
 def _strip_entity_prefix(keyword: str) -> str:
     for prefix in _ENTITY_PREFIXES:
@@ -176,8 +182,12 @@ class KeywordMonitor:
             from app.collectors.reddit_collector import RedditCollector
             return RedditCollector()
 
+        elif provider == 'xpoz':
+            from app.collectors.xpoz_collector import XpozCollector
+            return XpozCollector()
+
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit', 'xpoz'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
@@ -287,14 +297,17 @@ class KeywordMonitor:
             else:
                 logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
 
-            articles = await collector.search_articles(
-                query=search_term,
-                topic=topic,
-                max_results=self.page_size,
-                start_date=start_date,
-                search_fields=self.search_fields,
-                language=self.language,
-                sort_by=self.sort_by
+            articles = await asyncio.wait_for(
+                collector.search_articles(
+                    query=search_term,
+                    topic=topic,
+                    max_results=self.page_size,
+                    start_date=start_date,
+                    search_fields=self.search_fields,
+                    language=self.language,
+                    sort_by=self.sort_by
+                ),
+                timeout=SEARCH_TIMEOUT_SECONDS
             )
 
             # Tag articles with provider source
@@ -304,6 +317,12 @@ class KeywordMonitor:
             logger.info(f"{provider}: Found {len(articles)} articles")
             return articles
 
+        except asyncio.TimeoutError:
+            logger.error(
+                f"{provider} search timed out after {SEARCH_TIMEOUT_SECONDS}s "
+                f"for keyword '{keyword_text}' — skipping"
+            )
+            return []
         except Exception as e:
             logger.error(f"{provider} search failed: {e}")
             return []
@@ -896,6 +915,7 @@ class KeywordMonitor:
                     'summary': article.get('summary', ''),
                     'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
                     'opoint_entities': article.get('opoint_entities'),  # Preserve Opoint entity/topic enrichment
+                    'social_meta': article.get('social_meta'),  # Preserve social media/engagement (xpoz)
                     'topic': topic,
                     'analyzed': False
                 }
@@ -968,9 +988,22 @@ class KeywordMonitor:
 
         logger.info(f"Initializing collectors for group '{group_settings.get('name')}': {providers}")
 
+        # Per-group xpoz platform subset (NULL = XPOZ_PLATFORMS env default)
+        social_platforms = None
+        raw_social = group_settings.get('social_platforms')
+        if raw_social:
+            try:
+                social_platforms = json.loads(raw_social) if isinstance(raw_social, str) else raw_social
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Invalid social_platforms JSON for group '{group_settings.get('name')}': {raw_social!r}")
+
         for provider in providers:
             try:
-                collector = self._create_collector(provider)
+                if provider == 'xpoz' and social_platforms:
+                    from app.collectors.xpoz_collector import XpozCollector
+                    collector = XpozCollector(platforms=social_platforms)
+                else:
+                    collector = self._create_collector(provider)
                 if collector:
                     collectors[provider] = collector
                     logger.debug(f"Initialized {provider} collector for group")
@@ -998,6 +1031,7 @@ class KeywordMonitor:
             'interval_unit': group.get('interval_unit') or group.get('global_interval_unit', 3600),
             'search_date_range': group.get('search_date_range') or self.search_date_range,
             'providers': group.get('providers'),
+            'social_platforms': group.get('social_platforms'),
             'auto_ingest_enabled': group.get('auto_ingest_enabled'),
             'min_relevance_threshold': group.get('min_relevance_threshold'),
             'quality_control_enabled': group.get('quality_control_enabled'),
@@ -1044,10 +1078,10 @@ class KeywordMonitor:
         original_collectors = self.collectors
         self.collectors = group_collectors
 
-        # A social-only group (reddit/bluesky) skips the heavy news pipeline and
+        # A social-only group (reddit/bluesky/xpoz) skips the heavy news pipeline and
         # uses the cheap social eval instead.
         self._social_only_group = bool(group_collectors) and all(
-            p in ('reddit', 'bluesky') for p in group_collectors
+            p in ('reddit', 'bluesky', 'xpoz') for p in group_collectors
         )
 
         # Also update settings temporarily
@@ -1075,7 +1109,7 @@ class KeywordMonitor:
             # configurable model instead of the heavy news pipeline. Model precedence:
             # the group's default_llm_model (set in the Gather group-settings UI) ->
             # SOCIAL_EVAL_MODEL env -> default. So the UI model dropdown controls it.
-            if any(p in self.collectors for p in ('reddit', 'bluesky')):
+            if any(p in self.collectors for p in ('reddit', 'bluesky', 'xpoz')):
                 group_topic = group.get('topic')
                 if group_topic:
                     try:
@@ -1187,10 +1221,21 @@ async def run_keyword_monitor():
     last_checkpoint = datetime.now()
     checkpoint_interval = 300  # 5 minutes
 
+    # Liveness heartbeat for the external collector health check
+    # (collector_health_check.sh greps the journal for keyword_monitor lines
+    # within 90 min). Due-group activity legitimately goes quiet for hours on
+    # 12h group cadences, so the loop itself must emit a periodic INFO line —
+    # its absence then really does mean the loop is hung or dead.
+    last_heartbeat = datetime.now()
+    heartbeat_interval = 1800  # 30 minutes
+
     while True:
         try:
             # Perform periodic WAL checkpoint to prevent WAL file growth
             current_time = datetime.now()
+            if (current_time - last_heartbeat).total_seconds() >= heartbeat_interval:
+                last_heartbeat = current_time
+                logger.info("Keyword monitor heartbeat: loop alive (per-group scheduling)")
             if (current_time - last_checkpoint).total_seconds() >= checkpoint_interval:
                 try:
                     db.perform_wal_checkpoint("PASSIVE")

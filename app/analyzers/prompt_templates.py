@@ -136,6 +136,7 @@ class PromptTemplates:
 
             8. Relevant tags:
             Generate 3-5 relevant tags for the article. These should be concise keywords or short phrases that capture the main topics or themes of the article.
+            Write each tag as a normal English phrase with spaces between words (e.g. "chip manufacturing", "export controls") — never hashtags, camelCase, or words joined together.
 
             Format your response as follows:
             Title: [Your title here]
@@ -153,7 +154,7 @@ class PromptTemplates:
             Political Bias Explanation: [Your explanation here]
             Factuality: [Your classification here]
             Factuality Explanation: [Your explanation here]
-            Tags: [tag1, tag2, tag3, ...]
+            Tags: [first tag, second tag, third tag, ...]
             """
         },
         "date_extraction": {

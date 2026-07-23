@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, AsyncGenerator, Any
 
 import litellm
 
+from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,9 @@ def _llm_token_kwargs(model: str, *, output_tokens: int) -> dict:
     ``max_tokens`` shape; ``temperature`` continues to apply.
     """
     if (model or "").startswith("gpt-5"):
+        from app.ai_models import minimal_reasoning_effort
         return {
-            "reasoning_effort": "minimal",
+            "reasoning_effort": minimal_reasoning_effort(model),
             "max_completion_tokens": max(output_tokens * 4, 4000),
         }
     return {"max_tokens": output_tokens}
@@ -268,7 +270,7 @@ Return JSON:
 
         try:
             call_kwargs = {
-                "model": model,
+                **resolve_litellm_call_params(model),
                 "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles."},
                     {"role": "user", "content": prompt}
@@ -280,7 +282,7 @@ Return JSON:
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
 
-            analysis = json.loads(response.choices[0].message.content)
+            analysis = extract_json_response(response.choices[0].message.content)
 
             return {
                 **article,
@@ -339,7 +341,7 @@ Return JSON:
 
         try:
             call_kwargs = {
-                "model": model,
+                **resolve_litellm_call_params(model),
                 "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports."},
                     {"role": "user", "content": prompt}
@@ -351,7 +353,7 @@ Return JSON:
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
 
-            analysis = json.loads(response.choices[0].message.content)
+            analysis = extract_json_response(response.choices[0].message.content)
 
             return {
                 **incident,
@@ -513,7 +515,7 @@ Present strategic considerations that inform executive judgment, not replace it.
 
         try:
             call_kwargs = {
-                "model": model,
+                **resolve_litellm_call_params(model),
                 "messages": [
                     {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance."},
                     {"role": "user", "content": prompt}
@@ -528,7 +530,7 @@ Present strategic considerations that inform executive judgment, not replace it.
             raw = response.choices[0].message.content or ""
             logger.info("Briefing synthesis: %s returned %d chars for '%s'",
                         model, len(raw), briefing_name)
-            result = json.loads(raw)
+            result = extract_json_response(raw)
             logger.info(f"Synthesis complete for '{briefing_name}'")
             return result
 

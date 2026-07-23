@@ -25,6 +25,8 @@ import re
 from datetime import datetime, date
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from app.ai_models import resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
 # Target volumes — medians observed across the briefing corpus.
@@ -37,6 +39,7 @@ ARTICLE_POOL_PER_TOPIC = 40
 ARTICLE_GATHER_DAYS = 3          # recency-first; picks are median ~1 day old
 FEWSHOT_BRIEFINGS = 5            # past briefings shown to the curator as taste
 MAX_PER_SOURCE = 3               # cap candidates per news_source to dampen source/region skew
+HISTORY_LOOKBACK_DAYS = 7        # don't repeat items shared in finalized briefings this recently
 
 DEFAULT_DAYS_BACK = 7
 DEFAULT_MODEL = "gpt-5.4"
@@ -208,6 +211,48 @@ def _fewshot_examples(db, k: int = FEWSHOT_BRIEFINGS) -> Dict[str, List[str]]:
     return {"articles": articles[:40], "incidents": incidents[:40], "emerging": emerging[:40]}
 
 
+def _recently_shared_items(db, days: int) -> Dict[str, set]:
+    """URIs / incident names / emerging labels already shared in finalized
+    briefings within the lookback window — so a daily briefing doesn't repeat
+    itself day-over-day. A genuinely persistent story resurfaces naturally once
+    it falls out of the window; only the within-window repeats are suppressed.
+
+    Names/labels are normalized (strip + lowercase) for tolerant matching.
+    """
+    from sqlalchemy import text
+    uris: set = set()
+    inc_names: set = set()
+    em_names: set = set()
+    if not days or days <= 0:
+        return {"article_uris": uris, "incidents": inc_names, "emerging": em_names}
+    conn = db._temp_get_connection()
+    try:
+        rows = conn.execute(text("""
+            SELECT articles, incidents, emerging_topics
+            FROM desk_briefings
+            WHERE status = 'finalized'
+              AND finalized_at >= NOW() - make_interval(days => :days)
+        """), {"days": days}).mappings().all()
+        for row in rows:
+            for a in (row["articles"] or []):
+                u = a.get("uri") or a.get("url")
+                if u:
+                    uris.add(u)
+            for i in (row["incidents"] or []):
+                nm = i.get("name") or i.get("title")
+                if nm:
+                    inc_names.add(nm.strip().lower())
+            for e in (row["emerging_topics"] or []):
+                nm = e.get("name") or e.get("topic_label")
+                if nm:
+                    em_names.add(nm.strip().lower())
+    except Exception as e:
+        logger.warning(f"[compose] recently-shared fetch failed: {e}")
+    finally:
+        conn.close()
+    return {"article_uris": uris, "incidents": inc_names, "emerging": em_names}
+
+
 # --------------------------------------------------------------------------
 # LLM curator
 # --------------------------------------------------------------------------
@@ -321,7 +366,7 @@ Select up to {TARGET_ARTICLES} articles, {TARGET_INCIDENTS} incidents, and
 }}"""
 
     call_kwargs = {
-        "model": model,
+        **resolve_litellm_call_params(model),
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -447,6 +492,7 @@ async def compose_daily_briefing_stream(
     run_detection: bool = True,
     model: str = DEFAULT_MODEL,
     detect_model: str = DEFAULT_DETECT_MODEL,
+    history_days: int = HISTORY_LOOKBACK_DAYS,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Staged, narrated compose. Yields progress events, ends with 'complete'/'error'."""
     from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
@@ -476,10 +522,23 @@ async def compose_daily_briefing_stream(
         if org_profile:
             yield _evt("create", "progress", f"Curating for {org_profile.get('name')}", progress=0.12)
 
+        # Items shared in finalized briefings within the lookback window — filtered
+        # out of every candidate pool below so the briefing doesn't repeat itself.
+        shared = _recently_shared_items(db, history_days)
+
         # 2. Gather recent article candidates ----------------------------
         yield _evt("gather", "started", "Gathering recent articles…", progress=0.15)
         cand_articles = _gather_candidate_articles(facade, topics, ARTICLE_GATHER_DAYS)
-        yield _evt("gather", "completed", f"Pulled {len(cand_articles)} recent articles",
+        dropped_a = 0
+        if shared["article_uris"]:
+            before = len(cand_articles)
+            cand_articles = [a for a in cand_articles
+                             if (a.get("uri") or a.get("url")) not in shared["article_uris"]]
+            dropped_a = before - len(cand_articles)
+        gather_msg = f"Pulled {len(cand_articles)} recent articles"
+        if dropped_a:
+            gather_msg += f" ({dropped_a} already shared in the last {history_days}d, skipped)"
+        yield _evt("gather", "completed", gather_msg,
                    count=len(cand_articles), progress=0.25)
 
         # 3. Detect emerging topics --------------------------------------
@@ -509,13 +568,33 @@ async def compose_daily_briefing_stream(
             if tid and tid not in seen:
                 seen.add(tid); uniq_em.append(t)
         cand_emerging = uniq_em
-        yield _evt("emerging", "completed", f"Found {len(cand_emerging)} emerging topics",
+        dropped_e = 0
+        if shared["emerging"]:
+            before = len(cand_emerging)
+            cand_emerging = [t for t in cand_emerging
+                             if (t.get("topic_label") or t.get("name") or "").strip().lower()
+                             not in shared["emerging"]]
+            dropped_e = before - len(cand_emerging)
+        emerging_msg = f"Found {len(cand_emerging)} emerging topics"
+        if dropped_e:
+            emerging_msg += f" ({dropped_e} already shared in the last {history_days}d, skipped)"
+        yield _evt("emerging", "completed", emerging_msg,
                    count=len(cand_emerging), progress=0.55)
 
         # 4. Detect incidents --------------------------------------------
         yield _evt("incidents", "started", "Detecting incidents…", progress=0.6)
         cand_incidents = await _detect_incidents(topics, days_back, detect_model, profile_id=profile_id)
-        yield _evt("incidents", "completed", f"Found {len(cand_incidents)} incidents",
+        dropped_i = 0
+        if shared["incidents"]:
+            before = len(cand_incidents)
+            cand_incidents = [i for i in cand_incidents
+                              if (i.get("name") or i.get("title") or "").strip().lower()
+                              not in shared["incidents"]]
+            dropped_i = before - len(cand_incidents)
+        incidents_msg = f"Found {len(cand_incidents)} incidents"
+        if dropped_i:
+            incidents_msg += f" ({dropped_i} already shared in the last {history_days}d, skipped)"
+        yield _evt("incidents", "completed", incidents_msg,
                    count=len(cand_incidents), progress=0.72)
 
         # 5. Curate -------------------------------------------------------
@@ -540,12 +619,32 @@ async def compose_daily_briefing_stream(
         selection["articles"] = [p for p in selection["articles"] if p.get("id") in art_by_id]
         selection["incidents"] = [p for p in selection["incidents"] if p.get("id") in inc_by_id]
         selection["emerging_topics"] = [p for p in selection["emerging_topics"] if p.get("id") in em_by_id]
-        yield _evt("curate", "completed",
-                   ("Curator unavailable — used recency/significance fallback"
-                    if used_fallback else
-                    f"Selected {len(selection['articles'])} articles, "
-                    f"{len(selection['incidents'])} incidents, {len(selection['emerging_topics'])} topics"),
-                   fallback=used_fallback, progress=0.85)
+        # Cross-section dedup: an article that's already a supporting source of a
+        # SELECTED incident is redundant as a standalone pick — the incident carries
+        # it. Drop the standalone article; the incident is the richer presentation.
+        sel_inc_uris: set = set()
+        for p in selection["incidents"]:
+            inc = inc_by_id.get(p.get("id")) or {}
+            for u in (inc.get("article_uris") or []):
+                if u:
+                    sel_inc_uris.add(u)
+        dropped_dup = 0
+        if sel_inc_uris:
+            def _art_uri(pick):
+                a = art_by_id.get(pick.get("id")) or {}
+                return a.get("uri") or a.get("url")
+            before = len(selection["articles"])
+            selection["articles"] = [p for p in selection["articles"]
+                                     if _art_uri(p) not in sel_inc_uris]
+            dropped_dup = before - len(selection["articles"])
+        curate_msg = (
+            "Curator unavailable — used recency/significance fallback"
+            if used_fallback else
+            f"Selected {len(selection['articles'])} articles, "
+            f"{len(selection['incidents'])} incidents, {len(selection['emerging_topics'])} topics")
+        if dropped_dup:
+            curate_msg += f" ({dropped_dup} article(s) dropped — already sourced by a selected incident)"
+        yield _evt("curate", "completed", curate_msg, fallback=used_fallback, progress=0.85)
 
         # 6. Stage selections into the draft -----------------------------
         yield _evt("stage", "started", "Staging selections into the draft…", progress=0.88)

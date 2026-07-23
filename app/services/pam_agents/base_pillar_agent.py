@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Any, AsyncGenerator, Tuple
 from fastapi.concurrency import run_in_threadpool
 import litellm
 
+from app.ai_models import resolve_litellm_call_params
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-5.4-mini"
@@ -426,7 +428,7 @@ CITATION INSTRUCTIONS:
         try:
             response = await run_in_threadpool(
                 litellm.completion,
-                model=self.model,
+                **resolve_litellm_call_params(self.model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature
             )

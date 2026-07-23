@@ -292,7 +292,8 @@ class HybridRelevanceService:
         topic: str,
         title: str,
         summary: str,
-        use_local: bool = False
+        use_local: bool = False,
+        keywords: Optional[List[str]] = None,
     ) -> Optional[float]:
         """
         Get relevance score from LLM (most accurate, but slow/expensive).
@@ -303,10 +304,53 @@ class HybridRelevanceService:
             title: Article title
             summary: Article summary
             use_local: If True, use local Qwen model instead of external GPT
+            keywords: The monitor's actual keywords/entities. REQUIRED context for
+                internal topic labels like "Brand Monitoring Wiley" — an article about
+                John Wiley & Sons is not literally "about" the phrase 'Brand Monitoring
+                Wiley', so judging against the bare label mis-scores real coverage.
         """
-        prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
+        # Internal monitor labels ("Brand Monitoring <X>") describe an entity watch,
+        # not a subject — judge relevance against the entity + its keywords instead.
+        brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
+        entity = brand_match.group(1).strip() if brand_match else None
+        kw_line = f"\nKey entities / search terms for this topic: {', '.join(keywords[:20])}" if keywords else ""
+        if entity:
+            # Brand-monitoring topics: BROAD relevance. The brand, its products, its named
+            # competitors, and the industry/sector/policy it operates in all count as
+            # relevant even when the brand is not named — this recovers sector coverage
+            # (e.g. "academic publishing" news for a publisher watch) that a strict
+            # "must be mainly about the entity" prompt wrongly drops. `keywords` carry the
+            # brand / product / competitor context.
+            prompt = f"""You are a relevance auditor for a brand monitor.
 
-Topic: {topic}
+Brand/organization monitored: "{entity}"{kw_line}
+
+Article Title: {title}
+Article Summary: {summary}
+
+Score 0.0-1.0 how relevant this article is to monitoring "{entity}":
+- 0.7-1.0: primarily about {entity}, its products/services, its named competitors, or the industry/sector/policy it operates in.
+- 0.3-0.6: {entity} or its sector is a notable part of a broader story.
+- 0.0-0.2: only a coincidental name/keyword match about an unrelated subject (a different person, place or product of the same name), or unrelated local trivia.
+
+Respond with ONLY a number between 0.0 and 1.0.
+
+Score:"""
+        else:
+            # Theme topics keep the strict "must be primarily about the topic" auditor —
+            # it works well for them and their trained classifier is reliable.
+            materiality_rules = """
+- MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
+  local administrative trivia. Purely LOCAL or single-institution items with no wider
+  significance — e.g. one local college's admissions, exam results, fee notices, campus
+  events, or municipal data — score LOW (0.1-0.3) even if on-topic. This is about the
+  scope/materiality of the item, NOT the country it is reported from.
+- Items of genuine global or strategic significance score normally regardless of where
+  they occur or are reported — e.g. national R&D/science-funding policy, patent-cliff or
+  generic-drug dynamics, major institutions, or developments affecting the field broadly."""
+            prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
+
+Topic: {topic}{kw_line}
 
 Article Title: {title}
 Article Summary: {summary}
@@ -315,15 +359,7 @@ Rules:
 - The article must be DIRECTLY about the topic, not just tangentially related
 - Sharing a keyword is NOT enough — the article's main subject must match the topic
 - Generic news that mentions a related term in passing scores 0.1-0.2
-- Only score above 0.7 if the article is primarily about the topic
-- MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
-  local administrative trivia. Purely LOCAL or single-institution items with no wider
-  significance — e.g. one local college's admissions, exam results, fee notices, campus
-  events, or municipal data — score LOW (0.1-0.3) even if on-topic. This is about the
-  scope/materiality of the item, NOT the country it is reported from.
-- Items of genuine global or strategic significance score normally regardless of where
-  they occur or are reported — e.g. national R&D/science-funding policy, patent-cliff or
-  generic-drug dynamics, major institutions, or developments affecting the field broadly.
+- Only score above 0.7 if the article is primarily about the topic{materiality_rules}
 
 Respond with ONLY a number between 0.0 and 1.0.
 
@@ -373,11 +409,29 @@ Score:"""
         try:
             from app.ai_models import AIModelFactory, extract_content
 
-            ai = AIModelFactory.get_model()
+            # Highest-volume LLM path on the box (50k+ calls/day on wileytest).
+            # Output is a single number, the exact task shape saas runs on
+            # Nova Lite at scale — 13x cheaper than Haiku (cost directive
+            # 2026-07-16: avoid Haiku unless necessary). Env knob for instant
+            # revert: HYBRID_RELEVANCE_LLM_MODEL=gpt-5.4-mini. (Not
+            # RELEVANCE_FALLBACK_MODEL — that's services/relevance_scorer.py's
+            # outage-fallback knob and is pinned to bedrock-claude-haiku in
+            # the tenant .envs.)
+            ai = AIModelFactory.get_model(
+                os.getenv("HYBRID_RELEVANCE_LLM_MODEL", "nova-lite")
+            )
             response = ai.generate_sync(prompt, max_tokens=10, temperature=0.0)
 
             response_text = extract_content(response)
-            score = float(response_text.strip())
+            # Extract the first number rather than strict float(): Bedrock
+            # models often prefix text ("Score: 0.2"), and a parse failure
+            # here becomes score None upstream — silently dropping the LLM
+            # verdict. Mirrors _compute_local_llm_score.
+            match = re.search(r'(\d+\.?\d*)', response_text)
+            if not match:
+                logger.warning(f"Could not parse external LLM score: {response_text!r}")
+                return None
+            score = float(match.group(1))
             score = max(0.0, min(1.0, score))
             logger.info(f"☁️ External GPT relevance score: {score:.3f}")
             return score
@@ -399,6 +453,7 @@ Score:"""
         force_llm: bool = False,
         use_local_llm: bool = False,
         full_text: Optional[str] = None,
+        keywords: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Score article relevance using hybrid approach.
@@ -418,7 +473,7 @@ Score:"""
         """
         # Force LLM mode
         if force_llm:
-            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
+            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm, keywords=keywords)
             return {
                 "topic": topic,
                 "relevant": (llm_score or 0) >= threshold,
@@ -494,6 +549,16 @@ Score:"""
         else:
             result["confidence"] = "medium"
 
+        # Don't let the cheap LLM override a CONFIDENT relevance classifier on trained
+        # THEME topics: a 0.98-confident classifier being flipped down to 0.2 by the LLM
+        # was dropping genuinely-relevant articles (e.g. Geopolitical coverage). When the
+        # classifier is strongly positive we trust it and skip the LLM. Brand-monitoring
+        # topics are EXEMPT — their classifier is unreliable on entity relevance (it
+        # scores real brand coverage ~0.03), so the LLM remains the arbiter there.
+        is_brand_topic = bool(re.match(r'^Brand Monitoring\s+', topic or ''))
+        if not is_brand_topic and classifier_score is not None and classifier_score >= 0.90:
+            result["confidence"] = "high"
+
         # Cross-encoder tier: for borderline cases, try the CE before paying
         # for an LLM call. Populates ce_score either way when enabled so we
         # can audit CE vs LLM agreement over time.
@@ -514,7 +579,7 @@ Score:"""
         if use_llm_fallback and result["confidence"] != "high":
             fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
             logger.info(f"🤖 {fallback_type} fallback triggered for borderline score {result['score']:.3f}")
-            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
+            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm, keywords=keywords)
             if llm_score is not None:
                 result["llm_score"] = llm_score
                 result["score"] = llm_score  # LLM overrides when uncertain

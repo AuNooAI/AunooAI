@@ -498,6 +498,7 @@
                 <!-- General Section -->
                 <div class="nav-section-label">General</div>
                 <ul class="shared-nav-list">
+                    {% if not request.app.state.dedicated_bw %}
                     <li class="shared-nav-item">
                         <a href="/" class="shared-nav-link {% if current_page == 'home' %}shared-nav-active{% endif %}">
                             <i class="fas fa-home"></i>
@@ -510,18 +511,21 @@
                             <span>Anticipate</span>
                         </a>
                     </li>
+                    {% endif %}
                     <li class="shared-nav-item">
                         <a href="/explore" class="shared-nav-link {% if current_page == 'investigate' %}shared-nav-active{% endif %}">
                             <i class="fas fa-search"></i>
-                            <span>Explore</span>
+                            <span>{% if request.app.state.dedicated_bw %}Brand Watcher{% else %}Explore{% endif %}</span>
                         </a>
                     </li>
+                    {% if not request.app.state.dedicated_bw %}
                     <li class="shared-nav-item">
                         <a href="/gather" class="shared-nav-link {% if current_page == 'gather' %}shared-nav-active{% endif %}">
                             <i class="fas fa-download"></i>
                             <span>Gather</span>
                         </a>
                     </li>
+                    {% endif %}
                 </ul>
 
                 <!-- Support Section -->
@@ -535,12 +539,14 @@
                         </a>
                         <ul class="nav-submenu" id="settings-menu">
                             <li><a href="/config" class="nav-submenu-link"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
+                            {% if not request.app.state.dedicated_bw %}
                             <li><a href="/onboarding?redo=true" class="nav-submenu-link"><i class="fas fa-hat-wizard"></i> AI-guided Topic Setup</a></li>
                             <li><a href="/create_topic" class="nav-submenu-link"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
                             <li><a href="/model-bias-arena" class="nav-submenu-link"><i class="fas fa-balance-scale"></i> Model Bias Arena</a></li>
                             <li><a href="/vector-analysis-improved" class="nav-submenu-link"><i class="fas fa-vector-square"></i> Exploratory Analysis</a></li>
                             <li><a href="/database-editor" class="nav-submenu-link"><i class="fas fa-edit"></i> Database Editor</a></li>
                             <li><a href="/analytics" class="nav-submenu-link"><i class="fas fa-chart-bar"></i> Analytics</a></li>
+                            {% endif %}
                         </ul>
                     </li>
                     <li class="shared-nav-item has-submenu">

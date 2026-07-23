@@ -332,6 +332,7 @@ class GroupSettingsUpdate(BaseModel):
     interval_unit: Optional[int] = None  # 60=minutes, 3600=hours, 86400=days
     search_date_range: Optional[int] = None
     providers: Optional[str] = None  # JSON array e.g., '["thenewsapi", "arxiv"]'
+    social_platforms: Optional[str] = None  # JSON array of xpoz platforms; null = XPOZ_PLATFORMS env default
     auto_ingest_enabled: Optional[bool] = None
     min_relevance_threshold: Optional[float] = None
     quality_control_enabled: Optional[bool] = None
@@ -1710,6 +1711,17 @@ async def get_available_providers():
         "name": "Reddit",
         "description": "Community discussion & sentiment (RSS, no key)",
         "configured": True
+    })
+
+    # Xpoz — paid social search (credit pool shared across tenants); platform
+    # subset is selectable per group to control credit burn
+    from app.collectors.xpoz_collector import _ALL_PLATFORMS as _XPOZ_PLATFORMS
+    available.append({
+        "id": "xpoz",
+        "name": "Xpoz Social",
+        "description": "Twitter/Reddit/Instagram/TikTok search (paid credits)",
+        "configured": bool(os.getenv('XPOZ_API_KEY') or os.getenv('PROVIDER_XPOZ_API_KEY')),
+        "platform_options": list(_XPOZ_PLATFORMS),
     })
 
     return {"providers": available}

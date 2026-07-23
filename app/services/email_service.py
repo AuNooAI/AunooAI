@@ -39,8 +39,57 @@ import re
 logger = logging.getLogger(__name__)
 
 
+# Inline styles per tag — email clients ignore <style> blocks, so styles must
+# ride on the elements themselves.
+_EMAIL_TAG_STYLES = {
+    'h1': 'font-size:20px;color:#333;margin:20px 0 12px 0;',
+    'h2': 'font-size:18px;color:#333;margin:18px 0 10px 0;',
+    'h3': 'font-size:16px;color:#333;margin:15px 0 8px 0;',
+    'h4': 'font-size:14px;color:#333;margin:12px 0 6px 0;',
+    'h5': 'font-size:13px;color:#333;margin:10px 0 5px 0;',
+    'p': 'margin:10px 0;',
+    'ul': 'margin:10px 0;padding-left:20px;',
+    'ol': 'margin:10px 0;padding-left:20px;',
+    'li': 'margin:4px 0;',
+    'table': 'border-collapse:collapse;margin:10px 0;',
+    'th': 'border:1px solid #ddd;padding:6px 8px;background:#f3f4f6;text-align:left;',
+    'td': 'border:1px solid #ddd;padding:6px 8px;',
+    'code': 'background:#f3f4f6;padding:1px 4px;border-radius:3px;',
+    'blockquote': 'border-left:3px solid #ddd;margin:10px 0;padding-left:12px;color:#555;',
+    'hr': 'border:none;border-top:1px solid #ddd;margin:16px 0;',
+}
+
+
 def markdown_to_html(text: str) -> str:
-    """Convert basic markdown to HTML for email rendering."""
+    """Convert markdown to email-safe HTML.
+
+    Uses the real markdown renderer (handles #### headers, nested lists,
+    tables — the regex fallback leaked those raw into emails), then stamps
+    inline styles onto the tags for email-client compatibility."""
+    if not text:
+        return ""
+    try:
+        import markdown as _md
+        # ATX headers indented by 1-3 spaces render as paragraphs in this
+        # markdown build (LLMs sometimes emit " # Title"); de-indent them so a
+        # leading-space heading still becomes <h1>..<h6>.
+        text = re.sub(r'(?m)^[ \t]{1,3}(#{1,6}\s)', r'\1', text)
+        html = _md.markdown(text, extensions=["tables", "sane_lists", "nl2br"])
+        html = re.sub(
+            r'<(h1|h2|h3|h4|h5|p|ul|ol|li|table|th|td|code|blockquote|hr)>',
+            lambda m: f'<{m.group(1)} style="{_EMAIL_TAG_STYLES[m.group(1)]}">',
+            html,
+        )
+        html = html.replace(
+            '<a href', '<a style="color:#667eea;text-decoration:underline;" href')
+        return html
+    except Exception as e:
+        logger.warning(f"markdown renderer unavailable, using legacy converter: {e}")
+        return _legacy_markdown_to_html(text)
+
+
+def _legacy_markdown_to_html(text: str) -> str:
+    """Regex-based fallback converter (pre-2026-07 behavior)."""
     if not text:
         return ""
 
@@ -92,6 +141,76 @@ def markdown_to_html(text: str) -> str:
     text = re.sub(r'<p[^>]*>\s*</p>', '', text)
 
     return text
+
+
+def social_ref(uri: str, fallback: Optional[str] = None) -> dict:
+    """Parse a social post URL into {short, profile, post, platform}.
+
+    `short` is the display handle (with @) used as anchor text; `profile`/`post`
+    are the account and post URLs. Falls back to the raw uri for unknown hosts."""
+    u = (uri or "").strip()
+    m = re.match(r'https?://(?:www\.)?bsky\.app/profile/([^/?#]+)/post/', u)
+    if m:
+        h = m.group(1)
+        return {"short": "@" + h.split('.')[0], "profile": f"https://bsky.app/profile/{h}",
+                "post": u, "platform": "Bluesky"}
+    m = re.match(r'https?://(?:www\.)?(?:x|twitter)\.com/([^/?#]+)/status/', u)
+    if m:
+        h = m.group(1)
+        return {"short": "@" + h, "profile": f"https://x.com/{h}", "post": u, "platform": "X"}
+    m = re.match(r'https?://(?:www\.)?reddit\.com/(r/[^/?#]+)', u)
+    if m:
+        sub = m.group(1)
+        return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u, "platform": "Reddit"}
+    return {"short": fallback or "source", "profile": u or "#", "post": u or "#", "platform": "Social"}
+
+
+def linkify_handles_md(md: str, matches: Optional[List[dict]]) -> str:
+    """Turn plain @handles in report markdown into links to the account profile,
+    using the URLs from the matched posts. Longest handles first so overlapping
+    prefixes don't mis-link; skips handles already inside a link."""
+    if not md or not matches:
+        return md
+    prof = {}
+    for m in matches:
+        r = social_ref(m.get("article_uri", ""))
+        if r["short"].startswith("@") and r["profile"] and r["profile"] != "#":
+            prof.setdefault(r["short"], r["profile"])
+    for h in sorted(prof, key=len, reverse=True):
+        md = re.sub(r'(?<![\[\w/])' + re.escape(h) + r'(?![\w.])',
+                    f'[{h}]({prof[h]})', md)
+    return md
+
+
+def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
+    """Clean, linked 'sources' cards for the matched posts — account link,
+    platform, quote/summary, and a post link. Shared by the alert email and the
+    online report so both show the same complete, navigable source list."""
+    if not matches:
+        return ""
+    cards = []
+    for m in matches:
+        r = social_ref(m.get("article_uri", ""))
+        summary = (m.get("summary") or "").strip()
+        threat = (m.get("threat_level") or "medium").lower()
+        conf = m.get("confidence", 0) or 0
+        try:
+            conf_s = f"{float(conf):.0%}"
+        except Exception:
+            conf_s = str(conf)
+        color = {"high": "#dc3545", "medium": "#d39e00", "low": "#28a745"}.get(threat, "#6c757d")
+        post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">view post ↗</a>'
+                     if r["post"] and r["post"] != "#" else "")
+        cards.append(
+            '<div style="margin:0 0 12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-radius:8px;">'
+            '<p style="margin:0 0 6px 0;">'
+            f'<a href="{r["profile"]}" style="color:#4055c6;font-weight:bold;text-decoration:none;">{r["short"]}</a>'
+            f'<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
+            f'<p style="margin:0 0 6px 0;color:#333;">{summary}</p>'
+            '<p style="margin:0;font-size:12px;color:#555;"><strong>Threat:</strong> '
+            f'<span style="color:{color};font-weight:bold;">{threat.upper()}</span> &nbsp;|&nbsp; '
+            f'<strong>Confidence:</strong> {conf_s}</p></div>')
+    return "\n".join(cards)
 
 
 class EmailProvider(ABC):
@@ -330,7 +449,9 @@ class EmailService:
         topic: Optional[str] = None,
         report_content: Optional[str] = None,
         podcast_url: Optional[str] = None,
-        report_id: Optional[int] = None
+        report_id: Optional[int] = None,
+        report_download_url: Optional[str] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> bool:
         """Send a signal alert email notification with optional report and podcast."""
         subject = f"[AuNoo AI] Signal Alert: {instruction_name}"
@@ -387,6 +508,8 @@ class EmailService:
 
         # Add Report Section if available
         if report_content:
+            # Link @handles in the narrative to their account profiles (inline).
+            report_content = linkify_handles_md(report_content, matches)
             # Extract podcast section if embedded (so it doesn't get truncated)
             podcast_section = ""
             main_content = report_content
@@ -422,6 +545,19 @@ class EmailService:
             </div>
             """)
 
+        # No-auth download links for the full report (signed, time-limited)
+        if report_download_url:
+            pdf_url = (report_download_url.replace('fmt=html', 'fmt=pdf')
+                       if 'fmt=' in report_download_url
+                       else report_download_url + '&fmt=pdf')
+            html_parts.append(f"""
+            <p style="margin: 12px 0; text-align: center;">
+                <a href="{report_download_url}" target="_blank" style="display: inline-block; background: #667eea; color: white; padding: 8px 18px; border-radius: 5px; text-decoration: none; font-weight: bold; margin-right: 8px;">📄 View full report</a>
+                <a href="{pdf_url}" target="_blank" style="display: inline-block; background: #4b5563; color: white; padding: 8px 18px; border-radius: 5px; text-decoration: none; font-weight: bold;">⬇️ Download PDF</a>
+            </p>
+            <p style="text-align: center; color: #999; font-size: 11px; margin: 4px 0 0 0;">No login needed — links are valid for 30 days.</p>
+            """)
+
         # Add Podcast Section if available
         if podcast_url:
             full_podcast_url = f"{base_url}{podcast_url}" if podcast_url.startswith('/') else podcast_url
@@ -436,38 +572,8 @@ class EmailService:
             """)
 
         html_parts.append("<hr>")
-        html_parts.append("<h3>Matched Articles:</h3>")
-
-        for i, match in enumerate(matches[:10], 1):
-            article_uri = match.get('article_uri', 'N/A')
-            summary = match.get('summary', 'No summary available')
-            threat_level = match.get('threat_level', 'medium')
-            confidence = match.get('confidence', 0)
-            reasoning = match.get('reasoning', '')
-
-            threat_color = {
-                'high': '#dc3545',
-                'medium': '#ffc107',
-                'low': '#28a745'
-            }.get(threat_level, '#6c757d')
-
-            html_parts.append(f"""
-            <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
-                <h4 style="margin-top: 0;">Match {i}</h4>
-                <p><strong>Article:</strong> <a href="{article_uri}">{article_uri}</a></p>
-                <p><strong>Summary:</strong> {summary}</p>
-                <p>
-                    <strong>Threat Level:</strong>
-                    <span style="color: {threat_color}; font-weight: bold;">{threat_level.upper()}</span>
-                    &nbsp;|&nbsp;
-                    <strong>Confidence:</strong> {confidence:.0%}
-                </p>
-                {f'<p><strong>Reasoning:</strong> {reasoning}</p>' if reasoning else ''}
-            </div>
-            """)
-
-        if len(matches) > 10:
-            html_parts.append(f"<p><em>... and {len(matches) - 10} more matches.</em></p>")
+        html_parts.append("<h3>Matched posts:</h3>")
+        html_parts.append(render_matched_sources_html(matches))
 
         html_parts.extend([
             "<hr>",
@@ -502,11 +608,15 @@ Investigate with Auspex AI: {auspex_url}
             body_text += f"Match {i}: {match.get('summary', 'No summary')}\n"
             body_text += f"Threat: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"
 
+        if report_download_url:
+            body_text += f"\nDownload full report (no login needed, 30 days): {report_download_url}\n"
+
         return self.send_email(
             to_addresses=[to_address],
             subject=subject,
             body_html=body_html,
-            body_text=body_text
+            body_text=body_text,
+            attachments=attachments,
         )
 
 

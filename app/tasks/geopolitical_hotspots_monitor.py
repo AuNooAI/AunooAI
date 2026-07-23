@@ -362,15 +362,19 @@ class GeopoliticalHotspotsMonitor:
                     stats["errors"] += 1
                     logger.warning(f"Error processing article in schedule {schedule_name}: {e}")
 
-            # Update country stats
+            # Update country stats — run OFF the event loop. These are
+            # synchronous SQLAlchemy calls that iterate thousands of rows
+            # (update_hotspot_trends touches ~10k hotspots); running them
+            # directly on the asyncio loop blocks ALL HTTP request handling
+            # for the duration and makes the app appear "not responding".
             try:
-                service.update_country_stats()
+                await asyncio.to_thread(service.update_country_stats)
             except Exception as e:
                 logger.warning(f"Failed to update country stats: {e}")
 
-            # Update hotspot trends based on article sentiment
+            # Update hotspot trends based on article sentiment (off-loop, same reason)
             try:
-                trend_result = service.update_hotspot_trends()
+                trend_result = await asyncio.to_thread(service.update_hotspot_trends)
                 logger.info(f"Hotspot trends updated: {trend_result['updated']} changed")
             except Exception as e:
                 logger.warning(f"Failed to update hotspot trends: {e}")
