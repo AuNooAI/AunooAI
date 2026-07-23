@@ -2,6 +2,56 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-23 — prod tenants under version control + INCIDENT (secret leak / file deletion)
+
+### Goal
+Get a restorable copy of the prod tenants into git. wileytest IS prod (despite the name);
+wbm is prod. bugfixing is dev/canonical.
+
+### What was done
+- **wbm** — was not a git repo at all; `git init` (local, branch `master`, no remote). Hardened
+  its `.gitignore` first; verified no secrets tracked.
+- **wileytest** — pushed a **clean restore-point snapshot** to a dedicated private repo
+  `AuNooAI/wileytest-prod` (branch `main`). Method: build a single orphan commit from the
+  working tree in a THROWAWAY index (`GIT_INDEX_FILE=$(mktemp)` + `git add -A` + `commit-tree`),
+  strip `.github/workflows/*` (so a `repo`-scoped token suffices, no `workflow` scope), and
+  push that commit ref directly. This never switches branches on the live checkout and never
+  drags git history — so the snapshot is ~43 MB, not the 980 MB (wileytest) / 19 GB (bugfixing)
+  of legacy chromadb/sqlite blobs still in both repos' shared monolith history.
+
+### Why the naive approaches don't work (for future reference)
+- Pushing a branch (`training:main`) drags full history = ~980 MB of legacy `chromadb/chroma.sqlite3`
+  (73 MB) + `fnaapp.db` (52–66 MB) blobs. `.gitignore` excludes these in the *working tree* but
+  NOT in history. Only a history-free orphan snapshot (or a `filter-repo` purge) avoids it.
+- Prod tenants are **deploy-copy targets**: files are rsync'd/copied in and never committed, so
+  the working tree has UNTRACKED `.py` (19 on wileytest), `.env` backups, and a legacy `chromadb/`
+  dir that git doesn't track. Dev (bugfixing) commits everything → 0 untracked app files.
+
+### INCIDENT (my error) + recovery
+While building the snapshot on the LIVE checkout with `git checkout --orphan … && git add -A &&
+git checkout training`, two things went wrong:
+1. **Deleted ~18 untracked deploy-copied files from prod's disk** — the branch-switch back to
+   `training` removed files that `git add -A` had tracked in the orphan branch but `training`
+   didn't. Prod stayed up (running from memory) but was one restart from breaking. **Recovered**
+   by restoring the working tree from the snapshot commit (`git checkout <snap> -- .`).
+2. **Pushed 47 live secrets** — `git add -A` swept in untracked `.env.pre_bedrock_*` (real keys:
+   OPENAI/ANTHROPIC/AWS_BEDROCK/DB_PASSWORD/RESEND/FLASK_SECRET/…) that wileytest's `.gitignore`
+   didn't cover, into a snapshot pushed to the (private) `wileytest-prod`. **Contained** by
+   deleting+recreating the repo; owner rotated the exposed keys.
+
+### Fix — hardened `wileytest/.gitignore`
+Added broad exclusions so `git add -A` can never sweep these again: `.env.*` (keep
+`*.example`/`*.template`), `**/.env.hub`, `*.pre_bedrock*`, `*.key`, `*.pem`, `bedrock.key`,
+`opointkeys`, `*.bak_*`, `config.json.bak*`. Verified with `git check-ignore` (patterns hit) +
+a mandatory pre-push secret scan on the built commit tree (`git ls-tree | grep -i secrets` →
+must be empty, else abort). The safe orphan-snapshot method now bakes this scan in as a gate.
+
+### Lessons
+- NEVER `git checkout --orphan` / branch-switch on a live deploy-copy checkout (untracked files
+  get deleted). Build snapshots via a temp `GIT_INDEX_FILE` + `commit-tree` instead.
+- NEVER `git add -A` on prod without a hardened `.gitignore` AND a secret scan of the resulting
+  tree BEFORE pushing.
+
 ## 2026-07-23 — back-port prod-only fixes into canonical (drift audit: PROD ahead)
 
 A drift audit of bugfixing (canonical) vs wileytest (active prod) found several fixes that
