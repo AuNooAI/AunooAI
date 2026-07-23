@@ -70,6 +70,10 @@ def markdown_to_html(text: str) -> str:
         return ""
     try:
         import markdown as _md
+        # ATX headers indented by 1-3 spaces render as paragraphs in this
+        # markdown build (LLMs sometimes emit " # Title"); de-indent them so a
+        # leading-space heading still becomes <h1>..<h6>.
+        text = re.sub(r'(?m)^[ \t]{1,3}(#{1,6}\s)', r'\1', text)
         html = _md.markdown(text, extensions=["tables", "sane_lists", "nl2br"])
         html = re.sub(
             r'<(h1|h2|h3|h4|h5|p|ul|ol|li|table|th|td|code|blockquote|hr)>',

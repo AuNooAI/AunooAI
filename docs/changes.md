@@ -2,6 +2,29 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-23 — reports: render leading-space markdown headers (raw "# Title" in loadable report)
+
+### Symptom
+A signal report opened via the emailed "View full report" link (and the email's own
+report section) showed a literal `# Negative Social Narrative Summary: Wiley…` instead of
+a rendered heading, while `## Sub-headings` rendered fine.
+
+### Root cause
+`markdown_to_html` (shared by the email report section and the `/signal-reports/{id}/download`
+HTML view) uses python-markdown, which renders an ATX header indented by **1–3 spaces** as a
+paragraph, not a heading. The LLM emitted the top heading as `" # Title"` (one leading space),
+so only that first heading failed.
+
+### Fix — `app/services/email_service.py`
+De-indent ATX headers before rendering: `re.sub(r'(?m)^[ \t]{1,3}(#{1,6}\s)', r'\1', text)`
+in `markdown_to_html`, before `_md.markdown(...)`. 4-space indents (code blocks) are preserved.
+Being a render-time fix, it also repairs already-saved reports on next open. The PDF renderer
+(`report_pdf.py`) already `strip()`s each line before matching headers, so it was unaffected.
+
+### Verification
+Report 644 HTML download: raw `# Negative` paragraphs 0, summary now `<h1>…</h1>`; unit test
+` # Foo`/`  # Foo`/`   # Foo` → H1, `    # x` (4-sp) → P. Restart on all 4 tenants.
+
 ## 2026-07-23 — signal reports: shorten social handles so email clients don't autolink them
 
 ### Symptom
