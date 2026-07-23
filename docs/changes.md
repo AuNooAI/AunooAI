@@ -2,6 +2,33 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-07-23 — observer: only alert on social the product actually shows (on-brand ≥0.4, non-FP)
+
+### Symptom
+An observer alert (wbm instr 10) listed social posts that are **not visible in the Brand
+Watcher Social tab** — e.g. two Indonesian journal-piracy "jasa unlock" X posts and a Reddit
+archaeology post. The client sees an alert referencing posts they can't find/verify in the UI.
+
+### Root cause
+The Social tab gates on `topic_alignment_score >= 0.4` ("on-brand only", the platform-wide
+brand-relevance standard) and hides analyst-flagged false positives. The prior social-inclusion
+fix (`f2f962fb`) added social to the observer pool but applied **neither gate**, so the observer
+alerted on off-brand noise (align 0.05/0.10) and on a post already flagged `false_positive`.
+Measured on wbm/Wiley (14d): 444 sub-0.4 noise + 3 FP were eligible for alerting but hidden in
+the tab; only 172 posts were both on-brand and shown.
+
+### Fix — `app/routes/vector_routes.py` (all 4 observer retrieval queries)
+Gate the **social branch only** (news `category IS NOT NULL` untouched) to match the tab:
+`(social_meta present)` → `(social_meta present AND topic_alignment_score >= 0.4 AND NOT EXISTS
+(false_positive review for this uri))`. Applied to all four observer queries (interactive,
+background, entity, dedup). `bw_finding_reviews` exists on all four tenants.
+
+### Verification
+wbm observer social pool for *Brand Monitoring Wiley* (14d) now **172** (was 619) — exactly the
+tab's on-brand, non-FP set. The three on-brand Bluesky posts (0.85, shown in Social) are kept;
+the two X noise posts (0.05/0.10) and the FP-flagged Reddit post are dropped. py_compile clean +
+restart on all four tenants.
+
 ## 2026-07-22 — signal reports: no raw source/post links (email + loadable report)
 
 ### Ask
