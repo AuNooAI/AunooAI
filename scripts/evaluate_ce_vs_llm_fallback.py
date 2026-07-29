@@ -10,6 +10,13 @@ cross-encoder, and reports:
   * best single-threshold accuracy and the F1 score at that threshold,
   * the implied ``(CE_LOW, CE_HIGH)`` band for the high-confidence tails.
 
+NOTE: only the CE_HIGH half of that band is still wired up. The CE tier in
+hybrid_relevance_service is accept-only — measurement showed no reject
+threshold exists with any real margin (the widest cut that loses no relevant
+article was exactly the lowest-scoring relevant article), and a wrong
+"confident reject" drops an article permanently with no LLM review. Read the
+CE_LOW reported below as diagnostic only; it is not a knob any more.
+
 If the label pool is too small (<20 per class) treat results as indicative;
 the script reports what's usable for now and flags sparsity.
 

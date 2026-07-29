@@ -49,13 +49,38 @@ LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 # Cross-encoder as an intermediate tier between classifier+embedding and LLM
 # fallback. Gated by its own env flag so we can roll it out independently of
 # the retrieval reranker (which shares the underlying model).
-# NOTE: score_pair returns a sigmoid probability in [0, 1]. Defaults below
-# pick the confident tails; re-run scripts/evaluate_ce_vs_llm_fallback.py
-# after changing models and when user_relevance_feedback grows past ~50
-# labels to tighten these.
+# score_pair returns a sigmoid probability, but NOT one spread over [0, 1] for
+# this input: the reranker was trained on (search query, passage) pairs, and a
+# topic label is not a search query. Measured against a 49-item hand-labelled
+# gold set (20 relevant / 29 name-collisions) on wileytest:
+#
+#   relevant articles   min 0.000018   median 0.0029   max 0.80
+#   name collisions     min 0.000016   median 0.000018 max 0.0049
+#
+# Ranking is fine (AUC 0.907 — better than any reworded query we tried), but
+# both classes live in the same 1e-5..1e-2 band, so a GLOBAL absolute cut can
+# only be set with a hair of margin. Two consequences, both load-bearing:
+#
+#  1. The previous CE_LOW=0.10 would have "confidently rejected" 18 of the 20
+#     genuinely relevant articles — 90% — with no LLM review at all. It was
+#     only ever safe because the feature defaults to off.
+#  2. There is no honest reject threshold: the widest cut that loses no
+#     positive is 0.000018, which IS the lowest positive. That is a
+#     coincidence, not a margin. So the CE tier is accept-only now.
+#
+# The asymmetry matters. A wrong "confident accept" costs one enrichment call.
+# A wrong "confident reject" silently drops an article for good, because
+# nothing downstream re-examines it — the exact failure mode that made news
+# vanish from the observer agents. Only the safe direction is wired up.
+#
+# Re-derive CE_HIGH with scripts/evaluate_ce_vs_llm_fallback.py after any
+# reranker model change, and when user_relevance_feedback passes ~50 labels.
 USE_CE_TIER = os.getenv("RELEVANCE_USE_CE_TIER", "false").lower() in {"1", "true", "yes"}
-CE_LOW = float(os.getenv("RELEVANCE_CE_LOW", "0.10"))   # below → confident reject
-CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.90"))  # above → confident accept
+# 0.05 sits an order of magnitude above the worst-scoring collision (0.0049,
+# "Sage Group (OTCMKTS:SGPYY)" — the accounting-software firm, not SAGE
+# Publishing). Accepts the clearest ~10-30% of borderline cases, 0 false
+# accepts on the gold set.
+CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.05"))  # above → confident accept
 
 
 class HybridRelevanceService:
@@ -567,12 +592,20 @@ Score:"""
             ce_score = self._compute_cross_encoder_score(topic, title, summary)
             if ce_score is not None:
                 result["ce_score"] = ce_score
-                if ce_score < CE_LOW or ce_score > CE_HIGH:
-                    result["score"] = ce_score
+                # Accept-only: a CE below the bar means "no opinion", not
+                # "reject", and falls through to the LLM. See the CE_HIGH note
+                # at the top of this module for why the reject side is gone.
+                if ce_score > CE_HIGH:
+                    # Keep the hybrid score rather than adopting the CE's own
+                    # value — the CE's scale is not comparable to the
+                    # embedding/classifier scale, so writing it into `score`
+                    # would corrupt the threshold comparison downstream.
+                    result["score"] = max(result["score"], threshold)
                     result["method"] = f"{result['method']}+ce"
                     result["confidence"] = "high"
                     logger.info(
-                        f"🎯 CE resolved borderline case: {ce_score:.3f} (thresholds {CE_LOW}/{CE_HIGH})"
+                        f"🎯 CE confirmed borderline case: ce={ce_score:.4f} "
+                        f"(> {CE_HIGH}), skipping LLM"
                     )
 
         # LLM fallback for uncertain/borderline scores
