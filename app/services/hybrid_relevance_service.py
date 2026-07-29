@@ -50,37 +50,44 @@ LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 # fallback. Gated by its own env flag so we can roll it out independently of
 # the retrieval reranker (which shares the underlying model).
 # score_pair returns a sigmoid probability, but NOT one spread over [0, 1] for
-# this input: the reranker was trained on (search query, passage) pairs, and a
-# topic label is not a search query. Measured against a 49-item hand-labelled
-# gold set (20 relevant / 29 name-collisions) on wileytest:
+# this input: the reranker was trained on (search query, passage) pairs and a
+# topic label is not a search query. Measured on REAL production documents
+# (title + summary, the same string _compute_cross_encoder_score builds) from
+# wileytest:
 #
-#   relevant articles   min 0.000018   median 0.0029   max 0.80
-#   name collisions     min 0.000016   median 0.000018 max 0.0049
+#   THEME topics  AUC 0.885   relevant median 0.0014   other median 0.00003
+#   BRAND topics  AUC 0.478   relevant median 0.00043  other median 0.00055
 #
-# Ranking is fine (AUC 0.907 — better than any reworded query we tried), but
-# both classes live in the same 1e-5..1e-2 band, so a GLOBAL absolute cut can
-# only be set with a hair of margin. Two consequences, both load-bearing:
+# So the tier is theme-only (see the gate in score_relevance) and accept-only.
+# Both restrictions are load-bearing:
 #
-#  1. The previous CE_LOW=0.10 would have "confidently rejected" 18 of the 20
-#     genuinely relevant articles — 90% — with no LLM review at all. It was
-#     only ever safe because the feature defaults to off.
-#  2. There is no honest reject threshold: the widest cut that loses no
-#     positive is 0.000018, which IS the lowest positive. That is a
-#     coincidence, not a margin. So the CE tier is accept-only now.
+#  1. The previous CE_LOW=0.10 sits above essentially the whole relevant
+#     population — every relevant article measured scored below it. Enabling
+#     the flag as shipped would have "confidently rejected" ~100% of relevant
+#     articles with no LLM review. Only the default-off saved it.
+#  2. There is no honest reject threshold at all: relevant and irrelevant both
+#     live in 1e-5..1e-2, and the widest cut losing no relevant article is
+#     itself the lowest relevant article. That is a coincidence, not a margin.
 #
-# The asymmetry matters. A wrong "confident accept" costs one enrichment call.
-# A wrong "confident reject" silently drops an article for good, because
-# nothing downstream re-examines it — the exact failure mode that made news
-# vanish from the observer agents. Only the safe direction is wired up.
+# The asymmetry is what settles it. A wrong "confident accept" costs one
+# enrichment call. A wrong "confident reject" drops the article for good,
+# because nothing downstream re-examines it — the exact failure mode that made
+# news vanish from the observer agents. Only the safe direction is wired up.
+#
+# Beware measuring this on titles alone: title-only scoring reports a far
+# rosier AUC than the production title+summary document, because the summary
+# adds text the reranker cannot align to a topic label.
 #
 # Re-derive CE_HIGH with scripts/evaluate_ce_vs_llm_fallback.py after any
 # reranker model change, and when user_relevance_feedback passes ~50 labels.
 USE_CE_TIER = os.getenv("RELEVANCE_USE_CE_TIER", "false").lower() in {"1", "true", "yes"}
-# 0.05 sits an order of magnitude above the worst-scoring collision (0.0049,
-# "Sage Group (OTCMKTS:SGPYY)" — the accounting-software firm, not SAGE
-# Publishing). Accepts the clearest ~10-30% of borderline cases, 0 false
-# accepts on the gold set.
+# On theme topics 0.05 accepts 28/199 relevant (14%) while wrongly accepting
+# 2/114 irrelevant (1.8%) — a modest saving of LLM calls at a cost of at worst
+# a couple of extra enrichments.
 CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.05"))  # above → confident accept
+
+# Both brand-topic naming conventions in use across tenants.
+_BRAND_TOPIC_RE = re.compile(r'^Brand Monitoring\s+|\s-\sBrand Watch$', re.I)
 
 
 class HybridRelevanceService:
@@ -587,8 +594,25 @@ Score:"""
         # Cross-encoder tier: for borderline cases, try the CE before paying
         # for an LLM call. Populates ce_score either way when enabled so we
         # can audit CE vs LLM agreement over time.
+        # Theme topics only. Measured on real production documents
+        # (title + summary, as scored below):
+        #
+        #   THEME topics  AUC 0.885  (199 relevant / 114 not)
+        #   BRAND topics  AUC 0.478  (9 relevant / 86 not, hand-labelled)
+        #
+        # Brand relevance is entity disambiguation — SAGE Publishing vs Sage
+        # Group plc vs sage the herb vs sage-agent-sdk on PyPI. That is a
+        # named-entity problem, and a semantic reranker rates all of those as
+        # similar, so on brand topics it performs at chance. Same underlying
+        # reason the classifier-confidence guard above exempts brand topics.
+        # NOTE: is_brand_topic above only recognises the "Brand Monitoring X"
+        # naming. Tenants also carry "X - Brand Watch" topics (live, low
+        # volume), which that predicate misses — so the CE gate uses its own,
+        # covering both. Left the narrower one alone rather than silently
+        # changing which topics the classifier-confidence guard applies to.
+        is_brand_like = bool(_BRAND_TOPIC_RE.search(topic or ''))
         result["ce_score"] = None
-        if USE_CE_TIER and result["confidence"] == "medium":
+        if USE_CE_TIER and result["confidence"] == "medium" and not is_brand_like:
             ce_score = self._compute_cross_encoder_score(topic, title, summary)
             if ce_score is not None:
                 result["ce_score"] = ce_score
