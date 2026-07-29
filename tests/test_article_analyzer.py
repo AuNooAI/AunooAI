@@ -5,6 +5,27 @@ import os
 from app.analyzers.article_analyzer import ArticleAnalyzer, ArticleAnalyzerError
 from app.analyzers.prompt_templates import PromptTemplates, PromptTemplateError
 
+
+@pytest.fixture(autouse=True)
+def isolated_prompt_storage(tmp_path, monkeypatch):
+    """Keep PromptManager off the live prompt store.
+
+    PromptTemplates.load_custom_templates() calls save_version(), which writes
+    through to data/prompts/current.json. Without this, running the suite
+    replaces the production analysis prompt with the test fixture's
+    "Custom analysis prompt for {title}" and every tenant sharing this tree
+    starts enriching articles against it.
+    """
+    import app.analyzers.prompt_manager as prompt_manager_module
+
+    real_init = prompt_manager_module.PromptManager.__init__
+
+    def sandboxed_init(self, storage_dir=None):
+        real_init(self, storage_dir or str(tmp_path / "prompts"))
+
+    monkeypatch.setattr(prompt_manager_module.PromptManager, "__init__", sandboxed_init)
+
+
 @pytest.fixture
 def mock_ai_model():
     model = Mock()
@@ -121,31 +142,36 @@ def test_truncate_summary():
     with pytest.raises(ArticleAnalyzerError, match="max_words must be a positive integer"):
         analyzer.truncate_summary("text", max_words="invalid")
 
+FULL_ANALYSIS = """Title: Test Title
+Summary: Test Summary
+Category: AI
+Future Signal: Positive
+Future Signal Explanation: Good progress
+Sentiment: Positive
+Sentiment Explanation: Upbeat
+Time to Impact: Short Term
+Time to Impact Explanation: Soon
+Driver Type: Technology
+Driver Type Explanation: Tech driven
+Political Bias: Center
+Factuality: High
+Tags: [tag1, tag2]"""
+
+
 def test_parse_analysis():
     analyzer = ArticleAnalyzer(Mock())
-    
-    # Test normal analysis
-    analysis = """
-    Title: Test Title
-    Summary: Test Summary
-    Category: AI
-    Future Signal: Positive
-    Future Signal Explanation: Good progress
-    Sentiment: Positive
-    Time to Impact: Short Term
-    Driver Type: Technology
-    Tags: [tag1, tag2]
-    """
-    parsed = analyzer.parse_analysis(analysis)
-    assert parsed["Title"] == "Test Title"
-    assert parsed["Summary"] == "Test Summary"
-    assert parsed["Category"] == "AI"
-    assert parsed["Future Signal"] == "Positive"
-    assert parsed["Future Signal Explanation"] == "Good progress"
-    
+
+    parsed = analyzer.parse_analysis(FULL_ANALYSIS)
+    assert parsed["title"] == "Test Title"
+    assert parsed["summary"] == "Test Summary"
+    assert parsed["category"] == "AI"
+    assert parsed["future_signal"] == "Positive"
+    assert parsed["future_signal_explanation"] == "Good progress"
+    assert parsed["tags"] == ["tag1", "tag2"]
+
     # Test empty analysis
     assert analyzer.parse_analysis("") == {}
-    
+
     # Test malformed analysis
     malformed = """
     No colons here
@@ -153,14 +179,79 @@ def test_parse_analysis():
     """
     with pytest.raises(ArticleAnalyzerError, match="Missing required fields"):
         analyzer.parse_analysis(malformed)
-    
-    # Test missing required fields
+
+    # Critical fields are still enforced
     incomplete = """
     Title: Test Title
     Summary: Test Summary
     """
     with pytest.raises(ArticleAnalyzerError, match="Missing required fields"):
         analyzer.parse_analysis(incomplete)
+
+
+def test_parse_analysis_tolerates_heading_drift():
+    """Heading variants seen in production must not discard the analysis."""
+    analyzer = ArticleAnalyzer(Mock())
+
+    # Model labels the driver rationale "Driver Signal Explanation"
+    aliased = FULL_ANALYSIS.replace("Driver Type Explanation:", "Driver Signal Explanation:")
+    assert analyzer.parse_analysis(aliased)["driver_type_explanation"] == "Tech driven"
+
+    # Model numbers its headings: "1. Title", "2. Summary", ...
+    numbered = "\n".join(f"{i + 1}. {line}"
+                         for i, line in enumerate(FULL_ANALYSIS.split("\n")))
+    assert analyzer.parse_analysis(numbered)["category"] == "AI"
+
+    # Model emits "8. Relevant tags" instead of "Tags"
+    relabelled = FULL_ANALYSIS.replace("Tags:", "8. Relevant tags:")
+    assert analyzer.parse_analysis(relabelled)["tags"] == ["tag1", "tag2"]
+
+    # Markdown emphasis must not survive into the values, or the ontology
+    # validation downgrades them ("** Positive" is not a valid sentiment).
+    bold = "\n".join(f"**{line.split(':', 1)[0]}:**{line.split(':', 1)[1]}"
+                     for line in FULL_ANALYSIS.split("\n"))
+    assert analyzer.parse_analysis(bold)["sentiment"] == "Positive"
+
+
+def test_parse_analysis_merged_explanation_and_title_fallback():
+    analyzer = ArticleAnalyzer(Mock())
+
+    # A single "Explanation" block standing in for the four rationales
+    merged = """Title: T
+Summary: S
+Category: AI
+Explanation: One rationale covering everything
+Future Signal: Positive
+Sentiment: Positive
+Time to Impact: Short Term
+Driver Type: Technology
+Political Bias: Center
+Factuality: High
+Tags: [a]"""
+    parsed = analyzer.parse_analysis(merged)
+    assert parsed["sentiment_explanation"] == "One rationale covering everything"
+    assert parsed["driver_type_explanation"] == "One rationale covering everything"
+
+    # Title omitted entirely -> fall back to the caller's title
+    no_title = "\n".join(line for line in FULL_ANALYSIS.split("\n")
+                         if not line.startswith("Title:"))
+    assert analyzer.parse_analysis(no_title, fallback_title="Caller Title")["title"] == "Caller Title"
+
+    # ...but with no fallback available it is still a hard failure
+    with pytest.raises(ArticleAnalyzerError, match="Title"):
+        analyzer.parse_analysis(no_title)
+
+
+def test_parse_analysis_blanks_optional_fields():
+    """Missing secondary fields are filled blank, not treated as fatal."""
+    analyzer = ArticleAnalyzer(Mock())
+
+    sparse = "\n".join(line for line in FULL_ANALYSIS.split("\n")
+                       if not line.startswith(("Political Bias:", "Factuality:")))
+    parsed = analyzer.parse_analysis(sparse)
+    assert parsed["political_bias"] == ""
+    assert parsed["factuality"] == ""
+    assert parsed["category"] == "AI"
 
 def test_extract_title_with_default_template(analyzer, mock_ai_model):
     # Setup mock response
