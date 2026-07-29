@@ -12,6 +12,55 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# Leading list markers the models sprinkle on headings: "1. Category",
+# "2) Future Signal", "- Sentiment", "**3. Tags**".
+_HEADING_PREFIX_RE = re.compile(r'^(?:[-*•>\s]*)(?:\(?\d+[.)]\s*)*')
+
+# Heading wording drifts between model versions. A response that says
+# "Driver Signal Explanation" or "Relevant tags" is a correct analysis with a
+# different label on it — aliasing costs nothing and stops us discarding the
+# whole article over a heading variant.
+_FIELD_ALIASES = {
+    "driver signal explanation": "driver type explanation",
+    "driver type rationale": "driver type explanation",
+    "driver explanation": "driver type explanation",
+    "future signal rationale": "future signal explanation",
+    "sentiment rationale": "sentiment explanation",
+    "time to impact rationale": "time to impact explanation",
+    "time to impact explanation rationale": "time to impact explanation",
+    "future signals": "future signal",
+    "time horizon": "time to impact",
+    "relevant tags": "tags",
+    "relevant keywords": "tags",
+    "tag": "tags",
+    "keywords": "tags",
+    "bias": "political bias",
+    "political bias rationale": "political bias explanation",
+    "factual reporting": "factuality",
+    "factuality rating": "factuality",
+    "factuality rationale": "factuality explanation",
+    "article title": "title",
+    "headline": "title",
+}
+
+
+def _normalize_field_key(key: str) -> str:
+    """Strip markdown, list markers and stray punctuation from a heading."""
+    cleaned = key.replace('*', '').replace('#', '').replace('_', ' ')
+    cleaned = _HEADING_PREFIX_RE.sub('', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip().strip(':').strip()
+    return cleaned
+
+
+def _normalize_field_value(value: str) -> str:
+    """Drop the markdown emphasis that survives a '**Category:** Foo' heading.
+
+    Left in place it reaches _validate_analysis_fields as '** Widespread
+    adoption', fails the ontology match and gets downgraded to 'Other'.
+    """
+    return value.strip().strip('*').strip()
+
+
 class ArticleAnalyzerError(Exception):
     pass
 
@@ -164,7 +213,7 @@ Article text:
             if not analysis:
                 raise ArticleAnalyzerError("Failed to generate analysis")
 
-            result = self.parse_analysis(analysis)
+            result = self.parse_analysis(analysis, fallback_title=title)
 
             # Validate and sanitize the parsed result against the provided options
             result = self._validate_analysis_fields(
@@ -213,7 +262,22 @@ Article text:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise ArticleAnalyzerError(f"Failed to analyze content: {str(e)}")
 
-    def parse_analysis(self, analysis: str) -> Dict:
+    # Without these the record is not worth storing: it would land in the
+    # database as an un-analysed row that still satisfies the
+    # "category IS NOT NULL AND sentiment IS NOT NULL" gate the observer
+    # agents retrieve on.
+    CRITICAL_FIELDS = ["Title", "Summary", "Category", "Sentiment"]
+
+    # Descriptive/secondary fields. A model that omits or re-labels one of
+    # these has still produced a usable analysis, so we fill a blank and warn
+    # rather than discarding the article.
+    OPTIONAL_FIELDS = ["Future Signal", "Future Signal Explanation",
+                       "Sentiment Explanation", "Time to Impact",
+                       "Time to Impact Explanation", "Driver Type",
+                       "Driver Type Explanation", "Political Bias",
+                       "Factuality", "Tags"]
+
+    def parse_analysis(self, analysis: str, fallback_title: str = None) -> Dict:
         if not analysis:
             return {}
 
@@ -230,12 +294,12 @@ Article text:
                 if ':' in line:
                     # If we have a previous key, save its value
                     if current_key:
-                        parsed_analysis[current_key] = '\n'.join(current_value).strip()
-                    
+                        parsed_analysis[current_key] = _normalize_field_value(
+                            '\n'.join(current_value))
+
                     # Start a new key
                     key, value = line.split(':', 1)
-                    # Remove any asterisks, hashes, and whitespace from key
-                    current_key = key.strip().strip('*').strip('#').strip()
+                    current_key = _normalize_field_key(key)
                     current_value = [value.strip()]
                 elif current_key:
                     # Continue with previous key
@@ -243,42 +307,72 @@ Article text:
 
             # Save the last key's value
             if current_key:
-                parsed_analysis[current_key] = '\n'.join(current_value).strip()
+                parsed_analysis[current_key] = _normalize_field_value(
+                    '\n'.join(current_value))
 
             logger.debug(f"Initial parsed analysis: {json.dumps(parsed_analysis, indent=2)}")
 
-            # Clean up keys by removing Markdown formatting
-            cleaned_analysis = {}
+            # Resolve heading variants onto their canonical names. Keys are
+            # held lowercase from here on; the canonical spelling is restored
+            # when building cleaned_analysis below.
+            resolved = {}
             for key, value in parsed_analysis.items():
-                # Remove Markdown formatting (# and ##) from keys
-                clean_key = key.lstrip('#').strip()
-                cleaned_analysis[clean_key] = value
-            
-            # If Title is missing and we have an extracted title, use it as fallback
-            if "Title" not in cleaned_analysis and hasattr(self, '_extracted_title') and self._extracted_title:
-                logger.debug(f"Using extracted title as fallback: {self._extracted_title}")
-                cleaned_analysis["Title"] = self._extracted_title
+                if not key:
+                    continue
+                canonical = _FIELD_ALIASES.get(key.lower(), key.lower())
+                # An alias never overwrites a heading the model spelled out
+                # correctly (e.g. both "Tags" and "Relevant tags" present).
+                if canonical in resolved and resolved[canonical]:
+                    continue
+                resolved[canonical] = value
 
-            # Validate required fields - use case-insensitive comparison
-            required_fields = ["Title", "Summary", "Category", "Future Signal",
-                             "Future Signal Explanation", "Sentiment", "Sentiment Explanation",
-                             "Time to Impact", "Time to Impact Explanation",
-                             "Driver Type", "Driver Type Explanation",
-                             "Political Bias", "Factuality", "Tags"]
-            
-            # Create a case-insensitive mapping of the parsed keys
-            parsed_keys_lower = {k.lower(): k for k in cleaned_analysis.keys()}
-            
-            # Check for missing fields using case-insensitive comparison
-            missing_fields = []
-            for field in required_fields:
-                if field.lower() not in parsed_keys_lower:
-                    missing_fields.append(field)
-            
-            if missing_fields:
-                logger.error(f"Missing fields in analysis: {missing_fields}")
-                logger.error(f"Available fields: {list(cleaned_analysis.keys())}")
-                raise ArticleAnalyzerError(f"Missing required fields in analysis: {', '.join(missing_fields)}")
+            all_fields = self.CRITICAL_FIELDS + self.OPTIONAL_FIELDS
+            cleaned_analysis = {
+                field: resolved[field.lower()]
+                for field in all_fields
+                if field.lower() in resolved
+            }
+            # Preserve any extra headings the model volunteered
+            # (e.g. "Political Bias Explanation", "Publication Date").
+            known_lower = {f.lower() for f in all_fields}
+            for key, value in resolved.items():
+                if key not in known_lower:
+                    cleaned_analysis[key.title()] = value
+
+            # Some models collapse the four per-field rationales into a single
+            # "Explanation" block. Reuse it rather than dropping the article.
+            generic_explanation = resolved.get('explanation') or resolved.get('rationale')
+            if generic_explanation:
+                for field in ("Future Signal Explanation", "Sentiment Explanation",
+                              "Time to Impact Explanation", "Driver Type Explanation"):
+                    if not cleaned_analysis.get(field):
+                        cleaned_analysis[field] = generic_explanation
+
+            # Title fallback chain: parsed heading -> separately extracted
+            # title -> the title the caller already had for this article.
+            if not cleaned_analysis.get("Title"):
+                for candidate in (getattr(self, '_extracted_title', None), fallback_title):
+                    if candidate and candidate.strip():
+                        logger.debug(f"Using fallback title: {candidate}")
+                        cleaned_analysis["Title"] = candidate.strip()
+                        break
+
+            missing_critical = [f for f in self.CRITICAL_FIELDS
+                                if not cleaned_analysis.get(f)]
+            if missing_critical:
+                logger.error(f"Missing fields in analysis: {missing_critical}")
+                logger.error(f"Available fields: {list(resolved.keys())}")
+                raise ArticleAnalyzerError(
+                    f"Missing required fields in analysis: {', '.join(missing_critical)}")
+
+            missing_optional = [f for f in self.OPTIONAL_FIELDS
+                                if not cleaned_analysis.get(f)]
+            if missing_optional:
+                logger.warning(
+                    f"Analysis missing optional field(s), storing blank: {missing_optional}. "
+                    f"Available fields: {list(resolved.keys())}")
+                for field in missing_optional:
+                    cleaned_analysis[field] = ""
 
             # Convert keys to expected format using case-insensitive matching
             key_mapping = {
