@@ -456,9 +456,11 @@ class AutomatedIngestService:
                 self.hybrid_relevance_service.load_models()
                 self.logger.info("🤖 Initialized Hybrid Relevance Service (embedding + classifier + LLM fallback)")
 
-            # Prepare article text
-            article_full_content = article_data.get('content', '')
-            article_summary = article_data.get('summary', '')
+            # Prepare article text. Use `or ''` (not a .get default) because the
+            # keys can be present with an explicit None value, which would make
+            # len(article_content) raise "NoneType has no len()".
+            article_full_content = article_data.get('content') or ''
+            article_summary = article_data.get('summary') or ''
             article_content = article_full_content or article_summary
             title = article_data.get('title', '')
 
@@ -1779,6 +1781,15 @@ class AutomatedIngestService:
             Dictionary mapping URIs to scraped content
         """
         try:
+            # Guard: Firecrawl 400s ("No valid URLs provided") when handed an
+            # empty or all-invalid list (e.g. non-http scheme). Filter first and
+            # skip the call entirely when nothing valid remains.
+            valid_uris = [u for u in (uris or []) if isinstance(u, str) and u.startswith(("http://", "https://"))]
+            if not valid_uris:
+                self.logger.info(f"Skipping Firecrawl batch scrape: no valid http(s) URLs among {len(uris or [])}")
+                return {}
+            uris = valid_uris
+
             self.logger.info(f"Starting Firecrawl batch scrape for {len(uris)} URLs")
             start_time = time.time()
 
@@ -1864,6 +1875,13 @@ class AutomatedIngestService:
             return {}
         except Exception as e:
             duration = time.time() - start_time
+            # Firecrawl rejects some URLs it can't scrape (e.g. Google-News RSS
+            # redirects) with "No valid URLs provided". That's an expected,
+            # non-fatal rejection — log quietly at WARNING and skip, rather than
+            # emitting an ERROR + traceback for every such batch.
+            if "No valid URLs" in str(e):
+                self.logger.warning(f"Firecrawl rejected {len(uris)} URL(s) as unscrapable; skipping batch.")
+                return {}
             self.logger.error(f"❌ Error in Firecrawl batch scraping after {duration:.1f}s: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
