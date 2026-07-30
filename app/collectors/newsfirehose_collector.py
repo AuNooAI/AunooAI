@@ -78,6 +78,12 @@ class NewsFirehoseCollector(ArticleCollector):
         # Remove NOT terms entirely (they break tsquery and we filter downstream)
         normalized = re.sub(r'\bNOT\s+\S+', '', normalized, flags=re.IGNORECASE)
 
+        # Drop characters that break PostgreSQL tsquery when they appear
+        # literally in a term (e.g. "John Wiley & Sons", "Taylor & Francis").
+        # &, !, :, * are tsquery operators; replace with a space so the term
+        # degrades to plain words. (| and + were already converted to OR above.)
+        normalized = re.sub(r'[&!:*\\]+', ' ', normalized)
+
         # Clean up multiple spaces and dangling ORs
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         normalized = re.sub(r'^OR\s+|\s+OR$', '', normalized)
