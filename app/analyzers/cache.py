@@ -2,6 +2,7 @@ from typing import Dict, Optional, Any
 import json
 import os
 import time
+import hashlib
 import logging
 from datetime import datetime, timedelta
 
@@ -29,8 +30,14 @@ class AnalysisCache:
 
     def _get_cache_path(self, uri: str, content_hash: str) -> str:
         """Create a cache path that includes model information."""
-        # Create a safe filename from the URI
+        # Create a safe filename from the URI. Cap the URI portion and append a
+        # hash of the full URI so very long URLs (e.g. Google-News RSS article
+        # IDs) don't exceed the filesystem's 255-char filename limit (Errno 36).
+        # Short URIs keep their existing name, so no cache is invalidated.
         safe_uri = uri.replace('://', '_').replace('/', '_')
+        if len(safe_uri) > 150:
+            uri_digest = hashlib.sha1(uri.encode('utf-8')).hexdigest()[:16]
+            safe_uri = f"{safe_uri[:150]}_{uri_digest}"
         filename = f"{safe_uri}_{content_hash}.json"
         
         # Create subdirectories based on the first few characters of the hash
