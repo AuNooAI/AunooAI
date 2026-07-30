@@ -851,6 +851,12 @@ async def finalize_briefing(
     if briefing.get("status") == "finalized":
         raise HTTPException(400, "Briefing is already finalized")
 
+    # Pin the synthesis model server-side so the finalized briefing (and the
+    # model_used byline) is tenant-consistent, independent of the browser model
+    # dropdown. Falls back to the client-passed model when unset.
+    from app.services.daily_briefing_compose_service import _get_pinned_briefing_model
+    effective_model = _get_pinned_briefing_model(db) or request.model
+
     articles = briefing.get("articles", [])
     incidents = briefing.get("incidents", [])
 
@@ -867,7 +873,7 @@ async def finalize_briefing(
                 briefing_name=briefing.get("name"),
                 articles=articles,
                 incidents=incidents,
-                model=request.model,
+                model=effective_model,
                 organizational_profile=request.organizational_profile,
                 persona=request.persona
             ):
@@ -883,7 +889,7 @@ async def finalize_briefing(
                         themes=update.get("themes", []),
                         priority_actions=update.get("priority_actions", []),
                         metadata=update.get("metadata", {}),
-                        model_used=request.model
+                        model_used=effective_model
                     )
 
                 if update.get("stage") in ["complete", "error"]:

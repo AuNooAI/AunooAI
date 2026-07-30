@@ -483,6 +483,25 @@ def _emerging_to_briefing(t: Dict[str, Any], reason: str, topic: str) -> Dict[st
 # Pipeline
 # --------------------------------------------------------------------------
 
+def _get_pinned_briefing_model(db) -> Optional[str]:
+    """Server-side pinned model for the daily briefing + incident detection
+    (``emerging_topics_settings.model``). Returns None when unset so callers
+    fall back to the passed model. Never raises."""
+    from sqlalchemy import text
+    try:
+        conn = db._temp_get_connection()
+        try:
+            row = conn.execute(text(
+                "SELECT model FROM emerging_topics_settings WHERE id = 1"
+            )).mappings().first()
+            m = (row or {}).get("model") if row else None
+            return m.strip() if m and str(m).strip() else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 async def compose_daily_briefing_stream(
     db,
     username: str,
@@ -502,6 +521,14 @@ async def compose_daily_briefing_stream(
     if not topics:
         yield _evt("error", "failed", "No topics selected.")
         return
+
+    # Pin the model server-side (emerging_topics_settings.model) so the briefing
+    # and its incident detection are tenant-consistent, independent of the
+    # browser model dropdown. Falls back to the passed model when unset.
+    _pinned = _get_pinned_briefing_model(db)
+    if _pinned:
+        model = _pinned
+        detect_model = _pinned
 
     try:
         # 1. Create draft -------------------------------------------------
