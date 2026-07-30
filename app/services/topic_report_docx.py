@@ -31,6 +31,10 @@ from docx.shared import Inches, Pt, RGBColor
 
 from app.services.topic_report_pptx import _decode_raw_output
 from app.services.html_report_common import clean_article_ref
+from app.compliance.ai_disclosure import (
+    disclosure_text as _ai_text,
+    docx_set_marker as _ai_docx_marker,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -608,7 +612,12 @@ def build_topic_report_docx(items: list, *, period_label: str,
         f"  ·  AunooAI Wiley Horizons Foresight",
         italic=True, color=WILEY_MUTED, size_pt=9, space_after_pt=0,
     )
+    # EU AI Act Art. 50 visible disclosure
+    _add_body_with_citations(
+        doc, _ai_text(), italic=True, color=WILEY_MUTED, size_pt=9, space_after_pt=0,
+    )
 
+    _ai_docx_marker(doc)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     doc.save(buf)
     buf.seek(0)

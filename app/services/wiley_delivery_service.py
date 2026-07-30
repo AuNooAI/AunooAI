@@ -734,6 +734,7 @@ async def deliver_bundle(
         subject=subject,
         body_html=body_html,
         body_text=body_text,
+        ai_generated=True,
         attachments=[{
             "filename": fname,
             "content": blob,

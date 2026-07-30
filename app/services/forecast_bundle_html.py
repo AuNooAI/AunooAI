@@ -16,6 +16,11 @@ import html
 import json
 from typing import Optional
 
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html as _ai_footer,
+    html_meta_tags as _ai_meta,
+)
+
 
 def _esc(s) -> str:
     return html.escape(str(s) if s is not None else "")
@@ -222,6 +227,7 @@ def build_bundle_html(items, *, period_label, cadence, updates_only=False,
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+{_ai_meta()}
 <title>Wiley {cadence_label} Foresight Update — {_esc(period_label)}</title>
 <style>{_CSS}</style></head>
 <body>
@@ -457,5 +463,6 @@ document.getElementById('topicList').innerHTML=(D.per_topic||[]).map(t=>{{
   return h+'</div>';
 }}).join('');
 </script>
+{_ai_footer()}
 </body></html>"""
     return page.encode("utf-8")

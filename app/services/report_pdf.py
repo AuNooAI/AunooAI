@@ -11,6 +11,8 @@ import logging
 import re
 from html import escape
 
+from app.compliance.ai_disclosure import disclosure_text, pdf_marker_kwargs
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,8 +100,18 @@ def markdown_report_to_pdf(title: str, markdown_text: str) -> bytes:
         flow.append(Paragraph(_inline(stripped.lstrip('> ')), body))
     flush_list()
 
+    # EU AI Act Art. 50 visible disclosure — closing footnote.
+    disclosure = ParagraphStyle('ai_disclosure', parent=body, fontSize=8,
+                                textColor="#6b7280", spaceBefore=6)
+    flow.append(HRFlowable(width="100%", color="#e5e7eb"))
+    flow.append(Paragraph(_inline(disclosure_text()), disclosure))
+
     buf = io.BytesIO()
+    # EU AI Act Art. 50 machine-readable marker via PDF metadata.
+    _m = pdf_marker_kwargs()
     doc = SimpleDocTemplate(buf, pagesize=A4, title=title,
+                            author=_m["author"], subject=_m["subject"],
+                            creator=_m["creator"], keywords=_m["keywords"],
                             leftMargin=18 * mm, rightMargin=18 * mm,
                             topMargin=16 * mm, bottomMargin=16 * mm)
     doc.build(flow)

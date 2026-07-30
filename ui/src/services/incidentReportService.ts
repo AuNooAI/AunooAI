@@ -675,6 +675,14 @@ export function buildIncidentReportPdf(d: IncidentReportData, trans: Translation
   const inc = d.incident;
   const run = d.enrichment?.run;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  // EU AI Act Art. 50 machine-readable marker (PDF metadata).
+  pdf.setProperties({
+    title: 'Incident Report',
+    author: 'AunooAI',
+    creator: 'AunooAI (AI-generated content)',
+    subject: 'Contains AI-generated content.',
+    keywords: 'ai-generated, EU-AI-Act-Art50',
+  });
   const pageWidth = 210, pageHeight = 297, margin = 15;
   const contentWidth = pageWidth - margin * 2;
   let y = margin;

@@ -46,7 +46,7 @@ export function AIDisclosureFooter({
           </p>
           <p>
             <strong>Author:</strong> {authorText} |
-            All AI-generated content has been reviewed and validated. The system cross-references multiple sources and provides inline citations with full transparency.
+            Contains AI-generated content. The system cross-references multiple sources and provides inline citations; verify against the cited sources before external use.
           </p>
         </div>
       </div>

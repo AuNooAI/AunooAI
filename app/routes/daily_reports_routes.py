@@ -1088,7 +1088,8 @@ async def share_briefing_via_email(
         success = email_service.send_email(
             to_addresses=[request.to_email],
             subject=subject,
-            body_html=html_body
+            body_html=html_body,
+            ai_generated=True,
         )
 
         if not success:

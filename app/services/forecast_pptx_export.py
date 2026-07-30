@@ -26,6 +26,8 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
+from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+
 # Brand asset paths (resolved at slide-build time so the deck embeds the
 # actual Aunoo brandmark instead of plain text). Fallback to the older
 # wordmark if the new mark isn't present (older tenants).
@@ -1101,6 +1103,7 @@ def build_assessment_pptx(
         for sur in sorted(surprises, key=lambda s: -(s.get("size") or 0)):
             _add_surprise_cluster_slide(prs, sur)
 
+    _ai_pptx_marker(prs)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     prs.save(buf)
     buf.seek(0)
@@ -2463,7 +2466,8 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
     _text(slide, x=0.5, y=0.2, w=sw - 1.0, h=0.4, text="Methodology",
           font_size=22, bold=True, color=WILEY_NAVY)
     _text(slide, x=0.5, y=0.7, w=sw - 1.0, h=0.3,
-          text="How this brief is produced — so you can trust it and challenge it",
+          text="How this brief is produced — so you can trust it and challenge it. "
+               "Contains AI-generated content; verify against cited sources before external use.",
           font_size=10.5, italic=True, color=WILEY_MUTED)
 
     _rect(slide, x=0.5, y=1.15, w=sw - 1.0, h=3.55, fill=WILEY_CARD_BG)

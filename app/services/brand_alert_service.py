@@ -174,6 +174,7 @@ def _deliver_email(event: Dict[str, Any], recipients: List[str]) -> bool:
             subject=f"[AuNoo AI] Brand alert: {event['title'][:120]}",
             body_html=markdown_to_html(body_md),
             body_text=f"{event['title']}\n\n{event.get('body') or ''}\n{link}",
+            ai_generated=True,
         )
         return bool(ok)
     except Exception as e:

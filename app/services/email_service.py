@@ -30,11 +30,17 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-from typing import List, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from urllib.parse import quote
 import re
+
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html,
+    disclosure_text,
+    email_headers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +236,12 @@ class EmailProvider(ABC):
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Send an email.
+
+        ``extra_headers`` (optional) sets additional message headers, e.g. the
+        ``X-AI-Generated`` marker on AI-generated content (EU AI Act Art. 50).
 
         ``attachments`` (optional) is a list of dicts each shaped as::
 
@@ -262,6 +272,7 @@ class ResendProvider(EmailProvider):
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("Resend not configured. Set RESEND_API_KEY environment variable.")
@@ -287,6 +298,9 @@ class ResendProvider(EmailProvider):
 
             if body_text:
                 data["text"] = body_text
+
+            if extra_headers:
+                data["headers"] = extra_headers
 
             if attachments:
                 data["attachments"] = [
@@ -342,6 +356,7 @@ class SMTPProvider(EmailProvider):
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD.")
@@ -378,6 +393,8 @@ class SMTPProvider(EmailProvider):
             msg["Subject"] = subject
             msg["From"] = from_email or self.from_email
             msg["To"] = ", ".join(to_addresses)
+            for _hk, _hv in (extra_headers or {}).items():
+                msg[_hk] = _hv
 
             with smtplib.SMTP(self.host, self.port) as server:
                 if self.use_tls:
@@ -423,14 +440,29 @@ class EmailService:
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        ai_generated: bool = False,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Send an email using the configured provider.
+
+        Set ``ai_generated=True`` for emails whose body is AI-generated
+        content (reports, briefings, alerts): a visible disclosure footer is
+        appended and an ``X-AI-Generated`` marker header is attached, per EU
+        AI Act Article 50. Leave it False for transactional mail (password
+        resets, verification), which must not be labelled as AI content.
 
         See :meth:`EmailProvider.send_email` for the ``attachments`` shape.
         """
         if not to_addresses:
             logger.warning("No recipients specified for email")
             return False
+
+        headers = dict(extra_headers or {})
+        if ai_generated:
+            body_html = f"{body_html}{disclosure_footer_html()}"
+            if body_text is not None:
+                body_text = f"{body_text}\n\n{disclosure_text()}"
+            headers.update(email_headers())
 
         return self.provider.send_email(
             to_addresses=to_addresses,
@@ -439,6 +471,7 @@ class EmailService:
             body_text=body_text,
             from_email=from_email,
             attachments=attachments,
+            extra_headers=headers or None,
         )
 
     def send_signal_alert_email(
@@ -537,7 +570,7 @@ class EmailService:
 
             html_parts.append(f"""
             <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-left: 4px solid #667eea; border-radius: 4px;">
-                <h3 style="margin-top: 0; color: #667eea;">📊 Generated Report</h3>
+                <h3 style="margin-top: 0; color: #667eea;">📊 AI-Generated Report</h3>
                 <div style="font-family: inherit; line-height: 1.6;">
                     {report_html}{truncated}
                     {podcast_html}
@@ -594,7 +627,7 @@ Investigate with Auspex AI: {auspex_url}
 """
         if report_content:
             body_text += f"""
---- GENERATED REPORT ---
+--- AI-GENERATED REPORT ---
 {report_content[:2000]}{'...' if len(report_content) > 2000 else ''}
 ------------------------
 
@@ -617,6 +650,7 @@ Investigate with Auspex AI: {auspex_url}
             body_html=body_html,
             body_text=body_text,
             attachments=attachments,
+            ai_generated=True,
         )
 
 

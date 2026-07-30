@@ -39,6 +39,8 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
+from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+
 from app.services.forecast_pptx_export import (
     _add_methodology_appendix_slide,
     _add_briefing_synthesis_slide,
@@ -400,7 +402,7 @@ def _add_intro_cover_slide(prs, *, period_label: str):
           text="Topic Foresight Report",
           font_size=18, italic=True, color=WILEY_TEAL_LT)
     _text(slide, x=0.6, y=4.4, w=sw-1.2, h=0.3,
-          text="Produced by AunooAI",
+          text="Produced by AunooAI · Contains AI-generated content",
           font_size=11, bold=True, color=WILEY_TEAL_LT, align=PP_ALIGN.CENTER)
     _add_brand_mark(slide, x=8.9, y=0.3, w=0.7, h=0.6)
 
@@ -1725,6 +1727,7 @@ def build_topic_report_pptx(
 
     _add_methodology_appendix_slide(prs)
 
+    _ai_pptx_marker(prs)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     prs.save(buf)
     buf.seek(0)

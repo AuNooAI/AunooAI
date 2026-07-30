@@ -19,6 +19,8 @@ from pptx import Presentation
 from pptx.util import Inches
 from pptx.enum.text import PP_ALIGN
 
+from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+
 from app.services.forecast_pptx_export import (
     PINK, PINK_DEEP, WHITE, NAVY, SLATE_DARK, SLATE_MID, SLATE_LIGHT,
     SLATE_BLACK, RULE_GRAY, PALE_PINK_1, GREEN_DEEP, RED_DEEP, AMBER_DEEP,
@@ -274,6 +276,7 @@ def build_bundle_pptx(
     # trust and challenge the brief.
     _add_methodology_appendix_slide(prs, data_quality_note=data_quality_note)
 
+    _ai_pptx_marker(prs)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     prs.save(buf)
     buf.seek(0)
@@ -756,7 +759,7 @@ def _add_bundle_cover(prs, period_label: str, cadence: str, topics: list, *, upd
     # Topic count + Aunoo producer credit
     _text(slide, x=0.6, y=4.4, w=sw-1.2, h=0.3,
           text=f"{len(topics)} {'topic' if len(topics) == 1 else 'topics'}    ·    "
-               f"Produced by AunooAI",
+               f"Produced by AunooAI · Contains AI-generated content",
           font_size=11, bold=True, color=WILEY_TEAL_LT, align=PP_ALIGN.CENTER)
 
     # Aunoo brandmark top-right corner

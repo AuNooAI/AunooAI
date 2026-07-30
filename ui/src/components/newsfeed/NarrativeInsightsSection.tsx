@@ -31,6 +31,7 @@ import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { ExportService } from '../../services/exportService';
 import { ShareModal, type ShareNarrativeData } from '../ShareModal';
+import { AIDisclosureFooter } from '../AIDisclosureFooter';
 
 interface NarrativeInsightsSectionProps {
   themes: ArticleTheme[];
@@ -276,6 +277,14 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
           data={shareData}
         />
       )}
+
+      {/* EU AI Act Art. 50 visible disclosure */}
+      <AIDisclosureFooter
+        dashboardName="Narrative Insights"
+        aiTools={['GPT-4']}
+        purpose="To identify convergent narratives, consensus, and divergent viewpoints across news coverage"
+        modelUsed={model}
+      />
     </section>
   );
 }

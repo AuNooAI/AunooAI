@@ -46,9 +46,9 @@ export function AIDisclosure({
                   <strong>Purpose:</strong> {purpose}
                 </div>
                 <div className="ai-disclosure-section">
-                  <strong>Review Process:</strong> All AI-generated content has been reviewed and validated.
-                  The system cross-references multiple sources, provides inline citations, and maintains
-                  full transparency about article sources.
+                  <strong>AI-generated content:</strong> This analysis is AI-generated. The system
+                  cross-references multiple sources and provides inline citations for transparency;
+                  verify claims against the cited sources before external use.
                 </div>
                 <div className="ai-disclosure-section">
                   <strong>Author Responsibility:</strong> The content creator takes full responsibility for

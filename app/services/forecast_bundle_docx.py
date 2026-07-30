@@ -30,6 +30,11 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.shared import Inches, Pt, RGBColor
 
+from app.compliance.ai_disclosure import (
+    disclosure_text as _ai_text,
+    docx_set_marker as _ai_docx_marker,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,6 +119,14 @@ def build_bundle_docx(
     run.font.size = Pt(10)
     run.font.color.rgb = WILEY_TEAL
 
+    # EU AI Act Art. 50 visible disclosure
+    dp = doc.add_paragraph()
+    drun = dp.add_run(_ai_text())
+    drun.italic = True
+    drun.font.size = Pt(9)
+    drun.font.color.rgb = WILEY_MUTED
+
+    _ai_docx_marker(doc)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     doc.save(buf)
     buf.seek(0)

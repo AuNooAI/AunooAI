@@ -17,6 +17,7 @@ import {
 import { ChevronDown, ChevronUp, BarChart3, Calendar, PieChart } from 'lucide-react';
 import { TopicsTimelineChart } from './TopicsTimelineChart';
 import { CategoryRadarChart } from './CategoryRadarChart';
+import { AIDisclosureFooter } from '../AIDisclosureFooter';
 
 interface TrendScore {
   volume: number;
@@ -242,6 +243,13 @@ export function TopicComparisonDashboard({
           )}
         </div>
       )}
+
+      {/* EU AI Act Art. 50 visible disclosure */}
+      <AIDisclosureFooter
+        dashboardName="Topic Comparison"
+        aiTools={['GPT-4']}
+        purpose="To compare emerging topics and their trajectories from analyzed coverage"
+      />
     </div>
   );
 }

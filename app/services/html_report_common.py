@@ -16,6 +16,11 @@ import logging as _logging
 import re as _re
 import urllib.parse as _urlparse
 
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html as _ai_footer,
+    html_meta_tags as _ai_meta,
+)
+
 _log = _logging.getLogger(__name__)
 
 
@@ -297,10 +302,12 @@ def html_document(title: str, body: str) -> str:
         '<!doctype html><html lang="en"><head>'
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f'<title>{esc(title)}</title>'
+        + _ai_meta()  # EU AI Act Art. 50 machine-readable marker
+        + f'<title>{esc(title)}</title>'
         f'<style>{BASE_CSS}</style></head><body>'
         '<div class="container">'
         + body
+        + _ai_footer()  # EU AI Act Art. 50 visible disclosure
         + '</div></body></html>'
     )
 

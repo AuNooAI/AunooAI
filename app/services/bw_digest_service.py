@@ -418,6 +418,7 @@ def maybe_send_digest(db) -> bool:
                 subject=f"[AuNoo AI] {title}",
                 body_html=markdown_to_html(f"## {title}\n\n{body_md}"),
                 body_text=f"{title}\n\n{text_body}",
+                ai_generated=True,
             )
             # sent_uris = the digest's cross-period memory (_previously_digested).
             conn.execute(text("UPDATE bw_alert_events SET delivered = :d, body = :b, payload = :p WHERE id = :i"),

@@ -24,6 +24,10 @@ from typing import Optional
 
 from app.services.topic_report_pptx import _decode_raw_output
 from app.services.html_report_common import clean_article_ref
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html as _ai_footer,
+    html_meta_tags as _ai_meta,
+)
 from app.services.horizons_html import render_horizons_chart, _HORIZONS_EXTRA_CSS
 
 logger = logging.getLogger(__name__)
@@ -629,12 +633,14 @@ def build_topic_report_html(items: list, *, period_label: str,
         '  ·  AunooAI Wiley Horizons Foresight'
         '</footer>'
     )
+    body_parts.append(_ai_footer())  # EU AI Act Art. 50 visible disclosure
 
     html = (
         '<!doctype html><html lang="en"><head>'
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f'<title>Topic Report — {_esc(period_display)}</title>'
+        + _ai_meta()  # EU AI Act Art. 50 machine-readable marker
+        + f'<title>Topic Report — {_esc(period_display)}</title>'
         f'<style>{_CSS}</style></head><body>'
         '<div class="container">'
         + "\n".join(body_parts)
