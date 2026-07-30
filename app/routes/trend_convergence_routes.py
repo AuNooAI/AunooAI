@@ -529,75 +529,37 @@ def _preprocess_response(response: str) -> str:
 
 @router.get("/api/trend-convergence/models")
 async def get_trend_convergence_models():
-    """Get available AI models for trend convergence analysis.
+    """Available AI models for foresight analysis.
 
-    Ordered with the flagship (gpt-5.4 family) first so the UI hook's
-    ``modelsData[0]`` default selection picks the flagship by default.
+    These tenants route every request through Bedrock; the litellm_config
+    exposes ~two dozen aliases (gpt-*, gemini-*, mixtral-*, claude-*-latest)
+    that all collapse onto just a few real Bedrock models. Surfacing those
+    aliases mislabels Claude as GPT/Gemini and shows duplicates, so we expose
+    only the DISTINCT underlying models with honest labels. Ordered
+    flagship-first so the UI hook's ``modelsData[0]`` default picks Sonnet.
     """
+    # (id, label, context_limit) — the distinct models actually available.
+    # Each id is the canonical alias for one underlying Bedrock model.
+    SUPPORTED = [
+        ('bedrock-claude-sonnet', 'Claude Sonnet 4.5', 200000),
+        ('bedrock-claude-haiku',  'Claude Haiku 4.5',  200000),
+        ('nova-pro',              'Nova Pro',          300000),
+        ('nova-lite',             'Nova Lite',         300000),
+        ('bedrock-kimi-k2-5',     'Kimi K2.5',         256000),
+    ]
+    _all = [{'id': mid, 'name': label, 'context_limit': ctx}
+            for mid, label, ctx in SUPPORTED]
     try:
         from app.ai_models import get_available_models
-
-        # Returns a list of ``{'name', 'provider'}`` dicts.
-        models = get_available_models() or []
-
-        # Friendly display labels for known flagship + mid-tier models.
-        DISPLAY = {
-            'gpt-5.5':       'GPT-5.5 (flagship)',
-            'gpt-5.4':       'GPT-5.4',
-            'gpt-5.4-mini':  'GPT-5.4 Mini',
-            'gpt-5.4-nano':  'GPT-5.4 Nano',
-            'gpt-5':         'GPT-5 (legacy)',
-            'gpt-5-mini':    'GPT-5 Mini (legacy)',
-            'gpt-4.1':       'GPT-4.1',
-            'gpt-5-nano':    'GPT-5 Nano (legacy)',
-            'gpt-4o':        'GPT-4o',
-            'gpt-4.1-mini':  'GPT-4.1 Mini',
-            'gpt-4.1-nano':  'GPT-4.1 Nano',
-            'gpt-4o-mini':   'GPT-4o Mini',
-            'claude-4-sonnet-latest':   'Claude 4 Sonnet',
-            'claude-3-7-sonnet-latest': 'Claude 3.7 Sonnet',
-            'claude-3-5-sonnet-latest': 'Claude 3.5 Sonnet',
-        }
-        # Stable preference order — gpt-5.4 first (flagship, reasoning).
-        # The Topic Reports re-run path wires reasoning_effort + max_completion_tokens.
-        PREF = [
-            'gpt-5.4', 'gpt-5.4-mini',
-            'gpt-5.4', 'gpt-5.4',
-            'claude-4-sonnet-latest', 'claude-3-7-sonnet-latest',
-            'gpt-5.4-mini', 'gpt-5.4-mini',
-            'claude-3-5-sonnet-latest',
-            'gpt-5.4-nano', 'gpt-5.4-nano',
-        ]
-        seen = {m['name']: m for m in models if isinstance(m, dict) and m.get('name')}
-
-        formatted = []
-        for mid in PREF:
-            if mid in seen:
-                formatted.append({
-                    'id': mid,
-                    'name': DISPLAY.get(mid, mid),
-                    'context_limit': CONTEXT_LIMITS.get(mid, CONTEXT_LIMITS['default']),
-                })
-        # Append any other configured models we didn't enumerate.
-        for mid in seen:
-            if not any(f['id'] == mid for f in formatted):
-                formatted.append({
-                    'id': mid,
-                    'name': DISPLAY.get(mid, mid),
-                    'context_limit': CONTEXT_LIMITS.get(mid, CONTEXT_LIMITS['default']),
-                })
-        return formatted
+        configured = {m['name'] for m in (get_available_models() or [])
+                      if isinstance(m, dict) and m.get('name')}
+        # Keep only models the config actually exposes; fall back to the full
+        # set if the availability scan returns nothing (avoids an empty menu).
+        formatted = [m for m in _all if m['id'] in configured] if configured else _all
+        return formatted or _all
     except Exception as e:
         logger.error(f"Error fetching models: {str(e)}")
-        return [
-            {'id': 'gpt-5.4', 'name': 'GPT-5 (flagship)', 'context_limit': 400000},
-            {'id': 'gpt-5.4-mini', 'name': 'GPT-5 Mini', 'context_limit': 400000},
-            {'id': 'gpt-5.4', 'name': 'GPT-4.1', 'context_limit': 1000000},
-            {'id': 'gpt-5.4', 'name': 'GPT-4o', 'context_limit': 128000},
-            {'id': 'gpt-5.4-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
-            {'id': 'gpt-5.4-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
-            {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000},
-        ]
+        return _all
 
 @router.get("/api/trend-convergence/{topic}")
 async def generate_trend_convergence(
