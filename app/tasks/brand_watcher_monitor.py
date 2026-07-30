@@ -6,6 +6,7 @@ Follows the same pattern as policy_tracker_monitor.py.
 import logging
 import asyncio
 import json
+import sys
 from datetime import datetime, timedelta, time as dt_time
 from typing import Dict, Optional, Any, List
 from sqlalchemy import text
@@ -406,7 +407,7 @@ def _check_auto_retrain(db: Database) -> None:
         train_script = os.path.join(base_dir, "scripts", "train_brand_watcher_classifier.py")
         if os.path.exists(train_script):
             subprocess.Popen(
-                ["python", train_script],
+                [sys.executable, train_script],
                 cwd=base_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
