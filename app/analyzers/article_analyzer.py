@@ -207,13 +207,30 @@ Article text:
             )
 
             logger.debug(f"Sending prompt to AI model: {prompts}")
-            analysis = self.ai_model.generate_response(prompts)
-            logger.debug(f"Received AI response: {analysis}")
-
-            if not analysis:
-                raise ArticleAnalyzerError("Failed to generate analysis")
-
-            result = self.parse_analysis(analysis, fallback_title=title)
+            # Retry on empty/unparseable responses. Reasoning models (Kimi/Nova
+            # on Bedrock) intermittently return content the Key:Value field
+            # parser can't read (~1/8) — a single miss otherwise marks the
+            # article enrichment_failed. Retrying makes that vanishingly rare.
+            result = None
+            last_parse_err = "no response"
+            for _attempt in range(3):
+                analysis = self.ai_model.generate_response(prompts)
+                logger.debug(f"Received AI response (attempt {_attempt + 1}): {analysis}")
+                if not analysis:
+                    last_parse_err = "empty response"
+                    logger.warning(f"Enrichment attempt {_attempt + 1}: empty AI response; retrying")
+                    continue
+                try:
+                    result = self.parse_analysis(analysis, fallback_title=title)
+                    if _attempt:
+                        logger.info(f"Enrichment recovered on attempt {_attempt + 1}")
+                    break
+                except ArticleAnalyzerError as _pe:
+                    last_parse_err = str(_pe)
+                    logger.warning(f"Enrichment attempt {_attempt + 1}: {_pe}; retrying")
+            if result is None:
+                raise ArticleAnalyzerError(
+                    f"Failed to generate parseable analysis after retries: {last_parse_err}")
 
             # Validate and sanitize the parsed result against the provided options
             result = self._validate_analysis_fields(
