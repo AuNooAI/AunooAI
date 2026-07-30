@@ -787,22 +787,37 @@ async def generate_trend_convergence(
             try:
                 profile_row = (DatabaseQueryFacade(db, logger)).get_organisational_profile(profile_id)
                 if profile_row:
+                    # get_organisational_profile returns a SQLAlchemy mapping
+                    # (keyed by column name), so access by name — positional
+                    # indexing raised "Could not locate column in row for
+                    # column '0'" and the profile silently never loaded.
+                    def _pj(v):
+                        # key_concerns etc. may be stored as JSON text or already
+                        # decoded (JSONB); tolerate both.
+                        if not v:
+                            return []
+                        if isinstance(v, (list, dict)):
+                            return v
+                        try:
+                            return json.loads(v)
+                        except (ValueError, TypeError):
+                            return []
                     organizational_profile = {
-                        'id': profile_row[0],
-                        'name': profile_row[1],
-                        'description': profile_row[2],
-                        'industry': profile_row[3],
-                        'organization_type': profile_row[4],
-                        'region': profile_row[5],
-                        'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
-                        'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
-                        'risk_tolerance': profile_row[8],
-                        'innovation_appetite': profile_row[9],
-                        'decision_making_style': profile_row[10],
-                        'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
-                        'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
-                        'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
-                        'custom_context': profile_row[14]
+                        'id': profile_row['id'],
+                        'name': profile_row['name'],
+                        'description': profile_row['description'],
+                        'industry': profile_row['industry'],
+                        'organization_type': profile_row['organization_type'],
+                        'region': profile_row['region'],
+                        'key_concerns': _pj(profile_row['key_concerns']),
+                        'strategic_priorities': _pj(profile_row['strategic_priorities']),
+                        'risk_tolerance': profile_row['risk_tolerance'],
+                        'innovation_appetite': profile_row['innovation_appetite'],
+                        'decision_making_style': profile_row['decision_making_style'],
+                        'stakeholder_focus': _pj(profile_row['stakeholder_focus']),
+                        'competitive_landscape': _pj(profile_row['competitive_landscape']),
+                        'regulatory_environment': _pj(profile_row['regulatory_environment']),
+                        'custom_context': profile_row['custom_context']
                     }
                 else:
                     logger.warning(f"Organizational profile {profile_id} not found, using default template")
@@ -1162,33 +1177,44 @@ Article {i}:
                         detail=f"AI model error: {error_message[:200]}..."
                     )
 
-            # Extract JSON from the response (same approach as AI timeline)
+            # Extract JSON robustly: prefer a fenced ```json block, run the
+            # shared preprocessor (strips fences, balances/completes braces),
+            # then decode with raw_decode so trailing prose after the object is
+            # tolerated. Only 500 when nothing parseable remains. The prior
+            # naive extraction (non-greedy {.*?}, first-{ to last-}) 500'd on
+            # nested objects and trailing content.
             import re
 
-            # First try to find JSON in code blocks
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
-            if json_match:
+            _fence = re.search(r'```(?:json)?\s*(\{.*\})\s*```', response_text, re.DOTALL)
+            _raw = _fence.group(1) if _fence else response_text
+            _cleaned = _preprocess_response(_raw)
+            _start = _cleaned.find('{')
+            trend_convergence_data = None
+            if _start >= 0:
+                _candidate = _cleaned[_start:]
                 try:
-                    trend_convergence_data = json.loads(json_match.group(1))
+                    trend_convergence_data, _ = json.JSONDecoder().raw_decode(_candidate)
                 except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to parse JSON from code block: {e}")
-                    raise HTTPException(status_code=500, detail="Failed to parse AI response JSON from code block")
-            else:
-                # Try to find JSON without code blocks
-                json_start = response_text.find('{')
-                json_end = response_text.rfind('}') + 1
-                if json_start >= 0 and json_end > json_start:
+                    # Some models (notably the Nova tier) emit structurally
+                    # invalid JSON for this large schema (missing commas). Fall
+                    # back to json_repair, which fixes common LLM JSON errors.
+                    logger.warning(f"Strict JSON parse failed ({e}); trying json_repair fallback")
                     try:
-                        trend_convergence_data = json.loads(response_text[json_start:json_end])
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse extracted JSON: {e}")
-                        logger.info(f"Extracted JSON: {response_text[json_start:json_end][:500]}...")
-                        raise HTTPException(status_code=500, detail="Failed to parse AI response as valid JSON")
-                else:
-                    logger.warning("No valid JSON found in response")
-                    logger.info(f"Raw response: {response_text[:500]}...")
-                    raise HTTPException(status_code=500, detail="No valid JSON found in AI response")
-            
+                        import json_repair
+                        repaired = json_repair.loads(_candidate)
+                        if isinstance(repaired, dict) and repaired:
+                            trend_convergence_data = repaired
+                            logger.info("json_repair salvaged the AI response")
+                    except Exception as _rep_err:
+                        logger.warning(f"json_repair fallback failed: {_rep_err}")
+                    if trend_convergence_data is None:
+                        logger.info(f"Cleaned response: {_candidate[:500]}...")
+            if trend_convergence_data is None:
+                logger.info(f"Raw response: {response_text[:500]}...")
+                raise HTTPException(status_code=500, detail="Failed to parse AI response as valid JSON")
+
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"AI model error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"AI model error: {str(e)}")
