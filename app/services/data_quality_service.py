@@ -66,7 +66,14 @@ class DataQualityService:
                 if text.startswith("json"):
                     text = text[4:].strip()
 
-            result = json.loads(text)
+            # Tolerate leading/trailing prose around the JSON object: start at
+            # the first '{' and decode only the first JSON value. raw_decode
+            # ignores any trailing data some models append (avoids the
+            # "Extra data" JSONDecodeError).
+            start = text.find("{")
+            if start > 0:
+                text = text[start:]
+            result, _ = json.JSONDecoder().raw_decode(text)
             return {
                 "relevant": bool(result.get("relevant", False)),
                 "reason": result.get("reason", ""),
