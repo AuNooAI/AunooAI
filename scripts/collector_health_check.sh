@@ -12,6 +12,7 @@
 
 set -u
 
+# abbott removed 2026-07-16 — tenant shut down (service stopped+disabled, data retained)
 TENANTS="bugfixing wileytest wiley"
 LOG=/var/log/aunoo-collector-health.log
 STATE_DIR=/var/tmp/collector_health_state
