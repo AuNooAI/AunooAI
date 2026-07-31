@@ -3434,7 +3434,7 @@ async def download_signal_report(report_id: int, exp: int, token: str,
     sources_block = (f'<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">'
                      f'<h2 style="font-size:18px;color:#333;margin:18px 0 12px 0;">Sources '
                      f'<span style="font-size:13px;color:#888;font-weight:normal;">'
-                     f'({len(alerts)} matched posts)</span></h2>{sources}') if sources else ""
+                     f'({len(alerts)} matched)</span></h2>{sources}') if sources else ""
     page = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title></head>

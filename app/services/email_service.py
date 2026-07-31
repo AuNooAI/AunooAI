@@ -150,25 +150,46 @@ def _legacy_markdown_to_html(text: str) -> str:
 
 
 def social_ref(uri: str, fallback: Optional[str] = None) -> dict:
-    """Parse a social post URL into {short, profile, post, platform}.
+    """Parse a match URL into {short, profile, post, platform, kind}.
 
-    `short` is the display handle (with @) used as anchor text; `profile`/`post`
-    are the account and post URLs. Falls back to the raw uri for unknown hosts."""
+    For social posts `short` is the display handle (with @) and `profile`/`post`
+    are the account and post URLs. Anything that isn't a recognised social post
+    is a web article: it's labelled with its domain, not "Social" — most observer
+    matches are news, and calling them posts mislabels the whole source list."""
     u = (uri or "").strip()
     m = re.match(r'https?://(?:www\.)?bsky\.app/profile/([^/?#]+)/post/', u)
     if m:
         h = m.group(1)
         return {"short": "@" + h.split('.')[0], "profile": f"https://bsky.app/profile/{h}",
-                "post": u, "platform": "Bluesky"}
+                "post": u, "platform": "Bluesky", "kind": "social"}
     m = re.match(r'https?://(?:www\.)?(?:x|twitter)\.com/([^/?#]+)/status/', u)
     if m:
         h = m.group(1)
-        return {"short": "@" + h, "profile": f"https://x.com/{h}", "post": u, "platform": "X"}
+        return {"short": "@" + h, "profile": f"https://x.com/{h}", "post": u,
+                "platform": "X", "kind": "social"}
     m = re.match(r'https?://(?:www\.)?reddit\.com/(r/[^/?#]+)', u)
     if m:
         sub = m.group(1)
-        return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u, "platform": "Reddit"}
-    return {"short": fallback or "source", "profile": u or "#", "post": u or "#", "platform": "Social"}
+        return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u,
+                "platform": "Reddit", "kind": "social"}
+    m = re.match(r'https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/', u)
+    if m:
+        return {"short": fallback or "Instagram post", "profile": u, "post": u,
+                "platform": "Instagram", "kind": "social"}
+    m = re.match(r'https?://(?:www\.)?tiktok\.com/(@[^/?#]+)/video/', u)
+    if m:
+        h = m.group(1)
+        return {"short": h, "profile": f"https://www.tiktok.com/{h}", "post": u,
+                "platform": "TikTok", "kind": "social"}
+    # Web article — show the publisher domain and link to the site, not "Social".
+    m = re.match(r'https?://([^/?#]+)', u)
+    if m:
+        host = m.group(1).split('@')[-1]
+        return {"short": fallback or re.sub(r'^www\.', '', host),
+                "profile": f"https://{host}/", "post": u,
+                "platform": "News", "kind": "web"}
+    return {"short": fallback or "source", "profile": u or "#", "post": u or "#",
+            "platform": "Source", "kind": "web"}
 
 
 def linkify_handles_md(md: str, matches: Optional[List[dict]]) -> str:
@@ -205,7 +226,8 @@ def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
         except Exception:
             conf_s = str(conf)
         color = {"high": "#dc3545", "medium": "#d39e00", "low": "#28a745"}.get(threat, "#6c757d")
-        post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">view post ↗</a>'
+        link_label = "view post" if r.get("kind") == "social" else "read article"
+        post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">{link_label} ↗</a>'
                      if r["post"] and r["post"] != "#" else "")
         cards.append(
             '<div style="margin:0 0 12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-radius:8px;">'
@@ -605,7 +627,7 @@ class EmailService:
             """)
 
         html_parts.append("<hr>")
-        html_parts.append("<h3>Matched posts:</h3>")
+        html_parts.append("<h3>Matched sources:</h3>")
         html_parts.append(render_matched_sources_html(matches))
 
         html_parts.extend([
