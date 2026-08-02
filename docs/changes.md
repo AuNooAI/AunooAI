@@ -2,39 +2,267 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-02 — session-documentation tooling (skill + pre-commit reminder hook)
+## 2026-08-02 — every monolith tenant moved to the local 768-d encoder (and a four-week wbm outage found on the way)
 
 ### Goal
-This log had drifted: the newest entry was 2026-07-23 while commits ran through 2026-07-31
-(`7dd5d56c`, 2026-07-31 22:56). The gap is a process problem, not a memory problem — nothing
-prompted the write-up at the moment the work was fresh. Two artifacts to close it: a skill that
-produces the documentation, and a hook that fires the reminder at commit time.
+None of this was planned. While fact-checking one line of `AI_DESIGN_PATTERNS.md` — the claim
+that monolith retrieval embeddings are "OpenAI `text-embedding-3-small` (1536-d), silent
+random-vector fallback" — the per-tenant check turned up a live failure on wbm. Fixing that
+made the rest follow: bugfixing and wiley were the last tenants still embedding through OpenAI,
+and leaving them there meant three different embedding spaces across four tenants.
 
-### `session-docs` skill — `.claude/skills/session-docs/SKILL.md` (new)
-Project-scoped skill, invoked as `/session-docs`. Produces two deliverables from one evidence
-pass: this file's dated feature-by-feature entry, and a product/marketing writeup under
-`docs/product/`. Defaults to **pre-commit mode** — scope comes from `git diff HEAD` plus
-untracked files rather than `git log`, so there is no SHA to cite yet and the skill is told to
-cite paths instead of inventing or placeholder-ing one; verification must run *before* the
-commit, since an entry claiming verification that happens afterwards is a false claim. It also
-carries the repo's own rules: `git add -u` plus an explicit add for the new product doc but
-never `git add -A` (the 2026-07-23 secret-leak entry below is why), no invented metrics, no
-`git checkout` of live UI-edited state, propagation status per tenant, and don't fix code while
-documenting.
+### The wbm outage: four weeks with no embeddings at all
+wbm's code embedded at 1536-d while its `articles.embedding` column was `vector(768)`. Every
+upsert raised `expected 768 dimensions, not 1536`. The errors were arriving every few seconds
+and had been since **2026-07-05**, so 26,348 articles were collected and none were vectorised.
 
-### Pre-commit reminder — `.claude/settings.json` (new `hooks` block)
-`PreToolUse` / `Bash` command hook. Extracts the command with `python3` (`jq` is **not
-installed** on this box — the first attempt used it and failed), exits silently unless the
-command contains `git commit`, then checks whether `docs/changes.md` is staged or modified. If
-it is, the hook stays silent; if not, it emits `hookSpecificOutput.additionalContext` telling
-the model to run `/session-docs` first, with an explicit escape hatch for trivial commits
-(typo, revert, WIP, docs-only). Non-blocking by design — it never sets `continue: false`, so a
-commit is never stopped. Matching is a substring test on the raw command, which is what makes
-`git commit -a`, `--amend`, and heredoc forms all match; the cost is that any Bash command
-merely *containing* the text triggers the check. `enabledPlugins` was preserved when the block
-was merged in.
+The mismatch was somebody else's half-finished migration. wbm's `vector_store_pgvector.py` had
+not been modified since 23 March and contains no 768-d code, so the 487,233 vectors already in
+that database were never written by wbm's own application. The column and its data were
+converted to 768-d on 5 July; the application was not.
+
+**Why nobody noticed.** Brand alerts kept firing — 28, 17, 16 and 14 events in the weeks after
+the break — because that path is SQL matching plus local classifiers and never touches
+`articles.embedding`. What died was semantic: story clustering made its last assignment on 13
+July, eight days after the break, which is how long the already-embedded backlog lasted. The
+code says so plainly at `brand_watcher_stories.py:15` — "Articles without an embedding are
+simply never written here." No error, no empty state, no warning. Stories stop growing and
+searches return older articles that look plausible.
+
+**Fix.** Copied wileytest's `vector_store_pgvector.py` onto wbm. The diff beforehand was 115
+lines in exactly two hunks, both the encoder swap, with no wbm-local content elsewhere in 1,220
+lines. Restarted, then backfilled the 26,348 stranded articles at ~36/s in 720s, zero failures.
+
+### Proving the old vectors could stay
+Before touching anything, the question was whether wbm's 487k existing vectors came from the
+same encoder wileytest uses. If not, old and new vectors would sit in different spaces and
+cosine distance across them would quietly return nonsense rather than erroring.
+
+Re-encoded five sampled articles through wileytest's encoder and compared against their stored
+vectors. **Three of five scored cosine 1.0000** on `title` + `summary`; the other two scored
+0.91–0.93, consistent with summaries re-enriched after embedding. An exact 1.0000 cannot happen
+across different models, so the corpus was already in the right space and no re-embed was needed
+— only the 26k gap. The matching input convention is `{title, description: "", content: summary}`,
+which is also what `embedding_backfill._doc_text` builds as `title\nsummary`.
+
+### bugfixing and wiley migrated — `alembic emb_768_01`
+New revision on each tenant, parented on their shared head `kg_social_01`. Canonical's chain
+never carried wileytest's `emb_001`, so this is a new revision rather than a cherry-pick, with
+identical DDL: `articles.embedding` plus the two derived centroid columns
+(`emerging_topics`, `cluster_snapshots`) dropped and re-added at `vector(768)`, and the HNSW
+index deliberately not recreated inside the migration — one bulk build after the backfill is far
+cheaper than maintaining it across ~193k UPDATEs.
+
+1536-d vectors cannot be cast to 768-d, so they are dropped rather than converted. Both tenants
+got a `articles_embedding_1536_backup` table first (bugfixing 51,526 rows / 415 MB; wiley 80,982
+/ 652 MB), which makes the migration's downgrade branch real rather than theoretical.
+
+**Gotcha, wiley only — pgbouncer.** wiley's alembic resolves to `127.0.0.1:6432`, which is
+pgbouncer running `pool_mode = transaction`, the mode that cannot carry this DDL. bugfixing
+never hit it because its `.env` points at 5432. Ran the migration as
+`DB_PORT=5432 DB_HOST=localhost .venv/bin/python -m alembic upgrade head`. **Check the port
+before any future schema work on wiley.**
+
+### Phase B (multilingual-e5, 1024-d) deliberately NOT ported
+wileytest carries an `article_embeddings_ml` table with 520,249 E5 vectors, and the migration
+plan treats it as part of the same work. It was skipped here after checking who reads it: within
+the monolith, the only reference to `article_embeddings_ml` anywhere is `ml_embedding_task.py`,
+which is the writer. No monolith service, route or task queries it. The actual consumers are all
+on the saas side — `cascade_detect`, `cascade_directed`, `cascade_fingerprint`,
+`cascade_retrieval`, `narratives`, `relevance/scorer`. Decision (user, 2026-08-02): if it isn't
+used on wileytest, bugfixing doesn't need it.
+
+### The backfill loops are not registered anywhere
+`LOCAL_EMBEDDINGS_MIGRATION_PLAN.md` states both embedding loops were registered in the
+`app_factory` lifespan with 60s/90s delays. They are not. Nothing imports `embedding_backfill` on
+any tenant, neither loop is running on wileytest, and `app_factory.py` is byte-identical between
+bugfixing and wileytest with no reference to either. **Backfill is operator-run in practice.**
+New articles still embed inline through `upsert_article`, so the backlog does not creep back —
+but a gap like wbm's will never self-heal.
 
 ### Verification
+- **wbm** — 26,348 embedded, 0 failed, 0 rows left NULL. `EXPLAIN` shows
+  `Index Scan using articles_embedding_hnsw_idx`, and a probe vector from a 25 July article (i.e.
+  inside the dead window) returns itself and sensible neighbours. Its index was already valid,
+  1,943 MB over 513,581 rows; HNSW maintains on write, so backfilled rows folded in as written.
+- **bugfixing** — 193,202 embedded in 9,573s (~20/s), 0 left NULL. HNSW rebuilt `CONCURRENTLY`
+  in 342s, 740 MB, `indisvalid=t`, definition byte-identical to the pre-migration one
+  (`m=16`, `ef_construction=64`). `EXPLAIN` confirms `Index Scan using articles_embedding_hnsw_idx`.
+- **wiley** — migration applied, service restarted, zero dimension errors. Backfill in progress
+  at 34,000 / 265,057 (~16.5/s, roughly four hours). Index rebuild armed and waiting.
+- Two concurrent backfills ran at 17/s and 21/s rather than halving each other, so the encoder
+  service was not saturated by a single job.
+
+**A verification that was wrong and had to be redone:** the bugfixing watcher's built-in
+`EXPLAIN` check piped through `head -6` and showed only the subquery's `Seq Scan`, which reads
+as "the index is not being used". The real plan is an `Index Scan`. Re-checked by hand with the
+probe vector inlined. A truncated plan is worse than no check, because it looks like evidence.
+
+### Propagation
+All four monolith tenants now run the local DeBERTa 768-d encoder with no cloud fallback:
+bugfixing, wileytest, wbm, wiley. **wiley was the last OpenAI embedding path on the platform**,
+so no monolith tenant now sends article text to OpenAI for embedding — worth knowing for any
+data-residency answer. Nothing was committed in wiley or wbm; both are deploy-copy trees.
+
+Docs corrected to match, since several described the old world: `AI_DESIGN_PATTERNS.md` (§3.1
+gotcha at 381, the 6.1 embeddings note at 810, Appendix B at 1083),
+`ARCHITECTURE_SECURITY_MASTER.md` (§3.6 at 136–137, vector storage at 147, the third-party data
+table at 254), and `METHODOLOGY.md` §2.6.
+
+### Lessons
+- **A column type is not proof the code agrees with it.** wbm's schema said 768 and its code said
+  1536 for four weeks. Both bugfixing's "working" status and wbm's failure were initially inferred
+  from code plus column type; only wbm's was checked against live write activity, and that
+  inference is what hid the outage. Check that rows are actually landing.
+- **Silent-skip is worse than a crash.** `bw_article_stories` skips articles with no embedding by
+  design. That turned a hard write failure into an invisible four-week coverage hole, while the
+  loud part of the system — alerts — kept working and made everything look fine.
+- **Never assume alembic talks to postgres directly.** wiley routes through pgbouncer in
+  transaction mode. Resolve the URL before running DDL.
+- **A truncated `EXPLAIN` is misinformation.** Show the whole plan or don't claim the check ran.
+
+## 2026-08-02 — session-doc tooling, and a technical reference for `/anticipate`
+
+### Goal
+Two separate pieces of documentation work on the same day.
+
+First, this log had drifted: the newest entry was 2026-07-23 while commits ran through
+2026-07-31 (`7dd5d56c`, 2026-07-31 22:56). The gap is a process problem, not a memory problem —
+nothing prompted the write-up at the moment the work was fresh. Two artifacts to close it: a
+skill that produces the documentation, and a hook that fires the reminder at commit time.
+
+Second, the foresight stack behind the Anticipate tab had no code-level description anywhere.
+`METHODOLOGY.md` covers it at the conceptual level and there were `how_it_works` pages for
+Topics and the Forecast Tracker, but nothing wrote down the scoring formulas, the prompt
+contracts, or which of the five subsystems share a pipeline. Writing that down also surfaced
+four factual errors in the two existing pages.
+
+### `session-docs` skill — `.claude/skills/session-docs/SKILL.md` (new)
+A project-scoped skill, invoked as `/session-docs`. One evidence pass produces two deliverables:
+this file's dated feature-by-feature entry, and a product write-up under `docs/product/`.
+
+It defaults to **pre-commit mode**. Scope comes from `git diff HEAD` plus untracked files, not
+from `git log`. There is no SHA yet in that mode, so the skill cites paths instead. It is told
+never to invent one or leave a placeholder. Verification has to run *before* the commit: an entry
+claiming verification that happens afterwards is a false claim.
+
+The skill also carries this repo's own rules. Stage with `git add -u` plus an explicit add for
+the new product doc, never `git add -A` — the 2026-07-23 secret-leak entry below is why. No
+invented metrics. No `git checkout` of live UI-edited state. State propagation per tenant. Do not
+fix code while documenting.
+
+Two rules were added later the same day, after a dry run on the skill's own output. There is now
+a third mode for work that cannot be committed at all, and the product doc must open with an
+audience note when the work has no customer-facing surface. A plain-language rule was added after
+that, on the same feedback.
+
+### Pre-commit reminder — `.claude/settings.json` (new `hooks` block)
+A `PreToolUse` hook on `Bash`. It reads the command with `python3` and exits silently unless the
+command contains `git commit`. Then it checks whether `docs/changes.md` is staged or modified. If
+it is, the hook says nothing. If it is not, it returns
+`hookSpecificOutput.additionalContext` telling the model to run `/session-docs` first, with an
+explicit escape hatch for trivial commits: typo, revert, WIP, docs-only.
+
+It never blocks. It does not set `continue: false`, so a commit is never stopped.
+
+Two details worth knowing. `jq` is **not installed** on this box; the first attempt used it and
+failed, which is why the hook uses `python3`. And matching is a substring test on the raw command.
+That is what makes `git commit -a`, `--amend`, and heredoc forms all match. The cost is that any
+Bash command merely containing the text triggers the check.
+
+`enabledPlugins` was preserved when the `hooks` block was merged in.
+
+### `/anticipate` foresight reference — `docs/how_it_works_anticipate.md` (new) — `0dc0b00c`
+1483 lines, written from source and cross-checked against live rows on wileytest. The framing
+the page exists to record: **Consensus Analysis and Future Horizons are not separate pipelines**
+— they are two of six *lenses* over one generation path (`GET /api/trend-convergence/{topic}`,
+`trend_convergence_routes.py:564`), differing only in which articles get selected and which
+prompt template is loaded. The tab is served at `/trend-convergence`; `/anticipate` is a nav
+label and an nginx-side alias that appears in-repo only in outbound email links.
+
+Documented end to end: the SHA-256 cache key and its `algorithm_version` bust lever
+(`:2447-2487`); the corpus query; the per-lens weighting formulas quoted from
+`weight_articles_for_dashboard()` (`:168-301`) — e.g. consensus scores `+5` for high
+credibility and `+3` for the 30–180 day band, while horizons scores `+8` for `future_signal`
+and only `+2` for recency; context-window-driven sample sizing (`:111-139`); the MD5-based
+deterministic selector with its 60% category quota (`:1626-1700`); the four consistency modes
+and their regex output-normalisation; prompt assembly from `data/prompts/*/current.json`; and
+the shared output envelope. Then one section per subsystem, including the Forecast Tracker's
+full A–F back-test with the aggregation formulas and verdict decision tree quoted from
+`forecast_assessment_service.py:696-873`.
+
+Two operational traps are called out because both are silent: `RERANK_ENABLED` defaults to
+`"false"` (`reranker.py:42`), and with it unset every article falls into the ambiguous bucket
+and every scenario returns Inconclusive; and `FORECAST_TRACKER_AUTO_RUN` is unset on most
+tenants (`forecast_tracker_monitor.py:60`), so nothing re-assesses automatically and an amber
+health dot means nobody pressed Reassess rather than a fault.
+
+### Drift corrections in two existing pages — `0dc0b00c`
+Writing the reference meant checking the older pages against code. Six errors in
+**`docs/how_it_works_forecast_tracker.md`**, four of which would mislead someone debugging:
+
+- Classifier default given as `gpt-4.1-mini`. That is the prompt template's advisory
+  `model_recommendations` field; the runtime default is
+  `DEFAULT_CLASSIFY_MODEL = "gpt-5.4-mini"` (`forecast_assessment_service.py:44`).
+- Strengthening / Stable / Cooling presented as verdict labels. They are the customer-facing
+  rendering of the *baseline-correction* axis (`forecast_narrative.py:34-38`); the verdicts are
+  Accelerating / On-track / Stalled / Off-track / Inconclusive / Done. The page now documents
+  both axes and why the header chip can read "Strengthening" while the card reads "On-track".
+- A "fallback to corpus-wide retrieval if the topic is too narrow" that does not exist —
+  `_fetch_window_articles()` (`:470-533`) is a single query with no widening branch. The actual
+  mechanism is `source_topics`. Also corrected: the window cuts on `submission_date`, not
+  `publication_date`, and `embedding IS NOT NULL` is a hard filter.
+- Classifier described as returning three values; the enum has six, plus an evidence type and a
+  confidence score, with a 0.5 confidence floor before anything counts.
+- Surprise residual described as the ambiguous bucket only; it is ambiguous ∪ `unrelated`, with
+  an 8-article floor below which the panel is skipped.
+- "Re-runs overwrite the most recent assessment" — `save_forecast_assessment` is a plain
+  `INSERT` (`database_query_facade.py:8011`). Nothing is overwritten; the tracker reads the
+  latest row, which is what the trajectory heatmap is built from.
+
+**`docs/how_it_works_topics.md`** carried the same corpus-wide-fallback and three-verdict errors
+in §6.2, plus two stale model names: the theme proposer is `gpt-5.4`
+(`theme_proposer.py:97`, now cited as the config attribute so a repoint does not re-stale the
+doc) and the promotion-path Three Horizons call is `gpt-5.4`
+(`wiley_candidate_pipeline.py:637`), both previously documented as `gpt-4o`.
+
+Checked and deliberately left alone because they are correct: the relevance judge
+(`gpt-4.1-mini`, temp 0.2, 600 tokens, matching `wiley_relevance_judge.md`) and the overlay
+agent (`gpt-4.1` from the agent frontmatter plus `reasoning_effort='high'` injected by the
+caller at `wiley_overlay_generator.py:193`).
+
+### Verification — `/anticipate` reference
+Documentation has no test suite; verification here means every non-obvious claim was re-checked
+against code or live data before the commit, and again while writing this entry.
+
+- Code facts re-grepped: `DEFAULT_CLASSIFY_MODEL = "gpt-5.4-mini"` (`:44`);
+  `RERANK_ENABLED` default `"false"` (`reranker.py:42`); `FORECAST_TRACKER_AUTO_RUN` gate
+  (`forecast_tracker_monitor.py:60`); `insert(t_forecast_assessments)` (`:8011`);
+  `default_model: str = "gpt-5.4"` (`theme_proposer.py:97`); `get_ai_model("gpt-5.4")`
+  (`wiley_candidate_pipeline.py:637`). `_fetch_window_articles()` re-read in full — no fallback
+  branch present.
+- Live data on wileytest (79 consensus runs, 80 horizons runs, 32 assessments): verdict labels
+  in use are Inconclusive 102, On-track 15, Accelerating 6, Stalled 3 — confirming the label set
+  and that Off-track and Done occur zero times in current data. Article verdicts across 573
+  rows: `supports_trajectory` 251, `neutral_context` 126, `better_fits_other_scenario` 116,
+  `unrelated` 48, `supports_state_contradicts_trajectory` 27, `contradicts` 3.
+- Assessment `config` read from the newest row confirms the documented tunables:
+  `{max_articles: 2000, stage_a_top_k: 150, stage_b_min_score: 0.5, stage_c_margin: 0.04,
+  window_weeks: 8}`.
+- Scenario-type distribution across `future_horizons_runs`: h1 368, h2 364, h3 251, plus
+  probable/plausible/possible/preferable from the Futures Cone prompt — which is what confirmed
+  two scenario vocabularies coexist in the same table.
+- **Found while verifying, not fixed:** 2 of 573 `forecast_article_verdicts` rows carry an
+  *evidence type* in the `verdict` column (`anecdote` 1, `leading_indicator` 1). The classifier
+  parser accepts whatever string the LLM returns for `verdict` without validating it against the
+  six-value enum. Low impact — `_aggregate_scenario()` counts by exact match, so these rows fall
+  through every bucket and land in `neutral` — but it means a malformed response is silently
+  miscounted rather than retried. Not touched, per documentation-only scope.
+- **Not verified:** the `raw_output` double-encoding gotcha and the deck-overlay
+  match-by-`topic`-field behaviour are documented from reading the code paths
+  (`forecast_assessment_service.py:102-104`, `:1140-1155`), not from an executed test.
+
+### Verification — hook and skill
 - Hook, three cases piped as synthetic stdin: `git commit` with `docs/changes.md` untouched →
   emits the JSON; non-commit command (`ls -la`, `pytest -q`) → silent, exit 0; `git commit`
   with `docs/changes.md` modified → silent, exit 0.
@@ -45,7 +273,20 @@ was merged in.
 - Skill proved discoverable: `/session-docs` loaded and this entry was written by following it.
 - **Not verified**: behaviour on a genuine `git commit` — no commit was made this session.
 
-### Propagation — none, and it cannot propagate
+### Propagation — docs
+Committed to canonical (bugfixing) as `0dc0b00c` on branch `fix/enrichment-retry-empty` — note
+that is a code branch, not a docs branch, so the three pages do not reach `main` until it
+merges. Docs-only: no service restart, no UI rebuild, no tenant copy needed. The pages describe
+canonical behaviour and are accurate for wiley / wileytest as long as those trees are not
+drifted on the files cited; per-tenant `.env` differences (`RERANK_ENABLED`,
+`FORECAST_TRACKER_AUTO_RUN`) are called out in the text rather than assumed.
+
+The same commit also carried `docs/changes.md` backfill entries and the two `docs/product/`
+writeups that an earlier session had left uncommitted — included because `changes.md`'s newest
+entry references the product docs, so committing one without the other would leave a dangling
+reference.
+
+### Propagation — hook and skill: none, and it cannot propagate
 `.gitignore:49` ignores `.claude/`, so **both files are untracked and uncommittable in this
 repo**. They are local to this checkout only: not committed here, not carried to wiley /
 wileytest / wbm / saasmvp-app, and not inherited by a tenant cloned from canonical. Any tenant
@@ -57,6 +298,15 @@ durable record that they exist.
   `python3` is present and does the same job.
 - A hook that nags unconditionally gets ignored. Gating the reminder on "is `docs/changes.md`
   actually absent from this commit" is what keeps it credible.
+- **Never read a model name out of a prompt template or agent frontmatter and document it as
+  what runs.** `data/prompts/*/current.json` carries `metadata.model`, and
+  `forecast_assessment/current.json` carries `model_recommendations`; both are advisory. This
+  was the single largest source of stale model names across the `how_it_works` pages — three of
+  the six corrections traced to it. Cite the service constant or the `get_ai_model()` call site.
+- When a doc says a pipeline has a fallback, check for the branch before repeating it. The
+  "corpus-wide fallback" claim had propagated into two pages and describes code that has never
+  existed; it makes an empty-pool assessment look like a retrieval bug rather than a missing
+  `source_topics` mapping.
 
 ## 2026-07-31 — observer alerts mislabelled news as social; two ops monitors
 
@@ -64,31 +314,40 @@ Backfilled 2026-08-02. Detail below is from the commit messages except the propa
 which was measured on 2026-08-02.
 
 ### Observer alerts: news articles labelled "Social" — `00cb9683`
-`social_ref()`'s catch-all tagged every non-Bluesky/X/Reddit match as `source · Social · view
-post`, so news URLs (nature.com, cnn.com, arxiv.org…) — the bulk of observer matches — rendered
-as social posts in both the alert email and the online report. Non-social URLs now carry their
-publisher domain and "News", link to the site, and read "read article"; Instagram and TikTok
-post URLs (xpoz platforms) are now recognised as social.
+`social_ref()` had a catch-all branch. Anything that was not Bluesky, X, or Reddit came out as
+`source · Social · view post`. Most observer matches are news URLs (nature.com, cnn.com,
+arxiv.org), so most matches were labelled wrong, in both the alert email and the online report.
+
+Non-social URLs now show their publisher domain, the word "News", and "read article", and link
+to the site. Instagram and TikTok post URLs (xpoz platforms) are now recognised as social.
 **`app/routes/vector_routes.py`**, **`app/services/email_service.py`**.
 
 ### Ops — saas email-delivery check — `9357f4f3`
-One-shot verification of the three 2026-07-31 saas changes, queued via `at` for 21:00 on 08-01,
-reporting each with its own verdict so a green area can't mask a red one in the subject line:
-correspondent email (Newsroom-tier gate removed, 19 agents backfilled — the real signal is
-matched runs that produced *no* email), the editor advisory-lock timeouts (failures against
-ticks as denominator, 8.7% baseline printed alongside), and the `fabricated_claim` editorial
-rejection rate against a 356-in-30-days baseline. Lock and editorial windows start at the 22:03
-deploy rather than a rolling 24h so pre-fix hours don't dilute the numbers. Reads the journal
-across both `saas-worker` and `saas-skills-worker`. Two dry runs shook out psql column headers
-leaking into scalar values, which had also broken the empty-result fallbacks.
-**`scripts/saas_email_delivery_check.sh`**; deployed to `/home/orochford/bin/`, log at
-`/var/log/aunoo-saas-email-check.log`. Does not reschedule itself.
+A one-shot check on the three saas changes that shipped 2026-07-31, queued with `at` for 21:00
+on 08-01. Each area gets its own verdict, so a green area cannot hide a red one in the subject
+line. The three areas:
+
+- **Correspondent email.** The Newsroom-tier gate came off and 19 agents were backfilled. The
+  real signal is matched runs that produced *no* email.
+- **Editor advisory-lock timeouts.** Reported as failures over ticks, with the 8.7% baseline
+  printed next to it. A raw count means nothing without knowing how often the lock was tried.
+- **Editorial `fabricated_claim` rejections**, against a baseline of 356 in 30 days.
+
+The lock and editorial windows start at the 22:03 deploy rather than a rolling 24 hours, so
+pre-fix hours do not dilute the numbers. The script reads the journal for both `saas-worker` and
+`saas-skills-worker`. Two dry runs found psql column headers leaking into scalar values, which
+had also broken the empty-result fallbacks.
+
+**`scripts/saas_email_delivery_check.sh`**, deployed to `/home/orochford/bin/`, logging to
+`/var/log/aunoo-saas-email-check.log`. It does not reschedule itself.
 
 ### Ops — collector health check, tracked copy resynced — `7dd5d56c`
-The tracked copy and `/home/orochford/bin/collector_health_check.sh` (the one root's `*/30` cron
-executes) had diverged, so version control did not hold what was live. The gap was one comment
-line recording abbott's removal from `TENANTS` at its 07-16 shutdown; behaviour identical either
-way. Direction was tracked ← live, since live is what runs and carried the extra context.
+The tracked copy had drifted from `/home/orochford/bin/collector_health_check.sh`, which is what
+root's `*/30` cron actually runs. Version control did not hold what was live.
+
+The gap was one comment line, recording that abbott left `TENANTS` when it shut down on 07-16.
+Behaviour is the same either way. The sync went tracked ← live: live is what runs, and it held
+the extra context.
 
 ### Propagation (measured 2026-08-02, md5 vs canonical)
 `vector_routes.py` and `email_service.py` are identical on wiley and wileytest — the observer
@@ -96,111 +355,136 @@ labelling fix is on both.
 
 ## 2026-07-30 — post-Bedrock breakage sweep (11 fixes)
 
-Backfilled 2026-08-02. A day of failures that all trace to the same root: the Bedrock migration
-moved every tenant off OpenAI, and code that still assumed OpenAI models, OpenAI-shaped JSON, or
-a `python` on PATH broke quietly. Detail from the commit messages; propagation measured
+Backfilled 2026-08-02. Eleven fixes with one root cause. The Bedrock migration moved every tenant
+off OpenAI. Code that still expected an OpenAI model, OpenAI-shaped JSON, or a `python` on PATH
+then broke, and broke quietly. Detail is from the commit messages. Propagation was measured on
 2026-08-02.
 
-### Enrichment: retry on empty/unparseable response — `c6bb7a84`
-Reasoning models (Kimi/Nova on Bedrock) intermittently return content the Key:Value field parser
-can't read — roughly 1 in 8 per the commit message — which marked the article
-`enrichment_failed` on a single miss (`Available fields: []`). `generate_response` + parse is now
-wrapped in a 3-attempt retry so a transient bad response recovers instead of failing the
-article. **`app/analyzers/article_analyzer.py`**.
+### Enrichment: retry on empty or unparseable response — `c6bb7a84`
+Reasoning models on Bedrock (Kimi, Nova) sometimes return text the Key:Value field parser cannot
+read. The commit message puts it at roughly 1 in 8. One miss was enough to mark the article
+`enrichment_failed` (`Available fields: []`).
 
-### Event-loop watchdog SEGV — `7258071e`
-The watchdog armed `faulthandler.dump_traceback_later(all_threads)` every cycle; when the loop
-blocked >8s it walked every thread's `PyThreadState` from a timer thread, racing native-extension
-execution and thread teardown, and SEGV'd inside `_Py_DumpTracebackThreads` (crash IP `0x4bb854`,
-`segfault at 0x70`). It crashed wileytest twice on 2026-07-30 during enrichment + hybrid
-relevance. The C-level watchdog is now behind `EVENT_LOOP_WATCHDOG=1`, **default off**; the async
-lag WARNING, ring buffer, and the admin endpoint's GIL-safe Python-level
-`dump_all_thread_stacks()` still give diagnosis without the crash.
-**`app/utils/event_loop_monitor.py`**.
+`generate_response` plus the parse now run inside a 3-attempt retry, so a bad response recovers
+instead of failing the article. **`app/analyzers/article_analyzer.py`**.
 
-### Add-Topic wizard: LLM suggestion dead on Bedrock tenants — `3f6302c2`
-`/api/onboarding/suggest-topic-attributes` scanned `litellm_config` for the first `openai/` model
-with an API key and raised "No OpenAI model configured" when none existed — always the case after
-the Bedrock migration, so the wizard silently stopped using the LLM. Now resolves a bare alias via
-`resolve_litellm_call_params` and defaults to a Claude alias (Nova emits unreliable structured
-JSON). **`app/routes/onboarding_routes.py`**.
+### Event-loop watchdog was crashing the process — `7258071e`
+The watchdog armed `faulthandler.dump_traceback_later(all_threads)` on every cycle. When the loop
+blocked for more than 8 seconds, that walked every thread's `PyThreadState` from a timer thread.
+It raced native-extension code and thread teardown, and segfaulted inside
+`_Py_DumpTracebackThreads` (crash IP `0x4bb854`, `segfault at 0x70`). It took wileytest down twice
+on 2026-07-30, during enrichment and hybrid relevance.
+
+The C-level watchdog now sits behind `EVENT_LOOP_WATCHDOG=1` and is **off by default**. Diagnosis
+survives without it: the async lag WARNING, the ring buffer, and the admin endpoint's GIL-safe
+`dump_all_thread_stacks()`. **`app/utils/event_loop_monitor.py`**.
+
+### Add-Topic wizard: keyword suggestion dead on Bedrock — `3f6302c2`
+`/api/onboarding/suggest-topic-attributes` looked through `litellm_config` for the first
+`openai/` model with an API key. After the Bedrock migration there is never one, so it raised
+"No OpenAI model configured" and the wizard quietly stopped calling the LLM at all.
+
+It now resolves a bare alias through `resolve_litellm_call_params`, and defaults to a Claude
+alias because Nova's structured JSON is unreliable. **`app/routes/onboarding_routes.py`**.
 
 ### Foresight model dropdown: real models, not aliases — `1ddef137`
-`litellm_config` exposes ~two dozen aliases (`gpt-*`, `gemini-*`, `mixtral-*`, `claude-*-latest`)
-that all collapse onto Claude Sonnet 4.5 / Haiku 4.5 plus Nova Pro/Lite and Kimi. The `/models`
-endpoint dumped all of them — mislabelling Claude as GPT/Gemini, duplicating entries, and a
-fallback that mapped id `gpt-5.4` to labels "GPT-4.1"/"GPT-4o". Returns the 5 distinct underlying
-models with honest labels. **`app/routes/trend_convergence_routes.py`**.
+`litellm_config` exposes about two dozen aliases (`gpt-*`, `gemini-*`, `mixtral-*`,
+`claude-*-latest`). They all collapse onto a few real models: Claude Sonnet 4.5, Claude Haiku 4.5,
+Nova Pro, Nova Lite, Kimi.
 
-### Trend convergence: org profile never loaded + brittle JSON parse — `f27e8bb8`
-`get_organisational_profile` returns a SQLAlchemy mapping keyed by column name; the route accessed
-it positionally (`profile_row[0]`) → "Could not locate column in row for column '0'", so the
-profile silently never loaded. Now accessed by name, tolerating JSON-text or already-decoded JSONB.
-The AI-response JSON extraction used a naive non-greedy regex / first-`{`-to-last-`}` scan that
-500'd on nested objects or trailing prose; it now routes through the shared `_preprocess_response`
-and `json.raw_decode`, 500-ing only when nothing parseable remains, and the outer `except` no
-longer re-wraps the `HTTPException`. **`app/routes/trend_convergence_routes.py`**,
+The `/models` endpoint returned all of them. That mislabelled Claude as GPT and Gemini, showed
+duplicates, and included a fallback that gave id `gpt-5.4` the labels "GPT-4.1" and "GPT-4o". It
+now returns the 5 distinct models under honest names.
+**`app/routes/trend_convergence_routes.py`**.
+
+### Trend convergence: org profile never loaded, and JSON parsing was brittle — `f27e8bb8`
+Two problems in one route.
+
+`get_organisational_profile` returns a SQLAlchemy mapping keyed by column name. The route read it
+positionally as `profile_row[0]`, which raised "Could not locate column in row for column '0'".
+The profile silently never loaded. It is now read by name, and tolerates a value that arrives as
+JSON text or as already-decoded JSONB.
+
+The AI-response JSON extraction used a non-greedy regex and a first-`{`-to-last-`}` scan. Nested
+objects or trailing prose returned a 500. It now goes through the shared `_preprocess_response`
+and `json.raw_decode`, and only 500s when nothing parseable is left. The outer `except` also
+stopped re-wrapping the `HTTPException`. **`app/routes/trend_convergence_routes.py`**,
 **`requirements.txt`**.
 
 ### Collectors — `4bd1aa45`, `1c09aebf`
-NewsFirehose: publisher/keyword names containing `&` ("John Wiley & Sons", "Taylor & Francis")
-reached the `/v1/search` tsquery builder and raised `PostgresSyntaxError` (500); `_normalize_query`
-now drops literal tsquery operator chars (`& ! : * \`) so terms degrade to plain words.
-TheNewsAPI: `keyword_monitor` passes `search_fields` as a comma-separated string and
-`",".join(str)` iterates characters, producing `search_fields=t,i,t,l,e,,,d,…`; a string is now
-split into a list first, as `newsapi_collector` already did.
+**NewsFirehose.** Publisher and keyword names containing `&`, such as "John Wiley & Sons" and
+"Taylor & Francis", reached the `/v1/search` tsquery builder and raised `PostgresSyntaxError`
+(500). `_normalize_query` now strips literal tsquery operators (`& ! : * \`), so those terms
+degrade to plain words.
+
+**TheNewsAPI.** `keyword_monitor` passes `search_fields` as a comma-separated string. Calling
+`",".join()` on a string iterates its characters, which produced
+`search_fields=t,i,t,l,e,,,d,…`. A string is now split into a list first, which is what
+`newsapi_collector` already did.
 
 ### Ingest and services — `0bbbc7db`, `28fe09d2`, `0ab6a203`, `9876623c`
-Hybrid relevance scoring: `article_data` content/summary keys can be present with an explicit
-`None`, so `.get(k, '')` still returned `None` and `len()` raised — coerced with `or ''`. Firecrawl
-batch scrape now skips the call (which 400s "No valid URLs provided") on an empty or all-invalid
-URL list. Data-quality check parsed the LLM reply with `json.loads`, throwing "Extra data" when the
-model appended prose — now starts at the first `{` and uses `raw_decode`. Brand-watcher auto-retrain
-shelled out to `python`, which does not exist on these hosts (only `python3` / the venv), failing
-with Errno 2 — now uses `sys.executable`. Analysis cache: long URLs (Google-News RSS article IDs)
-produced filenames over the 255-char limit (Errno 36, silent cache-write failures) — the URL portion
-is capped and a SHA1 of the full URL appended, so short URLs keep their names and no cache
-invalidates.
+Four small failures, each of which stopped work silently.
+
+- **Hybrid relevance scoring.** `article_data` can carry a content or summary key whose value is
+  an explicit `None`, so `.get(k, '')` still returned `None` and `len()` raised. Now coerced with
+  `or ''`.
+- **Firecrawl batch scrape.** An empty or all-invalid URL list made the call 400 with "No valid
+  URLs provided". The call is now skipped.
+- **Data-quality check.** It parsed the LLM reply with `json.loads`, which throws "Extra data"
+  when the model adds prose after the object. It now starts at the first `{` and uses
+  `raw_decode`.
+- **Brand-watcher auto-retrain.** It shelled out to `python`, which does not exist on these hosts
+  — only `python3` and the venv — so it failed with Errno 2. Now uses `sys.executable`.
+- **Analysis cache.** Long URLs, such as Google News RSS article IDs, produced filenames over the
+  255-character limit (Errno 36, silent cache-write failures). The URL portion is now capped with
+  a SHA1 of the full URL appended. Short URLs keep their old names, so no existing cache entry is
+  invalidated.
 
 ### Briefing Desk: model pinned server-side — `e79b7aa3`
-Daily-briefing draft/incident-detection and final synthesis now read the model from
-`emerging_topics_settings.model`, overriding the browser dropdown, so composed content and the
-`model_used` byline are tenant-consistent. Falls back to the client-passed model when unset.
-**`app/routes/daily_reports_routes.py`**, **`app/services/daily_briefing_compose_service.py`**.
+The daily briefing's draft, incident detection, and final synthesis now read the model from
+`emerging_topics_settings.model`, which overrides the browser dropdown. Composed content and the
+`model_used` byline are therefore the same for everyone on a tenant. If the setting is unset, it
+falls back to the model the client passed. **`app/routes/daily_reports_routes.py`**,
+**`app/services/daily_briefing_compose_service.py`**.
 
-### Propagation (measured 2026-08-02, md5 + marker grep vs canonical)
-All files identical on wileytest. On wiley, all identical **except two**:
-- **`trend_convergence_routes.py` — wiley was MISSING `1ddef137`** (remediated 2026-08-02, below).
-  It carried the old alias list (`{'id': 'gpt-5.4', 'name': 'GPT-4.1'}`, 2 hits of the `'GPT-4.1'`
-  label; canonical and wileytest had 0) and was 3869 lines vs 3831. It *did* have `f27e8bb8` —
-  both the by-name `profile_row['id']` access and the `raw_decode` path — which dates wiley's copy
-  to between 16:05 and 16:24 on 07-30, i.e. it was taken 18 minutes before the dropdown fix landed.
-  Wiley's foresight model dropdown was showing fictitious GPT/Gemini entries for three days.
+### Propagation (measured 2026-08-02, md5 plus marker grep against canonical)
+Every file is identical on wileytest. On wiley, every file is identical except two.
 
-  **Remediation, 2026-08-02.** `diff -u` against canonical showed exactly **one hunk**, confined to
-  the `/api/trend-convergence/models` endpoint — no wiley-local divergence anywhere else in the
-  file — so a wholesale file copy was safe rather than a surgical hunk apply. Backed up wiley's
-  copy off-tree, copied canonical over it (both now md5 `30b0c46e`), `py_compile` clean under
-  wiley's own venv, `sudo systemctl restart wiley.aunoo.ai.service` (active 10:38:53 CEST).
-  Verified live: `curl http://127.0.0.1:10006/api/trend-convergence/models` returns the 5 real
-  models (Claude Sonnet 4.5, Claude Haiku 4.5, Nova Pro, Nova Lite, Kimi K2.5) and the
-  `'GPT-4.1'` label count is 0. Not committed in wiley — deploy-copy tree.
-- `automated_ingest_service.py` differs by 61 lines but **has** the `0bbbc7db` `or ''` guard at
-  line 447 — that diff is unrelated tenant drift, not a missing fix.
+**`trend_convergence_routes.py` — wiley was missing `1ddef137`.** Fixed on 2026-08-02, see below.
+It still carried the old alias list: 2 hits of the `'GPT-4.1'` label, where canonical and
+wileytest have 0, and 3869 lines against 3831. It did have `f27e8bb8`, both the by-name
+`profile_row['id']` access and the `raw_decode` path. That dates wiley's copy to between 16:05
+and 16:24 on 07-30 — taken 18 minutes before the dropdown fix landed. Wiley showed fictitious
+GPT and Gemini entries in its foresight dropdown for three days.
 
-Adjacent, not a propagation gap: one positional `profile_row[0]` remains in this file on **all
-three** tenants including canonical — a different code path `f27e8bb8` did not touch. Flagged,
-not changed.
+The fix, 2026-08-02. `diff -u` against canonical showed exactly one hunk, confined to the
+`/api/trend-convergence/models` endpoint. There was no wiley-local divergence anywhere else in
+the file, so copying the whole file was safe and a surgical hunk apply was unnecessary. Steps:
+backed up wiley's copy off-tree, copied canonical over it (both now md5 `30b0c46e`), ran
+`py_compile` under wiley's own venv, restarted `wiley.aunoo.ai.service` (active 10:38:53 CEST).
+Verified against the running service: `curl http://127.0.0.1:10006/api/trend-convergence/models`
+returns the 5 real models, and the `'GPT-4.1'` label count is 0. Nothing was committed in wiley,
+which is a deploy-copy tree.
+
+**`automated_ingest_service.py` differs by 61 lines, but has the fix.** The `0bbbc7db` `or ''`
+guard is present at line 447. That diff is unrelated tenant drift.
+
+One thing flagged but not changed, and not a propagation gap: a positional `profile_row[0]`
+survives in this file on all three tenants, canonical included. It is a different code path that
+`f27e8bb8` did not touch.
 
 ## 2026-07-30 — EU AI Act Article 50: label AI-generated output — `25812e69`
 
 Backfilled 2026-08-02.
 
-`app/compliance/ai_disclosure.py` added as the single source for both the visible "AI-generated"
-disclosure and the machine-readable marker, wired into email (opt-in `X-AI-Generated` header plus
-footer), HTML/PPTX/DOCX/PDF reports, dashboard exports, and the in-app React dashboards. The
-over-claimed "reviewed and validated" UI copy was softened at the same time. Touches 18 service
-files plus the React build and templates.
+`app/compliance/ai_disclosure.py` is now the single source for two things: the visible
+"AI-generated" disclosure, and the machine-readable marker. One source means they cannot drift
+apart between output formats.
+
+It is wired into email (an opt-in `X-AI-Generated` header plus a footer), HTML, PPTX, DOCX and PDF
+reports, dashboard exports, and the in-app React dashboards. UI copy that claimed more than we do
+— "reviewed and validated" — was softened at the same time. The commit touches 18 service files
+plus the React build and templates.
 
 ### Propagation
 `ai_disclosure.py` identical on wiley and wileytest (measured 2026-08-02). Per
@@ -209,91 +493,128 @@ commit `4ef4930`) — not re-verified here.
 
 ## 2026-07-29 — enrichment loss: parser, prompt, and the relevance gate
 
-Backfilled 2026-08-02. The single highest-impact day in this range: news articles were being
-enriched, then silently discarded, then made permanently invisible. Measurements below are from
-the commit messages; propagation measured 2026-08-02.
+Backfilled 2026-08-02. The highest-impact day in this range. News articles were enriched, then
+silently discarded, then made permanently invisible. The measurements below come from the commit
+messages. Propagation was measured on 2026-08-02.
 
-### Root cause: parser discarded whole analyses over heading variants — `b266238c`
-`parse_analysis()` validated the model's response by exact heading match on 14 required fields.
-When a model relabelled a heading ("Driver Signal Explanation"), numbered them ("1. Category" —
-which the prompt's own numbered list invited), wrapped them in markdown, collapsed the four
-rationales into one "Explanation" block, or omitted "Title", **the entire analysis was thrown
-away** and the row kept NULL `category`/`sentiment`.
+### Root cause: the parser threw away whole analyses over heading wording — `b266238c`
+`parse_analysis()` checked the model's response by exact heading match across 14 required fields.
+Several ordinary things broke that check:
 
-Every observer agent retrieves on `sentiment IS NOT NULL AND category IS NOT NULL`
-(`vector_routes.py`), so those articles became invisible to signal alerts, `/explore` and reports
-— **permanently, since nothing retries them**. On wileytest this was ~227 news articles a day.
-Social posts enrich on another path and were unaffected, which is why agent output had skewed
-toward Bluesky.
+- the model renamed a heading, for example "Driver Signal Explanation"
+- it numbered the headings, "1. Category", which the prompt's own numbered list invited
+- it wrapped them in markdown
+- it merged the four rationales into one "Explanation" block
+- it left out "Title"
 
-The parser now strips list markers and markdown from headings *and* values (a leading `**` on a
-value reached the ontology check as `** Widespread adoption` and got downgraded to "Other"),
-aliases known heading variants onto canonical names, reuses a merged "Explanation" block for the
-per-field rationales, falls back to the caller's title when "Title" is absent, and hard-fails only
-on Title/Summary/Category/Sentiment — descriptive fields now warn and store blank instead of
-voiding the record. `scripts/reenrich_parse_failures.py` added to recover the backlog; it
-preflights each topic's ontology and skips topics with an empty list, since `analyze_content()`
-rejects those before calling the model — wileytest's "M&A Updates" has no `future_signals`, which
-blocks 3,003 articles on config grounds rather than parsing.
-Also isolates `PromptManager` storage in tests: `PromptTemplates.load_custom_templates()` calls
-`save_version()`, so running the suite had been overwriting live `data/prompts/current.json` with
-the test fixture's placeholder prompt.
+Any one of those threw the **entire analysis** away, and the row kept a NULL `category` and
+`sentiment`.
 
-### The prompt that invited the drift — `8712c41c`, then `3f37ef27`
-Six defects in the analysis prompt, each mapping to a failure in the logs: two competing "Format
-your response as follows:" blocks (the first listing only "Summary:", so a model anchoring on it
-emitted nothing else); sections numbered 1–8 echoed back as headings; section 8 titled "Relevant
-tags" against a "Tags:" output label; "Title" never requested in the instructions at all (the
-largest single missing field); "Provide a brief explanation" without naming the target field,
-inviting one merged block instead of four labelled ones; and "regarding the future of AI" on every
-topic including M&A Updates and Geopolitical Hotspots. Replaced with unnumbered sections keyed to
-exact field labels, one output block, and an explicit instruction against numbering, markdown and
-renaming. A/B on the same 12 articles with `bedrock-kimi-k2.5`: old 10/12 clean with 2 drifted
-(exactly the failure modes dominating the production logs), new 12/12 clean.
-Written via `PromptManager.save_version` (v1.0.3 → v1.0.4) on bugfixing, wileytest and wiley; all
-three reported template hash `ec7112190aee`. `get_template_hash` feeds the analysis cache key, so
-cached analyses under the old prompt invalidate on their own.
+That is worse than it sounds. Every observer agent retrieves on
+`sentiment IS NOT NULL AND category IS NOT NULL` (`vector_routes.py`). So the article vanished
+from signal alerts, `/explore`, and reports — permanently, because nothing retries it. On
+wileytest this hit about 227 news articles a day. Social posts enrich on a different path and
+were fine, which is why agent output had drifted toward Bluesky.
 
-`3f37ef27` then fixed the *hardcoded* default too. `8712c41c` rewrote
+The parser now:
+
+- strips list markers and markdown from headings **and** values. A leading `**` on a value used
+  to reach the ontology check as `** Widespread adoption` and get downgraded to "Other".
+- maps known heading variants onto the canonical names
+- reuses a merged "Explanation" block for the per-field rationales
+- falls back to the caller's title when "Title" is missing
+- hard-fails only on Title, Summary, Category and Sentiment. Descriptive fields now warn and
+  store blank instead of voiding the whole record.
+
+`scripts/reenrich_parse_failures.py` recovers the backlog. It checks each topic's ontology first
+and skips any topic with an empty list, because `analyze_content()` rejects those before it ever
+calls the model. Wileytest's "M&A Updates" has no `future_signals`, which blocks 3,003 articles.
+That is a config problem, not a parsing one.
+
+The commit also isolates `PromptManager` storage in tests.
+`PromptTemplates.load_custom_templates()` calls `save_version()`, so running the suite had been
+overwriting the live `data/prompts/current.json` with the test fixture's placeholder prompt.
+
+### The prompt was inviting the drift — `8712c41c`, then `3f37ef27`
+Six defects in the analysis prompt. Each one maps to a failure in the logs:
+
+- Two competing "Format your response as follows:" blocks. The first listed only "Summary:", so
+  a model that anchored on it emitted nothing else.
+- Sections numbered 1–8, which came back as headings.
+- Section 8 titled "Relevant tags" against a "Tags:" output label. Two names for one field.
+- "Title" never requested in the instructions at all. This was the largest single missing field.
+- "Provide a brief explanation" without naming the target field, which invited one merged block
+  instead of four labelled ones.
+- "regarding the future of AI" on every topic, including M&A Updates and Geopolitical Hotspots.
+
+The replacement uses unnumbered sections keyed to the exact field labels, one output block, and
+an explicit instruction against numbering, markdown, and renaming.
+
+Measured A/B on the same 12 articles with `bedrock-kimi-k2.5`: the old prompt produced 10 clean
+and 2 drifted, and both drifts were the exact failure modes dominating the production logs. The
+new prompt produced 12 clean, 0 drifted.
+
+Written with `PromptManager.save_version` (v1.0.3 → v1.0.4) on bugfixing, wileytest and wiley.
+All three report template hash `ec7112190aee`. `get_template_hash` feeds the analysis cache key,
+so analyses cached under the old prompt invalidate themselves.
+
+`3f37ef27` then fixed the hardcoded default. `8712c41c` had rewritten
 `data/prompts/content_analysis/current.json`, which is what existing tenants run, but
 `PromptTemplates.DEFAULT_TEMPLATES` still carried every defect that rewrite removed.
 `initialize_defaults()` only seeds when no stored version exists, so this changes nothing for an
-existing tenant — it matters for a **newly cloned** one, which would otherwise start life with
-exactly the prompt that was causing analyses to be discarded, the bug reappearing silently months
-later on a fresh deployment.
+existing tenant. It matters for a **newly cloned** one, which would otherwise start life with the
+exact prompt that was causing analyses to be discarded — the bug reappearing silently, months
+later, on a fresh deployment.
 
 ### Relevance gate: the CE tier was one flag away from an outage — `128d037a`, `540584d4`
-`RELEVANCE_USE_CE_TIER` is off by default, and that default was the only thing preventing a serious
-outage. Against a 49-item hand-labelled gold set on wileytest (20 relevant / 29 name collisions),
-relevant articles scored min 0.000018 / median 0.0029 / max 0.80 while collisions scored min
-0.000016 / median 0.000018 / max 0.0049 — so the shipped `CE_LOW=0.10` sat *above 90% of the
-relevant population*, and enabling the flag would have "confidently rejected" 18 of 20 relevant
-articles with no LLM review at all. There is no honest reject threshold: the widest cut losing no
-positive is 0.000018, which *is* the lowest positive — a coincidence, not a margin.
+`RELEVANCE_USE_CE_TIER` is off by default, and that default was the only thing preventing a
+serious outage.
 
-The tier is accept-only now. The risk is asymmetric — a wrong confident accept costs one enrichment
-call, a wrong confident reject drops the article permanently, the same failure mode that made news
-disappear from the observer agents. `CE_HIGH` dropped 0.90 → 0.05, an order of magnitude above the
-worst collision (0.0049, "Sage Group (OTCMKTS:SGPYY)" — the accounting-software firm, not SAGE
-Publishing). On accept, the hybrid score is raised to the threshold rather than overwritten with the
-CE value, whose scale is not comparable to the embedding/classifier scale.
+Measured against a 49-item hand-labelled gold set on wileytest, 20 genuinely relevant and 29 name
+collisions:
 
-`540584d4` then **corrected its own predecessor's measurement**. `128d037a` justified the tier with
-"AUC 0.907, better than any reworded query"; that scored **titles only**, while
-`_compute_cross_encoder_score` builds `f"{title}. {summary}"` — and 4 of its 20 positives were
-hand-written titles rather than real rows. Re-measured on real articles with real summaries in the
-production document form: **theme topics AUC 0.885** (199 relevant / 114 not, weak-labelled from the
-pipeline's own confident extremes), **brand topics AUC 0.478** (9 relevant / 86 not, hand-labelled).
-Rewording does not rescue the brand case (bare entity 0.298, "news about X" 0.425, question form
-0.402, "X the company" 0.609, raw topic 0.478) because the task there is entity disambiguation —
-SAGE Publishing vs Sage Group plc vs sage the herb vs sage-agent-sdk on PyPI — a named-entity
-problem a semantic reranker rates alike. So the tier is now theme-topics-only. Flag still defaults
-off; this makes it safe to turn on, it does not turn it on.
+| | min | median | max |
+|---|---|---|---|
+| relevant | 0.000018 | 0.0029 | 0.80 |
+| collisions | 0.000016 | 0.000018 | 0.0049 |
 
-Noted in `540584d4` and still open: the gate uses its own brand predicate because the existing
-`is_brand_topic` only matches "Brand Monitoring X" and misses the live "X - Brand Watch" topics
-(78 articles, most recent 2026-07-27). The narrower predicate was left alone rather than silently
-changing which topics the classifier-confidence guard covers.
+The shipped `CE_LOW=0.10` sits above 90% of the *relevant* population. Turning the flag on would
+have "confidently rejected" 18 of the 20 relevant articles, with no LLM review at all.
+
+There is no honest reject threshold here. The widest cut that loses no positive is 0.000018, and
+that is the lowest positive. A coincidence, not a margin.
+
+So the tier is accept-only now. The risk is asymmetric: a wrong confident accept costs one
+enrichment call, while a wrong confident reject drops the article for good. That is the same
+failure mode that made news disappear from the observer agents. `CE_HIGH` dropped from 0.90 to
+0.05, an order of magnitude above the worst collision — 0.0049, "Sage Group (OTCMKTS:SGPYY)", the
+accounting software firm, not SAGE Publishing. On accept, the hybrid score is raised to the
+threshold rather than overwritten with the CE value, whose scale is not comparable to the
+embedding and classifier scale.
+
+`540584d4` then corrected its own predecessor's measurement. `128d037a` justified the tier with
+"AUC 0.907, better than any reworded query". That number scored **titles only**, while
+`_compute_cross_encoder_score` builds `f"{title}. {summary}"`. Four of its 20 positives were
+hand-written titles rather than real rows.
+
+Re-measured on real articles, with real summaries, in the production document form:
+
+- **theme topics, AUC 0.885** — 199 relevant, 114 not, weak-labelled from the pipeline's own
+  confident extremes
+- **brand topics, AUC 0.478** — 9 relevant, 86 not, hand-labelled. That is a coin toss.
+
+Rewording the query does not rescue the brand case: bare entity 0.298, "news about X" 0.425,
+question form 0.402, "X the company" 0.609, raw topic 0.478. The reason is that brand topics need
+entity disambiguation — SAGE Publishing, Sage Group plc, sage the herb, and sage-agent-sdk on
+PyPI. That is a named-entity problem, and a semantic reranker rates all four alike.
+
+So the tier is theme-topics-only now. The flag still defaults off. This makes it safe to turn on;
+it does not turn it on.
+
+One thing `540584d4` flagged and left open. The gate uses its own brand predicate, because the
+existing `is_brand_topic` only matches "Brand Monitoring X" and misses the live "X - Brand Watch"
+topics (78 articles, most recent 2026-07-27). The narrower predicate was left alone rather than
+silently changing which topics the classifier-confidence guard covers.
 
 ### Propagation (measured 2026-08-02)
 `article_analyzer.py`, `prompt_templates.py` and `hybrid_relevance_service.py` are identical on

@@ -378,7 +378,7 @@ flowchart LR
 **Where.** `app/vector_store_pgvector.py` — embed `:102`, truncate `:58`, search `:259` (sync) / `:434` (async), similar-articles `:581`; index creation `scripts/migrate_chromadb_to_pgvector.py:117`. `app/vector_store.py` is a compatibility shim (ChromaDB fully removed; several names/docstrings are stale).
 
 **Spec-reuse notes.**
-- **Critical gotcha:** if `OPENAI_API_KEY` is missing or the embed call fails, the store returns **random embeddings** rather than raising (`:121-152`) — searches silently degrade to noise. Any spec touching this path should replace the silent fallback with a loud failure (the saas backend does exactly that — see 6.1's embeddings note).
+- **Critical gotcha:** if `OPENAI_API_KEY` is missing or the embed call fails, the store returns **random embeddings** rather than raising (`:121-152`). It logs at WARNING (`:123`, `:128`, `:150`), but the vector is returned and written to `articles.embedding` like a real one, so searches degrade to noise with nothing downstream able to detect it and nothing re-embedding it. Any spec touching this path should replace the fallback with a loud failure. This now applies to everything except wiley: the saas backend (see 6.1's embeddings note) and the bugfixing, wileytest and wbm monolith tenants all run local DeBERTa 768-d and raise instead. **wiley is the only remaining tenant on the random-fallback path.**
 - Three embedding spaces coexist: retrieval (OpenAI 1536-d), ingest relevance (MiniLM 384-d), and the saas backend (DeBERTa 768-d). They are **not interchangeable**; a spec must name which space it uses.
 
 ## 3.2 Overfetch + Cross-Encoder Rerank
@@ -807,7 +807,7 @@ flowchart TB
 
 - Only `RateLimitError | AuthenticationError | APIConnectionError` trigger cross-model fallback; `BadRequest`/`ContextWindowExceeded` pass through (they'd fail identically elsewhere).
 - Degenerate-output detection exempts structured-JSON use-cases whose legitimate schema repetition would false-positive; JSON-parseable output auto-skips the check.
-- Embeddings are local DeBERTa 768-d with **no cloud fallback by design** — every pgvector column is `vector(768)`; a 1536-d fallback would silently corrupt writes. Fails loud. (Contrast with the monolith's silent random-embedding fallback, 3.1 — the saas behavior is the correct one.)
+- Embeddings are local DeBERTa 768-d with **no cloud fallback by design** — every pgvector column is `vector(768)`; a 1536-d fallback would silently corrupt writes. Fails loud. (**wiley** is the last 1536-d monolith tenant and still falls back to random vectors, 3.1. That fallback is logged, but it is returned and stored like a real vector, which is what makes it dangerous. **wileytest is the exception**: it runs the same local-DeBERTa 768-d design as saas and raises rather than fabricating a vector. Fail-loud is the correct behaviour, and it is not saas-only.)
 
 **Where.** `saas.aunoo.ai/app/ai/llm.py` — resolution `:119`, tenant override `:217`, rate-limit retry `:262`, fallback `:307`, gates `:617+`, ledger `:443`, embeddings `:998`.
 
@@ -1080,7 +1080,7 @@ stateDiagram-v2
 
 | Role | Model | Notes |
 |---|---|---|
-| Retrieval embeddings (monolith) | OpenAI `text-embedding-3-small` (1536-d) | silent random-vector fallback — see 3.1 gotcha |
+| Retrieval embeddings (monolith) | Local DeBERTa (768-d) on bugfixing, wileytest and wbm. OpenAI `text-embedding-3-small` (1536-d) on **wiley** only | The 1536-d path returns random vectors when the embed call fails. It logs at WARNING (`vector_store_pgvector.py:123,128,150`) but returns and persists them like real vectors, so no caller can tell. See 3.1 gotcha. The three 768-d tenants raise `RuntimeError` instead of fabricating a vector (verified 2026-08-02) |
 | Retrieval embeddings (saas) | local DeBERTa (768-d) | no cloud fallback by design |
 | Ingest relevance embedding | `all-MiniLM-L6-v2` (384-d, CPU) | topic-vs-article similarity only |
 | Relevance / enrichment classifiers | fine-tuned DeBERTa (local, CPU) | hot-swappable singletons |
