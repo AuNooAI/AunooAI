@@ -1,6 +1,7 @@
 # Embedding health monitoring — what to check and why
 
-**Status:** specification. Nothing here is built yet.
+**Status:** checks A–D are built and running (`scripts/embedding_health_check.sh`, root crontab
+`15,45 * * * *`). Checks E–I are specification only.
 **Written:** 2026-08-02, after wbm spent four weeks writing no embeddings without anyone noticing.
 
 ## Why this exists
@@ -46,13 +47,20 @@ signal that catches embedding failures, relevance-gate misconfiguration, and clu
 alike, without knowing which. It lags by about a week — clustering ran until 13 July on backlog —
 so it is a backstop, not a primary.
 
-**Cover every tenant.** `collector_health_check.sh:16` reads `TENANTS="bugfixing wileytest wiley"`.
-**wbm is not in it** — the tenant that broke is the one not being watched. Whatever gets built
-here must list wbm, and the collector check should be extended too.
+**Cover every tenant.** `collector_health_check.sh` originally read
+`TENANTS="bugfixing wileytest wiley"` — wbm, the tenant that broke, was the one not being
+watched. Fixed 2026-08-02: wbm was added there with a measured floor of 20 articles/12h, and
+`embedding_health_check.sh` covers all four from the start.
 
 ## The checks
 
-Ordered by signal quality. A–D are invariants and should be built first.
+Ordered by signal quality. A–D are invariants and are the ones now built.
+
+One implementation note learned the hard way on 2026-08-02: `psql` renders `boolean::text` as
+`true`/`false` on this box, not `t`/`f`. The first version of check D compared against `t`, so
+every healthy index looked like a query failure and the monitor emailed four false alarms on its
+first live run. Test a new check in a sandbox — email disabled, own log and state directory —
+before letting it reach the real alerting path.
 
 ### A. Code and column agree on dimension
 **Severity: critical. No false positives. This alone catches the wbm outage.**
@@ -64,8 +72,9 @@ SELECT format_type(atttypid, atttypmod) FROM pg_attribute
 WHERE attrelid = 'articles'::regclass AND attname = 'embedding';
 ```
 
-against `EMBEDDING_DIM` in that tenant's `app/vector_store_pgvector.py` (currently 768 on
-bugfixing, wileytest, wbm; wiley is 1536 until its migration finishes). Alert on any mismatch.
+against `EMBEDDING_DIM` in that tenant's `app/vector_store_pgvector.py` — 768 on all four
+tenants since wiley migrated on 2026-08-02. Read it from the file rather than hardcoding it, so
+the check keeps working through the next migration. Alert on any mismatch.
 
 Also worth comparing across the two derived centroid columns, which must match:
 `emerging_topics.centroid_embedding`, `cluster_snapshots.centroid_embedding`.
@@ -108,8 +117,8 @@ Alert if the row is missing, or if `indisvalid` is false. A failed `CREATE INDEX
 leaves an invalid index behind that the planner ignores, so searches silently fall back to
 sequential scans over half a million rows. Nothing errors; queries just get slow.
 
-Current sizes for reference, measured 2026-08-02: bugfixing 740 MB / 193k rows, wbm 1,943 MB /
-514k, wileytest 2,056 MB / 538k. Wiley's is pending its backfill.
+Current sizes, measured 2026-08-02 with all four backfills complete: bugfixing 740 MB / 193k
+rows, wiley 1,026 MB / 265k, wbm 1,943 MB / 514k, wileytest 2,056 MB / 538k.
 
 ### E. Embedding freshness, gated on qualifying articles
 **Severity: high. Needs care to avoid the relevance-gate false positive.**

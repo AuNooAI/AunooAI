@@ -129,7 +129,48 @@ A first measurement of wbm's volume showed 07-26 with 2 articles, which looked l
 worth alerting on. That was an artifact of a 7-day window cutting mid-day; the real figure is 322.
 The floor would have been set wrong on it.
 
-### Monitoring spec — `docs/EMBEDDING_HEALTH_MONITORING.md` (new, nothing built)
+### Monitor built — `scripts/embedding_health_check.sh` (new) + INCIDENT (4 false alarms)
+Checks A–D from the spec, in the same shape as `collector_health_check.sh`: Resend alerts,
+6-hour repeat suppression cleared by a recovery, log at `/var/log/aunoo-embedding-health.log`,
+state under `/var/tmp/embedding_health_state`. Root crontab at `15,45 * * * *`, offset from the
+collector check at `:00/:30` so they do not hit the databases together. Covers all four tenants.
+
+- **A** — the expected width is read from each tenant's own `EMBEDDING_DIM` (falling back to 1536
+  if the file still names `text-embedding-3-small`) and compared against `articles.embedding`
+  plus both centroid columns. This is the check that catches the wbm outage.
+- **B** — probes `DEBERTA_ENCODER_URL/encode` and requires a vector of exactly that width.
+  Skipped for any tenant still on the OpenAI path, which has no local encoder.
+- **C** — counts `vector upsert failed|expected N dimensions|DeBERTa encoder unreachable` in the
+  last 40 minutes of the journal.
+- **D** — `articles_embedding_hnsw_idx` must exist and be `indisvalid`.
+
+Deliberately absent: any "collected but not embedded" check. It fires on every quiet
+relevance-gate spell — see the 160-article case in this entry's verification section, which
+looked like a fault and was not.
+
+**Verified by fault injection, not by assumption.** Each check was run against a sandboxed copy
+(email disabled, own log and state dir) with a deliberate fault: code claiming 1024 against a
+768 column, encoder URL pointed at a dead port, the journal pattern matched to live lines, and a
+nonexistent index name. All four fired. The recovery path was tested too — the state file
+appears on fault and is removed on the next clean run, logging `RECOVERED`.
+
+**INCIDENT — the monitor's first live run sent 4 false alarms.** At 22:30 it emailed
+`db_query_failed: Could not read index state (got: 'true')` for every tenant. Every index was
+valid. `psql` renders `boolean::text` as `true` here, not `t`; the `case` matched only `t`, so
+the healthy branch was unreachable and all four tenants fell through to the failure arm. It
+would have fired every 30 minutes indefinitely.
+
+Fixed by accepting both renderings (`t|true` / `f|false`), with a comment saying why. Stale
+state files removed, and the deployed copy re-run to confirm: four `OK` lines, zero alert state
+files, no Resend IDs in the log after 22:30:36. Checked the rest of the script for the same
+fragility — `indisvalid` is the only boolean it compares.
+
+**Lesson, and it is the point of the whole exercise:** the first version was run live against all
+four tenants. The sandboxed copy that caught this class of bug in seconds was built minutes
+later, for the fault-injection tests. Test a monitor in a sandbox first; letting it page you is
+backwards, and a monitor that cries wolf on day one is the one people learn to ignore.
+
+### Monitoring spec — `docs/EMBEDDING_HEALTH_MONITORING.md` (new, spec for A–I; A–D now built)
 What to check so a repeat is caught in 30 minutes rather than four weeks. Checks A–D are
 invariants with no baselines and no false positives: code-vs-column dimension, encoder reachable
 at the right width, vector-write errors in the journal, HNSW index validity. **Check A alone
