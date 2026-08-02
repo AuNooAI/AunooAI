@@ -141,7 +141,8 @@ calculation date and cached.
 
 ### 3.3 LLM theme proposal
 
-The high-novelty sample is fed to `gpt-4o` with a prompt that asks for
+The high-novelty sample is fed to an LLM (`ThemeProposer.default_model`,
+currently `gpt-5.4`) with a prompt that asks for
 5–10 *specific* emerging themes. The prompt rejects broad categories
 ("AI Developments", "Tech News") and requires concrete framings
 ("DeepSeek R1 Release and Global Response", "EU AI Act Implementation
@@ -309,7 +310,7 @@ seeded from the candidate's articles. Steps, in order:
    `source_candidate_id = <this candidate>`.
 2. **Three Horizons** — pulls full article rows for the candidate's
    first 50 URIs, builds the same `emerging_topic_driver` prompt the
-   Future Horizons tab uses, calls `gpt-4o`, parses out the 10–14
+   Future Horizons tab uses, calls `gpt-5.4`, parses out the 10–14
    scenarios, and writes to `future_horizons_runs`.
 3. **Paired assessment** — calls `assess_run` for `mode='live'` and
    `mode='placebo'` against the new horizons run with
@@ -390,20 +391,29 @@ Each assessment runs in two passes — `live` and `placebo`:
 
 For each pass:
 
-1. Filter the article pool to those tagged with the topic (with a
-   corpus-wide fallback if too narrow).
-2. For each article, score against every scenario via embedding
-   similarity + reranking. Articles where the top scenario's gap from
-   the runner-up is below `margin` (default 0.04) are routed to the
-   "ambiguous" bucket.
+1. Pull the article pool for the topic's tags — the tracked topic's
+   `source_topics` when its deck name is decoupled from the corpus tag,
+   else the topic name itself. There is **no corpus-wide fallback**; a
+   topic with no matching, embedded articles yields an empty pool rather
+   than a widened one. The window is cut on `submission_date`.
+2. For each article, score against every scenario with the cross-encoder
+   reranker. Articles where the top scenario's gap from the runner-up is
+   below `margin` (default 0.04) are routed to the "ambiguous" bucket.
 3. Surviving article–scenario pairs are sent to a classifier LLM
-   (`gpt-4.1-mini` by default) which returns one of `supports`,
-   `contradicts`, `inconclusive`.
-4. Counts are aggregated per scenario.
+   (`gpt-5.4-mini` by default) which returns one of six verdicts —
+   `supports_trajectory`, `supports_state_contradicts_trajectory`,
+   `contradicts`, `better_fits_other_scenario`, `neutral_context`,
+   `unrelated` — plus an evidence type and a confidence score.
+4. Counts are aggregated per scenario into a verdict label
+   (Accelerating / On-track / Stalled / Off-track / Inconclusive).
 
 `apply_baseline_correction` subtracts the placebo's per-scenario
 support rate from the live rate. The resulting `net_rate` is what the
-deck reports as "Strengthening" / "Stable" / "Cooling" thresholds.
+deck reports as "Strengthening" / "Stable" / "Cooling" — a separate axis
+from the per-scenario verdict labels above.
+
+See the [Forecast Tracker methodology](how_it_works_forecast_tracker.md)
+for the full pipeline, the scoring formulas and the two label axes.
 
 ### 6.3 Overlay agent
 

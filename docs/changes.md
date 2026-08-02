@@ -2,6 +2,303 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-02 — session-documentation tooling (skill + pre-commit reminder hook)
+
+### Goal
+This log had drifted: the newest entry was 2026-07-23 while commits ran through 2026-07-31
+(`7dd5d56c`, 2026-07-31 22:56). The gap is a process problem, not a memory problem — nothing
+prompted the write-up at the moment the work was fresh. Two artifacts to close it: a skill that
+produces the documentation, and a hook that fires the reminder at commit time.
+
+### `session-docs` skill — `.claude/skills/session-docs/SKILL.md` (new)
+Project-scoped skill, invoked as `/session-docs`. Produces two deliverables from one evidence
+pass: this file's dated feature-by-feature entry, and a product/marketing writeup under
+`docs/product/`. Defaults to **pre-commit mode** — scope comes from `git diff HEAD` plus
+untracked files rather than `git log`, so there is no SHA to cite yet and the skill is told to
+cite paths instead of inventing or placeholder-ing one; verification must run *before* the
+commit, since an entry claiming verification that happens afterwards is a false claim. It also
+carries the repo's own rules: `git add -u` plus an explicit add for the new product doc but
+never `git add -A` (the 2026-07-23 secret-leak entry below is why), no invented metrics, no
+`git checkout` of live UI-edited state, propagation status per tenant, and don't fix code while
+documenting.
+
+### Pre-commit reminder — `.claude/settings.json` (new `hooks` block)
+`PreToolUse` / `Bash` command hook. Extracts the command with `python3` (`jq` is **not
+installed** on this box — the first attempt used it and failed), exits silently unless the
+command contains `git commit`, then checks whether `docs/changes.md` is staged or modified. If
+it is, the hook stays silent; if not, it emits `hookSpecificOutput.additionalContext` telling
+the model to run `/session-docs` first, with an explicit escape hatch for trivial commits
+(typo, revert, WIP, docs-only). Non-blocking by design — it never sets `continue: false`, so a
+commit is never stopped. Matching is a substring test on the raw command, which is what makes
+`git commit -a`, `--amend`, and heredoc forms all match; the cost is that any Bash command
+merely *containing* the text triggers the check. `enabledPlugins` was preserved when the block
+was merged in.
+
+### Verification
+- Hook, three cases piped as synthetic stdin: `git commit` with `docs/changes.md` untouched →
+  emits the JSON; non-commit command (`ls -la`, `pytest -q`) → silent, exit 0; `git commit`
+  with `docs/changes.md` modified → silent, exit 0.
+- Round-trip: command re-extracted *from* `.claude/settings.json` and re-run — escaping
+  survived, output parsed as valid JSON (459-char `additionalContext`), plugins intact.
+- Hook proved live: it fired on a real Bash call in-session (that call's command text contained
+  `git commit`) and the reminder arrived as a system-reminder.
+- Skill proved discoverable: `/session-docs` loaded and this entry was written by following it.
+- **Not verified**: behaviour on a genuine `git commit` — no commit was made this session.
+
+### Propagation — none, and it cannot propagate
+`.gitignore:49` ignores `.claude/`, so **both files are untracked and uncommittable in this
+repo**. They are local to this checkout only: not committed here, not carried to wiley /
+wileytest / wbm / saasmvp-app, and not inherited by a tenant cloned from canonical. Any tenant
+that wants them needs the two files copied in by hand. This entry is therefore the only
+durable record that they exist.
+
+### Lessons
+- Don't assume `jq` — it is absent on this host, and every hook example in the wild uses it.
+  `python3` is present and does the same job.
+- A hook that nags unconditionally gets ignored. Gating the reminder on "is `docs/changes.md`
+  actually absent from this commit" is what keeps it credible.
+
+## 2026-07-31 — observer alerts mislabelled news as social; two ops monitors
+
+Backfilled 2026-08-02. Detail below is from the commit messages except the propagation table,
+which was measured on 2026-08-02.
+
+### Observer alerts: news articles labelled "Social" — `00cb9683`
+`social_ref()`'s catch-all tagged every non-Bluesky/X/Reddit match as `source · Social · view
+post`, so news URLs (nature.com, cnn.com, arxiv.org…) — the bulk of observer matches — rendered
+as social posts in both the alert email and the online report. Non-social URLs now carry their
+publisher domain and "News", link to the site, and read "read article"; Instagram and TikTok
+post URLs (xpoz platforms) are now recognised as social.
+**`app/routes/vector_routes.py`**, **`app/services/email_service.py`**.
+
+### Ops — saas email-delivery check — `9357f4f3`
+One-shot verification of the three 2026-07-31 saas changes, queued via `at` for 21:00 on 08-01,
+reporting each with its own verdict so a green area can't mask a red one in the subject line:
+correspondent email (Newsroom-tier gate removed, 19 agents backfilled — the real signal is
+matched runs that produced *no* email), the editor advisory-lock timeouts (failures against
+ticks as denominator, 8.7% baseline printed alongside), and the `fabricated_claim` editorial
+rejection rate against a 356-in-30-days baseline. Lock and editorial windows start at the 22:03
+deploy rather than a rolling 24h so pre-fix hours don't dilute the numbers. Reads the journal
+across both `saas-worker` and `saas-skills-worker`. Two dry runs shook out psql column headers
+leaking into scalar values, which had also broken the empty-result fallbacks.
+**`scripts/saas_email_delivery_check.sh`**; deployed to `/home/orochford/bin/`, log at
+`/var/log/aunoo-saas-email-check.log`. Does not reschedule itself.
+
+### Ops — collector health check, tracked copy resynced — `7dd5d56c`
+The tracked copy and `/home/orochford/bin/collector_health_check.sh` (the one root's `*/30` cron
+executes) had diverged, so version control did not hold what was live. The gap was one comment
+line recording abbott's removal from `TENANTS` at its 07-16 shutdown; behaviour identical either
+way. Direction was tracked ← live, since live is what runs and carried the extra context.
+
+### Propagation (measured 2026-08-02, md5 vs canonical)
+`vector_routes.py` and `email_service.py` are identical on wiley and wileytest — the observer
+labelling fix is on both.
+
+## 2026-07-30 — post-Bedrock breakage sweep (11 fixes)
+
+Backfilled 2026-08-02. A day of failures that all trace to the same root: the Bedrock migration
+moved every tenant off OpenAI, and code that still assumed OpenAI models, OpenAI-shaped JSON, or
+a `python` on PATH broke quietly. Detail from the commit messages; propagation measured
+2026-08-02.
+
+### Enrichment: retry on empty/unparseable response — `c6bb7a84`
+Reasoning models (Kimi/Nova on Bedrock) intermittently return content the Key:Value field parser
+can't read — roughly 1 in 8 per the commit message — which marked the article
+`enrichment_failed` on a single miss (`Available fields: []`). `generate_response` + parse is now
+wrapped in a 3-attempt retry so a transient bad response recovers instead of failing the
+article. **`app/analyzers/article_analyzer.py`**.
+
+### Event-loop watchdog SEGV — `7258071e`
+The watchdog armed `faulthandler.dump_traceback_later(all_threads)` every cycle; when the loop
+blocked >8s it walked every thread's `PyThreadState` from a timer thread, racing native-extension
+execution and thread teardown, and SEGV'd inside `_Py_DumpTracebackThreads` (crash IP `0x4bb854`,
+`segfault at 0x70`). It crashed wileytest twice on 2026-07-30 during enrichment + hybrid
+relevance. The C-level watchdog is now behind `EVENT_LOOP_WATCHDOG=1`, **default off**; the async
+lag WARNING, ring buffer, and the admin endpoint's GIL-safe Python-level
+`dump_all_thread_stacks()` still give diagnosis without the crash.
+**`app/utils/event_loop_monitor.py`**.
+
+### Add-Topic wizard: LLM suggestion dead on Bedrock tenants — `3f6302c2`
+`/api/onboarding/suggest-topic-attributes` scanned `litellm_config` for the first `openai/` model
+with an API key and raised "No OpenAI model configured" when none existed — always the case after
+the Bedrock migration, so the wizard silently stopped using the LLM. Now resolves a bare alias via
+`resolve_litellm_call_params` and defaults to a Claude alias (Nova emits unreliable structured
+JSON). **`app/routes/onboarding_routes.py`**.
+
+### Foresight model dropdown: real models, not aliases — `1ddef137`
+`litellm_config` exposes ~two dozen aliases (`gpt-*`, `gemini-*`, `mixtral-*`, `claude-*-latest`)
+that all collapse onto Claude Sonnet 4.5 / Haiku 4.5 plus Nova Pro/Lite and Kimi. The `/models`
+endpoint dumped all of them — mislabelling Claude as GPT/Gemini, duplicating entries, and a
+fallback that mapped id `gpt-5.4` to labels "GPT-4.1"/"GPT-4o". Returns the 5 distinct underlying
+models with honest labels. **`app/routes/trend_convergence_routes.py`**.
+
+### Trend convergence: org profile never loaded + brittle JSON parse — `f27e8bb8`
+`get_organisational_profile` returns a SQLAlchemy mapping keyed by column name; the route accessed
+it positionally (`profile_row[0]`) → "Could not locate column in row for column '0'", so the
+profile silently never loaded. Now accessed by name, tolerating JSON-text or already-decoded JSONB.
+The AI-response JSON extraction used a naive non-greedy regex / first-`{`-to-last-`}` scan that
+500'd on nested objects or trailing prose; it now routes through the shared `_preprocess_response`
+and `json.raw_decode`, 500-ing only when nothing parseable remains, and the outer `except` no
+longer re-wraps the `HTTPException`. **`app/routes/trend_convergence_routes.py`**,
+**`requirements.txt`**.
+
+### Collectors — `4bd1aa45`, `1c09aebf`
+NewsFirehose: publisher/keyword names containing `&` ("John Wiley & Sons", "Taylor & Francis")
+reached the `/v1/search` tsquery builder and raised `PostgresSyntaxError` (500); `_normalize_query`
+now drops literal tsquery operator chars (`& ! : * \`) so terms degrade to plain words.
+TheNewsAPI: `keyword_monitor` passes `search_fields` as a comma-separated string and
+`",".join(str)` iterates characters, producing `search_fields=t,i,t,l,e,,,d,…`; a string is now
+split into a list first, as `newsapi_collector` already did.
+
+### Ingest and services — `0bbbc7db`, `28fe09d2`, `0ab6a203`, `9876623c`
+Hybrid relevance scoring: `article_data` content/summary keys can be present with an explicit
+`None`, so `.get(k, '')` still returned `None` and `len()` raised — coerced with `or ''`. Firecrawl
+batch scrape now skips the call (which 400s "No valid URLs provided") on an empty or all-invalid
+URL list. Data-quality check parsed the LLM reply with `json.loads`, throwing "Extra data" when the
+model appended prose — now starts at the first `{` and uses `raw_decode`. Brand-watcher auto-retrain
+shelled out to `python`, which does not exist on these hosts (only `python3` / the venv), failing
+with Errno 2 — now uses `sys.executable`. Analysis cache: long URLs (Google-News RSS article IDs)
+produced filenames over the 255-char limit (Errno 36, silent cache-write failures) — the URL portion
+is capped and a SHA1 of the full URL appended, so short URLs keep their names and no cache
+invalidates.
+
+### Briefing Desk: model pinned server-side — `e79b7aa3`
+Daily-briefing draft/incident-detection and final synthesis now read the model from
+`emerging_topics_settings.model`, overriding the browser dropdown, so composed content and the
+`model_used` byline are tenant-consistent. Falls back to the client-passed model when unset.
+**`app/routes/daily_reports_routes.py`**, **`app/services/daily_briefing_compose_service.py`**.
+
+### Propagation (measured 2026-08-02, md5 + marker grep vs canonical)
+All files identical on wileytest. On wiley, all identical **except two**:
+- **`trend_convergence_routes.py` — wiley was MISSING `1ddef137`** (remediated 2026-08-02, below).
+  It carried the old alias list (`{'id': 'gpt-5.4', 'name': 'GPT-4.1'}`, 2 hits of the `'GPT-4.1'`
+  label; canonical and wileytest had 0) and was 3869 lines vs 3831. It *did* have `f27e8bb8` —
+  both the by-name `profile_row['id']` access and the `raw_decode` path — which dates wiley's copy
+  to between 16:05 and 16:24 on 07-30, i.e. it was taken 18 minutes before the dropdown fix landed.
+  Wiley's foresight model dropdown was showing fictitious GPT/Gemini entries for three days.
+
+  **Remediation, 2026-08-02.** `diff -u` against canonical showed exactly **one hunk**, confined to
+  the `/api/trend-convergence/models` endpoint — no wiley-local divergence anywhere else in the
+  file — so a wholesale file copy was safe rather than a surgical hunk apply. Backed up wiley's
+  copy off-tree, copied canonical over it (both now md5 `30b0c46e`), `py_compile` clean under
+  wiley's own venv, `sudo systemctl restart wiley.aunoo.ai.service` (active 10:38:53 CEST).
+  Verified live: `curl http://127.0.0.1:10006/api/trend-convergence/models` returns the 5 real
+  models (Claude Sonnet 4.5, Claude Haiku 4.5, Nova Pro, Nova Lite, Kimi K2.5) and the
+  `'GPT-4.1'` label count is 0. Not committed in wiley — deploy-copy tree.
+- `automated_ingest_service.py` differs by 61 lines but **has** the `0bbbc7db` `or ''` guard at
+  line 447 — that diff is unrelated tenant drift, not a missing fix.
+
+Adjacent, not a propagation gap: one positional `profile_row[0]` remains in this file on **all
+three** tenants including canonical — a different code path `f27e8bb8` did not touch. Flagged,
+not changed.
+
+## 2026-07-30 — EU AI Act Article 50: label AI-generated output — `25812e69`
+
+Backfilled 2026-08-02.
+
+`app/compliance/ai_disclosure.py` added as the single source for both the visible "AI-generated"
+disclosure and the machine-readable marker, wired into email (opt-in `X-AI-Generated` header plus
+footer), HTML/PPTX/DOCX/PDF reports, dashboard exports, and the in-app React dashboards. The
+over-claimed "reviewed and validated" UI copy was softened at the same time. Touches 18 service
+files plus the React build and templates.
+
+### Propagation
+`ai_disclosure.py` identical on wiley and wileytest (measured 2026-08-02). Per
+`project_euaiact_art50_compliance`, this also shipped to the saas side (canonical `saasmvp-app`,
+commit `4ef4930`) — not re-verified here.
+
+## 2026-07-29 — enrichment loss: parser, prompt, and the relevance gate
+
+Backfilled 2026-08-02. The single highest-impact day in this range: news articles were being
+enriched, then silently discarded, then made permanently invisible. Measurements below are from
+the commit messages; propagation measured 2026-08-02.
+
+### Root cause: parser discarded whole analyses over heading variants — `b266238c`
+`parse_analysis()` validated the model's response by exact heading match on 14 required fields.
+When a model relabelled a heading ("Driver Signal Explanation"), numbered them ("1. Category" —
+which the prompt's own numbered list invited), wrapped them in markdown, collapsed the four
+rationales into one "Explanation" block, or omitted "Title", **the entire analysis was thrown
+away** and the row kept NULL `category`/`sentiment`.
+
+Every observer agent retrieves on `sentiment IS NOT NULL AND category IS NOT NULL`
+(`vector_routes.py`), so those articles became invisible to signal alerts, `/explore` and reports
+— **permanently, since nothing retries them**. On wileytest this was ~227 news articles a day.
+Social posts enrich on another path and were unaffected, which is why agent output had skewed
+toward Bluesky.
+
+The parser now strips list markers and markdown from headings *and* values (a leading `**` on a
+value reached the ontology check as `** Widespread adoption` and got downgraded to "Other"),
+aliases known heading variants onto canonical names, reuses a merged "Explanation" block for the
+per-field rationales, falls back to the caller's title when "Title" is absent, and hard-fails only
+on Title/Summary/Category/Sentiment — descriptive fields now warn and store blank instead of
+voiding the record. `scripts/reenrich_parse_failures.py` added to recover the backlog; it
+preflights each topic's ontology and skips topics with an empty list, since `analyze_content()`
+rejects those before calling the model — wileytest's "M&A Updates" has no `future_signals`, which
+blocks 3,003 articles on config grounds rather than parsing.
+Also isolates `PromptManager` storage in tests: `PromptTemplates.load_custom_templates()` calls
+`save_version()`, so running the suite had been overwriting live `data/prompts/current.json` with
+the test fixture's placeholder prompt.
+
+### The prompt that invited the drift — `8712c41c`, then `3f37ef27`
+Six defects in the analysis prompt, each mapping to a failure in the logs: two competing "Format
+your response as follows:" blocks (the first listing only "Summary:", so a model anchoring on it
+emitted nothing else); sections numbered 1–8 echoed back as headings; section 8 titled "Relevant
+tags" against a "Tags:" output label; "Title" never requested in the instructions at all (the
+largest single missing field); "Provide a brief explanation" without naming the target field,
+inviting one merged block instead of four labelled ones; and "regarding the future of AI" on every
+topic including M&A Updates and Geopolitical Hotspots. Replaced with unnumbered sections keyed to
+exact field labels, one output block, and an explicit instruction against numbering, markdown and
+renaming. A/B on the same 12 articles with `bedrock-kimi-k2.5`: old 10/12 clean with 2 drifted
+(exactly the failure modes dominating the production logs), new 12/12 clean.
+Written via `PromptManager.save_version` (v1.0.3 → v1.0.4) on bugfixing, wileytest and wiley; all
+three reported template hash `ec7112190aee`. `get_template_hash` feeds the analysis cache key, so
+cached analyses under the old prompt invalidate on their own.
+
+`3f37ef27` then fixed the *hardcoded* default too. `8712c41c` rewrote
+`data/prompts/content_analysis/current.json`, which is what existing tenants run, but
+`PromptTemplates.DEFAULT_TEMPLATES` still carried every defect that rewrite removed.
+`initialize_defaults()` only seeds when no stored version exists, so this changes nothing for an
+existing tenant — it matters for a **newly cloned** one, which would otherwise start life with
+exactly the prompt that was causing analyses to be discarded, the bug reappearing silently months
+later on a fresh deployment.
+
+### Relevance gate: the CE tier was one flag away from an outage — `128d037a`, `540584d4`
+`RELEVANCE_USE_CE_TIER` is off by default, and that default was the only thing preventing a serious
+outage. Against a 49-item hand-labelled gold set on wileytest (20 relevant / 29 name collisions),
+relevant articles scored min 0.000018 / median 0.0029 / max 0.80 while collisions scored min
+0.000016 / median 0.000018 / max 0.0049 — so the shipped `CE_LOW=0.10` sat *above 90% of the
+relevant population*, and enabling the flag would have "confidently rejected" 18 of 20 relevant
+articles with no LLM review at all. There is no honest reject threshold: the widest cut losing no
+positive is 0.000018, which *is* the lowest positive — a coincidence, not a margin.
+
+The tier is accept-only now. The risk is asymmetric — a wrong confident accept costs one enrichment
+call, a wrong confident reject drops the article permanently, the same failure mode that made news
+disappear from the observer agents. `CE_HIGH` dropped 0.90 → 0.05, an order of magnitude above the
+worst collision (0.0049, "Sage Group (OTCMKTS:SGPYY)" — the accounting-software firm, not SAGE
+Publishing). On accept, the hybrid score is raised to the threshold rather than overwritten with the
+CE value, whose scale is not comparable to the embedding/classifier scale.
+
+`540584d4` then **corrected its own predecessor's measurement**. `128d037a` justified the tier with
+"AUC 0.907, better than any reworded query"; that scored **titles only**, while
+`_compute_cross_encoder_score` builds `f"{title}. {summary}"` — and 4 of its 20 positives were
+hand-written titles rather than real rows. Re-measured on real articles with real summaries in the
+production document form: **theme topics AUC 0.885** (199 relevant / 114 not, weak-labelled from the
+pipeline's own confident extremes), **brand topics AUC 0.478** (9 relevant / 86 not, hand-labelled).
+Rewording does not rescue the brand case (bare entity 0.298, "news about X" 0.425, question form
+0.402, "X the company" 0.609, raw topic 0.478) because the task there is entity disambiguation —
+SAGE Publishing vs Sage Group plc vs sage the herb vs sage-agent-sdk on PyPI — a named-entity
+problem a semantic reranker rates alike. So the tier is now theme-topics-only. Flag still defaults
+off; this makes it safe to turn on, it does not turn it on.
+
+Noted in `540584d4` and still open: the gate uses its own brand predicate because the existing
+`is_brand_topic` only matches "Brand Monitoring X" and misses the live "X - Brand Watch" topics
+(78 articles, most recent 2026-07-27). The narrower predicate was left alone rather than silently
+changing which topics the classifier-confidence guard covers.
+
+### Propagation (measured 2026-08-02)
+`article_analyzer.py`, `prompt_templates.py` and `hybrid_relevance_service.py` are identical on
+wiley and wileytest.
+
 ## 2026-07-23 — prod tenants under version control + INCIDENT (secret leak / file deletion)
 
 ### Goal
