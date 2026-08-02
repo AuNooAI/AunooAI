@@ -81,7 +81,13 @@ New articles still embed inline through `upsert_article`, so the backlog does no
 but a gap like wbm's will never self-heal.
 
 ### Verification
-- **wbm** — 26,348 embedded, 0 failed, 0 rows left NULL. `EXPLAIN` shows
+- **wbm, inline path — NOT yet verified end to end.** The backfill proves writes work, but new
+  articles only reach `upsert_article` after the relevance and quality gates, and nothing has
+  passed them since the 15:14 restart (`rss_feed_monitor`: `processed: 2, enriched: 2,
+  relevant: 0, saved: 0, vector_indexed: 0`). 160 articles collected since the restart sit with
+  `embedding IS NULL` as a result. That is the gate behaving normally, not a regression — but
+  the live path stays unproven until an article qualifies. Re-check within a day.
+- **wbm** — 26,348 embedded, 0 failed, 0 rows left NULL at the time of the backfill. `EXPLAIN` shows
   `Index Scan using articles_embedding_hnsw_idx`, and a probe vector from a 25 July article (i.e.
   inside the dead window) returns itself and sensible neighbours. Its index was already valid,
   1,943 MB over 513,581 rows; HNSW maintains on write, so backfilled rows folded in as written.
