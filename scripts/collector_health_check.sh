@@ -13,7 +13,9 @@
 set -u
 
 # abbott removed 2026-07-16 — tenant shut down (service stopped+disabled, data retained)
-TENANTS="bugfixing wileytest wiley"
+# wbm added 2026-08-02 — it had never been covered here, and it is the tenant that
+# then spent four weeks writing no embeddings without anything noticing.
+TENANTS="bugfixing wileytest wiley wbm"
 LOG=/var/log/aunoo-collector-health.log
 STATE_DIR=/var/tmp/collector_health_state
 ALERT_TO="oliver.rochford@gmail.com"
@@ -25,6 +27,9 @@ floor_for() {
     case "$1" in
         wileytest) echo 30 ;;
         wiley)     echo 10 ;;
+        # wbm 12h buckets over 14 days to 2026-08-02: median 231, p10 74.
+        # 20 sits well under the normal weekend dip and only fires on near-silence.
+        wbm)       echo 20 ;;
         *)         echo 1  ;;
     esac
 }

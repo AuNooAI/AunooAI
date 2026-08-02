@@ -109,6 +109,35 @@ but a gap like wbm's will never self-heal.
 as "the index is not being used". The real plan is an `Index Scan`. Re-checked by hand with the
 probe vector inlined. A truncated plan is worse than no check, because it looks like evidence.
 
+### Ops — wbm added to the collector health check
+`scripts/collector_health_check.sh` listed `TENANTS="bugfixing wileytest wiley"`. **wbm was never
+in it**, so the one tenant nobody was watching is the one that then broke. The check would not
+have caught *this* failure — it watches collection volume and the keyword-monitor heartbeat, both
+healthy throughout — but wbm's absence meant it was uncovered for the failures it does catch: a
+dead service, a hung collection loop, collection stopping outright.
+
+Floor set to 20 articles per 12h from measurement, not a guess: wbm's 12h buckets over the 14 days
+to 2026-08-02 have median 231 and p10 74, so 20 sits well under a normal weekend dip. Consistent
+with wileytest at 30 and wiley at 10. Everything else is derived per tenant from the `.env` and the
+systemd unit, which wbm already satisfies.
+
+Verified by running the live script: `[wbm] OK: articles_12h=320`, no alert state files created.
+Tracked copy and the deployed `/home/orochford/bin/` copy that root's `*/30` cron runs are
+byte-identical again — they drifted once before (`7dd5d56c`).
+
+A first measurement of wbm's volume showed 07-26 with 2 articles, which looked like an outage
+worth alerting on. That was an artifact of a 7-day window cutting mid-day; the real figure is 322.
+The floor would have been set wrong on it.
+
+### Monitoring spec — `docs/EMBEDDING_HEALTH_MONITORING.md` (new, nothing built)
+What to check so a repeat is caught in 30 minutes rather than four weeks. Checks A–D are
+invariants with no baselines and no false positives: code-vs-column dimension, encoder reachable
+at the right width, vector-write errors in the journal, HNSW index validity. **Check A alone
+catches the wbm case.** Every query in the document was run against wbm before it was committed.
+Checks E and H are specified but deliberately not implementable yet and say so — E needs the
+gate-passed predicate pinned down or it fires whenever the relevance filter has a quiet spell,
+and H needs an enrichment-cadence baseline.
+
 ### Propagation
 All four monolith tenants now run the local DeBERTa 768-d encoder with no cloud fallback:
 bugfixing, wileytest, wbm, wiley. **wiley was the last OpenAI embedding path on the platform**,
