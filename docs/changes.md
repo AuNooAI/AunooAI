@@ -94,8 +94,13 @@ but a gap like wbm's will never self-heal.
 - **bugfixing** — 193,202 embedded in 9,573s (~20/s), 0 left NULL. HNSW rebuilt `CONCURRENTLY`
   in 342s, 740 MB, `indisvalid=t`, definition byte-identical to the pre-migration one
   (`m=16`, `ef_construction=64`). `EXPLAIN` confirms `Index Scan using articles_embedding_hnsw_idx`.
-- **wiley** — migration applied, service restarted, zero dimension errors. Backfill in progress
-  at 34,000 / 265,057 (~16.5/s, roughly four hours). Index rebuild armed and waiting.
+- **wiley** — complete. 265,062 articles embedded in 14,963s (~17.7/s), 100% coverage, 0 rows
+  left NULL. HNSW rebuilt `CONCURRENTLY` in 469s, 1,026 MB, `indisvalid=t`, `indisready=t`.
+  `EXPLAIN` confirms `Index Scan using articles_embedding_hnsw_idx`, and nearest neighbours for a
+  probe vector are topically coherent (three fractional-SDE maths papers). Zero dimension errors
+  since its restart. The build logged `hnsw graph no longer fits into maintenance_work_mem after
+  16757 tuples` — a speed warning, not a correctness one; raising `maintenance_work_mem` would
+  shorten future builds.
 - Two concurrent backfills ran at 17/s and 21/s rather than halving each other, so the encoder
   service was not saturated by a single job.
 
