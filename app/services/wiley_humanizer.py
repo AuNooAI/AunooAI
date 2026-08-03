@@ -156,6 +156,10 @@ async def ground_check_exec_summary(text: str, named_events: list) -> dict:
 # then contradicted itself on two paragraphs later.
 _FIGURE_RE = re.compile(
     r"\$?\d[\d,]*(?:\.\d+)?\s*(?:%|percent|million|billion|trillion|lakh|crore)"
+    # Headline abbreviations: "$14bn", "£162m", "3k". Without these a prose
+    # claim of "$14 billion" looked unsourced against a source headline
+    # writing "$14bn" — the exact false positive the first live lint run hit.
+    r"|\$?\d[\d,]*(?:\.\d+)?\s*(?:bn|mn|tn|[mk])\b"
     r"|\$?\d[\d,]*(?:\.\d+)?L\b"
     # A comma-grouped bare number ("140,000"). Catches the same claim written
     # out in full instead of with a scale word. Years have no comma, so this
@@ -171,6 +175,8 @@ _FIGURE_RE = re.compile(
 _UNIT_SCALE = {
     "lakh": 100_000, "l": 100_000, "crore": 10_000_000,
     "million": 1_000_000, "billion": 1_000_000_000, "trillion": 1_000_000_000_000,
+    "k": 1_000, "m": 1_000_000, "mn": 1_000_000,
+    "bn": 1_000_000_000, "tn": 1_000_000_000_000,
 }
 
 

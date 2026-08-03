@@ -49,6 +49,20 @@ decline" and a "$1 trillion" science-funding figure in no cited source, a specul
 "10,000 logical qubits" H3 magnitude, and a "£162 million" figure cited to [1] but absent
 from that article's stored summary. Stored on the period sidecar under ``lint``.
 
+### The 4 flagged figures — resolved (2 corrected, 2 were lexicon gaps)
+Chasing the lint's four unsourced-figure findings against the full sources settled them:
+**two were lint false positives from unit abbreviations** — "$14 billion" is backed by a
+headline writing "$14bn" (summary: "$14.2 billion over six years") and "£162 million" by a
+headline writing "£162m". `_FIGURE_RE`/`_UNIT_SCALE` now understand bn/mn/m/k/tn, so
+headline-abbreviated sources ground spelled-out claims. **Two were real** and were edited in
+the wileytest DB (runs `b91c5797`, `3f125dd4`, `45a0af87` + their cached exec cards — data
+edits, not in git; this entry is the record): Eliquis corrected to the source's exact
+"$14.2 billion" (2 places + card); the invented "10,000 logical qubits" scaling removed from
+a scenario title, description, key insight and card minority view (the sourced 1,500-qubit
+target [30] stays); "a proposed $1 trillion attack on science funding" — unsourced figure,
+charged phrasing — rewritten to "sweeping proposed cuts to science funding". Re-render:
+**0 lint findings**, corrections verified in deck and HTML.
+
 ### Tenant-scoped render caches
 `_render_cache_dir` in **`topic_report_service.py`** and **`wiley_delivery_service.py`** was
 `$TMPDIR/…` shared by every tenant on the box and keyed only by period_label — two tenants
