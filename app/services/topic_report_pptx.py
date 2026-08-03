@@ -504,8 +504,7 @@ def _add_intro_team_slide(prs):
     slide = _intro_full_bleed_navy(
         prs, eyebrow="THE TEAM",
         title="Analyst & Data Science Team",
-        subtitle="Integrity abuse is adversarial behaviour at scale — "
-                 "the discipline this team comes from.",
+        subtitle="Expert human oversight on every output.",
     )
     sw = 10.0
     members = [
@@ -513,10 +512,11 @@ def _add_intro_team_slide(prs):
             "name": "Oliver Rochford",
             "role": "Lead Analyst · Strategic Advisor",
             "rows": [
-                ("WHAT TRANSFERS",
-                 "Two decades analysing coordinated adversarial behaviour — "
-                 "manufactured identities, gamed metrics, campaign detection. "
-                 "The same patterns now driving paper mills and fake peer review."),
+                ("",
+                 "Twenty years in threat intelligence and security research, "
+                 "specialising in the detection of coordinated manipulation — "
+                 "the same adversarial patterns behind paper mills, fabricated "
+                 "reviewers and citation fraud."),
                 ("BACKGROUND",
                  "Research Director: Gartner, Securonix, Tenable · "
                  "Cybersecurity leadership: HP, Verizon"),
@@ -529,10 +529,10 @@ def _add_intro_team_slide(prs):
             "name": "Dr. Lamine M. Aouad",
             "role": "Lead Data Scientist · Researcher & Academic",
             "rows": [
-                ("WHAT TRANSFERS",
-                 "Large-scale data mining and classification — the machinery "
-                 "that filters, scores and verifies the article corpus behind "
-                 "every report. Published on synthetic-data privacy."),
+                ("",
+                 "Specialist in large-scale data mining and machine "
+                 "classification. Designs and validates the models that select "
+                 "and score the evidence behind every Aunoo report."),
                 ("BACKGROUND",
                  "PhD Computer Science, University of Lille · Visiting Fellow, "
                  "Marie Curie Institute Paris · Principal Researcher, Tenable · "
@@ -554,14 +554,18 @@ def _add_intro_team_slide(prs):
               text=m["role"], font_size=9, italic=True, color=WILEY_TEAL_LT)
         y = 2.70
         for i, (label, body) in enumerate(m["rows"]):
-            # First row (WHAT TRANSFERS) carries the framing paragraph and
-            # needs ~3 lines; the rest are one-to-two-line facts.
+            # First row is the unlabelled framing paragraph (~3 lines);
+            # the rest are one-to-two-line labelled facts.
             body_h = 0.72 if i == 0 else 0.40
-            _text(slide, x=col+0.20, y=y, w=col_w-0.40, h=0.20,
-                  text=label, font_size=8, bold=True, color=WILEY_TEAL)
-            _text(slide, x=col+0.20, y=y+0.22, w=col_w-0.40, h=body_h,
+            if label:
+                _text(slide, x=col+0.20, y=y, w=col_w-0.40, h=0.20,
+                      text=label, font_size=8, bold=True, color=WILEY_TEAL)
+                y_body = y + 0.22
+            else:
+                y_body = y
+            _text(slide, x=col+0.20, y=y_body, w=col_w-0.40, h=body_h,
                   text=body, font_size=8.5, color=WILEY_BODY, line_spacing=1.25)
-            y += body_h + 0.26
+            y = y_body + body_h + 0.04 + (0.0 if label else 0.10)
 
 
 def _add_intro_human_ai_slide(prs):

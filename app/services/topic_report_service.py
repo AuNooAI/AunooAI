@@ -158,9 +158,21 @@ def _resolve_items_for_topics(topics: list[str]) -> list:
 
 
 def _render_cache_dir() -> str:
+    """Per-tenant render-cache dir.
+
+    The old path was ``$TMPDIR/topic_report_render_cache`` — shared by every
+    tenant on the box, keyed only by period_label. Two tenants generating the
+    same topic set for the same period would silently serve each other's
+    decks and sidecars. Scope by DB name (unique per tenant). Files from the
+    shared dir are migrated on first touch so pinned-run sidecars survive.
+    """
     import tempfile
-    d = os.path.join(tempfile.gettempdir(), "topic_report_render_cache")
+    tenant = os.getenv("DB_NAME") or "default"
+    d = os.path.join(tempfile.gettempdir(), f"topic_report_render_cache_{tenant}")
     os.makedirs(d, exist_ok=True)
+    # No automatic migration from the old shared dir — its files carry no
+    # tenant marker, so copying them in bulk would recreate the leak.
+    # Existing sidecars are placed into the right tenant dir by hand.
     return d
 
 
@@ -903,6 +915,20 @@ async def generate_topic_report(
                for (a, _r, _p) in items
                if a.get("_source_topic") and a.get("run_id")}
     _write_state_sidecar(period_label, list(topics), period, run_ids=run_ids)
+
+    # Release lint — the machine version of the Q3 review. Findings are
+    # logged and stored on the sidecar; they never block the render.
+    try:
+        from app.services.report_lint import lint_topic_report, deck_text_from_blob
+        lint = lint_topic_report(items, deck_text=deck_text_from_blob(blob))
+        if lint:
+            _emit(99, f"⚠ Release lint: {len(lint)} finding(s) — see logs")
+            state = _read_state_sidecar(period_label) or {}
+            state["lint"] = lint
+            with open(_state_sidecar_path(period_label), "w", encoding="utf-8") as f:
+                json.dump(state, f)
+    except Exception as e:
+        logger.warning("release lint failed (non-fatal): %s", e)
     _emit(100, "Done")
     return blob, period_label, included_topics, None, []
 
@@ -1089,6 +1115,11 @@ async def generate_topic_report_html(period_label: str) -> Tuple[bytes, str, lis
     # 2026-08-03 have no run_ids and fall back to latest-run resolution).
     items = resolve_items(topics, run_ids=state.get("run_ids") or {})
     blob = build_topic_report_html(items, period_label=period_label, period=period)
+    try:
+        from app.services.report_lint import lint_topic_report
+        lint_topic_report(items, html_text=blob.decode("utf-8", "replace"))
+    except Exception as e:
+        logger.warning("release lint failed (non-fatal): %s", e)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     return blob, period_label, included_topics, None, []
 

@@ -2,6 +2,61 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (late night) — hardening: release lint, contract tests, prompt hygiene, tenant-scoped caches
+
+### Goal
+Turn the manual Q3 review into machinery. Four measures, each keyed to a defect class the
+review found.
+
+### Release lint on every build
+New **`app/services/report_lint.py`**, wired into the PPTX and HTML build paths (findings are
+logged and stored on the period sidecar; they never block a render). Checks: config leaks
+(model ids in config-shaped contexts, PERSONA, CORPUS SCANNED), invented-consensus patterns,
+grouped citations, past-dated deadlines (built from the current year), em-dash fallback
+titles, workspace-topic leaks, and a per-run content sweep — every figure and organisation the
+prose asserts must appear in the cited corpus (reuses the humanizer's figure/org extractors,
+findings only). Verified: zero findings on the shipped Q3 deck+HTML; a seeded defect string
+trips all five artifact checks. One false positive fixed during testing: "business model:
+AI-driven" tripped the model-id regex, which now requires a real model-id prefix.
+
+### Renderer contract tests
+**`tests/test_report_renderer_contracts.py`** (12 tests, all passing via `.venv/bin/python -m
+pytest`): pushes the REAL generator shapes — `OutlierScenario.to_dict`, the prompt-v3 exec
+card, the topic-report scenario schema — through the HTML/DOCX renderers and the exec-letter
+payload builder, asserting content survives (no em-dash fallbacks, grouped cites split,
+legacy percentage fields ignored, all EOS categories counted with `impact_rating`). These
+would have caught three of the eleven review defects. pytest installed into the bugfixing
+venv (`.venv/bin/python -m pip install pytest` — system pytest lacks pptx/docx).
+
+### Prompt hygiene test — and it caught two more traps immediately
+**`tests/test_prompt_hygiene.py`**: (1) freezes every number-with-unit currently in
+`data/prompts/` + `data/auspex/agents/` as a reviewed baseline — any NEW figure fails until
+reviewed; (2) bans names that have already been copied from a prompt into a customer artifact
+(Hindawi, Novo Nordisk). First run flagged **`wiley_event_extractor_agent.md`** — whose worked
+example was the very same fabricated event ("Springer Nature retracted 1,200 papers from
+Hindawi journals") in a second file — and **`wiley_retrieval_agent.md`** (Novo Nordisk
+example). Both replaced with placeholder shapes; `executive_summary.json` v3.0.1 likewise
+swaps its Novo Nordisk/Lilly example for placeholders.
+
+### Tenant-scoped render caches
+`_render_cache_dir` in **`topic_report_service.py`** and **`wiley_delivery_service.py`** was
+`$TMPDIR/…` shared by every tenant on the box and keyed only by period_label — two tenants
+generating the same topic set for the same period would serve each other's decks and
+sidecars. Both now scope by `DB_NAME`. No automatic migration (shared-dir files carry no
+tenant marker); wileytest's Q3 sidecar+deck were placed into its scoped dir by hand.
+
+### Team slide (professional register)
+Copy rewritten twice on feedback: the "WHAT TRANSFERS" label and the aphorism subtitle are
+gone. Plain professional bios — an unlabelled framing sentence (threat-intelligence /
+large-scale-classification expertise stated directly), then BACKGROUND and SELECT WORK.
+Also fixed in passing: a garbled role attribution and "synthetic-data integrity" where the
+paper is about privacy.
+
+### Propagation
+Committed in bugfixing; backend + prompt + agent files copied to wiley + wileytest (both
+agent files verified drift-free first); Q3 deck re-rendered from the pinned runs with the
+final slide copy; services restarted.
+
 ## 2026-08-03 (night) — follow-ups: run pinning, honest convergence cards, reframed team slide
 
 ### Goal
