@@ -2,6 +2,64 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (quarterly live-fire) — the gate blocks a stale bundle; a silent-empty assessment incident underneath
+
+### Goal
+Live-test the golden gate on the real quarterly bundle, then produce a shippable Q3
+quarterly bundle (assessments first, bundle second). The test worked better than intended:
+it blocked the bundle for reasons that turned out to be real, and chasing them surfaced a
+silent data-integrity bug in the assessment pipeline.
+
+### The gate test: 4/10, retry 4/10, reviewer blocks — all correct
+`generate_bundle("quarterly")` on wileytest (bundle rendered, 1,276,386 bytes, 6 topics).
+Golden gate: draft 4/10, critique retry also 4/10, `{"score": 4, "passes": false}`
+persisted. Unlike the topic-report letter (4→8), no rewrite could fix this one — the
+letter's inputs were May 21–27 assessments on Jan–May runs, and event density can't be
+written into prose the payload doesn't contain. The LLM reviewer independently returned
+`revision_requested` with one genuine error: a Quantum Advantage recommendation reading
+"Request Wiley admin to supply required context and scenario data" — internal plumbing in a
+customer recommendation, produced by vacuum content from an empty topic. One reviewer false
+positive for later rubric tuning: it flagged the mandated "**The bottom line.**" section
+header as a meta-opener. Net: the two gates correctly refused to ship a stale bundle.
+
+### Incident: assessments that "complete" in 0.2s with zero verdicts
+Re-running the six Q3 assessments hit it immediately: "Attacks on Expertise & Peer Review"
+assessed in 0.22s, status completed, verdicts empty (assessment `3158cefa`, summary shows
+evidence_pool 2000, assigned 0, classified 0 — and the summary is double-encoded JSON, the
+known wiley pitfall). Root cause chain: the topic's ACTIVE deck overlay
+(`topic2_deck_overlay.json`) maps scenario titles from an older run — zero of the standing
+run c30d7344's titles match — so `_build_deck_scenarios` returns an empty list,
+`assign_exclusive([])` returns `[]` without ever loading the reranker, and the pipeline
+persists a completed-empty assessment that the quarterly bundle would then read as the
+topic's status. The corrected overlays existed as `.proposed` files (their title maps match
+the standing runs exactly) — staged by the overlay-refresh flow and never activated. Two
+topics affected: Attacks and Quantum Advantage.
+
+### Fixes
+**Overlay activation (uncommittable — wileytest data dir, this entry is the record):**
+`attacks_on_expertise_peer_review_deck_overlay.json.proposed` and
+`quantum_advantage_deck_overlay.json.proposed` promoted to active;
+`topic2_deck_overlay.json` and the stale `quantum_advantage_deck_overlay.json` retired with
+`.retired_20260803` suffixes. The in-flight assessment script loads overlays per topic, so
+Quantum Advantage (queued behind the fix) assesses against the corrected overlay.
+**Guard (`app/services/forecast_assessment_service.py`, this commit):** when the deck
+overlay collapse yields zero scenarios, `assess_run` now logs an ERROR naming the
+stale-overlay cause and falls back to db-level scenarios instead of silently persisting an
+empty "completed" row. Propagated to wiley + wileytest after clean drift checks.
+
+### Verification
+Overlay title-map vs run-title comparison done per topic (0/13 match on the stale Attacks
+overlay; 10/10 on the proposed). Syntax + 12/12 contract/hygiene tests green with the guard
+in. The six Q3 assessments are IN FLIGHT at the time of this entry (topic 2 of 6 running);
+the Attacks re-run (superseding the empty row) and the bundle regeneration follow — their
+outcomes are NOT yet claimed here.
+
+### Lessons
+- A "completed" status with zero verdicts in sub-second runtime is a data bug, not a fast
+  run. Pipelines must refuse to persist success when a collapse stage returns empty.
+- `.proposed` files are staged fixes awaiting activation — when debugging stale-config
+  behaviour, check for them FIRST.
+
 ## 2026-08-03 (last) — golden-set gate: every letter judged against the Q2 exemplar
 
 ### Goal

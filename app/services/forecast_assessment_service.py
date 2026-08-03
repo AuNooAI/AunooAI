@@ -136,6 +136,21 @@ async def assess_run(
     if use_deck:
         scenarios = _build_deck_scenarios(db_scenarios, deck_overlay)
         scenario_level = "deck"
+        if not scenarios:
+            # The overlay's scenario_title_to_deck_key matched NONE of this
+            # run's titles — a stale overlay written against a different run.
+            # This used to flow straight through: assign_exclusive([]) → 0
+            # assigned → a "completed" assessment with zero verdicts in 0.2s,
+            # which the quarterly bundle then read as the topic's status.
+            # Fall back to the raw scenarios and say so loudly.
+            logger.error(
+                "Deck overlay for %r maps 0 of this run's %d scenario titles "
+                "(stale overlay — check for a .proposed replacement in the "
+                "overlay dir). Falling back to db-level scenarios.",
+                topic, len(db_scenarios),
+            )
+            scenarios = list(db_scenarios)
+            scenario_level = "db"
     else:
         scenarios = db_scenarios
         scenario_level = "db"
