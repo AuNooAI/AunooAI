@@ -1200,6 +1200,32 @@ async def run_pipeline(
                                "progress": 0.919}
                 except Exception as e:
                     logger.warning("exec-summary ground-check failed (non-fatal): %s", e)
+
+                # Figures get their own check. The event check above compares
+                # actor/action/subject/date, so a statistic passes it untouched:
+                # a Q3 letter asserted "a 14.5% drop in manuscript submissions —
+                # the single largest quarterly move in the portfolio" when the
+                # source had federal R&D funding 14.5% below baseline, and three
+                # further figures in the same letter existed in no source.
+                try:
+                    from app.services.wiley_humanizer import ground_check_figures
+                    sources = [json.dumps(a.get("summary") or {}, default=str)
+                               for (a, _r, _p) in items]
+                    sources.append(json.dumps(bundle_payload.get("whats_changed") or {},
+                                              default=str))
+                    sources.append(json.dumps(named, default=str))
+                    fg = await ground_check_figures(es["letter"], sources)
+                    if fg.get("unsupported"):
+                        logger.warning("exec summary asserted unsourced figures: %s",
+                                       ", ".join(fg["unsupported"]))
+                    if fg["changed"]:
+                        es["letter"] = fg["text"]
+                        exec_summary = es
+                        yield {"stage": "humanize", "status": "figures_grounded",
+                               "progress": 0.9195,
+                               "payload": {"unsourced": fg.get("unsupported") or []}}
+                except Exception as e:
+                    logger.warning("exec-summary figure-check failed (non-fatal): %s", e)
         # Same deterministic verdict guard on the expert commentary.
         ec_text = bundle_payload.get("expert_commentary")
         if (isinstance(ec_text, str) and ec_text.strip()

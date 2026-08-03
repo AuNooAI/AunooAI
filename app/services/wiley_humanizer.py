@@ -144,6 +144,129 @@ async def ground_check_exec_summary(text: str, named_events: list) -> dict:
         logger.warning("ground_check_exec_summary failed: %s", e)
         return out
 
+
+# A quantity worth checking: "14.5%", "1.4 million", "$300 billion", "one in
+# forty". Deliberately no trailing \b — after "%" the next character is usually
+# a space, and \b would never match there.
+_FIGURE_RE = re.compile(
+    r"\$?\d[\d,]*(?:\.\d+)?\s*(?:%|percent|million|billion|trillion)"
+    r"|\bone in (?:ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def _figure_key(fig: str) -> str:
+    """Normalised figure for exact comparison.
+
+    Compares the number AND its unit, so "1.43%" cannot satisfy a claim of
+    "1.4 million" and "300 grants" cannot satisfy "$300 billion". Substring
+    matching on the digits alone is what let four invented statistics through
+    on 2026-08-03.
+    """
+    f = fig.lower().replace("$", "").replace(",", "").strip()
+    f = re.sub(r"\s+", " ", f)
+    return f.replace(" percent", "%").replace("percent", "%")
+
+
+def _figure_ledger(sources: list) -> dict:
+    """Map every figure found in ``sources`` to the sentence it came from."""
+    ledger: dict = {}
+    for src in sources or []:
+        text = src if isinstance(src, str) else str(src)
+        text = re.sub(r"\s+", " ", text)
+        for m in _FIGURE_RE.finditer(text):
+            key = _figure_key(m.group(0))
+            if key in ledger:
+                continue
+            start = max(0, m.start() - 180)
+            ledger[key] = text[start:m.end() + 140].strip()
+    return ledger
+
+
+async def ground_check_figures(text: str, sources: list) -> dict:
+    """Revise the letter so every statistic it asserts is one the sources
+    actually contain, used for the thing the source used it for.
+
+    ``ground_check_exec_summary`` checks events — actor, action, subject, date.
+    A statistic is not an event, so numbers were never checked at all. On
+    2026-08-03 a Q3 executive summary asserted "a 14.5% drop in manuscript
+    submissions — the single largest quarterly move in the portfolio". The
+    number was real and came from a May assessment, where it meant federal R&D
+    funding running "14.5% below baseline expectations". Three more figures in
+    the same letter appeared in no source at all.
+
+    Two passes: unsupported figures are identified deterministically (exact
+    number + unit), then the model is told to delete those claims and to
+    correct any figure whose subject disagrees with its source sentence.
+
+    Returns ``{text, changed, unsupported}``. Never blocks.
+    """
+    out = {"text": text, "changed": False, "unsupported": []}
+    if not text or not text.strip() or not humanize_enabled():
+        return out
+    ledger = _figure_ledger(sources)
+    used = {_figure_key(m.group(0)): m.group(0) for m in _FIGURE_RE.finditer(text)}
+    if not used:
+        return out
+
+    unsupported = [orig for key, orig in used.items() if key not in ledger]
+    supported = {key: ledger[key] for key in used if key in ledger}
+    out["unsupported"] = unsupported
+    if not unsupported and not supported:
+        return out
+
+    try:
+        from app.ai_models import AIModelFactory
+
+        lines = [f'- {orig} — source says: "{supported[_figure_key(orig)]}"'
+                 for orig in used.values() if _figure_key(orig) in supported]
+        sys_prompt = (
+            "You are a fact-grounding editor for a foresight brief. You are given "
+            "a LETTER, a list of SOURCED FIGURES with the sentence each one came "
+            "from, and a list of UNSOURCED FIGURES.\n"
+            "1. Delete every claim built on an UNSOURCED FIGURE, or rewrite the "
+            "sentence to make the same point without any number.\n"
+            "2. For each SOURCED FIGURE, check the letter uses it for the SAME "
+            "subject as its source sentence. If it does not, correct the letter "
+            "to the source's subject. A figure about one thing must not be "
+            "restated as being about another.\n"
+            "3. Delete superlatives the sources do not support (\"the largest\", "
+            "\"unprecedented\", \"the first\") unless the source says so.\n"
+            "Keep every other sentence, the paragraph structure, the bold "
+            "section headers and the tone EXACTLY. Never introduce a new number. "
+            "Return ONLY the revised letter."
+        )
+        usr = (
+            f"SOURCED FIGURES:\n" + ("\n".join(lines) or "(none)") +
+            f"\n\nUNSOURCED FIGURES:\n" + ("\n".join("- " + u for u in unsupported) or "(none)") +
+            f"\n\nLETTER:\n{text}"
+        )
+        model = AIModelFactory.get_model(_MODEL)
+        rewritten = await model.agenerate_response(
+            [{"role": "system", "content": sys_prompt}, {"role": "user", "content": usr}],
+            temperature=0.2, max_tokens=4000,
+        )
+        rewritten = (rewritten or "").strip()
+        # Same guard as the event check: never accept a revision that gutted
+        # the letter.
+        if rewritten and rewritten != text and len(rewritten) >= 0.5 * len(text):
+            out["text"] = rewritten
+            out["changed"] = True
+            still = [o for k, o in
+                     {_figure_key(m.group(0)): m.group(0)
+                      for m in _FIGURE_RE.finditer(rewritten)}.items()
+                     if k not in ledger]
+            logger.info("ground_check_figures: %d unsourced figure(s) in, %d out",
+                        len(unsupported), len(still))
+        elif unsupported:
+            logger.warning("ground_check_figures: %d unsourced figure(s) left in place "
+                           "(%s) — revision rejected", len(unsupported), ", ".join(unsupported))
+        return out
+    except Exception as e:
+        logger.warning("ground_check_figures failed: %s", e)
+        return out
+
+
 # Above this many detected tells, rewrite. A few tells are normal in any
 # prose; the rewrite is for genuinely slop-heavy passages.
 _THRESHOLD = int(os.getenv("HUMANIZE_TELL_THRESHOLD", "3"))

@@ -2,6 +2,87 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (later still) — fabricated statistics in the executive summary, and the silent model swap behind them
+
+### What the reader spotted
+"Federal research funding faced disruption, triggering a 14.5% drop in manuscript submissions —
+the single largest quarterly move in the portfolio." Five figures in that letter; four of them
+were not in any source, and the fifth was real but pointed at the wrong subject.
+
+| figure in the letter | what the sources actually contain |
+|---|---|
+| 14.5% drop in manuscript submissions | Federal R&D funding "14.5% **below baseline expectations**" — a consensus-vs-baseline metric, from the **21 May** assessment |
+| $300 billion patent cliffs | only the string `300` in "canceled nearly 300 federal research grants" |
+| 1.4 million phantom citations | only `1.4` in "below-baseline impact of -1.43%" (GLP-1 pricing) |
+| 4.8% faster than APC growth | nothing |
+| one in forty papers | nothing |
+
+Plus "the single largest quarterly move in the portfolio", a superlative no source supports.
+
+### The cause: the agent never changed, the model under it did
+`data/auspex/agents/wiley_exec_summary_agent.md` still declares `model: gpt-4.1` and has not
+been edited since **2026-05-27** (`b313fcc5`). On **2026-07-08**, `67cc5563` ("LLM routing:
+Bedrock-primary yaml") repointed that alias:
+
+```yaml
+- model_name: gpt-4.1
+  litellm_params:
+    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
+The Q2 document held up as the good one was generated 2026-05-27/28, when `gpt-4.1` still meant
+OpenAI GPT-4.1. Same agent, same prompt, different writer.
+
+The new writer is breaking an instruction in its own agent description, which reads: "NEVER
+cites consensus percentages, 'Cooling/Stable/Strengthening' verdicts, or 'X% to Y%' deltas —
+those measure article framing, not events, and the customer has said they're meaningless." The
+14.5% is exactly that: a baseline-deviation percentage. It is not a misquote of a real
+submissions figure; it is a category of number the agent is forbidden from citing at all.
+
+The repeated JSON parse failures are most likely the same root cause — `c2596bd3` on the same
+day was "Bedrock JSON mode: drop response_format + tolerant LLM JSON parsing", i.e. the
+structured-output guarantee went away with the same migration.
+
+**This is the case the standing rule exists for: never repoint a shipping pipeline's model
+without a signed-off before/after.** The 07-08 repoint was a routing change, and it silently
+swapped the model writing customer-facing prose.
+
+### The guard: figures are grounded now, not just events
+`ground_check_exec_summary` only ever checked *events* — actor, action, subject, date. A
+statistic is not an event, so numbers passed untouched.
+
+**`app/services/wiley_humanizer.py`** adds `ground_check_figures(text, sources)`:
+
+- `_FIGURE_RE` extracts quantities ("14.5%", "1.4 million", "$300 billion", "one in forty").
+  Note the absence of a trailing `\b` — after "%" the next character is a space, and `\b` would
+  never match, which is the bug that made a first pass at this report only 3 of 5 figures.
+- `_figure_key` normalises **number and unit together**, so "1.43%" cannot satisfy "1.4 million"
+  and "300 grants" cannot satisfy "$300 billion". Digit-substring matching is what made two
+  fabrications look sourced.
+- `_figure_ledger` maps each sourced figure to the sentence it came from, so the model can be
+  asked to check *subject*, not just presence.
+- Unsupported figures are found deterministically and the model is told to delete those claims;
+  sourced figures are checked against their source sentence and corrected; unsupported
+  superlatives go too. Same half-length guard as the event check, so a revision can never gut
+  the letter.
+
+Wired into `wiley_bundle_supervisor.py` right after the event check, on the freshly-generated
+letter only, emitting a `figures_grounded` stage with the unsourced list.
+
+### Verification, on the real letter
+```
+unsourced figures detected: ['one in forty', '$300 billion', '4.8%', '1.4 million']
+changed: True | length 3401 -> 3175
+```
+All four removed. Both occurrences of the 14.5% corrected to "14.5% drop below baseline
+expectations", matching the source, and "the single largest quarterly move in the portfolio"
+deleted. The prose survives intact.
+
+### Propagation
+`wiley_humanizer.py` and `wiley_bundle_supervisor.py` to wileytest and wiley, live jobs checked
+(zero), all three restarted. **The stored Q3 letter still contains the bad figures** — the guard
+applies to letters generated from now on. Correcting the stored one is a decision for the user.
+
 ## 2026-08-03 (later) — the topic-report DOCX was a transcript of the deck, not an executive summary
 
 ### What was wrong
