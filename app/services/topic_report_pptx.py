@@ -518,8 +518,8 @@ def _add_intro_team_slide(prs):
                  "manufactured identities, gamed metrics, campaign detection. "
                  "The same patterns now driving paper mills and fake peer review."),
                 ("BACKGROUND",
-                 "Research Director, Gartner · Research leadership: Securonix, "
-                 "Tenable · HP, Verizon"),
+                 "Research Director: Gartner, Securonix, Tenable · "
+                 "Cybersecurity leadership: HP, Verizon"),
                 ("SELECT WORK",
                  "Defined the SOAR product category (Gartner) · Quantifying the "
                  "Attacker's First-Mover Advantage · 266 Google Scholar citations"),
@@ -532,7 +532,7 @@ def _add_intro_team_slide(prs):
                 ("WHAT TRANSFERS",
                  "Large-scale data mining and classification — the machinery "
                  "that filters, scores and verifies the article corpus behind "
-                 "every report. Published on synthetic-data integrity."),
+                 "every report. Published on synthetic-data privacy."),
                 ("BACKGROUND",
                  "PhD Computer Science, University of Lille · Visiting Fellow, "
                  "Marie Curie Institute Paris · Principal Researcher, Tenable · "
