@@ -88,6 +88,13 @@ rebuild opens: "several high-consequence scenarios continue to develop while the
 around them intensify." Audit clean on all axes, fresh reviewer pass, zero fallbacks. Final
 DOCX emailed — this replaces both earlier versions.
 
+### Final matched delivery
+Deck and HTML re-rendered from the pinned runs so all three artifacts form one package with
+the final letter: identical six provenance run IDs deck<->HTML (verified), corrected figures,
+final team-slide credentials, zero lint findings. Emailed as replacements for the 20:26
+versions (which predated the credential and figure corrections); copies at
+`/home/orochford/Wiley_Horizons_Topic_Report_Q3_2026.{pptx,html}` next to the letter.
+
 ### The generation workflow now
 One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
 screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,
