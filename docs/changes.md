@@ -2,6 +2,40 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (later) — the release gate covers Brand Watcher reports
+
+### Goal
+Close the gap the release-gate product doc named: Brand Watcher's customer-facing outputs
+had none of the topic-report pipeline's checks.
+
+### `lint_outbound` — the gate for any outbound customer text
+**`app/services/report_lint.py`** gains `lint_outbound(text, kind, sources, context)`:
+the artifact string checks (internal-name leaks, invented consensus, past deadlines,
+fallback titles) plus figure/organisation grounding against the evidence text when
+``sources`` is given. Advisory — logs findings with context and returns them, never raises,
+never blocks. Verified: clean incident-style prose over its evidence → 0 findings; seeded
+text trips config_leak, invented_consensus, past_deadline, unsourced_figure ($9B vs a
+sourced $2B), unsourced_org.
+
+### Four Brand Watcher surfaces wired
+**`bw_digest_service.py`** (digest email, before send), **`brand_alert_service.py`**
+(alert emails), and in **`brand_watcher_routes.py`** the incident "Situation" paragraph —
+the one with real evidence to ground against: figures and org names checked against the
+incident's evidence lines + agent brief + analyst description, findings returned in the
+response as ``lint`` so the report UI can surface them — and the account-report email
+(leak checks on the outbound HTML).
+
+### Propagation — including the BW-dedicated tenants
+bugfixing + wiley + wileytest: full copies. **wbm** and **bwtemplate** (not in the standard
+copy rule, but they send these reports): drift-checked first — all three "drifted" files
+matched ancestral canonical commits exactly (wbm/bwtemplate humanizer = `451bed56`
+2026-06-18, bwtemplate routes = `c33b233a` 2026-07-13), i.e. staleness, not local edits.
+wbm got full copies (its stale humanizer predates the grounding helpers `lint_outbound`
+needs). bwtemplate's routes got the account-report hunk surgically (its July-13 version has
+no `incident_report_summary` yet) plus the four service files. Smoke test on both BW venvs:
+`lint_outbound` imports and flags seeded text (4 findings). All five services restarted and
+active. 12/12 tests green.
+
 ## 2026-08-03 (close of session) — Q3 delivered clean; the generation workflow as it now stands
 
 ### Goal

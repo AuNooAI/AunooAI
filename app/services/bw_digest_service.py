@@ -408,6 +408,14 @@ def maybe_send_digest(db) -> bool:
             if not svc.is_available():
                 logger.warning("bw digest skipped: email service not configured")
                 return False
+            # Release gate (advisory): same checks the topic-report pipeline
+            # runs — internal-name leaks, invented consensus, past deadlines.
+            # Findings are logged; the digest still sends.
+            try:
+                from app.services.report_lint import lint_outbound
+                lint_outbound(body_md, kind="html", context="bw_digest")
+            except Exception:
+                pass
             # The text/plain alternative must NOT carry markdown syntax — clients
             # that prefer (or preview) the text part would show it literally.
             text_body = re.sub(r"^### (.+)$", r"\1", body_md, flags=re.MULTILINE)

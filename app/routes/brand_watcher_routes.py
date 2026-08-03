@@ -5558,7 +5558,24 @@ async def incident_report_summary(incident_id: int, session=Depends(verify_sessi
             {"role": "system", "content": "You are a senior brand-protection analyst. Respond with the paragraph only."},
             {"role": "user", "content": prompt},
         ])).strip()
-        return {"summary": summary[:2500]}
+        # Release gate (advisory): ground the paragraph's figures and
+        # organisation names against the evidence it was written from,
+        # plus the standard leak checks. Findings ride along in the
+        # response so the report UI can surface them; the summary is
+        # returned regardless.
+        lint = []
+        try:
+            from app.services.report_lint import lint_outbound
+            sources = list(ev_lines)
+            if brief and brief[0]:
+                sources.append(brief[0])
+            if r[1]:
+                sources.append(r[1])   # analyst description is a valid source
+            lint = lint_outbound(summary, kind="html", sources=sources,
+                                 context=f"bw_incident_{incident_id}_summary")
+        except Exception:
+            pass
+        return {"summary": summary[:2500], "lint": lint}
     except Exception as e:
         logger.error(f"incident report summary failed: {e}")
         return {"summary": ""}
@@ -6635,6 +6652,15 @@ async def email_account_report(account_id: int, req: AccountEmailReportRequest,
         raise HTTPException(status_code=400, detail="Invalid recipient address")
     if not req.html or len(req.html) > 2_000_000:
         raise HTTPException(status_code=400, detail="Report HTML missing or too large")
+
+    # Release gate (advisory) on the outbound report HTML — leak checks
+    # only (the client built this from data already shown in the UI).
+    try:
+        from app.services.report_lint import lint_outbound
+        lint_outbound(req.html, kind="html",
+                      context=f"bw_account_report_{account_id}")
+    except Exception:
+        pass
 
     from app.services.email_service import get_email_service
     email_svc = get_email_service()

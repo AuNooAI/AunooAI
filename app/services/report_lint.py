@@ -215,6 +215,53 @@ def lint_topic_report(items: list, *, deck_text: str = "",
     return out
 
 
+def lint_outbound(text: str, *, kind: str = "html", sources: list | None = None,
+                  context: str = "") -> list:
+    """Advisory gate for any outbound customer text (emails, report
+    paragraphs, attached HTML) outside the topic-report pipeline —
+    Brand Watcher digests, alerts, incident summaries, account reports.
+
+    Runs the artifact string checks, plus figure/organisation grounding
+    when ``sources`` (the evidence text the prose was written from) is
+    given. Logs findings with ``context`` and returns them. Never raises,
+    never blocks — the caller decides what to do with the findings.
+    """
+    try:
+        findings = lint_artifact_text(text or "", kind=kind)
+        if sources:
+            source_text = " ".join(s if isinstance(s, str) else str(s)
+                                   for s in sources)
+            try:
+                from app.services.wiley_humanizer import (
+                    _FIGURE_RE, _figure_key, _figure_ledger, _org_candidates,
+                )
+                ledger = _figure_ledger([source_text])
+                for m in _FIGURE_RE.finditer(text or ""):
+                    if _figure_key(m.group(0)) not in ledger:
+                        findings.append({"check": "unsourced_figure",
+                                         "detail": m.group(0)})
+                hay = source_text.lower()
+                for key, name in _org_candidates(text or "").items():
+                    if key in hay:
+                        continue
+                    words = [w for w in _re.split(r"[^A-Za-z]+", name) if len(w) > 3]
+                    if any(w.lower() in hay for w in words):
+                        continue
+                    findings.append({"check": "unsourced_org", "detail": name})
+            except Exception as e:
+                _log.warning("lint_outbound grounding unavailable: %s", e)
+        if findings:
+            counts: dict = {}
+            for f in findings:
+                counts[f["check"]] = counts.get(f["check"], 0) + 1
+            _log.warning("outbound lint [%s]: %d finding(s): %s",
+                         context or "-", len(findings), counts)
+        return findings
+    except Exception as e:
+        _log.warning("lint_outbound failed [%s]: %s", context, e)
+        return []
+
+
 def deck_text_from_blob(blob: bytes) -> str:
     """All text frames of a rendered PPTX, for the string checks."""
     from io import BytesIO

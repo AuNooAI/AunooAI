@@ -169,6 +169,13 @@ def _deliver_email(event: Dict[str, Any], recipients: List[str]) -> bool:
             f"{event.get('body') or ''}\n\n"
             + (f"[Open Brand Watcher]({link})\n" if link else "")
         )
+        # Release gate (advisory) — logs internal-name leaks and similar
+        # defects before the alert reaches a customer inbox.
+        try:
+            from app.services.report_lint import lint_outbound
+            lint_outbound(body_md, kind="html", context="bw_alert_email")
+        except Exception:
+            pass
         ok = svc.send_email(
             to_addresses=recipients,
             subject=f"[AuNoo AI] Brand alert: {event['title'][:120]}",
