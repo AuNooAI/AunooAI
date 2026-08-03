@@ -363,6 +363,26 @@ class KeywordMonitor:
             logger.info(f"Starting keyword check for group {group_id}...")
         else:
             logger.info("Starting keyword check for all groups...")
+
+        # The group's own relevance threshold. _run_group_check (the scheduler)
+        # sets this before calling us, but /check-now calls check_keywords
+        # directly, and used to leave it unset — so a manual run silently used
+        # the global threshold and rejected articles the group would have kept.
+        if group_id is None:
+            # An all-groups run must not inherit a per-group threshold left
+            # behind by an earlier manual single-group run.
+            self._group_relevance_threshold = None
+        elif getattr(self, '_group_relevance_threshold', None) is None:
+            try:
+                # get_keyword_group_with_settings, not get_keyword_group_by_id —
+                # the latter selects a fixed narrow column list without it.
+                group_row = self.db.facade.get_keyword_group_with_settings(group_id)
+                threshold = (group_row or {}).get('min_relevance_threshold')
+                if threshold is not None:
+                    self._group_relevance_threshold = threshold
+                    logger.info(f"Using group {group_id} relevance threshold {threshold}")
+            except Exception as e:
+                logger.warning(f"Could not read group {group_id} relevance threshold: {e}")
         new_articles_count = 0
         processed_keywords = 0
 

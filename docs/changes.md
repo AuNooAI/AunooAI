@@ -2,6 +2,81 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (later) — Auspex was counting rejected articles as missing data
+
+### Goal
+An Auspex report on wileytest's ASML Watch topic opened with a "Sentiment Paradox": 80.2% of
+articles unclassified for sentiment, and an inference about market bifurcation drawn from the
+5.4% that were negative. The question was why sentiment coverage was so low. It isn't — the
+denominator was wrong.
+
+### What the numbers actually were
+ASML Watch on wileytest holds 888 collected articles. 708 (79.7%) have no sentiment, which
+matches the report. But 752 of those 888 have `ingest_status = 'filtered_relevance'`: the
+collector's relevance gate rejected them before the AI analysis step ever ran, so they have no
+category and no sentiment by design. 707 of the 708 unclassified articles are those rejects.
+
+All 135 `approved` articles have sentiment. **Coverage among analysed articles is 100%, not
+20%.** The gate is `keyword_monitor_settings.min_relevance_threshold = 0.5`, applied globally;
+rejected articles average 0.188 topic alignment against 0.785 for approved ones.
+
+### Auspex now excludes rejected articles from its corpus
+Auspex retrieval had no `ingest_status` filter on any path, so it pulled approved and rejected
+articles together and then reported the gap between them as missing data. Two mechanisms, both
+additive, both defaulting to the old behaviour for every other caller:
+
+- **`app/database_query_facade.py`** — `search_articles()` gains
+  `exclude_ingest_status=None`. When set it adds
+  `ingest_status IS NULL OR ingest_status NOT IN (...)`. NULL rows are kept, because NULL means
+  the column was never written rather than "rejected".
+- **`app/vector_store_pgvector.py`** — the metadata filter gains a `$ne` operator, compiled to
+  `IS DISTINCT FROM` rather than `<>` for the same NULL reason. It had `$gte/$lte/$gt/$lt` and
+  bare equality only.
+
+**`app/services/auspex_service.py`** declares `REJECTED_INGEST_STATUSES` and a
+`_exclude_rejected_filter()` helper, and applies the exclusion at all eleven retrieval sites —
+seven `self.db.search_articles()` calls and four `vector_search_articles()` calls.
+
+Measured against the live data, both filters keep 136 of 888 ASML articles (135 approved plus
+one whose status was never written). The vector path returns 135 of those, because the
+status-NULL article has no embedding. Sentiment coverage in the kept corpus is 135/136.
+
+**Related, flagged and not changed:** five places in `auspex_service.py` (`:642`, `:1187`,
+`:1300`, `:1560`, `:2880`) default a missing sentiment to `"Neutral"`. With rejects excluded
+that default should almost never fire, but it is still a silent substitution in a sentiment
+breakdown.
+
+### ASML Watch gets its own relevance threshold — and manual runs now honour it
+77 of the rejected ASML articles scored 0.4 or above, and spot-checking shows real losses:
+"China's home-grown DUV progress not the biggest threat to ASML, analysts say" scored 0.40 and
+was dropped. The group had no override, so it used the global 0.5.
+
+`keyword_groups.min_relevance_threshold` for group 27 (ASML Watch) should be set to 0.4. **That
+UPDATE has not been applied** — the tool call was blocked, so it is waiting on the user. On past
+volume it moves roughly 77 articles from rejected to analysed, about a 57% increase on the 135
+now approved, with the matching increase in analysis cost.
+
+**`app/tasks/keyword_monitor.py` — the setting was only half-wired.** The scheduler
+(`_run_group_check`) stores the group's threshold in `_group_relevance_threshold` before calling
+`check_keywords`, but `/check-now` calls `check_keywords` directly, so a manual single-group run
+left it unset and silently used the global threshold. `check_keywords` now reads the group's own
+value when the scheduler has not already set one, and clears it on an all-groups run so a manual
+run cannot leak its threshold into the next full pass.
+
+It reads `get_keyword_group_with_settings()`, not `get_keyword_group_by_id()` — the latter
+selects a fixed narrow column list that does not include `min_relevance_threshold`, and there are
+two definitions of it in the facade (`:3501` and `:12973`), the later one winning.
+
+### Not deployed yet
+The user was mid-processing and asked for no restarts, so all four code changes sit in canonical
+only. They are inert until wileytest and wiley get the file copies and a restart. Nothing was
+copied to a tenant tree, deliberately: a crash-restart mid-run would otherwise pick up new
+behaviour unannounced.
+
+Pending, in order: apply the ASML `UPDATE`; copy `auspex_service.py`,
+`database_query_facade.py`, `vector_store_pgvector.py` and `keyword_monitor.py` to wileytest and
+wiley; restart. Then re-run the ASML report and confirm the coverage line reads near 100%.
+
 ## 2026-08-03 — the foresight model dropdown was never fixed, only the endpoint nobody calls — `cbf5091a`
 
 ### Goal

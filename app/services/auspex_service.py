@@ -41,6 +41,30 @@ from app.services.conversation_compactor import (
 logger = logging.getLogger(__name__)
 
 
+# Articles the collector rejected at the relevance gate. They were saved for
+# audit but never sent for AI analysis, so they have no category and no
+# sentiment. Counting them makes coverage look broken — on wileytest's ASML
+# Watch topic, 752 of 888 collected articles are rejects, which is why a report
+# read "80.2% unclassified" — and it skews any sentiment breakdown, because the
+# formatters below default a missing sentiment to "Neutral". Auspex answers
+# about a topic's coverage, so its corpus is the articles that were analysed.
+REJECTED_INGEST_STATUSES = ["filtered_relevance"]
+
+
+def _exclude_rejected_filter(metadata_filter: Optional[Dict]) -> Dict:
+    """Add the rejected-article exclusion to a vector-search metadata filter.
+
+    Uses $ne, which the pgvector store compiles to IS DISTINCT FROM, so rows
+    whose ingest_status was never written are kept.
+    """
+    exclusion = {"ingest_status": {"$ne": REJECTED_INGEST_STATUSES[0]}}
+    if not metadata_filter:
+        return exclusion
+    if "$and" in metadata_filter:
+        return {"$and": list(metadata_filter["$and"]) + [exclusion]}
+    return {"$and": [metadata_filter, exclusion]}
+
+
 def _bedrock_routed(model: str) -> bool:
     """True when litellm_config.yaml routes this model alias to a Bedrock
     target. On Bedrock-repointed tenants the gpt-5.x aliases land on Claude
@@ -1169,7 +1193,7 @@ class QueryRouter:
             results = vector_search_articles(
                 query=query,
                 top_k=fetch_k,
-                metadata_filter=metadata_filter
+                metadata_filter=_exclude_rejected_filter(metadata_filter)
             )
 
             articles = []
@@ -1282,7 +1306,7 @@ class QueryRouter:
             results = vector_search_articles(
                 query=query,
                 top_k=fetch_k,
-                metadata_filter=metadata_filter
+                metadata_filter=_exclude_rejected_filter(metadata_filter)
             )
 
             articles = []
@@ -1490,6 +1514,7 @@ class AuspexService:
                 # Search using the database's search_articles method with keyword search
                 articles, count = self.db.search_articles(
                     topic=topic,
+                    exclude_ingest_status=REJECTED_INGEST_STATUSES,
                     keyword=entity,  # This searches title, summary, category, future_signal, sentiment, tags
                     page=1,
                     per_page=100  # Get a reasonable sample to validate existence
@@ -1532,6 +1557,7 @@ class AuspexService:
                 # Search using the database's search_articles method
                 articles, count = self.db.search_articles(
                     topic=topic,
+                    exclude_ingest_status=REJECTED_INGEST_STATUSES,
                     keyword=entity,
                     page=1,
                     per_page=limit * 2  # Get more to allow for filtering
@@ -2343,7 +2369,7 @@ If your analysis requires tables or comparison matrices (e.g., strategic assessm
             vector_results = vector_search_articles(
                 query=search_query,
                 top_k=limit,
-                metadata_filter=metadata_filter
+                metadata_filter=_exclude_rejected_filter(metadata_filter)
             )
 
             articles = []
@@ -2853,7 +2879,7 @@ Extracted search query (respond with ONLY the query, no explanation):"""
                     vector_results = vector_search_articles(
                         query=search_query,
                         top_k=search_limit,  # Use search_limit which may be increased by citation_limit
-                        metadata_filter=metadata_filter
+                        metadata_filter=_exclude_rejected_filter(metadata_filter)
                     )
 
                     # Convert vector results to article format with comprehensive null checks
@@ -3126,6 +3152,7 @@ Return your search strategy in this format:
                         try:
                             articles, total_count = self.db.search_articles(
                                 topic=topic,
+                                exclude_ingest_status=REJECTED_INGEST_STATUSES,
                                 keyword=message,
                                 page=1,
                                 per_page=limit
@@ -3195,6 +3222,7 @@ Return your search strategy in this format:
                                 if category:
                                     articles_batch, count = self.db.search_articles(
                                         topic=topic,
+                                        exclude_ingest_status=REJECTED_INGEST_STATUSES,
                                         category=category,
                                         pub_date_start=pub_date_start,
                                         pub_date_end=pub_date_end,
@@ -3205,6 +3233,7 @@ Return your search strategy in this format:
                                 else:
                                     articles_batch, count = self.db.search_articles(
                                         topic=topic,
+                                        exclude_ingest_status=REJECTED_INGEST_STATUSES,
                                         keyword=keyword,
                                         sentiment=sentiment,
                                         future_signal=future_signal,
@@ -3279,6 +3308,7 @@ Analyzing the {len(articles)} most recent articles
                     # Fallback to basic search
                     articles, total_count = self.db.search_articles(
                         topic=topic,
+                        exclude_ingest_status=REJECTED_INGEST_STATUSES,
                         keyword=message,
                         page=1,
                         per_page=limit
@@ -3408,6 +3438,7 @@ Use these dimensions to identify patterns, but don't force analysis into a rigid
             try:
                 articles, count = self.db.search_articles(
                     topic=topic,
+                    exclude_ingest_status=REJECTED_INGEST_STATUSES,
                     keyword=message,
                     page=1,
                     per_page=limit

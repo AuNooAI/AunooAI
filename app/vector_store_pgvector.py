@@ -315,6 +315,10 @@ def search_articles(
                                     where_clauses.append(f"{key} > :{param_name}")
                                 elif op == "$lt":
                                     where_clauses.append(f"{key} < :{param_name}")
+                                elif op == "$ne":
+                                    # IS DISTINCT FROM, not <>, so rows where the
+                                    # column is NULL survive the exclusion.
+                                    where_clauses.append(f"{key} IS DISTINCT FROM :{param_name}")
                                 else:
                                     where_clauses.append(f"{key} = :{param_name}")
                                 params[param_name] = op_value
@@ -339,6 +343,10 @@ def search_articles(
                                 where_clauses.append(f"{key} > :{key}")
                             elif op == "$lt":
                                 where_clauses.append(f"{key} < :{key}")
+                            elif op == "$ne":
+                                # IS DISTINCT FROM, not <>, so rows where the
+                                # column is NULL survive the exclusion.
+                                where_clauses.append(f"{key} IS DISTINCT FROM :{key}")
                             else:
                                 where_clauses.append(f"{key} = :{key}")
                             params[key] = op_value

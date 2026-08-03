@@ -5215,9 +5215,17 @@ class DatabaseQueryFacade:
         per_page=10,
         date_type='publication',
         date_field=None,
-        require_category=False
+        require_category=False,
+        exclude_ingest_status=None
     ):
-        """Search articles with filters including topic - SQLAlchemy version."""
+        """Search articles with filters including topic - SQLAlchemy version.
+
+        exclude_ingest_status: list of ingest_status values to leave out, e.g.
+        ["filtered_relevance"] for articles the collector rejected before the AI
+        analysis step. Rows with a NULL status are kept, since NULL means the
+        column was never written rather than "rejected". Default None keeps
+        every row, so existing callers are unaffected.
+        """
         from typing import Tuple, List, Dict, Optional
 
         # Use the appropriate date field based on date_type
@@ -5232,6 +5240,12 @@ class DatabaseQueryFacade:
         # Add topic filter
         if topic:
             conditions.append(articles.c.topic == topic)
+
+        if exclude_ingest_status:
+            conditions.append(or_(
+                articles.c.ingest_status.is_(None),
+                articles.c.ingest_status.notin_(list(exclude_ingest_status))
+            ))
 
         if category:
             conditions.append(articles.c.category.in_(category))
