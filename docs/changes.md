@@ -54,7 +54,31 @@ in. The six Q3 assessments are IN FLIGHT at the time of this entry (topic 2 of 6
 the Attacks re-run (superseding the empty row) and the bundle regeneration follow — their
 outcomes are NOT yet claimed here.
 
+### Second failure under the first: verdicts computed, then lost to varchar(4)
+The Attacks re-assessment with the fixed overlay did real work (398s, 32 articles
+classified, five deck-level verdicts) and then lost ALL verdict rows to
+``psycopg2.StringDataRightTruncation``: ``forecast_scenario_verdicts.horizon_type`` is
+varchar(4), sized for "h1"/"h2"/"h3" — but the newer overlay generator emits likelihood
+classes ("probable"/"plausible"/"possible") as deck-scenario horizons. Migration
+``fsv_horizon_16`` widens ``horizon_type`` to varchar(16) on ``forecast_scenario_verdicts``
+and ``forecast_user_scenarios`` (ORM synced in `database_models.py`). Applied on all three
+tenants; wileytest's copy carries ``down_revision='kg_social_01'`` because its tree never
+took ``emb_768_01`` (the known per-tenant alembic divergence — adapted copy, per practice).
+
+### The fresh bundle: gate 4→8 passed, reviewer approves
+Full sequence completed: six real Q3 assessments (530s/490s/432s/427s/484s/398s; Quantum
+Advantage produced genuine verdicts through its activated overlay; Attacks superseded its
+empty row on the second re-run after the column fix). Bundle regenerated on them:
+**golden gate draft 4/10 → critique retry 8/10, passed; reviewer approved_with_warnings,
+zero errors** (the "Request Wiley admin" vacuum error is gone). Letter opens with actor and
+action. The controlled comparison against the stale run (same writer, same gate, retry
+4→4 then vs 4→8 now) confirms the gate measures input freshness as much as prose:
+1,366,055-byte bundle at `/tmp/q3_quarterly_bundle.pptx`.
+
 ### Lessons
+- A varchar sized for one vocabulary is a silent kill-switch for the next vocabulary; the
+  write path must surface INSERT failures to the caller, not just the log (assess_run
+  returned "success" while its verdict rows bounced).
 - A "completed" status with zero verdicts in sub-second runtime is a data bug, not a fast
   run. Pipelines must refuse to persist success when a collapse stage returns empty.
 - `.proposed` files are staged fixes awaiting activation — when debugging stale-config
