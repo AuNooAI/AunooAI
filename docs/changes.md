@@ -33,7 +33,26 @@ each bio now leads with a WHAT TRANSFERS row connecting the background to resear
 The five-vendor cyber advisory list is gone. Copy needs the user's sign-off before the next
 customer delivery.
 
+### Post-regeneration fixes (found by auditing the fresh Q3 deck)
+Two leaks survived the first pass, both caught by auditing the regenerated deck against the
+review list. **`topic_report_pptx.py`**: the Key Supporting Articles slide loaded alignment-
+ranked articles with no corpus hygiene, putting a naturalnews.com headline back on a customer
+slide — it now takes the 7 freshest items of the SCREENED corpus the analysis used (fallback
+to the old loader when no corpus is persisted). And the coverage slide scope is now the UNION
+of the delivery config and the deck's topics — the config's stale "Quantum Advantage" name
+had dropped Quantum Computing from its own deck's coverage slide.
+
 ### Verification
+Regenerated Q3 2026 on wileytest (6 topics, ~13 min, label `Q3_2026__2cec74a7`): relevance
+screen dropped 41/88, 43/89, 27/87, 8/85, 40/89, 36/72 per topic. Deck audit: 237 slides,
+no "1.4 million" / "one in forty" / Hindawi / consensus-% / model / persona / naturalnews /
+em-dash titles / grouped cites / past-dated forks; coverage slide "6 topics". HTML audit:
+315 numbered references, timeline 2026–2041, same checks clean ("gpt-" hits are article
+headlines about OpenAI, "lakh"/ASML are quoted source titles in reference lists). Deck and
+HTML provenance tables carry the IDENTICAL six run IDs — the pinning works on the real
+pipeline. Synthesia survived the screen into one corpus at [12] but is cited nowhere and no
+avatar/identity claim exists in the run.
+
 Team slide rendered standalone (all rows present); run pinning tested three ways (above);
 `npm run typecheck` clean (246 known, 0 new); UI rebuilt.
 

@@ -788,8 +788,14 @@ def _add_intro_monitor_slide(prs, db=None, deck_topics: Optional[list] = None):
                 scope = [c.get("topic") for c in configs if c.get("topic")]
             except Exception as e:
                 logger.debug("intro monitor: delivery-config lookup failed: %s", e)
-            if not scope:
-                scope = [t for t in (deck_topics or []) if t]
+            # UNION with the deck's topics rather than either/or — the
+            # delivery config can hold a stale name ("Quantum Advantage")
+            # while the deck covers the real one ("Quantum Computing"),
+            # and a topic in this deck must never be missing from its own
+            # coverage slide.
+            for t in (deck_topics or []):
+                if t and t not in scope:
+                    scope.append(t)
             if not scope:
                 raise ValueError("no delivery-config or deck topics to scope to")
             # Count ANALYSED articles, not collected ones. The relevance gate
@@ -1562,9 +1568,16 @@ def _load_supporting_articles(db, topic: str, limit: int = 7) -> list:
         logger.warning("Topic report: get_relevant_articles_for_topic(%s) failed: %s",
                        topic, e)
         return []
+    # Same blocklist + dedup the numbered corpus gets. Without it, this
+    # slide put a naturalnews.com headline on a customer deck that the
+    # corpus filter had already excluded everywhere else.
+    from app.services.report_corpus import filter_report_corpus
+    rows = filter_report_corpus(
+        [dict(r._mapping) if hasattr(r, "_mapping") else dict(r) for r in rows],
+        topic=topic,
+    )
     out: list = []
-    for r in rows:
-        d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+    for d in rows:
         title = (d.get("title") or "").strip()
         if not title:
             continue
@@ -1743,13 +1756,23 @@ def resolve_items(topics: list[str], run_ids: Optional[dict] = None) -> list:
         # Per-topic context — the deck builder walks these.
         assessment["_eos_scenarios"]       = _load_eos_scenarios(db, topic)
         assessment["_consensus_payload"]   = _load_consensus_for_topic(db, topic)
-        assessment["_supporting_articles"] = _load_supporting_articles(db, topic)
         assessment["_exec_summary_cards"]  = _load_horizons_executive_summary(db, run_id)
         # The numbered corpus the LLM cited (``[1]``, ``[2]`` … markers in
         # scenario / insight / rec body text resolve here). Per-topic
         # builders attach hyperlinks to each [N] run targeting the matching
         # article URL.
-        assessment["_articles_corpus"]     = _load_articles_corpus(db, run_id, topic)
+        corpus = _load_articles_corpus(db, run_id, topic)
+        assessment["_articles_corpus"] = corpus
+        # Key Supporting Articles = the freshest items of the SCREENED
+        # corpus the analysis actually used. The old alignment-ranked
+        # loader bypassed the corpus hygiene entirely, so this slide
+        # carried blocked publishers and off-topic noise the numbered
+        # references had already dropped.
+        if corpus:
+            assessment["_supporting_articles"] = sorted(
+                corpus, key=lambda a: a.get("date") or "", reverse=True)[:7]
+        else:
+            assessment["_supporting_articles"] = _load_supporting_articles(db, topic)
 
         items.append((assessment, forecast_run, None))
     return _apply_overlay_display_names(items)
