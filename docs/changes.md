@@ -79,6 +79,15 @@ bottom line now reads "The quarter's pressure appears in reporting but has not y
 confirmed, named events in the scenarios we track." Final DOCX emailed (Resend `efec16d8`,
 replacing `ed647222`), copy at `/home/orochford/Wiley_Horizons_Executive_Summary_Q3_2026.docx`.
 
+### Framing correction: developing scenarios, not missing evidence
+The user's read of the letter: "has not yet produced confirmed, named events" sounds like a
+gap in our coverage. The agent rule now prescribes the opposite framing — scenarios "still
+developing / continuing to evolve", with "missing / absent / unconfirmed events" phrasing
+explicitly banned as reading like a coverage gap rather than the state of the world. Final
+rebuild opens: "several high-consequence scenarios continue to develop while the pressures
+around them intensify." Audit clean on all axes, fresh reviewer pass, zero fallbacks. Final
+DOCX emailed — this replaces both earlier versions.
+
 ### The generation workflow now
 One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
 screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,
