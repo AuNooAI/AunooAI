@@ -838,7 +838,14 @@ async def generate_topic_report(
     _write_render_cache(period_label, blob)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     # Sidecar so HTML/MD/DOCX endpoints can resolve the same topic set.
-    _write_state_sidecar(period_label, included_topics, period)
+    # Write the SOURCE topic names, not ``included_topics`` — the latter have
+    # been through ``_apply_overlay_display_names``, so a topic with a deck
+    # overlay is stored under its display name ("Scientific Publishing")
+    # while future_horizons_runs holds the real one ("Scientific Publishers -
+    # General Monitoring"). resolve_items looks up by the real name, so every
+    # export silently dropped that topic, logging only
+    # "skipping <display name> — no forecast run".
+    _write_state_sidecar(period_label, list(topics), period)
     _emit(100, "Done")
     return blob, period_label, included_topics, None, []
 
@@ -1023,9 +1030,13 @@ async def generate_topic_report_docx(period_label: str) -> Tuple[bytes, str, lis
 
     await ensure_bundle_synthesis(period_label)
     items, synth, eos_per_topic, review = _load_cached_state(period_label)
+    # The header and signoff show this verbatim, so use the human period
+    # ("Q3 2026") rather than the internal topics-hash label
+    # ("Q3_2026__2cec74a7") that keys the cache.
+    display_period = (_read_state_sidecar(period_label) or {}).get("period") or period_label
     blob = build_bundle_docx(
         items,
-        period_label=period_label,
+        period_label=display_period,
         cadence="topic_report",
         updates_only=True,
         bundle_synthesis=synth.get("payload") or synth,

@@ -65,6 +65,44 @@ it.
 **Lesson: an endpoint that generates on demand is not safe to smoke-test.** Check for a
 cheap read-only path first, or test against a period that already has its content.
 
+### Two more defects the accidental run exposed
+That run finished at 14:09:18 with `reviewer: approved_with_warnings`, and the document it
+produced is 115 words. Two separate causes.
+
+**The executive-summary agent's JSON failed to parse, and the pipeline called it a success.**
+`wiley_exec_summary_agent JSON parse failed: Expecting ',' delimiter: line 2 column 2108`. The
+parser in `_call_agent` already strips code fences and uses `strict=False` for literal newlines,
+so this was a real syntax error mid-letter — an unescaped quote or backslash around character
+2109. On failure it returned `{}`, the letter was dropped, and every other field persisted
+normally, so nothing downstream noticed. `build_bundle_docx` fell back to `strategic_overview`,
+which is 686 characters, and the whole executive summary came out as one paragraph.
+
+**`app/services/wiley_bundle_supervisor.py`** now retries once on a parse failure, feeding the
+model its own malformed reply and the parser's error and asking for valid JSON with quotes and
+backslashes escaped. It only fires on failure, so it costs nothing on the normal path. Same
+shape as the signal-report retry.
+
+**The state sidecar stored display names, so one topic was silently dropped.**
+`_write_state_sidecar` was written from `included_topics`, which have been through
+`_apply_overlay_display_names`. So the sidecar held "Scientific Publishing" while
+`future_horizons_runs` holds "Scientific Publishers - General Monitoring". `resolve_items` looks
+up by the real name, missed, and logged one line — `Topic report: skipping Scientific Publishing
+— no forecast run` — before carrying on with five topics. The synthesis row records
+`topics` as those five.
+
+Every export that reads the sidecar was affected: DOCX, Markdown and HTML. The deck was not,
+because deck generation uses the input topic list rather than the sidecar. Fixed by writing the
+source topic names; the Q3 sidecar file was corrected in place so the next export resolves all
+six.
+
+**Display fix:** the DOCX header and signoff printed the internal cache key
+(`Q3_2026__2cec74a7 update`). They now use the human period from the sidecar, "Q3 2026".
+
+### State
+Deployed to wileytest and wiley, all three services restarted, live jobs checked first (zero).
+The Q3 synthesis on wileytest is the pre-fix one: five topics, no letter. Regenerating it needs
+a second supervisor run, which has **not** been started — that is the user's call.
+
 ## 2026-08-03 (later still) — four defects found by reading the generated deck
 
 ### Goal

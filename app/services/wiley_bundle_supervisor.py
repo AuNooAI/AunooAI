@@ -231,8 +231,34 @@ async def _call_agent(agent_name: str, payload: dict, *, reasoning_effort: str =
     try:
         return json.loads(s, strict=False)
     except Exception as e:
-        logger.error("Agent %s JSON parse failed: %s | raw=%.400s", agent_name, e, raw or "")
-        return {}
+        # One retry. A malformed reply here costs the whole field silently —
+        # on 2026-08-03 wiley_exec_summary_agent broke at char 2109 of the
+        # letter and the topic report shipped with no executive summary at
+        # all, everything else intact. The pipeline reported success.
+        logger.error("Agent %s JSON parse failed: %s | raw=%.400s — retrying once",
+                     agent_name, e, raw or "")
+        try:
+            retry_messages = messages + [
+                {"role": "assistant", "content": (raw or "")[:4000]},
+                {"role": "user", "content": (
+                    "That reply was not valid JSON: "
+                    f"{e}. Return the same content as a single valid JSON "
+                    "object. Escape every double quote and backslash inside "
+                    "string values. No code fences, no prose outside the object."
+                )},
+            ]
+            raw2 = await model.agenerate_response(retry_messages, **call_kwargs)
+            s2 = (raw2 or "").strip()
+            if s2.startswith("```"):
+                s2 = s2.strip("`").lstrip()
+                if s2.lower().startswith("json"):
+                    s2 = s2[4:].lstrip()
+            parsed = json.loads(s2, strict=False)
+            logger.info("Agent %s: retry produced valid JSON", agent_name)
+            return parsed
+        except Exception as e2:
+            logger.error("Agent %s retry also failed: %s", agent_name, e2)
+            return {}
 
 
 # ── Per-stage payload builders ──────────────────────────────────────
