@@ -38,6 +38,17 @@ Hindawi journals") in a second file — and **`wiley_retrieval_agent.md`** (Novo
 example). Both replaced with placeholder shapes; `executive_summary.json` v3.0.1 likewise
 swaps its Novo Nordisk/Lilly example for placeholders.
 
+### First live lint run — tuning on real output
+The first lint pass over the regenerated Q3 content produced 25 findings; three extractor
+fixes brought it to 4 genuine ones. Fixed: the corpus loader now includes article summaries
+(title-only grounding flagged legitimately sourced figures); the org extractor strips
+possessives ("NIH's"), rejects compound adjectives ("AI-driven", "U.S.-origin"), and skips
+nationality/geography words (China, Western, Latin America). The 4 survivors are real
+analyst-review items in the fresh Q3 scenario prose: an Eliquis "$14 billion revenue
+decline" and a "$1 trillion" science-funding figure in no cited source, a speculative
+"10,000 logical qubits" H3 magnitude, and a "£162 million" figure cited to [1] but absent
+from that article's stored summary. Stored on the period sidecar under ``lint``.
+
 ### Tenant-scoped render caches
 `_render_cache_dir` in **`topic_report_service.py`** and **`wiley_delivery_service.py`** was
 `$TMPDIR/…` shared by every tenant on the box and keyed only by period_label — two tenants

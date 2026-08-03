@@ -315,7 +315,28 @@ _ORG_STOPWORDS = {
     "september", "october", "november", "december",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
     "q1", "q2", "q3", "q4", "h1", "h2", "h3",
+    # Technology acronyms the prose uses adjectivally — never org names.
+    "ai", "llm", "llms", "genai", "ml",
 }
+
+# Countries / nationalities / regions. A sentence naming "China" or
+# "Western institutions" is geography, not an organisation the source list
+# must contain. Measured on the first live lint run: 10 of 18 org findings
+# were words from this class.
+_GEO_WORDS = {
+    "china", "chinese", "india", "indian", "japan", "japanese", "korea",
+    "korean", "germany", "german", "france", "french", "russia", "russian",
+    "britain", "british", "america", "american", "americas", "europe",
+    "european", "asia", "asian", "africa", "african", "australia",
+    "australian", "canada", "canadian", "zealand", "netherlands", "dutch",
+    "switzerland", "swiss", "brazil", "brazilian", "mexico", "mexican",
+    "western", "eastern", "northern", "southern", "global", "international",
+    "pacific", "atlantic", "nordic", "latin", "u.s", "us", "uk", "eu", "new",
+}
+
+# "AI-driven", "U.S.-origin" — an uppercase token hyphenated onto a
+# lowercase tail is a compound adjective, not a name.
+_HYPHEN_ADJ_RE = re.compile(r"[A-Z.]+-[a-z]")
 
 # A run of capitalised words, joined only by "&" or "of". Nothing else
 # bridges: "Springer Nature, Hindawi and Taylor & Francis" must yield three
@@ -346,21 +367,36 @@ def _org_candidates(text: str) -> dict:
             continue
         for m in _ORG_RE.finditer(sentence):
             name = m.group(0).strip(" .")
+            # "NIH's" / "IQM's" — the possessive broke the substring match
+            # against sources that name the org without it.
+            name = re.sub(r"[’']s\b", "", name)
+            if _HYPHEN_ADJ_RE.search(name):
+                continue
             words = name.split()
             if not words:
                 continue
-            if all(w.lower() in _ORG_STOPWORDS for w in words):
+            skip = _ORG_STOPWORDS | _GEO_WORDS
+            if all(w.lower().strip(".") in skip for w in words):
                 continue
             # A single capitalised word that opens the sentence is far more
             # likely a sentence opener than a name.
             if len(words) == 1 and m.start() == 0:
                 continue
-            if len(words) == 1 and (len(name) < 4 or name.lower() in _ORG_STOPWORDS):
+            if len(words) == 1 and (len(name) < 4
+                                    or name.lower().strip(".") in skip):
                 continue
             if words[0].lower() in _ORG_STOPWORDS and len(words) > 1:
                 words = words[1:]
-                name = " ".join(words)
-            if not words or all(w.lower() in _ORG_STOPWORDS for w in words):
+            # Strip trailing acronym/stopword too: "Transparent AI
+            # contribution statements" yields the candidate "Transparent AI",
+            # which is an adjective + the AI acronym, not an organisation.
+            while words and words[-1].lower().strip(".") in skip:
+                words = words[:-1]
+            name = " ".join(words)
+            if not words or all(w.lower().strip(".") in skip for w in words):
+                continue
+            if len(words) == 1 and (m.start() == 0 or len(name) < 4
+                                    or name.lower().strip(".") in skip):
                 continue
             out.setdefault(name.lower(), name)
     return out

@@ -1494,7 +1494,7 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
     try:
         from sqlalchemy import text as sa_text
         sql = sa_text("""
-            SELECT a.uri, a.title, a.news_source, a.publication_date
+            SELECT a.uri, a.title, a.news_source, a.publication_date, a.summary
             FROM future_horizon_articles fha
             JOIN articles a ON a.uri = fha.article_uri
             WHERE fha.horizon_id = :run_id
@@ -1509,6 +1509,11 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
                     "uri":    d.get("uri") or "",
                     "source": (d.get("news_source") or "").strip(),
                     "date":   (d.get("publication_date") or "")[:10],
+                    # Not rendered — the release lint grounds figures and
+                    # org names against title+summary, and the model saw
+                    # the summaries, so a title-only haystack flags
+                    # legitimately sourced figures as invented.
+                    "summary": d.get("summary") or "",
                 })
     except Exception as e:
         logger.warning("Topic report: fha lookup failed for %s: %s", run_id, e)
@@ -1523,7 +1528,7 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
         sample_size = calculate_optimal_sample_size("gpt-5.4", sample_size_mode="auto")
         from sqlalchemy import text as sa_text
         sql = sa_text(f"""
-            SELECT uri, title, news_source, publication_date
+            SELECT uri, title, news_source, publication_date, summary
             FROM articles
             WHERE topic = :topic
               AND analyzed = TRUE
@@ -1545,6 +1550,7 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
                     "uri":    d.get("uri") or "",
                     "source": (d.get("news_source") or "").strip(),
                     "date":   (d.get("publication_date") or "")[:10],
+                    "summary": d.get("summary") or "",
                 })
         if out:
             logger.info("Topic report: rebuilt %d-article corpus for %s from "
