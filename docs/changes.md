@@ -67,15 +67,69 @@ It reads `get_keyword_group_with_settings()`, not `get_keyword_group_by_id()` �
 selects a fixed narrow column list that does not include `min_relevance_threshold`, and there are
 two definitions of it in the facade (`:3501` and `:12973`), the later one winning.
 
-### Not deployed yet
-The user was mid-processing and asked for no restarts, so all four code changes sit in canonical
-only. They are inert until wileytest and wiley get the file copies and a restart. Nothing was
-copied to a tenant tree, deliberately: a crash-restart mid-run would otherwise pick up new
-behaviour unannounced.
+### Deployed
+All four files copied to wileytest and wiley, all three services restarted, clean startup on
+each (`/api/trend-convergence/models` returns 200 on 10002, 10006 and 10004). The corpus the
+deployed code now selects for ASML Watch:
 
-Pending, in order: apply the ASML `UPDATE`; copy `auspex_service.py`,
-`database_query_facade.py`, `vector_store_pgvector.py` and `keyword_monitor.py` to wileytest and
-wiley; restart. Then re-run the ASML report and confirm the coverage line reads near 100%.
+| | articles |
+|---|---|
+| collected | 888 |
+| Auspex SQL corpus | 136 |
+| Auspex vector corpus | 135 |
+| of the SQL corpus, with sentiment | **99.3%** |
+
+**`database_query_facade.py` was patched surgically on wileytest, not copied.** That tenant
+keeps `'social_meta'` in the saved-field list at `:4874` where canonical does not; a wholesale
+copy would drop it and lose author and engagement data for social posts for good. The two hunks
+were applied in place with an assertion that the local line survives, and the post-patch diff
+against canonical is that one pre-existing difference and nothing else. wiley's copy had no
+drift, so it was copied whole.
+
+**Still not applied: the ASML threshold.** `UPDATE keyword_groups SET
+min_relevance_threshold = 0.4 WHERE id = 27` on wileytest is with the user.
+
+### INCIDENT: a restart killed a running topic report, and it kept reporting "running"
+While verifying the 72h fix earlier the same day, wileytest was restarted at **10:23:58**. A
+topic report (`45d7f2ff`, `topic_report:Q3_2026__2cec74a7`, six topics) had started at
+**10:16:23**. The restart ended it 7.5 minutes in, after three of six topics.
+
+**It went unnoticed for 100 minutes because the job kept reporting `running` at 35%.**
+`BackgroundTaskManager` persists every progress update to the `background_tasks` table
+(`background_task_manager.py:67`), but the `asyncio.Task` itself lives only in an in-memory
+`_running_tasks` dict (`:55-56`). A restart drops the task and leaves the row untouched. There
+is no `updated_at` column and no reaper, so a killed job is indistinguishable from a slow one
+by looking at the row — which is exactly the mistake made here, twice, including an ETA of
+14:00 extrapolated from a job that had been dead for over an hour.
+
+**How it was actually diagnosed**, in the order that worked:
+- `ps -o lstart` on the service: current process started 10:49:58, so anything with
+  `started_at` before that cannot be executing.
+- `llm_usage_log`: the job's six Sonnet calls run 10:17:38 → 10:23:12 in pairs (~75-95s
+  scenarios, ~52-56s executive summary) and then stop dead. The later Sonnet burst at
+  10:57–10:59 was `wiley_candidate_scheduler`, not this job.
+- `future_horizons_runs`: exactly three rows from today — the three completed topics. Quantum
+  Computing, the one the status line claimed to be working on, has none.
+- `py-spy dump` on the service: every thread idle, nothing inside an LLM call.
+
+**23 phantom `running` rows** were sitting in wileytest's `background_tasks`, the oldest from
+June, every one of them predating the current process boot. `45d7f2ff` was marked `failed` with
+the reason recorded; the other 22 were left alone.
+
+**Lessons.**
+
+**NEVER restart a monolith tenant without checking `background_tasks` for a job that started
+after the current process boot.** `ps -o lstart -p $(systemctl show -p MainPID --value
+{tenant}.aunoo.ai.service)` gives the boot time; anything younger is live work that a restart
+destroys with no resume.
+
+**A `running` row is not evidence that anything is running.** Cross-check against process start
+time and `llm_usage_log`; both are cheap and both are conclusive.
+
+**Do not extrapolate an ETA from a progress percentage.** In `topic_report_service.py:721-732`
+the 5→65% band is split evenly across topics, so the bar measures topics completed, not time,
+and it cannot distinguish "between steps" from "dead". Time the underlying work instead — here,
+2.3 minutes per topic from the LLM ledger, against the 28 minutes/topic the percentage implied.
 
 ## 2026-08-03 — the foresight model dropdown was never fixed, only the endpoint nobody calls — `cbf5091a`
 
