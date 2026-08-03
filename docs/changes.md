@@ -63,6 +63,10 @@ six react templates to wileytest and wiley. Before copying, every template diff 
 canonical was checked and contained nothing but asset-hash lines, so no tenant-local template
 content was overwritten.
 
+The type-checker is canonical-only on purpose. Frontend builds happen in bugfixing and the
+result is rsynced, so wiley and wileytest need no `typescript` install; their `ui/` trees are
+stale copies that nobody builds from.
+
 The second pass added a backend change, so `app/routes/trend_convergence_routes.py` was copied
 to both tenants as well. The diff beforehand was exactly the one hunk written today, nothing
 tenant-local, and it compiles under each tenant's own venv. All three services were then
@@ -118,9 +122,54 @@ curl :10004 | :10002 | :10006 /api/trend-convergence/models
 ```
 
 Every asset referenced by the six react templates returns 200 on wileytest and wiley, with one
-exception noted below. Services restarted: bugfixing, wileytest, wiley — all `active`. There is
-no type-checker in this project (`ui` has only `vite build`, which strips types without
-checking), so the TypeScript changes are verified by the build and by reading, not by `tsc`.
+exception noted below. Services restarted: bugfixing, wileytest, wiley — all `active`. The
+TypeScript changes were verified by the build and by reading at the time, because the project
+had no type-checker; one was added later the same day (below) and they check clean under it.
+
+### The UI now has a type-checker — `npm run typecheck`
+There was none. `ui/package.json` had `vite` and no `typescript`, no `tsconfig.json`, no
+`@types/react`. `vite build` runs esbuild, which strips types without checking them, so a
+misspelled property or a wrong argument built cleanly and failed in the browser.
+
+Added `typescript@5.6.3`, `@types/react@18.3.12`, `@types/react-dom@18.3.1` as devDependencies,
+plus `ui/tsconfig.json`. Its `paths` mirror the `resolve.alias` block in `vite.config.mts`,
+including the five versioned imports the Figma export left behind (`sonner@2.0.3`,
+`next-themes@0.4.6`, `input-otp@1.4.2`, `react-day-picker@8.10.1`,
+`react-resizable-panels@2.1.7`). Keep the two in step — a path here that vite does not have
+type-checks and then fails to build.
+
+**247 pre-existing errors, so the check runs against a baseline.** A first run on this tree
+reports 247 errors, and 173 of them are in two files: `App.tsx` (98) and `PAMDashboard.tsx`
+(74), nearly all union-narrowing complaints like "Property 'scenarios' does not exist on type
+'TrendConvergenceData | MarketSignalsData'" — code that works at runtime because the union
+member is right in context. Failing on all 247 would mean nobody runs the check. So
+`ui/typecheck.mjs` records the known set in `ui/tsconfig.baseline.txt` and fails only on errors
+outside it. Baseline entries drop line and column numbers, so editing above an existing error
+does not manufacture a failure, and the absolute checkout path is stripped from messages so the
+file is portable between tenant trees.
+
+`strict` is off, as are `noImplicitAny` and `strictNullChecks`. This catches the class of
+mistake that breaks a page — a property that does not exist, a wrong argument, a misspelled
+prop — without demanding a null-safety pass over 3,717 modules. Tighten one flag at a time.
+
+`ui/deploy-react-ui.sh` runs the check before `npm run build` and stops the deploy on a new
+error. `SKIP_TYPECHECK=1` overrides it.
+
+Two commands: `npm run typecheck`, and `npm run typecheck:update` to re-record the baseline
+(also the way to bank a fix, since it prints how many baseline errors are now gone).
+
+**Verified two ways.** Clean run: `Type check clean: 247 errors, all 247 known`. Then twice
+deliberately broken — `m.name` → `m.nmae` in `newsFeedApi.ts`, and a `const x: number =
+"string"` appended to `api.ts` — and each time the check reported exactly one new error with
+its file and line and exited 1. Both edits were reverted; `git status ui/src` is clean. A full
+`./ui/deploy-react-ui.sh` then ran with the gate in place and produced byte-identical assets
+(`main-CsIM0Gi4.js` unchanged), so no tenant needed re-syncing.
+
+Today's model-picker changes type-check clean. The errors in files touched today
+(`NewsFeedHeader.tsx`, `NewsletterTuneModal.tsx`, `api.ts`, `newsFeedApi.ts`,
+`useNarrativeExplorer.ts`) are all pre-existing and all in the baseline. One is worth a look
+later: `NewsFeedHeader.tsx:46` defaults a date range to `"72h"`, which is not a member of
+`DateRange`. Not touched.
 
 ### Not fixed — a stale modulepreload in `pam_react.html`
 `templates/pam_react.html:34` preloads `usePAM-zQ3fJmWy.js`, which does not exist; the built
@@ -143,6 +192,10 @@ curated one, and its docstring now says so.
 **Grep for the URL, not for the helper function.** Counting importers of `getAvailableModels`
 found 4 pickers. Grepping for `/api/available_models` found 12. Components here fetch inline as
 often as they go through a service module.
+
+**A `.tsx` edit is not verified by a green build.** `vite build` strips types without checking
+them. Run `npm run typecheck` in `ui/` before deploying — the deploy script now does it for
+you.
 
 ## 2026-08-02 — every monolith tenant moved to the local 768-d encoder (and a four-week wbm outage found on the way)
 

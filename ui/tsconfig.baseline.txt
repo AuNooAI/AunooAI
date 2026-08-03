@@ -1,0 +1,247 @@
+src/App.tsx: error TS2322: Type 'import("src/services/api").OrganizationalProfile[]' is not assignable to type 'OrganizationalProfile[]'.
+src/App.tsx: error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/App.tsx: error TS2339: Property '_cache_info' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'analysis_id' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'article_count' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'article_count' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'article_count' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'article_count' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'article_count' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'article_uris' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'articles_analyzed' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'articles_analyzed' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'categories' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'categories' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'categories' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'categories' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'categories' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'categories' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'convergences' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'convergences' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'convergences' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'convergences' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'created_at' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'executive_summary' does not exist on type 'TrendConvergenceData'.
+src/App.tsx: error TS2339: Property 'executive_summary' does not exist on type 'TrendConvergenceData'.
+src/App.tsx: error TS2339: Property 'future_signals' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'generated_at' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'impact_timeline' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'impact_timeline' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'impact_timeline' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'impact_timeline' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'impact_timeline' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'key_insights' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'loadResult' does not exist on type 'UseExtremeOutliersReturn'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'model_used' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'next_steps' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'next_steps' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'opportunity_cards' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'quotes' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'risk_cards' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'scenarios' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'strategic_recommendations' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'timeframe_days' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'topic' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'topic' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'topic' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'topic' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/App.tsx: error TS2339: Property 'topic' does not exist on type 'TrendConvergenceData | MarketSignalsData'.
+src/PAMApp.tsx: error TS2322: Type '"pam"' is not assignable to type '"health" | "anticipate" | "investigate" | "gather"'.
+src/components/ExtremeOutliers.tsx: error TS2345: Argument of type '{ scenarios: any; metadata: any; articles: undefined[]; }' is not assignable to parameter of type 'EOSResult'.
+src/components/ForecastAssessment.tsx: error TS2365: Operator '+' cannot be applied to types 'unknown' and 'number'.
+src/components/ForecastAssessment.tsx: error TS2367: This comparison appears to be unintentional because the types 'VerdictLabel' and '"Done"' have no overlap.
+src/components/ForecastAssessment.tsx: error TS2367: This comparison appears to be unintentional because the types 'VerdictLabel' and '"Done"' have no overlap.
+src/components/NewsletterTuneModal.tsx: error TS2345: Argument of type '{ daysBack: any; deepDiveTopic: any; newsletterTitle: any; newsletterIntro: any; }' is not assignable to parameter of type 'SetStateAction<{ daysBack: number; deepDiveTopic: string; newsletterTitle: string; newsletterIntro: string; maxArticles: number; }>'.
+src/components/NewsletterTuneModal.tsx: error TS2345: Argument of type '{ daysBack: number; deepDiveTopic: string; newsletterTitle: string; newsletterIntro: string; }' is not assignable to parameter of type 'SetStateAction<{ daysBack: number; deepDiveTopic: string; newsletterTitle: string; newsletterIntro: string; maxArticles: number; }>'.
+src/components/OrganizationalProfileModal.tsx: error TS2322: Type 'string' is not assignable to type 'number'.
+src/components/OrganizationalProfileModal.tsx: error TS2339: Property 'tags' does not exist on type 'OrganizationalProfile'.
+src/components/OrganizationalProfileModal.tsx: error TS2339: Property 'tags' does not exist on type 'OrganizationalProfile'.
+src/components/OrganizationalProfileModal.tsx: error TS2339: Property 'tags' does not exist on type 'OrganizationalProfile'.
+src/components/OrganizationalProfileModal.tsx: error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/components/OrganizationalProfileModal.tsx: error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+src/components/OrganizationalProfileModal.tsx: error TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.
+src/components/auspex/AuspexChat.tsx: error TS2345: Argument of type 'string' is not assignable to parameter of type 'Topic'.
+src/components/emerging-topics/CategoryRadarChart.tsx: error TS2322: Type '{ className: string; style: { color: string; }; }' is not assignable to type 'IntrinsicAttributes & { className?: string; }'.
+src/components/emerging-topics/TopicsTimelineChart.tsx: error TS2322: Type '{ className: string; style: { color: string; }; }' is not assignable to type 'IntrinsicAttributes & { className?: string; }'.
+src/components/gather/TrainingStatusTab.tsx: error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/gather/TrainingStatusTab.tsx: error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/newsfeed/AgentStatsTable.tsx: error TS2322: Type '"geopolitical" | "emerging_topics" | "newsfeed" | "autoprocessing"' is not assignable to type '"emerging_topics" | "newsfeed" | "autoprocessing" | "agent"'.
+src/components/newsfeed/ArticleDetailPanel.tsx: error TS2322: Type '{ bias: BiasRating; factuality: FactualityRating; credibility: string; showLabels: true; size: "md"; }' is not assignable to type 'IntrinsicAttributes & ArticleBiasIndicatorProps'.
+src/components/newsfeed/BrandWatcherTab.tsx: error TS2300: Duplicate identifier 'pollOfficialSourcesNow'.
+src/components/newsfeed/BrandWatcherTab.tsx: error TS2300: Duplicate identifier 'pollOfficialSourcesNow'.
+src/components/newsfeed/BrandWatcherTab.tsx: error TS2300: Duplicate identifier 'updateBrandConfig'.
+src/components/newsfeed/BrandWatcherTab.tsx: error TS2300: Duplicate identifier 'updateBrandConfig'.
+src/components/newsfeed/BrandWatcherTab.tsx: error TS2345: Argument of type 'string' is not assignable to parameter of type '"new" | "reviewed" | "escalated" | "dismissed" | "false_positive"'.
+src/components/newsfeed/BrandWatcherTab.tsx: error TS2345: Argument of type 'string' is not assignable to parameter of type '"new" | "reviewed" | "escalated" | "dismissed" | "false_positive"'.
+src/components/newsfeed/EmergingTopicsTab.tsx: error TS2322: Type '{ id: number; name: string; description: string; topic_id: any; article_count: number; composite_score: number; confidence_score: number; velocity: any; detection_type: any; keywords: string[]; ... 12 more ...; last_detection_date: string; }[]' is not assignable to type 'EmergingTopic[]'.
+src/components/newsfeed/EmergingTopicsTab.tsx: error TS2552: Cannot find name 'EmergingTopicV2'. Did you mean 'EmergingTopic'?
+src/components/newsfeed/EmergingTopicsTab.tsx: error TS2552: Cannot find name 'fetchTopicArticles'. Did you mean 'fetchTopicDetails'?
+src/components/newsfeed/GeopoliticalScheduleModal.tsx: error TS2694: Namespace '"src/components/newsfeed/GeopoliticalScheduleModal"' has no exported member 'default'.
+src/components/newsfeed/HighlightsSection.tsx: error TS2339: Property 'name' does not exist on type 'string'.
+src/components/newsfeed/HighlightsSection.tsx: error TS2339: Property 'news_source' does not exist on type 'IncidentArticle'.
+src/components/newsfeed/HighlightsSection.tsx: error TS2339: Property 'split' does not exist on type 'never'.
+src/components/newsfeed/HighlightsSection.tsx: error TS2440: Import declaration conflicts with local declaration of 'ArticleLink'.
+src/components/newsfeed/HighlightsSection.tsx: error TS2440: Import declaration conflicts with local declaration of 'TimelineRuler'.
+src/components/newsfeed/NarrativeThemeCard.tsx: error TS2339: Property 'publication_date' does not exist on type 'RelatedArticle'.
+src/components/newsfeed/NewsFeedHeader.tsx: error TS2322: Type '"72h"' is not assignable to type 'DateRange'.
+src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'name' does not exist on type 'string'.
+src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'news_source' does not exist on type 'IncidentArticle'.
+src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'news_source' does not exist on type 'IncidentArticle'.
+src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'summary' does not exist on type 'IncidentArticle'.
+src/components/newsfeed/SavedIncidentsSection.tsx: error TS2440: Import declaration conflicts with local declaration of 'ArticleLink'.
+src/components/newsfeed/SavedIncidentsSection.tsx: error TS2440: Import declaration conflicts with local declaration of 'TimelineRuler'.
+src/components/newsfeed/ThreatAnalysisTab.tsx: error TS2322: Type '(campaignId: number, campaignName: string) => void' is not assignable to type '(campaignId: number) => void'.
+src/components/newsfeed/ThreatCategoriesTab.tsx: error TS2345: Argument of type 'string' is not assignable to parameter of type 'SetStateAction<ThreatCategory>'.
+src/components/newsfeed/ThreatImportModal.tsx: error TS2339: Property 'status' does not exist on type '{ running: boolean; progress: number; total: number; processed: number; created: number; updated: number; skipped: number; errors: number; last_error: string; completed: boolean; message: string; }'.
+src/components/newsfeed/ThreatImportModal.tsx: error TS2339: Property 'status' does not exist on type '{ running: boolean; progress: number; total: number; processed: number; created: number; updated: number; skipped: number; errors: number; last_error: string; completed: boolean; message: string; }'.
+src/components/newsfeed/ThreatImportModal.tsx: error TS2339: Property 'status' does not exist on type '{ running: boolean; progress: number; total: number; processed: number; created: number; updated: number; skipped: number; errors: number; last_error: string; completed: boolean; message: string; }'.
+src/components/newsfeed/ThreatImportModal.tsx: error TS2345: Argument of type '{ running: boolean; progress: number; total: number; processed: number; created: number; updated: number; skipped: number; errors: number; last_error: string; completed: boolean; message: string; }' is not assignable to parameter of type 'SetStateAction<ProcessingStatus>'.
+src/components/newsfeed/ThreatOverviewTab.tsx: error TS2739: Type '{ id: number; threat_name: string; threat_type: ThreatCategory; threat_subtype: null; severity_level: SeverityLevel; severity_score: number; trend: Trend; ... 7 more ...; article_count: number; }' is missing the following properties from type 'ThreatMapData': first_seen_date, last_seen_date
+src/components/newsfeed/ThreatScheduleModal.tsx: error TS2345: Argument of type '{ name: string; schedule_type: "interval" | "daily"; schedule_interval: number; schedule_unit: "minutes" | "hours" | "days" | "weeks"; schedule_time: string; batch_size: number; schedule_enabled: boolean; }' is not assignable to parameter of type 'CreateScheduleRequest'.
+src/components/newsfeed/ThreatScheduleModal.tsx: error TS2345: Argument of type '{ name: string; schedule_type: "interval" | "daily"; schedule_interval: number; schedule_unit: "minutes" | "hours" | "days" | "weeks"; schedule_time: string; batch_size: number; schedule_enabled: boolean; }' is not assignable to parameter of type 'UpdateScheduleRequest'.
+src/components/newsfeed/ThreatTimelineTab.tsx: error TS2322: Type '(campaignId: number, campaignName: string) => void' is not assignable to type '(campaignId: number) => void'.
+src/components/newsfeed/map/HotspotMap.tsx: error TS2694: Namespace '"node_modules/@types/leaflet/index"' has no exported member 'MarkerCluster'.
+src/components/newsfeed/map/ThreatMap.tsx: error TS2694: Namespace '"node_modules/@types/leaflet/index"' has no exported member 'MarkerCluster'.
+src/components/onboarding/Step1ApiKeys.tsx: error TS2339: Property 'help' does not exist on type '{ name: string; link: string; help: string; } | { name: string; link: string; help: string; } | { name: string; link: string; help: string; } | { name: string; link: string; } | { name: string; link: string; } | { ...; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'activity_intensity' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'attention' does not exist on type 'PAMData'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'attention' does not exist on type 'PAMData'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'attribution_quality' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'attribution_quality' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'description' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'description' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'emerging_alliances' does not exist on type '{ score: number; influentialEntities: string[]; collaborationTrends: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'keyAcquirers' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'keyDeals' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'keyFindings' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'keyInvestments' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'key_acquirers' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'key_deals' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'key_findings' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'key_findings' does not exist on type '{ score: number; keyPlayers: string[]; developments: string[]; concentrationLevel: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'key_investments' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'key_partnerships' does not exist on type '{ score: number; influentialEntities: string[]; collaborationTrends: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ concentrationLevel: string; topPlayersShare: number; trend: string; keyMetrics: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; activeRegulations: string[]; keyDevelopments: string[]; direction: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; influentialEntities: string[]; collaborationTrends: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; keyDeals: string[]; trends: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; keyPlayers: string[]; developments: string[]; concentrationLevel: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; trafficTrends: string; keyChannels: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ score: number; trainingDataExposure: string; metadataReadiness: number; provenanceStrength: number; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'level' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type 'MoneyAnalysis'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensingTrends' does not exist on type '{ concentrationLevel: string; topPlayersShare: number; trend: string; keyMetrics: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensing_trends' does not exist on type '{ concentrationLevel: string; topPlayersShare: number; trend: string; keyMetrics: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'licensing_trends' does not exist on type '{ score: number; keyDeals: string[]; trends: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'money' does not exist on type 'PAMData'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'money' does not exist on type 'PAMData'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'patent_activity' does not exist on type '{ score: number; keyDeals: string[]; trends: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'power' does not exist on type 'PAMData'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'power' does not exist on type 'PAMData'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'trainingDataExposureDescription' does not exist on type '{ score: number; trainingDataExposure: string; metadataReadiness: number; provenanceStrength: number; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'trainingDataExposureDescription' does not exist on type '{ score: number; trainingDataExposure: string; metadataReadiness: number; provenanceStrength: number; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'training_data_exposure_description' does not exist on type '{ score: number; trainingDataExposure: string; metadataReadiness: number; provenanceStrength: number; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'training_data_exposure_description' does not exist on type '{ score: number; trainingDataExposure: string; metadataReadiness: number; provenanceStrength: number; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'trend' does not exist on type '{ score: number; activeRegulations: string[]; keyDevelopments: string[]; direction: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'trend' does not exist on type '{ score: number; keyPlayers: string[]; developments: string[]; concentrationLevel: string; }'.
+src/components/pam/PAMDashboard.tsx: error TS2339: Property 'trend' does not exist on type '{ score: number; trafficTrends: string; keyChannels: string[]; }'.
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'active_regulations' does not exist on type '{ score: number; activeRegulations: string[]; keyDevelopments: string[]; direction: string; }'. Did you mean 'activeRegulations'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'attributionQuality' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'. Did you mean 'attributionRate'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'attributionQuality' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'. Did you mean 'attributionRate'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'compute_cost_trend' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'. Did you mean 'computeCostTrend'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'concentration_level' does not exist on type '{ concentrationLevel: string; topPlayersShare: number; trend: string; keyMetrics: string[]; }'. Did you mean 'concentrationLevel'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'consolidation_trend' does not exist on type '{ activityLevel: string; recentDeals: { acquirer: string; target: string; value: string; type: string; }[]; consolidationTrend: string; }'. Did you mean 'consolidationTrend'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'government_funding' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'governmentFunding'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'government_funding' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'governmentFunding'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'key_channels' does not exist on type '{ score: number; trafficTrends: string; keyChannels: string[]; }'. Did you mean 'keyChannels'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'key_developments' does not exist on type '{ score: number; activeRegulations: string[]; keyDevelopments: string[]; direction: string; }'. Did you mean 'keyDevelopments'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'publishingCostTrend' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'. Did you mean 'publishingCosts'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'publishingCostTrend' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'. Did you mean 'publishingCosts'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'publishing_cost_trend' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'. Did you mean 'publishingCosts'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'publishing_cost_trend' does not exist on type '{ computeCostTrend: string; publishingCosts: string; keyFactors: string[]; }'. Did you mean 'publishingCosts'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'total_estimated_usd' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'totalEstimatedUsd'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'training_data_exposure' does not exist on type '{ score: number; trainingDataExposure: string; metadataReadiness: number; provenanceStrength: number; }'. Did you mean 'trainingDataExposure'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'vc_activity' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'vcActivity'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'vc_activity' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'vcActivity'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'vc_activity' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'vcActivity'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'vc_activity' does not exist on type '{ totalEstimatedUsd: string; vcActivity: string; governmentFunding: string; keyDeals: { deal: string; value: string; parties: string[]; }[]; }'. Did you mean 'vcActivity'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'zero_click_risk' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'. Did you mean 'zeroClickRisk'?
+src/components/pam/PAMDashboard.tsx: error TS2551: Property 'zero_click_risk' does not exist on type '{ score: number; attributionRate: number; zeroClickRisk: string; }'. Did you mean 'zeroClickRisk'?
+src/hooks/useExtremeOutliers.ts: error TS2353: Object literal may only specify known properties, and 'loadResult' does not exist in type 'UseExtremeOutliersReturn'.
+src/hooks/useExtremeOutliers.ts: error TS2739: Type '{ signals_detected: number; pathways_explored: number; scenarios_generated: number; generated_at: string; }' is missing the following properties from type '{ topic: string; signals_detected: number; pathways_explored: number; scenarios_generated: number; generated_at: string; config: EOSConfig; }': topic, config
+src/hooks/useGather.ts: error TS2322: Type '{ id: number; name: string; topic: string; keyword_count: number; total_articles: number; avg_relevance: number; high_relevance_pct: number; recent_articles_24h: number; last_checked: string; last_error: string; status: "error" | ... 2 more ... | "never_run"; }[]' is not assignable to type 'KeywordGroupSummary[]'.
+src/hooks/useNarrativeExplorer.ts: error TS2339: Property 'analysis_timestamp' does not exist on type 'IncidentTrackingResponse'.
+src/hooks/useNarrativeExplorer.ts: error TS2339: Property 'analysis_timestamp' does not exist on type 'IncidentTrackingResponse'.
+src/imports/NavBar.tsx: error TS2322: Type '{ data: any; loading: boolean; }' is not assignable to type 'IntrinsicAttributes'.
+src/main.tsx: error TS5097: An import path can only end with a '.tsx' extension when 'allowImportingTsExtensions' is enabled.
+src/pages/NewsFeedPage.tsx: error TS2322: Type 'import("src/hooks/useNewsFeed").OrganizationalProfile[]' is not assignable to type 'import("src/services/api").OrganizationalProfile[]'.
+src/pages/NewsFeedPage.tsx: error TS2339: Property 'topic' does not exist on type 'ArticleTheme'.
+src/pages/NewsFeedPage.tsx: error TS2345: Argument of type 'NewsArticle | { categories: any; brand_name: any; matched_keywords: any; uri: string; title: string; summary: string; url?: string; publication_date?: string; source: ArticleSource; ... 6 more ...; user_preference?: "more" | "less"; }' is not assignable to parameter of type 'SetStateAction<NewsArticle>'.
+src/pages/NewsFeedPage.tsx: error TS2345: Argument of type 'OrganizationalProfile[]' is not assignable to parameter of type 'SetStateAction<OrganizationalProfile[]>'.
+src/pages/NewsFeedPage.tsx: error TS2353: Object literal may only specify known properties, and 'tagArticles' does not exist in type '{ topic?: string; daysBack?: number; }'.
+src/services/api.ts: error TS2304: Cannot find name 'AnalysisConfig'.
+src/services/api.ts: error TS2304: Cannot find name 'AnalysisConfig'.
+src/services/exportService.ts: error TS2365: Operator '>' cannot be applied to types 'unknown' and 'number'.
+src/services/exportService.ts: error TS2365: Operator '>' cannot be applied to types 'unknown' and 'number'.
+src/services/newsFeedApi.ts: error TS2339: Property 'total_articles' does not exist on type '{ items: BackendArticle[]; total_items: number; total_articles: number; page: number; per_page: number; total_pages: number; date: string; } | { items: any[]; total_items: number; page: number; per_page: number; total_pages: number; }'.
+src/services/threatIntelligenceApi.ts: error TS2304: Cannot find name 'ThreatType'.

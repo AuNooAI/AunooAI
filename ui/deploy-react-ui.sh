@@ -20,6 +20,21 @@ echo "📁 Project Root: $PROJECT_ROOT"
 echo "📁 Static Directory: $STATIC_DIR"
 echo ""
 
+# Type-check before building. `vite build` uses esbuild, which strips types
+# without checking them, so a wrong property name ships silently. This fails
+# only on errors that are not in ui/tsconfig.baseline.txt. Set
+# SKIP_TYPECHECK=1 to deploy anyway.
+if [ "$SKIP_TYPECHECK" = "1" ]; then
+    echo "⏭️  Type check skipped (SKIP_TYPECHECK=1)"
+else
+    echo "🔎 Type checking..."
+    if ! npm run --silent typecheck; then
+        echo "❌ Type check failed — new errors above. Fix them, or re-run with SKIP_TYPECHECK=1."
+        exit 1
+    fi
+fi
+echo ""
+
 # Build the React app
 echo "🔨 Building React app..."
 npm run build

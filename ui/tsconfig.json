@@ -1,0 +1,62 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["node"],
+
+    /* Type-check only. Vite/esbuild does the emit. */
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowJs": true,
+    "checkJs": false,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* This tree was exported from Figma and has never been type-checked, so
+       `strict` would report thousands of pre-existing errors and nobody would
+       run it. These settings catch the class of mistake that actually breaks a
+       page — a property that does not exist on a type, a wrong argument, a
+       misspelled prop — without demanding a null-safety pass over 3,700
+       modules. Tighten later, one flag at a time. */
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "skipLibCheck": true,
+
+    /* Mirrors resolve.alias in vite.config.mts. Keep the two in step: an alias
+       here that vite does not have will type-check and then fail to build. */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "vaul@1.1.2": ["./node_modules/vaul"],
+      "sonner@2.0.3": ["./node_modules/sonner"],
+      "recharts@2.15.2": ["./node_modules/recharts"],
+      "react-resizable-panels@2.1.7": ["./node_modules/react-resizable-panels"],
+      "react-hook-form@7.55.0": ["./node_modules/react-hook-form"],
+      "react-day-picker@8.10.1": ["./node_modules/react-day-picker"],
+      "next-themes@0.4.6": ["./node_modules/next-themes"],
+      "lucide-react@0.487.0": ["./node_modules/lucide-react"],
+      "input-otp@1.4.2": ["./node_modules/input-otp"],
+      "embla-carousel-react@8.6.0": ["./node_modules/embla-carousel-react"],
+      "cmdk@1.1.1": ["./node_modules/cmdk"],
+      "class-variance-authority@0.7.1": ["./node_modules/class-variance-authority"]
+    }
+  },
+  "include": ["src"],
+  "exclude": [
+    "node_modules",
+    "build",
+    "src/**/*.backup.*",
+    "src/App.old.tsx",
+    "src/App.simple.tsx",
+    "src/App.figma.tsx",
+    "src/App.radix.tsx",
+    "src/App.tailwind.tsx",
+    "src/App.inline-backup.tsx"
+  ]
+}
