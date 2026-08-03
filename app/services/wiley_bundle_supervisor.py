@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -920,6 +921,79 @@ def _prior_period_label(period_label: str) -> str:
     return "prior bundle"
 
 
+_GOLDEN_EXEMPLAR_PATH = os.path.join(
+    "data", "auspex", "golden", "wiley_exec_summary_q2_2026.txt")
+
+
+async def _golden_gate(letter: str) -> dict:
+    """Judge the letter against the Q2 2026 exemplar — the letter the
+    customer called good.
+
+    The Q3 2026 letters regressed silently when the writer model changed
+    (gpt-4.1 → gpt-5.5) with no before/after: the new writer opened with
+    meta-commentary ("The most decision-relevant read is…") where the
+    exemplar opens with an actor and an action. This gate makes that
+    comparison explicit on every generation.
+
+    Returns ``{passes, score, critique}``. The critique describes QUALITIES
+    to fix and quotes only CANDIDATE sentences — never exemplar facts, so a
+    retry cannot import last quarter's events into this quarter's letter.
+    Fails open: any error returns passes=True with an empty critique.
+    """
+    out = {"passes": True, "score": None, "critique": ""}
+    if not letter or not letter.strip():
+        return out
+    try:
+        with open(_GOLDEN_EXEMPLAR_PATH, encoding="utf-8") as f:
+            exemplar = f.read().strip()
+    except Exception as e:
+        logger.warning("golden gate: exemplar unavailable (%s) — skipping", e)
+        return out
+    try:
+        from app.ai_models import AIModelFactory
+        sys_prompt = (
+            "You are judging a quarterly executive letter (CANDIDATE) against a "
+            "reference letter (EXEMPLAR) the customer has approved as the "
+            "standard. Judge PROSE QUALITY only — the facts differ by design "
+            "(different quarters). Score the candidate 0-10 on how well it "
+            "matches the exemplar's standard on:\n"
+            "1. Opening: first sentence names an actor and an action (never "
+            "meta-commentary about 'the read' or 'the analysis').\n"
+            "2. Named-event density: concrete actors, actions, magnitudes and "
+            "dates per paragraph, at comparable density to the exemplar.\n"
+            "3. Forecast-vs-evidence contrast: what was expected vs what the "
+            "named events show.\n"
+            "4. Consequences stated for the customer, concretely.\n"
+            "5. No abstraction padding, no list-like cataloguing without "
+            "narrative, no sentence whose subject is the analysis itself.\n"
+            "passes = score >= 7 AND the opening meets criterion 1.\n"
+            "The critique must describe what to fix and may quote sentences "
+            "FROM THE CANDIDATE ONLY. Never quote or reference the exemplar's "
+            "facts, names or figures — the writer must not see them.\n"
+            'Return STRICT JSON: {"score": <0-10>, "passes": <bool>, '
+            '"critique": "<what to fix, candidate quotes only>"}'
+        )
+        usr = f"EXEMPLAR:\n{exemplar}\n\nCANDIDATE:\n{letter}"
+        model = AIModelFactory.get_model("gpt-5.4")
+        raw = await model.agenerate_response(
+            [{"role": "system", "content": sys_prompt},
+             {"role": "user", "content": usr}],
+            temperature=0.1, max_tokens=1200,
+        )
+        s = (raw or "").strip()
+        if "{" in s and "}" in s:
+            s = s[s.find("{"): s.rfind("}") + 1]
+        parsed = json.loads(s)
+        out["score"] = parsed.get("score")
+        out["passes"] = bool(parsed.get("passes"))
+        out["critique"] = (parsed.get("critique") or "")[:2000]
+        logger.info("golden gate: score=%s passes=%s", out["score"], out["passes"])
+        return out
+    except Exception as e:
+        logger.warning("golden gate failed (fails open): %s", e)
+        return {"passes": True, "score": None, "critique": ""}
+
+
 # ── Reviewer payload — combines everything for the judge ─────────────
 
 def _reviewer_payload(period_label: str, items: list, briefings: dict,
@@ -1294,6 +1368,50 @@ async def run_pipeline(
                                "payload": {"unsourced_names": eg.get("unsupported") or []}}
                 except Exception as e:
                     logger.warning("exec-summary figure-check failed (non-fatal): %s", e)
+
+                # Golden-set gate — judge the finished letter against the Q2
+                # exemplar. On failure, ONE retry: re-call the exec agent with
+                # the judge's critique (qualities to fix, candidate quotes
+                # only — never exemplar facts), re-run the deterministic
+                # scrubs on the rewrite, and re-judge. The final result ships
+                # either way, with the verdict persisted for audit.
+                try:
+                    gate = await _golden_gate(es["letter"])
+                    yield {"stage": "golden_gate",
+                           "status": "passed" if gate["passes"] else "failed",
+                           "progress": 0.9198,
+                           "payload": {"score": gate.get("score")}}
+                    if not gate["passes"] and gate.get("critique"):
+                        retry_payload = dict(exec_payload)
+                        retry_payload["golden_gate_critique"] = gate["critique"]
+                        retry = await _call_agent("wiley_exec_summary_agent", retry_payload)
+                        new_letter = (retry or {}).get("letter") or ""
+                        if new_letter.strip():
+                            from app.services.wiley_humanizer import (
+                                strip_forecast_verdicts, ground_check_figures,
+                                ground_check_entities as _gce,
+                            )
+                            r2 = await strip_forecast_verdicts(new_letter)
+                            new_letter = r2["text"]
+                            fg2 = await ground_check_figures(new_letter, sources)
+                            new_letter = fg2["text"]
+                            eg2 = await _gce(new_letter, sources)
+                            new_letter = eg2["text"]
+                            gate2 = await _golden_gate(new_letter)
+                            # Keep the retry when it scores at least as well.
+                            if (gate2.get("score") or 0) >= (gate.get("score") or 0):
+                                es["letter"] = new_letter
+                                exec_summary = es
+                                gate = gate2
+                            yield {"stage": "golden_gate",
+                                   "status": "retry_" + ("passed" if gate["passes"] else "failed"),
+                                   "progress": 0.9199,
+                                   "payload": {"score": gate.get("score")}}
+                    bundle_payload["golden_gate"] = {
+                        "score": gate.get("score"), "passes": gate.get("passes"),
+                    }
+                except Exception as e:
+                    logger.warning("golden gate failed (non-fatal): %s", e)
         # Same deterministic verdict guard on the expert commentary.
         ec_text = bundle_payload.get("expert_commentary")
         if (isinstance(ec_text, str) and ec_text.strip()

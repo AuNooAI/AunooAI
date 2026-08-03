@@ -38,6 +38,13 @@ _CONFIG_LEAK_RES = [
                 r"briefing_lede|eos_per_topic|scenario event file)\b"),
 ]
 
+# Meta-commentary about the analysis instead of the analysis — "The most
+# decision-relevant read is…" opened a Q3 letter. Customer prose talks
+# about the world, not about its own reading of the world.
+_META_PROSE_RE = _re.compile(
+    r"\b(?:decision-relevant read|the key takeaway|at a high level|"
+    r"the most important thing to understand)\b", _re.IGNORECASE)
+
 # The invented-consensus shapes prompt v3 abolished.
 _CONSENSUS_RES = [
     _re.compile(r"\d{1,3}\s*%\s*CONSENSUS\b", _re.IGNORECASE),
@@ -77,6 +84,8 @@ def lint_artifact_text(text: str, *, kind: str,
                              "detail": m.group(0)[:80]})
     for m in _GROUPED_CITE_RE.finditer(text):
         findings.append({"check": "grouped_citation", "detail": m.group(0)})
+    for m in _META_PROSE_RE.finditer(text):
+        findings.append({"check": "meta_prose", "detail": m.group(0)})
     for m in _past_deadline_re().finditer(text):
         findings.append({"check": "past_deadline", "detail": m.group(0)})
 

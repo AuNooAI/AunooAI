@@ -2,6 +2,54 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (last) — golden-set gate: every letter judged against the Q2 exemplar
+
+### Goal
+The user compared Q3's letter to Q2's and asked why this quarter's was worse ("The most
+decision-relevant read is…" — meta-commentary where Q2 opens with an actor and an action).
+Three causes: the writer changed (gpt-4.1 → gpt-5.5) with no before/after — the exact
+process the standing repoint rule exists to prevent, violated under incident pressure; the
+framing scaffold supplied in yesterday's instruction got copied into the lede
+(instruction-copying, in style form); and five sequential guard passes sand prose toward
+abstraction, which a weaker lede-writer answers with meta-language instead of named events.
+
+### Lede rules + meta-prose check
+**`wiley_exec_summary_agent.md`**: the letter must OPEN with the quarter's sharpest named
+development (actor, action, consequence); banned openers listed ("The most decision-relevant
+read", "The key takeaway", "At a high level"…); illustrative phrasing in instructions
+declared never-quotable. **`report_lint.py`** gains a `meta_prose` check (verified catching
+the exact offending sentence); the reviewer rubric adds meta-opener = error.
+
+### The golden-set gate
+The Q2 letter (the customer-approved standard) is stored at
+`data/auspex/golden/wiley_exec_summary_q2_2026.txt` — deliberately OUTSIDE the prompt dirs
+the hygiene test scans, because it contains real facts. New `_golden_gate()` in
+**`wiley_bundle_supervisor.py`**: after the letter's grounding passes, a gpt-5.4 judge
+scores the candidate 0-10 against the exemplar on prose quality only (opening shape,
+named-event density, forecast-vs-evidence contrast, concrete consequences, no abstraction),
+pass = score ≥ 7 + compliant opening. On failure: ONE retry — the judge's critique
+(qualities to fix, candidate quotes only, NEVER exemplar facts, so last quarter's events
+cannot bleed into this quarter's letter) goes back to the exec agent as
+`golden_gate_critique`, the rewrite is re-scrubbed (verdict/figures/entities) and re-judged,
+best score ships. Verdict persisted in the synthesis payload. Fails open.
+
+First live run proved the loop: **draft scored 4/10 → rejected → critique rewrite scored
+8/10 → passed.** Final opener: "The Trump administration canceled federal research grants
+using keyword filters, fired the National Science Board, and shut down ocean monitoring
+systems; at forecast time…" — the Q2 shape. One import bug on the way (`os` missing in the
+supervisor, caught by the contract tests + a crashed pipeline run, fixed).
+
+### Delivery
+Complete package emailed: golden-gated letter + deck + HTML re-rendered from the same six
+pinned runs (run-ID match asserted in the send script itself — it refuses to email a
+mismatched set). Home copies updated. All artifact audits clean; 12/12 tests green.
+
+### Lessons
+- NEVER change a shipping pipeline's writer model without judging output against the
+  customer-approved exemplar — now enforced by machinery, not memory.
+- Style scaffolds in instructions get copied like example facts do; supply shapes, mark
+  them never-quotable, and lint for the tell-phrases anyway.
+
 ## 2026-08-03 (later) — the release gate covers Brand Watcher reports
 
 ### Goal

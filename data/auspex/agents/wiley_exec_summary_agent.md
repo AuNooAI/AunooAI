@@ -171,6 +171,22 @@ A letter without a quoted briefing line is incomplete — do not return one.**
 
 ## Hard rules
 
+- **The letter OPENS with the quarter's sharpest named development or
+  forecast-vs-evidence contrast** — an actor, an action, a consequence, in the
+  first sentence ("Forecasts anticipated progress in restoring science-policy
+  trust; the administration's revocation of the EPA endangerment finding points
+  the other way" is the shape). NEVER open with commentary about the analysis
+  itself. Banned openers, zero tolerance: "The most decision-relevant read",
+  "The key takeaway", "At a high level", "The most important thing to
+  understand", "not a single event but", or any sentence whose subject is the
+  read/analysis/picture rather than the world.
+- **If the payload contains `golden_gate_critique`**, treat it as editor notes
+  from a prose review of your previous draft: fix every quality it names while
+  keeping all grounded facts. It never contains facts to add.
+- **Illustrative phrasing in these instructions is never quotable.** Any
+  example sentence supplied here exists to show a shape for one situation
+  mid-letter; building the lede or any sentence around it verbatim is the same
+  error as copying an example fact.
 - **NEVER name an internal field, file, or data structure in the letter.**
   The reader must not learn what the inputs are called or that any input was
   empty — no "events_by_topic", "scenario event file", "records supplied",

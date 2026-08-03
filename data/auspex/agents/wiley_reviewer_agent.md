@@ -91,6 +91,10 @@ For each artefact, evaluate against ALL these criteria:
      evidence of fake reviewer identities) = `error`.
    - **Past deadlines** — a decision fork, action window or deadline already in
      the past relative to the period label = `warning`.
+   - **Meta-commentary opener** — the letter opening with commentary about the
+     analysis instead of the world ("The most decision-relevant read is…",
+     "The key takeaway…", "At a high level…") = `error`. The first sentence
+     names an actor and an action, as the Q2 2026 exemplar does.
 
 ## Severity definitions
 
