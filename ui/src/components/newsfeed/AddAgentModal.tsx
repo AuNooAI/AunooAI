@@ -497,6 +497,11 @@ export function AddAgentModal({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__default__">Default (gpt-5.4-mini)</SelectItem>
+                {/* An existing agent can hold a model that is no longer offered;
+                    keep it listed so editing the agent does not change it. */}
+                {model && !availableModels.some(m => m.id === model) && (
+                  <SelectItem value={model}>{model}</SelectItem>
+                )}
                 {availableModels.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.name} ({m.provider})

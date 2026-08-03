@@ -33,7 +33,10 @@ interface Topic {
 }
 
 interface AIModel {
+  /** The id sent to the backend — must be a real litellm alias. */
   name: string;
+  /** Human-readable label for the dropdown. */
+  label?: string;
   provider: string;
 }
 
@@ -215,11 +218,16 @@ function SubmitArticlesApp() {
     }
   };
 
+  // /api/trend-convergence/models returns the distinct models under real names.
+  // /api/available_models is the raw litellm alias list — ~two dozen entries for
+  // the same few models — and must not feed a picker.
   const fetchModels = async () => {
     try {
-      const response = await fetch('/api/available_models');
+      const response = await fetch('/api/trend-convergence/models');
       const data = await response.json();
-      setModels(data);
+      setModels((Array.isArray(data) ? data : []).map(
+        (m: {id: string; name: string; provider?: string}) =>
+          ({ name: m.id, label: m.name, provider: m.provider || 'bedrock' })));
     } catch (err) {
       console.error('Error loading models:', err);
     }
@@ -731,7 +739,7 @@ function SubmitArticlesApp() {
                       <SelectContent>
                         {models.map(model => (
                           <SelectItem key={model.name} value={model.name}>
-                            {model.name} ({model.provider})
+                            {model.label || model.name} ({model.provider})
                           </SelectItem>
                         ))}
                       </SelectContent>

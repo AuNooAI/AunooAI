@@ -544,7 +544,12 @@ export async function getOrganizationalProfiles(): Promise<Array<{
 }
 
 /**
- * Get available AI models
+ * Get available AI models.
+ *
+ * Reads /api/trend-convergence/models, which returns the distinct models under
+ * real names. Do not use /api/available_models here: it lists every litellm
+ * alias (~two dozen gpt-*, gemini-*, mixtral-*, claude-*-latest), most of which
+ * are the same underlying model under a different vendor's name.
  */
 export async function getAvailableModels(): Promise<Array<{
   id: string;
@@ -552,7 +557,7 @@ export async function getAvailableModels(): Promise<Array<{
   provider: string;
   resolved_model?: string;
 }>> {
-  const response = await fetch('/api/available_models', {
+  const response = await fetch('/api/trend-convergence/models', {
     credentials: 'include',
   });
 
@@ -560,9 +565,10 @@ export async function getAvailableModels(): Promise<Array<{
     throw new Error(`Failed to fetch models: ${response.status}`);
   }
 
-  // API returns {name, provider, resolved_model} - add id field for Select component
-  const models = await response.json() as Array<{name: string; provider: string; resolved_model?: string}>;
-  return models.map(m => ({ id: m.name, name: m.name, provider: m.provider, resolved_model: m.resolved_model }));
+  // API returns {id, name, provider, context_limit} — already the right shape
+  // for the Select components, which key on id and label with name/provider.
+  const models = await response.json() as Array<{id: string; name: string; provider?: string}>;
+  return models.map(m => ({ id: m.id, name: m.name, provider: m.provider || 'bedrock' }));
 }
 
 /**

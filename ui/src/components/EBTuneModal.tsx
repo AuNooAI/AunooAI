@@ -29,7 +29,10 @@ interface EBAgent {
 }
 
 interface AvailableModel {
+  /** The id stored in config — must be a real litellm alias. */
   name: string;
+  /** Human-readable label for the dropdown. */
+  label?: string;
   provider?: string;
 }
 
@@ -180,7 +183,7 @@ export function EBTuneModal({
         // Fetch prompts, config, and models in parallel
         const [configRes, modelsRes] = await Promise.all([
           fetch('/api/executive-briefing/config', { credentials: 'include' }),
-          fetch('/api/available_models', { credentials: 'include' })
+          fetch('/api/trend-convergence/models', { credentials: 'include' })
         ]);
 
         // Load config first
@@ -233,8 +236,11 @@ export function EBTuneModal({
 
         // Parse available models
         if (modelsRes.ok) {
+          // {id, name} — store the id as the value, the name as the label.
           const modelsData = await modelsRes.json();
-          setAvailableModels(modelsData || []);
+          setAvailableModels((modelsData || []).map(
+            (m: {id: string; name: string; provider?: string}) =>
+              ({ name: m.id, label: m.name, provider: m.provider })));
         }
       } catch (err) {
         console.error('Error fetching EB data:', err);
@@ -728,9 +734,14 @@ export function EBTuneModal({
                                 <SelectValue placeholder="Select model" />
                               </SelectTrigger>
                               <SelectContent>
+                                {/* An already-saved model may no longer be offered; keep it listed
+                                    so the trigger is not blank. */}
+                                {editedModels[activeAgent] && !availableModels.some(m => m.name === editedModels[activeAgent]) && (
+                                  <SelectItem value={editedModels[activeAgent]}>{editedModels[activeAgent]}</SelectItem>
+                                )}
                                 {availableModels.map((model) => (
                                   <SelectItem key={model.name} value={model.name}>
-                                    {model.name}
+                                    {model.label || model.name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

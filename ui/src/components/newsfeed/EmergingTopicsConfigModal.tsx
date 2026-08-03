@@ -154,14 +154,16 @@ export function EmergingTopicsConfigModal({
   const modelOptions = availableModels.length > 0
     ? availableModels
     : [
-        { id: 'gpt-5.4', name: 'gpt-5.4', provider: 'openai' },
-        { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini', provider: 'openai' },
-        { id: 'claude-sonnet-4-20250514', name: 'claude-sonnet-4', provider: 'anthropic' },
+        { id: 'bedrock-claude-sonnet', name: 'Claude Sonnet 4.5', provider: 'bedrock' },
+        { id: 'bedrock-claude-haiku', name: 'Claude Haiku 4.5', provider: 'bedrock' },
+        { id: 'nova-pro', name: 'Nova Pro', provider: 'bedrock' },
+        { id: 'nova-lite', name: 'Nova Lite', provider: 'bedrock' },
+        { id: 'bedrock-kimi-k2-5', name: 'Kimi K2.5', provider: 'bedrock' },
       ];
 
-  const selectedModel = modelOptions.find(m => m.id === config.model)?.id
-    || modelOptions[0]?.id
-    || 'gpt-5.4';
+  // Keep an already-saved model selected even when it is no longer offered,
+  // rather than silently showing (and then saving) the first option instead.
+  const selectedModel = config.model || modelOptions[0]?.id || 'bedrock-claude-sonnet';
 
   const handleSave = async () => {
     setLoading(true);
@@ -297,6 +299,9 @@ export function EmergingTopicsConfigModal({
                     <SelectValue placeholder="Select model" />
                   </SelectTrigger>
                   <SelectContent>
+                    {selectedModel && !modelOptions.some(m => m.id === selectedModel) && (
+                      <SelectItem value={selectedModel}>{selectedModel}</SelectItem>
+                    )}
                     {modelOptions.map((model) => (
                       <SelectItem key={model.id} value={model.id}>
                         {model.name} ({model.provider})

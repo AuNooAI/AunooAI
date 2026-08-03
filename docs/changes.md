@@ -63,12 +63,71 @@ six react templates to wileytest and wiley. Before copying, every template diff 
 canonical was checked and contained nothing but asset-hash lines, so no tenant-local template
 content was overwritten.
 
-No service was restarted on either prod tenant. Nothing server-side changed, the templates
-have `auto_reload = True`, and static assets are read from disk, so a restart would only have
-cost a blip. Users on the old bundle pick the new one up on a hard refresh.
+The second pass added a backend change, so `app/routes/trend_convergence_routes.py` was copied
+to both tenants as well. The diff beforehand was exactly the one hunk written today, nothing
+tenant-local, and it compiles under each tenant's own venv. All three services were then
+restarted. Users on the old bundle pick the new one up on a hard refresh.
 
 wbm has no foresight page and was not touched. saasmvp-app has its own frontend and is
 unaffected.
+
+### Every other model picker in the UI, same day
+The foresight fix left the alias list in every other dropdown, so the rest followed. There were
+**twelve** of them, not the four the first pass counted — the earlier grep only looked for
+imports of `getAvailableModels` and missed the components that `fetch('/api/available_models')`
+inline.
+
+Four service functions and eight components now read `/api/trend-convergence/models`:
+
+- **`ui/src/services/newsFeedApi.ts`** — add-agent modal, emerging-topics config.
+- **`ui/src/services/narrativeExplorerApi.ts`** — the model select in the Explore header. This
+  one shares a dropdown with the newsfeed list and was missed in the first pass entirely.
+- **`ui/src/services/gatherApi.ts`** — gather group settings, auto-collect. It read
+  `/api/auto-ingest/models`, a different route serving the same raw list.
+- **`ui/src/services/auspexService.ts`** — the Auspex chat model select, also on
+  `/api/auto-ingest/models`.
+- **`ui/src/SubmitArticlesApp.tsx`** and the six `*TuneModal.tsx` components (EOS, FH, EB, SIO,
+  Newsletter, FG) fetched `/api/available_models` inline.
+
+Two mechanical points made this more than a URL swap. The curated endpoint returns
+`{id, name}` where `name` is a display label ("Claude Sonnet 4.5") and `id` is the alias that
+must be stored (`bedrock-claude-sonnet`); several components used `model.name` as both the
+label and the saved value, so they now carry a separate `label` field. And a config that
+already holds an alias — `gpt-5.4-mini` on an existing agent — would render as a blank
+dropdown now that the alias is not listed, so every one of these pickers keeps the saved value
+as an extra entry. `EmergingTopicsConfigModal` previously did worse than blank: it silently
+substituted the first option for an unrecognised saved model, which is how a saved setting
+gets changed by opening a dialog. It now keeps the saved value.
+
+**`app/routes/trend_convergence_routes.py`** gained one field: `provider`, taken from the same
+`get_available_models()` scan the route already ran, so labels read "Claude Sonnet 4.5
+(bedrock)" instead of a hardcoded vendor guess.
+
+Stale fallback lists (used when the fetch fails) were replaced in `NewsFeedHeader.tsx`,
+`EmergingTopicsConfigModal.tsx` and `api.ts`. They offered `gpt-5.4`, `gpt-5.4-nano` and
+`claude-sonnet-4-20250514`.
+
+### Verification, second pass
+No file under `ui/src/` fetches `/api/available_models` or `/api/auto-ingest/models` any more
+(two comment mentions remain). No built asset under `static/trend-convergence/assets/` contains
+either path. All three tenants return the 5 models with the new `provider` field:
+
+```
+curl :10004 | :10002 | :10006 /api/trend-convergence/models
+→ 5 entries each, every one "provider":"bedrock"
+```
+
+Every asset referenced by the six react templates returns 200 on wileytest and wiley, with one
+exception noted below. Services restarted: bugfixing, wileytest, wiley — all `active`. There is
+no type-checker in this project (`ui` has only `vite build`, which strips types without
+checking), so the TypeScript changes are verified by the build and by reading, not by `tsc`.
+
+### Not fixed — a stale modulepreload in `pam_react.html`
+`templates/pam_react.html:34` preloads `usePAM-zQ3fJmWy.js`, which does not exist; the built
+chunk is `usePAM-DfZaKsti.js`. The deploy script rewrites `usePAM-*.css` but has no rule for
+`usePAM-*.js`. This predates today — the same stale hash is in the file at `25812e69` — and is
+harmless, because the PAM chunk imports the correct hash and a failed preload hint is ignored.
+Left alone deliberately; it is a deploy-script gap, not part of this work.
 
 ### Lessons
 **Verify the surface the user sees, not the endpoint you edited.** `1ddef137` was verified by
@@ -76,10 +135,14 @@ curling its own route, which will always agree with the code you just wrote. One
 deployed bundle for the endpoint name would have caught this on 30 July, and instead the wrong
 dropdown stayed up for four days across two prod tenants.
 
-**`/api/available_models` is the raw alias list and should be assumed wrong for any user-facing
-picker.** It returns every `model_list` entry in `litellm_config.yaml` whose API key is set —
-23 on wileytest, collapsing onto 5 real models. Four other dropdowns (newsfeed agent creation,
-emerging topics, gather group settings, gather auto-collect) still read it directly.
+**`/api/available_models` and `/api/auto-ingest/models` are the raw alias list. Never point a
+picker at either.** They return every `model_list` entry in `litellm_config.yaml` whose API key
+is set — 23 on wileytest, collapsing onto 5 real models. `/api/trend-convergence/models` is the
+curated one, and its docstring now says so.
+
+**Grep for the URL, not for the helper function.** Counting importers of `getAvailableModels`
+found 4 pickers. Grepping for `/api/available_models` found 12. Components here fetch inline as
+often as they go through a service module.
 
 ## 2026-08-02 — every monolith tenant moved to the local 768-d encoder (and a four-week wbm outage found on the way)
 

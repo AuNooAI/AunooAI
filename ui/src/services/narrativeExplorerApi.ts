@@ -319,14 +319,18 @@ export async function getOrganizationalProfiles(): Promise<Array<{
 }
 
 /**
- * Get available AI models
+ * Get available AI models.
+ *
+ * Reads /api/trend-convergence/models, not /api/available_models — the latter
+ * lists every litellm alias, most of them the same underlying model under a
+ * different vendor's name.
  */
 export async function getAvailableModels(): Promise<Array<{
   id: string;
   name: string;
   provider: string;
 }>> {
-  const response = await fetch('/api/available_models', {
+  const response = await fetch('/api/trend-convergence/models', {
     credentials: 'include',
   });
 
@@ -334,7 +338,8 @@ export async function getAvailableModels(): Promise<Array<{
     throw new Error(`Failed to fetch models: ${response.status}`);
   }
 
-  return response.json();
+  const models = await response.json() as Array<{id: string; name: string; provider?: string}>;
+  return models.map(m => ({ id: m.id, name: m.name, provider: m.provider || 'bedrock' }));
 }
 
 // ===== Incident Config API =====

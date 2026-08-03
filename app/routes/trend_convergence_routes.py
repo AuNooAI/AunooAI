@@ -537,6 +537,9 @@ async def get_trend_convergence_models():
     aliases mislabels Claude as GPT/Gemini and shows duplicates, so we expose
     only the DISTINCT underlying models with honest labels. Ordered
     flagship-first so the UI hook's ``modelsData[0]`` default picks Sonnet.
+
+    Every model-picker in the UI reads this route. ``/api/available_models``
+    returns the raw alias list and must not be used for one.
     """
     # (id, label, context_limit) — the distinct models actually available.
     # Each id is the canonical alias for one underlying Bedrock model.
@@ -547,15 +550,19 @@ async def get_trend_convergence_models():
         ('nova-lite',             'Nova Lite',         300000),
         ('bedrock-kimi-k2-5',     'Kimi K2.5',         256000),
     ]
-    _all = [{'id': mid, 'name': label, 'context_limit': ctx}
+    _all = [{'id': mid, 'name': label, 'context_limit': ctx, 'provider': 'bedrock'}
             for mid, label, ctx in SUPPORTED]
     try:
         from app.ai_models import get_available_models
-        configured = {m['name'] for m in (get_available_models() or [])
-                      if isinstance(m, dict) and m.get('name')}
+        # Name -> provider, so the dropdowns can label a model with the
+        # provider the config actually routes it through rather than a
+        # hardcoded guess.
+        scanned = {m['name']: m for m in (get_available_models() or [])
+                   if isinstance(m, dict) and m.get('name')}
         # Keep only models the config actually exposes; fall back to the full
         # set if the availability scan returns nothing (avoids an empty menu).
-        formatted = [m for m in _all if m['id'] in configured] if configured else _all
+        formatted = [{**m, 'provider': scanned[m['id']].get('provider') or m['provider']}
+                     for m in _all if m['id'] in scanned] if scanned else _all
         return formatted or _all
     except Exception as e:
         logger.error(f"Error fetching models: {str(e)}")
