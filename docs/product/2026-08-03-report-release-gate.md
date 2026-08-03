@@ -17,6 +17,10 @@ _2026-08-03 · Wiley Horizons quarterly deliverables: deck, HTML report, executi
 - A written review checklist ships in the product documentation, covering the three checks
   only a human can do: read the letter as the customer would, verify the team's credentials
   exactly, and sign off on anything the automated gate flagged.
+- The executive letter is now judged against a customer-approved reference letter before it
+  ships. A draft that reads worse than the standard — abstract openings, thin detail — is
+  rejected and rewritten against the judge's critique. In its first live run the gate
+  rejected a draft scoring 4 out of 10 and shipped the rewrite, which scored 8.
 - The Q3 2026 package was rebuilt under this gate and delivered: 237-slide deck, web
   report, and executive letter, all from one analysis, all passing every check.
 
