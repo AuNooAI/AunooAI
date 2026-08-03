@@ -45,8 +45,13 @@ mechanically enforced" story.
 
 ## Limits and what's next
 
-- At the time of writing, the six Q3 assessments are re-running on fresh data; the bundle
-  regeneration and its gate verdict come after. This note does not claim that outcome.
+- Outcome, claimed now that it exists: the six assessments completed on fresh data (one
+  needed a second run after a database column proved too narrow for the newer scenario
+  vocabulary — widened via migration on every site). The regenerated bundle passed: the
+  letter scored 4 then 8 after the automatic rewrite, and the reviewer approved with no
+  errors. The same letter pipeline that failed on May-vintage data passed on fresh data,
+  which is the strongest evidence yet that the gate measures input quality, not just
+  wording.
 - The reviewer over-flags one mandated section header ("The bottom line.") as a bad opener —
   rubric tuning queued.
 - The assessment pipeline's summary field is stored double-encoded (a known trap); untouched
