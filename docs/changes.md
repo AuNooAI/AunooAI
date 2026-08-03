@@ -50,6 +50,19 @@ denying the deck's cards. DOCX emailed (Resend `ed647222`), copy at
 skips when the period is already `approved_with_warnings`, so the attached review findings
 are the OLD letter's — a re-review needs the review row reset.
 
+### Fresh LLM-as-judge review of the rebuilt letter
+The reviewer stage skips periods already approved, so the judge was invoked directly over
+the SAVED synthesis (no regeneration): review row reset to under_review, reviewer payload
+built from the cached payload + pinned items, gpt-5.4 at reasoning_effort=high, verdict
+persisted. Result: **approved_with_warnings — 0 errors, 6 warnings, 10 findings** (30s).
+Every warning was checked against the customer DOCX and none reaches it: the letter's only
+percentage is "12% growth in OA publishing", a sourced event magnitude the rules allow (the
+reviewer over-flags it), and the "no scenario-based data" text lives in the stored Quantum
+Computing assessment briefing, not the document. That stale briefing (written by the
+supervisor when the topic had no forecast assessment) was replaced in the assessment row
+with the pinned run's real briefing so it cannot surface in future payloads. The four info
+findings are stylistic (cross-cutting themes naming two topics).
+
 ### The generation workflow now
 One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
 screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,
