@@ -2,6 +2,69 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (later) — the topic-report DOCX was a transcript of the deck, not an executive summary
+
+### What was wrong
+The Word export for a topic report reproduced every slide: 339 paragraphs and 5,316 words for a
+single topic, six topics to a report, including slide furniture like "CARD 3 OF 6", "YOUR
+WINDOW" and "Based on scenarios". It was meant to be the emailable executive summary.
+
+### How it regressed — two commits, neither of which says so
+**2026-06-03, `c89e5018` ("Topic Reports tab + Future Horizons & Consensus interactive HTML
+exports").** Created `topic_report_service.py` with a generation path that reads
+`future_horizons_runs` directly — "No back-test, no supervisor pipeline, no reviewer gate", in
+its own docstring. The supervisor is the only writer of `forecast_bundle_synthesis`
+(`wiley_bundle_supervisor.py:1191`), which is what the executive-summary exports render. From
+that day, no new period got one.
+
+**2026-06-18, `451bed56` ("Daily Briefing auto-compose + monolith model repoint to gpt-5.4").**
+With no synthesis row, the DOCX export was raising, so it was repointed from
+`build_bundle_docx(..., updates_only=True, bundle_synthesis=…)` to a new renderer that walks the
+deck. The commit message mentions this only as "Also bundles in-progress branch work (topic
+report docx, etc.) for deploy integrity".
+
+The same commit also trimmed `build_bundle_docx` itself from four sections (expert view,
+cross-cutting themes, decision framework, topic summaries) down to the letter alone, citing
+client feedback — "Per client feedback (Hetzscholdt, Jun 2026): the previous layered structure
+… reads as cluttered for C-level". That trim was deliberate and has been left in place.
+
+**The Markdown export was never repointed**, so it has been raising
+`"No generated topic report for period_label=…"` for every period since 2026-06-03. Same root
+cause, no symptom anyone noticed because nobody exports Markdown.
+
+### The fix
+**`app/services/topic_report_service.py`** gains `ensure_bundle_synthesis(period_label)`, which
+runs `wiley_bundle_supervisor.run_pipeline` with `cadence="topic_report"` and the period's own
+topics-hash label when no row exists. The supervisor persists as it goes, so a request that dies
+at a proxy before it returns still leaves the row behind and the next call is instant.
+
+`generate_topic_report_docx` is back to `_load_cached_state` + `build_bundle_docx(...,
+updates_only=True)` — the same renderer and the same mode that produced the pre-June documents.
+The deck transcript is not lost: it moved to `generate_topic_report_docx_full`, served from a new
+`GET /api/topic-reports/{period_label}/download-full.docx`.
+
+### Verification
+Rendered the restored path against the surviving `topic_report / Q2_2026__64da6ed5` synthesis:
+16 paragraphs, 606 words, titled "Wiley Horizons — Executive Summary" with the five-section
+letter and the "— AunooAI Editorial Team" signoff. The transcript route returns 200 on
+wileytest, and `download.docx` for a period with no synthesis correctly starts the pipeline.
+
+**Provenance correction.** The Q2 document held up as the reference was not a topic-report
+export at all. It came from `cadence='quarterly'`, `period_label='Q2 2026'` — the quarterly
+bundle, whose five topics match it exactly and whose payload carries the `expert_commentary`
+that the topic-report row lacks. The `topic_report / Q2_2026__64da6ed5` row covers only Quantum
+Computing.
+
+### Incident: a smoke test started a real pipeline run
+Curling the restored `download.docx` for Q3 with no synthesis row did what the code now says it
+does — it started the multi-agent supervisor run. The 25-second curl timeout did not stop it;
+LLM calls kept flowing afterwards. It was left to finish, because it produces the Q3 executive
+summary that was wanted anyway, but a smoke test should not have been the thing that triggered
+it.
+
+**Lesson: an endpoint that generates on demand is not safe to smoke-test.** Check for a
+cheap read-only path first, or test against a period that already has its content.
+
 ## 2026-08-03 (later still) — four defects found by reading the generated deck
 
 ### Goal

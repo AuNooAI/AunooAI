@@ -843,6 +843,74 @@ async def generate_topic_report(
     return blob, period_label, included_topics, None, []
 
 
+async def ensure_bundle_synthesis(period_label: str, *, progress_callback=None) -> bool:
+    """Make sure a ``topic_report`` synthesis row exists for this period.
+
+    The synthesis is what the executive-summary exports render: the
+    five-section letter, what changed, cross-cutting themes and the decision
+    framework. The deck path deliberately skips the supervisor (it reads
+    ``future_horizons_runs`` directly), so nothing else writes this row —
+    which is why the DOCX and Markdown exports had nothing to render for any
+    period generated after 2026-06-03.
+
+    Returns True if it ran the pipeline, False if the row already existed.
+    The supervisor persists the payload itself, so a request that dies at the
+    proxy before this returns still leaves the row behind and the next call
+    is instant.
+    """
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    existing = db.facade.get_forecast_bundle_synthesis("topic_report", period_label) or {}
+    if existing.get("payload"):
+        return False
+
+    state = _read_state_sidecar(period_label) or {}
+    topics = state.get("topics") or []
+    if not topics:
+        raise ValueError(
+            f"No state sidecar for period_label={period_label}. "
+            "Generate the report first so the export can resolve the topic set."
+        )
+
+    from app.services.topic_report_pptx import resolve_items
+    from app.services.wiley_bundle_supervisor import run_pipeline
+
+    items = resolve_items(topics)
+    if not items:
+        raise ValueError(
+            f"None of the topics for {period_label} have a stored forecast run."
+        )
+
+    eos_per_topic: dict = {}
+    for a, _r, _p in items:
+        summary = a.get("summary") or {}
+        eos = summary.get("extreme_outlier_scenarios") or summary.get("eos") or []
+        if eos:
+            eos_per_topic[a.get("topic")] = eos
+
+    logger.info("topic report %s: no synthesis row — running the supervisor pipeline "
+                "over %d topics", period_label, len(items))
+    final_status = None
+    async for ev in run_pipeline(items, cadence="topic_report",
+                                 period_label=period_label,
+                                 eos_per_topic=eos_per_topic):
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("stage") == "complete":
+            final_status = ev.get("status")
+        if progress_callback:
+            try:
+                progress_callback(ev.get("progress"), f"{ev.get('stage')} {ev.get('status')}")
+            except Exception:
+                pass
+    # A reviewer verdict of revision_requested still leaves a usable payload;
+    # the exports surface the findings rather than refusing to render.
+    logger.info("topic report %s: synthesis complete (reviewer: %s)",
+                period_label, final_status or "n/a")
+    return True
+
+
 def _load_cached_state(period_label: str):
     """Load (items, synth, eos_per_topic, review) for a topic-report period
     from the cached supervisor synthesis. Raises ValueError when no PPTX
@@ -932,14 +1000,48 @@ async def generate_topic_report_html(period_label: str) -> Tuple[bytes, str, lis
 
 
 async def generate_topic_report_docx(period_label: str) -> Tuple[bytes, str, list, str, list]:
-    """Render the topic-report deck as a Word document.
+    """Render the topic-report synthesis as an executive-summary Word document.
 
-    Uses the same ``items`` list ``build_topic_report_pptx`` consumes
-    (resolved via ``topic_report_pptx.resolve_items``) so the DOCX
-    carries Briefing Synthesis, Executive Summary cards, Key Insights,
-    Strategic Recs, Decision Framework, Next Steps, Black Swans, the
-    H1/H2/H3 scenario walk, and the numbered article references —
-    matching the HTML/PPTX. NOT the back-test bundle DOCX.
+    This is the emailable briefing — the five-section letter, what changed,
+    cross-cutting themes, decision framework and a one-paragraph status per
+    topic — not a transcript of the deck. Same renderer and same
+    ``updates_only=True`` mode that produced the Q2 2026 document.
+
+    Between 2026-06-18 (``451bed56``) and today this pointed at
+    ``topic_report_docx.build_topic_report_docx``, which walks the deck and
+    emits every slide's content in Word: 5,316 words per topic, including
+    slide furniture like "CARD 3 OF 6" and "YOUR WINDOW". That renderer is
+    still available on the ``download-full.docx`` route for anyone who wants
+    the whole thing.
+
+    The synthesis is generated on first request if the period does not have
+    one yet, which is slow — it is the multi-agent pipeline. The supervisor
+    persists as it goes, so a proxy timeout on that first call is not fatal:
+    the next request renders from the row.
+    """
+    from app.services.forecast_bundle_docx import build_bundle_docx
+
+    await ensure_bundle_synthesis(period_label)
+    items, synth, eos_per_topic, review = _load_cached_state(period_label)
+    blob = build_bundle_docx(
+        items,
+        period_label=period_label,
+        cadence="topic_report",
+        updates_only=True,
+        bundle_synthesis=synth.get("payload") or synth,
+        eos_per_topic=eos_per_topic,
+        review_findings=review.get("reviewer_findings"),
+        review_verdict=review.get("status"),
+    )
+    included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
+    return blob, period_label, included_topics, review.get("status"), review.get("reviewer_findings")
+
+
+async def generate_topic_report_docx_full(period_label: str) -> Tuple[bytes, str, list, str, list]:
+    """Render the full deck content as a Word document — every slide, in order.
+
+    Kept for anyone who wants the whole report in Word rather than the
+    executive summary. Long by design: one topic runs to roughly 5,000 words.
     """
     from app.services.topic_report_pptx import resolve_items
     from app.services.topic_report_docx import build_topic_report_docx
