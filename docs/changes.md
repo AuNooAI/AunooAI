@@ -2,6 +2,67 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (close of session) — Q3 delivered clean; the generation workflow as it now stands
+
+### Goal
+Close out the report-integrity session: final team-slide copy, the four lint-flagged figures
+resolved, and the Q3 deliverables sent for review. This entry also records the resulting
+generation workflow in one place, since it changed in every stage today.
+
+### Team slide, final form
+Three iterations on feedback: the "WHAT TRANSFERS" consultant label went first, then the
+aphorism subtitle; final copy is plain professional register (`925f8f05`, `c71ab823`). The
+credential attributions are exact and confirmed by the user: **former Gartner Research
+Director, authored Magic Quadrants for SIEM, named the SOAR market**; security research at
+Securonix/Tenable, cybersecurity leadership at HP/Verizon. Saved to memory
+(`user_oliver_credentials.md`) so future sessions keep them exact. The five-vendor cyber
+advisory list stays off the slide.
+
+### Q3 2026 delivered
+Final artifacts (deck 237 slides / 2.6 MB, HTML 503 KB) emailed to the user with attachments
+via Resend from the wileytest env (message `87b7493c`), copies at
+`/home/orochford/Wiley_Horizons_Topic_Report_Q3_2026.{pptx,html}`, and the same builds serve
+from the wileytest UI. Both artifacts render from the six pinned runs (identical provenance
+IDs, verified), release lint reports zero findings.
+
+### The exec letter — two more two-source bugs, then clean
+The user asked "what about the exec?" — and the DOCX was the one artifact still rendering
+from the stale 14:45 synthesis, which carried every review defect (14.5%, 4.8%, Hindawi,
+"no new tail-risk"). Rebuilding it surfaced two live bugs:
+
+1. **wileytest's letter model was silently Bedrock again.** OpenAI's gpt-5.5 dropped support
+   for `reasoning_effort: minimal` (400: supported values none/low/…), so every
+   `openai-gpt-5.5` call fell back to bedrock-claude-sonnet — the writer the 07-08 repoint
+   exists to avoid. Fixed in wileytest's `wiley_exec_summary_agent.md`: `minimal` → `none`
+   (uncommittable drift file; this entry is the record). `minimal_reasoning_effort()` in
+   `ai_models.py` already handles this for code paths; the agent frontmatter bypassed it.
+2. **The letter's tail-risk payload read a different EOS source than the deck.**
+   `ensure_bundle_synthesis` built `eos_per_topic` from the assessment summary (empty on the
+   topic-report path) while the deck loads `saved_eos` — so the agent saw count 0 and wrote
+   "No new tail-risk scenarios surfaced this quarter" under a deck with 24 cards, the exact
+   review defect, reproduced. Both `ensure_bundle_synthesis` and `_load_cached_state` now
+   fall back to the deck's source (`_eos_scenarios` / `get_latest_saved_eos_for_topic`).
+
+Rebuilt letter audit: all eleven checks clean, zero Bedrock fallbacks, and the tail-risk
+section names the top scenario (Quantum arms-race, 2025-2028, one of 30 tracked) instead of
+denying the deck's cards. DOCX emailed (Resend `ed647222`), copy at
+`/home/orochford/Wiley_Horizons_Executive_Summary_Q3_2026.docx`. Note: the reviewer stage
+skips when the period is already `approved_with_warnings`, so the attached review findings
+are the OLD letter's — a re-review needs the review row reset.
+
+### The generation workflow now
+One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
+screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,
+figure-disciplined, example-fact-free prompt → humanize pass → run + numbered corpus
+persisted → exec cards (prompt v3, no percentages). Deck renders from stored runs; the
+period sidecar records topics + pinned run IDs; release lint runs over the artifact and the
+run content, findings stored on the sidecar. HTML/DOCX/synthesis resolve the PINNED runs and
+lint again. Analyst reviews lint findings, edits run data if needed, re-renders (seconds,
+no LLM). CI: 12 renderer contract tests + prompt-hygiene tests (frozen figure baseline,
+banned names). Caches and sidecars are tenant-scoped
+(`/tmp/topic_report_render_cache_{DB_NAME}`). Tests run via `.venv/bin/python -m pytest`
+(system pytest lacks pptx/docx).
+
 ## 2026-08-03 (late night) — hardening: release lint, contract tests, prompt hygiene, tenant-scoped caches
 
 ### Goal

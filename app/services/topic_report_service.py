@@ -974,10 +974,18 @@ async def ensure_bundle_synthesis(period_label: str, *, progress_callback=None) 
             f"None of the topics for {period_label} have a stored forecast run."
         )
 
+    # EOS must come from the same source the DECK renders — resolve_items
+    # loads ``_eos_scenarios`` from saved_eos per topic. Reading only the
+    # assessment summary (empty on the topic-report path) told the letter
+    # agent black_swan_count=0, and it wrote "No new tail-risk scenarios
+    # surfaced this quarter" under a deck showing 24 cards — the exact
+    # contradiction the Q3 review flagged.
     eos_per_topic: dict = {}
     for a, _r, _p in items:
         summary = a.get("summary") or {}
-        eos = summary.get("extreme_outlier_scenarios") or summary.get("eos") or []
+        eos = (a.get("_eos_scenarios")
+               or summary.get("extreme_outlier_scenarios")
+               or summary.get("eos") or [])
         if eos:
             eos_per_topic[a.get("topic")] = eos
 
@@ -1052,10 +1060,19 @@ def _load_cached_state(period_label: str):
                         period_label, topic)
     items = _apply_overlay_display_names(items)
 
+    # Same saved_eos source the deck uses (see ensure_bundle_synthesis) —
+    # the assessment summary is empty on the topic-report path.
     eos_per_topic: dict = {}
     for a, _r, _p in items:
         eos = (a.get("summary") or {}).get("extreme_outlier_scenarios") \
             or (a.get("summary") or {}).get("eos") or []
+        if not eos:
+            try:
+                row = db.facade.get_latest_saved_eos_for_topic(
+                    a.get("topic"), max_age_days=180) or {}
+                eos = row.get("scenarios") or []
+            except Exception:
+                eos = []
         if eos:
             eos_per_topic[a.get("topic")] = eos
 
