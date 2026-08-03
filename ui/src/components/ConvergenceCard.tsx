@@ -35,7 +35,7 @@ interface TimeframeAnalysis {
 interface ConvergenceCardProps {
   name: string;
   description: string;
-  consensusPercentage: number;
+  consensusPercentage?: number;  // omit when the pipeline supplied none — never invent one
   timelineStartYear: number;
   timelineEndYear: number;
   optimisticOutlier: {
@@ -180,9 +180,11 @@ export function ConvergenceCard({
           <h3 className="text-lg font-bold text-gray-950 mb-1">{name}</h3>
           <p className="text-sm text-gray-700">{description}</p>
         </div>
-        <span className={`${colors.badge} px-3 py-1 rounded-full text-xs font-medium ml-4 shrink-0`}>
-          {consensusPercentage}% Consensus
-        </span>
+        {typeof consensusPercentage === 'number' && (
+          <span className={`${colors.badge} px-3 py-1 rounded-full text-xs font-medium ml-4 shrink-0`}>
+            {consensusPercentage}% Consensus
+          </span>
+        )}
       </div>
 
       {/* Timeline Visualization */}
@@ -207,11 +209,13 @@ export function ConvergenceCard({
               left: `${consensusStartPercent}%`,
               width: `${consensusWidthPercent}%`,
             }}
-            title={`Consensus Timeline: ${getTimelineLabel()}\n${consensusPercentage}% of sources agree on this timeframe`}
+            title={typeof consensusPercentage === 'number'
+              ? `Consensus Timeline: ${getTimelineLabel()}\n${consensusPercentage}% of sources agree on this timeframe`
+              : `Consensus Timeline: ${getTimelineLabel()}`}
           >
             <div className="absolute -top-2 left-0 right-0 text-center">
               <span className="text-xs font-medium text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm">
-                {consensusPercentage}% • {getTimelineLabel()}
+                {typeof consensusPercentage === 'number' ? `${consensusPercentage}% • ${getTimelineLabel()}` : getTimelineLabel()}
               </span>
             </div>
           </div>
@@ -250,8 +254,8 @@ export function ConvergenceCard({
                     <h6 className="text-xs font-bold text-gray-950 mb-2 uppercase">Consensus Type</h6>
                     <div className="text-sm font-semibold text-gray-800 mb-1">{consensusType}</div>
                     <div className="text-xs text-gray-600">
-                      {consensusPercentage}% confidence level
-                      {articlesAnalyzed && ` • Based on ${articlesAnalyzed} articles`}
+                      {typeof consensusPercentage === 'number' && `${consensusPercentage}% confidence level`}
+                      {articlesAnalyzed && `${typeof consensusPercentage === 'number' ? ' • ' : ''}Based on ${articlesAnalyzed} articles`}
                     </div>
                   </div>
                 )}

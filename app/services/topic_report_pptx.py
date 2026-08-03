@@ -490,11 +490,22 @@ def _add_intro_platform_slide(prs):
 
 
 def _add_intro_team_slide(prs):
-    """Slide 3 — analyst & data science team. Two-column card layout."""
+    """Slide 3 — analyst & data science team. Two-column card layout.
+
+    The bios lead with what transfers to a scientific publisher, not with
+    the security-industry résumé. The Q3 review flagged the old version:
+    a wall of cyber-vendor advisory roles next to "expert human oversight"
+    read as a domain mismatch. The credentials are unchanged and true —
+    the framing now says why they apply: research-integrity abuse
+    (paper mills, fake reviewers, citation rings, coordinated narratives)
+    is adversarial behaviour at scale, which is what this team has
+    analysed for two decades.
+    """
     slide = _intro_full_bleed_navy(
         prs, eyebrow="THE TEAM",
         title="Analyst & Data Science Team",
-        subtitle="Expert human oversight on every output.",
+        subtitle="Integrity abuse is adversarial behaviour at scale — "
+                 "the discipline this team comes from.",
     )
     sw = 10.0
     members = [
@@ -502,26 +513,33 @@ def _add_intro_team_slide(prs):
             "name": "Oliver Rochford",
             "role": "Lead Analyst · Strategic Advisor",
             "rows": [
-                ("ADVISORY",
-                 "n8n · Arcanna AI · Picus Security · Spektrum Security · Tesseract Analytics"),
-                ("PAST ROLES",
-                 "Research Director: Gartner, Securonix, Tenable · Cybersecurity Leadership: HP, Verizon"),
-                ("SELECT PUBLICATIONS",
-                 "Magic Quadrant SIEM (Gartner 2014-2017) · Innovation Tech Insight for SOAR (defined the SOAR category) · Quantifying the Attacker's First-Mover Advantage"),
-                ("CITATIONS", "266 Google Scholar citations"),
+                ("WHAT TRANSFERS",
+                 "Two decades analysing coordinated adversarial behaviour — "
+                 "manufactured identities, gamed metrics, campaign detection. "
+                 "The same patterns now driving paper mills and fake peer review."),
+                ("BACKGROUND",
+                 "Research Director, Gartner · Research leadership: Securonix, "
+                 "Tenable · HP, Verizon"),
+                ("SELECT WORK",
+                 "Defined the SOAR product category (Gartner) · Quantifying the "
+                 "Attacker's First-Mover Advantage · 266 Google Scholar citations"),
             ],
         },
         {
             "name": "Dr. Lamine M. Aouad",
             "role": "Lead Data Scientist · Researcher & Academic",
             "rows": [
-                ("CREDENTIALS",
-                 "PhD, Computer Science — University of Lille 1 · Distributed Computing & Numerical Analysis"),
-                ("PAST ROLES",
-                 "Visiting Fellow, Marie Curie Institute Paris · Principal Researcher, Tenable · Principal Research Engineer, Symantec"),
-                ("SELECT PUBLICATIONS",
-                 "Quantifying the Attacker's First-Mover Advantage · Towards Improving Privacy of Synthetic DataSets · Distributed Apriori-like Frequent Itemsets Mining"),
-                ("CITATIONS", "406 Google Scholar citations"),
+                ("WHAT TRANSFERS",
+                 "Large-scale data mining and classification — the machinery "
+                 "that filters, scores and verifies the article corpus behind "
+                 "every report. Published on synthetic-data integrity."),
+                ("BACKGROUND",
+                 "PhD Computer Science, University of Lille · Visiting Fellow, "
+                 "Marie Curie Institute Paris · Principal Researcher, Tenable · "
+                 "Principal Research Engineer, Symantec"),
+                ("SELECT WORK",
+                 "Towards Improving Privacy of Synthetic Datasets · Distributed "
+                 "frequent-itemset mining · 406 Google Scholar citations"),
             ],
         },
     ]
@@ -535,12 +553,15 @@ def _add_intro_team_slide(prs):
         _text(slide, x=col+0.18, y=2.32, w=col_w-0.36, h=0.22,
               text=m["role"], font_size=9, italic=True, color=WILEY_TEAL_LT)
         y = 2.70
-        for label, body in m["rows"]:
+        for i, (label, body) in enumerate(m["rows"]):
+            # First row (WHAT TRANSFERS) carries the framing paragraph and
+            # needs ~3 lines; the rest are one-to-two-line facts.
+            body_h = 0.72 if i == 0 else 0.40
             _text(slide, x=col+0.20, y=y, w=col_w-0.40, h=0.20,
                   text=label, font_size=8, bold=True, color=WILEY_TEAL)
-            _text(slide, x=col+0.20, y=y+0.22, w=col_w-0.40, h=0.40,
+            _text(slide, x=col+0.20, y=y+0.22, w=col_w-0.40, h=body_h,
                   text=body, font_size=8.5, color=WILEY_BODY, line_spacing=1.25)
-            y += 0.66
+            y += body_h + 0.26
 
 
 def _add_intro_human_ai_slide(prs):
@@ -1630,10 +1651,16 @@ def _load_eos_scenarios(db, topic: str) -> list:
     return scenarios if isinstance(scenarios, list) else []
 
 
-def resolve_items(topics: list[str]) -> list:
+def resolve_items(topics: list[str], run_ids: Optional[dict] = None) -> list:
     """Resolve ``(assessment_view, forecast_run, None)`` triples for an
     explicit topic list. Each topic must have a stored future_horizons_runs
     row; topics without one are skipped.
+
+    ``run_ids`` (source topic → future_horizons_runs id) pins each topic to
+    a specific run — pass the mapping the PPTX build recorded so every
+    export renders the SAME analysis instead of whatever the latest run is
+    at export time. A pinned id that no longer resolves falls back to the
+    latest run with a warning rather than dropping the topic.
 
     The ``assessment_view`` carries the FULL per-topic context that the
     deck builder walks: forecast raw_output (always), the latest
@@ -1653,14 +1680,26 @@ def resolve_items(topics: list[str]) -> list:
         topic = (topic or "").strip()
         if not topic:
             continue
-        row = db.facade._execute_with_rollback(sa_text("""
-            SELECT id FROM future_horizons_runs
-            WHERE topic = :topic ORDER BY created_at DESC LIMIT 1
-        """), {"topic": topic}).fetchone()
-        if not row:
-            logger.info("Topic report: skipping %s — no forecast run", topic)
-            continue
-        run_id = (row._mapping["id"] if hasattr(row, "_mapping") else row[0])
+        run_id = None
+        pinned = (run_ids or {}).get(topic)
+        if pinned:
+            hit = db.facade._execute_with_rollback(sa_text("""
+                SELECT id FROM future_horizons_runs WHERE id = :rid
+            """), {"rid": pinned}).fetchone()
+            if hit:
+                run_id = pinned
+            else:
+                logger.warning("Topic report: pinned run %s for %s no longer "
+                               "exists — falling back to latest", pinned, topic)
+        if run_id is None:
+            row = db.facade._execute_with_rollback(sa_text("""
+                SELECT id FROM future_horizons_runs
+                WHERE topic = :topic ORDER BY created_at DESC LIMIT 1
+            """), {"topic": topic}).fetchone()
+            if not row:
+                logger.info("Topic report: skipping %s — no forecast run", topic)
+                continue
+            run_id = (row._mapping["id"] if hasattr(row, "_mapping") else row[0])
         forecast_run = db.facade.get_future_horizons_analysis(run_id) or {}
         raw = _decode_raw_output(forecast_run)
 
@@ -1677,6 +1716,10 @@ def resolve_items(topics: list[str]) -> list:
                          topic, e)
 
         assessment = _assessment_view(topic, run_id, raw)
+        # The SOURCE topic name, before the overlay display rename below —
+        # callers key the sidecar's run_ids mapping on this, since the
+        # display name cannot be looked up in future_horizons_runs.
+        assessment["_source_topic"] = topic
         # Fresh-forecast values WIN over the stored supervisor summary.
         # The supervisor's stored summary fills gaps only — that way a
         # re-run via gpt-5.4 actually replaces stale text on the briefing /

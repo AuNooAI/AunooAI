@@ -2,6 +2,46 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (night) — follow-ups: run pinning, honest convergence cards, reframed team slide
+
+### Goal
+Close the items left open by the evening's review pass: exports that can silently come from
+different analysis runs, the trend-convergence card's fabricated fallback, and the team slide's
+domain mismatch.
+
+### Exports pinned to the runs the deck used
+**`topic_report_service.py` / `topic_report_pptx.py`**: each export format resolved "latest
+run per topic" at its own moment, so a horizons re-run between exports gave the deck and the
+HTML different scenarios under the same cover. The PPTX build now records
+{source topic → run id} in the period's state sidecar, and `resolve_items(topics, run_ids=…)`
+pins the HTML, DOCX and synthesis paths to those exact runs. A pinned id that no longer
+resolves falls back to latest with a warning; sidecars written before today have no mapping
+and behave as before. Verified against the wiley DB: unpinned resolves the latest run,
+pinning to an older run returns that run, a bogus id falls back to latest.
+
+### Convergence card stops inventing "80% Consensus"
+**`App.tsx` / `ConvergenceCard.tsx`**: the card rendered `consensus_percentage || 80` — a
+fabricated badge whenever the pipeline supplied nothing. The prop is optional now; no value,
+no badge, no "% of sources agree" tooltip, no "confidence level" line. Values the pipeline
+does supply render unchanged.
+
+### Team slide reframed (option C)
+**`topic_report_pptx.py`** `_add_intro_team_slide`: same people, same true credentials, but
+each bio now leads with a WHAT TRANSFERS row connecting the background to research integrity
+(coordinated manipulation / large-scale classification), and the subtitle carries the frame:
+"Integrity abuse is adversarial behaviour at scale — the discipline this team comes from."
+The five-vendor cyber advisory list is gone. Copy needs the user's sign-off before the next
+customer delivery.
+
+### Verification
+Team slide rendered standalone (all rows present); run pinning tested three ways (above);
+`npm run typecheck` clean (246 known, 0 new); UI rebuilt.
+
+### Propagation
+Committed in bugfixing; copied to wiley + wileytest (surgical merge preserved wileytest's
+`openai-gpt-5.5` agent repoint); UI bundle + templates synced; all three services restarted
+and healthy. Q3 regeneration on wileytest is the remaining step.
+
 ## 2026-08-03 (evening) — the Q3 Wiley report review: eleven defects, one root pattern
 
 ### Goal

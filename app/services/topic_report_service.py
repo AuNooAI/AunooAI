@@ -207,10 +207,20 @@ def _state_sidecar_path(period_label: str) -> str:
     return os.path.join(_render_cache_dir(), f"topic_report_{period_label}.state.json")
 
 
-def _write_state_sidecar(period_label: str, topics: list[str], period: Optional[str]) -> None:
+def _write_state_sidecar(period_label: str, topics: list[str], period: Optional[str],
+                         run_ids: Optional[dict] = None) -> None:
+    """Persist the period's build state.
+
+    ``run_ids`` maps SOURCE topic name → the future_horizons_runs id the
+    PPTX build used. Every other export resolves through this mapping, so
+    a horizons re-run between exports cannot silently swap the analysis
+    under an artifact — the failure where the deck and the HTML carried
+    different scenarios under the same cover.
+    """
     try:
         with open(_state_sidecar_path(period_label), "w", encoding="utf-8") as f:
-            json.dump({"topics": list(topics or []), "period": period or ""}, f)
+            json.dump({"topics": list(topics or []), "period": period or "",
+                       "run_ids": dict(run_ids or {})}, f)
     except Exception as e:
         logger.warning("state-sidecar write failed (%s): %s", period_label, e)
 
@@ -884,7 +894,15 @@ async def generate_topic_report(
     # General Monitoring"). resolve_items looks up by the real name, so every
     # export silently dropped that topic, logging only
     # "skipping <display name> — no forecast run".
-    _write_state_sidecar(period_label, list(topics), period)
+    #
+    # run_ids pin every later export to THE RUNS THIS DECK USED. Without
+    # the pin, each export resolved "latest run per topic" at its own
+    # moment, so a re-run between exports produced a deck and an HTML
+    # report with different scenarios under the same cover.
+    run_ids = {a.get("_source_topic"): a.get("run_id")
+               for (a, _r, _p) in items
+               if a.get("_source_topic") and a.get("run_id")}
+    _write_state_sidecar(period_label, list(topics), period, run_ids=run_ids)
     _emit(100, "Done")
     return blob, period_label, included_topics, None, []
 
@@ -922,7 +940,9 @@ async def ensure_bundle_synthesis(period_label: str, *, progress_callback=None) 
     from app.services.topic_report_pptx import resolve_items
     from app.services.wiley_bundle_supervisor import run_pipeline
 
-    items = resolve_items(topics)
+    # Pin the synthesis to the same runs the deck used, so the letter and
+    # the deck describe one analysis.
+    items = resolve_items(topics, run_ids=state.get("run_ids") or {})
     if not items:
         raise ValueError(
             f"None of the topics for {period_label} have a stored forecast run."
@@ -1065,7 +1085,9 @@ async def generate_topic_report_html(period_label: str) -> Tuple[bytes, str, lis
             f"No state sidecar for period_label={period_label}. "
             "Generate the PPTX first so the export can resolve the same topic set."
         )
-    items = resolve_items(topics)
+    # Pin to the exact runs the PPTX build used (sidecars written before
+    # 2026-08-03 have no run_ids and fall back to latest-run resolution).
+    items = resolve_items(topics, run_ids=state.get("run_ids") or {})
     blob = build_topic_report_html(items, period_label=period_label, period=period)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     return blob, period_label, included_topics, None, []
@@ -1130,7 +1152,8 @@ async def generate_topic_report_docx_full(period_label: str) -> Tuple[bytes, str
             f"No state sidecar for period_label={period_label}. "
             "Generate the PPTX first so the export can resolve the same topic set."
         )
-    items = resolve_items(topics)
+    # Same run pinning as the HTML export — render the runs the deck used.
+    items = resolve_items(topics, run_ids=state.get("run_ids") or {})
     blob = build_topic_report_docx(items, period_label=period_label, period=period)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     return blob, period_label, included_topics, None, []
