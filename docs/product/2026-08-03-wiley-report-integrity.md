@@ -70,9 +70,10 @@ the claim and the artifact. No new competitor claim — this is credibility defe
 
 - The grounding checks run on the executive letter; scenario prose in the topic reports relies
   on prompt rules plus the cleaned corpus, without a deterministic per-sentence check.
-- A deck and an HTML report exported at different times can still come from different runs —
-  the mismatch is now visible on both artifacts, but not prevented. Preventing it needs a
-  per-build snapshot.
+- Closed later the same day: exports are now pinned to the analysis runs the deck was built
+  from, so a deck and an HTML report of the same period always describe the same analysis.
+  Reports generated before today fall back to the old behaviour, with the run IDs printed so
+  a mismatch is visible.
 - The relevance screen errs toward keeping borderline articles and can wrongly drop an
   occasional relevant one (one of 15 drops in testing).
 - The existing Q3 files were generated before these fixes and stay wrong until regenerated.
