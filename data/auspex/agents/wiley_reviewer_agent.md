@@ -70,6 +70,27 @@ For each artefact, evaluate against ALL these criteria:
    - **Label**: human-readable Title Case naming the cluster's concrete dynamic. A keyword-salad label like `"ukraine, drug, generic"` (comma-separated lowercase tokens) is an `error` — the upstream LLM labeler must have failed open. Generic labels like "Industry Updates" are `warning`.
    - **Article coherence**: do the cluster's sample articles share the dynamic the label claims? If a cluster about "Pharma Patent Disputes" includes an unrelated headline (e.g. a Ukraine robot-war article in a Patent Cliffs assessment), flag as `error` so the off-topic article gets pruned before the deck ships. Use `artefact_key` like `"Patent Cliffs.surprises[2]"` and name the offending article in `finding`.
 
+9. **Delivery checklist** (each of these caught a real defect in a shipped draft —
+   full list in `docs/REPORT_REVIEW_CHECKLIST.md`):
+   - **Internal names in prose** — the letter or any artefact naming an internal
+     field, file or structure ("events_by_topic", "scenario event file", "records
+     supplied", "payload", "raw_output") = `error`. The reader must never learn
+     what the inputs are called or that any input was empty.
+   - **Tail-risk consistency** — if `eos_per_topic` contains ANY scenarios, the
+     letter must not claim no tail-risk scenarios exist; it should name the
+     highest-impact one. A denial while cards exist = `error`.
+   - **Coverage-gap framing** — describing tracked scenarios as having "missing",
+     "absent" or "unconfirmed" events = `warning`; the required framing is that
+     scenarios are still developing/evolving.
+   - **Customer's own entities as third parties** — listing an organisation the
+     customer owns or formerly owned (for Wiley: Hindawi) as an unrelated third
+     party facing problems = `error`.
+   - **Unsupported inference** — a citation whose source does not actually
+     support the claim made on it (e.g. a corporate-video funding round cited as
+     evidence of fake reviewer identities) = `error`.
+   - **Past deadlines** — a decision fork, action window or deadline already in
+     the past relative to the period label = `warning`.
+
 ## Severity definitions
 
 `error` BLOCKS the whole deck from shipping, so reserve it for genuine,

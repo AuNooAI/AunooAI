@@ -95,6 +95,16 @@ final team-slide credentials, zero lint findings. Emailed as replacements for th
 versions (which predated the credential and figure corrections); copies at
 `/home/orochford/Wiley_Horizons_Topic_Report_Q3_2026.{pptx,html}` next to the letter.
 
+### The review checklist is embedded in the solution
+Three layers, one list (`docs/REPORT_REVIEW_CHECKLIST.md`, new): the release lint enforces
+the deterministic items, the LLM reviewer's rubric gains rule 9 with the five judgment
+checks it has the data for (internal names in prose = error; tail-risk denial while
+`eos_per_topic` has cards = error; coverage-gap framing = warning; customer's own entities
+listed as third parties = error; unsupported inference = error; past deadlines = warning),
+and the doc records the human-only steps (read as the customer, credentials exactness,
+disposition every lint finding). Also saved as a session memory for future work. Reviewer
+agent verified drift-free on both tenants before copying.
+
 ### The generation workflow now
 One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
 screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,
