@@ -518,11 +518,12 @@ def _add_intro_team_slide(prs):
                  "the same adversarial patterns behind paper mills, fabricated "
                  "reviewers and citation fraud."),
                 ("BACKGROUND",
-                 "Research Director: Gartner, Securonix, Tenable · "
-                 "Cybersecurity leadership: HP, Verizon"),
+                 "Former Gartner Research Director · Security research: "
+                 "Securonix, Tenable · Cybersecurity leadership: HP, Verizon"),
                 ("SELECT WORK",
-                 "Defined the SOAR product category (Gartner) · Quantifying the "
-                 "Attacker's First-Mover Advantage · 266 Google Scholar citations"),
+                 "Authored Gartner Magic Quadrants for SIEM · Named the SOAR "
+                 "market · Quantifying the Attacker's First-Mover Advantage · "
+                 "266 Google Scholar citations"),
             ],
         },
         {
