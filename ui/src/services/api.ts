@@ -563,45 +563,27 @@ export async function getOrganizationalProfile(
 }
 
 /**
- * Get available AI models
+ * Get available AI models for the foresight dropdown.
+ *
+ * Use /api/trend-convergence/models, not /api/available_models. The latter
+ * returns every litellm alias (~two dozen gpt-*, gemini-*, mixtral-*,
+ * claude-*-latest), all of which collapse onto the same handful of Bedrock
+ * models — so the dropdown filled with duplicates under wrong vendor names.
+ * The trend-convergence endpoint returns only the distinct real models,
+ * already shaped as {id, name, context_limit}.
  */
 export async function getAvailableModels(): Promise<AIModel[]> {
   try {
-    // Use the main available_models endpoint like other templates
-    const models = await fetchWithAuth<Array<{name: string; provider: string}>>(`${API_BASE_URL}/api/available_models`);
-
-    // Transform to AIModel format with context limits
-    const contextLimits: Record<string, number> = {
-      'gpt-3.5-turbo': 16385,
-      'gpt-4': 8192,
-      'gpt-4-turbo': 128000,
-      'gpt-4o': 128000,
-      'gpt-4o-mini': 128000,
-      'gpt-4.1': 1000000,
-      'gpt-4.1-mini': 1000000,
-      'gpt-4.1-nano': 1000000,
-      'claude-3-opus': 200000,
-      'claude-3-sonnet': 200000,
-      'claude-3-haiku': 200000,
-      'claude-3.5-sonnet': 200000,
-      'claude-4': 200000,
-      'gemini-pro': 32768,
-      'gemini-1.5-pro': 2097152,
-      'default': 128000
-    };
-
-    return models.map(model => ({
-      id: model.name,
-      name: `${model.name} (${model.provider})`,
-      context_limit: contextLimits[model.name] || contextLimits.default
-    }));
+    return await fetchWithAuth<AIModel[]>(`${API_BASE_URL}/api/trend-convergence/models`);
   } catch (error) {
     console.error('Error fetching models:', error);
-    // Return fallback models
+    // Same list the endpoint serves, so a failed fetch does not resurrect aliases.
     return [
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini (openai)', context_limit: 128000 },
-      { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini (openai)', context_limit: 1000000 },
-      { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (anthropic)', context_limit: 200000 },
+      { id: 'bedrock-claude-sonnet', name: 'Claude Sonnet 4.5', context_limit: 200000 },
+      { id: 'bedrock-claude-haiku', name: 'Claude Haiku 4.5', context_limit: 200000 },
+      { id: 'nova-pro', name: 'Nova Pro', context_limit: 300000 },
+      { id: 'nova-lite', name: 'Nova Lite', context_limit: 300000 },
+      { id: 'bedrock-kimi-k2-5', name: 'Kimi K2.5', context_limit: 256000 },
     ];
   }
 }
