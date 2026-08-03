@@ -133,7 +133,6 @@ src/components/newsfeed/HighlightsSection.tsx: error TS2339: Property 'split' do
 src/components/newsfeed/HighlightsSection.tsx: error TS2440: Import declaration conflicts with local declaration of 'ArticleLink'.
 src/components/newsfeed/HighlightsSection.tsx: error TS2440: Import declaration conflicts with local declaration of 'TimelineRuler'.
 src/components/newsfeed/NarrativeThemeCard.tsx: error TS2339: Property 'publication_date' does not exist on type 'RelatedArticle'.
-src/components/newsfeed/NewsFeedHeader.tsx: error TS2322: Type '"72h"' is not assignable to type 'DateRange'.
 src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'name' does not exist on type 'string'.
 src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'news_source' does not exist on type 'IncidentArticle'.
 src/components/newsfeed/SavedIncidentsSection.tsx: error TS2339: Property 'news_source' does not exist on type 'IncidentArticle'.

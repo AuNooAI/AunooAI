@@ -8,7 +8,7 @@ import { extractErrorMessage } from './api';
 // Types matching backend schemas
 export type BiasRating = 'left' | 'left-center' | 'center' | 'right-center' | 'right' | 'mixed';
 export type FactualityRating = 'very-high' | 'high' | 'mostly-factual' | 'mixed' | 'low' | 'very-low';
-export type DateRange = '24h' | '7d' | '30d' | '3m' | '1y' | 'all';
+export type DateRange = '24h' | '72h' | '7d' | '30d' | '3m' | '1y' | 'all';
 export type Persona = 'CEO' | 'CMO' | 'CTO' | 'CISO';
 
 export interface ArticleSource {

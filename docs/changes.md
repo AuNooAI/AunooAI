@@ -167,9 +167,24 @@ its file and line and exited 1. Both edits were reverted; `git status ui/src` is
 
 Today's model-picker changes type-check clean. The errors in files touched today
 (`NewsFeedHeader.tsx`, `NewsletterTuneModal.tsx`, `api.ts`, `newsFeedApi.ts`,
-`useNarrativeExplorer.ts`) are all pre-existing and all in the baseline. One is worth a look
-later: `NewsFeedHeader.tsx:46` defaults a date range to `"72h"`, which is not a member of
-`DateRange`. Not touched.
+`useNarrativeExplorer.ts`) are all pre-existing and all in the baseline.
+
+### First baseline error paid off: `72h` was missing from `DateRange`
+The new check's first finding. `NewsFeedHeader.tsx:46` offers "Last 72 hours" in the date-range
+dropdown, but `DateRange` in **`ui/src/services/newsFeedApi.ts`** listed only
+`24h | 7d | 30d | 3m | 1y | all`.
+
+The option was not broken — it was untyped. The backend understands `72h`
+(`news_feed_service.py:85` and `:196`, `news_feed_routes.py:1358`, `:1456`, `:2636`), and
+`useArticleSearch.ts:44` already sends it. So the fix is to add `'72h'` to the union rather
+than remove the option.
+
+Baseline is now 246. The rebuild produced byte-identical assets, which is expected for a
+type-only change and means no tenant needed re-syncing.
+
+One related backend gap, found while checking and **not** fixed: the chronological branch at
+`news_feed_routes.py:329` has no `72h` case, so it falls through to its 7-day default. Every
+other date-range branch handles it. Out of scope for a type fix.
 
 ### Not fixed — a stale modulepreload in `pam_react.html`
 `templates/pam_react.html:34` preloads `usePAM-zQ3fJmWy.js`, which does not exist; the built
