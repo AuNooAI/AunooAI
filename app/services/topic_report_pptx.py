@@ -697,29 +697,53 @@ def _add_intro_monitor_slide(prs, db=None):
     static copy — different tenants have different scopes.
     """
     rows: list = []
+    collected_total = 0
     if db is not None:
         try:
             from sqlalchemy import text as sa_text
+            # Count ANALYSED articles, not collected ones. The relevance gate
+            # rejects most of what the collectors bring in before the AI
+            # analysis step, and those rows keep the topic but never get a
+            # category or sentiment. Counting them overstated coverage ~4x
+            # overall and ~30x on the worst topic, and contradicted the
+            # per-topic provenance slide, which reports the analysed figure.
             res = db.facade._execute_with_rollback(sa_text("""
-                SELECT a.topic, COUNT(*) AS articles
+                SELECT a.topic,
+                       COUNT(*) FILTER (
+                           WHERE a.category IS NOT NULL AND a.sentiment IS NOT NULL
+                       ) AS analysed,
+                       COUNT(*) AS collected
                 FROM articles a
                 WHERE a.topic IS NOT NULL AND a.topic <> ''
                 GROUP BY a.topic
-                ORDER BY articles DESC
+                HAVING COUNT(*) FILTER (
+                           WHERE a.category IS NOT NULL AND a.sentiment IS NOT NULL
+                       ) > 0
+                ORDER BY analysed DESC
                 LIMIT 18
             """)).fetchall()
             for r in res:
                 rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
-                rows.append((rd["topic"], int(rd["articles"])))
+                rows.append((rd["topic"], int(rd["analysed"])))
+                collected_total += int(rd["collected"])
         except Exception as e:
             logger.warning("intro monitor: topic-count query failed: %s", e)
     total = sum(c for _, c in rows)
 
+    # Both numbers, so the ratio is the reader's to see rather than a claim
+    # they have to take on trust.
+    if rows and collected_total:
+        subtitle = (f"{len(rows)} topics  ·  {total:,} articles analysed "
+                    f"of {collected_total:,} collected")
+    elif rows:
+        subtitle = f"{len(rows)} topics  ·  {total:,} articles analysed"
+    else:
+        subtitle = "Continuous topic coverage."
+
     slide = _intro_full_bleed_navy(
         prs, eyebrow="COVERAGE",
         title="What We Monitor",
-        subtitle=(f"{len(rows)} topics  ·  {total:,} articles analysed"
-                  if rows else "Continuous topic coverage."),
+        subtitle=subtitle,
     )
     if not rows:
         return

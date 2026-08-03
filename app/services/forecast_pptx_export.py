@@ -964,12 +964,59 @@ def _add_surprises_divider(prs, surprises: list):
           color=SLATE_MID)
     if surprises:
         rank = "\n".join(
-            f"  {s.get('size') or 0} articles   ·   {_truncate(s.get('label') or '(unlabelled)', 80)}"
-            for s in sorted(surprises, key=lambda s: -(s.get("size") or 0))[:6]
+            f"  {_theme_size_label(s)}   ·   {_truncate(s.get('label') or '(unlabelled)', 80)}"
+            for s in sorted(surprises, key=_theme_rank)[:6]
         )
         _text(slide, x=0.5, y=3.5, w=sw-1.0, h=1.5, text=rank,
               font_size=11, color=SLATE_BLACK, line_spacing=1.35)
     _add_brand_footer(slide, slide_label="Emerging Themes")
+
+
+def _theme_stories(sur: dict) -> int:
+    """Distinct stories in a theme, falling back to the row count.
+
+    ``distinct_stories`` is written by the current assessment service; older
+    stored assessments do not have it, so they keep reading as before.
+    """
+    return int(sur.get("distinct_stories") or sur.get("size") or 0)
+
+
+def _theme_rank(sur: dict):
+    """Sort key: distinct stories first, rows as a tiebreak."""
+    return (-_theme_stories(sur), -int(sur.get("size") or 0))
+
+
+def _theme_size_label(sur: dict) -> str:
+    """"N articles", or "N articles (M stories)" when syndication inflates N.
+
+    A wire piece republished by a dozen local outlets is a dozen rows and one
+    story; saying only "12 articles" implies twelve independent sources.
+    """
+    size = int(sur.get("size") or 0)
+    stories = int(sur.get("distinct_stories") or 0)
+    if stories and stories < size:
+        return f"{size} articles ({stories} {'story' if stories == 1 else 'stories'})"
+    return f"{size} articles"
+
+
+def _dedupe_by_title(samples: list) -> list:
+    """Drop syndicated repeats from a sample list, preserving order.
+
+    Belt and braces: the assessment service already dedupes when it builds a
+    cluster, but assessments stored before that change still carry five copies
+    of one headline.
+    """
+    import re as _re
+    seen, out = set(), []
+    for a in samples or []:
+        t = (a.get("title") or "").strip().lower()
+        key = " ".join(_re.sub(r"[^a-z0-9]+", " ", t).split())[:120]
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(a)
+    return out
 
 
 def _add_surprise_cluster_slide(prs, sur: dict):
@@ -1008,10 +1055,10 @@ def _add_surprise_cluster_slide(prs, sur: dict):
               font_size=10, italic=True, color=SLATE_MID, line_spacing=1.25)
         y += 1.55
 
-    samples = sur.get("sample_articles") or []
+    samples = _dedupe_by_title(sur.get("sample_articles") or [])
     if samples:
         _text(slide, x=1.9, y=y, w=7.9, h=0.25,
-              text=f"SAMPLE ARTICLES ({min(len(samples), 5)} of {size})",
+              text=f"SAMPLE ARTICLES ({min(len(samples), 5)} of {_theme_size_label(sur)})",
               font_size=8, bold=True, color=SLATE_LIGHT)
         y2 = y + 0.32
         for art in samples[:5]:

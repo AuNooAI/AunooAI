@@ -2,6 +2,109 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (later still) — four defects found by reading the generated deck
+
+### Goal
+The Q3 2026 topic report was re-run and read end to end. Four problems in the output, none of
+which any test would have caught, because they are all about what the slides claim rather than
+whether they render.
+
+### "What We Monitor" counted collected articles and called them analysed
+**`app/services/topic_report_pptx.py`**, slide 8. The query was `COUNT(*)` per topic, labelled
+"articles analysed". Those are collected counts, and the relevance gate rejects most of what the
+collectors bring in before any AI analysis runs.
+
+The overstatement was 4x overall — 623,027 claimed against 151,812 actually analysed — and far
+worse per topic: Scientific Publishers – General Monitoring showed 37k against 1,207 analysed
+(3.2%), Attacks on Expertise 32k against 2,374 (7.5%). Slide 8 also contradicted slide 12, which
+reports the analysed figure for the same topic and read "90".
+
+Now counts `category IS NOT NULL AND sentiment IS NOT NULL`, drops topics with none, and the
+subtitle carries both numbers — "18 topics · 151,657 articles analysed of 622,532 collected" —
+so the ratio is visible rather than something the reader has to take on trust. The ordering
+changes as a result, honestly: Geopolitical Hotspots (72,367 analysed) now leads instead of AI
+and Machine Learning, and Scientific Publishers drops from third to fifteenth.
+
+### One syndicated story counted as fourteen articles
+**`app/services/forecast_assessment_service.py`**, **`app/services/forecast_pptx_export.py`**.
+An emerging theme read "Misinformation Impact On Cancer Vaccines · 14 articles" and its sample
+list showed the same headline five times. All 14 rows were one Conversation piece republished by
+13 US local papers plus The Hindu, twelve of them ingested inside the same second. Distinct URLs
+and distinct sources, so they are legitimately distinct rows — and a single story.
+
+The cluster builder now computes `distinct_stories` from normalised headlines, samples one
+article per story, and ranks themes by distinct stories rather than row count, so a wire story
+cannot outrank a theme with several independent sources. The renderer shows
+"14 articles (1 story)" when the two differ, and dedupes the sample list itself as well, so
+assessments stored before today display honestly without being regenerated. Themes with no
+syndication read "9 articles" exactly as before.
+
+### The topic divider showed February and May dates on an August deck
+**`app/services/forecast_bundle_pptx.py`**. The divider read "Original forecast 2026-02-16 ·
+Latest assessment 2026-05-22" with no mention that the Three Horizons analysis had been re-run
+that morning. It now leads with the run the deck actually visualises and states how far behind
+the assessment is:
+
+```
+This analysis 2026-08-03  ·  Original forecast 2026-02-16  ·  Latest assessment 2026-05-22 (73d earlier)
+```
+
+The staleness note appears only past 30 days. `_days_between` compares on the date alone, since
+one side is usually timezone-aware and the other is not.
+
+**Not a bug, checked and left alone:** the deck showing the 05-22 assessment when a 05-24 row
+exists. `get_latest_forecast_assessment_by_topic` deliberately skips assessments with no scenario
+verdicts (`database_query_facade.py:8269`), and the 05-24 rows have none.
+
+**Two clocks, two slides apart.** Slide 12's "GENERATED 2026-08-03 10:16" was UTC while slide
+11's dates were local, because `topic_report_service.py` stamped `generated_at` with
+`datetime.utcnow()` — a naive UTC string. All three occurrences now use
+`datetime.now().astimezone()`, so the stamp carries an offset and renders as local time.
+
+### The humanizer had never run on this deck, and would not have caught it anyway
+**`app/services/topic_report_service.py`**, **`app/services/wiley_humanizer.py`**. Two separate
+gaps behind one symptom.
+
+`wiley_humanizer` was imported in exactly one module, `wiley_bundle_supervisor.py`. The
+topic-report path had no reference to it, so its prose went from the model's JSON onto a slide
+unchecked. `WILEY_HUMANIZE` defaults to on and wileytest sets `HUMANIZE_MODEL`, so the
+configuration looked live while being unreachable from this pipeline.
+
+Even wired in it would have passed. Running the detector on the offending slide: the lede scored
+**3 tells** (promotional "unprecedented", two em dashes) and the intelligence view scored **0**,
+against a threshold that only rewrites *above* 3. The detector catches vocabulary and
+punctuation; it does not catch "dual assault", "core value proposition", "the window for
+publishers to act unilaterally is narrowing", the escalating "Critically, …" turn, or the
+rule-of-three list of failing safeguards — which is what actually made it read as slop.
+
+So both ends were fixed. `humanize_text` takes a `threshold` override; the topic-report pass uses
+1 (`REPORT_TELL_THRESHOLD`), because slide prose is two or three sentences and the global default
+of 3 is calibrated for long-form. And the generation prompt gained a Writing rules block that
+bans the specific constructions by name, requires the finding before the explanation, and
+requires every number to carry its meaning in the same sentence. The prompt is the real fix; the
+humanizer is the backstop.
+
+### Verification
+The dedup and label helpers were exercised directly against the real syndication case: 14 rows →
+2 distinct stories → 2 samples, `_theme_size_label` renders "14 articles (2 stories)" and plain
+"9 articles" when nothing is syndicated, legacy rows without `distinct_stories` are unchanged,
+ranking puts a 9-story theme above a 14-row 1-story one, and a 5-copy legacy sample list
+collapses to 1. `_days_between` returns 73 for the real pair and None for missing or unparseable
+input. The new coverage query was run against wileytest and returns the 18 topics above.
+
+The prompt and humanizer changes are not verifiable without generating a deck, which is a
+customer-facing re-run; they are exercised by the next report rather than proven here.
+
+### Propagation
+Six files copied to wileytest and wiley, both trees identical to each other beforehand and
+differing from canonical only by these changes. `py_compile` clean under both venvs, all three
+services restarted, clean startup. **Live jobs were checked first on both tenants** — zero
+started since process boot — following this morning's incident.
+
+The cached PPTX at `/tmp/topic_report_render_cache/topic_report_Q3_2026__2cec74a7.pptx` predates
+all of this. A re-run with `rerun_forecast` invalidates it; a plain re-request returns the stale
+deck from cache.
+
 ## 2026-08-03 (later) — Auspex was counting rejected articles as missing data
 
 ### Goal

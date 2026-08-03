@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +168,13 @@ def count_tells(text: str) -> int:
 
 async def humanize_text(text: str, *, formality: str = "formal",
                         paragraph_style: str = "preserve",
-                        tone: str = "neutral") -> dict:
+                        tone: str = "neutral",
+                        threshold: Optional[int] = None) -> dict:
     """Rewrite ``text`` to strip AI tells IF it's above threshold.
+
+    ``threshold`` overrides ``HUMANIZE_TELL_THRESHOLD`` for this call. Customer
+    -facing slide prose is short — two or three sentences — so the default of
+    3 lets a passage through that would read as slop at that length.
 
     Returns ``{text, changed, tells_before, tells_after}``. On any failure
     returns the original text unchanged (never blocks report generation).
@@ -181,9 +187,10 @@ async def humanize_text(text: str, *, formality: str = "formal",
         from humanize_mcp.prompts import SYSTEM_PROMPT, build_user_prompt
         from app.ai_models import AIModelFactory
 
+        limit = _THRESHOLD if threshold is None else threshold
         before = detect_ai_tells(text)
         result["tells_before"] = len(before)
-        if len(before) <= _THRESHOLD:
+        if len(before) <= limit:
             return result  # clean enough; don't spend a model call
 
         user_prompt = build_user_prompt(

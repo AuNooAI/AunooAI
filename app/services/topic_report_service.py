@@ -335,6 +335,25 @@ Citation rules:
 - Every recommendation rationale should cite 1-3 articles
 - Every key_insight should cite at least 1 article
 
+Writing rules (this text goes on a slide in front of a publishing executive —
+these are not style preferences, they are requirements):
+- Lead with the finding, then explain it. Never build up to the point.
+- Use the plain word. "AI-generated citations that do not exist" beats
+  "phantom citations infiltrating the research record at industrial scale".
+- Give every number a meaning in the same sentence: "1.4 million papers, about
+  one in forty published since 2020" beats "1.4 million — the scale is no
+  longer anecdotal".
+- Do NOT use: unprecedented, crisis point, at scale, weaponize, dual/twin
+  (assault, threat, challenge), core value proposition, the window is
+  narrowing, existential, seismic, transformative, paradigm.
+- Do NOT open a sentence with Critically, Notably, Importantly, or Crucially.
+  If it matters, the sentence itself must show why.
+- No "not X, but Y" antithesis more than once in the whole response.
+- No three-item lists where the third item exists only for rhythm. Two real
+  items beat three padded ones.
+- Em dashes: at most one per paragraph. Prefer a comma, colon or full stop.
+- No closing sentence that restates what was just said in grander words.
+
 Article references (use these citation numbers):
 {article_refs}
 
@@ -443,7 +462,10 @@ async def generate_executive_summary_for_run(
         logger.warning("exec summary: JSON parse failed — skipping")
         return None
 
-    summary_data["generated_at"] = _dt.utcnow().isoformat()
+    # Offset-aware local time. utcnow() produced a naive UTC string, so a
+    # deck built at 12:16 local stamped itself 10:16 while the dates on the
+    # neighbouring divider slide were local — two clocks, two slides apart.
+    summary_data["generated_at"] = _dt.now().astimezone().isoformat()
     summary_data["topic"] = topic
     summary_data["analysis_id"] = run_id
 
@@ -457,6 +479,61 @@ async def generate_executive_summary_for_run(
         logger.warning("exec summary: facade save failed: %s", e)
 
     return summary_data
+
+
+# Slide prose is short, so a passage can read as slop while sitting at or
+# under the global threshold of 3. The briefing lede that prompted this had
+# exactly 3 tells and sailed through.
+_REPORT_TELL_THRESHOLD = int(os.getenv("REPORT_TELL_THRESHOLD", "1"))
+
+
+async def _humanize_report_prose(raw_output: dict) -> None:
+    """Strip AI tells from the narrative fields of a topic-report run, in place.
+
+    Until now the humanizer was only wired into the Wiley bundle supervisor,
+    so topic-report prose went from the model straight onto a slide with no
+    check at all. Only genuinely narrative fields are rewritten: headlines,
+    scenario titles and imperative phrases are left alone, since rewriting
+    them for rhythm would fight the schema's length limits.
+
+    Best-effort — never blocks report generation.
+    """
+    try:
+        from app.services.wiley_humanizer import humanize_text, humanize_enabled
+    except Exception as e:
+        logger.warning("humanize unavailable for topic report: %s", e)
+        return
+    if not humanize_enabled():
+        return
+
+    brief = raw_output.get("topic_briefing") or {}
+    targets = [
+        (brief, "lede"),
+        (brief, "intelligence_view"),
+    ]
+    for t in (brief.get("tensions") or []):
+        if isinstance(t, dict):
+            targets.append((t, "body"))
+    for r in (raw_output.get("strategic_recommendations") or []):
+        if isinstance(r, dict):
+            targets.append((r, "rationale"))
+
+    rewritten = 0
+    for holder, key in targets:
+        cur = holder.get(key)
+        if not isinstance(cur, str) or not cur.strip():
+            continue
+        try:
+            res = await humanize_text(cur, threshold=_REPORT_TELL_THRESHOLD)
+        except Exception as e:
+            logger.warning("humanize failed on %s: %s", key, e)
+            continue
+        if res.get("changed"):
+            holder[key] = res["text"]
+            rewritten += 1
+    if rewritten:
+        logger.info("humanize: rewrote %d/%d topic-report prose fields",
+                    rewritten, len(targets))
 
 
 async def _rerun_future_horizons_for_topic(
@@ -603,16 +680,18 @@ async def _rerun_future_horizons_for_topic(
             "topic_label": topic,
             "articles_analyzed": len(article_rows),
             "model_used": model,
-            "generated_at": _dt.utcnow().isoformat(),
+            "generated_at": _dt.now().astimezone().isoformat(),
             "analysis_type": "topic_report_rerun",
         },
         "articles_analyzed":      len(article_rows),
         "total_articles_found":   len(article_rows),
         "model_used":             model,
-        "generated_at":           _dt.utcnow().isoformat(),
+        "generated_at":           _dt.now().astimezone().isoformat(),
         "persona":                "executive",
         "timeframe_days":         180,
     }
+    await _humanize_report_prose(raw_output)
+
     db.facade.save_future_horizons_analysis(
         analysis_id=run_id,
         user_id=None,

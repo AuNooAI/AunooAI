@@ -987,14 +987,15 @@ def _cluster_with_hdbscan(articles: list[dict]) -> list[dict]:
         cluster_articles = [by_uri[u] for u in uri_list if u in by_uri]
         out.append({
             "size": len(cluster_articles),
+            # Rows minus syndicated repeats. A theme whose rows are one story
+            # republished by 13 local papers is not a 14-article theme.
+            "distinct_stories": _distinct_stories(cluster_articles),
             "label": _keyword_label([a.get("title", "") for a in cluster_articles]),
-            "sample_articles": [
-                {"uri": a.get("uri") or a.get("id"),
-                 "title": a.get("title"),
-                 "date": a.get("submission_date") or a.get("publication_date")}
-                for a in cluster_articles[:5]
-            ],
+            "sample_articles": _dedupe_samples(cluster_articles),
         })
+    # Rank by distinct stories so a single wire story cannot outrank a theme
+    # that genuinely has several independent ones.
+    out.sort(key=lambda c: (-(c.get("distinct_stories") or 0), -(c.get("size") or 0)))
     return out
 
 
@@ -1075,17 +1076,52 @@ async def _label_clusters_with_llm(topic: str, clusters: list[dict]) -> list[dic
     return out
 
 
+def _story_key(title: str) -> str:
+    """Normalised headline, for collapsing syndicated copies of one story.
+
+    Wire and Conversation pieces get republished verbatim by dozens of local
+    outlets under the same headline and different URLs, so they are distinct
+    rows but a single story. Counting the rows made a one-article theme look
+    like a fourteen-article one and filled the sample list with the same
+    headline five times.
+    """
+    import re as _re
+    t = (title or "").strip().lower()
+    t = _re.sub(r"[‘’“”'\"]", "", t)
+    t = _re.sub(r"[^a-z0-9]+", " ", t)
+    return " ".join(t.split())[:120]
+
+
+def _dedupe_samples(articles: list[dict], limit: int = 5) -> list[dict]:
+    """Up to ``limit`` sample articles, one per distinct story."""
+    seen: set = set()
+    out: list[dict] = []
+    for a in articles:
+        key = _story_key(a.get("title") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append({"uri": a.get("uri") or a.get("id"),
+                    "title": a.get("title"),
+                    "date": a.get("submission_date") or a.get("publication_date")})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _distinct_stories(articles: list[dict]) -> int:
+    """Distinct headlines in a cluster, ignoring syndicated repeats."""
+    return len({_story_key(a.get("title") or "") for a in articles if a.get("title")})
+
+
 def _cluster_keyword_fallback(articles: list[dict]) -> list[dict]:
     """No-cluster fallback: just label the residual as one bucket."""
     return [{
         "size": len(articles),
+        "distinct_stories": _distinct_stories(articles),
         "label": _keyword_label([a.get("title", "") for a in articles]),
-        "sample_articles": [
-            {"uri": a.get("uri") or a.get("id"),
-             "title": a.get("title"),
-             "date": a.get("submission_date") or a.get("publication_date")}
-            for a in articles[:5]
-        ],
+        "sample_articles": _dedupe_samples(articles),
         "note": "Unclustered residual — install hdbscan or scikit-learn for clustering",
     }]
 
