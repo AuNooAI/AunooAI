@@ -31,6 +31,11 @@ _CONFIG_LEAK_RES = [
     _re.compile(r"\bPERSONA\b"),
     _re.compile(r"\bCORPUS SCANNED\b"),
     _re.compile(r"\b(?:bedrock-[a-z0-9.\-]+|nova-(?:lite|pro)|litellm)\b"),
+    # Internal payload/field names narrated into customer prose — the Q3
+    # letter wrote "With no events_by_topic records supplied" because the
+    # agent's instructions name the field.
+    _re.compile(r"\b(?:events_by_topic|raw_output|per_topic_detail|"
+                r"briefing_lede|eos_per_topic|scenario event file)\b"),
 ]
 
 # The invented-consensus shapes prompt v3 abolished.

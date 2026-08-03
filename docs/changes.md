@@ -63,6 +63,22 @@ supervisor when the topic had no forecast assessment) was replaced in the assess
 with the pinned run's real briefing so it cannot surface in future payloads. The four info
 findings are stylistic (cross-cutting themes naming two topics).
 
+### The letter narrated its own plumbing — final rebuild
+Reading the sent letter as the customer would surfaced one more instruction-copying case:
+"With no events_by_topic records supplied" and "the scenario event file has no confirming
+events yet" — internal payload names in customer prose, there because the agent's own
+instructions name the field. Fixes: a hard rule in `wiley_exec_summary_agent.md` (never name
+an internal field or narrate missing inputs; phrase the events-gap in customer terms, with
+the phrasing supplied), and the release lint now flags internal key names (`events_by_topic`,
+`raw_output`, `per_topic_detail`, `briefing_lede`, `eos_per_topic`, "scenario event file")
+in any artifact. Synthesis and review rows reset, pipeline re-run END TO END including a
+fresh reviewer pass (not skipped this time): **approved_with_warnings, 0 errors, 9 warnings,
+1 info**. Final letter audit clean on all axes — no internal keys, no orphan figures, no
+Hindawi-class names, no consensus %, no verdict vocabulary, zero Bedrock fallbacks, and the
+bottom line now reads "The quarter's pressure appears in reporting but has not yet produced
+confirmed, named events in the scenarios we track." Final DOCX emailed (Resend `efec16d8`,
+replacing `ed647222`), copy at `/home/orochford/Wiley_Horizons_Executive_Summary_Q3_2026.docx`.
+
 ### The generation workflow now
 One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
 screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,

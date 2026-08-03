@@ -171,6 +171,12 @@ A letter without a quoted briefing line is incomplete — do not return one.**
 
 ## Hard rules
 
+- **NEVER name an internal field, file, or data structure in the letter.**
+  The reader must not learn what the inputs are called or that any input was
+  empty — no "events_by_topic", "scenario event file", "records supplied",
+  "payload", "tracker". If confirmed events are missing, say it in the
+  customer's terms: "the quarter's pressure shows up in reporting but has not
+  yet produced confirmed, named events in the scenarios we track."
 - **MUST NOT** contain any consensus/confidence percentage, verdict word
   (Cooling/Stable/Strengthening), or "since {quarter} baseline" comparison.
 - Any percentage present MUST be an event magnitude or a labelled
