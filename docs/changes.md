@@ -2,6 +2,85 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 — the foresight model dropdown was never fixed, only the endpoint nobody calls — `cbf5091a`
+
+### Goal
+wileytest's Anticipate page was still offering two dozen models in its dropdown, most of them
+duplicates under the wrong vendor name. That was supposed to have been fixed on 30 July by
+`1ddef137`. It looked like a regression.
+
+### It was never a regression — the fix landed on an unused endpoint
+`1ddef137` rewrote `GET /api/trend-convergence/models` to return the 5 distinct Bedrock models
+instead of every litellm alias. That endpoint works, on every tenant:
+
+```
+curl http://127.0.0.1:10002/api/trend-convergence/models   # wileytest
+→ 5 entries: Claude Sonnet 4.5, Claude Haiku 4.5, Nova Pro, Nova Lite, Kimi K2.5
+```
+
+Nothing calls it. The foresight page's React hook (`ui/src/hooks/useTrendConvergence.ts:176`)
+gets its list from `getAvailableModels` in `ui/src/services/api.ts`, and that function fetched
+`/api/available_models` — the raw litellm alias list. On wileytest that returns **23 entries**,
+of which 7 are `gpt-*` names resolving to `claude-haiku-4-5` and 5 more resolving to
+`claude-sonnet-4-5`.
+
+The shipped bundle confirms it. `static/trend-convergence/assets/main-tSf9t5Zg.js` (the file
+`templates/trend_convergence_react.html` loaded until today) contains 6 occurrences of
+`api/available_models` and **zero** of `trend-convergence/models`. No deployed bundle anywhere
+under `static/` on wileytest referenced the fixed endpoint.
+
+So the July verification — curling the endpoint and counting 5 models — proved the endpoint,
+not the dropdown. The dropdown had never changed.
+
+### The fix — point the frontend at the endpoint that was already correct
+**`ui/src/services/api.ts`**. `getAvailableModels` now fetches
+`/api/trend-convergence/models`, whose response is already `{id, name, context_limit}`, so no
+transform is needed. The old code's `contextLimits` lookup table and its OpenAI/Anthropic
+fallback list both went away; the fallback is now the same 5 models, so a failed fetch cannot
+put aliases back on screen.
+
+Blast radius is one page. Only `useTrendConvergence` imports this function — the newsfeed,
+gather and narrative-explorer services each have their own `getAvailableModels` hitting
+`/api/available_models`, and those are untouched. Their dropdowns still show the full alias
+list, which is a separate open item (see below).
+
+### Verification
+Built with `./ui/deploy-react-ui.sh`. The new chunk carrying `api.ts` is
+`assets/index-BWmuoqcd.js`, and it is the only asset containing `trend-convergence/models`:
+
+```
+grep -rl "trend-convergence/models" static/trend-convergence/assets/
+→ static/trend-convergence/assets/index-BWmuoqcd.js
+```
+
+`templates/trend_convergence_react.html` now loads `main-CNXurXiG.js` with
+`index-BWmuoqcd.js` preloaded. Both wileytest (:10002) and wiley (:10006) serve the new chunk:
+`GET /static/trend-convergence/assets/index-BWmuoqcd.js` → 200 on each.
+
+### Propagation
+Built in canonical (bugfixing), then `rsync -a static/trend-convergence/` plus a copy of the
+six react templates to wileytest and wiley. Before copying, every template diff against
+canonical was checked and contained nothing but asset-hash lines, so no tenant-local template
+content was overwritten.
+
+No service was restarted on either prod tenant. Nothing server-side changed, the templates
+have `auto_reload = True`, and static assets are read from disk, so a restart would only have
+cost a blip. Users on the old bundle pick the new one up on a hard refresh.
+
+wbm has no foresight page and was not touched. saasmvp-app has its own frontend and is
+unaffected.
+
+### Lessons
+**Verify the surface the user sees, not the endpoint you edited.** `1ddef137` was verified by
+curling its own route, which will always agree with the code you just wrote. One `grep` of the
+deployed bundle for the endpoint name would have caught this on 30 July, and instead the wrong
+dropdown stayed up for four days across two prod tenants.
+
+**`/api/available_models` is the raw alias list and should be assumed wrong for any user-facing
+picker.** It returns every `model_list` entry in `litellm_config.yaml` whose API key is set —
+23 on wileytest, collapsing onto 5 real models. Four other dropdowns (newsfeed agent creation,
+emerging topics, gather group settings, gather auto-collect) still read it directly.
+
 ## 2026-08-02 — every monolith tenant moved to the local 768-d encoder (and a four-week wbm outage found on the way)
 
 ### Goal
