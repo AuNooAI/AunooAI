@@ -62,5 +62,7 @@ checklist). Credibility defence, not a new competitor claim.
   dispositions these.
 - The AI reviewer over-flags some allowed constructs (about 9 advisory warnings on a clean
   letter in testing, zero errors); its findings need the human pass, by design.
-- The gate covers the Wiley Horizons report pipeline. Other document pipelines (Brand
-  Watcher incident reports, newsletters) do not have it yet.
+- Closed later the same day: the gate now also covers Brand Watcher's customer outputs —
+  digest emails, alert emails, incident report summaries (checked against their own
+  evidence), and emailed account reports — on every site that sends them. Newsletters
+  remain uncovered.
