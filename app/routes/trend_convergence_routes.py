@@ -3525,6 +3525,9 @@ async def generate_horizons_executive_summary(
             {
                 "topic": request.topic,
                 "scenarios_json": scenarios_json,
+                # Anchors decision forks / action windows to today, so the
+                # model can't name a deadline that already passed.
+                "today": datetime.now().date().isoformat(),
                 "organizational_profile": organizational_profile
             }
         )

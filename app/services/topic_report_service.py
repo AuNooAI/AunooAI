@@ -264,8 +264,19 @@ def _build_topic_report_prompt(topic: str, article_rows: list) -> str:
         article_summary_lines.append(" · ".join(bits))
     article_summary = "\n".join(article_summary_lines)
 
+    # Horizon years are anchored to TODAY, not baked into the prompt. The
+    # hard-coded "2025-2040" produced a Q3 2026 report whose H1 window had
+    # already started and whose chart labelled 2025 as "Present".
+    from datetime import date as _date
+    _y0 = _date.today().year
+    _yq = f"Q{(_date.today().month - 1) // 3 + 1} {_y0}"
+
     return f"""You are a strategic foresight expert producing a forward-looking
 report on "{topic}" for a scientific-publisher executive audience.
+
+TODAY IS {_date.today().isoformat()} ({_yq}). Everything you write is read as
+a forecast made now. Never propose a deadline, decision point or action window
+that has already passed; the earliest date you may name is {_y0}.
 
 AUDIENCE CONSTRAINT: every strategic_recommendation, next_step, and executive_decision_framework principle must be an action a scientific publisher can actually take within its own remit (editorial, commissioning, portfolio, licensing, research-integrity, partnership, or communication decisions). Never recommend actions for governments, regulators, funders, health authorities, or other third parties the publisher does not control; if the topic involves a crisis the publisher cannot act on directly, frame the action as how the publisher should respond within its remit, not how the crisis itself should be managed.
 
@@ -290,7 +301,7 @@ Output schema (strict):
       "type": "h1" | "h2" | "h3",
       "title": "<short scenario name, max 12 words>",
       "description": "<2-3 sentences with [n] citations to the article references>",
-      "timeframe": "<year-year, within 2025-2040>",
+      "timeframe": "<year-year, within {_y0}-{_y0 + 15}>",
       "sentiment": "Positive" | "Negative" | "Mixed" | "Neutral" | "Mixed/Positive" | "Critical/Neutral" | "Negative/Disruptive" | "Trend/Evolution" | "Breakthrough" | "Disruption/Warning" | "Warning/Disruption"
     }}
   ],
@@ -323,7 +334,7 @@ Output schema (strict):
 Required quantities and structure:
 - topic_briefing.tensions: EXACTLY 3-4 defining tensions
 - scenarios: 12-14 total → 4-5 H1 (declining), 4-5 H2 (transition), 3-4 H3 (future vision)
-  H1 timeframes 2025-2032 · H2 timeframes 2027-2037 · H3 timeframes 2033-2040
+  H1 timeframes {_y0}-{_y0 + 7} · H2 timeframes {_y0 + 2}-{_y0 + 12} · H3 timeframes {_y0 + 8}-{_y0 + 15}
 - strategic_recommendations: EXACTLY 3 (one per horizon: 0-6 / 6-18 / 18+ months)
 - key_insights: 4-5 distinct observations grounded in the article set
 - next_steps: EXACTLY 3 prioritised actions
@@ -334,15 +345,28 @@ Citation rules:
 - Every scenario description should cite 2-4 articles
 - Every recommendation rationale should cite 1-3 articles
 - Every key_insight should cite at least 1 article
+- One bracket per article. Write "[44][52]", never "[44, 52]".
+
+Rules for figures (a wrong number here goes to the customer as fact):
+- Only state a figure that appears in one of the numbered articles below, and
+  put its citation in the same sentence.
+- Copy the unit exactly as the source wrote it. "1.4L" and "1.5 lakh" mean
+  140,000 and 150,000, not 1.4 million. "crore" is 10 million. If a source
+  uses a unit you are not certain of, leave the figure out.
+- Never restate a figure in a unit the source did not use, and never convert
+  a count into a rate ("one in forty") unless the source states that rate.
+- When the articles disagree on a figure, say so and name both, or use the
+  peer-reviewed source and drop the aggregator. Do not present a contested
+  number as settled.
 
 Writing rules (this text goes on a slide in front of a publishing executive —
 these are not style preferences, they are requirements):
 - Lead with the finding, then explain it. Never build up to the point.
 - Use the plain word. "AI-generated citations that do not exist" beats
   "phantom citations infiltrating the research record at industrial scale".
-- Give every number a meaning in the same sentence: "1.4 million papers, about
-  one in forty published since 2020" beats "1.4 million — the scale is no
-  longer anecdotal".
+- Give every number a meaning in the same sentence: "AUC 0.478, no better than
+  a coin toss" beats "AUC 0.478 — the signal is weak". Use a figure from THIS
+  article set for the meaning, never one carried over from an example.
 - Do NOT use: unprecedented, crisis point, at scale, weaponize, dual/twin
   (assault, threat, challenge), core value proposition, the window is
   narrowing, existential, seismic, transformative, paradigm.
@@ -403,6 +427,9 @@ async def generate_executive_summary_for_run(
         {
             "topic": topic,
             "scenarios_json": scenarios_json,
+            # Without this the model has no idea what quarter it is, and
+            # writes decision forks with deadlines already in the past.
+            "today": _dt.now().date().isoformat(),
             "organizational_profile": (
                 "Wiley — global academic publisher. Scientific publishing, "
                 "research integrity, open science, peer review at scale."
@@ -588,6 +615,18 @@ async def _rerun_future_horizons_for_topic(
             )
     except Exception as e:
         logger.warning("rerun horizons: article fetch failed for %s: %s", topic, e)
+    # Corpus hygiene BEFORE numbering — the numbered list the model sees is
+    # the list we persist and the list every export cites, so it has to
+    # happen here, not at render time. Three steps:
+    #   1. drop blocked publishers (misinformation sites are not evidence)
+    #   2. drop syndicated duplicates (one story counted five times)
+    #   3. cheap LLM yes/no screen — ``topic_alignment_score`` saturates at
+    #      the top of its range (43 articles at exactly 1.00 on this topic,
+    #      including plain AI business news), so a threshold cannot help.
+    #      The screen fails open: on any error the corpus passes unchanged.
+    from app.services.report_corpus import filter_report_corpus, screen_corpus_relevance
+    article_rows = filter_report_corpus(article_rows, topic=topic)
+    article_rows = await screen_corpus_relevance(article_rows, topic)
     if not article_rows:
         raise RuntimeError(
             f"No on-topic articles for '{topic}' — can't run Three Horizons."

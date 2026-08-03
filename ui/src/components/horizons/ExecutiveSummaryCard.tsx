@@ -180,11 +180,19 @@ const ExecutiveSummaryCard: React.FC<ExecutiveSummaryCardProps> = ({ summary, in
     ];
 
     if (summary.minority_view) {
-      lines.push(`> *Minority view (${summary.minority_view.percentage_range}):* ${summary.minority_view.statement}`);
+      // percentage_range / consensus_percentage were removed from the prompt
+      // in v3 — the model was inventing them. Only render when present
+      // (older cached cards).
+      const mvPct = summary.minority_view.percentage_range;
+      lines.push(`> *Minority view${mvPct ? ` (${mvPct})` : ''}:* ${summary.minority_view.statement}`);
       lines.push('');
     }
 
-    lines.push(`## Primary Signal (${summary.consensus_percentage}% Consensus)`);
+    lines.push(
+      typeof summary.consensus_percentage === 'number'
+        ? `## Primary Signal (${summary.consensus_percentage}% Consensus)`
+        : '## Primary Signal'
+    );
     lines.push(summary.primary_signal);
     lines.push('');
 
@@ -254,15 +262,17 @@ const ExecutiveSummaryCard: React.FC<ExecutiveSummaryCardProps> = ({ summary, in
             {/* Minority View */}
             {summary.minority_view && (
               <p className="text-sm text-muted-foreground leading-relaxed mt-3 pl-3 border-l-2 border-muted italic">
-                Minority view ({summary.minority_view.percentage_range}): {summary.minority_view.statement}
+                Minority view{summary.minority_view.percentage_range ? ` (${summary.minority_view.percentage_range})` : ''}: {summary.minority_view.statement}
               </p>
             )}
           </div>
 
           {/* Primary Signal Section */}
           <div className="px-5 py-4 border-t border-border">
-            <h3 className={`text-xs font-semibold tracking-wider uppercase mb-2 ${getConsensusColorClass(summary.consensus_percentage)}`}>
-              PRIMARY SIGNAL ({summary.consensus_percentage}% CONSENSUS)
+            <h3 className={`text-xs font-semibold tracking-wider uppercase mb-2 ${typeof summary.consensus_percentage === 'number' ? getConsensusColorClass(summary.consensus_percentage) : 'text-muted-foreground'}`}>
+              {typeof summary.consensus_percentage === 'number'
+                ? `PRIMARY SIGNAL (${summary.consensus_percentage}% CONSENSUS)`
+                : 'PRIMARY SIGNAL'}
             </h3>
             <p className="text-sm leading-relaxed text-foreground">
               {summary.primary_signal}

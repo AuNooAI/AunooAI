@@ -148,11 +148,30 @@ async def ground_check_exec_summary(text: str, named_events: list) -> dict:
 # A quantity worth checking: "14.5%", "1.4 million", "$300 billion", "one in
 # forty". Deliberately no trailing \b — after "%" the next character is usually
 # a space, and \b would never match there.
+#
+# ``lakh`` (100,000), ``L`` after a number, and ``crore`` (10,000,000) are here
+# because Indian-English outlets are in the corpus and their units are the
+# easiest to misread. A source headline reading "1.4L phantom citations" became
+# "1.4 million" in a customer report — a tenfold overstatement that the report
+# then contradicted itself on two paragraphs later.
 _FIGURE_RE = re.compile(
-    r"\$?\d[\d,]*(?:\.\d+)?\s*(?:%|percent|million|billion|trillion)"
+    r"\$?\d[\d,]*(?:\.\d+)?\s*(?:%|percent|million|billion|trillion|lakh|crore)"
+    r"|\$?\d[\d,]*(?:\.\d+)?L\b"
+    # A comma-grouped bare number ("140,000"). Catches the same claim written
+    # out in full instead of with a scale word. Years have no comma, so this
+    # doesn't fire on every date.
+    r"|\$?\d{1,3}(?:,\d{3})+\b"
     r"|\bone in (?:ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|\d+)\b",
     re.IGNORECASE,
 )
+
+# Multipliers used to compare a figure against the same quantity written in a
+# different unit. A plain "%"-style unit has no multiplier and is compared as
+# written, so "1.43%" still cannot satisfy "1.4 million".
+_UNIT_SCALE = {
+    "lakh": 100_000, "l": 100_000, "crore": 10_000_000,
+    "million": 1_000_000, "billion": 1_000_000_000, "trillion": 1_000_000_000_000,
+}
 
 
 def _figure_key(fig: str) -> str:
@@ -162,9 +181,15 @@ def _figure_key(fig: str) -> str:
     "1.4 million" and "300 grants" cannot satisfy "$300 billion". Substring
     matching on the digits alone is what let four invented statistics through
     on 2026-08-03.
+
+    Scale units resolve to an absolute count, so "1.4 lakh" and "140,000" are
+    the same key while "1.4 lakh" and "1.4 million" are not.
     """
     f = fig.lower().replace("$", "").replace(",", "").strip()
     f = re.sub(r"\s+", " ", f)
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([a-z]+)", f)
+    if m and m.group(2) in _UNIT_SCALE:
+        return f"{float(m.group(1)) * _UNIT_SCALE[m.group(2)]:.0f}"
     return f.replace(" percent", "%").replace("percent", "%")
 
 
@@ -274,6 +299,149 @@ async def ground_check_figures(text: str, sources: list, *,
         return out
     except Exception as e:
         logger.warning("ground_check_figures failed: %s", e)
+        return out
+
+
+# Words that start a sentence or head a section and would otherwise look like
+# an organisation name. Not exhaustive — the check only reports names it
+# cannot find in the sources, so a miss here costs a spurious log line, not a
+# wrong edit.
+_ORG_STOPWORDS = {
+    "the", "this", "that", "these", "those", "a", "an", "and", "but", "for",
+    "our", "your", "their", "we", "it", "in", "on", "at", "by", "as", "if",
+    "when", "where", "while", "with", "without", "from", "to", "of", "no",
+    "not", "both", "each", "every", "all", "some", "most", "more", "less",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "q1", "q2", "q3", "q4", "h1", "h2", "h3",
+}
+
+# A run of capitalised words, joined only by "&" or "of". Nothing else
+# bridges: "Springer Nature, Hindawi and Taylor & Francis" must yield three
+# names. An earlier version let "and" join, produced "Hindawi and Taylor",
+# matched that against "Taylor" in the sources, and passed the one name that
+# was actually invented.
+_ORG_RE = re.compile(
+    r"\b[A-Z][A-Za-z.\-']*(?:\s+(?:&|of)\s+[A-Z][A-Za-z.\-']*"
+    r"|\s+[A-Z][A-Za-z.\-']*)*\b"
+)
+
+# Single-word names are kept — "Hindawi" is exactly the case that matters —
+# except where the word merely opens a sentence, which is why the sentence
+# splitter below drops the first token of each sentence when it stands alone.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _org_candidates(text: str) -> dict:
+    """Capitalised names in ``text``, keyed lowercase → as written.
+
+    Keeps single-word names, which is the whole point: an invented
+    organisation usually arrives as one word inside a list of real ones.
+    """
+    out: dict = {}
+    for sentence in _SENTENCE_SPLIT_RE.split(text or ""):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        for m in _ORG_RE.finditer(sentence):
+            name = m.group(0).strip(" .")
+            words = name.split()
+            if not words:
+                continue
+            if all(w.lower() in _ORG_STOPWORDS for w in words):
+                continue
+            # A single capitalised word that opens the sentence is far more
+            # likely a sentence opener than a name.
+            if len(words) == 1 and m.start() == 0:
+                continue
+            if len(words) == 1 and (len(name) < 4 or name.lower() in _ORG_STOPWORDS):
+                continue
+            if words[0].lower() in _ORG_STOPWORDS and len(words) > 1:
+                words = words[1:]
+                name = " ".join(words)
+            if not words or all(w.lower() in _ORG_STOPWORDS for w in words):
+                continue
+            out.setdefault(name.lower(), name)
+    return out
+
+
+async def ground_check_entities(text: str, sources: list) -> dict:
+    """Remove named organisations the sources never mention.
+
+    The figure check compares numbers; a name is not a number, so an
+    organisation the model supplied from its own knowledge passed straight
+    through. On 2026-08-03 an executive summary named Hindawi among publishers
+    facing mounting retractions. Hindawi appeared in no source behind the
+    report, and it is this customer's own retired imprint — the single worst
+    name to attribute to a third party in front of them.
+
+    Deterministic detection, model-driven removal, same shape as
+    :func:`ground_check_figures`. Returns ``{text, changed, unsupported}``.
+    Never blocks.
+    """
+    out = {"text": text, "changed": False, "unsupported": []}
+    if not text or not text.strip() or not humanize_enabled():
+        return out
+    haystack = " ".join(
+        (s if isinstance(s, str) else str(s)) for s in (sources or [])
+    ).lower()
+    if not haystack:
+        return out
+
+    candidates = _org_candidates(text)
+    # A name counts as sourced if the whole name appears, or if a distinctive
+    # single word of it does — "Springer Nature" is sourced by "Springer".
+    unsupported = []
+    for key, name in candidates.items():
+        if key in haystack:
+            continue
+        words = [w for w in re.split(r"[^A-Za-z]+", name)
+                 if len(w) > 3 and w.lower() not in _ORG_STOPWORDS]
+        if any(w.lower() in haystack for w in words):
+            continue
+        unsupported.append(name)
+    out["unsupported"] = unsupported
+    if not unsupported:
+        return out
+
+    try:
+        from app.ai_models import AIModelFactory
+        sys_prompt = (
+            "You are a fact-grounding editor for a foresight brief. The LETTER "
+            "names organisations that appear in NONE of the sources behind the "
+            "report.\n"
+            "For each UNSOURCED NAME: if it is a real organisation being "
+            "asserted as an example, delete the name. Keep the sentence and its "
+            "point, either by dropping the name from a list or by rewriting the "
+            "claim without naming anyone. If removing it leaves a list of one, "
+            "rewrite the sentence so it reads naturally.\n"
+            "Do not add any replacement name. Do not touch any other sentence, "
+            "the paragraph structure, the bold section headers or the tone. "
+            "Return ONLY the revised letter."
+        )
+        usr = ("UNSOURCED NAMES:\n" + "\n".join("- " + u for u in unsupported)
+               + f"\n\nLETTER:\n{text}")
+        model = AIModelFactory.get_model(_MODEL)
+        rewritten = (await model.agenerate_response(
+            [{"role": "system", "content": sys_prompt},
+             {"role": "user", "content": usr}],
+            temperature=0.2, max_tokens=4000,
+        ) or "").strip()
+        if rewritten and rewritten != text and len(rewritten) >= 0.5 * len(text):
+            out["text"] = rewritten
+            out["changed"] = True
+            still = [n for n in _org_candidates(rewritten)
+                     if n in {u.lower() for u in unsupported}]
+            logger.info("ground_check_entities: %d unsourced name(s) in, %d out",
+                        len(unsupported), len(still))
+        else:
+            logger.warning("ground_check_entities: %d unsourced name(s) left in "
+                           "place (%s) — revision rejected",
+                           len(unsupported), ", ".join(unsupported))
+        return out
+    except Exception as e:
+        logger.warning("ground_check_entities failed: %s", e)
         return out
 
 

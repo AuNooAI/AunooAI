@@ -2,6 +2,129 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-03 (evening) — the Q3 Wiley report review: eleven defects, one root pattern
+
+### Goal
+A line-by-line review of the Q3 deliverables (247-slide deck, HTML report, DOCX letter) found
+errors that would have gone to the customer: a figure inflated tenfold, a consensus percentage
+that is not a measurement, the customer's own retired imprint named as a third party, and a
+set of rendering bugs. All fixed in commit `4ae2b324` (18 files, +985/−185). One pattern
+explains the worst of it: **worked examples inside our own prompts carried real-looking facts,
+and the model copied them into reports as findings.**
+
+### The 1.4 million figure came from our prompt, not the sources
+The reviewer traced "1.4 million phantom citations" to Times of India headlines saying "1.4L"
+(1.4 lakh = 140,000) and assumed a unit misreading. The real origin is worse:
+**`topic_report_service.py`** carried a style example reading *"1.4 million papers, about one
+in forty published since 2020"* — the model writes about scientific publishing, so it lifted
+the number AND the rate as content, and citations were attached to them afterwards. The same
+trap existed twice in **`wiley_exec_summary_agent.md`**: an example event *"Springer Nature
+retracted 1,200 Hindawi-linked papers in March"* and a voice line telling the model to "name
+actors: Springer Nature, NIH, Max Planck, Hindawi, PubPeer". That is where the letter's
+Hindawi came from. All three replaced with placeholder shapes and an explicit rule: these
+instructions contain no citable facts. New prompt rules cover units ("1.4L" and "1.5 lakh"
+mean 140,000/150,000, "crore" is 10 million), forbid converting a count into a rate, and
+require naming both sources when they disagree on a figure.
+
+**`wiley_humanizer.py`** backs this deterministically: `_FIGURE_RE` now matches lakh / `NL` /
+crore and comma-grouped numbers, and `_figure_key` resolves scale units to absolute counts —
+so a source saying "1.4L" supports a claim of "140,000" but not "1.4 million". Verified with
+the review's exact strings. A new `ground_check_entities` pass extracts capitalised names from
+the letter and deletes any organisation no source mentions; verified it flags Hindawi and
+passes Springer Nature / Lancet / Elsevier. First extractor version glued "Hindawi and Taylor"
+into one name and matched it against "Taylor" — names now split on "and", only "&"/"of" join.
+
+### The consensus percentage was an instructed invention — removed everywhere
+The exec-summary card prompt said *"Consensus percentage: Estimate based on how many scenarios
+support this view (typically 70-90%)"* — and every cached card on wiley clusters exactly ONE
+scenario, so there was never a prevalence to count. That is why the HTML said 82% and the deck
+78% for the same topic. Fix in three layers: prompt v3 (**`executive_summary.json`**) asks for
+no percentage at all; all six renderers (topic report HTML/DOCX/PPTX, shared HTML cards, React
+card, React export — which had a hardcoded `|| 85` fallback) stop displaying the field; and a
+new `scrub_invented_consensus()` in **`html_report_common.py`** rewrites cached-card prose
+("with 80% of sources expecting" → "with most sources expecting"). Claims shaped like article
+facts ("67% of hospitals") are deliberately left to the citation rules. The measured number —
+`current_consensus_pct`, supports/total among confident verdicts — is untouched on the
+assessment path.
+
+### "No new tail-risk scenarios" while the deck showed 24 cards
+**`wiley_bundle_supervisor.py`** `_exec_summary_payload` filtered EOS cards to
+`category == "black_swan"` and read `impact_score`/`timeframe` — but the generator's default
+category is `wild_card` and it writes `impact_rating`/`time_horizon`, so the letter's tail-risk
+list was empty or impact-less while the deck rendered every card. Now all three categories
+count, impact-sorted; the agent doc allows the "no new tail-risk scenarios" sentence only when
+`black_swan_count` is 0. Verified: a 3-card mixed-category input that previously yielded
+count 1 with `impact: None` now yields count 3 with the 9/10 card on top.
+
+### Report corpus hygiene: dedup, blocklist, and a fails-open relevance screen
+The topic corpus is selected by `topic_alignment_score > 0.7`, and the score saturates: 43
+articles sit at exactly 1.00 on "Attacks on Expertise & Peer Review", including plain AI
+business news, so no threshold can help. New **`app/services/report_corpus.py`** runs at
+prompt-build time (so the numbered list the model sees, the persisted corpus, and every
+export's references are the same list): a publisher blocklist (naturalnews.com and kin;
+override via `REPORT_SOURCE_BLOCKLIST`), title-key dedup (kills the white paper that appeared
+as [37][38][39][40][46]), and a batched nova-lite yes/no screen (`REPORT_CORPUS_SCREEN`,
+default on). The screen fails open on any error, keeps unscored articles, and ignores itself
+below a 35%-kept floor. Measured on the reviewed topic: 90 → 87 (blocklist+dedup) → 72
+(screen), dropping Synthesia, Taktile, and Standard Chartered; one wrong drop (a Springer
+Nature retraction story) — the error direction we want. A first, title-only prompt draft
+rejected 63 of 87 including on-topic material; feeding summaries and instructing broad topic
+reading fixed it.
+
+### Rendering fixes (topic report)
+**`topic_report_html.py` / `topic_report_docx.py`**: black-swan cards read `name` /
+`trajectory` / `timeframe`; the generator writes `title` / `description` / `time_horizon` —
+every card title rendered as an em dash. Fixed (0 in re-render). The HTML "Article References"
+block rendered the 7 most recent articles instead of the cited corpus while inline citations
+ran to [90]; it now renders the full numbered corpus (180 entries on the test topic).
+`split_citation_groups()` in **`html_report_common.py`** turns "[44, 52]" into "[44][52]"
+before linkification in all four renderers — 0 unlinked groups in re-render. The Three
+Horizons axis was pinned to 2025–2040 in **`horizons_html.py`** and
+**`wiley_three_horizons_viz.py`**; both now anchor on the render year (re-render shows
+2026 "Present" → 2041). Both horizons prompts now carry today's date so decision forks cannot
+predate the report.
+
+### Run provenance on every artifact
+The HTML renders from cached synthesis while the deck re-runs the pipeline, so two exports
+hours apart can carry different analyses with nothing visible. Every topic-report HTML now
+ends with an "Analysis Provenance" table and the deck with a matching slide: per-topic run ID
++ generated-at, with the instruction that artifacts whose IDs differ must not be read side by
+side. The structural fix (one frozen snapshot per report build) is NOT built — divergence is
+now visible, not impossible.
+
+### Client-facing metadata cleaned
+The "About this analysis" slide exposed `gpt-5.4` and the persona setting, and showed
+"corpus scanned 90 / articles analysed 90" (both fields are set from the same variable, so the
+pair always matches). Now: articles, distinct sources, actual coverage window, lookback,
+framework, generated-at. The Future Horizons HTML cover also printed `model: gpt-5.4` —
+removed. The "What We Monitor" slide queried ALL workspace topics, leaking ASML Watch and
+Elsevier/SAGE/Pearson brand monitoring to the customer; it now scopes to
+`forecast_topic_delivery` (on wileytest: the six quarterly Wiley topics), falling back to the
+deck's own topics. Emerging-theme sample dates printed raw DB timestamps with microseconds and
+mixed +01/+02 offsets; truncated to the day.
+
+### Verification
+Full three-format render against the wiley DB (2 topics): zero invented-consensus strings in
+HTML/PPTX/DOCX, 0 em-dash titles, 0 unlinked citation groups, axis 2026–2041, provenance
+present in HTML + deck, and a deck-text audit finds no "gpt-", "PERSONA", "CORPUS SCANNED",
+"ASML", or peer-publisher brand strings. `npm run typecheck` clean (246 known, 0 new).
+
+### Propagation
+Committed in bugfixing (canonical) only, commit `4ae2b324`. NOT yet copied to wiley /
+wileytest; UI not rebuilt (`./ui/deploy-react-ui.sh` + rsync still needed); no services
+restarted. The cached Q3 artifacts remain wrong until the report is regenerated after deploy.
+Open items: the per-build snapshot for format consistency, the team-slide credentials
+question (business call), and the trend-convergence card's own `|| 80` fallback in
+`App.tsx:2617` (different feature, same disease, untouched).
+
+### Lessons
+- NEVER put a real-looking fact — number, org name, event — in a prompt's worked example. The
+  model will publish it. Use placeholder shapes ("<publisher> retracted <N> papers").
+- NEVER render a model-estimated number in a UI element that reads as a measurement
+  ("82% CONSENSUS"). If it isn't computed from data, it doesn't get a percent sign.
+- When a letter contradicts its own deck, check the payload keys before the model: two of the
+  three "hallucinations" here were key mismatches feeding the agent empty data.
+
 ## 2026-08-03 (later still) — a number changed meaning mid-pipeline; two wrong diagnoses on the way
 
 ### CORRECTION — the letter fabricates nothing, and the model is not the cause

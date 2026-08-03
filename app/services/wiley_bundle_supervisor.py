@@ -831,17 +831,32 @@ def _exec_summary_payload(items: list, period_label: str,
             ),
         })
 
+    # Tail-risk cards for the letter. Every EOS category counts —
+    # black_swan, wild_card AND contrarian — because the generator's
+    # default category is "wild_card", so filtering to "black_swan" alone
+    # left this list empty on runs where the deck showed 24 cards, and the
+    # agent then wrote "No new tail-risk scenarios surfaced this quarter"
+    # as instructed. Keys match ExtremeOutlierScenario.to_dict
+    # (``impact_rating`` / ``time_horizon``; the old ``impact_score`` /
+    # ``timeframe`` reads were always None).
     black_swans = []
     for topic, scenarios in (eos_per_topic or {}).items():
         for s in scenarios or []:
-            if (s.get("category") or "").lower() == "black_swan":
-                black_swans.append({
-                    "topic": topic,
-                    "title": s.get("title"),
-                    "impact": s.get("impact_score"),
-                    "timeframe": s.get("timeframe"),
-                    "description": s.get("description"),
-                })
+            black_swans.append({
+                "topic": topic,
+                "category": (s.get("category") or "wild_card"),
+                "title": s.get("title"),
+                "impact": s.get("impact_rating") or s.get("impact_score"),
+                "timeframe": s.get("time_horizon") or s.get("timeframe"),
+                "description": s.get("description"),
+            })
+
+    def _impact(s):
+        try:
+            return float(s.get("impact") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    black_swans.sort(key=_impact, reverse=True)
 
     return {
         "period_label": period_label,
@@ -1260,6 +1275,23 @@ async def run_pipeline(
                         yield {"stage": "humanize", "status": "figures_grounded",
                                "progress": 0.9195,
                                "payload": {"unsourced": fg.get("unsupported") or []}}
+
+                    # Names get the same treatment as figures. A letter that
+                    # named Hindawi among publishers facing retractions passed
+                    # both checks above: a name is not an event and not a
+                    # number. It was in no source, and it is this customer's
+                    # own retired imprint.
+                    from app.services.wiley_humanizer import ground_check_entities
+                    eg = await ground_check_entities(es["letter"], sources)
+                    if eg.get("unsupported"):
+                        logger.warning("exec summary named unsourced organisations: %s",
+                                       ", ".join(eg["unsupported"]))
+                    if eg["changed"]:
+                        es["letter"] = eg["text"]
+                        exec_summary = es
+                        yield {"stage": "humanize", "status": "entities_grounded",
+                               "progress": 0.9197,
+                               "payload": {"unsourced_names": eg.get("unsupported") or []}}
                 except Exception as e:
                     logger.warning("exec-summary figure-check failed (non-fatal): %s", e)
         # Same deterministic verdict guard on the expert commentary.

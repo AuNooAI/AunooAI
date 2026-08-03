@@ -81,8 +81,10 @@ If none of the three applies, use no percentage.
 
 - Open with a plain-English read of the quarter, grounded in what the
   per-topic briefings actually say (`briefing_lede`, `briefing_tensions`).
-- Name actors and institutions: Springer Nature, NIH, Max Planck, Hindawi,
-  PubPeer, specific publishers and agencies — drawn from the input.
+- Name actors and institutions — specific publishers, funders and agencies —
+  but ONLY names that appear in the input data. These instructions contain no
+  citable facts: a name or figure that appears here and not in the input must
+  never appear in the letter.
 - Quote the strongest line from a `briefing_lede` verbatim, in quotation marks.
 - End on decisions and actions, not vibes.
 
@@ -132,17 +134,24 @@ A letter without a quoted briefing line is incomplete — do not return one.**
    the prose. Ground each in a named event, not a number.
 
 2. **What happened this quarter.** Lead with named events from
-   `events_by_topic` if present — actor, action, magnitude, date (e.g.
-   "Springer Nature retracted 1,200 Hindawi-linked papers in March"). If
-   `events_by_topic` is empty, summarise the concrete developments described
+   `events_by_topic` if present — actor, action, magnitude, date, in the
+   shape "<publisher> retracted <N> papers in <month>", with every value
+   taken from the event record. Never reuse a name or number from these
+   instructions; only the input data supplies facts. If `events_by_topic`
+   is empty, summarise the concrete developments described
    in the `briefing_lede` / `briefing_tensions` for the most active topics.
    Where press attention clearly shifted, you may say so, labelled as press
    attention ("integrity coverage rose sharply"), never as forecast movement.
 
 3. **The headline tail risk.** If `top_black_swan` exists, name it — title,
-   timeframe, and one sentence of consequence to Wiley. If none, name the
-   highest-impact wild card from `all_black_swans`. If neither, write "No new
-   tail-risk scenarios surfaced this quarter." and stop. Do not pad.
+   timeframe, and one sentence of consequence to Wiley. (`top_black_swan` is
+   the highest-impact card across all tail-risk categories — black swans,
+   wild cards and contrarian scenarios alike.) You may add that it is one of
+   `black_swan_count` tail-risk scenarios tracked this quarter. Write "No new
+   tail-risk scenarios surfaced this quarter." ONLY when `black_swan_count`
+   is 0 — the deck renders every tracked card, so claiming there are none
+   while the deck shows a page of them contradicts the deliverable it
+   accompanies. Do not pad.
 
 4. **What this means for Wiley.** Up to four one-sentence-header sub-points,
    each grounded in the input. Include only those you can ground:

@@ -78,19 +78,31 @@ _H1_CURVE_PATH = "M 0,25 Q 25,28 50,45 T 100,75"
 _H2_CURVE_PATH = "M 0,85 Q 25,75 40,55 Q 55,35 70,40 Q 85,45 100,60"
 _H3_CURVE_PATH = "M 0,95 Q 30,95 50,85 Q 70,75 85,55 T 100,20"
 
+# The axis used to be pinned to 2025-2040, so a report produced in 2026
+# labelled 2025 as "Present" and pushed every marker one year left of
+# where it belonged. Anchor it on the year the chart is rendered.
+_AXIS_SPAN_YEARS = 15
+
+
+def _axis_base_year() -> int:
+    from datetime import date as _date
+    return _date.today().year
+
 
 def _parse_timeframe(timeframe: str) -> tuple:
     """Pull (start_year, end_year) out of a "YYYY-YYYY" timeframe string."""
     import re as _re
+    base = _axis_base_year()
+    default = (base, base + _AXIS_SPAN_YEARS)
     if not timeframe:
-        return (2025, 2040)
+        return default
     years = _re.findall(r"\d{4}", timeframe)
     if len(years) >= 2:
         return (int(years[0]), int(years[1]))
     if len(years) == 1:
         y = int(years[0])
         return (y, y)
-    return (2025, 2040)
+    return default
 
 
 def _bezier_q(t: float, p0: tuple, p1: tuple, p2: tuple) -> float:
@@ -125,7 +137,7 @@ def _scenario_position(scenario: dict, type_index: int, total_in_type: int) -> t
     same place. Returns (x_pct, y_pct)."""
     start, end = _parse_timeframe(scenario.get("timeframe") or "")
     avg_year = (start + end) / 2
-    base_x = 10 + ((avg_year - 2025) / 15) * 75
+    base_x = 10 + ((avg_year - _axis_base_year()) / _AXIS_SPAN_YEARS) * 75
     spread = ((type_index / (total_in_type - 1) - 0.5) * 55) if total_in_type > 1 else 0
     x = max(8, min(92, base_x + spread))
     y = _y_on_curve(x, (scenario.get("type") or "h1").lower())
@@ -225,9 +237,10 @@ def _render_horizons_chart(scenarios: list) -> str:
 
     # Timeline footer
     parts.append('<div class="horizons-chart-timeline">')
-    for year, tag in [("2025", "Present"), ("2029", "Short-term"),
-                      ("2033", "Mid-term"), ("2037", "Long-term"),
-                      ("2040", "Horizon")]:
+    _b = _axis_base_year()
+    for year, tag in [(str(_b), "Present"), (str(_b + 4), "Short-term"),
+                      (str(_b + 8), "Mid-term"), (str(_b + 12), "Long-term"),
+                      (str(_b + _AXIS_SPAN_YEARS), "Horizon")]:
         parts.append(
             f'<div class="tick"><span class="year">{year}</span>'
             f'<div class="tag">{tag}</div></div>'
@@ -343,8 +356,8 @@ def build_horizons_html(
     meta_bits = []
     if generated_at:
         meta_bits.append(esc(generated_at[:19].replace("T", " ")))
-    if model_used:
-        meta_bits.append(f"model: {esc(model_used)}")
+    # ``model_used`` is deliberately not shown — internal configuration,
+    # not client-facing provenance. (Parameter kept for signature compat.)
     n_s = len([s for s in (scenarios or []) if isinstance(s, dict)])
     n_c = len([c for c in (summaries or []) if isinstance(c, dict)])
     n_a = len([a for a in (articles or []) if isinstance(a, dict)])

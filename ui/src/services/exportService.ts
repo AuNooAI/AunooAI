@@ -2952,13 +2952,13 @@ export class ExportService {
 
           ${summary.minority_view ? `
             <p style="font-size: 11px; color: #6b7280; margin: 0 0 12px 0; padding-left: 12px; border-left: 2px solid #e5e7eb; line-height: 1.5; font-style: italic;">
-              <strong style="font-style: normal; color: #374151;">Minority view (${summary.minority_view.percentage_range}):</strong> ${summary.minority_view.statement}
+              <strong style="font-style: normal; color: #374151;">Minority view${summary.minority_view.percentage_range ? ` (${summary.minority_view.percentage_range})` : ''}:</strong> ${summary.minority_view.statement}
             </p>
           ` : ''}
 
           <div style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #e2e8f0;">
-            <p style="font-size: 11px; font-weight: 600; color: ${summary.consensus_percentage >= 80 ? '#16a34a' : summary.consensus_percentage >= 60 ? '#d97706' : '#ea580c'}; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">
-              PRIMARY SIGNAL (${summary.consensus_percentage || 85}% CONSENSUS)
+            <p style="font-size: 11px; font-weight: 600; color: ${typeof summary.consensus_percentage === 'number' ? (summary.consensus_percentage >= 80 ? '#16a34a' : summary.consensus_percentage >= 60 ? '#d97706' : '#ea580c') : '#6b7280'}; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">
+              ${typeof summary.consensus_percentage === 'number' ? `PRIMARY SIGNAL (${summary.consensus_percentage}% CONSENSUS)` : 'PRIMARY SIGNAL'}
             </p>
             <p style="font-size: 12px; color: #374151; margin: 0; line-height: 1.5;">
               ${summary.primary_signal}

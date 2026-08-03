@@ -1063,7 +1063,10 @@ def _add_surprise_cluster_slide(prs, sur: dict):
         y2 = y + 0.32
         for art in samples[:5]:
             title = art.get("title") or art.get("uri") or "(no title)"
-            date = art.get("date")
+            # ``date`` arrives as a raw DB timestamp ("2026-07-15
+            # 09:23:41.123456+02"); the reader needs the day, not the
+            # microseconds or the DST offset the row happened to store.
+            date = str(art.get("date") or "")[:10]
             _rect(slide, x=1.9, y=y2+0.04, w=0.08, h=0.3, fill=GOLD)
             line = f"{date}   ·   {_truncate(title, 110)}" if date else _truncate(title, 130)
             _text(slide, x=2.1, y=y2, w=7.7, h=0.35, text=line,
@@ -2532,11 +2535,17 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
          "claims the evidence isn't bearing out (the crowd may be wrong) and "
          "low-consensus outliers the evidence is confirming (signals the crowd "
          "missed)."),
+        # Say what the filter actually does. The old wording implied a
+        # curated corpus; the score is a coarse machine filter that keeps
+        # adjacent material in, and the reference list shows it.
         ("Sourcing & relevance",
-         "Articles are filtered to a topic by a per-article relevance score, "
-         "then events are extracted with an actor / action / magnitude / date, "
-         "de-duplicated, and tagged as confirming or countering each trend. "
-         "Low-confidence events are held for analyst review, not auto-published."),
+         "Articles are filtered to a topic by a machine relevance score above "
+         "0.7, then de-duplicated. That score is a coarse cut, not a curation "
+         "step: the reference list will contain adjacent material, so read the "
+         "cited sources before quoting a figure. Events are extracted with an "
+         "actor / action / magnitude / date and tagged as confirming or "
+         "countering each trend; low-confidence events are held for analyst "
+         "review, not auto-published."),
     ]
     y = 1.35
     for head, body in blocks:

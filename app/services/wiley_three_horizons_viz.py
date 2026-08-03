@@ -86,11 +86,23 @@ def y_on_curve(x: float, wave_type: str) -> float:
     return 50.0
 
 
+# Axis anchored on the render year, not a baked-in 2025 — see the same
+# note in ``horizons_html``. Both renderers must agree or the deck chart
+# and the HTML chart place the same scenario in different places.
+_AXIS_SPAN_YEARS = 15
+
+
+def _axis_base_year() -> int:
+    from datetime import date as _date
+    return _date.today().year
+
+
 def _parse_timeframe(tf: Optional[str]) -> tuple[int, int]:
     years = _re.findall(r"\d{4}", tf or "")
     if len(years) >= 2:
         return int(years[0]), int(years[1])
-    return 2025, 2040
+    base = _axis_base_year()
+    return base, base + _AXIS_SPAN_YEARS
 
 
 def scenario_position(timeframe: Optional[str], wave_type: str,
@@ -98,7 +110,7 @@ def scenario_position(timeframe: Optional[str], wave_type: str,
     """Mirror of FutureHorizons.tsx::calculateHorizonPosition."""
     start, end = _parse_timeframe(timeframe)
     avg_year = (start + end) / 2
-    base_x = 10 + ((avg_year - 2025) / 15) * 75
+    base_x = 10 + ((avg_year - _axis_base_year()) / _AXIS_SPAN_YEARS) * 75
     if total_in_type > 1:
         spread = (type_index / (total_in_type - 1) - 0.5) * 55
     else:
@@ -181,15 +193,22 @@ def collect_scenarios_for_render(items: Iterable[tuple]) -> list[dict]:
 # React component uses these as the light bg for each scenario card)
 CARD_BG = {"h1": "#eff6ff", "h2": "#faf5ff", "h3": "#f0fdf4"}
 
-# Horizon timeline labels — used as the bottom strip on the chart, matching
-# the React component's "2025 Present / 2029 Short-term / …" footer.
-TIMELINE = [
-    ("2025", "Present"),
-    ("2029", "Short-term"),
-    ("2033", "Mid-term"),
-    ("2037", "Long-term"),
-    ("2040", "Horizon"),
-]
+# Horizon timeline labels — the bottom strip on the chart, matching the
+# React component's "Present / Short-term / …" footer. Computed per call
+# so "Present" is always the current year.
+def _timeline() -> list:
+    b = _axis_base_year()
+    return [
+        (str(b), "Present"),
+        (str(b + 4), "Short-term"),
+        (str(b + 8), "Mid-term"),
+        (str(b + 12), "Long-term"),
+        (str(b + _AXIS_SPAN_YEARS), "Horizon"),
+    ]
+
+
+# Back-compat for importers that read the constant directly.
+TIMELINE = _timeline()
 
 
 def _wrap_title(text: str, max_chars: int = 22) -> str:
@@ -290,8 +309,9 @@ def render_to_png(scenarios: list[dict], out_stream: BytesIO,
 
     # Timeline strip at the bottom (matches the React component footer)
     ax.plot([0, 100], [108, 108], color="#e5e7eb", lw=1.0, zorder=0)
-    n_tl = len(TIMELINE)
-    for i, (year, _label) in enumerate(TIMELINE):
+    timeline = _timeline()
+    n_tl = len(timeline)
+    for i, (year, _label) in enumerate(timeline):
         xx = i * (100 / (n_tl - 1))
         ax.text(xx, 110.5, year, color="#374151", fontsize=9,
                 fontweight="bold", ha="center", va="top")
@@ -311,7 +331,8 @@ def build_notes(scenarios: list[dict]) -> str:
     }
     lines: list[str] = [
         "Three Horizons Overview — scenarios mapped onto the curves.",
-        "Numbering on the chart matches the lists below; left→right is NOW→2040.",
+        f"Numbering on the chart matches the lists below; left→right is "
+        f"NOW→{_axis_base_year() + _AXIS_SPAN_YEARS}.",
         "",
     ]
     for ht in ("h1", "h2", "h3"):

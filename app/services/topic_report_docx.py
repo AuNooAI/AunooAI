@@ -30,7 +30,9 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 from app.services.topic_report_pptx import _decode_raw_output
-from app.services.html_report_common import clean_article_ref
+from app.services.html_report_common import (
+    clean_article_ref, split_citation_groups, scrub_invented_consensus,
+)
 from app.compliance.ai_disclosure import (
     disclosure_text as _ai_text,
     docx_set_marker as _ai_docx_marker,
@@ -158,6 +160,7 @@ def _add_body_with_citations(doc: Document, text: str, articles=None, *,
     """
     if not text:
         return
+    text = split_citation_groups(text)   # "[44, 52]" → "[44][52]"
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(space_after_pt)
 
@@ -204,6 +207,7 @@ def _bullet(doc: Document, text: str, articles=None) -> None:
     """Bulleted body paragraph with citation linkification."""
     if not text:
         return
+    text = split_citation_groups(text)   # "[44, 52]" → "[44][52]"
     p = doc.add_paragraph(style="List Bullet")
     p.paragraph_format.space_after = Pt(4)
     parts = _CITE_RE.split(text) if articles else [text]
@@ -301,38 +305,36 @@ def _render_exec_summary_cards(doc: Document, cards: list, articles=None) -> Non
     for k, c in enumerate(cards, 1):
         horizon = (c.get("primary_horizon") or "").upper()
         h_label = c.get("horizon_label") or ""
-        cons = c.get("consensus_percentage")
-        cons_pct = f"{int(cons)}%" if isinstance(cons, (int, float)) else ""
+        # ``consensus_percentage`` and the minority ``percentage_range`` are
+        # deliberately NOT rendered — the model invented them (the prompt
+        # used to say "typically 70-90%"), and printing the guess as
+        # "82% CONSENSUS" presents it as a measurement.
         title = c.get("topic_title") or ""
 
         _eyebrow(doc, f"Card {k} of {len(cards)}")
         _heading(doc, title, size_pt=13, color=WILEY_NAVY,
                  before_pt=4, after_pt=2)
 
-        meta_bits = []
-        if horizon: meta_bits.append(f"{horizon} · {h_label}".strip(" ·"))
-        if cons_pct: meta_bits.append(f"{cons_pct} CONSENSUS")
-        if meta_bits:
-            _add_body_with_citations(doc, "  ·  ".join(meta_bits),
+        if horizon:
+            _add_body_with_citations(doc, f"{horizon} · {h_label}".strip(" ·"),
                                      bold=True, color=WILEY_TEAL,
                                      size_pt=10, space_after_pt=4)
-        opening = (c.get("opening_statement") or "").strip()
+        opening = scrub_invented_consensus((c.get("opening_statement") or "").strip())
         if opening:
             _add_body_with_citations(doc, opening, articles)
 
         mv = c.get("minority_view") or {}
         if mv.get("statement"):
-            pct = mv.get("percentage_range") or ""
-            label = "MINORITY VIEW" + (f"  ·  {pct}" if pct else "")
-            _add_body_with_citations(doc, label, bold=True,
+            _add_body_with_citations(doc, "MINORITY VIEW", bold=True,
                                      color=WILEY_TEAL, size_pt=9,
                                      space_after_pt=2)
-            _add_body_with_citations(doc, mv["statement"], articles, italic=True)
+            _add_body_with_citations(doc, scrub_invented_consensus(mv["statement"]),
+                                     articles, italic=True)
 
-        signal = (c.get("primary_signal") or "").strip()
+        signal = scrub_invented_consensus((c.get("primary_signal") or "").strip())
         if signal:
-            lab = "PRIMARY SIGNAL" + (f"  ·  {cons_pct} CONSENSUS" if cons_pct else "")
-            _add_body_with_citations(doc, lab, bold=True, color=WILEY_TEAL,
+            _add_body_with_citations(doc, "PRIMARY SIGNAL", bold=True,
+                                     color=WILEY_TEAL,
                                      size_pt=9, space_after_pt=2)
             _add_body_with_citations(doc, signal, articles, bold=True)
 
@@ -469,13 +471,17 @@ def _render_black_swans(doc: Document, eos: list, articles=None) -> None:
     for s in eos_sorted[:4]:
         cat = (s.get("category") or "black_swan").lower().replace("_", " ").upper()
         _eyebrow(doc, cat)
-        _heading(doc, (s.get("name") or "—"), size_pt=12,
+        # Keys must match ExtremeOutlierScenario.to_dict — ``title`` /
+        # ``description`` / ``time_horizon``. Reading ``name`` printed the
+        # "—" fallback on every card.
+        _heading(doc, (s.get("title") or s.get("name") or "—"), size_pt=12,
                  color=WILEY_NAVY, before_pt=2, after_pt=2)
-        trajectory = (s.get("trajectory") or s.get("description") or "").strip()
+        trajectory = (s.get("description") or s.get("trajectory")
+                      or s.get("subtitle") or "").strip()
         if trajectory:
             _add_body_with_citations(doc, trajectory, articles)
         impact = s.get("impact_rating")
-        timeframe = s.get("timeframe") or ""
+        timeframe = s.get("time_horizon") or s.get("timeframe") or ""
         meta_bits = []
         if impact is not None:
             try: meta_bits.append(f"Impact {int(impact)}/10")

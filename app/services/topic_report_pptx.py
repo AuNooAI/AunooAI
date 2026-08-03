@@ -128,6 +128,8 @@ def _text_cites(slide, *, x: float, y: float, w: float, h: float,
               color=color, align=align, line_spacing=line_spacing)
         return
 
+    from app.services.html_report_common import split_citation_groups
+    text = split_citation_groups(text)   # "[44, 52]" → "[44][52]"
     parts = _CITE_RE.split(text)
     if len(parts) == 1:
         _text(slide, x=x, y=y, w=w, h=h, text=text,
@@ -192,6 +194,56 @@ def _text_cites(slide, *, x: float, y: float, w: float, h: float,
                         else body_color
                 except Exception:
                     pass
+
+
+def _add_analysis_provenance_slide(prs, items: list):
+    """Which analysis run each topic in this deck came from.
+
+    Render time is not provenance. Each export independently picks up
+    whatever the latest analysis row is at that moment, so a deck and an
+    HTML report exported hours apart can carry different scenarios and
+    different consensus figures under the same cover with nothing on
+    either artefact to show it. Print the analysis ID: two exports of one
+    analysis match, two runs do not.
+    """
+    rows = []
+    for (assessment, _run, _prior) in (items or []):
+        run_id = (assessment.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        gen = (assessment.get("run_generated_at") or "")[:16].replace("T", " ")
+        rows.append((assessment.get("topic") or "—", run_id, gen or "—"))
+    if not rows:
+        return
+    sw = 10.0
+    blank = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank)
+    _add_bg_image(slide, WILEY_BG_SOFT)
+    _text(slide, x=0.5, y=0.20, w=sw-1.0, h=0.22,
+          text="VERSIONS BEHIND THIS DECK", font_size=9, bold=True, color=SLATE_MID)
+    _text(slide, x=0.5, y=0.42, w=sw-1.0, h=0.40,
+          text="Analysis Provenance", font_size=18, bold=True, color=SLATE_DARK)
+    _text(slide, x=0.5, y=0.85, w=sw-1.0, h=0.30,
+          text="Other exports of this report carry the same analysis IDs. If they "
+               "differ, the artefacts came from different runs and should not be "
+               "read side by side.",
+          font_size=9, italic=True, color=SLATE_LIGHT)
+    y = 1.30
+    _text(slide, x=0.5,  y=y, w=4.4, h=0.20, text="TOPIC",
+          font_size=8.5, bold=True, color=SLATE_MID)
+    _text(slide, x=5.0,  y=y, w=3.2, h=0.20, text="ANALYSIS ID",
+          font_size=8.5, bold=True, color=SLATE_MID)
+    _text(slide, x=8.3,  y=y, w=1.2, h=0.20, text="PRODUCED",
+          font_size=8.5, bold=True, color=SLATE_MID)
+    y += 0.26
+    for topic, run_id, gen in rows[:16]:
+        _text(slide, x=0.5, y=y, w=4.4, h=0.22, text=_truncate(topic, 52),
+              font_size=9.5, color=SLATE_BLACK)
+        _text(slide, x=5.0, y=y, w=3.2, h=0.22, text=run_id,
+              font_size=8, color=SLATE_MID)
+        _text(slide, x=8.3, y=y, w=1.4, h=0.22, text=gen,
+              font_size=8, color=SLATE_MID)
+        y += 0.26
 
 
 def _add_topic_references_slide(prs, articles: list, *,
@@ -327,6 +379,12 @@ def _assessment_view(topic: str, run_id: str, raw: dict) -> dict:
     return {
         "topic": topic,
         "run_id": run_id,
+        # When the analysis behind this topic was produced. Every export
+        # prints it, so two artefacts built from the same analysis carry
+        # identical stamps and a re-run between exports is visible instead
+        # of silent — the failure where a deck and an HTML report two
+        # hours apart carried different scenarios under the same cover.
+        "run_generated_at": raw.get("generated_at") or "",
         "scenario_verdicts": chart_verdicts,
         "summary": {
             "topic": topic,
@@ -688,19 +746,31 @@ def _add_intro_calibration_slide(prs):
               line_spacing=1.25)
 
 
-def _add_intro_monitor_slide(prs, db=None):
+def _add_intro_monitor_slide(prs, db=None, deck_topics: Optional[list] = None):
     """Slide 8 — What We Monitor. Topic universe with article counts.
 
-    Pulled live from ``forecast_topic_metadata`` joined to article counts
-    when ``db`` is supplied; falls back to a static analyst-supplied list
-    when the DB query fails. Showing real coverage matters more than
-    static copy — different tenants have different scopes.
+    Scope: the topics configured for customer delivery
+    (``forecast_topic_delivery``), falling back to the topics in this
+    deck. NEVER the whole workspace — the tenant also hosts unrelated
+    monitoring (ASML Watch, peer-publisher brand watches), and an
+    unfiltered query put all of it on a client-facing slide, telling the
+    customer the configuration is not theirs.
     """
     rows: list = []
     collected_total = 0
     if db is not None:
         try:
             from sqlalchemy import text as sa_text
+            scope: list = []
+            try:
+                configs = db.facade.get_forecast_topic_delivery_configs() or []
+                scope = [c.get("topic") for c in configs if c.get("topic")]
+            except Exception as e:
+                logger.debug("intro monitor: delivery-config lookup failed: %s", e)
+            if not scope:
+                scope = [t for t in (deck_topics or []) if t]
+            if not scope:
+                raise ValueError("no delivery-config or deck topics to scope to")
             # Count ANALYSED articles, not collected ones. The relevance gate
             # rejects most of what the collectors bring in before the AI
             # analysis step, and those rows keep the topic but never get a
@@ -714,14 +784,14 @@ def _add_intro_monitor_slide(prs, db=None):
                        ) AS analysed,
                        COUNT(*) AS collected
                 FROM articles a
-                WHERE a.topic IS NOT NULL AND a.topic <> ''
+                WHERE a.topic = ANY(:scope)
                 GROUP BY a.topic
                 HAVING COUNT(*) FILTER (
                            WHERE a.category IS NOT NULL AND a.sentiment IS NOT NULL
                        ) > 0
                 ORDER BY analysed DESC
                 LIMIT 18
-            """)).fetchall()
+            """), {"scope": scope}).fetchall()
             for r in res:
                 rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
                 rows.append((rd["topic"], int(rd["analysed"])))
@@ -732,11 +802,12 @@ def _add_intro_monitor_slide(prs, db=None):
 
     # Both numbers, so the ratio is the reader's to see rather than a claim
     # they have to take on trust.
+    topic_word = "topic" if len(rows) == 1 else "topics"
     if rows and collected_total:
-        subtitle = (f"{len(rows)} topics  ·  {total:,} articles analysed "
+        subtitle = (f"{len(rows)} {topic_word}  ·  {total:,} articles analysed "
                     f"of {collected_total:,} collected")
     elif rows:
-        subtitle = f"{len(rows)} topics  ·  {total:,} articles analysed"
+        subtitle = f"{len(rows)} {topic_word}  ·  {total:,} articles analysed"
     else:
         subtitle = "Continuous topic coverage."
 
@@ -778,7 +849,8 @@ def _add_intro_monitor_slide(prs, db=None):
               color=WILEY_TEAL, align=PP_ALIGN.RIGHT)
 
 
-def _add_branded_intro_pack(prs, *, period_label: str):
+def _add_branded_intro_pack(prs, *, period_label: str,
+                            deck_topics: Optional[list] = None):
     """Emit the 8-slide branded intro pack at the head of the deck.
 
     Replaces the legacy static intro template. Each slide is built in the
@@ -786,6 +858,9 @@ def _add_branded_intro_pack(prs, *, period_label: str):
     white cards / Aunoo brandmark) so the deck reads as one continuous
     deliverable rather than the static template stitched on top of
     dynamic content.
+
+    ``deck_topics`` — the topics this deck covers, as DB names. Fallback
+    scope for the What We Monitor slide when no delivery config exists.
     """
     from app.database import get_database_instance
     db = None
@@ -801,7 +876,7 @@ def _add_branded_intro_pack(prs, *, period_label: str):
     _add_intro_pipeline_slide(prs)
     _add_intro_lenses_slide(prs)
     _add_intro_calibration_slide(prs)
-    _add_intro_monitor_slide(prs, db=db)
+    _add_intro_monitor_slide(prs, db=db, deck_topics=deck_topics)
 
 
 def _add_forecast_scenario_slide(prs, scenario: dict, *, topic: Optional[str] = None,
@@ -1035,14 +1110,14 @@ def _add_horizon_divider(prs, horizon: str, scenarios_in_horizon: list,
 
 
 def _add_analysis_metadata_slide(prs, raw: dict, *, topic: str,
-                                 topic_idx: Optional[int] = None):
+                                 topic_idx: Optional[int] = None,
+                                 articles_corpus: Optional[list] = None):
     """Per-topic "About this analysis" slide.
 
-    Renders the forecast-run metadata so the reader knows what model
-    produced this view, against how many articles, for what persona, and
-    when. Honest provenance — every Wiley-style deliverable should carry
-    one. Pulls from ``raw_output`` fields populated by the Future Horizons
-    pipeline.
+    Client-facing provenance: corpus size, source diversity, coverage
+    window, and when the run was produced. Pulls from ``raw_output``
+    fields populated by the Future Horizons pipeline plus the numbered
+    article corpus (for source/date stats).
     """
     if not raw:
         return
@@ -1067,13 +1142,28 @@ def _add_analysis_metadata_slide(prs, raw: dict, *, topic: str,
         except Exception: return "—"
 
     gen_at = (raw.get("generated_at") or "").replace("T", " ")[:16]
+    # Client-facing provenance only. Model name and persona are internal
+    # configuration — exposing "gpt-5.4 / executive" to the customer invites
+    # questions the slide can't answer, and "corpus scanned" always equalled
+    # "articles analysed" (both fields are set from len(article_rows)), so
+    # the pair told the reader nothing. Sources and date range say more.
+    n_sources = None
+    date_lo = date_hi = ""
+    corpus = articles_corpus or []
+    if corpus:
+        n_sources = len({(a.get("source") or a.get("news_source") or "").lower()
+                         for a in corpus if (a.get("source") or a.get("news_source"))})
+        dates = sorted(d for d in ((a.get("date") or "")[:10] for a in corpus) if d)
+        if dates:
+            date_lo, date_hi = dates[0], dates[-1]
     stats = [
         ("ARTICLES ANALYSED", _fmt_int(raw.get("articles_analyzed"))),
-        ("CORPUS SCANNED",   _fmt_int(raw.get("total_articles_found"))),
-        ("MODEL",            str(raw.get("model_used") or "—")),
-        ("PERSONA",          str(raw.get("persona") or "—").title()),
-        ("LOOKBACK",         f"{raw.get('timeframe_days') or '—'} days"),
-        ("GENERATED",        gen_at or "—"),
+        ("DISTINCT SOURCES",  _fmt_int(n_sources) if n_sources else "—"),
+        ("COVERAGE WINDOW",   f"{date_lo} –\n{date_hi}" if date_lo else
+                              f"{raw.get('timeframe_days') or '—'}-day lookback"),
+        ("LOOKBACK",          f"{raw.get('timeframe_days') or '—'} days"),
+        ("HORIZON FRAMEWORK", "Three Horizons"),
+        ("GENERATED",         gen_at or "—"),
     ]
     px, py = 0.6, 1.75
     pw, ph, gap = (sw - 1.2 - 2 * 0.20) / 3, 1.45, 0.20
@@ -1247,46 +1337,43 @@ def _add_executive_summary_card_slide(prs, summary: dict, *,
           text=f"{horizon.upper()}  ·  {horizon_label}",
           font_size=10.5, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
-    cons = summary.get("consensus_percentage")
-    if isinstance(cons, (int, float)):
-        _rect(slide, x=sw - 2.55 - 0.5, y=0.85, w=2.55, h=0.36, fill=WILEY_TEAL)
-        _text(slide, x=sw - 2.55 - 0.5, y=0.89, w=2.55, h=0.28,
-              text=f"{int(cons)}% CONSENSUS",
-              font_size=10.5, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    # ``consensus_percentage`` is deliberately NOT rendered — the model
+    # invented it (the prompt used to say "typically 70-90%"), and a pill
+    # reading "82% CONSENSUS" presents that guess as a measurement. The
+    # measured figure is scenario_verdicts.current_consensus_pct on the
+    # assessment path, which these cards don't carry.
 
-    # Opening statement body
-    opening = (summary.get("opening_statement") or "").strip()
+    # Opening statement body. ``scrub_invented_consensus`` cleans cached
+    # cards whose prose embeds the invented share ("with 80% of sources…").
+    from app.services.html_report_common import scrub_invented_consensus
+    opening = scrub_invented_consensus((summary.get("opening_statement") or "").strip())
     if opening:
         _text(slide, x=0.5, y=1.30, w=sw-1.0, h=0.62,
               text=_truncate(opening, 280),
               font_size=10.5, color=SLATE_BLACK, line_spacing=1.25)
 
-    # Minority view callout (optional)
+    # Minority view callout (optional). The ``percentage_range`` on cached
+    # cards is invented too, so only the statement is shown.
     mv = summary.get("minority_view") or {}
-    mv_pct = (mv.get("percentage_range") or "").strip()
-    mv_text = (mv.get("statement") or "").strip()
+    mv_text = scrub_invented_consensus((mv.get("statement") or "").strip())
     cy = 1.97
     if mv_text:
         AMBER_FILL = WILEY_TEAL_LT
         AMBER_BAR  = WILEY_TEAL
         _rect(slide, x=0.5, y=cy, w=sw-1.0, h=0.55, fill=AMBER_FILL)
         _rect(slide, x=0.5, y=cy, w=0.10, h=0.55, fill=AMBER_BAR)
-        label = "MINORITY VIEW" + (f"  ·  {mv_pct}" if mv_pct else "")
         _text(slide, x=0.70, y=cy+0.04, w=sw-1.4, h=0.22,
-              text=label, font_size=8.5, bold=True, color=AMBER_BAR)
+              text="MINORITY VIEW", font_size=8.5, bold=True, color=AMBER_BAR)
         _text(slide, x=0.70, y=cy+0.24, w=sw-1.4, h=0.30,
               text=_truncate(mv_text, 220),
               font_size=9.5, color=SLATE_BLACK, line_spacing=1.20)
         cy += 0.61
 
     # PRIMARY SIGNAL block (optional)
-    ps = (summary.get("primary_signal") or "").strip()
+    ps = scrub_invented_consensus((summary.get("primary_signal") or "").strip())
     if ps:
-        label = "PRIMARY SIGNAL"
-        if isinstance(cons, (int, float)):
-            label = f"PRIMARY SIGNAL  ·  {int(cons)}% CONSENSUS"
         _text(slide, x=0.5, y=cy, w=sw-1.0, h=0.22,
-              text=label, font_size=9, bold=True, color=WILEY_TEAL)
+              text="PRIMARY SIGNAL", font_size=9, bold=True, color=WILEY_TEAL)
         _text(slide, x=0.5, y=cy+0.22, w=sw-1.0, h=0.56,
               text=_truncate(ps, 240),
               font_size=10.5, bold=True, color=SLATE_DARK, line_spacing=1.25)
@@ -1415,8 +1502,12 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
             LIMIT {int(sample_size)}
         """)
         rows = db.facade._execute_with_rollback(sql, {"topic": topic}).fetchall()
-        for r in rows:
-            d = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+        raw_rows = [dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+                    for r in rows]
+        # Same hygiene pass the prompt builder applies, so a rebuilt corpus
+        # numbers the same way the original one did.
+        from app.services.report_corpus import filter_report_corpus
+        for d in filter_report_corpus(raw_rows, topic=topic):
             if (d.get("title") or "").strip():
                 out.append({
                     "title":  d.get("title"),
@@ -1655,10 +1746,20 @@ def build_topic_report_pptx(
 
     topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
 
+    # DB topic names for the coverage-slide scope. ``assessment.topic`` may
+    # be an overlay display name; ``articles.topic`` holds the source name.
+    deck_db_topics: list = []
+    try:
+        from app.services.forecast_assessment_service import source_topic_for_display_name
+        deck_db_topics = [source_topic_for_display_name(t) or t for t in topics if t != "—"]
+    except Exception:
+        deck_db_topics = [t for t in topics if t != "—"]
+
     # Branded intro pack (slides 1-8) when no static template was supplied.
     # Otherwise the template's own slides are already in place.
     if not intro_in_template:
-        _add_branded_intro_pack(prs, period_label=period_label)
+        _add_branded_intro_pack(prs, period_label=period_label,
+                                deck_topics=deck_db_topics)
 
     _add_bundle_cover(prs, period_label, "topic_report", topics, updates_only=False)
     if len(items) >= 2:
@@ -1675,7 +1776,8 @@ def build_topic_report_pptx(
 
         # ── Section openers (always rendered) ──────────────────────────
         _add_topic_divider(prs, assessment, forecast_run or {}, topic_idx=topic_idx)
-        _add_analysis_metadata_slide(prs, raw, topic=topic_name, topic_idx=topic_idx)
+        _add_analysis_metadata_slide(prs, raw, topic=topic_name, topic_idx=topic_idx,
+                                     articles_corpus=articles_corpus)
         _add_topic_three_horizons_chart(prs, assessment, forecast_run or {}, topic_idx=topic_idx)
 
         # ── Analyst content (each helper returns silently when its data
@@ -1750,6 +1852,7 @@ def build_topic_report_pptx(
                                     topic=topic_name, topic_idx=topic_idx)
 
     _add_methodology_appendix_slide(prs)
+    _add_analysis_provenance_slide(prs, items)
 
     _ai_pptx_marker(prs)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
