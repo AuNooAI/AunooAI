@@ -98,10 +98,35 @@ six.
 **Display fix:** the DOCX header and signoff printed the internal cache key
 (`Q3_2026__2cec74a7 update`). They now use the human period from the sidecar, "Q3 2026".
 
+### Reran it — the retry fired and the document is right
+Regenerated the Q3 synthesis over all six topics at the user's go-ahead. The exec-summary agent
+broke again, at a different offset (`char 1636` against `char 2109` the first time), so this is
+not a one-off unlucky reply — the agent emits invalid JSON on this payload fairly reliably. The
+retry recovered it in nine seconds:
+
+```
+14:44:34  wiley_exec_summary_agent JSON parse failed: Expecting ',' delimiter … — retrying once
+14:44:43  exec_summary/completed 0.9
+14:45:00  complete/approved_with_warnings 1.0
+```
+
+The letter is 3,401 characters and the rendered DOCX is 471 words across the five sections, with
+"Q3 2026 update" in the header. Total pipeline time 14:43:32 → 14:45:00.
+
+**One more display fix.** The signoff read "— AunooAI Editorial Team · Q3_2026__2cec74a7",
+because `build_bundle_docx` prefers the agent's own `signoff` string and the agent echoes the
+period it was handed. It now substitutes any `…__<hex>` token for the display period, so the
+footer matches the header.
+
+### Known residual, not chased
+`_load_cached_state` resolves items from the synthesis row's `topics`, which are post-overlay
+display names, so it finds 5 assessments for 6 topics — "Scientific Publishing" again. It does
+not affect this document: `build_bundle_docx` ignores `items` entirely (its docstring says they
+are "intentionally unused"), and the synthesis itself was generated over all six. It would
+affect the HTML and Markdown exports, which do read `items`.
+
 ### State
 Deployed to wileytest and wiley, all three services restarted, live jobs checked first (zero).
-The Q3 synthesis on wileytest is the pre-fix one: five topics, no letter. Regenerating it needs
-a second supervisor run, which has **not** been started — that is the user's call.
 
 ## 2026-08-03 (later still) — four defects found by reading the generated deck
 

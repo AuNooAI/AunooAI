@@ -112,6 +112,10 @@ def build_bundle_docx(
     _hrule(doc)
     signoff = (exec_summary or {}).get("signoff") \
               or f"AunooAI Editorial Team · {period_label}"
+    # The agent echoes whatever period string its payload carried, which for a
+    # topic report is the internal cache key ("Q3_2026__2cec74a7"). Swap any
+    # such token for the human period the header already uses.
+    signoff = re.sub(r"\S*__[0-9a-f]{6,}\S*", period_label, signoff)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     run = p.add_run(f"— {signoff}")
