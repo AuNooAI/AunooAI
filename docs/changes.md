@@ -105,6 +105,16 @@ and the doc records the human-only steps (read as the customer, credentials exac
 disposition every lint finding). Also saved as a session memory for future work. Reviewer
 agent verified drift-free on both tenants before copying.
 
+### Docs pass: the hygiene test caught its own author
+Running `/session-docs` re-verification surfaced a red test: embedding the checklist into
+the reviewer rubric had written "Hindawi" into a prompt file, and
+`test_prompt_hygiene.py::test_no_banned_names_in_prompts` failed exactly as designed — on
+its author, twenty minutes after being written. Rule 9 reworded to "subsidiaries, retired
+imprints … use your knowledge of the customer's corporate history" (the gpt-5.4 reviewer
+knows the relationship without being handed the name). 12/12 tests green, propagated to
+both tenants. Product writeup for the release-gate wave added:
+`docs/product/2026-08-03-report-release-gate.md`.
+
 ### The generation workflow now
 One topic, generate: corpus (alignment > 0.7) → blocklist + dedup + nova-lite relevance
 screen (fails open, 35% floor) → Three Horizons on gpt-5.4 with a date-anchored,

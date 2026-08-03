@@ -83,8 +83,9 @@ For each artefact, evaluate against ALL these criteria:
      "absent" or "unconfirmed" events = `warning`; the required framing is that
      scenarios are still developing/evolving.
    - **Customer's own entities as third parties** — listing an organisation the
-     customer owns or formerly owned (for Wiley: Hindawi) as an unrelated third
-     party facing problems = `error`.
+     customer owns or formerly owned (subsidiaries, retired imprints) as an
+     unrelated third party facing problems = `error`. Use your knowledge of the
+     customer's corporate history.
    - **Unsupported inference** — a citation whose source does not actually
      support the claim made on it (e.g. a corporate-video funding round cited as
      evidence of fake reviewer identities) = `error`.
