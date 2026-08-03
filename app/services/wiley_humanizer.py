@@ -183,7 +183,8 @@ def _figure_ledger(sources: list) -> dict:
     return ledger
 
 
-async def ground_check_figures(text: str, sources: list) -> dict:
+async def ground_check_figures(text: str, sources: list, *,
+                               check_subjects: bool = False) -> dict:
     """Revise the letter so every statistic it asserts is one the sources
     actually contain, used for the thing the source used it for.
 
@@ -212,7 +213,16 @@ async def ground_check_figures(text: str, sources: list) -> dict:
     unsupported = [orig for key, orig in used.items() if key not in ledger]
     supported = {key: ledger[key] for key in used if key in ledger}
     out["unsupported"] = unsupported
-    if not unsupported and not supported:
+    # ``check_subjects=False`` (the default) skips the model when nothing is
+    # orphaned. For a stage that COPIES figures out of its own payload, the
+    # "source sentence" is the output's own sentence and the comparison is
+    # circular — it can only churn well-grounded prose.
+    #
+    # Set it True for a stage that DERIVES prose from different source text,
+    # where drift is real and detectable: the cross-topic overview turned an
+    # assessment's "14.5% drop below baseline expectations" into "a 14.5% drop
+    # in manuscript submissions", and every stage downstream repeated it.
+    if not unsupported and not check_subjects:
         return out
 
     try:

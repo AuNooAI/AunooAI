@@ -2,7 +2,66 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-03 (later still) — fabricated statistics in the executive summary, and the silent model swap behind them
+## 2026-08-03 (later still) — a number changed meaning mid-pipeline; two wrong diagnoses on the way
+
+### CORRECTION — the letter fabricates nothing, and the model is not the cause
+Both first diagnoses were wrong, and the evidence that settled it is simple: **every figure in
+that letter is present verbatim in the agent's own input payload.**
+
+```
+"14.5% drop in manuscript submissions"   ← verbatim in strategic_overview
+"1.4 million … roughly one in forty"     ← verbatim in a briefing_lede
+"$300 billion"                           ← verbatim in a briefing_lede
+"4.8% faster than APC growth"            ← verbatim in strategic_overview
+"99.9975% demonstrated [18]"             ← briefing_lede, with a citation
+```
+
+The exec-summary agent copies what it is given. Re-running the same stage on **GPT-5.5**
+(direct OpenAI) produced the same figures plus more, all likewise from the payload — so the
+2026-07-08 alias repoint to Bedrock Claude is not the cause either.
+
+The earlier "four fabricated statistics" claim came from checking the letter against assessment
+summaries and events only, which is not what the agent was given. Two of those "fabrications"
+had citations attached upstream.
+
+**What actually went wrong is subject drift at the cross-topic stage.** An assessment says
+federal R&D funding ran "14.5% **below baseline expectations**"; the cross-topic agent's
+strategic overview restated that as "a 14.5% drop in **manuscript submissions**"; the letter,
+the cross-cutting themes and the DOCX then repeated it faithfully. One number, one wrong noun,
+propagated to every downstream artefact.
+
+### The guard, corrected
+`ground_check_figures` was deployed briefly with the wrong source set — it would have deleted
+sourced, cited figures. Fixed the same session:
+
+- The exec-summary check now takes **the agent's own payload** as its first source, so it only
+  removes a figure with no upstream origin at all. Verified: 0 unsourced against the real
+  payload, and an injected "61.7%" is detected and removed.
+- It **skips the model call entirely when nothing is orphaned** (`check_subjects=False`, the
+  default). For a stage that copies its numbers, the "source sentence" is the output's own
+  sentence, so the subject comparison is circular and can only churn good prose.
+- `check_subjects=True` is set for the **cross-topic stage**, where prose is derived from
+  different source text and drift is genuinely detectable. Measured on the real overview:
+
+```
+BEFORE:  triggering a 14.5% drop in manuscript submissions
+AFTER:   triggering a 14.5% drop in federal R&D funding
+```
+
+Fixing it there fixes every downstream artefact; fixing it in the letter would not.
+
+### The GPT-5.5 route — wileytest only, and it does not fix this
+`gpt-5.5` on these tenants was an alias to Bedrock Claude Sonnet 4.5, so selecting it would have
+changed nothing. Bedrock has no GPT-5.5 in this account — `foundation-models` in us-east-1,
+us-west-2 and us-east-2 returns only `openai.gpt-oss-*`. The OpenAI key in `.env` is live and
+does have `gpt-5.5`, so a **new** alias `openai-gpt-5.5` routes straight to OpenAI, with a
+fallback to `bedrock-claude-sonnet`. The existing `gpt-5.5` alias is untouched — repointing an
+alias in place is the failure this session started with.
+
+`wiley_exec_summary_agent.md` now uses it, with `reasoning_effort: minimal` so the 5000-token
+budget goes to the letter rather than reasoning. **Applied on wileytest only**, and it does not
+address the drift, so whether wiley follows is a cost decision for the user.
+
 
 ### What the reader spotted
 "Federal research funding faced disruption, triggering a 14.5% drop in manuscript submissions —

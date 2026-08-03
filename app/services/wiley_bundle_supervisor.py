@@ -1088,6 +1088,32 @@ async def run_pipeline(
             in {"strategic_overview", "cross_cutting_themes", "executive_decision_framework"}
         ]
         cross_topic = _apply_locks_after_call(prior_payload, cross_topic, ct_locks)
+
+        # Subject-check the overview's figures against the per-topic material it
+        # was derived from. This is where a number's meaning gets rewritten:
+        # on 2026-08-03 an assessment's "federal R&D funding 14.5% below
+        # baseline expectations" came out of this stage as "a 14.5% drop in
+        # manuscript submissions", and every stage downstream — the letter, the
+        # cross-cutting themes, the DOCX — repeated it faithfully. Correcting it
+        # here fixes it everywhere; correcting it in the letter would not.
+        try:
+            from app.services.wiley_humanizer import ground_check_figures
+            overview = (cross_topic or {}).get("strategic_overview")
+            if isinstance(overview, str) and overview.strip() \
+                    and "strategic_overview" not in (locked_keys or []):
+                ct_sources = [json.dumps(_cross_topic_payload(items, period_label, briefings),
+                                         default=str)]
+                ct_sources += [json.dumps(a.get("summary") or {}, default=str)
+                               for (a, _r, _p) in items]
+                cg = await ground_check_figures(overview, ct_sources, check_subjects=True)
+                if cg["changed"]:
+                    cross_topic["strategic_overview"] = cg["text"]
+                    yield {"stage": "cross_topic", "status": "figures_grounded",
+                           "progress": 0.815,
+                           "payload": {"unsourced": cg.get("unsupported") or []}}
+        except Exception as e:
+            logger.warning("cross-topic figure-check failed (non-fatal): %s", e)
+
         yield {"stage": "cross_topic", "status": "completed", "progress": 0.82}
 
     # ── Stage 8: Executive Summary letter ────────────────────────────
@@ -1096,16 +1122,19 @@ async def run_pipeline(
     if _stage_in_plan(plan, "exec_summary") or not exec_summary:
         exec_regenerated = True
         yield {"stage": "exec_summary", "status": "started", "progress": 0.85}
-        exec_summary = await _call_agent(
-            "wiley_exec_summary_agent",
-            _exec_summary_payload(
-                items, period_label, cross_topic, eos_per_topic,
-                briefings=briefings,
-                recommendations=recommendations,
-                next_steps=next_steps,
-                calibration=_compute_calibration(items, cadence, period_label),
-            ),
+        # Keep the payload: the figure ground-check below must treat exactly
+        # what this agent was GIVEN as its source of truth. Checking the letter
+        # against assessments alone would delete figures the upstream stages
+        # legitimately supplied (briefing ledes carry cited numbers like
+        # "99.9975% demonstrated [18]").
+        exec_payload = _exec_summary_payload(
+            items, period_label, cross_topic, eos_per_topic,
+            briefings=briefings,
+            recommendations=recommendations,
+            next_steps=next_steps,
+            calibration=_compute_calibration(items, cadence, period_label),
         )
+        exec_summary = await _call_agent("wiley_exec_summary_agent", exec_payload)
         # Restore locks scoped to exec_summary fields. Locked path
         # 'exec_summary.letter' on the bundle becomes 'letter' here
         # because exec_summary is the local subtree.
@@ -1202,15 +1231,22 @@ async def run_pipeline(
                     logger.warning("exec-summary ground-check failed (non-fatal): %s", e)
 
                 # Figures get their own check. The event check above compares
-                # actor/action/subject/date, so a statistic passes it untouched:
-                # a Q3 letter asserted "a 14.5% drop in manuscript submissions —
-                # the single largest quarterly move in the portfolio" when the
-                # source had federal R&D funding 14.5% below baseline, and three
-                # further figures in the same letter existed in no source.
+                # actor/action/subject/date, so a statistic passes it untouched.
+                #
+                # The source of truth is the agent's OWN payload first. This
+                # agent does not invent numbers — measured on 2026-08-03, every
+                # figure in a letter that looked fabricated was present verbatim
+                # in its input, and a different model (GPT-5.5) reproduced the
+                # same ones. What this catches is a figure with no upstream
+                # origin at all. Subject drift introduced UPSTREAM (a briefing
+                # or the strategic overview restating "14.5% below baseline" as
+                # "14.5% drop in manuscript submissions") is not visible here,
+                # because by then the payload itself carries the wrong claim.
                 try:
                     from app.services.wiley_humanizer import ground_check_figures
-                    sources = [json.dumps(a.get("summary") or {}, default=str)
-                               for (a, _r, _p) in items]
+                    sources = [json.dumps(exec_payload, default=str)]
+                    sources += [json.dumps(a.get("summary") or {}, default=str)
+                                for (a, _r, _p) in items]
                     sources.append(json.dumps(bundle_payload.get("whats_changed") or {},
                                               default=str))
                     sources.append(json.dumps(named, default=str))
