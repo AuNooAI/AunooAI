@@ -118,12 +118,27 @@ because `build_bundle_docx` prefers the agent's own `signoff` string and the age
 period it was handed. It now substitutes any `…__<hex>` token for the display period, so the
 footer matches the header.
 
-### Known residual, not chased
-`_load_cached_state` resolves items from the synthesis row's `topics`, which are post-overlay
-display names, so it finds 5 assessments for 6 topics — "Scientific Publishing" again. It does
-not affect this document: `build_bundle_docx` ignores `items` entirely (its docstring says they
-are "intentionally unused"), and the synthesis itself was generated over all six. It would
-affect the HTML and Markdown exports, which do read `items`.
+### The HTML and Markdown exports, closed out
+`_load_cached_state` resolved items from the synthesis row's `topics`, which are post-overlay
+display names, so it found 5 assessments for 6 topics. It now reads the state sidecar first —
+that holds source names — and falls back to the row. For rows and sidecars written before
+today, `source_topic_for_display_name()` in **`app/services/forecast_assessment_service.py`**
+reverses the overlay (`"Scientific Publishing"` → `"Scientific Publishers - General
+Monitoring"`), returning None when a string is not a display name so callers can distinguish
+"no mapping" from "maps to itself". A topic that still resolves to nothing is now logged by
+name instead of vanishing.
+
+Markdown also gained the `ensure_bundle_synthesis` call the DOCX has, so it stops raising
+"No generated topic report for period_label=…" on a period that has never had one.
+
+**HTML needed no change beyond the sidecar fix.** It is a different product — the interactive
+deck (`build_topic_report_html`), resolved through `resolve_items` from the sidecar, not the
+bundle summary — so correcting the sidecar was enough. It was left as the deck rather than
+repointed at the executive summary.
+
+Verified on wileytest against Q3: all three resolve 6 of 6 topics, Markdown 33,010 bytes, HTML
+390,566 bytes, DOCX 38,557 bytes. Against the running service after restart, all four export
+routes return 200: `download.docx`, `download.md`, `download.html`, `download-full.docx`.
 
 ### State
 Deployed to wileytest and wiley, all three services restarted, live jobs checked first (zero).

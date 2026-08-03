@@ -1191,6 +1191,27 @@ def _load_deck_overlay(topic: str) -> dict:
     return {}
 
 
+def source_topic_for_display_name(display_name: str) -> Optional[str]:
+    """Reverse of the deck overlay's ``display_name`` — the real DB topic.
+
+    Exports that stored a post-overlay name ("Scientific Publishing") cannot
+    look it up in ``articles`` / ``future_horizons_runs`` / ``forecast_assessments``,
+    which hold the source name ("Scientific Publishers - General Monitoring").
+    Returns None when the string is not a display name, so callers can tell
+    "no mapping" from "maps to itself".
+    """
+    if not display_name or not DECK_OVERLAY_DIR.exists():
+        return None
+    for path in sorted(DECK_OVERLAY_DIR.glob("*_deck_overlay.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("display_name") == display_name and data.get("topic"):
+            return data["topic"]
+    return None
+
+
 def _build_deck_scenarios(db_scenarios: list[dict], overlay: dict) -> list[dict]:
     """Collapse the N raw DB scenarios into the M named deck scenarios via
     the overlay's ``scenario_title_to_deck_key`` mapping. Each deck scenario

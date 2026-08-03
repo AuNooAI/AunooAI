@@ -939,14 +939,32 @@ def _load_cached_state(period_label: str):
             "the cached synthesis."
         )
 
+    # Prefer the sidecar's topic list: it records the SOURCE names, while the
+    # synthesis row's ``topics`` were captured after
+    # ``_apply_overlay_display_names`` ran, so a topic with a deck overlay is
+    # stored there under its display name and cannot be looked up.
+    sidecar_topics = (_read_state_sidecar(period_label) or {}).get("topics") or []
+    topic_names = sidecar_topics or [
+        (e.get("topic") if isinstance(e, dict) else e) for e in (synth.get("topics") or [])
+    ]
+
+    from app.services.forecast_assessment_service import source_topic_for_display_name
+
     items: list = []
-    for entry in (synth.get("topics") or []):
-        topic = entry.get("topic") if isinstance(entry, dict) else entry
+    for topic in topic_names:
         if not topic:
             continue
         a = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        if not a:
+            # Rows and sidecars written before 2026-08-03 hold display names.
+            source = source_topic_for_display_name(topic)
+            if source:
+                a = db.facade.get_latest_forecast_assessment_by_topic(source)
         if a:
             items.append((a, None, None))
+        else:
+            logger.info("topic report %s: no assessment for %r — omitted from the export",
+                        period_label, topic)
     items = _apply_overlay_display_names(items)
 
     eos_per_topic: dict = {}
@@ -961,10 +979,18 @@ def _load_cached_state(period_label: str):
 
 
 async def generate_topic_report_markdown(period_label: str) -> Tuple[bytes, str, list, str, list]:
-    """Render the cached topic-report synthesis as Markdown."""
+    """Render the topic-report synthesis as Markdown — the same executive
+    summary the DOCX carries, in plain text.
+
+    Generates the synthesis on first request when the period has none, same as
+    the DOCX path. Without it this raised "No generated topic report for
+    period_label=…" for every period created after 2026-06-03, since nothing
+    writes that row any more.
+    """
     from app.services.forecast_bundle_markdown import build_bundle_markdown
     from app.services.wiley_delivery_service import _events_by_topic
 
+    await ensure_bundle_synthesis(period_label)
     items, synth, eos_per_topic, review = _load_cached_state(period_label)
     blob = build_bundle_markdown(
         items,
