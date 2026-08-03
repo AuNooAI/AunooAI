@@ -182,9 +182,32 @@ than remove the option.
 Baseline is now 246. The rebuild produced byte-identical assets, which is expected for a
 type-only change and means no tenant needed re-syncing.
 
-One related backend gap, found while checking and **not** fixed: the chronological branch at
-`news_feed_routes.py:329` has no `72h` case, so it falls through to its 7-day default. Every
-other date-range branch handles it. Out of scope for a type fix.
+### The matching backend gap: `72h` silently meant 7 days on one endpoint
+**`app/routes/news_feed_routes.py`**, `GET /api/news-feed/articles/list` — the flat
+chronological list behind the Explore article view. Its date-range chain at `:329` had no
+`72h` case, so the request fell through to `else: start_date = now - timedelta(days=7)`.
+Picking "Last 72 hours" returned a week of articles, with no error and nothing in the logs.
+
+Added the missing branch (`days=3`) and put `72h` in the `Query` description, which had also
+omitted it. The `else` fallback stays, so a genuinely unknown value still degrades to 7 days.
+
+A sweep of all six `date_range == "24h"` chains found this was the only one missing the case:
+`news_feed_service.py:79` and `:190`, and `news_feed_routes.py:1355`, `:1453` and `:2633` all
+handle it.
+
+**Verified on all three tenants** — article counts for the same query, which must sit between
+the 24h and 7d counts:
+
+| tenant | 24h | 72h | 7d |
+|---|---|---|---|
+| bugfixing | 50 | 381 | 1102 |
+| wileytest | 256 | 1845 | 5396 |
+| wiley | 67 | 281 | 1562 |
+
+Before the fix, `72h` returned the 7d number. A control request with `date_range=bogus` still
+returns 1102 on bugfixing, confirming the fallback path is untouched. Copied to wileytest and
+wiley (no drift in that file on either — the diff was exactly this hunk), compiled under each
+tenant's venv, all three services restarted and `active`.
 
 ### Not fixed — a stale modulepreload in `pam_react.html`
 `templates/pam_react.html:34` preloads `usePAM-zQ3fJmWy.js`, which does not exist; the built

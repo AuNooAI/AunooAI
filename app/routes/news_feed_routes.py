@@ -308,7 +308,7 @@ async def get_clustered_articles(
 
 @router.get("/articles/list")
 async def get_articles_list(
-    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 72h, 7d, 30d, 3m, 1y, all"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(25, ge=1, le=100, description="Items per page"),
@@ -328,6 +328,8 @@ async def get_articles_list(
         now = datetime.now()
         if date_range == "24h":
             start_date = now - timedelta(days=1)
+        elif date_range == "72h":
+            start_date = now - timedelta(days=3)
         elif date_range == "7d":
             start_date = now - timedelta(days=7)
         elif date_range == "30d":
