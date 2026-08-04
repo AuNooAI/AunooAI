@@ -284,7 +284,11 @@ class AIModel:
         self.temperature = model_config.get("temperature", 0.7)
         # Ensure a uniform attribute name that other components expect.
         # ``LiteLLMModel`` uses ``model_name`` so we mirror that here.
-        self.model_name = self.model  # type: ignore[attr-defined]
+        self.model_name = self.model
+        # The concrete model this will actually invoke; ``self.model``
+        # is whatever the caller asked for, usually an alias for a
+        # different vendor's model. Record THIS when attributing output.
+        self.resolved_model = resolve_model_identity(self.model)  # type: ignore[attr-defined]
 
     def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Synchronous version of generate() for use in sync contexts."""
@@ -388,6 +392,32 @@ class AIModel:
         async with _get_llm_semaphore():
             return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 
+# mtime-stamped memo for load_model_config(): re-reading and re-parsing the
+# YAML cost ~17ms and sat on the hot path of every LLM request.
+_MODEL_CONFIG_CACHE = {}
+
+
+def resolve_model_identity(model_name):
+    """Return the concrete provider/model a name actually invokes.
+
+    Most names in litellm_config.yaml are aliases whose target is a different
+    vendor entirely — ``gpt-5.4-mini`` calls Claude Haiku 4.5, ``gemini-pro``
+    and ``mixtral-8x7b`` also call Claude. Anything recording or displaying
+    which model produced an output must record THIS, not the alias: naming a
+    model that never ran is a false provenance record.
+
+    Unknown names pass through unchanged, so a concrete ``provider/model``
+    string keeps working.
+    """
+    if not model_name:
+        return ""
+    try:
+        cfg = load_model_config().get(model_name)
+    except Exception:  # config unreadable — never break a call to log a name
+        cfg = None
+    return str((cfg or {}).get("model") or model_name)
+
+
 def load_model_config() -> Dict[str, Dict[str, Any]]:
     """Load model configuration from *litellm_config.yaml*.
 
@@ -411,6 +441,15 @@ def load_model_config() -> Dict[str, Dict[str, Any]]:
         "config",
         "litellm_config.yaml",
     )
+
+    global _MODEL_CONFIG_CACHE
+    try:
+        _st = os.stat(config_path)
+        _stamp = (config_path, _st.st_mtime_ns, _st.st_size)
+    except OSError:
+        _stamp = None
+    if _stamp is not None and _MODEL_CONFIG_CACHE.get("stamp") == _stamp:
+        return _MODEL_CONFIG_CACHE["value"]
 
     try:
         with open(config_path, "r") as f:
@@ -440,6 +479,8 @@ def load_model_config() -> Dict[str, Dict[str, Any]]:
                     **litellm_params,
                 }
 
+        if _stamp is not None:
+            _MODEL_CONFIG_CACHE = {"stamp": _stamp, "value": models}
         return models
 
     except FileNotFoundError:

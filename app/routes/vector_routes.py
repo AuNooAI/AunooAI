@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 import uuid
 import threading
 
-from app.ai_models import resolve_litellm_call_params
+from app.ai_models import resolve_litellm_call_params, resolve_model_identity
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -3326,6 +3326,21 @@ _NO_SOURCE_LINKS = (
 )
 
 
+def _report_date_directive():
+    """The model is never told what day it is, so it dates reports from what it
+    can infer and falls back to its training prior — which is how a report
+    generated in August 2026 came out headed "August 2025". Computed per call:
+    a module constant would freeze the date at import."""
+    _n = datetime.now()
+    return (
+        "\n\nTODAY'S DATE IS " + _n.strftime("%d %B %Y") + ". The current month is "
+        + _n.strftime("%B %Y") + ". Use it for the report date, the analysis period, "
+        "and any relative timing ('recent', 'last month', 'this year'). Do NOT infer "
+        "the date from the articles or from your training data — articles can be "
+        "older than today, and your training cut-off is not the present."
+    )
+
+
 def _apply_recommendations_pref(prompt: str, instr_config) -> str:
     """Append report output-policy directives (recommendations + no source links)."""
     prompt = prompt or ""
@@ -3333,7 +3348,7 @@ def _apply_recommendations_pref(prompt: str, instr_config) -> str:
         prompt += _RECOMMENDATIONS_ON
     else:
         prompt += _RECOMMENDATIONS_OFF
-    return prompt + _NO_SOURCE_LINKS
+    return prompt + _NO_SOURCE_LINKS + _report_date_directive()
 
 
 def _strip_source_links(md: str) -> str:
@@ -4605,8 +4620,11 @@ Use the timeline only to distinguish new developments from ongoing ones; do not 
                         alerts_data=alerts_created,
                         article_uris=[a['article_uri'] for a in alerts_created],
                         articles_used=len(alerts_created),
-                        config={'days_back': req.days_back, 'max_articles': req.max_articles},
-                        model_used=req.model
+                        config={'days_back': req.days_back, 'max_articles': req.max_articles, 'model_requested': req.model},
+                        # Record the model that actually ran, not the alias asked for:
+                        # most names resolve to a different vendor entirely, and a
+                        # provenance record naming a model that never ran is false.
+                        model_used=resolve_model_identity(req.model)
                     )
 
                     report_data = {
@@ -5617,8 +5635,11 @@ Format as a concise markdown report.
                             alerts_data=instruction_alerts,
                             article_uris=[a['article_uri'] for a in instruction_alerts],
                             articles_used=len(instruction_alerts),
-                            config={'days_back': days_back},
-                            model_used=model
+                            config={'days_back': days_back, 'model_requested': model},
+                            # Record the model that actually ran, not the alias asked for:
+                            # most names resolve to a different vendor entirely, and a
+                            # provenance record naming a model that never ran is false.
+                            model_used=resolve_model_identity(model)
                         )
                         logger.info(f"Generated signal report ID: {report_id} for {instruction['name']}")
                     else:

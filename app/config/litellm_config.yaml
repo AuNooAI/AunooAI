@@ -216,6 +216,24 @@ model_list:
       aws_region_name: "us-east-1"
       additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
+  # Honest canonical names for the model actually invoked. The vendor-
+  # branded aliases above resolve here too and still work; prefer these so
+  # stored records name the model that really ran.
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format"]
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format"]
+
 fallbacks:
   - bedrock-kimi-k2-5:
       - bedrock-claude-haiku
