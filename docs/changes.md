@@ -2,6 +2,35 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 — FINAL STATE of the Q3 delivery and the report machinery
+
+Both Q3 2026 products stand delivered as internally-consistent, gate-passed sets, and every
+defect class found since the review has a machine check standing behind it.
+
+**Topic report** (`topic_report`/`Q3_2026__2cec74a7`, fresh-forecast product): deck + HTML
+from six pinned runs (identical provenance IDs), exec letter 570 words / five sections,
+directly gate-judged 8/10 after the fact. Serial from Q4 via the hashed-label prior fix.
+
+**Quarterly bundle** (`quarterly`/"Q3 2026", tracking product): six fresh Q3 assessments
+(two repaired en route: stale overlays activated from `.proposed`, `horizon_type` widened via
+`fsv_horizon_16`), deck + 511-word letter + HTML verified sentence-identical, golden gate
+8/10, reviewer approved (one verified false positive overruled per checklist). Letter is a
+serial installment on the Q2 letter.
+
+**The machinery, end state:** corpus hygiene (blocklist/dedup/nova-lite screen) → run
+pinning via sidecar → release lint (config leaks, invented consensus, meta-prose incl.
+quote-narration, internal names, dates, grouped cites, figure/org grounding with
+lakh/bn units) → structure validation (5 sections + word floor, retries, hard fail) →
+golden gate vs the Q2 exemplar (prose form + serial continuity + completeness, one critique
+retry) → LLM reviewer (rule 9 delivery checklist) → human checklist
+(`docs/REPORT_REVIEW_CHECKLIST.md`). Writer: gpt-5.5 @none, validated by bake-off against
+four alternatives. BW outputs share the lint via `lint_outbound`. Caches tenant-scoped.
+Contract + prompt-hygiene tests green (12/12).
+
+**Still open, by choice:** the gate is advisory outside the exec-letter path (send-button
+wiring is the follow-on); newsletters uncovered; reviewer over-flag tuning continues
+case-by-case; assessment summaries remain double-encoded JSON (known trap, unfixed).
+
 ## 2026-08-04 (topic report parity) — same gauntlet, one label fix, no regeneration
 
 ### Verified rather than re-rolled
