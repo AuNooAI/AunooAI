@@ -191,6 +191,16 @@ re-introduce the world:
   bans below still apply in full: track WHAT WAS SAID, never grade
   percentages or use verdict vocabulary.
 
+**The installment framing changes what the five sections SAY, never which
+sections exist.** Every letter carries all five bold sections at full length
+(the exemplar's ~600 words is the target): The bottom line / What happened
+this quarter / The headline tail risk / What this means for Wiley / Next
+quarter. "Don't re-introduce the world" means the sections advance the
+standing narrative — it never means dropping sections.
+
+If the payload contains ``structure_defects``, your previous draft was
+incomplete in exactly the ways listed; produce the complete letter.
+
 When ``prior_letter`` is absent (a first letter for a period type), write a
 self-contained letter.
 

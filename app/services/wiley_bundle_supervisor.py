@@ -943,6 +943,28 @@ def _prior_period_label(period_label: str) -> str:
 _GOLDEN_EXEMPLAR_PATH = os.path.join(
     "data", "auspex", "golden", "wiley_exec_summary_q2_2026.txt")
 
+# The five mandatory letter sections. Deterministic — the 2026-08-04 serial
+# letter shipped as a 102-word fragment (bottom line only) because the
+# installment instructions said what NOT to repeat without restating the
+# structure, and no gate checked completeness: the golden gate scored the
+# fragment 8/10 on prose form.
+_LETTER_SECTIONS = ("The bottom line", "What happened this quarter",
+                    "headline tail risk", "What this means for Wiley",
+                    "Next quarter")
+_LETTER_MIN_WORDS = 400
+
+
+def _letter_defects(letter: str) -> list:
+    """Missing sections / too short — empty list means structurally complete."""
+    out = []
+    text = letter or ""
+    for sec in _LETTER_SECTIONS:
+        if sec.lower() not in text.lower():
+            out.append(f"missing section: {sec}")
+    if len(text.split()) < _LETTER_MIN_WORDS:
+        out.append(f"only {len(text.split())} words (minimum {_LETTER_MIN_WORDS})")
+    return out
+
 
 async def _golden_gate(letter: str) -> dict:
     """Judge the letter against the Q2 2026 exemplar — the letter the
@@ -985,6 +1007,9 @@ async def _golden_gate(letter: str) -> dict:
             "4. Consequences stated for the customer, concretely.\n"
             "5. No abstraction padding, no list-like cataloguing without "
             "narrative, no sentence whose subject is the analysis itself.\n"
+            "6a. Completeness: the exemplar has five bold sections at ~600 "
+            "words; a candidate missing sections or far shorter FAILS "
+            "regardless of prose quality — passes must be false.\n"
             "6. Serial continuity: the exemplar reads as an installment — "
             "'the leading tail-risk scenario REMAINS…', 'X was expected to "
             "advance, yet no developments have occurred', 'the predicted "
@@ -1250,6 +1275,30 @@ async def run_pipeline(
             cadence=cadence,
         )
         exec_summary = await _call_agent("wiley_exec_summary_agent", exec_payload)
+        # Structural completeness is validated, not requested: all five
+        # sections, minimum length. Up to two retries with the defect list
+        # spelled out; a still-incomplete letter fails the stage loudly
+        # rather than shipping a fragment.
+        for _attempt in range(2):
+            defects = _letter_defects((exec_summary or {}).get("letter") or "")
+            if not defects:
+                break
+            logger.warning("exec letter structurally incomplete (%s) — retrying",
+                           "; ".join(defects))
+            retry_payload = dict(exec_payload)
+            retry_payload["structure_defects"] = (
+                "Your previous draft was structurally incomplete: "
+                + "; ".join(defects)
+                + ". Produce the COMPLETE letter with all five bold sections "
+                  "at full length. The installment framing changes what the "
+                  "sections SAY, never which sections exist."
+            )
+            exec_summary = await _call_agent("wiley_exec_summary_agent", retry_payload)
+        defects = _letter_defects((exec_summary or {}).get("letter") or "")
+        if defects:
+            raise RuntimeError(
+                f"Exec letter still structurally incomplete after retries: "
+                f"{'; '.join(defects)}")
         # Restore locks scoped to exec_summary fields. Locked path
         # 'exec_summary.letter' on the bundle becomes 'letter' here
         # because exec_summary is the local subtree.

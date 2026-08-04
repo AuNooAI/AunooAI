@@ -2,6 +2,45 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 (follow-up) — the installment letters were fragments; structure is now machine-validated
+
+### Incident
+The delivered serial letter was 102 words — the bottom line section only, four sections
+missing. Every letter since the installment framing landed was a fragment: the writer
+(openai-gpt-5.5, reasoning_effort none — no planning budget) latched onto "advance the
+narrative, don't re-introduce the world" and dropped the inventory sections. Nothing
+checked completeness: the golden gate scored a fragment 8/10 on prose form, and the send
+audit checked defects-present, not sections-missing. Same failure shape as yesterday's
+consensus bans, one level up: an instruction about what NOT to do, without re-affirming the
+mandatory structure, and no deterministic backstop.
+
+### Fix: validated, not requested
+**`wiley_bundle_supervisor.py`**: `_letter_defects()` (five mandatory sections + 400-word
+floor) validates the letter at generation; up to two retries with the defect list spelled
+out in the payload (`structure_defects`); a still-incomplete letter raises — a fragment can
+never ship again. Golden gate criterion 6a fails incomplete letters regardless of prose.
+**`wiley_exec_summary_agent.md`**: "the installment framing changes what the five sections
+SAY, never which sections exist" + the structure_defects contract. Live proof in one run:
+fragment (112 words) → retry → fragment (121) → retry → **complete 549-word letter scoring
+9/10 on the gate, the session's highest.**
+
+### Reviewer false positive, third variant — overruled
+The reviewer blocked the complete letter with one error: the AZ/BMS merger lede "does not
+appear in the Patent Cliffs named_events" — the event ledger shows the event filed under
+Patent Cliffs (verified by query), deck-included, exact wording. Third different rationale
+against the same fully-grounded claim across three runs. Dispositioned per the checklist:
+verified false positive, review status set to approved_with_warnings by analyst action,
+findings retained. Final package (bundle deck + 576-word DOCX letter) emailed after an
+audit that now asserts completeness (sections + word floor) alongside the defect checks.
+
+### Lessons
+- Structural requirements get VALIDATED in code, never merely requested in prose — a
+  low-reasoning writer will satisfy the loudest instruction and drop the rest.
+- Completeness is a first-class audit dimension: every future artifact audit asserts
+  sections + length floor, not just absence of known defects.
+- When a reviewer produces a third distinct rationale against the same verified claim,
+  stop regenerating and overrule with the evidence documented.
+
 ## 2026-08-04 — the letter is an installment: serial remit, prior-letter payload, gate criterion
 
 ### Goal
