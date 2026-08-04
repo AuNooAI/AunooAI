@@ -2,6 +2,25 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 (topic report parity) — same gauntlet, one label fix, no regeneration
+
+### Verified rather than re-rolled
+"Apply the same fixes to the topic-report letter": the code fixes are already shared (one
+supervisor pipeline), so the question was whether the EXISTING letter — generated before the
+structure validator, quote-narration ban and golden gate — carries any of the defect
+classes. Measured: 570 words, all five sections, no quote-narration, no meta-prose, and a
+direct golden-gate judgment of **8/10 PASS** ("strong opening that names actors and actions
+immediately; named-event density matches the exemplar's standard"). A clean artifact was
+not regenerated — re-rolling a measured-clean letter is variance for zero gain.
+
+### The one real gap: topic-report labels never resolved a prior
+`_prior_period_label` couldn't parse "Q3_2026__<topic-hash>", so `prior_letter` lookup
+always failed for topic reports and the serial remit degraded to self-contained (correct
+for a first letter, wrong forever). New branch resolves the SAME topic set one quarter back
+("Q3_2026__2cec74a7" → "Q2_2026__2cec74a7"), so from Q4 onward the topic-report letter is
+written as an installment on its own thread, separate from the quarterly bundle's thread.
+Verified on four label forms incl. year rollover; 12/12 tests; propagated.
+
 ## 2026-08-04 (morning close) — quote-narration banned; writer bake-off validates the status quo
 
 ### Quote-narration: the mandated quote manufactured its own tell

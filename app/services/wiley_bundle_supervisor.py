@@ -920,6 +920,16 @@ def _prior_period_label(period_label: str) -> str:
     """
     import re as _re
     from datetime import datetime as _dt
+    # Topic-report labels: "Q3_2026__2cec74a7" (quarter + topic-set hash).
+    # The prior is the SAME topic set one quarter back — this is what lets
+    # the topic-report letter receive its predecessor as ``prior_letter``
+    # and be written as an installment from the second quarter onward.
+    m = _re.fullmatch(r"Q([1-4])_(\d{4})__([0-9a-f]+)", (period_label or "").strip())
+    if m:
+        q, year, h = int(m.group(1)), int(m.group(2)), m.group(3)
+        pq = 4 if q == 1 else q - 1
+        py = year - 1 if q == 1 else year
+        return f"Q{pq}_{py}__{h} baseline"
     # Match "Q2 2026", "Quarterly 2026-04-15", or fallback "2026-05-26"
     m = _re.search(r"(Q[1-4]\s*\d{4})", period_label or "")
     if m:
