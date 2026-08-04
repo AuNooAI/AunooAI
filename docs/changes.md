@@ -75,6 +75,16 @@ action. The controlled comparison against the stale run (same writer, same gate,
 4→4 then vs 4→8 now) confirms the gate measures input freshness as much as prose:
 1,366,055-byte bundle at `/tmp/q3_quarterly_bundle.pptx`.
 
+### Delivered (2026-08-04 00:0x)
+Quarterly package emailed: the 1,366,055-byte bundle deck plus the executive letter DOCX
+rendered from the fresh synthesis via `generate_bundle_docx("quarterly")`. The send script
+asserts a seven-point audit before emailing (internal keys, meta-openers, legacy defects,
+tail-risk denial, consensus vocabulary, verdict vocabulary, the "Request Wiley admin"
+string) — all clean. Home copies at
+`/home/orochford/Wiley_Horizons_Quarterly_{Bundle,Letter}_Q3_2026.*`. Both Q3 products are
+now delivered gate-passed: the topic report (fresh forecasts, six pinned runs) and the
+quarterly bundle (standing forecasts tracked against Q3 events, six fresh assessments).
+
 ### Lessons
 - A varchar sized for one vocabulary is a silent kill-switch for the next vocabulary; the
   write path must surface INSERT failures to the caller, not just the log (assess_run
