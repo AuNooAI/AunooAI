@@ -688,7 +688,8 @@ def _exec_summary_payload(items: list, period_label: str,
                           briefings: dict = None,
                           recommendations: dict = None,
                           next_steps: dict = None,
-                          calibration: list = None) -> dict:
+                          calibration: list = None,
+                          cadence: str = None) -> dict:
     """Build the exec-summary agent's input.
 
     The agent needs more than the strategic overview + a biggest-mover —
@@ -859,9 +860,27 @@ def _exec_summary_payload(items: list, period_label: str,
             return 0.0
     black_swans.sort(key=_impact, reverse=True)
 
+    # The PRIOR period's letter — without it the writer cannot produce an
+    # update ("the tail risk REMAINS…", "last quarter we flagged…") and
+    # falls back to a standalone quarter review, which is what the Q3 2026
+    # letter did. Facts inside the prior letter are LAST quarter's; the
+    # agent instructions require treating it as narrative to advance, never
+    # as a source of current facts.
+    prior_letter = ""
+    if cadence:
+        try:
+            from app.database import get_database_instance as _gdb
+            _prior = _gdb().facade.get_forecast_bundle_synthesis(
+                cadence, _prior_period_label(period_label).replace(" baseline", "")) or {}
+            prior_letter = (((_prior.get("payload") or {}).get("exec_summary")
+                             or {}).get("letter") or "")[:8000]
+        except Exception as e:
+            logger.warning("exec payload: prior letter load failed: %s", e)
+
     return {
         "period_label": period_label,
         "prior_period_label": _prior_period_label(period_label),
+        "prior_letter": prior_letter,
         "strategic_overview": overview,
         "status_distribution": dist,
         "total_scenarios": total_scenarios,
@@ -966,6 +985,12 @@ async def _golden_gate(letter: str) -> dict:
             "4. Consequences stated for the customer, concretely.\n"
             "5. No abstraction padding, no list-like cataloguing without "
             "narrative, no sentence whose subject is the analysis itself.\n"
+            "6. Serial continuity: the exemplar reads as an installment — "
+            "'the leading tail-risk scenario REMAINS…', 'X was expected to "
+            "advance, yet no developments have occurred', 'the predicted "
+            "decline IS NOW EVIDENT'. A candidate that reads as a standalone "
+            "quarter review, never tracking what the standing forecast said, "
+            "fails this criterion.\n"
             "passes = score >= 7 AND the opening meets criterion 1.\n"
             "The critique must describe what to fix and may quote sentences "
             "FROM THE CANDIDATE ONLY. Never quote or reference the exemplar's "
@@ -1222,6 +1247,7 @@ async def run_pipeline(
             recommendations=recommendations,
             next_steps=next_steps,
             calibration=_compute_calibration(items, cadence, period_label),
+            cadence=cadence,
         )
         exec_summary = await _call_agent("wiley_exec_summary_agent", exec_payload)
         # Restore locks scoped to exec_summary fields. Locked path
@@ -1729,6 +1755,7 @@ async def regenerate_single_stage(
                 items, period_label, prior_payload, eos_per_topic,
                 briefings={}, recommendations={}, next_steps={},
                 calibration=_compute_calibration(items, cadence, period_label),
+                cadence=cadence,
             ),
         )
         es_locks = [

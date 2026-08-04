@@ -2,6 +2,52 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 — the letter is an installment: serial remit, prior-letter payload, gate criterion
+
+### Goal
+The user compared the delivered Q3 quarterly letter to Q2's: Q3 read as an independent
+quarter review; Q2 reads as an update ("remains", "was expected to advance, yet…"). Two
+questions answered with evidence: what's unclear about the remit, and why Q2 worked.
+
+### Diagnosis
+Nothing in the agent remit said "installment", and `_exec_summary_payload` carried
+`prior_period_label` + numeric deltas but NOT the prior letter — the model literally could
+not write "the tail risk remains X" because it never saw last quarter's headline risk. And
+the numeric deltas it did receive are exactly what the banned-phrasings list forbids. Q2
+worked because it was written in May under the pre-ban instructions, which were built AROUND
+baseline-diff framing; the 08-03 bans removed that vocabulary without specifying the
+compliant replacement. We banned the bad way of being serial and never specified the good way.
+
+### Fixes
+**`wiley_bundle_supervisor.py`**: payload gains `prior_letter` (the prior period's letter
+from `forecast_bundle_synthesis`, 8k cap, cadence-aware; degrades to empty for first
+letters / topic-report labels). Golden gate gains criterion 6 — serial continuity, judged
+against the Q2 exemplar's own register. **`wiley_exec_summary_agent.md`**: new "This letter
+is an installment" section — track prior claims, state tail-risk continuity, frame new
+developments as new against the standing picture; prior letter is narrative context only
+(its facts are last quarter's); consensus-number bans unchanged.
+
+### Live results and two briefing corrections
+First serial run: draft scored 8, passed with NO retry (all prior first drafts scored 4 —
+the missing remit was the binding constraint, not the model). Opener: "The Q2 concern about
+declining trust has broadened from public confidence into the funding machinery." The
+reviewer then blocked on two briefing ledes: "$400 billion deal" (a reviewer false positive
+that persisted even after a qualifier rule was added to the rubric — resolved by aligning
+the lede to the event record's own noun, "potential $400 billion pharmaceutical merger")
+and "~300 grants in blue states" (half-real: 300 is event-supported, "blue states" was an
+inference — corrected to the event's "political-consideration criteria"). Both edits in the
+assessment rows (wileytest DB, this entry is the record). Writer variance observed across
+rolls (8 / 4→4 / 8) — the gate absorbs it. Final run: **gate 8/10 passed, reviewer approved
+with zero errors**; final package emailed with an eight-point audit asserted in the send
+script (including "blue states" absence and serial-marker presence).
+
+### Lessons
+- When banning a bad framing, specify the compliant replacement in the same edit — a model
+  stripped of its update vocabulary writes standalone reviews.
+- A serial document's writer must SEE the prior document. Labels and deltas are not narrative.
+- When a reviewer false-positive survives a rubric fix, align the artefact to the source
+  record's exact wording instead of arguing with the judge — it's tighter grounding anyway.
+
 ## 2026-08-03 (quarterly live-fire) — the gate blocks a stale bundle; a silent-empty assessment incident underneath
 
 ### Goal

@@ -169,6 +169,31 @@ A letter without a quoted briefing line is incomplete — do not return one.**
    one sentence on what we will be watching next quarter (events, not
    percentages).
 
+## This letter is an installment, not a standalone review
+
+When the payload contains ``prior_letter`` (last quarter's letter, which the
+reader has read), the letter's job is to ADVANCE that narrative, not to
+re-introduce the world:
+
+- Track the prior letter's claims: what we said, what this quarter's events
+  did to it. "The predicted decline in public trust is now evident", "X was
+  expected to advance, yet no development has occurred" — that register,
+  claim by claim, is the core of the letter.
+- The headline tail risk must state its continuity: it either **remains**
+  last quarter's scenario, or has been displaced — and if displaced, name
+  what displaced it and why.
+- New developments are framed as new against the standing picture ("a new
+  pressure this quarter…"), not as items in a fresh inventory.
+- The prior letter is NARRATIVE context only. Its facts are LAST quarter's:
+  never recycle them as this quarter's events; this quarter's facts come
+  from the current payload alone.
+- This continuity is claims-and-events continuity. The consensus-number
+  bans below still apply in full: track WHAT WAS SAID, never grade
+  percentages or use verdict vocabulary.
+
+When ``prior_letter`` is absent (a first letter for a period type), write a
+self-contained letter.
+
 ## Hard rules
 
 - **The letter OPENS with the quarter's sharpest named development or
