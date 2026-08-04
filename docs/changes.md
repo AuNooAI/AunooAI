@@ -2,6 +2,33 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 (morning close) — quote-narration banned; writer bake-off validates the status quo
+
+### Quote-narration: the mandated quote manufactured its own tell
+The delivered letter contained 'That line matters commercially because…' — the agent md
+REQUIRES a verbatim briefing quote in paragraph 4, and the model narrated its own
+compliance. Fix: the quote rule now shows the woven-in form and bans quote-narration
+outright; `report_lint` `_META_PROSE_RE` catches the phrase class deterministically
+("that/this line|quote|sentence|phrase|number matters|is important|captures") — verified on
+the exact offending sentence. Regenerated: gate 8/10, 511 words, all sections,
+quote-narration clean; package resent. The quarterly HTML was then rendered from the same
+synthesis, verified sentence-for-sentence against the letter (25/25 present), and sent —
+completing the matched deck+letter+HTML set.
+
+### Writer bake-off against the golden gate
+Five writers, one identical real Q3 payload (39,910 chars incl. the Q2 prior letter), first
+drafts only, judged by the gate + structure validation + lint: **gpt-5.5 @none (current) 8
+PASS · gpt-5.5 @low 8 PASS · gpt-5.4 4 fail · gpt-4.1 3 fail · claude-sonnet-4.5 wrote the
+banned "80% of sources" construct** (its gate judgment glitched, score null — disqualified
+by lint regardless). Two parse failures on the first pass were harness artifacts, re-run
+with raw capture. Conclusions: keep gpt-5.5 @none (extra reasoning buys nothing); the
+"gpt-4.1 wrote the good Q2 letter" theory is dead — on today's prompt it produced the worst
+prose of the field, so the quality gain came from the remit + retry machinery, not the
+model; the repoint away from Bedrock Claude is validated by its first draft reproducing the
+original invented-consensus defect. Caveat recorded: n=1 per writer against observed 4↔8
+first-draft variance; the ordering (8/8 vs 4/3) is wide enough to act on, and the harness
+re-tests any candidate in minutes. Letters at `/tmp/bakeoff_*.txt`.
+
 ## 2026-08-04 (follow-up) — the installment letters were fragments; structure is now machine-validated
 
 ### Incident

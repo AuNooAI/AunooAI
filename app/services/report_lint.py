@@ -43,7 +43,13 @@ _CONFIG_LEAK_RES = [
 # about the world, not about its own reading of the world.
 _META_PROSE_RE = _re.compile(
     r"\b(?:decision-relevant read|the key takeaway|at a high level|"
-    r"the most important thing to understand)\b", _re.IGNORECASE)
+    r"the most important thing to understand|"
+    # Quote-narration: quoting a line and then discussing the quotation —
+    # "That line matters because…". Produced by a rule mandating a verbatim
+    # quote; the model narrated its own compliance.
+    r"th(?:at|is) (?:line|quote|sentence|phrase|number) "
+    r"(?:matters|is (?:important|telling|significant)|captures))\b",
+    _re.IGNORECASE)
 
 # The invented-consensus shapes prompt v3 abolished.
 _CONSENSUS_RES = [

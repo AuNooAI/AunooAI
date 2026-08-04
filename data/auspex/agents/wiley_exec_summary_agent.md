@@ -122,6 +122,14 @@ Separate paragraphs with a blank line (`\n\n`). ~80–130 words each.
 per-topic `briefing_lede`, in double quotation marks. Place it in paragraph 4.
 A letter without a quoted briefing line is incomplete — do not return one.**
 
+**The quote is WOVEN IN as evidence, never presented and then discussed.**
+Right: `Analysts' own reporting concedes that "the scientific vetting
+infrastructure is demonstrably failing", and the retraction ledger backs it.`
+Wrong, banned outright: quoting a line and then commenting on the quotation —
+"That line matters because…", "This quote captures…", "That sentence is
+important…". No human analyst narrates their own quotations; a sentence whose
+subject is the quote itself (rather than the world) is a defect.
+
 1. **The bottom line.** Lead with the trends where the **evidence since
    forecast is most notable** — first those where what was forecast is NOT
    yet showing up in events (counter-evidence or a conspicuous absence of
