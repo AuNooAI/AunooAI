@@ -21,6 +21,10 @@ _2026-08-03 · Wiley Horizons quarterly deliverables: deck, HTML report, executi
   ships. A draft that reads worse than the standard — abstract openings, thin detail — is
   rejected and rewritten against the judge's critique. In its first live run the gate
   rejected a draft scoring 4 out of 10 and shipped the rewrite, which scored 8.
+- The quarterly executive letter is now written as an installment: it receives last
+  quarter's letter and must advance that narrative — what we said, what the quarter's
+  events did to it, whether the headline risk still stands — instead of re-introducing the
+  world each quarter. The quality judge scores this continuity explicitly.
 - The Q3 2026 package was rebuilt under this gate and delivered: 237-slide deck, web
   report, and executive letter, all from one analysis, all passing every check.
 
