@@ -55,9 +55,29 @@ class NewsFirehoseCollector(ArticleCollector):
         Strategy: extract all meaningful terms (quoted phrases become unquoted words),
         strip parentheses and special operators, join with OR for broad matching.
         Precision comes from the relevance scoring downstream, not the search query.
+
+        One exception: a query that is nothing but a single quoted phrase is passed
+        through with its quotes intact, because the endpoint supports that form and
+        it is the only way to ask for adjacent words. Unquoted, `Atlantis Press`
+        becomes an AND of two terms found anywhere in the document, which matched a
+        Tomb Raider page containing the word "press"; quoted, it matches nothing,
+        which is the honest answer. Callers wanting a phrase must quote it —
+        multi-word keywords are still normalized as before, so nothing that relies
+        on the broad behaviour changes.
         """
         if not query:
             return query
+
+        # A lone quoted phrase is the one form worth preserving. Anything else —
+        # several phrases, or a phrase mixed with operators — is what the endpoint
+        # cannot parse, so it still gets flattened below.
+        stripped = query.strip()
+        if re.fullmatch(r'"[^"]+"', stripped):
+            inner = stripped[1:-1].strip()
+            # &, !, :, * are tsquery operators and break the parse even inside a
+            # phrase, so a phrase containing them cannot be preserved.
+            if inner and not re.search(r'[&!:*\\|+()]', inner):
+                return f'"{inner}"'
 
         # Extract quoted phrases and convert to unquoted words
         # "artificial general intelligence" -> artificial general intelligence
