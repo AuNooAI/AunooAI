@@ -8,6 +8,7 @@ Three layers enforce it:
 | Layer | What it covers | Where |
 |---|---|---|
 | Release lint (deterministic, every build) | figures/orgs vs cited corpus, consensus patterns, internal leaks, dates, rendering | `app/services/report_lint.py`; findings on the period sidecar |
+| Reference check (every build, network) | every cited URL probed: live, paywalled, bot-blocked, redirected, dead | `app/services/reference_check.py`; results under `reference_check` on the sidecar; CLI `scripts/check_report_references.py` |
 | LLM reviewer (every pipeline run) | grounding, framing, consistency, the judgment calls below | `data/auspex/agents/wiley_reviewer_agent.md` |
 | Human (before send) | the last three sections | you |
 
@@ -65,6 +66,11 @@ Three layers enforce it:
   relevance-screened (`app/services/report_corpus.py`).
 - Spot-check inferences: an article must actually support the claim citing it (the
   Synthesia avatar-funding → fake-reviewer failure).
+- References resolve: the build's reference check ran (`reference_check` on the period
+  sidecar; rerun by hand with `scripts/check_report_references.py --run-id …` from the
+  tenant directory). Dead links: replace or drop the citation. "blocked" rows are bot
+  checks against our client, not broken links — spot-check a few in a real browser.
+  Paywalled links are acceptable; the customer sees the publisher's own gate.
 
 ## Human-only, every time
 - Read the letter as the customer would: tone, framing, and what a domain expert will

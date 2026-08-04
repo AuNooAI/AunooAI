@@ -2,6 +2,54 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 — reference check: every cited URL probed for dead links and paywalls
+
+### Goal
+The checklist requires the reference list to be the full cited corpus; nothing verified
+the customer can actually open those links. Now every topic-report build probes each
+cited URL and records whether it is live, paywalled, bot-blocked, redirected, or dead.
+
+### Reference-check module and CLI
+**`app/services/reference_check.py`** (new) fetches each URL concurrently (httpx, browser
+User-Agent, first 200 KB of body) and classifies it: `ok`; `paywall` (schema.org
+`isAccessibleForFree: false`, subscribe-to-read phrases, or a known hard-paywall publisher
+answering 401/403); `blocked` (bot-check interstitials — Cloudflare "just a moment",
+captcha vendors — meaning the link may still open in a real browser); `redirect` (now
+lands on the site's homepage, usually a removed article); `dead` (404/410, 5xx, DNS,
+timeout). **`scripts/check_report_references.py`** (new) is the CLI: sources are a
+rendered HTML report (`--html`), a URL list (`--urls`), or a run's cited corpus straight
+from `future_horizon_articles` (`--run-id`); `--csv` writes the table, `--fail-on-dead`
+exits 1 so a send script can gate on it. One trap fixed during testing: bare
+`load_dotenv()` walks up from the script's own directory, so run from another tenant it
+still read bugfixing's `.env` and queried the wrong DB — the script now prefers the CWD's
+`.env`, matching its "run from the tenant directory" contract.
+
+### Wired into the build
+**`app/services/topic_report_service.py`**: after the release lint, the build collects
+every corpus URL across the report's runs and awaits the check (concurrency 12, timeout
+10 s — about a minute for a 300-URL corpus). Results land on the period sidecar under
+`reference_check` (`counts` + the non-ok rows); dead/redirect counts surface in build
+progress. Advisory like the lint, never blocks, and `REPORT_REFERENCE_CHECK=0` skips it.
+**`docs/REPORT_REVIEW_CHECKLIST.md`**: new layer row and a Corpus bullet — dead links get
+replaced or dropped, blocked rows get spot-checked in a browser, paywalled links are
+acceptable.
+
+### Verification
+Live sweep of the delivered Q3 topic report's full cited corpus (six pinned runs, 315
+URLs, ~2 min): 219 ok, 20 paywall, 69 blocked (bot checks, concentrated on Seeking
+Alpha/Forbes/phys.org), 0 redirect, 7 dead — of which one confirmed 404
+(independent.com), four usnews.com timeouts (that site hangs non-browser clients), one
+Newsmax timeout, one xda-developers connection drop. Table at
+`/tmp/q3_reference_check.csv`. `py_compile` clean on all three files in all three
+tenants; CLI re-run in `--run-id` mode from the wileytest directory returned the same
+rows post-refactor.
+
+### Propagation
+bugfixing (canonical, committed) + wiley + wileytest: all three got the module, the
+service wiring, the CLI, and the checklist; per-tenant `httpx` confirmed (0.28.1);
+services restarted after confirming no running jobs (`processing_jobs`,
+`background_tasks`, `ingest_job_status` all idle on wiley and wileytest).
+
 ## 2026-08-04 — final topic-report package delivered
 
 The complete topic-report package went out as one email with three attachments: the

@@ -929,6 +929,43 @@ async def generate_topic_report(
                 json.dump(state, f)
     except Exception as e:
         logger.warning("release lint failed (non-fatal): %s", e)
+
+    # Reference check — probes every cited URL for dead links and paywalls.
+    # Network-bound (about a minute for a full corpus), advisory like the
+    # lint, and skippable with REPORT_REFERENCE_CHECK=0.
+    if os.getenv("REPORT_REFERENCE_CHECK", "1").lower() not in ("0", "false", "no"):
+        try:
+            from app.services.reference_check import check_urls, summarize
+            ref_urls: list = []
+            _seen_urls: set = set()
+            for (a, _r, _p) in items:
+                for art in a.get("_articles_corpus") or []:
+                    u = ((art or {}).get("uri") or "").strip()
+                    if (u.lower().startswith(("http://", "https://"))
+                            and u not in _seen_urls):
+                        _seen_urls.add(u)
+                        ref_urls.append(u)
+            if ref_urls:
+                _emit(99, f"Checking {len(ref_urls)} reference link(s)")
+                ref_results = await check_urls(ref_urls, concurrency=12,
+                                               timeout=10.0)
+                ref_counts = summarize(ref_results)
+                state = _read_state_sidecar(period_label) or {}
+                state["reference_check"] = {
+                    "counts": ref_counts,
+                    "problems": [r for r in ref_results
+                                 if r["verdict"] != "ok"],
+                }
+                with open(_state_sidecar_path(period_label), "w",
+                          encoding="utf-8") as f:
+                    json.dump(state, f)
+                logger.info("reference check: %s", ref_counts)
+                if ref_counts.get("dead") or ref_counts.get("redirect"):
+                    _emit(99, f"⚠ References: {ref_counts['dead']} dead, "
+                              f"{ref_counts['redirect']} redirected — "
+                              f"see sidecar")
+        except Exception as e:
+            logger.warning("reference check failed (non-fatal): %s", e)
     _emit(100, "Done")
     return blob, period_label, included_topics, None, []
 
