@@ -44,6 +44,11 @@ Three layers enforce it:
   scenarios" only when the tracked count is truly zero; otherwise name the top card.
 - Framing: tracked scenarios are "developing / evolving" — never "missing", "absent" or
   "unconfirmed" events, which reads as a coverage gap rather than the state of the world.
+- Serial letters: confirm the prior letter actually resolved (non-empty `prior_letter` in
+  the exec payload — check the generation log) and that the letter tracks the prior
+  period's claims rather than opening a fresh inventory. For the topic report this fires
+  for the first time in Q4 2026 (the hashed-label prior fix landed after Q3 shipped) —
+  treat that run as the serial path's first live test and read the letter against Q3's.
 
 ## Dates
 - No deadline, decision fork or action window in the past. The Three Horizons axis labels
