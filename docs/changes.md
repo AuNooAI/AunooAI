@@ -2,6 +2,28 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 — Q3 dead citation repaired (wileytest data fix, no code)
+
+The reference check's one confirmed dead link — reference [25] of the pinned "Attacks on
+Expertise & Peer Review" run, "The Case Against Science" — was not removed by the
+publisher: the Santa Barbara Independent re-dated the article, moving it from
+`/2026/06/19/the-case-against-science/` (now 404) to `/2026/06/21/...` (live, verified,
+soft registration wall — acceptable per checklist). [25] is cited inline, so dropping it
+would have shifted every later citation number; the URI was replaced in place instead.
+Because `articles.uri` is the primary key with FK children, the swap ran as one
+transaction: insert a copy of the article row under the new URI, repoint the 14 child
+rows (`raw_articles`, `analysis_run_articles`, `article_embeddings_ml`,
+`future_horizon_articles` ×5 runs, `keyword_article_matches`,
+`science_article_categories`, `signal_alerts`, `strategic_recommendation_articles` ×2),
+delete the old row. Verified zero rows left on the old URI.
+
+Deck and HTML then re-rendered from the six pinned runs (provenance IDs unchanged, 242
+slides, old URL absent, new URL present in both artifacts' links) and the home copies at
+`/home/orochford/Wiley_Horizons_Topic_Report_Q3_2026.{pptx,html}` overwritten. The letter
+DOCX carries no reference list and is untouched. The delivered email still has the old
+link; the repaired files are ready to resend on request. Data fix on wileytest only —
+this entry is the durable record.
+
 ## 2026-08-04 — reference check: every cited URL probed for dead links and paywalls
 
 ### Goal
