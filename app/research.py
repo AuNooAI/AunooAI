@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 import logging
 import os
 import json
+import re
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.env_loader import load_environment, ensure_model_env_vars
@@ -19,6 +20,23 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+
+def normalize_topic_name(name):
+    """Strip whitespace and collapse runs of it, so a topic name matches however
+    it was typed.
+
+    Both the lookup keys and the names looked up must go through this. When only
+    the lookup was normalized, a config entry saved as "Brand Monitoring Springer "
+    became unreachable: callers asked for the stripped name, the key still had the
+    trailing space, and set_topic() silently kept whatever topic was already
+    selected — so Springer's articles were analysed under Wiley's configuration
+    around 3,000 times a day.
+    """
+    if not name:
+        return name
+    return re.sub(r'\s+', ' ', str(name).strip())
+
 
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
@@ -133,8 +151,25 @@ class Research:
         
         config = load_config()
         
-        self.topic_configs = {topic['name']: topic for topic in config['topics']}
-        
+        # Keys are normalized the same way the lookup normalizes what it is given,
+        # so a name saved with stray whitespace is still reachable. The entry's own
+        # 'name' is normalized too, because it gets written onto the rows this topic
+        # produces and would otherwise put the unclean form back into the database.
+        self.topic_configs = {}
+        for topic in config['topics']:
+            key = normalize_topic_name(topic.get('name'))
+            if not key:
+                logger.warning("⚠️ Skipping topic with no name in configuration: %r", topic)
+                continue
+            if key in self.topic_configs:
+                logger.warning(
+                    "⚠️ Two topics normalize to the same name %r — keeping the first. "
+                    "Check for duplicates in config.json.", key
+                )
+                continue
+            topic['name'] = key
+            self.topic_configs[key] = topic
+
         if self.DEFAULT_TOPIC not in self.topic_configs:
             logger.error(f"Default topic '{self.DEFAULT_TOPIC}' not found in configuration")
             if self.topic_configs:
@@ -150,12 +185,11 @@ class Research:
         """Set the current topic for analysis."""
         logger.info(f"🎯 set_topic called with: '{topic_name}'")
 
-        # CRITICAL FIX: Sanitize topic name - strip whitespace and normalize spaces
-        # This fixes issues where UI text wrapping causes extra spaces/newlines in topic names
+        # Sanitize the requested name — UI text wrapping introduces stray spaces and
+        # newlines. Uses the same helper load_config() keys by, so the two cannot
+        # drift apart and make a configured topic unreachable.
         if topic_name:
-            import re
-            # Strip leading/trailing whitespace and collapse multiple spaces/newlines into single space
-            topic_name = re.sub(r'\s+', ' ', topic_name.strip())
+            topic_name = normalize_topic_name(topic_name)
             logger.info(f"🧹 Sanitized topic name to: '{topic_name}'")
 
         logger.info(f"🎯 Current topic before: '{self.current_topic}'")
