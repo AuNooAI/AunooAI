@@ -2,6 +2,18 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-04 — final topic-report package delivered
+
+The complete topic-report package went out as one email with three attachments: the
+237-slide deck, the HTML report, and the executive letter DOCX (598 words, all five
+sections). All three re-rendered fresh from the six pinned runs; the send script asserts
+the full gauntlet before emailing — identical provenance run IDs deck↔HTML (6/6), letter
+completeness + quote-narration ban, no consensus badges, no internal keys, no legacy
+defects, exact team-slide credentials. The letter carries the day's direct golden-gate
+judgment (8/10 pass). Home copies at `/home/orochford/Wiley_Horizons_Topic_Report_*`.
+With this, BOTH Q3 products are delivered as verified matched packages; nothing
+outstanding on the delivery.
+
 ## 2026-08-04 — FINAL STATE of the Q3 delivery and the report machinery
 
 Both Q3 2026 products stand delivered as internally-consistent, gate-passed sets, and every
