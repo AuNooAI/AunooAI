@@ -12,7 +12,10 @@ completeness + quote-narration ban, no consensus badges, no internal keys, no le
 defects, exact team-slide credentials. The letter carries the day's direct golden-gate
 judgment (8/10 pass). Home copies at `/home/orochford/Wiley_Horizons_Topic_Report_*`.
 With this, BOTH Q3 products are delivered as verified matched packages; nothing
-outstanding on the delivery.
+outstanding on the delivery. Follow-up instruction embedded for next quarter (`e7db48f1`):
+`docs/REPORT_REVIEW_CHECKLIST.md` now tells the Q4 reviewer to verify the topic report's
+first serial firing — non-empty `prior_letter` in the exec payload, letter read against
+Q3's — since the hashed-label prior fix landed after Q3 shipped and is untested live.
 
 ## 2026-08-04 — FINAL STATE of the Q3 delivery and the report machinery
 
