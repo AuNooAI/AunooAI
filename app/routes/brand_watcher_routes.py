@@ -2027,6 +2027,27 @@ class SuggestKeywordsRequest(BaseModel):
     verify: bool = True
     unverified_policy: Literal["flag", "drop"] = "flag"
 
+
+_KW_OPERATORS = re.compile(r"[|+()\"]|\b(AND|OR|NOT)\b")
+
+
+def _as_phrase(keyword: str) -> str:
+    """Quote a multi-word suggestion so it is searched as adjacent words.
+
+    Collectors treat an unquoted multi-word keyword as an AND of its words
+    anywhere in the document, not as a phrase. Suggestions came back bare, so
+    "Signal AI" matched 51,175 articles — everything containing "signal" and
+    "AI" — and "Science journals" pulled general publishing news into Elsevier's
+    brand watch. A brand keyword is a name, and names are phrases.
+
+    Single words need no quotes, and anything already carrying quotes or boolean
+    operators is a deliberate query and is left exactly as written.
+    """
+    kw = (keyword or "").strip()
+    if not kw or len(kw.split()) < 2 or _KW_OPERATORS.search(kw):
+        return kw
+    return f'"{kw}"'
+
 @router.post("/suggest-keywords")
 async def suggest_keywords(request: SuggestKeywordsRequest, session=Depends(verify_session)):
     """Use LLM to suggest brand keywords, product keywords, people keywords, and competitor keywords.
@@ -2051,6 +2072,8 @@ Return a JSON object with these four arrays:
 
 Be thorough but only include terms that would realistically appear in news articles. Each keyword should be specific enough to avoid false positives.
 
+Write each keyword as plain text with no quotation marks — they are added afterwards. Avoid terms whose individual words are common on their own ("Science journals", "Health sciences publications"): they match unrelated coverage and are not names of this brand.
+
 Respond ONLY with valid JSON, no markdown formatting."""
 
     async def _llm_suggest() -> dict:
@@ -2072,11 +2095,12 @@ Respond ONLY with valid JSON, no markdown formatting."""
         logger.error(f"Error suggesting keywords: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Quote here rather than relying on the model to do it — format compliance is
+    # not something to depend on for a value that goes straight into a search.
     payload = {
-        "brand_keywords": result.get("brand_keywords", []),
-        "product_keywords": result.get("product_keywords", []),
-        "people_keywords": result.get("people_keywords", []),
-        "competitor_keywords": result.get("competitor_keywords", []),
+        k: [_as_phrase(s) for s in (result.get(k) or []) if str(s or "").strip()]
+        for k in ("brand_keywords", "product_keywords",
+                  "people_keywords", "competitor_keywords")
     }
 
     if not request.verify:
