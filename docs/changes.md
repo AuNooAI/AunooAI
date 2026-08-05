@@ -2,6 +2,445 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-05 — New customer site for iBASEt, and a missing model entry that was silently discarding borderline articles
+
+### Goal
+A demo call with iBASEt (Solumina, an MES/MRO product for aerospace and defence) produced a
+written intelligence remit: track four confirmed competitors, answer five priority questions,
+feed a weekly newsletter and sales battlecards. Stand up a site for it. Verifying that
+collection worked on the new site then uncovered a configuration hole that turned out to exist
+on four of the six Brand Watcher sites.
+
+### New site: ibaset.aunoo.ai (ops, no code changed)
+Provisioned with `scripts/provision_brand_tenant.py` from the bwtemplate golden template — port
+10021, database `ibaset` on direct 5432, TLS issued, admin credentials in
+`/var/tmp/ibaset_credentials.txt` (root-only, password change forced). Then flipped to
+full-platform mode (`BW_DEDICATED_MODE=0`, `ENABLED_MODULES=*`) because the remit needs
+newsletters, consensus and foresight, which the dedicated Brand Watcher mode hides.
+
+The template was last refreshed from canonical on 2026-07-13, so the clone started three weeks
+behind — about 40 backend files, several services that did not exist yet, and 8 unapplied
+migrations. Rsynced `app/` (anchored exclude `/config/`), `alembic/`, the built UI and
+templates from bugfixing, then ran `alembic upgrade head`: tl_001 → fsv_horizon_16, which
+includes the 768-dimension embedding conversion. Every future clone inherits this same lag
+until the template itself is refreshed.
+
+Seeded through the app's own API: five brands (iBASEt primary, plus Tulip Interfaces, Siemens,
+SAP, Dassault Systèmes), 14 collection keywords, and four scheduled observer agents carrying
+the remit's instructions (one for the small-competitor question on Tulip, one classifier each
+for the three large vendors, daily 06:00–06:30, reports on). Competitor keywords are scoped
+product names — `"Siemens Opcenter"`, `"SAP Digital Manufacturing"`, `DELMIA` — never the bare
+parent names, which collide with unrelated coverage. The Tulip keyword group's
+`min_relevance_threshold` is set to 0.1 because the client's brief says a single article about
+a small competitor outweighs routine coverage of a large one. The AI-analysis default is
+`bedrock-kimi-k2-5` (`keyword_monitor_settings`), with `AWS_BEDROCK_API_KEY` and
+`AWS_REGION_NAME` copied from bugfixing's `.env` and the file re-encrypted.
+
+Deliberately not configured, because the client has not confirmed the inputs: the remaining
+~11 competitors, the customer/prospect list (so no trigger-event agent yet), alert email
+recipients, and the foresight topic — that one must go through the Add-Topic wizard, because a
+hand-made topic with an empty label list collects forever and analyzes nothing.
+
+### Fix: the relevance fallback asked for a model that four sites did not have
+`app/services/hybrid_relevance_service.py:453` sends borderline-scored articles to an LLM
+judge, `os.getenv("HYBRID_RELEVANCE_LLM_MODEL", "nova-lite")`. The bwtemplate
+`litellm_config.yaml` has no `nova-lite` entry, and its `.env` never carried
+`AWS_BEDROCK_API_KEY` — so on the template and on anything cloned from it, every borderline
+article failed the judge with "Could not parse external LLM score" and was rejected. Silently:
+the pipeline reports success, the articles just never appear. On ibaset's first test run this
+rejected 10 of 10 collected articles.
+
+Swept all six Brand Watcher sites. bugfixing and wbm already had the entries and the current
+code. ibaset and bwtemplate got both halves of the fix: `nova-lite`/`nova-pro` entries in the
+yaml, and the two AWS variables appended to `.env` and re-encrypted (the template's existing
+kimi entry referenced the same missing key, so it was equally dead). abm and pbm are not broken
+today — they run the pre-nova version of the service, whose fallback resolves to
+`AIModelFactory.get_model()`'s default `gpt-5.4-mini`, which their yamls serve — but the next
+code sync to the current stack would have broken them the same silent way, so both got the
+inert yaml entries now. All six yamls verified: 2 nova entries each, all parse.
+
+### Fix: API-seeded keywords are not quoted, and the firehose searches them as loose words
+The keyword wizard now emits quoted phrases (commit `3fce7c7e`), but keywords created through
+`POST /api/brand-watcher/brands` go into `monitored_keywords` verbatim. Unquoted, the firehose
+treats `Tulip manufacturing` as tulip AND manufacturing and returned 10 tulip-mania
+market-bubble articles; `Tulip Interfaces` loose-matched 13 articles where the exact phrase
+matches 5. Quoted the 8 true phrases in ibaset's `monitored_keywords` by SQL and verified the
+quoted query passes through to the firehose intact. `Tulip MES` and `Tulip manufacturing` stay
+unquoted on purpose as wide context nets — the nova judge demonstrably filters their noise,
+scoring the tulip-mania batch 0.0–0.1.
+
+### Verification
+Three `check-now` runs on the Tulip group, watched in the service journal. Run 1 (before the
+nova fix): 10 collected, 10 enriched, 0 saved — every article rejected on the failed model
+init. Run 2 (after): nova-lite answered 200 on every call and scored the batch 0.0–0.1;
+0 saved is now a real verdict on noise, not an error. Run 3 (quoted): firehose logs
+`'"Tulip Interfaces"' -> '"Tulip Interfaces"'`, 5 exact-phrase hits, newest dated 2026-07-03 —
+outside the 30-day window, so 0 saved is the correct answer for a genuinely low-volume vendor.
+Fleet state re-checked while writing this entry: all six yamls carry 2 nova entries; ibaset has
+5 brands, 14 keywords, 4 active agents, alembic at fsv_horizon_16, Tulip threshold 0.1,
+default model bedrock-kimi-k2-5; ibaset, bwtemplate, abm and pbm services all active.
+
+### Propagation
+Nothing in this session touched a tracked file in this repository — the work lives in the
+ibaset, bwtemplate, abm and pbm site trees (yaml + .env) and in ibaset's database, none of
+which are committed anywhere. This entry is the only durable record. A re-clone of any of
+those sites from template or canonical must re-check two things: nova entries in
+`litellm_config.yaml`, and `AWS_BEDROCK_API_KEY`/`AWS_REGION_NAME` in `.env`. bugfixing
+(canonical) already had both, so nothing needs committing here.
+
+### Lessons
+A model name that appears as a code default must exist in every site's `litellm_config.yaml`
+AND have its key in that site's `.env` — a yaml entry pointing at an absent env var fails
+exactly like a missing entry, and the relevance path fails silently when it does. Template
+clones start as old as the template's last refresh; ALWAYS resync `app/` + `alembic/` from
+canonical after provisioning, or refresh the template. Keywords seeded through the API bypass
+the wizard's phrase quoting; quote multi-word phrases yourself or they search as loose words.
+
+## 2026-08-05 — Brand Watcher's competitor comparison reads zero because of a saved topic filter (investigation, no code changed)
+
+### Goal
+Two user reports, both about wileytest. A browser console full of 404s, and "brand watcher
+comparison competitors fail to populate". Nothing was changed. This entry records what the
+measurements say, so the fix can start from evidence rather than from the console.
+
+### The competitors are not missing — the topic filter removes them
+Every brand has articles. Measured on wileytest today, counting distinct articles at relevance
+>= 0.4 within the last 365 days, which is exactly what `/api/brand-watcher/comparison`
+counts: Wiley 350, Elsevier 151, SAGE Publishing 22, Pearsons Education 235. All four brands
+are enabled. Called with no topic filter, the endpoint returns four populated rows.
+
+The frontend does not call it that way. **`ui/src/hooks/useBrandWatcher.ts:319`** passes a
+`topics` parameter to `getComparison()` whenever `config.selectedTopics` is non-empty
+(:122), and that config is restored from `localStorage` on mount (:63). So a topic picked once,
+in any Brand Watcher tab, keeps filtering the comparison in every later visit.
+
+That filter is fatal here, because each brand's articles sit almost entirely under its **own**
+topic:
+
+| Topic | Wiley | Elsevier | SAGE | Pearson |
+|---|---|---|---|---|
+| Brand Monitoring Wiley | 262 | 0 | 0 | 0 |
+| Brand Monitoring Elsevier | 2 | 100 | 0 | 0 |
+| Brand Monitoring Pearsons Education | 0 | 0 | 0 | 194 |
+| Scientific Publishers - General Monitoring | 23 | 18 | 2 | 7 |
+
+Filter to `Brand Monitoring Wiley` and the competitor columns are genuinely zero. The
+comparison endpoint (**`app/routes/brand_watcher_routes.py:3009`**) applies `{topic_filter}` to
+both its category and its sentiment query, so the zeros are arithmetic, not a failure. The only
+topics with real cross-brand volume are `Scientific Publishers - General Monitoring` and
+`Publishing & Integrity Organizations Watch List` (16/7/1/1), and both are too thin to carry a
+side-by-side comparison.
+
+Nothing on the Comparison tab shows which topic is being applied, so a correct zero is
+indistinguishable from an outage.
+
+**Unverified:** I could not read the browser's actual `selectedTopics` value. That needs an
+authenticated call, and minting a local session cookie was refused by the permission classifier.
+The chain above is measured; the last link — that this user's browser currently has a topic
+selected — is inferred. Clearing the topic selection in the UI settles it in one click.
+
+### The console 404s are the API answering "nothing here"
+**`app/routes/brand_watcher_routes.py:6592`** — `GET /accounts/profile` calls `get_stored()`
+and raises 404 when no profile row exists for that handle. The account list asks for every
+handle it shows, so any account never profiled answers 404. The route is fine. What is wrong is
+that "not profiled yet" and "something broke" look identical from the console.
+
+**`app/routes/dashboard_routes.py:945`** — `article-insights` raises 404 with "No articles found
+for topic" when the window is empty. The topic in the console was `Trump Administration
+Tracker`, and that topic has **zero articles in the database at all**, not merely zero in the
+selected window. The 404 is correct; the topic being offered with nothing behind it is the
+thing to look at.
+
+The remaining console noise is third-party: Instagram CDN images returning 403 and one Bluesky
+avatar returning 404. Those are expiring or hotlink-blocked image URLs on other people's
+servers.
+
+### The served bundle is current, so this is not a stale build
+`templates/explore_react.html:32` on wileytest points at
+`/static/trend-convergence/assets/newsfeed-DEJ97rBo.js`, which is the file the browser loaded.
+Worth recording because the surrounding evidence invites the opposite conclusion: wileytest's
+own `ui/src/components/newsfeed/BrandWatcherTab.tsx` is dated 2026-02-06 at 76 KB, while the
+bundle it serves is dated 2026-08-03 at 493 KB. The deployed build came from the canonical
+bugfixing tree and was copied in. Any UI fix here must be built in bugfixing and copied — never
+built from wileytest's own stale source.
+
+### Verification
+All four numbers above come from queries run against the wileytest database today
+(`bw_brands`, `bw_article_categories` joined to `articles`). The per-brand counts were taken
+**after** the keyword narrowing recorded in the entry below, so they reflect the tightened
+keywords, not the pre-2026-08-05 state. Bundle and template were read directly from disk.
+No code was compiled, no service restarted, because nothing changed.
+
+### Propagation
+Nothing to propagate — no file was modified. The finding applies to every tenant running Brand
+Watcher, since the topic-filter behaviour is in canonical `useBrandWatcher.ts`. The zero-article
+`Trump Administration Tracker` topic is wileytest data only.
+
+### Lessons
+A filter that persists in `localStorage` and is not displayed on the screen it filters will be
+read as an outage. ALWAYS show the active filter next to the number it produced, and say
+"filtered to X" rather than rendering a bare 0.
+
+## 2026-08-05 — A topic name with a trailing space, and the keyword generator that made brand monitoring unusable
+
+### Goal
+Two user reports. An adverse-media digest email described a Wiley "coverage spike" whose
+articles were hemodialysis and protein-ligand papers Wiley itself published. Separately, Gaza
+ceasefire coverage was showing under the topic "AI & Content Licensing". Neither is adverse
+media and neither is about the brand or topic it was filed under. Chasing both found one shared
+mechanic and several older faults underneath it.
+
+### The mechanic behind both reports
+A collector sends an unquoted multi-word keyword to the news firehose as an AND of its separate
+words found **anywhere in a document**, not as adjacent text. `training data deal` therefore
+matched 9,368 articles: a ceasefire story contains "deal", and the other two words turn up
+somewhere in the body. Measured against the firehose, `Signal AI` matched **51,175** articles —
+everything containing "signal" and "AI".
+
+**`app/routes/brand_watcher_routes.py`** — the keyword suggestion wizard was the source. Its
+prompt asked a model for keywords "specific enough to avoid false positives" and never mentioned
+quoting, so suggestions came back as bare strings. The refinement wizard in
+`app/routes/keyword_monitor.py:3639` already tells its model to "use quotes for exact phrases";
+this one did not. A new `_as_phrase()` quotes multi-word suggestions **after** the model call
+rather than asking the model to do it, because format compliance is not something to depend on
+for a value that goes straight into a search. Single words are left alone; anything already
+carrying quotes or boolean operators is a deliberate query and passes through untouched.
+Two file variants exist across the tenants — a newer handler building a `payload` dict, an older
+one returning inline — so the change was applied to each in its own shape.
+`3fce7c7e` (bugfixing), `541a85f` (wbm), `0ff0e788` (wileytest), `e72ddfdb` (helpnet),
+`bc7ced3f` (opendemo), `25c67bce` (skunkworkx), `562ace5f` (vc).
+
+**`app/collectors/newsfirehose_collector.py`** — the collector's own docstring lists
+`Single quoted phrase: "artificial intelligence"` as supported by `/v1/search`, and the first
+thing the normalizer did was strip the quotes. A query that is nothing but one quoted phrase is
+now passed through intact. Several phrases, or a phrase mixed with operators, are what the
+endpoint genuinely cannot parse and are still flattened exactly as before; a phrase containing a
+tsquery operator (`&`, `!`, `:`, `*`) is not preserved either, so `"John Wiley & Sons"` still
+degrades to plain words. 36 stored keywords across four tenants were already written as lone
+quoted phrases and had been searched loosely ever since.
+`b1a8b504` (bugfixing), `3145a95` (wbm), `e1a9cfe8` (wileytest), `c9730f0c` (wiley), and four
+others.
+
+### Keyword data left behind by earlier wizard runs
+Every change below was measured against the firehose before being made; blanket quoting is not
+safe, because on the Springer group it would have taken `Springer Publishing` from 445 matches
+to 3 and silently removed a working search.
+
+- **AI & Content Licensing (wileytest)** — 12 keywords to 10, all phrase-quoted, threshold
+  0.2 to 0.5. Three were replaced with the term actually used in print (`"content licensing"`,
+  `"text and data mining"`, `"AI licensing"`). Two were removed because no phrasing works:
+  `training data deal` (9,370 loose, 0 as a phrase) and `collective licensing AI` (returns
+  collectible license plates). Group reach **92,057 matches to 593**.
+- **Brand keywords with no brand word (abm, wileytest, pbm)** — `Signal AI` 51,175 to 278,
+  `Feedly AI` 24,897 to 629, `Health sciences publications` 25,260 to 38. `Blackbird AI` became
+  `"Blackbird.AI"`: quoting it as written returns 0, the dotted company name returns the real 5.
+  `Elsvier Journals` was a typo matching nothing in any form; corrected. `Science journals`
+  removed — 1,498 even quoted, and not a name of Elsevier. Elsevier - Brand Watch threshold
+  0.2 to 0.5.
+- **Every remaining multi-word brand/social keyword (wbm, wileytest, bugfixing, pbm)** — 180
+  rows. 119 were measured individually and quoted where the phrase form still found articles
+  (combined reach 11,067 to 3,408, 69% narrower). The other 61 were then quoted at the user's
+  instruction knowing it silences them: their phrase form returns nothing, so the loose form was
+  a broad net over the right brand rather than a search for the term. That is a real loss of
+  reach, chosen for precision.
+
+Thresholds are 0.5 because that is where the relevance decision already flips: across 3,649
+readings on AI & Content Licensing, every article marked relevant scores >= 0.5 and none below
+does (`relevance_classifier_service.DEFAULT_THRESHOLD`). Recorded in
+**`scripts/keyword_config_2026_08_05.py`** — `5e162f3` (wbm), `9b92b798` (wileytest),
+`f643d3e5` (bugfixing), `76d43a2` (abm/pbm via the home repo).
+
+### The adverse-media digest never asked whether anything was adverse
+**`app/services/bw_digest_service.py`**, **`app/tasks/brand_watcher_monitor.py`** (wbm) — the
+category-spike rule is `count >= avg * 2 and count >= 5`, pure volume. With Wiley's
+"Product & Innovation" baseline at 2-3 articles a week, seven journal papers landing inside one
+seven-day window cleared both bars for the first time on 3 August. No digest ran on the 4th, so
+the first digest to carry it was the 08:04 email on the 5th.
+
+A first attempt (`4124dcb`) gated the spike on an existing `bw_article_risks` row. **That was
+wrong** and is recorded here because it looked right: that table holds 16 rows against 1,683
+brand-classified articles and nothing since 26 July, so gating on it would have suppressed real
+adverse spikes along with the noise — quiet rather than correct. Replaced in `b484805` by
+`_adverse_drivers()`, which screens the spike's candidate articles in three steps, cheapest
+first: reuse an existing verdict; else `_RISK_TRIGGER_RE` as a keyword prefilter; else
+`_llm_detect_risks`, with findings written back so the judgement is reusable. Same functions the
+official-sources collector uses, so there is one definition of adverse. Capped by
+`BW_DIGEST_RISK_BUDGET` (default 12) model calls per digest.
+
+`b7e34e9` also gave the spike query the same `COALESCE(bac.relevance_score,
+a.topic_alignment_score) >= 0.4` floor the negative-alert and sentiment queries already had; the
+three paths had disagreed for no stated reason. It changes nothing about this case — all seven
+drivers score 0.5 or above, and the three Crossref/OpenAlex records score exactly 1.0 because
+`bw_official_sources` attributes official records with relevance 1.0 by construction. Relevance
+answers whether an article is about the brand; a paper the brand published scores top marks
+honestly.
+
+Scholarly-index articles no longer count toward a spike at all. They are still collected and
+classified — Crossref and OpenAlex are a deliberate per-brand opt-in via
+`bw_brands.config['extra_sources']` and Wiley has both enabled — so an earlier attempt to
+exclude them at classification time was reverted. Matching needs both URL and `news_source`:
+the Crossref/OpenAlex records are bare `doi.org` links carrying no publisher domain, and journal
+papers relayed through Google News have opaque `news.google.com/rss/articles/...` URLs where only
+the source name identifies them.
+
+### A topic name with a trailing space, unreachable for months
+**`app/research.py`** — `config.json` held a topic named `"Brand Monitoring Springer "`.
+`set_topic()` sanitised the name it was asked for while `load_config()` built its lookup keys
+straight from the file, so the two could never match. On a miss `set_topic()` returns early and
+keeps whatever topic was already selected: the logs show it retaining `Brand Monitoring Wiley`
+1,523 times and `AI and Machine Learning` 1,445 times in 24 hours. Springer's articles were
+analysed against another topic's categories and signals, and the only sign was a log line.
+
+Both sides now call one `normalize_topic_name()`. The entry's own `name` is normalised too,
+because it is written onto the rows the topic produces. A nameless topic used to raise inside
+`load_config()`, which the caller catches by falling back to a **single** default topic and
+losing all the others; it is now skipped with a warning. Two names differing only in whitespace
+warn instead of silently overwriting. 19 tests in
+**`tests/test_topic_name_normalization.py`**; the guard was mutation-tested — with
+`normalize_topic_name` stubbed to the identity the key keeps its space and `set_topic` falls back
+to `AI and Machine Learning`, reproducing production exactly.
+`f17ab26d` (bugfixing) and 15 sibling commits, plus `32d1f2e` for the six tenants without a repo.
+
+9,209 stored rows carried the spaced name and were renamed with it in one transaction — 4,426
+`articles`, 2,431 `raw_articles`, 2,351 `relevance_confidence_readings`, 1 `keyword_groups`, and
+one `bw_tracker_schedules` JSON list. Without that the topic would have become selectable and
+shown zero articles.
+
+`bw_brands` carried the same artefact: `display_name` `'Springer '` and slug `'springer-'`, the
+space having become a hyphen. Not cosmetic — `timeline_rollup.resolve_scope_for_topic` strips the
+topic name before matching it against `display_name`, so it searched for `'Springer'` against a
+stored `'Springer '` and Springer's timeline fell back to topic scope.
+`bw_official_sources.py:548` also builds official-source queries from the raw value, and `:605`
+builds the group name as `f"{display_name} - Brand Watch"`, which is where the double-spaced
+group name came from.
+
+### Feeds pointing at topics that do not exist
+A sweep of all 17 tenants found 12 collection sources whose topic is absent from that tenant's
+`config.json`. The same early-return applies, so their articles are analysed under whatever
+topic was last selected. Two were live: an active **Trump Action Tracker** RSS feed on wbm and
+wileytest collecting into `Trend Monitoring`, 343 and 337 articles. Fixed by copying the
+`Trend Monitoring` definition verbatim from vc's `config.json`, which already had it — the feed
+was evidently propagated between tenants without the topic travelling with it. Ten more remain
+dormant behind stopped services: pearson and sage have the same feed, opendemo has three keyword
+groups, and **vc is running an entirely wrong config** — its 18 topics are the publishing set
+(Brand Monitoring Wiley, Attacks on Expertise) while it actually collects Cloud Infrastructure,
+Dev Tools and Molten Ventures. All 74,361 of its articles sit under topics its config has never
+heard of.
+
+### Model provenance and report dates (2026-08-04)
+**`app/ai_models.py`**, **`app/routes/vector_routes.py`** — `resolve_model_identity()` maps a
+name to the concrete `provider/model` it invokes. Most names in `litellm_config.yaml` are aliases
+for a different vendor entirely: `gpt-5.4-mini` calls Claude Haiku 4.5. Saved reports recorded
+the alias, so they named a model that never ran. `load_model_config()` was re-reading and parsing
+the YAML on every call at ~17ms on the hot path of every LLM request, and is now memoised on the
+file's mtime and size. A separate defect: the report prompt never stated the date, so the model
+dated reports from its training prior — a report generated in August 2026 came out headed
+"August 2025". `af1956cc` (bugfixing), `c91c859` (wbm), `4d24fa86` (wileytest), `96f20a9a`
+(wiley, `ai_models.py` only). Canonical `claude-haiku-4-5` / `claude-sonnet-4-5` aliases added to
+nine `litellm_config.yaml` files as a text insert, never a YAML round-trip, because those files
+carry hand-written comments pyyaml would drop — `f295aa6f`, `37da8f7`, `1973768`.
+
+### Incident — the test suite overwrote wbm's live analysis prompts, twice
+`tests/test_article_analyzer.py` defines fixture templates and writes them through the real
+`PromptManager`, whose storage directory defaults to the app's live `data/prompts/`. Running the
+full suite on wbm at 12:38 to get a pytest baseline replaced the running `content_analysis`
+prompt with the stub `"Custom analysis prompt for {title}"`.
+
+**Blast radius.** Every uncached article analysis on wbm failed for roughly two hours. The model
+was literally being asked to write an analysis prompt, so it replied with prose — "Here's a
+custom analysis prompt for this topic" — and none of the 14 required fields parsed. 431 articles
+failed enrichment. It stayed invisible because most articles hit the analysis cache and never
+called the model; only the newly-reachable Springer topic's uncached articles did, which is how
+it surfaced at all.
+
+**Recovery.** Each prompt type keeps prior versions as hash-named files beside `current.json`, so
+`content_analysis` was promoted back to v1.0.3 (22 July) and `title_extraction` to v1.0.2.
+Versions 1.0.4 through 1.0.9 were all stubs written that afternoon.
+
+**Then I did it again.** Testing whether the guard had changed any test outcome, I ran the suite
+once more with `--noconftest`, having first write-protected `data/prompts` with `chmod -R a-w`.
+Everything here runs as root and root ignores permission bits, so the run corrupted the store a
+second time. Restored again; wbm has now been broken and repaired twice in one day, both by me.
+
+**Guard.** **`tests/conftest.py`** (new, all 17 tenants) redirects any `PromptManager` built
+without an explicit `storage_dir` to a temporary one, and hashes the live prompts before and
+after the session so that if anything writes to them the run fails and names the file instead of
+leaving a broken tenant behind. `70aad260` (bugfixing) and 16 siblings.
+
+### Verification
+- `tests/test_topic_name_normalization.py` — **19 passed** on every one of the 17 tenants. Re-run
+  on wbm while writing this: 19 passed, and the live `content_analysis` prompt md5 was unchanged
+  by the run, which is the conftest guard working.
+- Full unit suite on wbm, my change stashed vs applied: **105 failed / 31 errors both ways**,
+  passes 73 → 92. The 19 extra passes are the new tests; the 105 pre-existing failures are the
+  tree's normal state.
+- `_normalize_query` — 10 cases including the real stored boolean topic queries; every one of
+  those still flattens unchanged. Verified on all 15 tenants that a lone phrase survives, a plain
+  keyword is untouched, and a boolean query still flattens.
+- Topic resolution exercised through the real `load_config`/`set_topic` on each tenant's own
+  config: wbm 18 topics, wileytest 19, no stray-whitespace keys, and a real topic name resolves
+  with trailing, leading, doubled and newline whitespace. `resolve_scope_for_topic("Brand
+  Monitoring Springer")` now returns `('brand', '6')`; before the `bw_brands` fix it returned
+  topic scope.
+- wbm database now: 4,624 articles under `Brand Monitoring Springer`, **0** left under the spaced
+  name; `bw_brands` id 6 is `('springer', 'Springer')`; Springer group `('Springer - Brand
+  Watch', 0.5, 20 keywords)`.
+- wileytest: AI & Content Licensing group `(0.5, 10 keywords)`; **0** unquoted multi-word
+  brand/social keywords remain.
+- Digest recomposed without sending (`_compose_digest` directly, not `maybe_send_digest`):
+  `7 driver(s), 0 already judged, 0 screened, 0 adverse` then `suppressed 1 spike alert(s)`,
+  and **0 linked article URIs**. Zero model calls — the keyword prefilter rejected all seven.
+  Checked the other direction too: articles already judged adverse are kept with no model call,
+  and "Publishers seek to join lawsuit against Google over AI training" survives screening.
+- wbm enrichment after the prompt restore: **1,211 articles processed, 3 give-ups (0.25%)**,
+  against 431 during the broken window and 0 of 2,292 in the pre-incident baseline.
+- Model provenance confirmed on the scheduled path, not just a hand-triggered run: wileytest
+  reports #820-#826 and wbm #657 all record the resolved `bedrock/...` id against the requested
+  alias, with the correct date.
+- All seven running services active after restart, `NRestarts=0`.
+
+### Propagation
+Seventeen tenants carry the topic-normalisation fix and the conftest guard; thirteen carry the
+collector change (community and helpnet run an older normalizer that never stripped quotes and
+need no change; spiros and testbed have no newsfirehose collector). Fourteen carry the wizard
+fix. The brand-watcher digest changes are wbm only.
+
+Not committed, each because the change shares a file with another session's uncommitted work:
+**`wiley:app/routes/vector_routes.py`** — that repo's copy is from 2026-02-03, 737 lines behind
+disk, and the second `create_saved_signal_report` call site the change touches does not exist in
+it. **`wileytest:app/config/config.json`** — HEAD differs from the state *before* this session
+edited it by 1,873 lines and is not semantically identical, so someone else changed content and
+reformatted it since the 23 July snapshot. **`wbm:app/config/config.json`** is gitignored by
+design; its Springer rename and the `Trend Monitoring` topic live on disk with
+`.bak-springer` / `.bak-trendmonitoring` beside them.
+
+Six tenants — abbott, abm, bwtemplate, pbm, pearson, sage — have no repository of their own and
+sit under `/home/orochford`, which tracks `bin/` and a few tenant files. Their `research.py`,
+`conftest.py`, collector, config scripts and `litellm_config.yaml` were committed there.
+Their `ai_models.py`, `vector_routes.py` and `brand_watcher_routes.py` remain untracked, as does
+`wiley:app/routes/brand_watcher_routes.py`, which has never been in that repo.
+
+All keyword, threshold, topic-rename and `bw_brands` changes are database state and are not in
+any repo. `scripts/keyword_config_2026_08_04.py` and `_2026_08_05.py` are the durable record:
+`--verify` reports drift without touching anything, `--apply` re-asserts. All five affected
+databases verify clean.
+
+### Lessons
+- **NEVER run `pytest tests/` inside a live tenant checkout.** `test_article_analyzer.py` writes
+  its fixtures through the real `PromptManager` into `data/prompts/`. Run only the specific test
+  file you added. The new `conftest.py` now blocks this, but the habit is the real guard.
+- **`chmod -R a-w` protects nothing when running as root.** Root ignores permission bits. To
+  protect a directory from a test run, change where the code writes, not the file mode.
+- **A gate is only as good as the data behind it.** Gating the digest on `bw_article_risks`
+  looked correct and would have silenced real alerts, because that table holds 16 rows and
+  nothing since 26 July. Check a table's coverage before making it a precondition.
+- **Scope an audit from the system, not from recall.** Three successive "nothing outstanding"
+  claims were wrong because the file list came from memory. Walking the filesystem for everything
+  modified since the session began found gaps that four narrower audits had missed.
+- **Measure a keyword before quoting it.** Quoting is not automatically an improvement:
+  `Springer Publishing` drops from 445 matches to 3, `Blackbird AI` to zero. Run both forms and
+  compare, per keyword.
+
 ## 2026-08-04 — Q3 dead citation repaired (wileytest data fix, no code)
 
 The reference check's one confirmed dead link — reference [25] of the pinned "Attacks on
