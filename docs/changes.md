@@ -52,6 +52,28 @@ the News Feed shows content at its default range. The run log confirms the timeo
 working in production: `iBASEt` and `Solumina` each timed out at 20s, retried on relevance
 sort, and returned their articles; the quoted phrases answered directly.
 
+### The same keyword check on the four competitor groups
+Probed every keyword of groups 2–5 against the firehose. Tulip: healthy, no change. Siemens:
+coverage says bare "Opcenter" (9 articles) more often than "Siemens Opcenter" (2) or
+"Opcenter Execution" (2) — added `Opcenter`. SAP: `"SAP DM"` and `"SAP DMC"` return zero and
+`"SAP Digital Manufacturing"` returns one, which is why the group had only ever collected
+noise — added `SAP MES` (54 articles) and `SAP S/4HANA manufacturing` (61); rejected
+`SAP manufacturing software` (949, would flood) and the "Digital Manufacturing Cloud"
+variants (1 article, 27-second query). Dassault: the accented `"Dassault Systèmes"` returns
+a different result set than the unaccented keyword (22 articles including their Q2 revenue
+release) — same tokenization trap as iBase-t — added it.
+
+Verified runs after the additions, all three clean. SAP got its first genuine approval ever
+("Beyond Robots: … SAP Intelligence Layer", alignment 0.70) with 13 marginal pieces
+correctly filtered at the global 0.45 threshold. Dassault's Q2 stories passed the quick
+check at 0.9–1.0 but were already in the corpus from earlier runs, so nothing new saved.
+Siemens found nothing inside its window. The nuance worth keeping: competitor groups sit on
+the default 7-day range with the 30-day collection floor, and most of what the new keywords
+can reach today (older market reports) falls outside it — these additions mostly guard
+FUTURE coverage. Only the iBASEt group got the 365-day backfill window; widening the
+competitor groups was deliberately not done, because backfilled market-report noise is worth
+less than a clean forward feed there.
+
 ### Verification
 Live collector test in the bugfixing venv: both keywords time out at 20s, fall back, and
 return their 2 articles each. Then an end-to-end scheduled run on ibaset (group marked due,
