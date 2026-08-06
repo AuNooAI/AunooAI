@@ -55,10 +55,22 @@ only reachable because of the date-window fix. Both files compile
 ### Propagation
 Committed in canonical on `fuckedupfixes` as "collection: let a brand group's own relevance
 threshold decide what is visible…", together with this entry. Copied to ibaset and verified
-there. Still to copy:
-wiley, wileytest, wbm, abm, pbm, bwtemplate — diff each direction first rather than copying
-wholesale, per the 2026-07-06 incident where a wholesale copy deleted the only surviving copy
-of tenant-local routes.
+there, then propagated to wiley, wileytest, wbm, abm, pbm and bwtemplate — all seven now carry
+both fixes, all services restarted clean with zero startup errors.
+
+The two files needed different propagation methods, which is the part worth remembering.
+`newsfirehose_collector.py` was byte-identical on all six targets, so it was copied whole.
+`automated_ingest_service.py` was **not**: wiley diverged by 61 lines, bwtemplate by 75, and
+wbm/abm/pbm by 98 each. Diffing both directions showed the tenant-only content was harmless
+(an older Firecrawl `batch_scrape` call on the three brand tenants, a blank line on
+bwtemplate) — but copying the file whole would still have dragged the unknown-topic guard,
+the cooperative-shutdown handling and the Firecrawl rewrite onto six tenants in one
+untested step. Applied the 10-line change surgically instead, after checking each target had
+the anchor exactly once and carried the `relevance_threshold_override` parameter.
+
+Before restarting, checked for live background jobs. wiley, wileytest and wbm each showed
+9–22 rows marked `running`, all of them orphans started in January or June — months before
+the 2026-08-05 boot — so nothing live was killed.
 
 The date-window fix only reaches the scheduled collection path. `check-now` reads a group's
 relevance threshold but **not** its `search_date_range`, so a manual backfill still needs the
