@@ -44,8 +44,10 @@ We ran the same check on the search terms behind the four competitor groups.
   Added the accented spelling.
 - **Tulip Interfaces** — checked and healthy; no change.
 
-The first collection runs with the new terms are underway; expect those columns to fill in
-over the course of the day.
+The first collection runs with the new terms have completed. The SAP group picked up its
+first genuinely relevant article straight away; the other additions take effect from today's
+collection onward, catching new coverage as it is published rather than backfilling old
+market reports.
 
 ## Relevance percentage on the collection page corrected
 
