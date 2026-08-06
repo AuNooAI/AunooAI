@@ -7338,7 +7338,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {/* EU AI Act Art. 50 visible disclosure */}
       <AIDisclosureFooter
         dashboardName="Brand Watcher"
-        aiTools={['GPT-4']}
         purpose="To monitor brand sentiment, incidents, and narratives across news and social coverage"
       />
     </div>

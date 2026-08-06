@@ -2,6 +2,50 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Incident: the alias filter also broke model VALIDATION; and the compliance footer named GPT-4
+
+### Incident: every gpt-* internal default failed since the picker filter landed
+The morning's legacy-alias filter had a second load-bearing consumer beyond the curated
+picker: **`app/ai_models.py`**'s `LiteLLMModel` init validates the requested model name
+against `get_available_models()` — the now-filtered display list. Any code path requesting
+an alias name failed with "not in configured models": the timeline's LLM extraction and
+rollups (default `gpt-5.4-mini`), `AIModelFactory._default_model`, and the summarization
+ultimate fallback. Surfaced when the forced timeline run produced only structured events —
+the LLM leg had been dying silently on every tenant since the filter deployed. Fix:
+`get_available_models(include_hidden=True)` returns every resolvable name; the validator
+uses it ("will this name route?"), the three listers keep the filtered default ("what may a
+user pick?"). Propagated to all eight tenants, compile-checked, restarted.
+
+### Ops: Timeline forced for the provisioning day; new script
+**`scripts/force_timeline_day.py`** (new) runs daily extraction for a given day, all scopes,
+with LLM — the scheduler and `/timeline/generate` both stop at yesterday, unreachable for a
+tenant whose whole corpus arrived today. Run from the tenant root with the tenant venv
+during the decrypt window (re-encrypt after `ENV-LOADED` prints). On ibaset: first pass
+(pre-validator-fix) produced 6 structured events only; the re-run with working LLM
+extracted 11 content events (Siemens 4, SAP 3, Dassault 3, iBASEt 1 — the TA investment
+story) for 17 total. Today's `timeline_runs` markers deleted afterwards so tonight's
+scheduled pass re-covers the full day; dedup hashes absorb the overlap.
+
+### Fix: the EU AI Act disclosure footer claimed "GPT-4"
+**`ui/src/components/AIDisclosureFooter.tsx`** — the footer rendered
+`modelUsed || aiTools[0]`, and both the per-dashboard configs and two call sites
+(`auspex/InsightsPanel.tsx`, `newsfeed/BrandWatcherTab.tsx`) hardcoded `'GPT-4'` — so the
+Art. 50 disclosure named a model these sites do not serve whenever the caller didn't pass
+one. The footer now resolves the deployment's real model list (the curated endpoint, cached
+per page) when `modelUsed` is absent; the hardcoded vendor strings are gone from the
+configs, both call sites, and **`ui/src/services/exportService.ts`**'s six export
+disclaimers ("GPT-4, OpenAI Embeddings" → site-configured models, local DeBERTa
+embeddings). Typecheck clean against baseline; rebuilt and rsynced to all eight tenants;
+the deployed BrandWatcherTab bundle greps zero for "GPT-4".
+
+### Lessons
+The alias filter has now broken two consumers it couldn't see (picker intersection,
+validator allowlist) — both were "membership tests against a list whose meaning changed."
+When narrowing what a producer returns, the grep must cover membership/validation tests,
+not just display sites. And a hardcoded model name in a COMPLIANCE surface is worse than
+one in a dropdown: the disclosure is the one place the named model must never drift from
+the executing one — resolve it from live state, never from a constant.
+
 ## 2026-08-06 — Embeddings now include tags, closing the semantic-search gap for niche brands
 
 ### Feature: tags woven into the embedded text
@@ -32,9 +76,16 @@ Repair (ibaset DB only, no code): deleted the five zero-article `timeline_runs` 
 Aug 5 and restarted, forcing an immediate cycle — the redo processed the 3 distinct
 articles Aug 5 actually holds after dedup (my larger prediction counted category rows, not
 articles) and created the first event; no extraction errors in the log. Aug 6, which
-carries most of the corpus, gets its LLM pass automatically after 01:00 UTC tomorrow. The
-provisioning lesson from the Brand Watcher entry extends here: reset or re-run BOTH
-bw_tracker_runs and timeline_runs on a cloned tenant, in that order.
+carries most of the corpus, was then force-extracted the same evening with
+**`scripts/force_timeline_day.py`** (new): runs daily extraction for a given day, all
+scopes, with LLM — the scheduler and the `/timeline/generate` endpoint both stop at
+yesterday, so a provisioning-day corpus is otherwise unreachable until the next night. Run
+it from the tenant root with the tenant venv while its `.env` is decrypted (the systemd
+decrypt/encrypt dance; re-encrypt immediately after the script prints ENV-LOADED). Delete
+the day's `timeline_runs` rows afterwards if the day is still receiving ingests — dedup
+hashes make the scheduled re-extraction safe. The provisioning lesson from the Brand
+Watcher entry extends here: reset or re-run BOTH bw_tracker_runs and timeline_runs on a
+cloned tenant, in that order.
 
 ### Fix: the chat's compact context formatters dropped tags
 After the rebuild, retrieval surfaced the right articles but Auspex still denied Tulip

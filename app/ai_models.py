@@ -617,8 +617,11 @@ class LiteLLMModel(AIModel):
             logger.error("❌ No model configurations found in either config file")
             raise ValueError("No model configurations found in either config file")
         
-        # Get currently configured models with their API keys
-        configured_models = get_available_models()
+        # Get currently configured models with their API keys. Validation asks
+        # "will this name route?", so hidden legacy aliases MUST count — hiding
+        # them here broke every gpt-* default (timeline extraction, the factory
+        # default) the day the picker filter landed.
+        configured_models = get_available_models(include_hidden=True)
         logger.info(f"🔑 Found {len(configured_models)} configured models with API keys")
         
         # Verify the model is configured
@@ -1187,8 +1190,14 @@ def _short_model_id(model_path: str) -> str:
     return tail
 
 
-def get_available_models():
-    """Get models that have API keys configured in the environment."""
+def get_available_models(include_hidden: bool = False):
+    """Get models that have API keys configured in the environment.
+
+    ``include_hidden=False`` (default) hides routing-only legacy aliases —
+    the list users may pick from. ``include_hidden=True`` returns every
+    resolvable name and is what VALIDATION must use: stored configs and old
+    call sites still request alias names, and those still route.
+    """
     logger.debug("🔍 Scanning for configured models from litellm_config.yaml...")
 
     models = []
@@ -1220,7 +1229,7 @@ def get_available_models():
                 # Routing-only compatibility names (legacy gpt-*/gemini-* entries kept
                 # so stored configs and old call sites still resolve). Never listed:
                 # the name a user can pick must be the model that actually runs.
-                if (model_config.get('model_info') or {}).get('legacy_alias'):
+                if not include_hidden and (model_config.get('model_info') or {}).get('legacy_alias'):
                     continue
                 litellm_params = model_config.get('litellm_params', {})
                 model_path = litellm_params.get('model', '')

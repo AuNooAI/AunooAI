@@ -412,7 +412,6 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
       {/* EU AI Act Art. 50 visible disclosure */}
       <AIDisclosureFooter
         dashboardName="Auspex Insights"
-        aiTools={['GPT-4']}
         purpose="To summarize conversation themes, findings, and sentiment from analyzed sources"
       />
     </div>
