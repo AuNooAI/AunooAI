@@ -1883,9 +1883,15 @@ class AuspexService:
                 *conversation
             ]
 
+            # Context blocks below ride as assistant turns so they can't override
+            # the system prompt, but they must sit BEFORE the user's final message:
+            # a conversation ending on an assistant turn is a prefill, which the
+            # Claude 5 family rejects outright ("conversation must end with a user
+            # message") and older models mistake for their own partial output
+            # (the "[/TOOLS]" echo). insert(len-1) keeps the user question last.
             # Inject URL lookup context if URLs were detected
             if url_context:
-                llm_messages.append({
+                llm_messages.insert(len(llm_messages) - 1, {
                     "role": "assistant",
                     "content": f"[URL LOOKUP RESULTS]\n{url_context}\n[END URL LOOKUP]"
                 })
@@ -1920,7 +1926,7 @@ class AuspexService:
                         logger.info(f"Plugin produced final response, skipping main LLM")
                     else:
                         # Plugin produced context for main LLM
-                        llm_messages.append({
+                        llm_messages.insert(len(llm_messages) - 1, {
                             "role": "assistant",
                             "content": plugin_results
                         })
@@ -1937,7 +1943,7 @@ class AuspexService:
                     tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit, sampling_strategy)
                     if tool_results:
                         # Add tool results as assistant context to avoid overriding system instructions
-                        llm_messages.append({
+                        llm_messages.insert(len(llm_messages) - 1, {
                             "role": "assistant",
                             "content": f"[TOOLS] {tool_results}"
                         })

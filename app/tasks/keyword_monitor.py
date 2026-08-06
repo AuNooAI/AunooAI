@@ -261,6 +261,14 @@ class KeywordMonitor:
                 # Article already exists - keep the one from higher priority provider
                 existing = seen_urls[url]
 
+                # Union matched keywords onto both copies so the stamp survives
+                # whichever provider's copy wins the priority swap below.
+                mk = sorted({*(existing.get('_matched_keywords') or []),
+                             *(article.get('_matched_keywords') or [])})
+                if mk:
+                    existing['_matched_keywords'] = mk
+                    article['_matched_keywords'] = mk
+
                 current_priority = provider_priority.get(
                     article.get('collector_source', ''), 0
                 )
@@ -310,9 +318,12 @@ class KeywordMonitor:
                 timeout=SEARCH_TIMEOUT_SECONDS
             )
 
-            # Tag articles with provider source
+            # Tag articles with provider source and the keyword that found them —
+            # ingest stamps it into tags so body-only brand mentions stay findable.
+            matched_tag = search_term.strip().strip('"').strip()
             for article in articles:
                 article['collector_source'] = provider
+                article['_matched_keywords'] = [matched_tag] if matched_tag else []
 
             logger.info(f"{provider}: Found {len(articles)} articles")
             return articles

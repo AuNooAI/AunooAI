@@ -2,6 +2,63 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Niche brands were invisible to every title+summary layer; matched keywords now stamp into tags
+
+### Goal
+On ibaset, Auspex claimed no Tulip articles exist (six are approved), the Brand Watcher tab
+was empty, and picking Claude Sonnet 5 broke the chat outright. All three trace to the same
+data shape: a niche brand's name appears only in article BODIES — sector reports that name
+Tulip Interfaces or iBase-t in paragraph twelve — while search, embeddings, Auspex context,
+and the brand-watcher filter all read titles and summaries. wileytest never showed any of
+this because its brands (Wiley, Elsevier, Springer) make headlines; same code, different
+data.
+
+### Fix: Auspex sent tool context as a trailing assistant message — a prefill
+**`app/services/auspex_service.py`** — the chat appended URL-lookup, plugin, and tool-result
+context as assistant messages AFTER the user's question, so every request ended on an
+assistant turn. The Claude 5 family rejects that as prefill ("conversation must end with a
+user message") and older models mistook the trailing `[TOOLS]` block for their own partial
+output — the `[/TOOLS]` echo seen in responses. All three injection sites now
+`insert(len-1, ...)` so context rides mid-conversation and the user's question stays last.
+Verified live: the same chat that errored at 15:29 completed at 15:33. Propagated to all
+eight running tenants (three file variants, all carrying identical injection blocks).
+
+### Feature: collection-time keyword matches stamp into article tags
+**`app/tasks/keyword_monitor.py`** — `_search_with_collector` now records the keyword that
+found each article (`_matched_keywords`, quotes stripped), and `_deduplicate_articles`
+unions the lists across providers. **`app/services/automated_ingest_service.py`** — a new
+`_merge_matched_keyword_tags` helper folds those keywords into the article's tags at both
+enrichment sites, surviving the AI tag rewrite. The brand-watcher filter
+(`_build_brand_filter_sql`) already searches tags, so the stamp closes the loop with no
+filter change. Propagated to all eight tenants (anchor-verified surgical patch; both files
+compile everywhere). One-time backfill on ibaset stamped existing articles from
+`keyword_article_matches` + `monitored_keywords` (plpgsql merge, deduplicating against
+existing tags).
+
+### Fix: the Brand Watcher was empty — inherited run history meant no first full pass
+ibaset's `bw_tracker_runs` came cloned from the template, so the classifier's very first
+scheduled run was already "incremental since last run" — and incremental windows filter on
+PUBLICATION date, which never contained the July-published corpus. Zero articles classified
+ever. Repair: one-off `run_type='full', days_back=365` via `bw_tracker_schedules`, then
+revert to incremental. First full run classified 15 articles (Dassault 13, Siemens 9, SAP 3
+— some articles count for multiple brands). Added the hyphenated `iBase-t` to the brand's
+`brand_keywords` (the funding story's spelling; same tokenization trap as the keyword-level
+find) — next run classified it. Tulip classification lands with the tag backfill above.
+
+### Verification
+Auspex: user's failing chat completes on Sonnet 5. Tags: post-backfill query shows
+`Tulip Interfaces` in the approved Tulip articles' tags. BW: per-brand
+`bw_article_categories` counts after each run recorded above; final Tulip count verified
+after the tags-aware full run. All eight services restarted active at each step; no fresh
+background runs killed.
+
+### Lessons
+A clone-provisioned tenant inherits operational STATE, not just config — run histories,
+schedules, counters. Anything that decides "what's new" from history must be reset at
+provision time, or the first real run silently does nothing. And when three unrelated
+symptoms appear on one tenant only, look for the data-shape assumption they share before
+debugging them separately — here it was "the brand name appears in the title or summary."
+
 ## 2026-08-06 — Incident: the alias filter silently emptied Claude from the curated model picker
 
 ### What broke

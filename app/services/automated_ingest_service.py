@@ -24,6 +24,22 @@ from app.services.async_db import AsyncDatabase, get_async_database_instance
 from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator
 from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+
+
+def _merge_matched_keyword_tags(article_data, tags):
+    """Fold the collection-time keyword matches into the article's tags.
+
+    For niche brands the name often appears only in the article body, which
+    title+summary consumers (search, Auspex context, the brand-watcher
+    filter) never see — tags are the one field they all read, so the keyword
+    that caused collection must survive enrichment's tag rewrite.
+    """
+    tags_list = list(tags) if isinstance(tags, list) else ([str(tags)] if tags else [])
+    seen = {t.strip().lower() for t in tags_list}
+    for kw in (article_data.get('_matched_keywords') or []):
+        if kw and kw.strip().lower() not in seen:
+            tags_list.append(kw)
+    return ','.join(tags_list) if tags_list else None
 from app.services.enrichment_service import get_enrichment_service
 from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
 from app.analyzers.article_analyzer import ArticleAnalyzer
@@ -389,8 +405,7 @@ class AutomatedIngestService:
             )
 
             # Step 3: Merge results - SLM for confident classifications, LLM for rest
-            tags = analysis_result.get('tags', [])
-            tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
+            tags_str = _merge_matched_keyword_tags(article_data, analysis_result.get('tags', []))
 
             final_result = {
                 'summary': analysis_result.get('summary'),
@@ -1283,8 +1298,7 @@ class AutomatedIngestService:
             )
             
             # Update article data with analysis results
-            tags = analysis_result.get('tags', [])
-            tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
+            tags_str = _merge_matched_keyword_tags(article_data, analysis_result.get('tags', []))
 
             article_data.update({
                 'summary': analysis_result.get('summary'),  # ✅ CRITICAL: Include AI-generated summary
