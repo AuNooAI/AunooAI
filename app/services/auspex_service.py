@@ -619,6 +619,12 @@ class OptimizedContextManager:
             "impact": (article.get("time_to_impact") or "Unknown")[:12],
             "date": (article.get("publication_date") or "")[:10],
             "source": (article.get("news_source") or "")[:15],
+            # Tags survive compression uncut: they carry the collection-time
+            # keyword matches — for niche brands the only occurrence of the
+            # brand name outside the article body.
+            "tags": ", ".join(str(t) for t in article["tags"] if t)
+                    if isinstance(article.get("tags"), (list, tuple))
+                    else (article.get("tags") or ""),
             "score": round(relevance_score, 2) if relevance_score else round(article.get("similarity_score", 0), 2)
         }
     
@@ -843,9 +849,11 @@ class OptimizedContextManager:
             for i, article in enumerate(cat_articles, 1):
                 # Compact format with URL preserved for link generation
                 url = article.get('url') or article.get('uri', '')
+                tags_line = f"   Tags: {article['tags']}\n" if article.get('tags') else ""
                 context += (f"{i}. [{article['id']}] {article['title']}\n"
                            f"   URL: {url}\n"
                            f"   Summary: {article['summary']}\n"
+                           + tags_line +
                            f"   Metadata: {article['sentiment']} | {article['signal']} | "
                            f"{article['impact']} | {article['date']} | Score: {article['score']}\n\n")
         
@@ -3728,10 +3736,17 @@ Please try rephrasing your question or contact support if the issue persists."""
         for i, article in enumerate(articles[:detail_limit]):
             similarity_text = f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else ""
             url = article.get('url') or article.get('link') or article.get('uri', 'No URL')
+            # Tags carry the collection-time keyword matches — for niche brands
+            # the only place the brand name appears outside the article body, so
+            # omitting them here left the model denying coverage it was holding.
+            _tags = article.get('tags')
+            if isinstance(_tags, (list, tuple)):
+                _tags = ', '.join(str(t) for t in _tags if t)
+            tags_text = f"\n    Tags: {_tags}" if _tags else ""
             detail = (f"[{i+1}] {article['title'][:100]}...\n" +
                      f"    URL: {url}\n" +
                      f"    Category: {article.get('category', 'N/A')} | Sentiment: {article.get('sentiment', 'N/A')}" +
-                     f" | Future Signal: {article.get('future_signal', 'N/A')}" + similarity_text +
+                     f" | Future Signal: {article.get('future_signal', 'N/A')}" + similarity_text + tags_text +
                      f"\n    Summary: {article.get('summary', 'No summary')[:200]}...")
             article_details.append(detail)
 

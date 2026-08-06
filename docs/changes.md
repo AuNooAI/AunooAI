@@ -21,6 +21,16 @@ and the BW tenants were NOT mass-rebuilt: their corpora are large, their brands 
 headlines so nothing is missing in practice, and new articles pick up the new composition
 at ingest.
 
+### Fix: the chat's compact context formatters dropped tags
+After the rebuild, retrieval surfaced the right articles but Auspex still denied Tulip
+coverage — because the two compact context builders the chat actually uses omitted tags:
+`compress_article` (the "optimized context" preload) stripped them from the compressed dict,
+and the search-detail formatter printed only category/sentiment/summary. The full formatter
+with a `Tags:` line exists but serves a different path. Both compact paths now carry tags
+(uncut through compression — they're the one field that proves relevance for body-only
+mentions). Visible symptom of the gap: the model listed a Tulip-group article (the Squint
+Series B story) among its evidence while stating nothing mentions Tulip.
+
 ### Verification
 Query "tulip" against ibaset's rebuilt index: three Tulip-group articles in the top eight
 (previously none ranked distinctively — the word existed nowhere in the embedded text).
