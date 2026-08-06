@@ -37,9 +37,12 @@ Interfaces article and the brand appears in its tags; ask Auspex about a brand w
 topic scope selected and the coverage is in context.
 
 ## Limits and what's next
-- Tags make body-only mentions findable by exact term; the semantic search index is still
-  built from titles and summaries, so meaning-based search for such brands remains weaker
-  than term search. Rebuilding embeddings to include tags is the follow-on if needed.
+- Shipped later the same day: the meaning-based search index now includes tags as well, and
+  the ibaset site's index was rebuilt. A search for a niche brand name now ranks its
+  articles where before they could not rank at all. On a corpus where every article covers
+  the same sector, the improvement is a ranking shift rather than a clean separation —
+  exact-term search and brand-scoped chat remain the sharpest tools for niche brands.
 - The tag stamp applies from today's collections onward; ibaset's history was backfilled,
   other sites' history was not (their brands appear in headlines, so nothing is missing in
-  practice).
+  practice). Other sites' search indexes were likewise not rebuilt; new articles pick up
+  the tag-aware indexing automatically.
