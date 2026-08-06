@@ -77,6 +77,26 @@ def _encode_one(text_value: str) -> List[float]:
     return embedding
 
 
+def _with_tags(doc_text: str, article: Dict[str, Any]) -> str:
+    """Weave the article's tags into the embedded text, after the title line.
+
+    Tags carry the collection-time keyword matches — for niche brands the only
+    occurrence of the brand name outside the article body — so they belong in
+    the embedding. They go right after the first line (the encoder's title
+    split) rather than at the tail, where the 8000-token truncation could
+    silently drop them on long raw texts.
+    """
+    tags = article.get("tags")
+    if isinstance(tags, (list, tuple)):
+        tags = ", ".join(str(t) for t in tags if t)
+    tags = str(tags).strip() if tags else ""
+    if not tags:
+        return doc_text
+    head, _, rest = doc_text.partition("\n")
+    tagged = f"{head}\nTags: {tags}"
+    return f"{tagged}\n{rest}" if rest else tagged
+
+
 def _truncate_text_for_embedding(text: str, max_tokens: int = 8000) -> str:
     """Truncate text to fit within OpenAI embedding token limits.
 
@@ -179,6 +199,7 @@ def upsert_article(article: Dict[str, Any]) -> None:
         if not doc_text:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
+        doc_text = _with_tags(doc_text, article)
 
         # Generate embedding
         embeddings = _embed_texts([doc_text])
@@ -237,6 +258,7 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
         if not doc_text:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
+        doc_text = _with_tags(doc_text, article)
 
         # Generate embedding (sync call, but relatively fast)
         embeddings = _embed_texts([doc_text])

@@ -2,6 +2,33 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Embeddings now include tags, closing the semantic-search gap for niche brands
+
+### Feature: tags woven into the embedded text
+**`app/vector_store_pgvector.py`** — the embedding document was `raw | summary | title`;
+tags never reached the vector. A new `_with_tags` helper weaves them in at both upsert
+sites, placed right after the first line (the encoder's title split) rather than at the
+tail, where the 8000-token truncation could silently drop them on long raw texts. Four file
+variants exist across the eight tenants; the guard block was identical everywhere, so the
+anchored patch applied cleanly to all (compile-checked, services restarted, no live runs
+killed).
+
+### Rebuild: ibaset re-encoded, big tenants deliberately not
+ibaset's 37 embedded articles were re-encoded through the local DeBERTa service (768d,
+:8001) with the new composition — exported as JSON, encoded outside the app, applied as
+UPDATE statements — because its niche brands are the reason this matters. wiley/wileytest
+and the BW tenants were NOT mass-rebuilt: their corpora are large, their brands appear in
+headlines so nothing is missing in practice, and new articles pick up the new composition
+at ingest.
+
+### Verification
+Query "tulip" against ibaset's rebuilt index: three Tulip-group articles in the top eight
+(previously none ranked distinctively — the word existed nowhere in the embedded text).
+Margins stay thin because the whole corpus is manufacturing-software text; the tags shift
+relative rank, they don't dominate it. The rest of the chain was already tags-aware:
+Auspex's article context prints a `Tags:` line and its keyword search matches on tags, so
+retrieved articles now show the model why they're relevant.
+
 ## 2026-08-06 — Niche brands were invisible to every title+summary layer; matched keywords now stamp into tags
 
 ### Goal
