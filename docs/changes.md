@@ -53,6 +53,15 @@ ibaset only — other tenants unchanged. Service restarted (no fresh background 
 `/api/available_models` now lists seven models ending in `claude-sonnet-5 →
 claude-sonnet-5` and `claude-opus-5 → claude-opus-5`.
 
+### Follow-up fix: the 5-family rejects sampling parameters
+First Auspex chat on claude-sonnet-5 failed with `BedrockException — temperature is
+deprecated for this model`. The Claude 5 family removed `temperature`/`top_p`/`top_k`, and
+the app sends its configured `llm_temperature` on every call. Reproduced with a direct
+call, verified `additional_drop_params` cures it, then added
+`"temperature", "top_p", "top_k"` to both Claude 5 entries' drop lists in ibaset's yaml.
+Same restart-and-retry recipe as the other drop params; any future tenant adding 5-family
+entries must copy the full drop list.
+
 ## 2026-08-06 — The iBASEt brand group collected nothing because rare search terms hang the news firehose
 
 ### Goal
