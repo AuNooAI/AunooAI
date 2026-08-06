@@ -65,11 +65,48 @@ legacy third-party model names that were silently rerouted. The model named on s
 model recorded with each analysis, and the model that did the work are now always the same
 — relevant if you need to answer "which AI produced this?" for compliance purposes.
 
+## Afternoon update — same day
+
+Work continued through the afternoon; the items below are live on your site now.
+
+### The Brand Watcher is populated
+
+The Brand Watcher tab was empty this morning because its classifier had never made a first
+full pass over your articles. It has now classified the collected coverage for all five
+brands — including your own: the TA Associates investment story leads the iBASEt column.
+Ongoing classification runs every six hours automatically.
+
+### The Timeline is populated
+
+The Timeline tab now carries 17 dated events extracted from your coverage: the Dassault
+Systèmes ArisGlobal acquisition and Q2 results, the Siemens shipbuilding and chip-design
+deals, SAP warehouse-automation coverage, and the iBASEt investment announcement. New
+events are extracted nightly as coverage arrives.
+
+### The assistant now finds brands that articles mention only in passing
+
+Asking Auspex about a niche brand — yours, or a competitor like Tulip Interfaces — used to
+return "no articles found" even when coverage existed, because the mentions sit deep inside
+sector reports rather than in headlines. Three changes fixed this end to end: every article
+now carries the search term that found it as a visible tag; the meaning-based search index
+includes those tags; and the assistant sees them when it reads articles. The assistant also
+now works with the newest Claude models (Sonnet 5 and Opus 5), which are available in the
+model selectors.
+
+### The AI disclosure now names the models that run
+
+The "AI Technology Disclosure" shown on dashboards and in exports previously named GPT-4 —
+a model your deployment does not use. It now names the models actually serving your site.
+Given your sector's compliance environment, this matters: the disclosure, the audit trail,
+and the executing model can no longer disagree.
+
 ## What to look at
 
 Explore → News Feed: the iBASEt topic now has current content at the default 7-day range;
 the full backfill, including the investment story, is visible at 90 days. Gather: the iBASEt
-group card shows the collected/approved split with the corrected statistic.
+group card shows the collected/approved split with the corrected statistic. Brand Watcher:
+per-brand coverage including your own column. Timeline: the extracted events. Auspex: ask
+"latest on Tulip Interfaces" with any topic scope.
 
 We suggest reviewing the approved lists after a week of collection and tuning from there —
 in particular whether the "MRO software" term earns its place, and whether the SAP terms
