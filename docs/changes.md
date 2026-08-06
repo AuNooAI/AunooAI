@@ -21,6 +21,21 @@ and the BW tenants were NOT mass-rebuilt: their corpora are large, their brands 
 headlines so nothing is missing in practice, and new articles pick up the new composition
 at ingest.
 
+### Fix: the Timeline was empty — daily extraction ran before classification existed
+Same ordering trap as the Brand Watcher, one layer up. Timeline daily runs fetch each
+scope's articles by INGESTION day, gated on
+`COALESCE(bw_article_categories.relevance_score, topic_alignment_score) >= 0.4` — and
+today's 13:40 timeline pass ran three hours before the first Brand Watcher classification
+run, so every day extracted zero articles and was permanently marked completed
+(`run_already_completed` never retries). All of ibaset's corpus was ingested Aug 5–6.
+Repair (ibaset DB only, no code): deleted the five zero-article `timeline_runs` rows for
+Aug 5 and restarted, forcing an immediate cycle — the redo processed the 3 distinct
+articles Aug 5 actually holds after dedup (my larger prediction counted category rows, not
+articles) and created the first event; no extraction errors in the log. Aug 6, which
+carries most of the corpus, gets its LLM pass automatically after 01:00 UTC tomorrow. The
+provisioning lesson from the Brand Watcher entry extends here: reset or re-run BOTH
+bw_tracker_runs and timeline_runs on a cloned tenant, in that order.
+
 ### Fix: the chat's compact context formatters dropped tags
 After the rebuild, retrieval surfaced the right articles but Auspex still denied Tulip
 coverage — because the two compact context builders the chat actually uses omitted tags:
