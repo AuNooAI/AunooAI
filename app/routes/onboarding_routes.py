@@ -1206,7 +1206,9 @@ async def get_available_models():
         for model_config in config.get('model_list', []):
             model_name = model_config.get('model_name')
             litellm_params = model_config.get('litellm_params', {})
-            
+            # Routing-only compatibility names — resolvable, never listed.
+            if (model_config.get('model_info') or {}).get('legacy_alias'):
+                continue
             if model_name:
                 # Extract provider from the litellm model path
                 litellm_model = litellm_params.get('model', '')

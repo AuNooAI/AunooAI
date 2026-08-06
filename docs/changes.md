@@ -2,6 +2,65 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Model pickers now list only models that actually run; alias names are routing-only
+
+### Goal
+Every model dropdown listed the full litellm alias table — gpt-4o, gpt-5, gemini-pro,
+mixtral-8x7b, claude-3-5-sonnet-latest — names that, on the Bedrock-routed sites, all resolve
+to two Claude models. Beyond looking wrong, it is an explainability problem: the model name a
+user picks is what lands in provenance records and EU AI Act disclosure text, so the audit
+trail could name gpt-4o for output Claude generated. Requirement: the table itself carries no
+aliases a user can see or select.
+
+### Mechanism: tag in the yaml, filter in the listers, keep routing intact
+Aliases cannot simply be deleted from `litellm_config.yaml` — the model_list is also the
+routing table, and stored group/settings values plus ~17 direct call sites still request
+gpt-* names (prior lesson: aliases must live INSIDE model_list to resolve). So:
+
+**`app/config/litellm_config.yaml`** (all 8 running tenants) — every routing-only entry now
+carries `model_info: legacy_alias: true`. Tagging was decided per tenant from what each name
+actually routes to, not from a fixed name list: on the seven Bedrock-routed tenants all
+gpt-*/gemini-*/mixtral/claude-*-latest/bedrock-claude-* entries are tagged (leaving nova-lite,
+nova-pro, bedrock-kimi-k2-5, claude-haiku-4-5, claude-sonnet-4-5); on bwtemplate the gpt-*
+entries genuinely route to `openai/gpt-*`, are not lies, and stay visible. Applied by text
+insertion, never yaml.dump, so comments survived; each file re-parsed and entry-count-checked
+after patching.
+
+**`app/ai_models.py`** — `get_available_models()` and `ai_get_available_models()` skip
+tagged entries. **`app/routes/onboarding_routes.py`** — the onboarding model list does the
+same. Router construction and name resolution read model_list unfiltered, so every stored
+alias value keeps working.
+
+**Frontend defaults moved to real names** so no page reintroduces a hidden alias:
+`useTrendConvergence.ts` default `gpt-5` → `claude-sonnet-4-5` (the model gpt-5 already
+resolved to on these tenants — same executing model, honest name; `gpt-5` added to its
+legacy-migration set) and `useNarrativeExplorer.ts` default `gpt-4o-mini` →
+`bedrock-kimi-k2-5` with the same stored-config migration pattern as useNewsFeed.
+
+### Verification
+`/api/available_models` after restart: bugfixing, ibaset, wileytest, abm, pbm, wbm, wiley all
+return exactly `nova-lite, nova-pro, bedrock-kimi-k2-5, claude-haiku-4-5, claude-sonnet-4-5`;
+bwtemplate returns its twelve real OpenAI names plus the three Bedrock ones. Both patched
+Python files compile on all eight tenants; UI typecheck clean against baseline (246 known);
+deployed bundles on ibaset carry `model:"bedrock-kimi-k2-5"` (newsfeed) and
+`model:"claude-sonnet-4-5"` (trend convergence). All eight services restarted active after
+checking for fresh background runs (none).
+
+### Propagation
+Backend and yaml patched on the eight running tenants; UI built in canonical and rsynced
+(static + `*_react.html` templates) to the other seven. The eight inactive trees were NOT
+patched this time — the yaml tagging needs the per-tenant routing check, so re-run the
+tagging script (`tag_alias_models.py` pattern) when any of them is revived. bwtemplate is the
+clone template: a clone repointed to Bedrock must re-run tagging after its yaml rewrite, or
+its gpt-* names become lies again.
+
+### Lessons
+A compatibility alias is two different things fused: a routing entry (harmless, keep forever)
+and a display entry (a lie the day the target changes). Separate them explicitly — here via
+`model_info.legacy_alias` — rather than trusting every consumer of the table to know which
+entries are which. And "is this name an alias" is a per-tenant question, not a global list:
+the same `gpt-5` entry is honest on bwtemplate and a lie everywhere else.
+
 ## 2026-08-06 — News Feed no longer defaults to "gpt-4o", a model name that stopped meaning anything
 
 ### Goal

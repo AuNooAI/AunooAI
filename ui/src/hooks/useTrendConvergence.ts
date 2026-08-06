@@ -56,12 +56,11 @@ export interface UseTrendConvergenceReturn {
 const DEFAULT_CONFIG: AnalysisConfig = {
   topic: '',
   timeframe_days: 365,
-  // gpt-5 is the current OpenAI flagship reasoning model. The Topic
-  // Reports re-run path passes reasoning_effort='minimal' +
-  // max_completion_tokens=16000 so it produces full JSON output
-  // (verified end-to-end on Quantum Computing: 7.4k chars in ~25s).
+  // Flagship tier. On the Bedrock-routed tenants the old 'gpt-5' default
+  // already resolved to claude-sonnet-4-5 via the litellm alias — this names
+  // the same model honestly now that aliases are hidden from the model list.
   // Users can override via the AI Model picker.
-  model: 'gpt-5',
+  model: 'claude-sonnet-4-5',
   source_quality: 'all',
   sample_size_mode: 'auto',
   consistency_mode: 'balanced',
@@ -88,7 +87,9 @@ const LEGACY_AUTO_PICK_MODELS = new Set([
   'gpt-4.1-mini',
   'gpt-4o',
   'gpt-4.1',  // transient default after gpt-5 was first added but before
-              // reasoning_effort wiring landed — upgrade to gpt-5 now.
+              // reasoning_effort wiring landed.
+  'gpt-5',    // former default; on these tenants it routed to claude-sonnet-4-5
+              // anyway — same model, now under its own name.
 ]);
 
 export function useTrendConvergence(): UseTrendConvergenceReturn {

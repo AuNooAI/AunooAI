@@ -76,8 +76,15 @@ export interface UseNarrativeExplorerReturn {
 const DEFAULT_CONFIG: NarrativeExplorerConfig = {
   selectedTopics: [],
   dateRange: '7d',
-  model: 'gpt-4o-mini',
+  model: 'bedrock-kimi-k2-5',
 };
+
+// Stored configs from before the default change carry a model the user never
+// explicitly picked. Same pattern as useNewsFeed / useTrendConvergence.
+const LEGACY_AUTO_PICK_MODELS = new Set([
+  'gpt-4o-mini',
+  'gpt-4o',
+]);
 
 const STORAGE_KEY = 'narrativeExplorer_config';
 const INCIDENTS_CACHE_KEY = 'narrativeExplorer_incidents';
@@ -122,7 +129,11 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+        const merged = { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+        if (LEGACY_AUTO_PICK_MODELS.has(merged.model)) {
+          merged.model = DEFAULT_CONFIG.model;
+        }
+        return merged;
       }
     } catch (err) {
       console.error('Error loading stored config:', err);

@@ -1217,6 +1217,11 @@ def get_available_models():
 
             for model_config in model_list:
                 model_name = model_config.get('model_name')
+                # Routing-only compatibility names (legacy gpt-*/gemini-* entries kept
+                # so stored configs and old call sites still resolve). Never listed:
+                # the name a user can pick must be the model that actually runs.
+                if (model_config.get('model_info') or {}).get('legacy_alias'):
+                    continue
                 litellm_params = model_config.get('litellm_params', {})
                 model_path = litellm_params.get('model', '')
 
@@ -1280,6 +1285,9 @@ def ai_get_available_models():
         # Convert litellm format to existing format
         models = []
         for model in config.get('model_list', []):
+            # Routing-only compatibility names — resolvable, never listed.
+            if (model.get('model_info') or {}).get('legacy_alias'):
+                continue
             provider = model['litellm_params']['model'].split('/')[0]
             models.append({
                 "name": model['model_name'],
