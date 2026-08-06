@@ -35,6 +35,23 @@ The firehose's only four iBASEt/Solumina articles date from May–June 2026, out
 floor, per the 2026-08-06 date-window fix) and `min_relevance_threshold=0.25`, mirroring the
 Tulip Interfaces group's tuned value for the same collect-the-marginal-mention brief.
 
+### Config: sector keywords, and the brand's hyphenated spelling
+Added four keywords to the group (`monitored_keywords`, ibaset DB): `"manufacturing
+execution system"` (148 firehose articles), `"digital thread"` (86), `"MRO software"` (4),
+and `iBase-t` — the hyphenated spelling the press actually uses, which the `iBASEt` keyword
+misses because the two tokenize differently. That spelling returns 5 articles to the official
+spelling's 2, including a TA Associates investment story about the customer itself. Candidates
+probed and rejected: `"aerospace manufacturing"` (1,029 articles — would drown the brand
+column in generic sector news) and `"manufacturing operations management"` (46-second query
+for 7 results, best of which other keywords already collect).
+
+After the keywords: 28 matched articles, 12 approved (the iBase-t investment story at 0.80
+alignment, MES and digital-thread market coverage, an Airbus manufacturing story), 16
+filtered at 0.11 average — the gate discriminating, and recent enough publication dates that
+the News Feed shows content at its default range. The run log confirms the timeout fallback
+working in production: `iBASEt` and `Solumina` each timed out at 20s, retried on relevance
+sort, and returned their articles; the quoted phrases answered directly.
+
 ### Verification
 Live collector test in the bugfixing venv: both keywords time out at 20s, fall back, and
 return their 2 articles each. Then an end-to-end scheduled run on ibaset (group marked due,
