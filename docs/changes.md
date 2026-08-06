@@ -2,6 +2,77 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Two gates were throwing away articles a brand group was configured to keep
+
+### Goal
+iBASEt's brief says a single article about a small competitor outweighs routine coverage of a
+large one, so the Tulip Interfaces group was given a deliberately low relevance threshold.
+It collected nothing anyway. Chasing that found two independent gates, both ignoring
+per-group configuration.
+
+### The final relevance check ignored the group's own threshold
+**`app/services/automated_ingest_service.py:1085`** — the pipeline checks relevance twice. The
+cheap pre-filter at :930 honors `relevance_threshold_override`, the group's
+`min_relevance_threshold`. The final check after full analysis did not: it always called
+`self.get_relevance_threshold()`, the global value (0.45 on ibaset). So a brand group tuned to
+keep marginal mentions collected them, paid for the AI analysis, then filed them as
+`filtered_relevance` where no dashboard, feed or observer agent can see them. The group setting
+looked applied — it appears in the log as "Using group 2 relevance threshold 0.1" — and was
+overruled two steps later.
+
+Fixed, scoped to topics starting with `Brand Monitoring `. Ordinary topics keep the global
+threshold, so no other tenant's collection volume moves. The scoping matches the convention
+observer agents already use in dedicated mode.
+
+### The news firehose capped every search at 30 days
+**`app/collectors/newsfirehose_collector.py:259`** — `search_articles` accepts a `start_date`,
+the monitor computes one from the group's `search_date_range` (`keyword_monitor.py:456`) and
+passes it, and the collector then discarded it in favour of a hardcoded 30-day cutoff. Setting
+a group to 365 days did nothing.
+
+The caller's range now widens the window but never narrows it. That asymmetry is the point: the
+monitor passes a start_date on **every** call, derived from a global default of 7 days, so
+simply honoring it would have cut every tenant's collection window from 30 days to 7 — a large
+silent reduction in what gets collected. The 30 days stays a floor.
+
+### A per-group threshold that was cosmetic is now load-bearing
+Worth stating plainly, because it changed the tuning. While the final gate ignored it, the
+Tulip group's 0.1 threshold only decided which articles were worth analysing. Now it decides
+what a customer sees, and 0.1 was too low: the first verified run approved 11 articles
+including Indian tile-and-marble exports, a Kashmir opinion piece and tulip-mania market
+commentary — noise from the deliberately wide unquoted `Tulip manufacturing` keyword. Raised
+the group to 0.25, which sits between the noise (0.10–0.20) and the genuine mentions (0.30+).
+
+### Verification
+Three runs on ibaset's Tulip group, each after deleting the group's articles so the counts are
+clean. Before either fix: 0 approved. After both fixes at threshold 0.1: 16 collected,
+11 approved — including the noise above. After raising to 0.25: 16 collected, 6 approved, all
+six genuine `"Tulip Interfaces"` phrase matches (a Squint Series B story, an edge-controllers
+market report, a manufacturing AI software roundup), the oldest from 2025-08-12 and therefore
+only reachable because of the date-window fix. Both files compile
+(`python -m py_compile`); ibaset restarted and active.
+
+### Propagation
+Committed in canonical on `fuckedupfixes` as "collection: let a brand group's own relevance
+threshold decide what is visible…", together with this entry. Copied to ibaset and verified
+there. Still to copy:
+wiley, wileytest, wbm, abm, pbm, bwtemplate — diff each direction first rather than copying
+wholesale, per the 2026-07-06 incident where a wholesale copy deleted the only surviving copy
+of tenant-local routes.
+
+The date-window fix only reaches the scheduled collection path. `check-now` reads a group's
+relevance threshold but **not** its `search_date_range`, so a manual backfill still needs the
+global setting changed temporarily — the same gap as the known "/check-now ignores per-group
+providers" behaviour. Not fixed here; noted so nobody re-diagnoses it.
+
+### Lessons
+A setting that is honored at one gate and ignored at a later one is worse than a setting that
+does nothing, because the log shows it being applied. When adding a per-group override, ALWAYS
+grep for every comparison against the global value it overrides. And before honoring a
+parameter that a caller has been passing all along, check what the caller actually sends by
+default — here it was 7 days against a hardcoded 30, so the obvious fix would have quietly cut
+collection everywhere.
+
 ## 2026-08-05 — New customer site for iBASEt, and a missing model entry that was silently discarding borderline articles
 
 ### Goal

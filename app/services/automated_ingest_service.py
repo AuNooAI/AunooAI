@@ -1084,8 +1084,18 @@ class AutomatedIngestService:
 
             # Step 5: Check final relevance threshold (double-check after full analysis)
             relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
+            # Brand Watch groups only: honor the group's own threshold here too.
+            # The quick check above already honors it, so without this a brand group
+            # tuned to keep marginal mentions (a small competitor with little
+            # coverage) collects and analyses them, then files them below the
+            # global threshold where nothing can see them. Scoped to Brand
+            # Monitoring topics so ordinary topics keep the global threshold and
+            # their collection volume is unchanged.
             relevance_threshold = self.get_relevance_threshold()
-            
+            if (relevance_threshold_override is not None
+                    and (topic or "").startswith("Brand Monitoring ")):
+                relevance_threshold = relevance_threshold_override
+
             if relevance_score >= relevance_threshold:
                 # Step 5: Quality check (simplified for async)
                 try:

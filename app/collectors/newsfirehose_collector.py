@@ -257,8 +257,16 @@ class NewsFirehoseCollector(ArticleCollector):
                     logger.info(f"NewsFirehose returned {len(articles)} articles (total: {total}) for query '{query}'")
 
                     # Client-side date filtering (API date filtering is broken)
-                    # Filter to only keep articles from the last N days
+                    # Filter to only keep articles from the last N days. 30 days is
+                    # a floor, not a ceiling: the caller's start_date widens the
+                    # window but never narrows it, so a group with a deliberately
+                    # long search_date_range (backfilling a low-volume brand) gets
+                    # its older coverage, while every group left on the 7-day
+                    # default keeps the 30 days it collects today.
                     max_age_days = 30  # Extended to 30 days since NewsFirehose may have stale index
+                    if start_date is not None:
+                        requested_days = (datetime.now() - start_date).days
+                        max_age_days = max(max_age_days, requested_days)
                     cutoff_date = datetime.now() - timedelta(days=max_age_days)
 
                     filtered_articles = []
