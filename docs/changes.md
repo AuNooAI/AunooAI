@@ -2,6 +2,27 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Claude 5 models added to ibaset via Bedrock
+
+### Ops/config: two new model entries, verified before adding
+Probed the account's Bedrock access (us-east-1, the tenants' shared key) with one-token
+calls before touching config: `us.anthropic.claude-sonnet-5`, `us.anthropic.claude-opus-5`,
+`us.anthropic.claude-opus-4-8`, `us.anthropic.claude-sonnet-4-6` and
+`us.anthropic.claude-opus-4-6-v1` all answer; the `-v1`-suffixed forms of the Claude 5 IDs
+do not exist. Added the two current-generation models to ibaset's
+`app/config/litellm_config.yaml` as `claude-sonnet-5` and `claude-opus-5` — honest names,
+so they pass the legacy-alias filter and appear in the pickers. Entry shape mirrors the
+existing claude-*-4-5 entries: `thinking: disabled` plus dropped
+`reasoning_effort`/`response_format`, because the app's parsers expect plain content and
+reasoning tokens were the cost lesson behind that recipe. One caveat noted in the yaml:
+claude-opus-5 rejects thinking-disabled at effort `xhigh`/`max`, which cannot occur here
+since `reasoning_effort` is dropped before the request leaves.
+
+Not added, deliberately: opus-4-8 and the 4.6 pair (superseded tiers, picker clutter).
+ibaset only — other tenants unchanged. Service restarted (no fresh background runs);
+`/api/available_models` now lists seven models ending in `claude-sonnet-5 →
+claude-sonnet-5` and `claude-opus-5 → claude-opus-5`.
+
 ## 2026-08-06 — The iBASEt brand group collected nothing because rare search terms hang the news firehose
 
 ### Goal
