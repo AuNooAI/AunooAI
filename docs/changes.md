@@ -2,6 +2,43 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — News Feed no longer defaults to "gpt-4o", a model name that stopped meaning anything
+
+### Goal
+The Explore News Feed header on every site showed "gpt-4o" as the selected model. Since the
+Bedrock repoint that name is only a compatibility alias — on ibaset it actually runs
+`claude-sonnet-4-5` — so the UI displayed a model that never executed, and it disagreed with
+the backend default (`keyword_monitor_settings.default_llm_model` = `bedrock-kimi-k2-5`).
+
+### Fix: frontend default + stored-config migration
+**`ui/src/hooks/useNewsFeed.ts`** — `DEFAULT_CONFIG.model` was hardcoded to `gpt-4o` and
+persisted per-browser under the `newsFeed_config` localStorage key, so it survived every
+backend change. Changed the default to `bedrock-kimi-k2-5` and added a
+`LEGACY_AUTO_PICK_MODELS` migration (`gpt-4o`, `gpt-4o-mini`) mirroring the existing pattern
+in `useTrendConvergence.ts`: a stored legacy value the user never deliberately picked is
+upgraded to the new default; anything else is preserved as a real choice. The source change
+was committed in `eb2ce8e4` (a concurrent session's `git add -u` swept it in with the
+classifier-input fix); this entry is its documentation. Other components still default to
+`gpt-4o-mini` at the API-fallback layer (`api.ts`, `gatherApi.ts`, `narrativeExplorerApi.ts`,
+`briefingDeskApi.ts`, `threatIntelligenceApi.ts`) — those only apply when a hook passes no
+model, and were left alone.
+
+### Verification
+`npm run typecheck` clean against baseline (246 known errors, no new). Built bundle
+`newsfeed-CQzL-exn.js` contains `model:"bedrock-kimi-k2-5"` as the default; ibaset's
+`explore_react.html` references the new hash. Investigated alongside: the 502/500 console
+errors reported from ibaset at 13:08 were the service restart window (an in-flight
+`six-articles` request cancelled by graceful shutdown), not a model failure — the same
+request with `bedrock-kimi-k2-5` returned 200 OK at 13:07:34.
+
+### Propagation
+Built in canonical via `./ui/deploy-react-ui.sh`, then rsynced `static/trend-convergence/`
+(`-a --delete`) and the `*_react.html` templates to abm, bwtemplate, ibaset, pbm, wbm, wiley
+and wileytest. All eight services restarted and active; checked `bw_tracker_runs` for runs
+started within two hours first — none. Browsers that explicitly picked a non-legacy model
+keep their choice; browsers holding a stored legacy `gpt-4o`/`gpt-4o-mini` silently move to
+`bedrock-kimi-k2-5` on next load.
+
 ## 2026-08-06 — The Gather relevance counter has been reading a similarity score, not a verdict, since February
 
 ### Goal
