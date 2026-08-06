@@ -539,16 +539,24 @@ async def get_trend_convergence_models():
     flagship-first so the UI hook's ``modelsData[0]`` default picks Sonnet.
 
     Every model-picker in the UI reads this route. ``/api/available_models``
-    returns the raw alias list and must not be used for one.
+    now hides tagged legacy aliases, but this route stays the picker source
+    because it adds display labels and context limits.
     """
     # (id, label, context_limit) — the distinct models actually available.
-    # Each id is the canonical alias for one underlying Bedrock model.
+    # IDs must be the CANONICAL model names from the litellm yaml, never the
+    # legacy alias names (bedrock-claude-*): get_available_models() filters
+    # tagged aliases out, so an alias id here silently vanishes from every
+    # picker via the intersection below. Entries a tenant's yaml doesn't
+    # carry are hidden by the same intersection, so this list can safely
+    # name models only some tenants have.
     SUPPORTED = [
-        ('bedrock-claude-sonnet', 'Claude Sonnet 4.5', 200000),
-        ('bedrock-claude-haiku',  'Claude Haiku 4.5',  200000),
-        ('nova-pro',              'Nova Pro',          300000),
-        ('nova-lite',             'Nova Lite',         300000),
-        ('bedrock-kimi-k2-5',     'Kimi K2.5',         256000),
+        ('claude-sonnet-4-5', 'Claude Sonnet 4.5', 200000),
+        ('claude-sonnet-5',   'Claude Sonnet 5',   1000000),
+        ('claude-opus-5',     'Claude Opus 5',     1000000),
+        ('claude-haiku-4-5',  'Claude Haiku 4.5',  200000),
+        ('nova-pro',          'Nova Pro',          300000),
+        ('nova-lite',         'Nova Lite',         300000),
+        ('bedrock-kimi-k2-5', 'Kimi K2.5',         256000),
     ]
     _all = [{'id': mid, 'name': label, 'context_limit': ctx, 'provider': 'bedrock'}
             for mid, label, ctx in SUPPORTED]

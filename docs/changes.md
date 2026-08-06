@@ -2,6 +2,36 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — Incident: the alias filter silently emptied Claude from the curated model picker
+
+### What broke
+The morning's legacy-alias filter had a consumer nobody re-checked:
+**`app/routes/trend_convergence_routes.py`**'s `/api/trend-convergence/models` — the curated
+endpoint every UI model-picker actually reads (the UI deliberately avoids
+`/api/available_models`). Its hardcoded list still named `bedrock-claude-sonnet` and
+`bedrock-claude-haiku`, and it intersects that list with `get_available_models()`, which now
+filters those names as tagged aliases. Result: from the alias-filter deploy until this fix,
+the Explore pickers on the four curated-variant tenants (bugfixing, ibaset, wiley, wileytest)
+offered only Nova and Kimi — no Claude at all. Surfaced when the freshly added Claude 5
+models failed to appear on ibaset's Explore page. The four BW tenants run an older
+passthrough variant of the endpoint and self-corrected when the filter landed.
+
+### Fix
+The curated list now uses canonical names — `claude-sonnet-4-5`, `claude-sonnet-5`,
+`claude-opus-5`, `claude-haiku-4-5`, `nova-pro`, `nova-lite`, `bedrock-kimi-k2-5` — with a
+comment stating the rule: ids here must be canonical yaml names, never alias names, because
+the intersection silently drops anything the filter hides. The same intersection hides
+models a tenant's yaml doesn't carry, so the one list serves all tenants: ibaset shows
+seven models including the Claude 5 pair; bugfixing/wiley/wileytest show their five.
+Verified per tenant after restart. Propagated to the four curated-variant tenants
+(byte-identical among themselves before the edit); BW tenants untouched.
+
+### Lessons
+When a filter changes what a producer returns, grep for every consumer that intersects or
+validates against it — an id that stops appearing doesn't error, it vanishes. The curated
+picker endpoint duplicating alias names was exactly the two-sources-of-truth trap the
+alias tagging was meant to end; it now carries the canonical-names-only rule in a comment.
+
 ## 2026-08-06 — Claude 5 models added to ibaset via Bedrock
 
 ### Ops/config: two new model entries, verified before adding
