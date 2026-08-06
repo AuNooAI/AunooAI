@@ -543,9 +543,18 @@ Score:"""
         else:
             embedding_score = None
 
-        # Compute classifier score (if available)
-        if self._classifier_loaded:
-            classifier_score = self._compute_classifier_score(topic, title, summary)
+        # Compute classifier score (if available).
+        # The classifier was trained on "topic [SEP] title. summary" and collapses
+        # to ~0 for EVERY article when the summary is missing: measured on ibaset's
+        # 72-article brand corpus, title+summary scores 0.0001-0.9469 (AUC 0.981)
+        # while title-only scores 0.0001-0.0034 (AUC 0.677) -- every article under
+        # 0.005. Collection-time scoring often has no summary yet, so feed the
+        # classifier the same text the embedding tier gets, and treat "no text to
+        # judge" as unavailable rather than as a confident zero. Blending a
+        # meaningless 0.0 at CLASSIFIER_WEIGHT dragged every score down by 60%.
+        classifier_text = summary if (summary or "").strip() else (full_text or "")
+        if self._classifier_loaded and classifier_text.strip():
+            classifier_score = self._compute_classifier_score(topic, title, classifier_text)
             result["classifier_score"] = classifier_score
         else:
             classifier_score = None

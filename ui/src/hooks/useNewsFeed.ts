@@ -96,10 +96,22 @@ const DEFAULT_CONFIG: NewsFeedConfig = {
   dateRange: '7d',
   page: 1,
   perPage: 100,  // Increased for better category distribution
-  model: 'gpt-4o',
+  // Matches keyword_monitor_settings.default_llm_model on the tenants. The
+  // legacy 'gpt-4o' default predated the Bedrock repoint — it still routed to
+  // Bedrock via the litellm alias, but displayed a model that never ran.
+  model: 'bedrock-kimi-k2-5',
   persona: 'CEO',
   articleCount: 6,
 };
+
+// Stored configs from before the default change carry a model the user never
+// explicitly picked. Migrate those to the current default; any model NOT in
+// this set is treated as a deliberate user choice and preserved. Same pattern
+// as useTrendConvergence's LEGACY_AUTO_PICK_MODELS.
+const LEGACY_AUTO_PICK_MODELS = new Set([
+  'gpt-4o',
+  'gpt-4o-mini',
+]);
 
 const STORAGE_KEYS = {
   CONFIG: 'newsFeed_config',
@@ -125,7 +137,11 @@ export function useNewsFeed(): UseNewsFeedReturn {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.CONFIG);
       if (stored) {
-        return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+        const merged = { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+        if (LEGACY_AUTO_PICK_MODELS.has(merged.model)) {
+          merged.model = DEFAULT_CONFIG.model;
+        }
+        return merged;
       }
     } catch (err) {
       console.error('Error loading stored config:', err);

@@ -37,12 +37,45 @@ misread as a scoring breakage. The stale shared classifier on ibaset is real but
 harmless: its scores land in the 0.20–0.85 medium-confidence band, which is exactly the band
 that routes brand topics to the LLM for the final say.
 
+### Fix: the classifier was scoring a title with no summary, and contributing nothing
+Measuring the classifier on ibaset's brand corpus to settle whether the stale shared model was
+worth replacing produced the opposite result, and found a second defect.
+
+The model is good here. Scored on title+summary against the pipeline's own approve/filter
+decisions (72 articles, 21 approved), it reaches **AUC 0.981** — approved articles average
+0.340, filtered ones 0.016. Both code paths that wrap it, `hybrid_relevance_service` and
+`RelevanceClassifierService`, return identical numbers. This is independent agreement with the
+LLM, not a circular measurement: the labels come from the LLM's verdict and the classifier is a
+separate model.
+
+It was contributing nothing in production. Every stored `overall_match_explanation` on ibaset
+reads `class=0.00` — 69 of 72 exactly zero. The cause is the input, not loading: the model was
+trained on `topic [SEP] title. summary`, and **`hybrid_relevance_service.py`** passed it
+`summary` alone while handing the embedding tier `summary` *and* `full_text`. Collection-time
+scoring frequently has no summary yet. Same corpus, same model, title only: scores collapse to
+a 0.0001–0.0034 band, **all 72 below 0.005**, AUC 0.677. That reproduces `class=0.00` exactly.
+
+Worse than merely absent: a zero was still blended at `CLASSIFIER_WEIGHT` 0.6, so every score
+became `0.4 × embedding` — scaled down by 60% before meeting any threshold.
+
+The classifier now receives `summary` when present and falls back to `full_text`, and is
+treated as *unavailable* rather than a confident zero when there is genuinely no text, so the
+blend degrades to embedding-only instead of multiplying by a fake 0.
+
 ### Verification
 `python -m py_compile app/database_query_facade.py` passes. The new predicate run directly
 against wileytest's database discriminates where the old one did not: group 7 falls from
 38,540 of 47,591 "relevant" (81%) to 2,180 (4.6%); group 10 from 138,471 of 155,905 (89%) to
 76,375 (49%). Those match the pipeline's own approve/filter decisions. All eight running
 services restarted and active afterwards.
+
+The classifier-input fix was measured on the same 72-article corpus, LLM fallback switched off
+so the local tiers are what is being read, across the three cases it has to handle. Summary
+present: AUC 0.902, hybrid on 72/72 — unchanged, as intended. No summary but full text
+available: AUC 0.903, hybrid on 72/72, where before the classifier saw nothing and returned
+zero. Neither summary nor full text: falls to `embedding_only` on 72/72 with scores in their
+honest 0.474–0.718 range rather than a crushed 0.19–0.29. So the local gate goes from
+embedding-dominated to genuinely hybrid wherever any article text exists.
 
 ### Propagation
 The same three-line block, byte-identical, existed once in 16 of the 17 tenant trees (testbed
@@ -54,6 +87,16 @@ restarting, confirmed every `bw_tracker_runs` row marked `running` was an orphan
 July, so nothing live was killed. The eight inactive or shut-down trees (abbott, community,
 helpnet, opendemo, pearson, sage, skunkworkx, vc) carry the patch for whenever they next boot.
 
+The classifier-input fix went to the seven active monolith and Brand Watcher trees (ibaset,
+wiley, wileytest, wbm, abm, pbm, bwtemplate), again by exact-string replacement rather than
+file copy — wbm diverges from canonical by 10 lines here and abm, pbm and bwtemplate by 31
+each, all of it older versions of neighbouring blocks, which a whole-file copy would have
+rewritten in one untested step. Every tenant had the target block exactly once. All seven
+restarted and active; before restarting, the newest `running` background task on wiley,
+wileytest and wbm dated from January or June, so nothing live was interrupted. The two
+tracebacks on ibaset afterwards are `CancelledError: timeout graceful shutdown exceeded` from
+the outgoing process, with no mention of the relevance service.
+
 ### Lessons
 When a percentage on a dashboard pins near 100% and never moves, suspect the column it reads
 before the model that supposedly feeds it — here every reader of `keyword_relevance_score`
@@ -61,6 +104,17 @@ silently changed meaning the day the writer changed regime. And a score column t
 writing regimes (LLM round numbers, stamped constants, similarity floats) will produce
 convincing-looking "trends" that are really shifts in corpus composition; check
 `overall_match_explanation`/method fields before reading a time trend off it.
+
+A model that scores every item near zero is usually being fed the wrong input, not failing to
+load — check what the caller passes before checking whether the weights are stale. Two of my
+hypotheses died here: "the shared classifier is too stale to discriminate" (it scores AUC
+0.981) and "the classifier fails to load in the worker" (it loads; `method` is `hybrid` on
+every row). The `class=0.00` in the stored explanation string was the evidence that settled it,
+which is a good argument for logging each tier's sub-score rather than only the blend.
+
+NEVER blend a missing signal as zero when the weights are fixed. A tier that cannot answer must
+be excluded from the combination, or its silence is scored as confident rejection — here 60% of
+every article's score, on every tenant, for as long as the summary was empty at scoring time.
 
 ## 2026-08-06 — Two gates were throwing away articles a brand group was configured to keep
 
