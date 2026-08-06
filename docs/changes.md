@@ -2,6 +2,66 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — The Gather relevance counter has been reading a similarity score, not a verdict, since February
+
+### Goal
+ibaset's Gather page showed ~100% of collected brand articles as relevant, and wileytest's
+recent articles behaved the same way. That looked like the relevance scorer had broken. It had
+not — the scorer is healthy on both sites, and the live data proves it: on wileytest since
+July, 1,534 of 1,548 brand-topic scoring events went through the LLM fallback and only 7.6%
+came out relevant; saved articles the pipeline filtered average `topic_alignment_score` 0.039
+against 0.770 for approved ones (ibaset: 0.218 vs 0.669). The broken part was the counter the
+Gather page reads.
+
+### Fix: count on the verdict column
+**`app/database_query_facade.py`**, `get_group_article_stats` — the Gather group stats counted
+articles with `keyword_relevance_score >= threshold`. That column choice was correct when it
+was made (`7ed0e87e`, 2025-12-12): the column then held a score the LLM had written. But since
+the hybrid relevance service was wired into ingest (`694b4b67`, 2026-02-01), the ingest maps
+`keyword_relevance_score = embedding_score` — the raw MiniLM cosine similarity, which sits
+around 0.5–0.65 for almost any pair of texts and carries no relevance judgement. The actual
+verdict (classifier + LLM fallback) goes to `topic_alignment_score`. So for six months the
+counter compared a text-similarity value against a relevance threshold, and nearly everything
+passed.
+
+The count now uses `COALESCE(topic_alignment_score, keyword_relevance_score)`. The fallback
+keeps pre-hybrid rows counted, because on those rows the keyword score was still LLM-written
+and is the only verdict available. Committed in canonical on `fuckedupfixes` as "gather stats:
+count relevance on the verdict column, not the embedding similarity".
+
+This also corrects the previous session's diagnosis: there was no July regression and no
+switch from LLM to classifier scoring. The column is a mix of writing regimes (pre-hybrid LLM
+round numbers, social posts stamped 0.3/0.0 by `social_eval_service`, hybrid-era embedding
+values), so the counter's percentage drifted as the corpus mix shifted — that drift was
+misread as a scoring breakage. The stale shared classifier on ibaset is real but largely
+harmless: its scores land in the 0.20–0.85 medium-confidence band, which is exactly the band
+that routes brand topics to the LLM for the final say.
+
+### Verification
+`python -m py_compile app/database_query_facade.py` passes. The new predicate run directly
+against wileytest's database discriminates where the old one did not: group 7 falls from
+38,540 of 47,591 "relevant" (81%) to 2,180 (4.6%); group 10 from 138,471 of 155,905 (89%) to
+76,375 (49%). Those match the pipeline's own approve/filter decisions. All eight running
+services restarted and active afterwards.
+
+### Propagation
+The same three-line block, byte-identical, existed once in 16 of the 17 tenant trees (testbed
+does not carry the query). Patched all 16 with an exact-string replacement script that refuses
+any file where the block does not match exactly once — wileytest in particular carries local
+uncommitted `social_meta` lines in this file, so no whole-file copies. Restarted the eight
+active services (abm, bugfixing, bwtemplate, ibaset, pbm, wbm, wiley, wileytest); before
+restarting, confirmed every `bw_tracker_runs` row marked `running` was an orphan from June or
+July, so nothing live was killed. The eight inactive or shut-down trees (abbott, community,
+helpnet, opendemo, pearson, sage, skunkworkx, vc) carry the patch for whenever they next boot.
+
+### Lessons
+When a percentage on a dashboard pins near 100% and never moves, suspect the column it reads
+before the model that supposedly feeds it — here every reader of `keyword_relevance_score`
+silently changed meaning the day the writer changed regime. And a score column that mixes
+writing regimes (LLM round numbers, stamped constants, similarity floats) will produce
+convincing-looking "trends" that are really shifts in corpus composition; check
+`overall_match_explanation`/method fields before reading a time trend off it.
+
 ## 2026-08-06 — Two gates were throwing away articles a brand group was configured to keep
 
 ### Goal

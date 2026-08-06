@@ -3571,9 +3571,14 @@ class DatabaseQueryFacade:
         query = text("""
             SELECT
                 COUNT(*) as total_count,
-                COUNT(CASE WHEN a.keyword_relevance_score >= :threshold THEN 1 END) as relevant_count,
-                COUNT(CASE WHEN a.keyword_relevance_score IS NOT NULL AND a.keyword_relevance_score < :threshold THEN 1 END) as irrelevant_count,
-                COUNT(CASE WHEN a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
+                -- topic_alignment_score holds the relevance verdict. Since the hybrid
+                -- scorer (694b4b67) keyword_relevance_score is the raw embedding
+                -- similarity (~0.5 for almost any text pair), so comparing it against
+                -- a relevance threshold counts nearly everything as relevant. It is
+                -- kept only as a fallback for pre-hybrid rows, where it was LLM-written.
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) >= :threshold THEN 1 END) as relevant_count,
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) < :threshold THEN 1 END) as irrelevant_count,
+                COUNT(CASE WHEN a.topic_alignment_score IS NULL AND a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
                 COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '24 hours' THEN 1 END) as articles_past_24h,
                 COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '7 days' THEN 1 END) as articles_past_week,
                 COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '30 days' THEN 1 END) as articles_past_month
