@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import logging
@@ -221,88 +222,108 @@ class NewsFirehoseCollector(ArticleCollector):
                 "Accept": "application/json"
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.base_url}/v1/search",
-                    params=params,
-                    headers=headers
-                ) as response:
-                    response_status = response.status
-                    response_content_type = response.content_type
-
-                    if response.status != 200:
-                        logger.error(f"NewsFirehose HTTP ERROR: status={response_status}")
-                        try:
-                            if 'json' in response_content_type:
-                                error_data = await response.json()
-                                logger.error(f"Error Response: {error_data}")
-                            else:
-                                error_text = await response.text()
-                                logger.error(f"Error Response: {error_text[:500]}...")
-                        except Exception as parse_error:
-                            logger.error(f"Could not parse error response: {parse_error}")
-                        return []
-
-                    self.requests_today += 1
-
-                    # Parse JSON response
-                    try:
-                        data = await response.json()
-                    except Exception as json_error:
-                        logger.error(f"NewsFirehose JSON parse error: {json_error}")
-                        return []
-
-                    articles = data.get("articles", [])
-                    total = data.get("total_results", len(articles))
-                    logger.info(f"NewsFirehose returned {len(articles)} articles (total: {total}) for query '{query}'")
-
-                    # Client-side date filtering (API date filtering is broken)
-                    # Filter to only keep articles from the last N days. 30 days is
-                    # a floor, not a ceiling: the caller's start_date widens the
-                    # window but never narrows it, so a group with a deliberately
-                    # long search_date_range (backfilling a low-volume brand) gets
-                    # its older coverage, while every group left on the 7-day
-                    # default keeps the 30 days it collects today.
-                    max_age_days = 30  # Extended to 30 days since NewsFirehose may have stale index
-                    if start_date is not None:
-                        requested_days = (datetime.now() - start_date).days
-                        max_age_days = max(max_age_days, requested_days)
-                    cutoff_date = datetime.now() - timedelta(days=max_age_days)
-
-                    filtered_articles = []
-                    oldest_date = None
-                    newest_date = None
-
-                    for article in articles:
-                        pub_date_str = article.get('publishedAt', '')
-                        if pub_date_str:
+            # The server's published_at sort is pathological for rare terms: it
+            # walks the recency index checking every row against the tsquery, so
+            # a query with few matches (a niche brand name) runs for minutes while
+            # a common term returns instantly. Measured 2026-08-06: q=Solumina
+            # answered in 63ms with sort_by=relevance and hung past 130s with
+            # sort_by=published_at — every search for the iBASEt group hit the
+            # monitor's 120s timeout, and the group never collected an article.
+            # So newest-first gets a short budget and falls back to relevance
+            # ranking, which always answers; the client-side date filter below
+            # keeps the recency guarantee either way.
+            async def _fetch(fetch_params, timeout_seconds):
+                timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(
+                        f"{self.base_url}/v1/search",
+                        params=fetch_params,
+                        headers=headers
+                    ) as response:
+                        if response.status != 200:
+                            logger.error(f"NewsFirehose HTTP ERROR: status={response.status}")
                             try:
-                                # Parse ISO format date
-                                if 'T' in pub_date_str:
-                                    pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00').replace('+00:00', ''))
+                                if 'json' in response.content_type:
+                                    logger.error(f"Error Response: {await response.json()}")
                                 else:
-                                    pub_date = datetime.strptime(pub_date_str[:10], '%Y-%m-%d')
+                                    logger.error(f"Error Response: {(await response.text())[:500]}...")
+                            except Exception as parse_error:
+                                logger.error(f"Could not parse error response: {parse_error}")
+                            return None
+                        try:
+                            return await response.json()
+                        except Exception as json_error:
+                            logger.error(f"NewsFirehose JSON parse error: {json_error}")
+                            return None
 
-                                # Track date range for logging
-                                if oldest_date is None or pub_date < oldest_date:
-                                    oldest_date = pub_date
-                                if newest_date is None or pub_date > newest_date:
-                                    newest_date = pub_date
+            if params["sort_by"] == "published_at":
+                try:
+                    data = await _fetch(params, 20)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"NewsFirehose published_at sort timed out after 20s for "
+                        f"'{normalized_query[:60]}' — retrying with relevance sort"
+                    )
+                    data = await _fetch({**params, "sort_by": "relevance"}, 60)
+            else:
+                data = await _fetch(params, 60)
 
-                                if pub_date >= cutoff_date:
-                                    filtered_articles.append(article)
-                            except (ValueError, TypeError) as e:
-                                # If we can't parse date, include the article
-                                filtered_articles.append(article)
+            if data is None:
+                return []
+
+            self.requests_today += 1
+
+            articles = data.get("articles", [])
+            total = data.get("total_results", len(articles))
+            logger.info(f"NewsFirehose returned {len(articles)} articles (total: {total}) for query '{query}'")
+
+            # Client-side date filtering (API date filtering is broken)
+            # Filter to only keep articles from the last N days. 30 days is
+            # a floor, not a ceiling: the caller's start_date widens the
+            # window but never narrows it, so a group with a deliberately
+            # long search_date_range (backfilling a low-volume brand) gets
+            # its older coverage, while every group left on the 7-day
+            # default keeps the 30 days it collects today.
+            max_age_days = 30  # Extended to 30 days since NewsFirehose may have stale index
+            if start_date is not None:
+                requested_days = (datetime.now() - start_date).days
+                max_age_days = max(max_age_days, requested_days)
+            cutoff_date = datetime.now() - timedelta(days=max_age_days)
+
+            filtered_articles = []
+            oldest_date = None
+            newest_date = None
+
+            for article in articles:
+                pub_date_str = article.get('publishedAt', '')
+                if pub_date_str:
+                    try:
+                        # Parse ISO format date
+                        if 'T' in pub_date_str:
+                            pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00').replace('+00:00', ''))
                         else:
-                            # No date, include the article
+                            pub_date = datetime.strptime(pub_date_str[:10], '%Y-%m-%d')
+
+                        # Track date range for logging
+                        if oldest_date is None or pub_date < oldest_date:
+                            oldest_date = pub_date
+                        if newest_date is None or pub_date > newest_date:
+                            newest_date = pub_date
+
+                        if pub_date >= cutoff_date:
                             filtered_articles.append(article)
+                    except (ValueError, TypeError) as e:
+                        # If we can't parse date, include the article
+                        filtered_articles.append(article)
+                else:
+                    # No date, include the article
+                    filtered_articles.append(article)
 
-                    if len(filtered_articles) < len(articles):
-                        date_range = f"API returned dates: {oldest_date.strftime('%Y-%m-%d') if oldest_date else 'N/A'} to {newest_date.strftime('%Y-%m-%d') if newest_date else 'N/A'}"
-                        logger.info(f"📅 Date filter: kept {len(filtered_articles)}/{len(articles)} from last {max_age_days} days. {date_range}")
+            if len(filtered_articles) < len(articles):
+                date_range = f"API returned dates: {oldest_date.strftime('%Y-%m-%d') if oldest_date else 'N/A'} to {newest_date.strftime('%Y-%m-%d') if newest_date else 'N/A'}"
+                logger.info(f"📅 Date filter: kept {len(filtered_articles)}/{len(articles)} from last {max_age_days} days. {date_range}")
 
-                    return [self._format_article(article, topic) for article in filtered_articles]
+            return [self._format_article(article, topic) for article in filtered_articles]
 
         except aiohttp.ClientError as e:
             logger.error(f"NewsFirehose network error: {type(e).__name__}: {e}")

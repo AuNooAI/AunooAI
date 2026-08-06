@@ -2,6 +2,59 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-06 — The iBASEt brand group collected nothing because rare search terms hang the news firehose
+
+### Goal
+The "iBASEt - Brand Watch" group on the ibaset site had zero articles ever — its own brand,
+on its own site — while the four competitor groups collected normally. The group ran on
+schedule with no recorded error.
+
+### Root cause: the firehose's newest-first sort never returns for rare terms
+The 04:44 run log had the only trace: `newsfirehose search timed out after 120s for keyword
+'Solumina' — skipping`. Reproduced directly against the firehose API: `q=Solumina` with
+`sort_by=relevance` answers in 63ms with 2 results; the same query with
+`sort_by=published_at` hangs past 130s. The monitor's global sort setting is `publishedAt`,
+so every search the group ever ran took the slow path and died at the 120-second timeout.
+The pathology is rare-term-specific — the server walks its recency index checking each row
+against the text query, which finds a page of Siemens mentions instantly but grinds through
+millions of rows for a term with two matches. That is exactly why big-brand groups collected
+and the niche vendor never did.
+
+### Fix: short budget on newest-first, fall back to relevance ranking
+**`app/collectors/newsfirehose_collector.py`** — `search_articles` now gives the
+`published_at` sort a 20-second budget (per-request aiohttp timeout) and on timeout retries
+the same query with `sort_by=relevance`, which always answers. Common-term queries keep their
+newest-first behaviour unchanged; rare terms lose nothing because the collector's existing
+client-side date filter enforces recency regardless of sort order. Requests without the
+newest-first sort get a plain 60-second budget where they previously had aiohttp's 300-second
+default.
+
+### Config: the group's window widened so the existing coverage is reachable
+The firehose's only four iBASEt/Solumina articles date from May–June 2026, outside the
+30-day collection floor. Set group 1 `search_date_range=365` (the caller's window widens the
+floor, per the 2026-08-06 date-window fix) and `min_relevance_threshold=0.25`, mirroring the
+Tulip Interfaces group's tuned value for the same collect-the-marginal-mention brief.
+
+### Verification
+Live collector test in the bugfixing venv: both keywords time out at 20s, fall back, and
+return their 2 articles each. Then an end-to-end scheduled run on ibaset (group marked due,
+service restarted): 2 articles matched and processed — a MOM-software market report naming
+iBASEt approved at alignment 0.30, a digital-shipyard market piece filtered at 0.20. The
+group's zero is broken. `python -m py_compile` passes.
+
+### Propagation
+Collector copied whole to abm, bwtemplate, ibaset, pbm, wbm, wiley and wileytest (file was
+byte-identical on all eight before the change, md5-verified after), all services restarted
+active after confirming no fresh background runs. The group config change is ibaset-only, in
+the `keyword_groups` row, not in git.
+
+### Lessons
+A group that collects nothing while its peers thrive is a per-term problem, not a pipeline
+problem — probe the provider with that group's exact terms and parameters before touching
+the pipeline. And "no recorded error" only means the error landed at a different layer: the
+per-keyword timeout logged a warning and the run still reported success=true with 0
+articles, which kept `last_error` empty for a month of totally failed searches.
+
 ## 2026-08-06 — Model pickers now list only models that actually run; alias names are routing-only
 
 ### Goal
