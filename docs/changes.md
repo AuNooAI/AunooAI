@@ -49,8 +49,9 @@ checking for fresh background runs (none).
 ### Propagation
 Backend and yaml patched on the eight running tenants; UI built in canonical and rsynced
 (static + `*_react.html` templates) to the other seven. The eight inactive trees were NOT
-patched this time — the yaml tagging needs the per-tenant routing check, so re-run the
-tagging script (`tag_alias_models.py` pattern) when any of them is revived. bwtemplate is the
+patched this time — the yaml tagging needs the per-tenant routing check, so re-run
+`scripts/tag_alias_models.py` (dry-run by default, `--apply` to write) when any of them is
+revived. bwtemplate is the
 clone template: a clone repointed to Bedrock must re-run tagging after its yaml rewrite, or
 its gpt-* names become lies again.
 
