@@ -12731,6 +12731,12 @@ class DatabaseQueryFacade:
         - total_matches, avg_relevance, avg_topic_alignment, avg_confidence
         - high_relevance_count (>=0.7), low_relevance_count (<0.4)
         """
+        # Aggregate the expanded matches BEFORE joining keyword/group names on.
+        # The old shape (join first, group over mk/kg columns) made the planner
+        # misestimate 36k rows where 1.2M arrive, pick a nested loop into
+        # articles (5.5M buffer reads), and spill a 322MB sort — 56s on
+        # wileytest data, 15s this way. Output verified row-identical on one
+        # snapshot, 2026-08-07.
         query = text("""
             WITH keyword_matches AS (
                 -- Expand keyword_ids to individual keywords
@@ -12739,6 +12745,20 @@ class DatabaseQueryFacade:
                     kam.group_id,
                     unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
                 FROM keyword_article_matches kam
+            ),
+            match_stats AS (
+                SELECT
+                    km.keyword_id,
+                    km.group_id,
+                    COUNT(DISTINCT km.article_uri) as total_matches,
+                    AVG(a.keyword_relevance_score) as avg_relevance,
+                    AVG(a.topic_alignment_score) as avg_topic_alignment,
+                    AVG(a.confidence_score) as avg_confidence,
+                    COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN km.article_uri END) as high_relevance_count,
+                    COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN km.article_uri END) as low_relevance_count
+                FROM keyword_matches km
+                LEFT JOIN articles a ON km.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
+                GROUP BY km.keyword_id, km.group_id
             )
             SELECT
                 mk.id as keyword_id,
@@ -12746,22 +12766,36 @@ class DatabaseQueryFacade:
                 kg.id as group_id,
                 kg.name as group_name,
                 kg.topic,
-                COUNT(DISTINCT km.article_uri) as total_matches,
-                ROUND(AVG(a.keyword_relevance_score)::numeric, 3) as avg_relevance,
-                ROUND(AVG(a.topic_alignment_score)::numeric, 3) as avg_topic_alignment,
-                ROUND(AVG(a.confidence_score)::numeric, 3) as avg_confidence,
-                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN km.article_uri END) as high_relevance_count,
-                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN km.article_uri END) as low_relevance_count
+                COALESCE(ms.total_matches, 0) as total_matches,
+                ROUND(ms.avg_relevance::numeric, 3) as avg_relevance,
+                ROUND(ms.avg_topic_alignment::numeric, 3) as avg_topic_alignment,
+                ROUND(ms.avg_confidence::numeric, 3) as avg_confidence,
+                COALESCE(ms.high_relevance_count, 0) as high_relevance_count,
+                COALESCE(ms.low_relevance_count, 0) as low_relevance_count
             FROM monitored_keywords mk
             JOIN keyword_groups kg ON mk.group_id = kg.id
-            LEFT JOIN keyword_matches km ON km.keyword_id = mk.id AND km.group_id = kg.id
-            LEFT JOIN articles a ON km.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
-            GROUP BY mk.id, mk.keyword, kg.id, kg.name, kg.topic
+            LEFT JOIN match_stats ms ON ms.keyword_id = mk.id AND ms.group_id = kg.id
             ORDER BY avg_relevance DESC NULLS LAST
         """)
 
-        result = self._execute_with_rollback(query)
-        return result.mappings().fetchall()
+        # This aggregate scans keyword_article_matches and articles. Under
+        # heavy ingest IO it has taken minutes, holding a pool connection the
+        # whole time (2026-08-07 outage on wileytest). SET LOCAL caps the
+        # runtime for this transaction only; on timeout the caller gets an
+        # error instead of the app hanging.
+        connection = self._get_connection()
+        try:
+            connection.execute(text("SET LOCAL statement_timeout = '30s'"))
+            result = connection.execute(query)
+            connection.commit()
+            return result.mappings().fetchall()
+        except Exception as e:
+            self.logger.error(f"Error executing keyword relevance stats: {e}")
+            try:
+                connection.rollback()
+            except Exception as rollback_error:
+                self.logger.error(f"Error during rollback: {rollback_error}")
+            raise
 
     def get_articles_for_keyword(self, keyword_id: int, group_id: int, relevance_filter: str = 'all', limit: int = 50):
         """Get articles matched to a specific keyword with relevance data.

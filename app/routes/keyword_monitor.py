@@ -178,7 +178,9 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
         # Use the new method that includes schedule info
         groups = db.facade.get_all_keyword_groups_with_schedule_info()
         keywords = db.facade.get_monitored_keywords()
-        relevance_stats = db.facade.get_keyword_relevance_stats()
+        # Off the event loop for the same reason as /relevance-stats: this is
+        # the one slow query in this handler.
+        relevance_stats = await asyncio.to_thread(db.facade.get_keyword_relevance_stats)
 
         # Get monitoring status
         status = db.facade.get_keyword_monitoring_counter()
@@ -3412,7 +3414,10 @@ async def get_relevance_stats(
     try:
         # Get keyword stats from database
         logger.info("Fetching keyword relevance stats from database...")
-        keyword_stats = db.facade.get_keyword_relevance_stats()
+        # Run off the event loop: this query can take minutes under ingest IO
+        # load, and a sync call here froze every request in the process
+        # (2026-08-07 wileytest outage).
+        keyword_stats = await asyncio.to_thread(db.facade.get_keyword_relevance_stats)
         logger.info(f"Got {len(keyword_stats) if keyword_stats else 0} keyword stats")
 
         # Convert to list of dicts for JSON serialization
