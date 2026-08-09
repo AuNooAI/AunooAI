@@ -12,7 +12,11 @@
 #
 #   A. code EMBEDDING_DIM == articles.embedding column width, and the two derived
 #      centroid columns match it. This alone catches the wbm outage.
-#   B. the DeBERTa encoder answers, and answers at the expected width.
+#   B. the DeBERTa encoder answers, and answers at the expected width. The alert
+#      body carries the probe latency and the load average, because a starved
+#      encoder looks identical to a crashed one from the caller's side: on
+#      2026-08-09 a load spike (127 on 20 cores) made this check report the
+#      encoder down when it was up and serving the whole time.
 #   C. no vector-write errors in the journal (the direct symptom).
 #   D. the HNSW index exists and indisvalid — an invalid index is silently
 #      ignored by the planner, so search degrades to seq scans with no error.
@@ -45,6 +49,7 @@ RESEND_FROM=$(grep '^RESEND_FROM_EMAIL=' "$RESEND_ENV" 2>/dev/null | cut -d= -f2
 
 mkdir -p "$STATE_DIR"
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
+sysload() { echo "$(cut -d' ' -f1-3 /proc/loadavg) (1/5/15 min) on $(nproc) CPUs"; }
 
 send_email() {
     local subject="$1" body="$2"
@@ -185,10 +190,15 @@ Fix: align the column via an alembic migration, or the code, so they match."
     # ---- B: encoder reachable, and at the right width -------------------------
     enc=$(grep '^DEBERTA_ENCODER_URL=' "$envfile" 2>/dev/null | cut -d= -f2-)
     enc="${enc:-http://localhost:8001}"
+    probe_code=""; probe_secs=""
     if [ "$code_dim" != "1536" ]; then   # OpenAI-path tenants have no local encoder
-        probe=$(curl -s -m 10 -X POST "$enc/encode" \
+        probe_tmp="$STATE_DIR/probe_body.$$"
+        probe_meta=$(curl -s -m 10 -o "$probe_tmp" -w '%{http_code} %{time_total}' \
+                  -X POST "$enc/encode" \
                   -H 'Content-Type: application/json' \
                   -d '{"title":"healthcheck","description":"","content":"probe"}' 2>/dev/null)
+        probe=$(cat "$probe_tmp" 2>/dev/null); rm -f "$probe_tmp"
+        probe_code="${probe_meta%% *}"; probe_secs="${probe_meta##* }"
         got_dim=$(printf '%s' "$probe" | python3 -c "
 import json,sys
 try:
@@ -202,9 +212,13 @@ except Exception:
         else
             alert "$t" "encoder_bad" \
 "DeBERTa encoder at $enc did not return a usable ${code_dim}d vector (got: ${got_dim:-no response}).
+Probe: HTTP ${probe_code:-000} in ${probe_secs:-?}s (curl timeout 10s). Load: $(sysload).
 The code raises rather than falling back, so articles go unindexed while this
 is down. No bad vectors are written.
-Fix: restart the encoder service, then re-run any backfill."
+If the load is far above the CPU count, the encoder is starved, not crashed —
+find and stop what is eating the CPU; restarting the encoder does not help
+(this is what happened on 2026-08-09). Otherwise: restart the encoder service,
+then re-run any backfill."
         fi
     fi
 
@@ -218,6 +232,8 @@ Fix: restart the encoder service, then re-run any backfill."
         alert "$t" "vector_write_errors" \
 "$errs vector-write errors in the last 40 minutes. Articles are being collected
 but not indexed, and nothing downstream will report it.
+Load now: $(sysload) — if far above the CPU count, suspect encoder starvation
+rather than an encoder crash.
 
 $sample"
     else
@@ -245,5 +261,5 @@ it should be rebuilt once the backfill drains." ;;
         *)  alert "$t" "db_query_failed" "Could not read index state (got: '$idx')." ;;
     esac
 
-    echo "$(ts) [$t] OK: dim=$code_dim cols_checked=$(printf '%s' "$col_dims" | grep -c .) journal_errs=$errs hnsw=$idx" >> "$LOG"
+    echo "$(ts) [$t] OK: dim=$code_dim cols_checked=$(printf '%s' "$col_dims" | grep -c .) journal_errs=$errs hnsw=$idx enc_s=${probe_secs:-n/a}" >> "$LOG"
 done
