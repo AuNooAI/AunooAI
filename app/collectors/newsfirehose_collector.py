@@ -115,6 +115,23 @@ class NewsFirehoseCollector(ArticleCollector):
 
         return normalized
 
+    @staticmethod
+    def _split_query_terms(normalized_query: str, max_terms: int = 8) -> List[str]:
+        """Split a normalized flat OR-chain into chunks of at most max_terms.
+
+        The API rejects queries with more than 8 OR terms since the 2026-08
+        remediation. A lone quoted phrase (no " OR ") passes through whole.
+        """
+        if not normalized_query or " OR " not in normalized_query:
+            return [normalized_query]
+        terms = [t.strip() for t in normalized_query.split(" OR ") if t.strip()]
+        if len(terms) <= max_terms:
+            return [normalized_query]
+        return [
+            " OR ".join(terms[i:i + max_terms])
+            for i in range(0, len(terms), max_terms)
+        ]
+
     def __init__(self):
         self.api_key = os.getenv('PROVIDER_NEWSFIREHOSE_API_KEY') or os.getenv('NEWSFIREHOSE_API_KEY')
         if not self.api_key:
@@ -195,24 +212,26 @@ class NewsFirehoseCollector(ArticleCollector):
             if categories:
                 params["categories"] = ",".join(categories)
 
-            # Note: Date filtering (from_date/to_date) is disabled due to API bug
-            # The server expects datetime objects but the HTTP API can only pass strings
-            # Workaround: NewsFirehose returns recent articles by default (sorted by relevance)
-            # Once the API is fixed, uncomment the following:
-            #
-            # if timeframe:
-            #     from_dt = datetime.now() - timedelta(hours=timeframe)
-            #     params["from_date"] = from_dt.strftime("%Y-%m-%d")
-            # elif start_date:
-            #     if isinstance(start_date, datetime):
-            #         params["from_date"] = start_date.strftime("%Y-%m-%d")
-            #     else:
-            #         params["from_date"] = str(start_date)[:10]
-            # if end_date:
-            #     if isinstance(end_date, datetime):
-            #         params["to_date"] = end_date.strftime("%Y-%m-%d")
-            #     else:
-            #         params["to_date"] = str(end_date)[:10]
+            # Server-side date bounds (re-enabled 2026-08-10; the API now
+            # parses ISO date strings and enforces its own 14-day default /
+            # 90-day cap, so an unbounded query is no longer possible). We
+            # send our real window explicitly so the server bound matches the
+            # client-side filter below instead of silently narrowing to 14d.
+            if start_date is not None:
+                from_dt = start_date
+            elif timeframe:
+                from_dt = datetime.now() - timedelta(hours=timeframe)
+            else:
+                from_dt = datetime.now() - timedelta(days=30)
+            params["from_date"] = (
+                from_dt.strftime("%Y-%m-%d")
+                if isinstance(from_dt, datetime) else str(from_dt)[:10]
+            )
+            if end_date is not None:
+                params["to_date"] = (
+                    end_date.strftime("%Y-%m-%d")
+                    if isinstance(end_date, datetime) else str(end_date)[:10]
+                )
 
             logger.debug(f"NewsFirehose /v1/search params: {params}")
 
@@ -222,16 +241,18 @@ class NewsFirehoseCollector(ArticleCollector):
                 "Accept": "application/json"
             }
 
-            # The server's published_at sort is pathological for rare terms: it
-            # walks the recency index checking every row against the tsquery, so
-            # a query with few matches (a niche brand name) runs for minutes while
-            # a common term returns instantly. Measured 2026-08-06: q=Solumina
-            # answered in 63ms with sort_by=relevance and hung past 130s with
-            # sort_by=published_at — every search for the iBASEt group hit the
-            # monitor's 120s timeout, and the group never collected an article.
-            # So newest-first gets a short budget and falls back to relevance
-            # ranking, which always answers; the client-side date filter below
-            # keeps the recency guarantee either way.
+            # Single fetch since 2026-08-10. The old 20s newest-first attempt
+            # followed by a 60s relevance re-issue ran two concurrent scans by
+            # design (the abandoned first attempt kept executing server-side).
+            # The server now cancels on disconnect, bounds every query with a
+            # 60s statement timeout, and runs published_at sorts on bitmap
+            # plans, so the pathology the two-stage fetch worked around
+            # (q=Solumina hanging past 130s newest-first, 2026-08-06) is gone.
+            # Client timeout 75s > server 60s: the server always resolves
+            # first, so we never abandon a query that is still running.
+            #
+            # Retries are for requests the server never received: retry only
+            # connection-establishment failures, never read timeouts.
             async def _fetch(fetch_params, timeout_seconds):
                 timeout = aiohttp.ClientTimeout(total=timeout_seconds)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -256,26 +277,43 @@ class NewsFirehoseCollector(ArticleCollector):
                             logger.error(f"NewsFirehose JSON parse error: {json_error}")
                             return None
 
-            if params["sort_by"] == "published_at":
-                try:
-                    data = await _fetch(params, 20)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"NewsFirehose published_at sort timed out after 20s for "
-                        f"'{normalized_query[:60]}' — retrying with relevance sort"
-                    )
-                    data = await _fetch({**params, "sort_by": "relevance"}, 60)
-            else:
-                data = await _fetch(params, 60)
+            async def _fetch_with_connect_retry(fetch_params, timeout_seconds):
+                for attempt in (1, 2):
+                    try:
+                        return await _fetch(fetch_params, timeout_seconds)
+                    except aiohttp.ClientConnectorError as exc:
+                        if attempt == 2:
+                            raise
+                        logger.warning(f"NewsFirehose connect failed ({exc}); one retry in 2s")
+                        await asyncio.sleep(2)
 
-            if data is None:
-                return []
+            # The API rejects queries with more than 8 OR terms (HTTP 400).
+            # Normalized queries are flat OR-chains, so split into chunks and
+            # merge, deduplicating by URL. Chunk order preserves the caller's
+            # term order; per-chunk relevance ranking is kept within chunks.
+            chunks = self._split_query_terms(normalized_query)
+            merged: list = []
+            seen_urls: set = set()
+            for chunk in chunks:
+                data = await _fetch_with_connect_retry({**params, "q": chunk}, 75)
+                if data is None:
+                    continue
+                self.requests_today += 1
+                for article in data.get("articles", []):
+                    key = article.get("url") or article.get("external_id")
+                    if key and key in seen_urls:
+                        continue
+                    if key:
+                        seen_urls.add(key)
+                    merged.append(article)
+                if len(merged) >= max_results * 2:
+                    break
 
-            self.requests_today += 1
-
-            articles = data.get("articles", [])
-            total = data.get("total_results", len(articles))
-            logger.info(f"NewsFirehose returned {len(articles)} articles (total: {total}) for query '{query}'")
+            articles = merged
+            logger.info(
+                f"NewsFirehose returned {len(articles)} articles across "
+                f"{len(chunks)} chunk(s) for query '{query[:80]}'"
+            )
 
             # Client-side date filtering (API date filtering is broken)
             # Filter to only keep articles from the last N days. 30 days is
@@ -323,7 +361,7 @@ class NewsFirehoseCollector(ArticleCollector):
                 date_range = f"API returned dates: {oldest_date.strftime('%Y-%m-%d') if oldest_date else 'N/A'} to {newest_date.strftime('%Y-%m-%d') if newest_date else 'N/A'}"
                 logger.info(f"📅 Date filter: kept {len(filtered_articles)}/{len(articles)} from last {max_age_days} days. {date_range}")
 
-            return [self._format_article(article, topic) for article in filtered_articles]
+            return [self._format_article(article, topic) for article in filtered_articles[:max_results]]
 
         except aiohttp.ClientError as e:
             logger.error(f"NewsFirehose network error: {type(e).__name__}: {e}")
