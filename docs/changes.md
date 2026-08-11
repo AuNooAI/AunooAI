@@ -2,7 +2,25 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-11 — Incident share emails showed "Unknown" instead of the news outlet for promoted incidents
+## 2026-08-11 — Incident share emails showed "Unknown" as the outlet; Gather 500'd on the relevance-stats timeout
+
+### Fix: relevance-stats query no longer hits its own 30s timeout (`app/database_query_facade.py`)
+The wileytest Gather page returned a 500: "canceling statement due to statement timeout".
+That timeout is the guard added in `3cc0668c` so this query cannot freeze the app — the
+guard worked, but the query underneath was too slow. Warm on wileytest data it took 13.9s
+by itself, and under ingest IO it crossed the 30s cap. The cost was three
+`COUNT(DISTINCT …)` aggregates over 1.3M unnested keyword-match rows, which spilled a
+~600MB sort to temp files. The DISTINCTs were provably unnecessary: `(article_uri,
+group_id)` is unique in `keyword_article_matches` and no `keyword_ids` CSV repeats an ID
+(both checked on wileytest, zero violations). `get_keyword_relevance_stats` now joins
+`articles` once per match row BEFORE the unnest and aggregates with plain
+`COUNT`/`COUNT FILTER`: 2.3s warm, 0.85s while automated ingest was actively running —
+the load condition that caused the original timeout. Output verified row-identical on a
+same-instant snapshot (an apparent 1-row diff in a first comparison was live-ingest drift
+between snapshots taken 14s apart). The 30s `SET LOCAL statement_timeout` stays as a
+backstop. Known remainder: `/api/keyword-monitor/group-summary` still takes ~18–33s right
+after a restart because the handler makes several other sync facade calls under startup
+load — it no longer errors, but those queries were not touched.
 
 ### Goal
 An incident alert email from wileytest (also reproducible on bugfixing) listed its one
@@ -34,7 +52,14 @@ therefore had no Source Articles section at all. It now falls back to `article_m
 when `articles` is empty.
 
 ### Verification
-UI typecheck clean (246 known errors, 0 new). End-to-end on wileytest: rebuilt the exact
+Relevance-stats fix: all timings above are EXPLAIN ANALYZE runs against the live wileytest
+DB this session (13.9s old vs 2.3s new warm; 0.85s under active ingest); equivalence
+checked with `EXCEPT` in both directions over all 257 keywords, zero differing rows on a
+same-instant snapshot; `/api/keyword-monitor/group-summary` returns 200 on wileytest and
+bugfixing after the restart, and no observer agents fired on restart (zero new
+`signal_alerts` rows in the window).
+
+Share-email fix: UI typecheck clean (246 known errors, 0 new). End-to-end on wileytest: rebuilt the exact
 payload the fixed share handler produces from the saved incident "Trump administration
 skepticism toward university-based research" — the mapping yielded
 `"source": "bostonglobe.com"` — and POSTed it to `/api/share/incident` with a minted
@@ -43,7 +68,12 @@ outlet. Also ruled out missing data as a cause: 0 of 56,394 wileytest articles s
 2026-07-28 have an empty `news_source`.
 
 ### Propagation
-Committed in canonical (bugfixing) as `92d6e944`. UI built with `./ui/deploy-react-ui.sh`,
+Relevance-stats fix: edited in canonical (bugfixing), then patched into wileytest and
+wiley surgically — an exact-match, one-occurrence string replacement, because the
+wileytest facade carries local uncommitted lines and must never be wholesale-copied. All
+three compiled (`py_compile`) and restarted after confirming no running ingest jobs.
+
+Share-email fix: committed in canonical (bugfixing) as `92d6e944`. UI built with `./ui/deploy-react-ui.sh`,
 then `static/trend-convergence` plus the six React templates rsynced to wileytest (prod)
 and wiley; all three services restarted after checking no ingest jobs were running, and
 all three serve the fixed `newsfeed-C_mqw2hk.js` bundle. Already-sent emails are

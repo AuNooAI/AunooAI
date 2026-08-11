@@ -12731,34 +12731,48 @@ class DatabaseQueryFacade:
         - total_matches, avg_relevance, avg_topic_alignment, avg_confidence
         - high_relevance_count (>=0.7), low_relevance_count (<0.4)
         """
-        # Aggregate the expanded matches BEFORE joining keyword/group names on.
-        # The old shape (join first, group over mk/kg columns) made the planner
-        # misestimate 36k rows where 1.2M arrive, pick a nested loop into
-        # articles (5.5M buffer reads), and spill a 322MB sort — 56s on
-        # wileytest data, 15s this way. Output verified row-identical on one
-        # snapshot, 2026-08-07.
+        # Join articles at match granularity (784k rows), THEN unnest, and
+        # aggregate with plain COUNT/FILTER. (article_uri, group_id) is unique
+        # in keyword_article_matches and keyword_ids holds no duplicates
+        # (verified 2026-08-11), so COUNT(DISTINCT article_uri) equals a plain
+        # row count — dropping the three COUNT(DISTINCT)s removes a ~600MB
+        # temp-spill sort over the 1.3M unnested rows. Warm timings on
+        # wileytest data: 13.9s the DISTINCT way, 2.3s this way; output
+        # verified row-identical on one snapshot. The prior shape timed out
+        # at 30s under ingest IO (user-visible 500 on /gather, 2026-08-11).
         query = text("""
-            WITH keyword_matches AS (
+            WITH per_match AS (
+                SELECT
+                    kam.group_id,
+                    kam.keyword_ids,
+                    a.keyword_relevance_score,
+                    a.topic_alignment_score,
+                    a.confidence_score
+                FROM keyword_article_matches kam
+                LEFT JOIN articles a ON kam.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
+            ),
+            expanded AS (
                 -- Expand keyword_ids to individual keywords
                 SELECT
-                    kam.article_uri,
-                    kam.group_id,
-                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
-                FROM keyword_article_matches kam
+                    group_id,
+                    unnest(string_to_array(keyword_ids, ','))::int as keyword_id,
+                    keyword_relevance_score,
+                    topic_alignment_score,
+                    confidence_score
+                FROM per_match
             ),
             match_stats AS (
                 SELECT
-                    km.keyword_id,
-                    km.group_id,
-                    COUNT(DISTINCT km.article_uri) as total_matches,
-                    AVG(a.keyword_relevance_score) as avg_relevance,
-                    AVG(a.topic_alignment_score) as avg_topic_alignment,
-                    AVG(a.confidence_score) as avg_confidence,
-                    COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN km.article_uri END) as high_relevance_count,
-                    COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN km.article_uri END) as low_relevance_count
-                FROM keyword_matches km
-                LEFT JOIN articles a ON km.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
-                GROUP BY km.keyword_id, km.group_id
+                    keyword_id,
+                    group_id,
+                    COUNT(*) as total_matches,
+                    AVG(keyword_relevance_score) as avg_relevance,
+                    AVG(topic_alignment_score) as avg_topic_alignment,
+                    AVG(confidence_score) as avg_confidence,
+                    COUNT(*) FILTER (WHERE keyword_relevance_score >= 0.7) as high_relevance_count,
+                    COUNT(*) FILTER (WHERE keyword_relevance_score < 0.4) as low_relevance_count
+                FROM expanded
+                GROUP BY keyword_id, group_id
             )
             SELECT
                 mk.id as keyword_id,
