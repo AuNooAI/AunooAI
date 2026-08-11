@@ -2,6 +2,60 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-11 — Incident share emails showed "Unknown" instead of the news outlet for promoted incidents
+
+### Goal
+An incident alert email from wileytest (also reproducible on bugfixing) listed its one
+source article with "Unknown" where the outlet name belongs. The outlet was in the
+database the whole time — the article row had `news_source = bostonglobe.com`, and the
+saved incident carried it too.
+
+### Fix: read both metadata key spellings when sharing an incident (`92d6e944`)
+Root cause is a key mismatch between two writers of the same structure. The
+incident-tracking enrichment in **`app/routes/vector_routes.py`** stores each article's
+outlet in `article_metadata` under `news_source`; the promote-article-to-incident endpoint
+(`analyze-article-for-incident`, same file, ~line 6723) and the promote modal store it
+under `source`. Every share handler read only `news_source`, so incidents promoted from a
+single article sent the email with an empty source, which the email template renders as
+"Unknown". The title survived because both writers agree on `title`. Fixed on the reader
+side so incidents already saved in the DB render correctly too:
+**`ui/src/components/newsfeed/HighlightsSection.tsx`** (both share handlers and the
+article-link display) and **`ui/src/components/newsfeed/SavedIncidentsSection.tsx`** now
+fall back `news_source → source`; **`ui/src/services/narrativeExplorerApi.ts`** adds
+optional `source`/`summary` to `IncidentArticleMetadata`. The writers still disagree —
+left as-is deliberately, since unifying them touches three more files and the fallback
+covers both shapes.
+
+### Fix: Saved Incidents share dropped the article list entirely (`92d6e944`)
+Same commit, adjacent hole: `handleShare` in **`SavedIncidentsSection.tsx`** built its
+article list only from `incident.articles`, which is empty for promoted incidents (their
+article data lives in `article_metadata`). Emails shared from the Saved Incidents card
+therefore had no Source Articles section at all. It now falls back to `article_metadata`
+when `articles` is empty.
+
+### Verification
+UI typecheck clean (246 known errors, 0 new). End-to-end on wileytest: rebuilt the exact
+payload the fixed share handler produces from the saved incident "Trump administration
+skepticism toward university-based research" — the mapping yielded
+`"source": "bostonglobe.com"` — and POSTed it to `/api/share/incident` with a minted
+session; the endpoint returned 200 and the user confirmed the received email shows the
+outlet. Also ruled out missing data as a cause: 0 of 56,394 wileytest articles since
+2026-07-28 have an empty `news_source`.
+
+### Propagation
+Committed in canonical (bugfixing) as `92d6e944`. UI built with `./ui/deploy-react-ui.sh`,
+then `static/trend-convergence` plus the six React templates rsynced to wileytest (prod)
+and wiley; all three services restarted after checking no ingest jobs were running, and
+all three serve the fixed `newsfeed-C_mqw2hk.js` bundle. Already-sent emails are
+unchanged; re-sharing an affected incident now shows the outlet.
+
+### Lessons
+`article_metadata` has two writers with different key spellings (`news_source` vs
+`source`); any new reader must accept both or it silently loses the field for one class of
+incident. Noticed but not fixed: `templates/pam_react.html` carries a stale `modulepreload`
+hash for `usePAM` on all tenants (a harmless 404'd preload) — it comes out of the deploy
+script, predates this change, and is untouched.
+
 ## 2026-08-07 — Brand Watcher was only classifying Wiley on wileytest and wbm; peer-brand reports ran on a month of missing data
 
 ### Goal
