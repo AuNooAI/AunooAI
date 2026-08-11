@@ -158,7 +158,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
     const articles = articleMetadata.length > 0
       ? articleMetadata.slice(0, 5).map((meta, i) => ({
           title: meta.title,
-          source: meta.news_source,
+          source: meta.news_source || meta.source,
           url: meta.uri || articleUris[i],
         }))
       : legacyArticles.slice(0, 5).map((article, i) => ({
@@ -204,7 +204,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
         const articles = articleMetadata.length > 0
           ? articleMetadata.slice(0, 3).map((meta, i) => ({
               title: meta.title,
-              source: meta.news_source,
+              source: meta.news_source || meta.source,
               url: meta.uri || articleUris[i],
             }))
           : legacyArticles.slice(0, 3).map((article, i) => ({
@@ -1524,12 +1524,12 @@ function ArticleLink({
   onClick,
 }: {
   uri: string;
-  metadata?: { title: string; news_source: string; factual_reporting?: string; mbfc_credibility_rating?: string; bias?: string; tags?: string[] };
+  metadata?: { title: string; news_source: string; source?: string; factual_reporting?: string; mbfc_credibility_rating?: string; bias?: string; tags?: string[] };
   article?: IncidentArticle;
   onClick?: () => void;
 }) {
   const title = metadata?.title || article?.title || 'View Article';
-  const source = metadata?.news_source || article?.source || '';
+  const source = metadata?.news_source || metadata?.source || article?.source || '';
   const hasMBFC = metadata?.factual_reporting || metadata?.mbfc_credibility_rating || metadata?.bias ||
                   article?.factual_reporting || article?.mbfc_credibility_rating || article?.bias;
 

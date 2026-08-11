@@ -178,17 +178,26 @@ export function SavedIncidentsSection({
     const name = incident.name || incident.title || 'Unnamed Incident';
 
     // Map articles with proper field names for email API
+    // Promoted incidents carry their article data in article_metadata with an
+    // empty articles list, so fall back to metadata when articles is empty.
     const articles = incident.articles || [];
     const articleMetadata = incident.article_metadata || [];
-    const mappedArticles = articles.map((article, i) => {
-      const metadata = articleMetadata[i];
-      return {
-        title: article.title || metadata?.title || 'Untitled',
-        source: article.news_source || metadata?.news_source || article.source || '',
-        url: article.uri || '',
-        summary: article.summary || '',
-      };
-    });
+    const mappedArticles = articles.length > 0
+      ? articles.map((article, i) => {
+          const metadata = articleMetadata[i];
+          return {
+            title: article.title || metadata?.title || 'Untitled',
+            source: article.news_source || metadata?.news_source || metadata?.source || article.source || '',
+            url: article.uri || '',
+            summary: article.summary || '',
+          };
+        })
+      : articleMetadata.map((metadata) => ({
+          title: metadata?.title || 'Untitled',
+          source: metadata?.news_source || metadata?.source || '',
+          url: metadata?.uri || '',
+          summary: metadata?.summary || '',
+        }));
 
     setShareData({
       type: 'incident',
@@ -1432,12 +1441,12 @@ function ArticleLink({
   onClick,
 }: {
   uri: string;
-  metadata?: { title: string; news_source: string; factual_reporting?: string; mbfc_credibility_rating?: string; bias?: string; tags?: string[] };
+  metadata?: { title: string; news_source: string; source?: string; factual_reporting?: string; mbfc_credibility_rating?: string; bias?: string; tags?: string[] };
   article?: IncidentArticle;
   onClick?: () => void;
 }) {
   const title = metadata?.title || article?.title || 'View Article';
-  const source = metadata?.news_source || article?.source || '';
+  const source = metadata?.news_source || metadata?.source || article?.source || '';
   const hasMBFC = metadata?.factual_reporting || metadata?.mbfc_credibility_rating || metadata?.bias ||
                   article?.factual_reporting || article?.mbfc_credibility_rating || article?.bias;
 

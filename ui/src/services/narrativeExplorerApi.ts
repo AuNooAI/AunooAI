@@ -15,6 +15,10 @@ export type SourceQuality = 'high' | 'mixed' | 'low';
 export interface IncidentArticleMetadata {
   title: string;
   news_source: string;
+  // Incidents promoted from a single article store the outlet under
+  // "source" and may carry a summary; enrichment writes "news_source".
+  source?: string;
+  summary?: string;
   uri?: string;
   factual_reporting?: string;
   mbfc_credibility_rating?: string;

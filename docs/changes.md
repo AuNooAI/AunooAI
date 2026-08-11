@@ -2,6 +2,99 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-07 — Brand Watcher was only classifying Wiley on wileytest and wbm; peer-brand reports ran on a month of missing data
+
+### Goal
+The Pearson report on wileytest claimed "Low risk (0/100)" with one article captured in
+July 8–August 7. The corpus held 585 Pearson-mentioning articles for that window. The
+report was faithfully reading an empty table: brand classification for the peer brands had
+stopped a month earlier.
+
+### Fix: all-brands classification schedules (wileytest + wbm, DB only)
+Root cause on both tenants: the only enabled `bw_tracker_schedules` row was scoped to one
+brand (`brand_id=1`, Wiley), and `_run_classification_task` in
+**`app/routes/brand_watcher_routes.py`** processes only that brand when a brand_id is set.
+Peer brands (Elsevier, SAGE, Pearson — plus Springer on wbm, which had its own schedule)
+were only ever classified by ad-hoc all-brands runs (`brand_id IS NULL`), the last of which
+ran 2026-07-04. wbm's run history made this harder to spot: its rows for brands 2/3 carry
+timestamps byte-identical to wileytest's because the clone inherited them — those runs
+never happened on wbm. Fix on each tenant, applied through the tenant's own schedules API
+(direct SQL was blocked): a new "All brands - interval" schedule (`brand_id` NULL, every
+6 h, the tenant's real topic list) and the old brand-scoped schedules disabled. wbm's
+inherited topic list also named "Trump Administration Tracker", which does not exist there;
+the new schedule drops it and adds "Brand Monitoring Springer".
+
+### Fix: 30-day catch-up runs + Pearson reports regenerated
+wileytest run 239: 122 articles processed, 120 classified (Pearson +71, Elsevier +30,
+SAGE +17, Wiley +14 in the July 8–Aug 7 window). wbm run 322: 129 processed, 129 classified
+(Pearson +67, Elsevier +41, Springer +14, SAGE +7). The Pearson 30-day narrative was then
+regenerated on both: wileytest went from "Low 0/100, 1 article" to High 71/100 on 89
+articles (saved as `bw_tracker_narratives` id 104); wbm produced High 88/100 on 81 articles
+(id 118). Both narratives carry the Q2 earnings miss, the analyst downgrades, and the
+Deitel GitHub takedown story the empty-month reports could not see.
+
+### Bug found, not fixed: generate-narrative loses its save on long generations
+`generate_narrative` holds one DB connection open across the full LLM generation (gpt-5.4
+plus a same-tier reviewer pass, ~7 minutes on the first wileytest run). pgbouncer closed
+the idle connection, the final INSERT failed with "server closed the connection
+unexpectedly", and the endpoint still returned 200 — the report renders once and is never
+persisted, so the UI keeps showing the previous saved narrative. Worked around this session
+by inserting the returned narrative with a fresh connection; the code is untouched on all
+tenants. Fix when picked up: re-acquire the connection (or open a fresh one) for the save
+block.
+
+### Ops: xpoz social collection enabled on wileytest
+The xpoz collector (X, Reddit, Instagram, TikTok) was built on wileytest 2026-07-01 but ran
+exactly once — no social keyword group ever had `xpoz` in its providers, so the scheduled
+monitor never called it. Groups 22–25 (Wiley/Elsevier/SAGE/Pearson - Social) now run
+`["reddit", "bluesky", "xpoz"]`, set via the group-settings API. `XPOZ_MAX_RESULTS` is
+unset there, so the default 25 posts per platform per check applies. wbm needed nothing:
+its four social groups already ran xpoz (~800 posts since Aug 1, no collection errors).
+
+### Ops: Springer social group on wbm; full social stack on ibaset from zero
+wbm group 27 "Springer - Social": 8 qualified keywords ("Springer Nature", SpringerLink,
+"BioMed Central", @SpringerNature, …— no bare "Springer", which pulls Jerry Springer),
+providers reddit/bluesky/xpoz, daily check, gpt-4.1-nano eval model. ibaset had no social
+monitoring at all for its five brands; groups 6–10 created (iBASEt, Tulip Interfaces,
+Siemens, SAP, Dassault Systemes) with qualified phrases only — bare "SAP"/"Siemens"/
+"Tulip"/"Dassault" are hopeless on social search, and "SAP DM" was dropped because xpoz's
+loose matching collides "DM" with direct-message chatter. Providers `["bluesky","xpoz"]`
+(plain Reddit RSS remains IP-blocked from this host; xpoz covers Reddit). ibaset's empty
+`PROVIDER_BLUESKY_*` vars were filled from wbm's shared cyberfuturists.com account
+(user-authorized; backup `.env.bak_bluesky_20260807`) and the service restarted — checked
+first that no jobs were live and the four PIR agents weren't due until 06:00 next day.
+First collection pass: 58 xpoz posts (SAP 20, Dassault 18, Siemens 15, iBASEt 3, Tulip 2),
+zero errors. Bluesky contributed 0 to that pass because the monitor grabbed the
+never-checked groups minutes before the restart loaded the credentials; it authenticated at
+startup and joins the next daily cycle (~14:35 Aug 8).
+
+### Verification
+All numbers above are from queries run this session against the live tenant DBs: per-brand
+`bw_article_categories` deltas after each catch-up run, `bw_tracker_narratives` row ids for
+the saved reports, `keyword_groups.last_checked_at`/`last_error` for the five ibaset groups
+after their first pass, and the journalctl line showing Bluesky authenticated after the
+ibaset restart. ibaset classification was checked and is healthy (its one schedule is
+already all-brands); no change made there.
+
+### Propagation
+Nothing here is committable: every change is DB state (`bw_tracker_schedules`,
+`keyword_groups`, `monitored_keywords`, `bw_tracker_narratives`) or a tenant `.env` edit in
+prod deploy trees, none of which are in version control. A tenant cloned from canonical
+inherits none of it — and worse, inherits the donor's bw run history, which is exactly what
+hid the wbm gap. This entry is the durable record. wiley prod was checked and is not affected: its
+`bw_brands` table is empty — Brand Watcher is not in use there, so there is nothing to
+classify and no report to go stale.
+
+### Lessons
+A brand-scoped schedule plus clone-inherited run history makes classification staleness
+invisible: runs look recent, reports render cleanly, and the empty window reads as "quiet
+month" rather than "nothing classified". When a Brand Watcher stat looks wrong, compare
+`bw_article_categories` recency per brand against raw corpus mentions before trusting any
+report. Two setup traps worth keeping: `/check-now` ignores per-group providers, so it can
+never validate a provider change — wait for the scheduled cycle; and never-checked keyword
+groups run immediately on creation, so create groups AFTER a credential-loading restart,
+not before, or the first pass silently runs without the new creds.
+
 ## 2026-08-06 — Incident: the alias filter also broke model VALIDATION; and the compliance footer named GPT-4
 
 ### Incident: every gpt-* internal default failed since the picker filter landed
