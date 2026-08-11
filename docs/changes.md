@@ -4,7 +4,7 @@ Running log of notable operational/code changes. Newest first.
 
 ## 2026-08-11 — Incident share emails showed "Unknown" as the outlet; Gather 500'd on the relevance-stats timeout
 
-### Fix: relevance-stats query no longer hits its own 30s timeout (`app/database_query_facade.py`)
+### Fix: relevance-stats query no longer hits its own 30s timeout (`5ce1ae58`)
 The wileytest Gather page returned a 500: "canceling statement due to statement timeout".
 That timeout is the guard added in `3cc0668c` so this query cannot freeze the app — the
 guard worked, but the query underneath was too slow. Warm on wileytest data it took 13.9s
@@ -20,7 +20,7 @@ same-instant snapshot (an apparent 1-row diff in a first comparison was live-ing
 between snapshots taken 14s apart). The 30s `SET LOCAL statement_timeout` stays as a
 backstop.
 
-### Fix: group-summary no longer runs 44 per-group queries; new index on keyword_article_matches(group_id)
+### Fix: group-summary no longer runs 44 per-group queries; new index on keyword_article_matches(group_id) (`bffe2756`)
 After the query rewrite above, `/api/keyword-monitor/group-summary` still took a steady
 ~20–22s on wileytest. The handler called `get_group_article_stats` in a loop — 22 groups
 x 2 queries, each seq-scanning `keyword_article_matches` (no index on `group_id`; the
@@ -34,9 +34,10 @@ blocked); and a new facade method `get_all_group_article_stats` in
 default, because the grouped query omits them where the per-group query returned a zeros
 row. The single-group method stays; the loop was its only caller. Bulk output
 spot-checked identical to the per-group query on the largest group (158,594 matches, all
-four compared counters equal). Result: group-summary went from ~20–22s to 2.4–3.2s on
-wileytest and 0.8s on bugfixing, measured with three consecutive authenticated requests
-after the restart.
+four compared counters equal). Result, three consecutive authenticated requests per
+tenant after the restarts: wileytest ~20–22s → 2.4–3.2s; bugfixing 1.0–1.4s; wiley
+1.1–1.4s. wileytest is the slowest because it carries 785k keyword matches; the other
+two have far smaller tables.
 
 ### Goal
 An incident alert email from wileytest (also reproducible on bugfixing) listed its one
@@ -109,6 +110,12 @@ unchanged; re-sharing an affected incident now shows the outlet.
 incident. Noticed but not fixed: `templates/pam_react.html` carries a stale `modulepreload`
 hash for `usePAM` on all tenants (a harmless 404'd preload) — it comes out of the deploy
 script, predates this change, and is untouched.
+
+Run git as the repo owner, not root. Git commands run as root (including an agent commit
+this session) left `.git/HEAD`, `index`, `packed-refs` and objects root-owned; the user's
+next `git push` then succeeded on the remote but failed to update the local tracking ref
+("Permission denied" on the ref lock), which reads as a failed push. Fixed with
+`chown -R orochford:orochford .git`; later commits ran via `sudo -u orochford`.
 
 ## 2026-08-07 — Brand Watcher was only classifying Wiley on wileytest and wbm; peer-brand reports ran on a month of missing data
 
