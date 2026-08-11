@@ -18,9 +18,25 @@ group_id)` is unique in `keyword_article_matches` and no `keyword_ids` CSV repea
 the load condition that caused the original timeout. Output verified row-identical on a
 same-instant snapshot (an apparent 1-row diff in a first comparison was live-ingest drift
 between snapshots taken 14s apart). The 30s `SET LOCAL statement_timeout` stays as a
-backstop. Known remainder: `/api/keyword-monitor/group-summary` still takes ~18–33s right
-after a restart because the handler makes several other sync facade calls under startup
-load — it no longer errors, but those queries were not touched.
+backstop.
+
+### Fix: group-summary no longer runs 44 per-group queries; new index on keyword_article_matches(group_id)
+After the query rewrite above, `/api/keyword-monitor/group-summary` still took a steady
+~20–22s on wileytest. The handler called `get_group_article_stats` in a loop — 22 groups
+x 2 queries, each seq-scanning `keyword_article_matches` (no index on `group_id`; the
+plan showed 251k rows filtered away per call at ~1.8s each), synchronously on the event
+loop. Two changes: alembic revision `1204fb391c21` adds
+`idx_keyword_article_matches_group_id` (built CONCURRENTLY so ingest writes are not
+blocked); and a new facade method `get_all_group_article_stats` in
+**`app/database_query_facade.py`** computes every group's stats in two GROUP BY queries
+(1.9s + 0.8s on wileytest), which **`app/routes/keyword_monitor.py`** now calls once via
+`asyncio.to_thread` instead of looping. Groups with no matches get an explicit zeros
+default, because the grouped query omits them where the per-group query returned a zeros
+row. The single-group method stays; the loop was its only caller. Bulk output
+spot-checked identical to the per-group query on the largest group (158,594 matches, all
+four compared counters equal). Result: group-summary went from ~20–22s to 2.4–3.2s on
+wileytest and 0.8s on bugfixing, measured with three consecutive authenticated requests
+after the restart.
 
 ### Goal
 An incident alert email from wileytest (also reproducible on bugfixing) listed its one
@@ -72,6 +88,14 @@ Relevance-stats fix: edited in canonical (bugfixing), then patched into wileytes
 wiley surgically — an exact-match, one-occurrence string replacement, because the
 wileytest facade carries local uncommitted lines and must never be wholesale-copied. All
 three compiled (`py_compile`) and restarted after confirming no running ingest jobs.
+
+Group-summary fix: migration `1204fb391c21` copied to wileytest and wiley (all three
+tenants were at the same head `fsv_horizon_16`, checked first) and `alembic upgrade head`
+run on each; index reports `indisvalid = t` everywhere. `keyword_monitor.py` copied
+wholesale (verified byte-identical across tenants before the edit); the facade change
+applied as a git patch (clean on wiley, 3-line offset on wileytest from its local lines).
+All three restarted after a no-running-jobs check; no observer agents fired and no errors
+in the journal.
 
 Share-email fix: committed in canonical (bugfixing) as `92d6e944`. UI built with `./ui/deploy-react-ui.sh`,
 then `static/trend-convergence` plus the six React templates rsynced to wileytest (prod)

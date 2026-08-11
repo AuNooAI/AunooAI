@@ -3614,6 +3614,62 @@ class DatabaseQueryFacade:
             'daily_counts': daily_counts,
         }
 
+    def get_all_group_article_stats(self, relevance_threshold: float = 0.39):
+        """Get article statistics for ALL keyword groups in two queries.
+
+        Same per-group shape as get_group_article_stats, keyed by group_id.
+        The Gather group-summary handler used to call the single-group method
+        in a loop — 22 groups x 2 queries on wileytest, each seq-scanning
+        keyword_article_matches, ~20s per page load. Grouping by group_id does
+        the same work in one pass.
+        """
+        query = text("""
+            SELECT
+                kam.group_id,
+                COUNT(*) as total_count,
+                -- topic_alignment_score holds the relevance verdict; see
+                -- get_group_article_stats for why keyword_relevance_score is
+                -- only a fallback for pre-hybrid rows.
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) >= :threshold THEN 1 END) as relevant_count,
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) < :threshold THEN 1 END) as irrelevant_count,
+                COUNT(CASE WHEN a.topic_alignment_score IS NULL AND a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '24 hours' THEN 1 END) as articles_past_24h,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '7 days' THEN 1 END) as articles_past_week,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '30 days' THEN 1 END) as articles_past_month
+            FROM keyword_article_matches kam
+            JOIN articles a ON kam.article_uri = a.uri
+            GROUP BY kam.group_id
+        """)
+        result = self._execute_with_rollback(query, {'threshold': relevance_threshold})
+        stats_by_group = {}
+        for row in result.mappings().fetchall():
+            stats_by_group[row['group_id']] = {
+                'total_count': row['total_count'],
+                'relevant_count': row['relevant_count'],
+                'irrelevant_count': row['irrelevant_count'],
+                'unscored_count': row['unscored_count'],
+                'articles_past_24h': row['articles_past_24h'],
+                'articles_past_week': row['articles_past_week'],
+                'articles_past_month': row['articles_past_month'],
+                'daily_counts': [],
+            }
+
+        daily_query = text("""
+            SELECT
+                kam.group_id,
+                DATE(kam.detected_at::timestamp) as date,
+                COUNT(*) as count
+            FROM keyword_article_matches kam
+            WHERE kam.detected_at::timestamp >= NOW() - INTERVAL '30 days'
+            GROUP BY kam.group_id, DATE(kam.detected_at::timestamp)
+            ORDER BY kam.group_id, date
+        """)
+        daily_result = self._execute_with_rollback(daily_query)
+        for r in daily_result.mappings().fetchall():
+            if r['group_id'] in stats_by_group:
+                stats_by_group[r['group_id']]['daily_counts'].append((str(r['date']), r['count']))
+        return stats_by_group
+
     def get_group_last_run_stats(self, group_id: int):
         """Get stats from the last collection run for a keyword group.
 
