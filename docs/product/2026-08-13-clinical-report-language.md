@@ -54,8 +54,7 @@ evidence. It also differentiates against monitoring tools whose summaries are tu
 - Second pass (same day) extended the rules to executive briefings and topic reports, and
   rolled everything out to the two additional Brand Watcher sites. Incident reports still do
   not carry the rules.
-- On the two Brand Watcher sites the timeline trend chip still shows the old wording
-  ("escalating") — their interface bundle was not rebuilt; the summaries themselves are
-  already clinical.
+- Resolved later the same day: the two Brand Watcher sites were brought fully up to date
+  with the main codebase, so the trend chip now shows the new wording there too.
 - Internal severity labels (used for sorting and alert routing) are unchanged; only the
   language shown to readers changed.

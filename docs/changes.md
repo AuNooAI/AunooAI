@@ -2,6 +2,66 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-13 — wbm and bwtemplate caught up to canonical (code, migrations, UI)
+
+### Goal
+The clinical-register rollout exposed how far wbm and bwtemplate lag canonical (191–413
+diff lines on shared files, 5 and 9 missing migrations). User asked for a full catch-up:
+bwtemplate first as the rehearsal, then wbm.
+
+### Drift audit before any copy
+`scratchpad/drift_blob_check.sh`: for every differing file, hash the tenant copy and ask
+canonical git whether that blob exists anywhere in history (`git hash-object` +
+`git cat-file -e`). Historical blob = pure lag, safe to overwrite; unknown blob = inspect.
+bwtemplate's 17 unknowns all reduced to lag (old dirty-tree copies) or excluded config.
+wbm's audit caught two real tenant-local artifacts that a blind rsync would have destroyed:
+**`app/tasks/brand_watcher_monitor.py`** carries an uncommitted scholarly-source exclusion
+(imports `SCHOLARLY_DOMAINS` from the committed `opoint_brand_matcher.py`; canonical's
+monitor has zero lines wbm lacks, so wbm's copy is canonical-plus-feature — kept, excluded
+from sync, still needs committing to canonical some day), and **`scripts/recompose_bw_signals.py`**
+has wbm path shims (kept). wbm's 1024-d `article_embeddings_ml` table is written by nothing
+in the tree — left alone.
+
+### Sync + migrations
+rsync of app/, alembic/, scripts/, ui/, static/trend-convergence (--delete), templates/
+with the clone excludes (.env*, config.json, provider_config.json, litellm_config.yaml,
+server_run.py — gitignored, plus the two wbm keepers); `json_repair` installed in both
+venvs (only requirements delta). bwtemplate: DB walked `tl_001` → head, all 9 migrations
+applied cleanly including `emb_768_01` (0 articles, nothing to lose). wbm: already 768-d
+with 514,061/519,159 embeddings populated from its own earlier local-embeddings migration,
+so `emb_768_01` was **stamped, not run** — running it would have dropped the column and
+forced a full re-embed.
+
+### Incident: silent partial upgrade on wbm — caught by table checks, not by alembic
+The first `alembic upgrade kg_social_01` on wbm printed its "Running upgrade" lines but the
+whole transaction rolled back: `kg_social_01` failed on a duplicate `social_platforms`
+column (the per-group social UI had shipped to wbm outside alembic), taking the successful
+`llm_usage_01` down with it. The output filter (`grep "Running upgrade|ERROR"`) ate the
+traceback, the subsequent stamp+upgrade left `alembic_version` at head — and the DB was
+missing `llm_usage_log` while claiming to be current. Caught only by checking
+`to_regclass('llm_usage_log')` afterward. Repair: stamp back to `bw_023`, run
+`upgrade llm_usage_01` alone, stamp head (kg_social's effect pre-existed; fsv + index
+migrations had genuinely applied).
+
+### Verification
+Both services restarted (no running jobs first): active, journals free of
+tracebacks/import errors, `/api/health` and `/login` 200 on :10014 and :10018. wbm
+embeddings intact post-migration (514,061 rows, vector(768), HNSW index present) and
+semantic search returns relevant results end-to-end through the shared :8001 encoder.
+`llm_usage_log` now exists on both. Deployed bundles on both tenants contain the
+"coverage rising" chip relabel. wbm's one active observer agent is scheduled tomorrow
+08:00 — nothing overdue was triggered by the restarts.
+
+### Lessons
+- ALWAYS verify alembic outcomes by probing the schema (`to_regclass`, column checks),
+  never by exit status or filtered log lines — a mid-chain failure rolls back silently and
+  a later `stamp` buries it.
+- On tenants that received features outside alembic, expect duplicate-DDL failures;
+  upgrade migration-by-migration and stamp over the ones whose effect pre-exists.
+- The blob-history check (hash tenant file, `git cat-file -e`) cheaply separates lag from
+  local edits and found real uncommitted tenant features a wholesale rsync would have
+  deleted.
+
 ## 2026-08-13 — Clinical register for generated prose: attribute criticism, count instead of characterize (all five tenants)
 
 ### Goal
