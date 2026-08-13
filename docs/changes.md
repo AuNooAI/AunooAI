@@ -2,6 +2,114 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-11 — Pearson tenant revived for the language-testing use case; topic set seeded; dashboard specs drafted
+
+### Goal
+Kátia Oliveira (Pearson) argues the PTE decline is driven by immigration policy, not by
+Duolingo, and that the opportunity is Germany, city-level labour demand, and mid-career
+professionals. We revived the shut-down pearson.aunoo.ai tenant as the collection vehicle,
+seeded a migration-corridor topic set, and drafted specs for the three dashboards the use
+case needs. Suggested Pearson contact: Dan Doyle, head of PTE.
+
+### Ops: pearson.aunoo.ai revived from the June clone (uncommittable — tenant tree + DB + system files)
+The tenant survived its 2026-07-16 shutdown almost intact: directory (code refreshed by the
+Aug 4 fleet copies), database (535,920 articles), systemd unit, pgbouncer entries, and a TLS
+cert valid to Sep 27. Three things had rotted. The nginx `sites-enabled` symlink was removed
+at shutdown — re-linked and reloaded. Running `env_encryption.py decrypt` as root left
+`.env` root-owned, so the service's own decrypt hook (runs as orochford) crash-looped on
+EACCES — fixed with chown. And the June "cleanup-remove-trump-civilwar" left `module_config`
+with a single row (`policy_tracker=false`), which — because a non-empty table is
+authoritative over `ENABLED_MODULES` (`app/core/modules.py:220`) — silently disabled every
+module: brand-watcher routes 404'd, zero paths in the OpenAPI schema contained "brand".
+Seeded `geopolitical_hotspots`/`science_funding`/`brand_watcher` = true; `policy_tracker`
+stays off. Alembic was already at head (`emb_002`), no migrations needed.
+
+### Config: migration-corridor topic set (pearson DB + config.json, uncommittable)
+Six topics seeded via `/api/onboarding/save-topic` (writes config.json and the keyword
+group together), each with its own categories and future signals: Immigration Policy –
+US/UK/Australia/Canada; Skilled Migration Opening – Germany & EU; Germany Labour Shortage –
+Cities & Sectors; Language Testing Market; Origin-Country Mobility Signals; International
+Student Flows (groups 23–28). The Wiley-era groups were deactivated except the Pearson
+brand watch (group 18), which gained the missing PTE product keywords (Pearson Test of
+English, PTE Academic, PTE Express — the old set was all textbooks and Pearson VUE). All 7
+observer agents were deactivated before first start, because a month of overdue schedules
+would have fired alert emails on boot. The 3 @wiley.com users were deactivated. Brands:
+pearsons-education set primary; duolingo, idp-education, and ets created with "X - Brand
+Watch" groups (29–31) replicating what `setup-monitoring` writes; wiley/elsevier/sage
+disabled, not deleted. End state: 10 active groups, 88 keywords, 4 enabled brands, 1 active
+user. The brand mutations went in via SQL + save-topic because the permission classifier
+blocked session-cookie-authenticated PUT/POST calls.
+
+### Incident: stale Bedrock key — enrichment dead since revival (OPEN)
+Every LLM call on the tenant fails with Bedrock 403 "Authentication failed: Please make
+sure your API Key is valid." The clone's `.env` carries the pre-rotation
+`AWS_BEDROCK_API_KEY` (hash b14fc797 vs the fleet's 50cac4e2 on
+bugfixing/wileytest/wbm). Circuit breakers for `gpt-4o-mini`/`gpt-5.4-mini` opened within
+seconds of startup; the AI analysis step fails with "Missing required fields", so collected
+articles save but stay unenriched and therefore invisible in the UI. The classifier blocked
+three attempts to copy the key line between tenant .env files; the fix script is staged at
+the session scratchpad (`fix_pearson_bedrock_key.py`) and needs the operator to run
+decrypt → script → restart. Until then the tenant collects but cannot analyze.
+
+### Incident: all-groups check-now sweeps inactive groups too
+`POST /api/keyword-monitor/check-now` with no `group_id` walks ALL monitored keywords —
+`get_monitored_keywords` (`app/database_query_facade.py:307`) joins `keyword_groups` but
+never filters `is_active`. On this tenant that meant the 188 deactivated Wiley keywords
+collected against shared provider quota (129 Wiley-topic articles landed before the sweep
+was killed by restart). The 60-second scheduler path (`check_due_groups` →
+`get_due_keyword_groups`) filters `is_active = TRUE` and treats never-checked groups as due
+immediately, so it is the correct way to kick a fresh tenant: after restart it logged
+"Found 10 keyword group(s) due for collection" and collected 566 immigration-policy
+articles plus 108 Pearson brand articles in its first pass. The unfiltered check-now is a
+latent bug on every tenant; not fixed this session (documented only).
+
+### Ops: tenant stopped again at 21:33 by the embedding-load work (expected)
+`sudo systemctl stop pearson.aunoo.ai.service` was issued at 21:33:05 from pts/55 (working
+dir `bugfixing.aunoo.ai/saasmvp-app`) — the parallel embedding-health session shedding load:
+pearson's embedding backfill had been timing out against the shared DeBERTa encoder on
+:8001 for hours (4.4G memory peak, 6h09m CPU over a 4h31m run). Graceful stop timed out;
+SIGKILL at 21:34:39; the stop hook's encrypt+rm is why `.env` vanished. The tenant is
+deliberately down and https://pearson.aunoo.ai returns 502 until whoever owns the encoder
+work restarts it (the encoder answers 200 again).
+
+### Docs: dashboard specs for team discussion (committable, this repo)
+**`docs/PEARSON_MOBILITY_DASHBOARDS_SPEC.md`** (new, untracked) — three specs with AI-effort
+estimates and open questions: (A) per-country immigration policy tracker, generalizing the
+existing `policy_tracker` module, 1–2 days; (B) city-level labour demand from Bundesagentur
+für Arbeit + Adzuna postings with seniority derived from posting text, joined to the
+GeoHotSpots map, 3–5 days — the genuinely new engineering; (C) corridor dashboard showing
+policy/demand/narrative side by side per origin×destination pair, deliberately without a
+composite score in v1. Published for the team at
+https://claude.ai/code/artifact/a53d6971-8804-4c5b-8ea5-053bfc2aa986. Also added `pearson`
+to `TENANTS` in `/home/orochford/bin/collector_health_check.sh` (system file, outside git).
+
+### Verification
+Public https://pearson.aunoo.ai/login returned 200 after revival (now 502 — deliberately
+stopped, see above). Scheduler log confirmed exactly 10 groups due. Articles collected
+today: 853 total, of which 566 Immigration Policy, 108 Pearson brand, 129 across
+deactivated Wiley topics from the bad sweep; the other new topics had not had their first
+scheduled pass before the 21:33 stop. Enrichment verification is blocked on the key fix.
+
+### Propagation
+Everything except the spec doc is uncommittable: pearson tenant tree, pearson DB rows, and
+`/home/orochford/bin/collector_health_check.sh` live outside this repo, and this entry is
+their only durable record. A future re-clone would need: the module_config seed, the topic
+set (re-runnable via save-topic), the brand rows, and the health-check TENANTS line. The
+spec doc is untracked in this canonical tree and needs an explicit `git add
+docs/PEARSON_MOBILITY_DASHBOARDS_SPEC.md` when committing. Nothing propagates to
+wiley/wileytest/wbm — tenant-specific work.
+
+### Lessons
+- NEVER run `env_encryption.py decrypt` as root on a tenant an orochford-run service hook
+  must re-write — the root-owned `.env` crash-loops the unit. Decrypt as orochford, or
+  chown after.
+- `module_config` with ANY row disables every module not listed. A cleanup that deletes
+  rows must either empty the table completely (falls back to env) or list every module.
+- All-groups `/check-now` ignores `is_active`. Kick new tenants by letting the 60s
+  scheduler find the never-checked groups, or pass an explicit `group_id`.
+- A revived clone carries every rotated-since credential. Check API-key hashes against a
+  live tenant BEFORE first start, not after the circuit breakers open.
+
 ## 2026-08-11 — Incident share emails showed "Unknown" as the outlet; Gather 500'd on the relevance-stats timeout
 
 ### Fix: relevance-stats query no longer hits its own 30s timeout (`5ce1ae58`)

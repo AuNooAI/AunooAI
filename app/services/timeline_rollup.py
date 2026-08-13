@@ -25,6 +25,7 @@ from app.services.timeline_events import (
     _parse_json_lenient, _record_run, run_already_completed, scope_label,
     LLM_MODEL,
 )
+from app.services.report_style import CLINICAL_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -67,13 +68,16 @@ def _llm_rollup(scope_name: str, period_label: str, events_text: str,
         f"You are summarizing developments for \"{scope_name}\" over {period_label} "
         f"({event_count} recorded events):\n\n{events_text}\n\n"
         "Write a factual period summary. Plain statements of what happened — no "
-        "editorializing, nothing not present in the events.\n"
+        "editorializing, nothing not present in the events."
+        + CLINICAL_STYLE + "\n"
         "Output a pure JSON object (no markdown) with fields:\n"
         f"- \"title\": concise headline about {scope_name} (max 100 chars)\n"
         f"- \"description\": 2-4 sentence narrative of the period, all about {scope_name}\n"
         "- \"key_developments\": 3-5 most important developments (strings)\n"
         "- \"entities_in_focus\": most prominent entity names (strings)\n"
-        "- \"overall_trend\": one of \"escalating\", \"stable\", \"de-escalating\", \"mixed\""
+        "- \"overall_trend\": one of \"escalating\", \"stable\", \"de-escalating\", \"mixed\" — "
+        "this is the direction of event/article volume versus the prior period, "
+        "not a judgment of how bad things are"
     )
     return _llm_json(prompt)
 
@@ -285,11 +289,14 @@ def refresh_state_doc(conn, scope_type: str, scope_id: str) -> Optional[dict]:
         "\n\nWrite one plain paragraph (150-250 words) describing the current "
         "state of this scope for an analyst seeing it for the first time: "
         "dominant storyline, key actors, trajectory, open questions. Factual "
-        "statements only — no hedging filler, no generic intro.\n"
+        "statements only — no hedging filler, no generic intro."
+        + CLINICAL_STYLE + "\n"
         "Output a pure JSON object (no markdown) with fields:\n"
         "- \"summary\": the paragraph\n"
         "- \"key_entities\": 5-10 most prominent entity names\n"
-        "- \"current_trend\": one of \"escalating\", \"stable\", \"de-escalating\", \"emerging\", \"mixed\""
+        "- \"current_trend\": one of \"escalating\", \"stable\", \"de-escalating\", \"emerging\", \"mixed\" — "
+        "this is the direction of coverage volume versus the prior period, "
+        "not a judgment of how bad things are"
     )
     summary = _llm_json(prompt)
     if not summary or not summary.get("summary"):

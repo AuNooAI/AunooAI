@@ -61,6 +61,16 @@ interface TimelineSummary {
   daily: TimelineEvent[];
 }
 
+// current_trend enum values describe coverage-volume direction; render them
+// neutrally instead of echoing judgment words like "escalating".
+const TREND_LABELS: Record<string, string> = {
+  escalating: 'coverage rising',
+  'de-escalating': 'coverage falling',
+  stable: 'steady',
+  emerging: 'new',
+  mixed: 'mixed',
+};
+
 const SIG_COLORS: Record<string, string> = {
   critical: 'bg-red-100 text-red-800 border-red-300',
   high: 'bg-orange-100 text-orange-800 border-orange-300',
@@ -348,7 +358,7 @@ export function TimelineTab() {
                 </span>
                 {trend && (
                   <span className="text-xs px-2 py-0.5 bg-white border border-indigo-200 rounded text-indigo-700 capitalize">
-                    {trend}
+                    {TREND_LABELS[trend.toLowerCase()] ?? trend}
                   </span>
                 )}
               </div>

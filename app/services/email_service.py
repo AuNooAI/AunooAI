@@ -235,7 +235,7 @@ def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
             f'<a href="{r["profile"]}" style="color:#4055c6;font-weight:bold;text-decoration:none;">{r["short"]}</a>'
             f'<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
             f'<p style="margin:0 0 6px 0;color:#333;">{summary}</p>'
-            '<p style="margin:0;font-size:12px;color:#555;"><strong>Threat:</strong> '
+            '<p style="margin:0;font-size:12px;color:#555;"><strong>Priority:</strong> '
             f'<span style="color:{color};font-weight:bold;">{threat.upper()}</span> &nbsp;|&nbsp; '
             f'<strong>Confidence:</strong> {conf_s}</p></div>')
     return "\n".join(cards)
@@ -661,7 +661,7 @@ Investigate with Auspex AI: {auspex_url}
         body_text += "--- MATCHED ARTICLES ---\n"
         for i, match in enumerate(matches[:10], 1):
             body_text += f"Match {i}: {match.get('summary', 'No summary')}\n"
-            body_text += f"Threat: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"
+            body_text += f"Priority: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"
 
         if report_download_url:
             body_text += f"\nDownload full report (no login needed, 30 days): {report_download_url}\n"

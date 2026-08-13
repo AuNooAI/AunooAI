@@ -14,6 +14,7 @@ import uuid
 import threading
 
 from app.ai_models import resolve_litellm_call_params, resolve_model_identity
+from app.services.report_style import CLINICAL_STYLE
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -3762,19 +3763,19 @@ async def analyze_real_time_signals(
             
             # Create analysis prompt
             system_prompt = f"""
-            You are a threat intelligence analyst. Analyze the provided articles using this specific signal instruction:
-            
+            You are a news-monitoring analyst. Analyze the provided articles using this specific signal instruction:
+
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
             INSTRUCTION: {instruction['instruction']}
-            
+
             Return a JSON response with:
             {{
                 "signal_detected": true/false,
                 "confidence": 0.0-1.0,
                 "matching_articles": ["uri1", "uri2", ...],
                 "summary": "Brief explanation of what was detected",
-                "threat_level": "low"|"medium"|"high",
+                "threat_level": "low"|"medium"|"high" (how much this match warrants reader attention),
                 "recommended_action": "What should analysts do next"
             }}
             """
@@ -3957,6 +3958,7 @@ _SIGNAL_REPORT_SYSTEM_BASE = (
     "third parties the reader does not control; if a matched signal concerns a crisis the reader cannot act "
     "on directly, frame recommendations as how the reader should respond within their own sphere, not how the "
     "crisis itself should be managed."
+    + CLINICAL_STYLE
 )
 
 
@@ -4056,16 +4058,16 @@ def _build_fallback_report(instruction_name: str, alerts: list) -> str:
     """Deterministic markdown roll-up of matched alerts.
 
     Guard for when the LLM report call keeps returning empty after retries:
-    the customer alert still gets an analysis section (threat breakdown + the
+    the customer alert still gets an analysis section (priority breakdown + the
     matched articles) instead of silently shipping as a bare list of links.
     Labelled as automated so it is not mistaken for the AI analyst report."""
     from collections import Counter
     alerts = alerts or []
-    threat_counts = Counter((str(a.get('threat_level') or 'UNKNOWN')).upper()
-                            for a in alerts)
+    priority_counts = Counter((str(a.get('threat_level') or 'UNKNOWN')).upper()
+                              for a in alerts)
     order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
-    threat_line = ", ".join(f"{threat_counts[t]} {t.title()}"
-                            for t in order if threat_counts.get(t))
+    priority_line = ", ".join(f"{priority_counts[t]} {t.title()}"
+                              for t in order if priority_counts.get(t))
     lines = [
         f"# Signal Summary: {instruction_name}",
         "",
@@ -4074,8 +4076,8 @@ def _build_fallback_report(instruction_name: str, alerts: list) -> str:
         f"article(s)._",
         "",
     ]
-    if threat_line:
-        lines += [f"**Threat levels:** {threat_line}", ""]
+    if priority_line:
+        lines += [f"**Priorities:** {priority_line}", ""]
     lines.append("## Matched Articles")
     for i, a in enumerate(alerts[:10], 1):
         level = str(a.get('threat_level') or 'N/A').upper()
@@ -4390,7 +4392,7 @@ async def run_signal_instructions(
 
             # Build system prompt once per instruction
             system_prompt = f"""
-            You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+            You are a news-monitoring analyst. Analyze the provided articles using this signal instruction:
 
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
@@ -4406,7 +4408,7 @@ async def run_signal_instructions(
                 "confidence": 0.0-1.0,
                 "summary": "Brief summary of what was detected",
                 "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
-                "threat_level": "low"|"medium"|"high",
+                "threat_level": "low"|"medium"|"high" (how much this match warrants reader attention),
                 "recommended_action": "What analysts should do"
             }}
 
@@ -4531,7 +4533,7 @@ Analyze the following signal matches and create a comprehensive intelligence rep
 ## Your Task
 1. Summarize the key findings across all matched articles
 2. Identify common themes and patterns
-3. Assess the overall significance and urgency
+3. State what happened and what changed, with counts; distinguish new developments from ongoing ones
 4. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.
@@ -4550,7 +4552,7 @@ Format your response as a structured markdown report with clear sections.
                 alerts_summary = "\n\n".join([
                     f"### Match {i+1}: {a['instruction_name']}\n"
                     f"**Article URI:** {a['article_uri']}\n"
-                    f"**Threat Level:** {a['threat_level']}\n"
+                    f"**Priority:** {a['threat_level']}\n"
                     f"**Confidence:** {a['confidence']}\n"
                     f"**Summary:** {a['summary']}\n"
                     f"**Reasoning:** {a['reasoning']}"
@@ -4933,14 +4935,14 @@ Write the complete podcast script:
                                             # Generate a quick report for this instruction only
                                             instruction_report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings and significance.
+State what happened and what changed, with counts; distinguish new developments from ongoing ones.
 Format as a concise markdown report.
 """
                                             instruction_report_prompt = _apply_recommendations_pref(
                                                 instruction_report_prompt, instruction.get('config'))
                                             alerts_summary = "\n\n".join([
                                                 f"**Article:** {a['article_uri']}\n"
-                                                f"**Threat Level:** {a['threat_level']}\n"
+                                                f"**Priority:** {a['threat_level']}\n"
                                                 f"**Summary:** {a['summary']}\n"
                                                 f"**Reasoning:** {a['reasoning']}"
                                                 for a in instruction_alerts[:10]  # Limit to 10 for email
@@ -4955,7 +4957,7 @@ Format as a concise markdown report.
 {alerts_summary}
 """
                                             per_inst_messages = [
-                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control."},
+                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control." + CLINICAL_STYLE},
                                                 {"role": "user", "content": per_inst_prompt}
                                             ]
                                             per_inst_report = await _generate_report_with_retry(
@@ -5478,7 +5480,7 @@ IMPORTANT: Prioritize articles that mention any of these specific entities. If a
                 continue
             articles_text = format_articles_for_llm(batch_articles)
 
-            system_prompt = f"""You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+            system_prompt = f"""You are a news-monitoring analyst. Analyze the provided articles using this signal instruction:
 
 SIGNAL: {instruction['name']}
 DESCRIPTION: {instruction.get('description', 'No description')}
@@ -5494,7 +5496,7 @@ For EACH article that matches the signal, return a separate JSON object:
     "confidence": 0.0-1.0,
     "summary": "Brief summary of what was detected",
     "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
-    "threat_level": "low"|"medium"|"high",
+    "threat_level": "low"|"medium"|"high" (how much this match warrants reader attention),
     "recommended_action": "What analysts should do"
 }}
 
@@ -5592,13 +5594,13 @@ If no articles match, return an empty array: []"""
                 try:
                     report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings and significance.
+State what happened and what changed, with counts; distinguish new developments from ongoing ones.
 Format as a concise markdown report.
 """
                     report_prompt = _apply_recommendations_pref(report_prompt, config)
                     alerts_summary = "\n\n".join([
                         f"**Article:** {a['article_uri']}\n"
-                        f"**Threat Level:** {a['threat_level']}\n"
+                        f"**Priority:** {a['threat_level']}\n"
                         f"**Confidence:** {a.get('confidence', 0.5)}\n"
                         f"**Summary:** {a['summary']}\n"
                         f"**Reasoning:** {a.get('reasoning', '')}"

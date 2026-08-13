@@ -33,6 +33,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from app.services.report_style import CLINICAL_STYLE_SHORT
+
 logger = logging.getLogger(__name__)
 
 MAX_DAILY_EVENTS_PER_SCOPE = 12
@@ -427,7 +429,7 @@ def _llm_extract_events(scope_name: str, day_articles: List[Dict],
         "material; otherwise leave it out entirely.\n"
         "- Titles: factual, specific, max 100 chars, no editorializing.\n"
         "- description: 1-2 plain sentences stating what happened, grounded "
-        "only in the articles.\n\n"
+        "only in the articles." + CLINICAL_STYLE_SHORT + "\n\n"
         "Output a pure JSON array (no markdown) of objects with fields: "
         "\"title\", \"description\", \"significance\" (low|medium|high|critical), "
         "\"entities\" (list of named orgs/people), \"article_indexes\" (list of "
