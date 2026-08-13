@@ -23,12 +23,17 @@ CLINICAL_STYLE = (
     "and counts, and do not translate the labels into alarm language. If a "
     "label appears without underlying facts, say a flag fired and details "
     "are unavailable — do not infer how serious it is from the label.\n"
-    "- State open questions as questions, not warnings."
+    "- State open questions as questions, not warnings.\n"
+    "- If the input contains a CUSTOMER-DEFINED STATUS line, state that status "
+    "using its exact label and cite the numbers that triggered it. Never "
+    "upgrade, downgrade, or invent a status that is not in the input."
 )
 
 CLINICAL_STYLE_SHORT = (
     " Attribute criticism to its source (\"articles alleged\", \"posts "
     "said\") rather than asserting it yourself, and quantify with counts "
     "instead of severity words like \"crisis\" or \"severe\" unless quoting "
-    "a source."
+    "a source. If the facts include a customer-defined status, state it "
+    "using its exact label with the numbers that triggered it; never invent "
+    "or change one."
 )

@@ -2,6 +2,46 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-13 — Customer-defined escalation tiers: severity language returns, on the customer's terms
+
+### Goal
+The clinical-register change removed the model's own severity judgments, which raised the
+question of how a real escalation is signified. Per Pascal's "unless a customer has told
+you that x posts = crisis": severity language now comes only from thresholds the customer
+configured, evaluated deterministically, with every use citing the triggering numbers.
+Spec: `docs/CUSTOMER_ESCALATION_TIERS_SPEC.md` (written first, then built).
+
+### Evaluator — **`app/services/escalation_tiers.py`** (new)
+`evaluate_brand_tier(conn, brand_id)` reads `bw_brands.config['escalation_tiers']`
+(ordered list, most severe last, rules ANDed, last match wins) and returns
+`{label, triggered[], window_days}` or None. Rule vocabulary v1: `volume_multiple`
+(mean daily articles over the window vs a 28-day baseline), `min_days` (window, default 2),
+`net_sentiment_below` ((pos−neg)/scored×100, ≥3 scored, same formula as the digest),
+`requires_high_risk` (a high-severity `bw_article_risks` row in the window). Pure SQL —
+no LLM involvement, no stored state, no schema change. A broken config logs and returns
+None rather than breaking any surface.
+
+### Surfaces
+`CLINICAL_STYLE` and `CLINICAL_STYLE_SHORT` gain the rule: state a CUSTOMER-DEFINED
+STATUS with its exact label and triggering numbers; never upgrade, downgrade, or invent
+one. **`bw_digest_service`** adds the status as a bold facts line per brand (markdown →
+it is the email badge). **`timeline_rollup.refresh_state_doc`** injects it for brand
+scopes, so the "State of X" paragraph opens with the designation. **`timeline_routes`**
+summary returns `escalation_tier`; **`TimelineTab.tsx`** renders a red badge with the
+customer's label (trigger numbers in the hover title). Signal reports inherit it through
+the state-doc text in `build_timeline_context`.
+
+### Verification (live on wileytest, test tiers added and removed)
+Low-threshold test tiers on the Wiley brand: evaluator fired
+`elevated — coverage 2.0x baseline over 2 days (8/day vs 3.8/day)`; a "code red" tier
+with a sentiment rule correctly did NOT fire (fewer than 3 scored articles in the window
+= insufficient data = silent). Unconfigured brand → None. State doc regenerated opening
+"Wiley entered an 'elevated' coverage status … 8 articles per day versus a 3.8-article
+baseline". Digest lead: "Wiley entered elevated status after news coverage doubled to 8
+articles per day over two days…" (label verbatim + numbers; the short style block needed
+the status rule added before the lead named the label). Test config then removed, state
+doc regenerated clean with no status mention, `escalation_tiers` key confirmed absent.
+
 ## 2026-08-13 — wbm and bwtemplate caught up to canonical (code, migrations, UI)
 
 ### Goal

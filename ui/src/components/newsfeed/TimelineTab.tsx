@@ -55,6 +55,11 @@ interface TimelineSummary {
     current_trend: string | null;
     generated_at: string | null;
   } | null;
+  escalation_tier?: {
+    label: string;
+    triggered: string[];
+    window_days: number;
+  } | null;
   monthly: TimelineEvent[];
   weekly: TimelineEvent[];
   analyst_notes: TimelineEvent[];
@@ -359,6 +364,14 @@ export function TimelineTab() {
                 {trend && (
                   <span className="text-xs px-2 py-0.5 bg-white border border-indigo-200 rounded text-indigo-700 capitalize">
                     {TREND_LABELS[trend.toLowerCase()] ?? trend}
+                  </span>
+                )}
+                {summary.escalation_tier && (
+                  <span
+                    className="text-xs px-2 py-0.5 bg-red-50 border border-red-300 rounded text-red-800 font-semibold"
+                    title={`Customer-defined status — triggered by: ${summary.escalation_tier.triggered.join('; ')}`}
+                  >
+                    {summary.escalation_tier.label}
                   </span>
                 )}
               </div>

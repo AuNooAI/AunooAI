@@ -284,8 +284,21 @@ def refresh_state_doc(conn, scope_type: str, scope_id: str) -> Optional[dict]:
     if daily:
         parts.append("Recent events:\n" + _format_events_for_llm(daily))
 
+    # Customer-defined escalation tier (brand scopes): the only sanctioned
+    # source of severity language in the paragraph. Empty string when no tier
+    # is configured or none fires (docs/CUSTOMER_ESCALATION_TIERS_SPEC.md).
+    status_line = ""
+    if scope_type == "brand":
+        try:
+            from app.services.escalation_tiers import (
+                evaluate_brand_tier, status_prompt_line)
+            status_line = status_prompt_line(
+                evaluate_brand_tier(conn, int(scope_id)))
+        except Exception:  # noqa: BLE001
+            logger.exception("escalation tier lookup failed for brand %s", scope_id)
+
     prompt = (
-        f"Scope: \"{label}\"\n\nRecent timeline material:\n" + "\n\n".join(parts) +
+        f"Scope: \"{label}\"\n{status_line}\nRecent timeline material:\n" + "\n\n".join(parts) +
         "\n\nWrite one plain paragraph (150-250 words) describing the current "
         "state of this scope for an analyst seeing it for the first time: "
         "dominant storyline, key actors, trajectory, open questions. Factual "

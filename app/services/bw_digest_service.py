@@ -173,6 +173,15 @@ def _compose_digest(conn, period_days: int):
     had_content = False
     for bid, bname, bcfg in brands:
         section = []
+        # Customer-defined escalation tier: the only path by which the digest
+        # may use severity language in its own voice (spec:
+        # docs/CUSTOMER_ESCALATION_TIERS_SPEC.md). None configured → no line.
+        from app.services.escalation_tiers import evaluate_brand_tier
+        tier = evaluate_brand_tier(conn, bid)
+        if tier:
+            section.append(
+                f"- Customer-defined status: **{tier['label']}** — triggered by: "
+                + "; ".join(tier["triggered"]))
         pos, neg, scored = stats[bid]
         net = round(((pos - neg) / scored) * 100) if scored else None
         if scored:
