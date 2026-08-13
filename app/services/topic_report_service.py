@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.ai_models import resolve_litellm_call_params
+from app.services.report_style import CLINICAL_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +400,7 @@ these are not style preferences, they are requirements):
   items beat three padded ones.
 - Em dashes: at most one per paragraph. Prefer a comma, colon or full stop.
 - No closing sentence that restates what was just said in grander words.
+{CLINICAL_STYLE}
 
 Article references (use these citation numbers):
 {article_refs}

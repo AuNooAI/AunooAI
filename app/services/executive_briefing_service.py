@@ -23,6 +23,7 @@ import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.database import get_database_instance
+from app.services.report_style import CLINICAL_STYLE
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -653,7 +654,7 @@ Write as if this will be the only thing the executive reads about this topic tod
                 response = await litellm.acompletion(
                     **resolve_litellm_call_params(model),
                     messages=[
-                        {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst specializing in distilling complex news into actionable insights. You write with precision and brevity for busy executives."},
+                        {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst specializing in distilling complex news into actionable insights. You write with precision and brevity for busy executives.") + CLINICAL_STYLE},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=temperature,
@@ -825,7 +826,7 @@ Enable the {config.persona} to make better decisions in the next 24-48 hours."""
             response = await litellm.acompletion(
                 **resolve_litellm_call_params(model),
                 messages=[
-                    {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing multiple article analyses into actionable executive briefings. You identify patterns, prioritize actions, and provide strategic guidance."},
+                    {"role": "system", "content": (agent_prompt or "You are a strategic intelligence analyst synthesizing multiple article analyses into actionable executive briefings. You identify patterns, prioritize actions, and provide strategic guidance.") + CLINICAL_STYLE},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
@@ -923,6 +924,7 @@ Guidelines:
 - Do NOT include sound effects, music cues, or stage directions
 - Do NOT include speaker tags like [Host] or timestamps
 - Write as continuous prose that flows naturally when read aloud"""
+        system_prompt += CLINICAL_STYLE
 
         # User message with briefing content
         user_message = f"""Generate a podcast script with these specifications:

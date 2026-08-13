@@ -51,7 +51,11 @@ evidence. It also differentiates against monitoring tools whose summaries are tu
 - Severity thresholds are not yet customer-configurable. Pascal's "until instructed otherwise"
   suggests a per-customer setting for what earns strong language; today the clinical register
   is the only mode.
-- Executive briefings, topic reports, and incident reports do not carry the shared style rules
-  yet — first pass covered the three surfaces the customer saw.
+- Second pass (same day) extended the rules to executive briefings and topic reports, and
+  rolled everything out to the two additional Brand Watcher sites. Incident reports still do
+  not carry the rules.
+- On the two Brand Watcher sites the timeline trend chip still shows the old wording
+  ("escalating") — their interface bundle was not rebuilt; the summaries themselves are
+  already clinical.
 - Internal severity labels (used for sorting and alert routing) are unchanged; only the
   language shown to readers changed.

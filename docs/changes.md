@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-13 — Clinical register for generated prose: attribute criticism, count instead of characterize
+## 2026-08-13 — Clinical register for generated prose: attribute criticism, count instead of characterize (all five tenants)
 
 ### Goal
 Pascal Hetzscholdt (Wiley, 12 Aug) pushed back on the platform calling routine adverse
@@ -81,14 +81,37 @@ baseline (246 known errors, 0 new); digest lead exercised with canned facts (out
 state docs regenerated and read back on all three tenants; services restarted and journals
 clean of startup errors.
 
+### Second pass: executive briefings, topic reports, and the BW tenants
+**`app/services/executive_briefing_service.py`** appends `CLINICAL_STYLE` to the three
+prose-producing system messages (analysis, synthesis, podcast) — appended to whichever of
+the DB-loaded agent prompt or hardcoded fallback is in use, so tenant-customized prompts get
+it too. The selection agent (JSON pick list, no prose) is untouched.
+**`app/services/topic_report_service.py`** interpolates `{CLINICAL_STYLE}` into the main
+report prompt after the Q3 writing rules. The Future Horizons exec-summary card path is
+untouched — it shares a PromptLoader template with the React tab and must stay
+byte-identical to it.
+
 ### Propagation
-Committed in canonical (bugfixing). Backend files copied to wiley + wileytest; UI built via
-`deploy-react-ui.sh` and static+templates rsynced to both. All three services restarted —
-wileytest only after its running automated-ingest cycle finished (held on user instruction,
-then restarted on go-ahead). wileytest's `vector_routes.py` local drift was comment-wording
-only (verified by diff against pre-change HEAD) and was overwritten. Incident-tracking
-prompts (`vector_routes.py:2154,6569`) and the executive-briefing/topic-report services do
-not carry the style block yet — deliberate first-pass scope.
+Committed in canonical (bugfixing). First pass copied to wiley + wileytest; UI built via
+`deploy-react-ui.sh` and static+templates rsynced to both; wileytest restarted only after
+its running automated-ingest cycle finished (held on user instruction). wileytest's
+`vector_routes.py` local drift was comment-wording only (verified by diff) and overwritten.
+Second pass extended propagation to **wbm.aunoo.ai and bwtemplate.aunoo.ai** (user request).
+Those trees lag canonical badly (191–413 diff lines on the shared files, wbm is not a git
+repo), so wholesale copies were unsafe: files matching pre-change canonical were copied
+(`report_style.py`, both timeline files; on bwtemplate also digest + exec briefing), and the
+diverged files (`vector_routes.py`, `email_service.py`, `topic_report_service.py`; on wbm
+also digest + exec briefing) were patched surgically by
+`scratchpad/patch_bw_tenants.py` — exact-anchor string replacement that asserts occurrence
+counts and `ast.parse`s before writing. Their older `vector_routes.py` predates
+`_build_fallback_report`, so that edit does not exist there. Runtime check on both:
+`_SIGNAL_REPORT_SYSTEM_BASE` imports with TONE RULES present. State docs regenerated on wbm
+(5/5; bwtemplate has none). All five services restarted after confirming no running jobs;
+journals clean. **Not done on wbm/bwtemplate:** the UI trend-chip relabel — their backends
+lag the canonical JS bundle's API expectations, so no static/templates rsync; the chip says
+"escalating" there until their next full resync. Incident-tracking prompts
+(`vector_routes.py:2154,6569`, customer-configurable threat-intel feature) and
+`bw_incident_enrichment.py` still do not carry the style block.
 
 ## 2026-08-11 — Pearson tenant revived for the language-testing use case; topic set seeded; dashboard specs drafted
 
