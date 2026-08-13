@@ -103,6 +103,21 @@ went out as an adverse-media alert about hemodialysis research. The articles are
 collected and classified; they just cannot drive a spike. Copied byte-exact from wbm
 (wbm's file was canonical-plus-feature), propagated to wiley/wileytest/bwtemplate.
 
+### abm caught up too (same day, user request)
+abm.aunoo.ai (:10020, Aunoo's own competitor-watch BW tenant) was at the same lag point
+as wbm (`bw_023`) with none of the day's work. Same procedure: blob-history check (all
+lag — its vector store still carried the old OpenAI embedding client), full sync, then
+migrations to head. Two differences from wbm: no pre-existing `social_platforms` column,
+so `kg_social_01` ran cleanly; and abm was still on 1536-d embeddings (267 of 6,421 rows
+populated), so `emb_768_01` ran for real — old vectors backed up to
+`articles_embedding_1536_backup` first — followed by a one-shot
+`backfill_embeddings(limit=7000)` that re-embedded all 6,421 articles through the shared
+:8001 encoder in about 50 minutes, and a manual HNSW index build (the migration leaves
+that to post-backfill by design; nothing in the app autostarts the backfill loop —
+operator-run). Schema probed after migrating (ledger table, social column, vector(768)),
+service restarted clean, 8 state docs regenerated, semantic search verified end-to-end.
+**pbm.aunoo.ai (:10019) remains at `tl_001` with none of this work — untouched, open.**
+
 ### Lessons
 - ALWAYS verify alembic outcomes by probing the schema (`to_regclass`, column checks),
   never by exit status or filtered log lines — a mid-chain failure rolls back silently and
