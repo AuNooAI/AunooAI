@@ -20,7 +20,9 @@ CLINICAL_STYLE = (
     "retractions as a \"crisis\").\n"
     "- Severity, significance, and threat labels in the input are "
     "machine-assigned sort keys, not judgments; report the underlying facts "
-    "and counts, and do not translate the labels into alarm language.\n"
+    "and counts, and do not translate the labels into alarm language. If a "
+    "label appears without underlying facts, say a flag fired and details "
+    "are unavailable — do not infer how serious it is from the label.\n"
     "- State open questions as questions, not warnings."
 )
 
