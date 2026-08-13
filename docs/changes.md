@@ -52,6 +52,17 @@ semantic search returns relevant results end-to-end through the shared :8001 enc
 "coverage rising" chip relabel. wbm's one active observer agent is scheduled tomorrow
 08:00 — nothing overdue was triggered by the restarts.
 
+### Fix adopted into canonical: scholarly-source exclusion in brand spike detection
+The uncommitted wbm feature found by the audit is now committed. **`app/tasks/
+brand_watcher_monitor.py`** excludes scholarly sources (the opoint matcher's
+`SCHOLARLY_DOMAINS` + doi.org, plus openalex/crossref/semanticscholar/pubmed source names)
+from the category-spike queries (7-day counts vs 30-day weekly average). Reason, from the
+original wbm comment: a publisher's own papers are not coverage of the publisher — Wiley
+publishing seven journal articles in a week doubled its 'Product & Innovation' count and
+went out as an adverse-media alert about hemodialysis research. The articles are still
+collected and classified; they just cannot drive a spike. Copied byte-exact from wbm
+(wbm's file was canonical-plus-feature), propagated to wiley/wileytest/bwtemplate.
+
 ### Lessons
 - ALWAYS verify alembic outcomes by probing the schema (`to_regclass`, column checks),
   never by exit status or filtered log lines — a mid-chain failure rolls back silently and

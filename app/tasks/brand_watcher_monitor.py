@@ -308,6 +308,30 @@ class BrandWatcherMonitor:
             if brand_id:
                 params["brand_id"] = brand_id
 
+            # A publisher's own papers are not coverage of the publisher. Wiley
+            # publishing seven journal articles in a week doubled its
+            # 'Product & Innovation' count and went out as an adverse-media alert
+            # describing hemodialysis and protein-ligand research. Those articles
+            # are still collected and classified — Crossref and OpenAlex are a
+            # deliberate per-brand opt-in via bw_brands.config['extra_sources'] —
+            # they just must not drive a spike. Reuses the same domain list the
+            # opoint matcher screens on, so there is one definition of scholarly.
+            # Matched on the URL and on news_source, because neither alone covers
+            # it: the Crossref/OpenAlex records are bare doi.org links, which carry
+            # no publisher domain, and journal papers relayed through Google News
+            # have an opaque news.google.com/rss/articles/... URL. The source name
+            # is what identifies those.
+            from app.services.opoint_brand_matcher import SCHOLARLY_DOMAINS
+            _sch_url = SCHOLARLY_DOMAINS + ("doi.org",)
+            _sch_src = ("openalex", "crossref", "semanticscholar", "semantic scholar", "pubmed")
+            sch = ("AND NOT ("
+                   + " OR ".join(f"LOWER(a.uri) LIKE :_sd_{i}" for i in range(len(_sch_url)))
+                   + " OR "
+                   + " OR ".join(f"LOWER(a.news_source) LIKE :_ss_{i}" for i in range(len(_sch_src)))
+                   + ")")
+            params.update({f"_sd_{i}": f"%{d}%" for i, d in enumerate(_sch_url)})
+            params.update({f"_ss_{i}": f"%{s}%" for i, s in enumerate(_sch_src)})
+
             # Get category counts for last 7 days
             recent_result = conn.execute(text(f"""
                 SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
@@ -315,6 +339,7 @@ class BrandWatcherMonitor:
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE a.publication_date >= (NOW() - INTERVAL '7 days')::text
                 {brand_filter}
+                {sch}
                 GROUP BY bac.category
             """), params)
             recent_counts = {row[0]: row[1] for row in recent_result.fetchall()}
@@ -327,6 +352,7 @@ class BrandWatcherMonitor:
                 WHERE a.publication_date >= (NOW() - INTERVAL '30 days')::text
                   AND a.publication_date < (NOW() - INTERVAL '7 days')::text
                 {brand_filter}
+                {sch}
                 GROUP BY bac.category
             """), params)
             avg_counts = {row[0]: float(row[1]) for row in avg_result.fetchall()}
