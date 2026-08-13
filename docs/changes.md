@@ -2,6 +2,94 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-13 — Clinical register for generated prose: attribute criticism, count instead of characterize
+
+### Goal
+Pascal Hetzscholdt (Wiley, 12 Aug) pushed back on the platform calling routine adverse
+coverage of large publishers a "severe crisis" that is "escalating". His point: for a
+219-year-old company this volume of critical coverage is business as usual, and the judgment
+of what counts as a crisis belongs to the customer. He asked for clinical phrasing —
+attribute criticism to sources, report article counts instead of characterizations. The
+audit showed this was general, not one bad prompt: every LLM prose surface (timeline state
+docs, signal/observer reports and emails, the adverse-media digest) either lacked any tone
+constraint or actively demanded drama ("You are a threat intelligence analyst", "Assess the
+overall significance and urgency", "name the brands that need attention first").
+
+### Shared style block (`870104db`, tightened in `0829d0fb`)
+**`app/services/report_style.py`** (new) holds one `CLINICAL_STYLE` constant plus a
+`CLINICAL_STYLE_SHORT` variant for small prompts. Four rules: attribute every criticism or
+praise to its source ("articles alleged", "posts said"); quantify instead of characterize
+(counts and deltas, severity words like "crisis"/"severe" only inside attributed quotes);
+machine severity labels are sort keys, never to be translated into alarm language — and if a
+label arrives with no underlying facts, say a flag fired and details are unavailable
+(`0829d0fb`, added after the first regeneration pass produced "carries critical
+significance" from a bare label); state open questions as questions, not warnings.
+
+### Timeline prompts
+**`app/services/timeline_rollup.py`** appends the block to the weekly/monthly rollup prompt
+and the state-doc prompt, and both trend enums (`overall_trend`, `current_trend`) are now
+defined in-prompt as "direction of coverage volume versus the prior period, not a judgment
+of how bad things are". **`app/services/timeline_events.py`** gets the short variant on the
+daily extraction prompt. The mechanical significance stamps (any high-severity risk finding
+= "critical", 3x volume day = "high") are untouched — they drive sort order and absorption;
+the style block stops them leaking into prose. This matters beyond the Timeline tab because
+`build_timeline_context` injects the state doc into signal reports and Auspex prompts.
+
+### Signal runner / observer agents — **`app/routes/vector_routes.py`**
+The three matcher system prompts now open "You are a news-monitoring analyst" instead of
+"threat intelligence analyst", and `threat_level` is defined in-schema as "how much this
+match warrants reader attention" (field name unchanged — DB and UI depend on it).
+`_SIGNAL_REPORT_SYSTEM_BASE` and the inline per-instruction report system prompt carry the
+style block, which also covers customer-written `report_prompt`s. All three default report
+prompts ask to "state what happened and what changed, with counts" instead of assessing
+"significance and urgency". The prompt-input label `**Threat Level:**` became
+`**Priority:**` so reports stop echoing it.
+
+### Customer-facing "Threat" → "Priority"
+**`app/services/email_service.py`** signal-alert emails (HTML card and plain-text body) and
+the deterministic fallback report in `vector_routes.py` now print "Priority" where they said
+"Threat". Colors, thresholds, and the `threat_level` field itself are unchanged.
+
+### Adverse-media digest — **`app/services/bw_digest_service.py`**
+The lead prompt no longer asks which brands "need attention first" and "how bad it is" — it
+orders brands by size of change and states the numbers, with an explicit "no verdicts on
+which brand needs attention". Both the lead and the per-brand narration carry the short
+style block. Canned-facts test of yesterday's exact digest scenario now produces "Wiley saw
+the largest shift, with 114 articles in 24 hours versus a 7-day average of 16, driven by a
+federal lawsuit alleging false claims for article processing fees…" — no "requires
+immediate attention".
+
+### UI trend chip — **`ui/src/components/newsfeed/TimelineTab.tsx`**
+The state-doc chip maps enum values to neutral labels: escalating → "coverage rising",
+de-escalating → "coverage falling", stable → "steady", emerging → "new". Display-only; DB
+and API values unchanged.
+
+### State-doc regeneration sweep
+Existing paragraphs would have kept the old register until their next weekly refresh, so a
+sweep script (scratchpad, not committed) looped every `timeline_state_docs` row through
+`refresh_state_doc` under the new prompts: bugfixing 13/13, wiley 10/10, wileytest 18/18.
+The wileytest "State of Wiley" went from "severe reputational crisis marked by escalating
+legal and editorial controversies" to "sustained elevated media coverage … 64 to 114
+articles per week compared to a baseline of 1.3–1.9 articles daily", with the lawsuit and
+retraction attributed as allegations. First wileytest pass lost its DB connection mid-sweep
+and poisoned the remaining scopes ("Can't reconnect until invalid transaction is rolled
+back"); rerun with a fresh connection per scope, 18/18.
+
+### Verification
+Syntax pass on all six backend files (`ast.parse`); `npm run typecheck` clean against
+baseline (246 known errors, 0 new); digest lead exercised with canned facts (output above);
+state docs regenerated and read back on all three tenants; services restarted and journals
+clean of startup errors.
+
+### Propagation
+Committed in canonical (bugfixing). Backend files copied to wiley + wileytest; UI built via
+`deploy-react-ui.sh` and static+templates rsynced to both. All three services restarted —
+wileytest only after its running automated-ingest cycle finished (held on user instruction,
+then restarted on go-ahead). wileytest's `vector_routes.py` local drift was comment-wording
+only (verified by diff against pre-change HEAD) and was overwritten. Incident-tracking
+prompts (`vector_routes.py:2154,6569`) and the executive-briefing/topic-report services do
+not carry the style block yet — deliberate first-pass scope.
+
 ## 2026-08-11 — Pearson tenant revived for the language-testing use case; topic set seeded; dashboard specs drafted
 
 ### Goal
