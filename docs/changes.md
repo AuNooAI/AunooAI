@@ -75,6 +75,23 @@ attaches recurring same-source signals to one continuing issue. Issue tables wer
 truncated and rebuilt on all three tenants after each fix (safe only because zero
 `bw_issue_overrides` existed).
 
+### Issue-lifecycle wording — "no active issues" now explains itself
+The first production narrative read "no active issues" in the same paragraph as a list
+of risk findings — both true (the bribery issue had expired Aug 3 under the 14-day
+rule; the findings block uses the report window), but a reader sees a contradiction.
+`get_assessment()` now also returns `resolved_issues` (issues whose coverage touched
+the window but expired before `end`, each with `expired_on` and `expiry_days`), the
+narrative's risk block lists them with dates and instructs the model to state the
+lifecycle in the same breath, and each adverse finding is annotated with its issue's
+status ("active issue" / "issue resolved 2026-08-03") via a `bw_issue_articles` join.
+Verified: bugfixing Elsevier at end=2026-03-10 returns 2 resolved issues with correct
+expiry dates; the regenerated wbm Wiley narrative (gpt-5.4, reviewed) reads "No active
+risk issues are recorded; two medium-severity matters resolved during the period — a
+peer reviewer bribery investigation (fraud_integrity, coverage July 20, expired
+August 3)…". Copied to all six tenant trees (hash-verified), all services restarted
+after clean checks. The UI issue panel does not yet show resolved issues — the API
+field is there when it wants one.
+
 ### Regression after release — narrative 500 on brands with social posts
 The first production regenerate on wbm returned 500: `name '_POSITIVE_LABELS' is not
 defined`. The v2 switchover deleted the formula block that defined the two sentiment

@@ -3762,6 +3762,19 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                     + peers_note)
         else:
             _ra_lines.append("Active issues: none — no adverse events currently open for this brand.")
+        _resolved = assessment.get("resolved_issues") or []
+        if _resolved:
+            _ra_lines.append(f"Resolved in this period ({len(_resolved)}) — these explain risk "
+                             "findings from the window that no longer count as active:")
+            for i in _resolved:
+                _ra_lines.append(
+                    f"- [{i['severity'].upper()}, resolved] {i['primary_type']}: {i['title']} — "
+                    f"coverage ran {i['first_seen']} to {i['last_seen']} ({i['articles']} article(s)), "
+                    f"expired {i['expired_on']} after {i['expiry_days']} days without new coverage"
+                    + (f". Basis: {i['justification']}" if i.get("justification") else ""))
+            _ra_lines.append("When stating there are no active issues, say in the same breath that "
+                            "the period's adverse events are resolved/expired, with their dates — "
+                            "never leave 'no active issues' next to risk findings unexplained.")
         _att = assessment["attention"]
         if _att.get("available"):
             if _att["category_spikes"]:
@@ -3852,23 +3865,33 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             social_summary = {"total": len(social_rows), "by_platform": plat,
                               "evaluated": scored, "net_sentiment": net, "on_brand": len(on_brand)}
 
-        # Adverse risk findings (taxonomy) recorded against articles in the window
+        # Adverse risk findings (taxonomy) recorded against articles in the
+        # window, each annotated with the lifecycle status of the issue it
+        # belongs to — so a finding never floats next to "no active issues"
+        # without its explanation.
         nrisk_rows = conn.execute(text("""
-            SELECT r.risk_type, r.severity, a.title, a.uri
-            FROM bw_article_risks r JOIN articles a ON a.uri = r.article_uri
+            SELECT r.risk_type, r.severity, a.title, a.uri, ia.issue_id
+            FROM bw_article_risks r
+            JOIN articles a ON a.uri = r.article_uri
+            LEFT JOIN bw_issue_articles ia
+              ON ia.article_uri = r.article_uri AND ia.brand_id = r.brand_id
             WHERE r.brand_id = :bid
               AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
                      a.publication_date DESC
         """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
+        _issue_status = {i["id"]: "active issue" for i in active_issues}
+        for i in (assessment.get("resolved_issues") or []):
+            _issue_status[i["id"]] = f"issue resolved {i['expired_on']}"
         nrisk_by_type: Dict[str, int] = {}
-        for _rt, _sev, _t, _u in nrisk_rows:
+        for _rt, _sev, _t, _u, _iid in nrisk_rows:
             nrisk_by_type[_rt] = nrisk_by_type.get(_rt, 0) + 1
         if nrisk_rows:
             _rf = ["Counts by type: " + ", ".join(
                 f"{k}: {v}" for k, v in sorted(nrisk_by_type.items(), key=lambda x: -x[1]))]
-            for _rt, _sev, _t, _u in nrisk_rows[:8]:
-                _rf.append(f"- {_rt} ({_sev}): [{_t}]({_u})")
+            for _rt, _sev, _t, _u, _iid in nrisk_rows[:8]:
+                _st = _issue_status.get(_iid)
+                _rf.append(f"- {_rt} ({_sev}{', ' + _st if _st else ''}): [{_t}]({_u})")
             risk_findings = "\n".join(_rf)
         else:
             risk_findings = "None recorded in this period."

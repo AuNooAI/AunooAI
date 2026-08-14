@@ -271,11 +271,13 @@ async def build_issues_for_brand(conn, brand_id: int) -> Dict[str, int]:
 # Assessment reader (no LLM)
 # ---------------------------------------------------------------------------
 
-def active_issues_as_of(conn, brand_id: int, end: str) -> List[Dict[str, Any]]:
-    """Issues active as of `end`: first coverage on or before `end`, last
-    coverage within the severity-scaled expiry window before `end`. Evaluated
-    against the date asked for — never against today — so historical reports
-    and calibration runs reproduce."""
+def _issues_as_of(conn, brand_id: int, end: str, active: bool,
+                  start: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Issues evaluated as of `end` — never as of today — so historical
+    reports and calibration runs reproduce. active=True returns issues whose
+    last coverage falls within the severity-scaled expiry window before `end`;
+    active=False returns expired ones whose coverage touched [start, end],
+    each carrying `expired_on` (last coverage + expiry days)."""
     end_d = _day(end)
     rows = conn.execute(text("""
         SELECT id, title, primary_type, secondary_types, severity,
@@ -285,8 +287,12 @@ def active_issues_as_of(conn, brand_id: int, end: str) -> List[Dict[str, Any]]:
     """), {"bid": brand_id, "end": end_d + "~"}).fetchall()
     out = []
     for iid, title, ptype, stypes, sev, just, fs, ls in rows:
-        cutoff = _shift(end_d, -ISSUE_EXPIRY_DAYS.get(sev, 14))
-        if _day(ls) < cutoff:
+        expiry = ISSUE_EXPIRY_DAYS.get(sev, 14)
+        cutoff = _shift(end_d, -expiry)
+        is_active = _day(ls) >= cutoff
+        if active != is_active:
+            continue
+        if not active and start and _day(ls) < _day(start):
             continue
         detail = conn.execute(text("""
             SELECT COUNT(DISTINCT ia.article_uri),
@@ -310,14 +316,23 @@ def active_issues_as_of(conn, brand_id: int, end: str) -> List[Dict[str, Any]]:
                 stypes = json.loads(stypes)
             except Exception:
                 stypes = []
-        out.append({"id": iid, "title": title, "primary_type": ptype,
-                    "secondary_types": stypes or [], "severity": sev,
-                    "justification": just, "first_seen": _day(fs),
-                    "last_seen": _day(ls), "articles": n_articles or 0,
-                    "sources": n_sources or 0, "momentum": momentum})
+        rec = {"id": iid, "title": title, "primary_type": ptype,
+               "secondary_types": stypes or [], "severity": sev,
+               "justification": just, "first_seen": _day(fs),
+               "last_seen": _day(ls), "articles": n_articles or 0,
+               "sources": n_sources or 0, "momentum": momentum}
+        if not active:
+            rec["expired_on"] = _shift(_day(ls), expiry)
+            rec["expiry_days"] = expiry
+        out.append(rec)
     out.sort(key=lambda i: i["last_seen"], reverse=True)
     out.sort(key=lambda i: SEVERITY_ORDER.get(i["severity"], 0), reverse=True)
     return out
+
+
+def active_issues_as_of(conn, brand_id: int, end: str) -> List[Dict[str, Any]]:
+    """Issues active as of `end` (see _issues_as_of)."""
+    return _issues_as_of(conn, brand_id, end, active=True)
 
 
 def _attention(conn, brand_id: int, end: str) -> Dict[str, Any]:
@@ -409,6 +424,10 @@ def get_assessment(conn, brand_id: int, start: str, end: str) -> Dict[str, Any]:
     """The full v2 assessment: active issues as of `end`, attention readout,
     peer context, escalation tier. Deterministic — no LLM calls, no score."""
     issues = active_issues_as_of(conn, brand_id, end)
+    # Issues that expired before `end` but whose coverage touched the window —
+    # so "no active issues" can carry its own explanation instead of sitting
+    # unexplained next to risk findings from the same period.
+    resolved = _issues_as_of(conn, brand_id, end, active=False, start=start)
     peers = _eligible_peers(conn, brand_id, start, end)
     peer_facing = len(peers) >= PEER_MIN_PEERS
     peer_by_id = {p["id"]: p["name"] for p in peers}
@@ -427,6 +446,7 @@ def get_assessment(conn, brand_id: int, start: str, end: str) -> Dict[str, Any]:
         logger.exception("tier evaluation failed for brand %s", brand_id)
     return {"brand_id": brand_id, "start": _day(start), "end": _day(end),
             "risk_level": risk_level, "active_issues": issues,
+            "resolved_issues": resolved,
             "attention": _attention(conn, brand_id, end),
             "eligible_peers": peers if peer_facing else [],
             "escalation_tier": tier}
