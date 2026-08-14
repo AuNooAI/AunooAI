@@ -2388,9 +2388,21 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                         f"{len(articles)} new articles to classify matching {search_terms}")
 
             brand_topic = f"Brand Monitoring {brand['display_name']}"
+            # Per-brand negative keywords (config.news_keyword_excludes), the
+            # news-side mirror of social_keyword_excludes: articles about a
+            # different entity sharing the brand's name (e.g. "Wiley University"
+            # vs the publisher) are dropped before any classification or write.
+            _news_excludes = [str(x).strip().lower()
+                              for x in (brand.get("config", {}).get("news_keyword_excludes") or [])
+                              if str(x).strip()]
             for uri, title, summary, art_topic, art_score, art_source, art_factual, art_sent in articles:
                 title = title or ''
                 summary = summary or ''
+
+                if _news_excludes:
+                    _blob = f"{title} {summary}".lower()
+                    if any(x in _blob for x in _news_excludes):
+                        continue
 
                 # Source-authority stamp for articles that missed ingest-time enrichment.
                 if _mbfc is not None and not art_factual and art_source:

@@ -75,6 +75,21 @@ attaches recurring same-source signals to one continuing issue. Issue tables wer
 truncated and rebuilt on all three tenants after each fix (safe only because zero
 `bw_issue_overrides` existed).
 
+### Per-brand negative keywords for news classification
+The wbm Wiley narrative's positive signals cited Wiley University (a Texas HBCU, not
+the publisher) — the article scored relevance 0.40, exactly on the inclusive `>= 0.4`
+gate, so it passed every filter. Rather than moving the platform-wide threshold, brands
+now support `config.news_keyword_excludes` (the news-side mirror of
+`social_keyword_excludes`): the tracker drops a candidate article before any
+classification or DB write when its title+summary contains an exclude term. Configured
+for the Wiley brand on wbm, wileytest, and bugfixing (`["wiley university",
+"hbcuac"]`), and existing contamination purged (wbm: 4 category rows + 1 screening
+verdict; wileytest: 4 + 2; no issue memberships or risk rows were affected).
+Verification: unit cases pass (both university articles excluded, the bribery and
+fiscal-results articles kept, unconfigured brands unchanged); post-purge query returns
+zero matching category rows. Config lives in `bw_brands.config` (jsonb) — set via
+`jsonb_set`, no schema change.
+
 ### Issue-lifecycle wording — "no active issues" now explains itself
 The first production narrative read "no active issues" in the same paragraph as a list
 of risk findings — both true (the bribery issue had expired Aug 3 under the 14-day
