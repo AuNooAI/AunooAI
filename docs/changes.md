@@ -104,8 +104,14 @@ expiry dates; the regenerated wbm Wiley narrative (gpt-5.4, reviewed) reads "No 
 risk issues are recorded; two medium-severity matters resolved during the period — a
 peer reviewer bribery investigation (fraud_integrity, coverage July 20, expired
 August 3)…". Copied to all six tenant trees (hash-verified), all services restarted
-after clean checks. The UI issue panel does not yet show resolved issues — the API
-field is there when it wants one.
+after clean checks. Follow-up the same evening: the UI issue panel now renders a muted
+"Resolved in this period" section from the same field ("coverage ended …, expired …
+after N days without new coverage"), deployed to all seven tenants (typecheck clean,
+new chunk verified serving on wbm). Also checked on request: wbm's Competitive
+Landscape 20.5x attention spike is five syndicated copies of one stock-comparison
+wire story (MarketBeat-family sources), correctly classified and on-entity — the
+follow-on would be counting attention by story group instead of by article, since
+story dedup already exists.
 
 ### Regression after release — narrative 500 on brands with social posts
 The first production regenerate on wbm returned 500: `name '_POSITIVE_LABELS' is not

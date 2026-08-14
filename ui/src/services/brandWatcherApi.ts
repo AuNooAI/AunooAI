@@ -1365,6 +1365,8 @@ export interface BWIssue {
   momentum: 'spreading' | 'persisting' | 'fading';
   sector_wide?: string[];
   sector_wide_display?: boolean;
+  expired_on?: string;    // resolved issues only
+  expiry_days?: number;   // resolved issues only
 }
 
 export interface BWRiskAssessment {
@@ -1373,6 +1375,7 @@ export interface BWRiskAssessment {
   end: string;
   risk_level: 'high' | 'medium' | 'low' | null;
   active_issues: BWIssue[];
+  resolved_issues?: BWIssue[];
   attention: {
     available: boolean;
     reason?: string;

@@ -3420,6 +3420,21 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       {ra && ra.active_issues.length === 0 && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">No adverse events currently open for this brand.</p>
                       )}
+                      {/* Resolved in the window: so "no active issues" carries its own explanation */}
+                      {(ra?.resolved_issues?.length ?? 0) > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                          <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Resolved in this period</p>
+                          <div className="space-y-1.5">
+                            {ra!.resolved_issues!.map(iss => (
+                              <p key={iss.id} className="text-[11px] text-gray-400 leading-snug">
+                                <span className="font-semibold uppercase">{iss.severity}</span>
+                                {' '}{iss.primary_type.replace(/_/g, ' ')}: {iss.title.length > 70 ? iss.title.slice(0, 70) + '…' : iss.title}
+                                {' — '}coverage ended {iss.last_seen}, expired {iss.expired_on} after {iss.expiry_days} days without new coverage
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {/* Attention: coverage volume vs the brand's own normal — reported separately from risk */}
                       {ra?.attention && (
                         <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
