@@ -170,11 +170,26 @@ def social_ref(uri: str, fallback: Optional[str] = None) -> dict:
     m = re.match(r'https?://(?:www\.)?reddit\.com/(r/[^/?#]+)', u)
     if m:
         sub = m.group(1)
+        # The URL only names the subreddit; the posting account arrives via
+        # `fallback` (from social_meta). With it, the account leads the card and
+        # the subreddit stays alongside as `community`.
+        if fallback:
+            h = re.sub(r'^(@|u/)', '', fallback)
+            return {"short": "u/" + h, "profile": f"https://reddit.com/user/{h}",
+                    "community": sub, "community_url": f"https://reddit.com/{sub}",
+                    "post": u, "platform": "Reddit", "kind": "social"}
         return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u,
                 "platform": "Reddit", "kind": "social"}
     m = re.match(r'https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/', u)
     if m:
-        return {"short": fallback or "Instagram post", "profile": u, "post": u,
+        # Instagram post URLs are just a shortcode — the username never appears
+        # in them, so it has to arrive via `fallback` (looked up from the
+        # collected article's social_meta).
+        if fallback:
+            h = fallback.lstrip('@')
+            return {"short": "@" + h, "profile": f"https://www.instagram.com/{h}/",
+                    "post": u, "platform": "Instagram", "kind": "social"}
+        return {"short": "Instagram post", "profile": u, "post": u,
                 "platform": "Instagram", "kind": "social"}
     m = re.match(r'https?://(?:www\.)?tiktok\.com/(@[^/?#]+)/video/', u)
     if m:
@@ -198,15 +213,54 @@ def linkify_handles_md(md: str, matches: Optional[List[dict]]) -> str:
     prefixes don't mis-link; skips handles already inside a link."""
     if not md or not matches:
         return md
+    authors = _social_post_authors(matches)
     prof = {}
     for m in matches:
-        r = social_ref(m.get("article_uri", ""))
-        if r["short"].startswith("@") and r["profile"] and r["profile"] != "#":
+        uri = m.get("article_uri", "")
+        r = social_ref(uri, authors.get((uri or "").strip()))
+        if r["short"].startswith(("@", "u/")) and r["profile"] and r["profile"] != "#":
             prof.setdefault(r["short"], r["profile"])
     for h in sorted(prof, key=len, reverse=True):
         md = re.sub(r'(?<![\[\w/])' + re.escape(h) + r'(?![\w.])',
                     f'[{h}]({prof[h]})', md)
     return md
+
+
+_AUTHORLESS_URL = re.compile(
+    r'https?://(?:www\.)?(?:instagram\.com/(?:p|reel|tv)/|reddit\.com/r/)')
+
+
+def _social_post_authors(matches: List[dict]) -> Dict[str, str]:
+    """Map post URIs to their account names for platforms whose post URLs don't
+    carry the username (Instagram: just a shortcode; Reddit: just the
+    subreddit). The name comes from the collected article's social_meta
+    (written by the xpoz collector). One IN-query for all posts; failures just
+    mean the cards keep their URL-derived label."""
+    uris = [u for u in ((m.get("article_uri") or "").strip() for m in matches)
+            if _AUTHORLESS_URL.match(u)]
+    if not uris:
+        return {}
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        qs = ",".join("?" * len(uris))
+        rows = db.fetch_all(
+            f"SELECT uri, social_meta FROM articles WHERE uri IN ({qs})", uris)
+    except Exception as e:
+        logger.warning(f"Social author lookup failed: {e}")
+        return {}
+    authors = {}
+    for row in rows or []:
+        meta = row.get("social_meta")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = None
+        author = (meta or {}).get("author")
+        if author:
+            authors[row["uri"]] = str(author)
+    return authors
 
 
 def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
@@ -215,9 +269,11 @@ def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
     online report so both show the same complete, navigable source list."""
     if not matches:
         return ""
+    authors = _social_post_authors(matches)
     cards = []
     for m in matches:
-        r = social_ref(m.get("article_uri", ""))
+        uri = m.get("article_uri", "")
+        r = social_ref(uri, authors.get((uri or "").strip()))
         summary = (m.get("summary") or "").strip()
         threat = (m.get("threat_level") or "medium").lower()
         conf = m.get("confidence", 0) or 0
@@ -229,11 +285,14 @@ def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
         link_label = "view post" if r.get("kind") == "social" else "read article"
         post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">{link_label} ↗</a>'
                      if r["post"] and r["post"] != "#" else "")
+        community = (f' <span style="color:#888;">·</span> '
+                     f'<a href="{r["community_url"]}" style="color:#4055c6;text-decoration:none;">{r["community"]}</a>'
+                     if r.get("community") else "")
         cards.append(
             '<div style="margin:0 0 12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-radius:8px;">'
             '<p style="margin:0 0 6px 0;">'
             f'<a href="{r["profile"]}" style="color:#4055c6;font-weight:bold;text-decoration:none;">{r["short"]}</a>'
-            f'<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
+            f'{community}<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
             f'<p style="margin:0 0 6px 0;color:#333;">{summary}</p>'
             '<p style="margin:0;font-size:12px;color:#555;"><strong>Priority:</strong> '
             f'<span style="color:{color};font-weight:bold;">{threat.upper()}</span> &nbsp;|&nbsp; '

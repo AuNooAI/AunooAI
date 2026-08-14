@@ -2,6 +2,59 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-14 — Signal alert source cards: Instagram and Reddit account names
+
+### Goal
+A wbm signal alert card for an Instagram post (Wiley $44M AI-licensing criticism) showed
+"Instagram post" where every other platform shows the account handle. The user asked why.
+
+### Fix — **`app/services/email_service.py`** (`94766b9f`)
+`social_ref()` derives the display handle by parsing the post URL, which works for X,
+Bluesky, and TikTok because their post URLs contain the username. An Instagram post URL
+is only a shortcode (`instagram.com/p/Db1fGXlysfi`), so the function fell back to the
+literal label "Instagram post" and linked "profile" to the post itself. A Reddit post
+URL names only the subreddit, so cards showed `r/sub` with no account — two posts by
+the same account in different subreddits looked unrelated. In both cases the username
+was already collected — the xpoz collector writes it to
+`articles.social_meta->>'author'` (100% author coverage on wbm: 1,216 Instagram /
+1,244 Reddit posts; wileytest: 461 / 569) — it just was never consulted.
+
+New helper `_social_post_authors()` runs one `IN`-query over the matched Instagram and
+Reddit URIs, and `render_matched_sources_html()` passes the result into `social_ref()`
+as its existing `fallback` argument. Instagram cards get `@handle` plus a real
+`instagram.com/<handle>/` profile link. Reddit cards lead with the account
+(`u/<name>` → `reddit.com/user/<name>`) and keep the subreddit alongside via new
+`community`/`community_url` fields the card renderer appends: the header reads
+`u/VSJBSHS · r/ONLINECLASSSOS · Reddit`. Lookup failure logs a warning and keeps the
+old URL-derived labels. Because rendering happens at view time from stored
+`alerts_data`, previously saved reports pick the fix up too — no backfill needed.
+`linkify_handles_md()` (which turns plain handles in the report narrative into profile
+links, previously X/Bluesky only) uses the same lookup, so `@handle` and `u/<name>`
+mentions in narrative text link to the profile as well.
+
+### Verification
+Unit: `social_ref('https://instagram.com/p/Db1fGXlysfi', 'erik.jia')` →
+`@erik.jia` / `https://www.instagram.com/erik.jia/`; no-fallback and X/web cases
+unchanged. Live: report 663 on the running wbm service (the report containing the
+triggering alert, signal_alerts id 37045) fetched via its tokenized download URL now
+renders `@erik.jia` linked to the profile, "view post ↗" alongside. Reddit (against
+live wbm data): a match on `r/FreeTextBook/comments/1uen8r0/…` renders
+`u/AcademicWater3862` → `reddit.com/user/AcademicWater3862` plus the subreddit link,
+with the Instagram card unchanged in the same report. Linkify: plain `@erik.jia` and
+`u/AcademicWater3862` in narrative text gain profile links; an occurrence already
+inside a markdown link is left untouched.
+
+### Propagation
+Committed in canonical (bugfixing, `94766b9f`, branch
+`emergencyfix/embedding-health-latency-load`, not yet pushed). File copied whole to
+abm, bwtemplate, wbm, wiley, wileytest — all six trees md5-identical afterwards.
+ibaset's copy has a deliberate "Threat:" label divergence, so the same edits were
+applied surgically there; a label-masked diff confirms it otherwise matches canonical.
+All seven services restarted (08:36) after confirming no past-due observer agents
+(`schedule_enabled AND next_run_at < now()` empty on every tenant — a restart runs those
+immediately and re-sends alert emails) and no live tracker runs (all `running` rows
+were ≥8 days stale). All services active after restart.
+
 ## 2026-08-13 — Customer-defined escalation tiers: severity language returns, on the customer's terms
 
 ### Goal
