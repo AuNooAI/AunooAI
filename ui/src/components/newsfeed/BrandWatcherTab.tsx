@@ -41,12 +41,13 @@ import {
   getOfficialSourcesStatus, pollOfficialSourcesNow, getStorySiblings, getArticles,
   listIncidents, createIncident,
   attachIncidentEvidence,
-  getEmployeeRisk, getRiskSummary, updateBrandConfig, pollOfficialSourcesNow,
+  getEmployeeRisk, getRiskSummary, getRiskAssessment, updateBrandConfig, pollOfficialSourcesNow,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
   type BWIncident,
   type BWEmployeeRisk, type BWRiskSummary, type BWGlassdoorOverview,
+  type BWRiskAssessment, type BWIssue,
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   searchWikidata, type SuggestionVerification,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
@@ -547,6 +548,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // Per-brand adverse-risk rollup (feeds the Analysis tab + HTML report).
   const [riskSummary, setRiskSummary] = useState<BWRiskSummary | null>(null);
+  const [riskAssessment, setRiskAssessment] = useState<BWRiskAssessment | null>(null);
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -1221,39 +1223,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     loadIncidents();
   }, [selectedBrand?.id, loadIncidents]);
 
-  // Brand risk score from weekly news sentiment + spike alerts. Mirrors the backend
-  // narrative formula: base negative level + worsening-trend penalty + alert weight.
-  const computeBrandRisk = useCallback(() => {
-    const weekly: Record<string, { neg: number; total: number }> = {};
-    for (const t of sentimentTrends) {
-      const w = (t.week || '').slice(0, 10);
-      if (!weekly[w]) weekly[w] = { neg: 0, total: 0 };
-      for (const [s, cnt] of Object.entries(t.sentiments)) {
-        const lo = s.toLowerCase();
-        if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical') || lo.includes('alarm')) weekly[w].neg += cnt;
-        weekly[w].total += cnt;
-      }
-    }
-    const weeks = Object.keys(weekly).sort();
-    const sum = (ws: string[], k: 'neg' | 'total') => ws.reduce((a, w) => a + weekly[w][k], 0);
-    const recent = weeks.slice(-4), older = weeks.slice(-8, -4);
-    const recentTotal = sum(recent, 'total'), olderTotal = sum(older, 'total');
-    const recentNegPct = recentTotal ? (sum(recent, 'neg') / recentTotal) * 100 : 0;
-    // No prior-period data means no trend claim — a 0% baseline would make the
-    // trend delta equal the level itself and double-count it in the score.
-    const negTrend = olderTotal ? recentNegPct - (sum(older, 'neg') / olderTotal) * 100 : 0;
-    const alertCount = brandAlerts.length;
-    const highAlerts = brandAlerts.filter(a => a.severity === 'high').length;
-    // Damp sentiment terms by sample size (matches the backend narrative formula):
-    // high negative % over a handful of scored articles is weak evidence.
-    const sampleDamp = Math.min(1, recentTotal / 20);
-    const trendDamp = sampleDamp * Math.min(1, olderTotal / 20);
-    const riskScore = Math.min(100, Math.round(
-      recentNegPct * 1.5 * sampleDamp + (negTrend > 0 ? negTrend * 2 * trendDamp : 0) + alertCount * 5 + highAlerts * 10));
-    const riskLevel = riskScore >= 60 ? 'High' : riskScore >= 30 ? 'Elevated' : 'Low';
-    return { riskScore, riskLevel, recentNegPct, negTrend, alertCount, highAlerts };
-  }, [sentimentTrends, brandAlerts]);
-
   // Weekly news-vs-social net-sentiment line chart, shared by the Dashboard and
   // Brand Analysis tabs (same data, different anchor ids for chart download).
   const renderSentimentTimeline = useCallback((chartId: string) => {
@@ -1824,6 +1793,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       .then(setRiskSummary).catch(console.error);
   }, [activeTab, primarySelectedId, config.daysBack]);
 
+  // --- Brand Risk v2 assessment (active issues + attention; replaces the old
+  // client-side 0-100 score) for the Dashboard and Analysis tabs ---
+  useEffect(() => {
+    if (!primarySelectedId || (activeTab !== 'analysis' && activeTab !== 'dashboard')) return;
+    setRiskAssessment(null);
+    getRiskAssessment(primarySelectedId)
+      .then(setRiskAssessment).catch(console.error);
+  }, [activeTab, primarySelectedId, config.daysBack]);
+
   // --- Refresh social when the period/topics change (handleTabChange only fires on tab switch) ---
   useEffect(() => {
     if (activeTab !== 'social' && activeTab !== 'dashboard') return;
@@ -1973,6 +1951,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         allBrandTopics ? getSocialPosts(allBrandTopics, config.daysBack, 0.4, undefined, false, { limit: 2000 }).then(r => r.posts || []).catch(() => benchPosts || []) : Promise.resolve(null),
         getPerception(config.daysBack).catch(() => null),
       ]);
+      const assessD = bid ? await getRiskAssessment(bid).catch(() => riskAssessment) : null;
       downloadBrandWatcherReport({
         brand: selectedBrand,
         daysBack: config.daysBack,
@@ -1984,6 +1963,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         narrative: narrativeD,
         social: socialD,
         riskSummary: riskD,
+        riskAssessment: assessD,
         incidents: incidentsD,
         employee: employeeD,
         allBrandPosts: lanePostsD,
@@ -1998,7 +1978,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, selectedBrand, config.daysBack, config.selectedTopics, stats, categories,
       comparison, shareOfVoice, social, sentimentTrends, brandAlerts, narrative,
-      brands, riskSummary, employeeRisk, benchPosts]);
+      brands, riskSummary, riskAssessment, employeeRisk, benchPosts]);
 
   // --- Dedicated Social report (HTML) — social listening only, not the full brand report ---
   const handleExportSocialReport = useCallback(async () => {
@@ -2465,6 +2445,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     ExportService.exportBrandWatcherMarkdown({
                       brandName: selectedBrand?.display_name,
                       daysBack: config.daysBack, stats, categories,
+                      riskAssessment,
                       sentimentTrends, comparison, shareOfVoice,
                       alerts: brandAlerts, narrative, articles,
                       temporalData, selectedBrand,
@@ -3378,112 +3359,91 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               negPct: weeklyMap[w].total > 0 ? Math.round((weeklyMap[w].Negative / weeklyMap[w].total) * 100) : 0,
             }));
 
-            // Brand Risk Score: compare recent 4 weeks vs previous 4 weeks negative %
-            const recentWeeks = timeData.slice(-4);
-            const olderWeeks = timeData.slice(-8, -4);
-            const recentNeg = recentWeeks.reduce((a, w) => a + w.Negative, 0);
-            const recentTotal = recentWeeks.reduce((a, w) => a + w.total, 0);
-            const olderNeg = olderWeeks.reduce((a, w) => a + w.Negative, 0);
-            const olderTotal = olderWeeks.reduce((a, w) => a + w.total, 0);
-            const recentNegPct = recentTotal > 0 ? (recentNeg / recentTotal) * 100 : 0;
-            const olderNegPct = olderTotal > 0 ? (olderNeg / olderTotal) * 100 : 0;
-            const negTrend = recentNegPct - olderNegPct; // positive = worsening
-            const alertCount = brandAlerts.length;
-            const highAlerts = brandAlerts.filter(a => a.severity === 'high').length;
-
-            // Composite risk: 0-100 scale
-            const riskScore = Math.min(100, Math.round(
-              (recentNegPct * 1.5) + // base negative level
-              (negTrend > 0 ? negTrend * 2 : 0) + // worsening trend penalty
-              (alertCount * 5) + // spike alerts
-              (highAlerts * 10) // high-severity bonus
-            ));
-            const riskLevel = riskScore >= 60 ? 'High' : riskScore >= 30 ? 'Elevated' : 'Low';
-            const riskColor = riskScore >= 60 ? 'red' : riskScore >= 30 ? 'orange' : 'green';
-
             return (
               <>
-                {/* Brand Risk Score */}
-                <div className={`bg-white dark:bg-gray-800 rounded-lg border p-5 ${
-                  riskColor === 'red' ? 'border-red-300 dark:border-red-700'
-                  : riskColor === 'orange' ? 'border-orange-300 dark:border-orange-700'
-                  : 'border-gray-200 dark:border-gray-700'
-                }`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 cursor-help" title="Composite screen over the window: negative-coverage share, high-severity risk findings, alert spikes and workforce signal roll into a green / amber / red verdict. The facts driving it are listed below.">
-                      Brand Risk Assessment
-                      {riskColor !== 'green' && <AlertTriangle className={`w-4 h-4 ${riskColor === 'red' ? 'text-red-500' : 'text-orange-500'}`} />}
-                    </h3>
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                      riskColor === 'red' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                      : riskColor === 'orange' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                {/* Brand Risk Assessment — active issues (event-driven; the 0-100 score is retired) */}
+                {(() => {
+                  const ra = riskAssessment;
+                  const level = ra?.risk_level ?? null;
+                  const tone = level === 'high' ? 'red' : level === 'medium' ? 'orange' : level === 'low' ? 'amber' : 'green';
+                  const badge = !ra ? 'Loading…'
+                    : ra.active_issues.length === 0 ? 'No active issues'
+                    : `${ra.active_issues.length} active issue${ra.active_issues.length === 1 ? '' : 's'} · ${level} severity`;
+                  return (
+                    <div className={`bg-white dark:bg-gray-800 rounded-lg border p-5 ${
+                      tone === 'red' ? 'border-red-300 dark:border-red-700'
+                      : tone === 'orange' ? 'border-orange-300 dark:border-orange-700'
+                      : tone === 'amber' ? 'border-amber-300 dark:border-amber-700'
+                      : 'border-gray-200 dark:border-gray-700'
                     }`}>
-                      {riskLevel} Risk
-                    </span>
-                  </div>
-                  {/* Risk meter */}
-                  <div className="relative h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden mb-3">
-                    <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{
-                      width: `${riskScore}%`,
-                      background: riskScore >= 60 ? 'linear-gradient(90deg, #f87171, #dc2626)'
-                        : riskScore >= 30 ? 'linear-gradient(90deg, #fb923c, #ea580c)'
-                        : 'linear-gradient(90deg, #4ade80, #16a34a)',
-                    }} />
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                    <div>
-                      <span className="text-gray-500 dark:text-gray-400">Risk Score</span>
-                      <p className={`font-bold text-base ${
-                        riskColor === 'red' ? 'text-red-600 dark:text-red-400'
-                        : riskColor === 'orange' ? 'text-orange-600 dark:text-orange-400'
-                        : 'text-green-600 dark:text-green-400'
-                      }`}>{riskScore}/100</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 dark:text-gray-400">Recent Neg %</span>
-                      <p className="font-semibold text-gray-800 dark:text-gray-200">{recentNegPct.toFixed(1)}%</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 dark:text-gray-400">Neg Trend (4wk)</span>
-                      <p className={`font-semibold ${negTrend > 2 ? 'text-red-600 dark:text-red-400' : negTrend < -2 ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
-                        {negTrend > 0 ? '+' : ''}{negTrend.toFixed(1)}pp {negTrend > 2 ? '↑' : negTrend < -2 ? '↓' : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 dark:text-gray-400">Active Alerts</span>
-                      <p className="font-semibold text-gray-800 dark:text-gray-200">{alertCount}{highAlerts > 0 ? ` (${highAlerts} high)` : ''}</p>
-                    </div>
-                  </div>
-                  {/* Risk factors */}
-                  {riskScore >= 30 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                      <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Contributing Factors</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {recentNegPct >= 15 && (
-                          <span className="text-[10px] px-2 py-0.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
-                            High negative volume ({recentNegPct.toFixed(0)}%)
-                          </span>
-                        )}
-                        {negTrend > 2 && (
-                          <span className="text-[10px] px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-full border border-orange-200 dark:border-orange-800">
-                            Negative sentiment rising (+{negTrend.toFixed(1)}pp)
-                          </span>
-                        )}
-                        {highAlerts > 0 && (
-                          <span className="text-[10px] px-2 py-0.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
-                            {highAlerts} high-severity spike{highAlerts !== 1 ? 's' : ''}
-                          </span>
-                        )}
-                        {alertCount > 0 && highAlerts === 0 && (
-                          <span className="text-[10px] px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-full border border-orange-200 dark:border-orange-800">
-                            {alertCount} category spike{alertCount !== 1 ? 's' : ''}
-                          </span>
-                        )}
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 cursor-help" title="Event-driven assessment: adverse events found in coverage are grouped into issues and classified by type and severity. The level shown is the most severe active issue — never a blended score. Coverage volume is reported separately as attention.">
+                          Brand Risk Assessment
+                          {(tone === 'red' || tone === 'orange') && <AlertTriangle className={`w-4 h-4 ${tone === 'red' ? 'text-red-500' : 'text-orange-500'}`} />}
+                        </h3>
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                          tone === 'red' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          : tone === 'orange' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                          : tone === 'amber' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                          : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        }`}>{badge}</span>
                       </div>
+                      {ra?.escalation_tier && (
+                        <div className="mb-3 px-3 py-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                          <p className="text-xs font-bold text-red-700 dark:text-red-400 uppercase tracking-wide">{ra.escalation_tier.label}</p>
+                          <p className="text-[11px] text-red-600 dark:text-red-300 mt-0.5">Customer-defined status — triggered by: {ra.escalation_tier.triggered.join('; ')}</p>
+                        </div>
+                      )}
+                      {ra && ra.active_issues.length > 0 && (
+                        <div className="space-y-2.5">
+                          {ra.active_issues.map(iss => (
+                            <div key={iss.id} className="flex items-start gap-2.5">
+                              <span className={`mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                iss.severity === 'high' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                : iss.severity === 'medium' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                              }`}>{iss.severity}</span>
+                              <div className="min-w-0">
+                                <p className="text-sm text-gray-800 dark:text-gray-200 font-medium leading-snug">
+                                  <span className="text-gray-500 dark:text-gray-400">{iss.primary_type.replace(/_/g, ' ')}{iss.secondary_types.length ? ` (+${iss.secondary_types.map(t => t.replace(/_/g, ' ')).join(', ')})` : ''}:</span> {iss.title}
+                                </p>
+                                {iss.justification && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{iss.justification}</p>}
+                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                  {iss.articles} article{iss.articles === 1 ? '' : 's'} · {iss.sources} source{iss.sources === 1 ? '' : 's'} · first seen {iss.first_seen} · {iss.momentum}
+                                  {iss.sector_wide_display && iss.sector_wide?.length ? ` · sector-wide (also covered for ${iss.sector_wide.join(', ')})` : ''}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {ra && ra.active_issues.length === 0 && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">No adverse events currently open for this brand.</p>
+                      )}
+                      {/* Attention: coverage volume vs the brand's own normal — reported separately from risk */}
+                      {ra?.attention && (
+                        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                          <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5" title="Coverage volume vs this brand's own weekly average. High volume is visibility, not risk — hostile events show up above as issues.">Attention — coverage volume, not risk</p>
+                          {ra.attention.available ? (
+                            (ra.attention.category_spikes?.length ?? 0) > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {ra.attention.category_spikes!.map(s => (
+                                  <span key={s.category} className="text-[10px] px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-full border border-blue-200 dark:border-blue-800">
+                                    {s.category} at {s.multiple}x normal ({s.recent} vs {s.weekly_avg}/wk)
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-gray-400">Coverage volume within the normal range for this brand{ra.attention.overall_multiple != null ? ` (${ra.attention.overall_multiple}x weekly average)` : ''}.</p>
+                            )
+                          ) : (
+                            <p className="text-[11px] text-gray-400">Not yet computed — {ra.attention.reason}.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Sentiment Over Time — area chart */}
                 <div id="chart-brand-sentiment" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -3534,23 +3494,38 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       <Legend wrapperStyle={{ fontSize: '11px' }} />
                     </AreaChart>
                   </ResponsiveContainer>
-                  {/* Negative trend annotation */}
-                  {negTrend > 2 && (
-                    <div className="flex items-center gap-2 mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                      <TrendingUp className="w-4 h-4 text-red-500 flex-shrink-0" />
-                      <span className="text-xs text-red-700 dark:text-red-300">
-                        Negative sentiment is trending up — <strong>+{negTrend.toFixed(1)} percentage points</strong> over the last 4 weeks vs prior 4 weeks
-                      </span>
-                    </div>
-                  )}
-                  {negTrend < -2 && (
-                    <div className="flex items-center gap-2 mt-3 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                      <TrendingUp className="w-4 h-4 text-green-500 flex-shrink-0 rotate-180" />
-                      <span className="text-xs text-green-700 dark:text-green-300">
-                        Negative sentiment is improving — <strong>{negTrend.toFixed(1)} percentage points</strong> over the last 4 weeks vs prior 4 weeks
-                      </span>
-                    </div>
-                  )}
+                  {/* Negative trend annotation — chart-local observation; requires a
+                      real prior-4-week baseline in the chart data before claiming a trend */}
+                  {(() => {
+                    const pct = (ws: typeof timeData) => {
+                      const n = ws.reduce((a, w) => a + w.Negative, 0);
+                      const t = ws.reduce((a, w) => a + w.total, 0);
+                      return t > 0 ? (n / t) * 100 : null;
+                    };
+                    const rp = pct(timeData.slice(-4));
+                    const pp = timeData.length >= 8 ? pct(timeData.slice(-8, -4)) : null;
+                    const chartTrend = rp != null && pp != null ? rp - pp : 0;
+                    return (
+                      <>
+                        {chartTrend > 2 && (
+                          <div className="flex items-center gap-2 mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                            <TrendingUp className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <span className="text-xs text-red-700 dark:text-red-300">
+                              Negative sentiment is trending up — <strong>+{chartTrend.toFixed(1)} percentage points</strong> over the last 4 weeks vs prior 4 weeks
+                            </span>
+                          </div>
+                        )}
+                        {chartTrend < -2 && (
+                          <div className="flex items-center gap-2 mt-3 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                            <TrendingUp className="w-4 h-4 text-green-500 flex-shrink-0 rotate-180" />
+                            <span className="text-xs text-green-700 dark:text-green-300">
+                              Negative sentiment is improving — <strong>{chartTrend.toFixed(1)} percentage points</strong> over the last 4 weeks vs prior 4 weeks
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </>
             );
@@ -3946,7 +3921,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <>
                   {/* Verdict header: composite risk + the facts driving it */}
                   {(() => {
-                    const risk = computeBrandRisk();
+                    const raIssues = riskAssessment?.active_issues ?? [];
+                    const raLevel = riskAssessment?.risk_level ?? null;
+                    const raSpikes = riskAssessment?.attention?.available ? (riskAssessment.attention.category_spikes ?? []) : [];
                     const bucketNet = (sb: Record<string, number>) => {
                       let p = 0, n = 0, t = 0;
                       for (const [s, c] of Object.entries(sb || {})) {
@@ -3967,14 +3944,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     const outlook = employeeRisk?.overview?.business_outlook_rating != null
                       ? Math.round(employeeRisk.overview.business_outlook_rating * 100) : null;
                     const bits: string[] = [];
-                    if (risk.negTrend > 5) bits.push(`negative news trend worsening ${Math.round(risk.negTrend)}pts over 4 weeks`);
-                    else if (risk.negTrend < -5) bits.push(`negative news trend improving ${Math.abs(Math.round(risk.negTrend))}pts over 4 weeks`);
+                    for (const iss of raIssues.slice(0, 2)) bits.push(`${iss.severity}-severity ${iss.primary_type.replace(/_/g, ' ')} issue (${iss.articles} article${iss.articles === 1 ? '' : 's'}, ${iss.momentum})`);
+                    if (raSpikes.length) bits.push(`coverage at ${raSpikes[0].multiple}x normal in ${raSpikes[0].category}`);
                     if (newsNet != null && compAvg != null && newsNet - compAvg <= -15) bits.push(`sentiment ${Math.abs(newsNet - compAvg)}pts below competitor average`);
                     if (highRisks) bits.push(`${highRisks} high-severity risk finding${highRisks === 1 ? '' : 's'}`);
                     if (openInc) bits.push(`${openInc} open incident${openInc === 1 ? '' : 's'}`);
                     if (outlook != null && outlook < 45) bits.push(`employee outlook weak (${outlook}% positive)`);
                     const verdictLine = bits.length ? bits.join(' · ') : 'no elevated signals in the current window';
-                    const tone = risk.riskLevel === 'High' ? 'red' : risk.riskLevel === 'Elevated' ? 'orange' : 'green';
+                    const tone = raLevel === 'high' ? 'red' : raLevel === 'medium' ? 'orange' : 'green';
                     const stat = (label: string, value: string, sub?: string | null, jump?: SubTab, bad?: boolean, tip?: string) => (
                       <div key={label} onClick={jump ? () => handleTabChange(jump) : undefined} title={tip} className={jump ? 'cursor-pointer' : tip ? 'cursor-help' : ''}>
                         <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">{label}{jump ? ' →' : ''}</div>
@@ -3991,11 +3968,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                           <div>
                             <div className="text-[10.5px] uppercase tracking-wide text-gray-400 font-semibold">Brand risk</div>
                             <div className={`text-2xl font-bold ${tone === 'red' ? 'text-red-600' : tone === 'orange' ? 'text-orange-500' : 'text-emerald-600'}`}>
-                              {risk.riskLevel} <span className="text-sm font-medium text-gray-400">{risk.riskScore}/100</span>
+                              {riskAssessment == null ? '…' : raIssues.length === 0 ? 'No active issues' : `${raIssues.length} issue${raIssues.length === 1 ? '' : 's'}`} {raLevel && <span className="text-sm font-medium text-gray-400">{raLevel} severity</span>}
                             </div>
                           </div>
                           {stat('News net', newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, compAvg != null ? `comp avg ${compAvg > 0 ? '+' : ''}${compAvg}` : null, undefined, newsNet != null && newsNet < 0, 'Net news sentiment for this brand in the window: (positive − negative) ÷ scored × 100' + (compAvg != null ? `; competitor average ${compAvg > 0 ? '+' : ''}${compAvg}` : ''))}
-                          {stat('4-wk trend', `${risk.negTrend > 0 ? '+' : ''}${Math.round(risk.negTrend)}pts`, 'negative share', undefined, risk.negTrend > 5, 'Change in the negative share of coverage over the last 4 weeks vs the prior 4 — rising means coverage is souring')}
+                          {stat('Attention', riskAssessment?.attention?.available ? `${riskAssessment.attention.overall_multiple ?? '—'}x` : '—', 'vs weekly avg', undefined, raSpikes.length > 0, 'Coverage volume in the last 7 days vs this brand\'s own weekly average. Volume is visibility, not risk — adverse events appear as issues')}
                           {stat('High-sev risks', String(highRisks), `${riskSummary?.days_back || config.daysBack}d window`, undefined, highRisks > 0, 'High-severity adverse findings from the risk taxonomy (legal, regulatory, financial distress, misconduct, workforce, ESG) in the window')}
                           {stat('Open incidents', String(openInc), null, 'incidents' as SubTab, openInc > 0, 'Incident cases not yet resolved or closed — click to manage')}
                           {outlook != null && stat('Emp. outlook', `${outlook}%`, employeeRisk?.overview?.rating != null ? `${employeeRisk.overview.rating}/5 Glassdoor` : null, 'workforce' as SubTab, outlook < 45, 'Glassdoor business-outlook: share of employees expecting the company to do better — below 45% reads as weak. Click for the full workforce picture')}

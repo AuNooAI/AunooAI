@@ -1349,6 +1349,53 @@ export async function getRiskSummary(brandId: number, daysBack: number = 90): Pr
   return res.json();
 }
 
+// --- Brand Risk v2 (event-driven assessment; no 0-100 score) ---
+
+export interface BWIssue {
+  id: number;
+  title: string;
+  primary_type: string;
+  secondary_types: string[];
+  severity: 'high' | 'medium' | 'low';
+  justification?: string | null;
+  first_seen: string;
+  last_seen: string;
+  articles: number;
+  sources: number;
+  momentum: 'spreading' | 'persisting' | 'fading';
+  sector_wide?: string[];
+  sector_wide_display?: boolean;
+}
+
+export interface BWRiskAssessment {
+  brand_id: number;
+  start: string;
+  end: string;
+  risk_level: 'high' | 'medium' | 'low' | null;
+  active_issues: BWIssue[];
+  attention: {
+    available: boolean;
+    reason?: string;
+    window_days?: number;
+    overall_recent?: number;
+    overall_weekly_avg?: number;
+    overall_multiple?: number | null;
+    category_spikes?: { category: string; recent: number; weekly_avg: number; multiple: number }[];
+  };
+  eligible_peers: { id: number; name: string; articles: number }[];
+  escalation_tier: { label: string; triggered: string[]; window_days: number } | null;
+}
+
+export async function getRiskAssessment(brandId: number, start?: string, end?: string): Promise<BWRiskAssessment> {
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/brands/${brandId}/risk${qs ? `?${qs}` : ''}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch risk assessment: ${res.status}`);
+  return res.json();
+}
+
 export type BWSignalsMode = 'full' | 'validation' | 'reach';
 
 export async function runSignals(articleUri: string, brandId: number, force: boolean = false, mode: BWSignalsMode = 'full'): Promise<{ status: string; cached?: boolean }> {

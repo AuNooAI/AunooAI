@@ -2,6 +2,136 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-14 — Brand Risk v2: event-driven issues replace the 0–100 risk score
+
+### Goal
+The wbm Wiley report scored "Elevated (39/100)" driven 77% by neutral coverage-volume
+spikes, while the one genuinely risky article (a peer-review bribery investigation)
+contributed ~1.8 points. Oliver's verdict: frequency arithmetic on ~11 articles a week
+is not risk assessment. The 0–100 score and its Low/Elevated/High bands are retired;
+risk is now the maximum severity of *active issues* (grouped adverse events), coverage
+volume is a separate *Attention* readout, and severity language in the platform's own
+voice comes only from customer-defined escalation tiers. Design spec with the full
+review trail: `docs/BRAND_RISK_BENCHMARK_SPEC.md` (new, this commit).
+
+### Interim fix — one-article trend baseline (superseded same day)
+Before the redesign, the old formula's trend baseline was fixed: for a ~1-month report
+window the "prior 4 weeks" comparison actually used only the partial first week inside
+the window — for the Wiley report, a single article — because the 28-day fallback
+query only fired when that sliver was completely empty. The fix (fall back whenever
+fewer than 4 full baseline weeks exist, anchored to the recent period's start) shipped
+to all six monolith tenants plus ibaset at midday. Brand Risk v2 then deleted the
+formula entirely from canonical, wileytest, and wbm; abm/bwtemplate/wiley/ibaset still
+run the old formula with this fix until they get v2.
+
+### Schema — **`alembic/versions/bwr_001_brand_risk_v2_tables.py`**
+Four new tables and one column: `bw_screening_verdicts` (one row per screened
+article+brand, including explicit `no_risk_found`, with `model` and `prompt_version`,
+so screening coverage is distinguishable from silence), `bw_issues` /
+`bw_issue_articles` (grouped events with severity, type, seen-range),
+`bw_issue_overrides` (analyst merge/split corrections that survive rebuilds), and
+`bw_article_risks.justification` (the screener's one-sentence basis). Applied and
+probed with `to_regclass` on bugfixing (`test`), wileytest, and wbm — all three were at
+the same alembic head (`1204fb391c21`) beforehand.
+
+### Screening — **`app/services/brand_screening.py`** (new)
+Adverse screening moved out of `brand_watcher_routes.py` (aliases kept for old
+imports; `bw_official_sources.py` re-pointed). The gate widened from
+negative-or-risk-vocabulary to also include risk-relevant categories (Legal &
+Regulatory, Customer & Product Issues, Leadership & Governance, Brand Sentiment &
+Perception), the taxonomy gained `product_safety` (eighth type), the LLM now returns a
+one-sentence justification per finding, and every screened article gets a verdict row.
+Prompt version stamped `v2.0` on every verdict.
+
+### Issue model — **`app/services/brand_risk_assessment.py`** (new)
+`build_issues_for_brand()` groups risk-flagged articles into issues — one underlying
+event, assessed once — and runs at the end of every tracker run plus via
+`POST /brands/{id}/issues/rebuild`. Merge order: analyst override → same-source
+stream rule → shared story group → embedding-nominated candidate decided by a
+cheap-LLM same-event check. `get_assessment()` returns active issues *as of the
+requested end date* (severity-scaled expiry: high 28 days, medium 14, low 7, with
+reopen-on-return), an attention readout (last-7-days coverage vs the brand's own
+weekly average, computed directly from `articles` — see Lessons for why not
+`bw_daily_stats`), peer sector-wide flags (shown only when ≥2 peers have ≥20 scored
+in-window articles), and the fired escalation tier. `escalation_tiers.py` gained two
+rules (`active_issue_severity`, `active_issue_types`) so customers can key tiers off
+issues. New endpoint: `GET /api/brand-watcher/brands/{id}/risk?start=&end=` — it
+carries no score field.
+
+### Incident — first build over-merged; embedding similarity demoted to nominate-only
+The first backfill on wbm merged the bribery-investigation article into a
+Glassdoor-review-seeded issue at 0.899 cosine similarity, above the draft's 0.85
+auto-merge threshold. Measuring the full pairwise distribution showed the threshold is
+untunable on this encoder (`microsoft/deberta-base`, confirmed from the :8001 encoder
+service — a masked LM with no similarity training): two genuinely distinct events
+("Physicist fired over publishing scam" vs "Courant editors leave Wiley") score 0.982,
+exactly where same-story pairs sit. Fix: auto-merge only at ≥0.99 (near-duplicates;
+syndication is already caught by story groups), the LLM confirmation decides the
+0.85–0.99 band, and the confirm prompt states that same-topic ≠ same-event. A second
+fragmentation problem followed: the same-event question is ill-posed for Glassdoor
+review pairs and the model answered it inconsistently, splitting the stream into
+singletons — fixed with a deterministic `STREAM_SOURCES = {"glassdoor"}` rule that
+attaches recurring same-source signals to one continuing issue. Issue tables were
+truncated and rebuilt on all three tenants after each fix (safe only because zero
+`bw_issue_overrides` existed).
+
+### Narrative + UI switchover
+The generate-narrative route's formula block (weekly slicing, damping, score) is
+deleted; the prompt's risk-assessment block now lists active issues, the attention
+readout, window sentiment as distinct-article counts (fixing the old
+once-per-category double count), and the fired tier — with an explicit instruction
+that severity words are only permitted when a customer-defined status is present.
+In the React UI (`BrandWatcherTab.tsx`), both score surfaces (dashboard gauge card and
+analysis-tab verdict header) are replaced by an issue panel plus attention strip;
+`computeBrandRisk` is deleted. `exportService.ts` lost `bwComputeRisk`; markdown/PDF
+exports and the interactive HTML report (`brandReportHtml.ts`) render the issue list
+instead. The chart-level "negative trend" annotation was recomputed locally with a
+no-baseline guard. New API client types/function in `brandWatcherApi.ts`.
+
+### Verification
+`py_compile` on all changed backend files; UI `npm run typecheck` clean (246 known
+baseline errors, 0 new). Backfill (`scripts/backfill_brand_screening.py`, new, also
+the rollout tool): bugfixing 51 verdicts (31 risk_found) → 10 issues; wileytest 206
+verdicts (86) → 45 issues; wbm 198 verdicts (88) → 44 issues. As-of-date semantics
+checked on live endpoints: wbm Wiley shows the bribery issue active and "spreading" at
+end=2026-07-25, expired (medium, 14-day rule) at end=2026-08-14, where the assessment
+correctly reads "no active issues" with attention at 4.0× normal (Product & Innovation
+12.8×, Competitive Landscape 20.5×) — the inversion of the original 39/100 complaint.
+wbm Wiley's final issue set: one 7-review Glassdoor stream issue plus four separate
+event issues (bribery, physicist scam, Courant departure, open-access ESG piece).
+End-to-end narrative on bugfixing Elsevier (gpt-5.4-mini): 1,312 words, cites "1
+active medium issue (workforce_labor, fading)", contains no "/100" and no "Elevated".
+Served bundle checked: issue-panel strings present, zero `riskScore` references.
+
+### Propagation
+Live on bugfixing, wileytest, and wbm: backend files + `bwr_001` migration + full
+screening backfill + UI rebuild/rsync + service restarts (pre-restart agent/tracker
+checks all zero, three restart rounds). abm, bwtemplate, wiley prod, and ibaset still
+run the old formula (with the interim baseline fix) and have no v2 tables — port =
+copy the six backend files + migration + run the backfill script + rsync UI +
+restart. pearson stays excluded until its general catch-up. Note: wbm's
+`gpt-5.4-mini` alias routes to Bedrock Haiku 4.5 (its existing per-tenant routing);
+the ~200-article backfill ran on it. bugfixing's `module_config` had brand_watcher
+DISABLED since 07-30 (every BW route 404s when off) — enabled for verification and
+left on.
+
+### Lessons
+- NEVER auto-merge on embedding similarity from `articles.embedding`: the encoder is
+  raw `microsoft/deberta-base`, and distinct same-topic events score up to 0.982 —
+  indistinguishable from same-story pairs. Embeddings nominate; an LLM (or a
+  deterministic rule) decides. E5 would separate better (the saas propagation stack
+  measured 16–47% DeBERTa false positives) but `articles.embedding` is shared by the
+  whole platform — never repoint it for one feature.
+- `bw_daily_stats` is NOT a daily series: its updater writes the brand's all-time
+  cumulative category count into today's row on every tracker run (confirmed: wbm
+  values 252→285 over a week against a true daily volume of 0–5). Query `articles`
+  directly for volume baselines.
+- A tenant's `module_config` row can 404 an entire route family — check it before
+  debugging route registration.
+- TRUNCATE-and-rebuild of `bw_issues` is only safe while `bw_issue_overrides` is
+  empty; once analysts start correcting merges, rebuilds must respect overrides
+  (the builder does) and never truncate.
+
 ## 2026-08-14 — Signal alert source cards: Instagram and Reddit account names
 
 ### Goal

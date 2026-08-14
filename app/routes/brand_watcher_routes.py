@@ -19,6 +19,7 @@ import re
 import os
 
 from app.security.session import verify_session
+from app.services import brand_screening
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 from app.utils.keyword_normalizer import normalize_keyword_list
@@ -288,7 +289,7 @@ For example, instead of "Article X reports a data breach", write: "Data security
 Write a comprehensive brand intelligence narrative (600-1000 words) with these EXACT section headers (use ## markdown format). Do NOT add a document title, H1 heading, or any preamble — begin directly with "## Executive Summary":
 
 ## Executive Summary
-Key findings in 3-4 sentences. Synthesize the dominant narrative threads around this brand. What requires immediate attention? If the Brand Risk Assessment shows Elevated or High risk, explain what themes in the coverage are driving it.
+Key findings in 3-4 sentences. Synthesize the dominant narrative threads around this brand. What requires immediate attention? If the Brand Risk Assessment lists active issues, name the most severe one and what is driving it; if a CUSTOMER-DEFINED STATUS is in force, state it verbatim with its triggering numbers.
 
 ## Category Analysis
 What patterns emerge from the category distribution? Which areas have the most coverage? Synthesize what the articles in each major category are collectively saying about the brand — don't just report percentages.
@@ -297,7 +298,7 @@ What patterns emerge from the category distribution? Which areas have the most c
 YOU MUST use bullet points in this section. Format EXACTLY like this:
 
 - **Positive Signals**: [Synthesize themes from the positive articles. What recurring patterns of good news exist? Link to representative articles as evidence using [title](url) format.]
-- **Risk Indicators**: [Synthesize themes from the negative articles. What recurring patterns of concern exist? Reference the Brand Risk Assessment level and explain what themes are driving it, linking to representative articles as evidence using [title](url) format. Do NOT speculate — ground every claim in the articles provided.]
+- **Risk Indicators**: [Synthesize themes from the negative articles. What recurring patterns of concern exist? Reference the Brand Risk Assessment's active issues (type, severity, article/source counts) and explain what is driving them, linking to representative articles as evidence using [title](url) format. Do NOT speculate — ground every claim in the articles provided.]
 - **Competitive Position**: [How the brand is positioned vs competitors based on coverage themes]
 
 ## Social Pulse
@@ -319,7 +320,7 @@ CRITICAL FORMATTING REQUIREMENTS:
 - Use ## for section headers (H2 markdown)
 - MANDATORY: Sentiment & Reputation MUST use bullet points
 - MANDATORY: Forward-Looking Concerns MUST use bullet points
-- MANDATORY: If risk level is Elevated or High, the report MUST explicitly reference this assessment with its score and the themes driving it
+- MANDATORY: If the Brand Risk Assessment lists any active issue, the report MUST reference it with its severity classification, event type, and coverage counts. Severity words in the platform's own voice (crisis, elevated, high risk) are permitted ONLY when a CUSTOMER-DEFINED STATUS line is present — repeat its label verbatim with its triggering numbers; otherwise state the clinical classifications as facts
 - MANDATORY: When citing articles, use the exact markdown link format: [Article Title](url). Preserve the links so readers can click through to sources.
 - MANDATORY: SYNTHESIZE, don't list. Identify themes across multiple articles rather than summarizing articles one by one. Articles are evidence for themes, not items in a list.
 - Use **bold** for bullet point headers
@@ -2477,18 +2478,14 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                             logger.warning(f"Failed to store category {cat} for {uri}: {e}")
                     articles_categorized += 1
 
-                    # Adverse-risk pass: only for negative or risk-vocabulary articles
-                    # (bounds LLM cost to the adverse sliver of the stream).
+                    # Adverse-risk pass (Brand Risk v2): negative, risk-vocabulary, or
+                    # risk-relevant-category articles get screened, and every screened
+                    # article gets a bw_screening_verdicts row (including an explicit
+                    # no_risk_found) so coverage is distinguishable from silence.
                     try:
-                        risk_gate = bool(_NEG_SENT_RE.search(str(art_sent or ''))) or bool(_RISK_TRIGGER_RE.search(text_input))
-                        if risk_gate:
-                            risks = await _llm_detect_risks(title, summary, brand['display_name'])
-                            method_r = 'llm'
-                            if risks is None:
-                                risks = _keyword_risk_fallback(text_input)
-                                method_r = 'keyword'
-                            if risks:
-                                _store_article_risks(conn, uri, bid, risks, method_r)
+                        await brand_screening.screen_article(
+                            conn, uri, bid, brand['display_name'],
+                            title, summary, str(art_sent or ''), categories)
                     except Exception as re_err:
                         logger.debug(f"risk pass failed for {uri}: {re_err}")
 
@@ -2526,6 +2523,21 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     logger.info(f"BW Run {run_id}: assigned {assigned} articles to story groups for brand {bid}")
             except Exception as se:
                 logger.warning(f"BW Run {run_id}: story-group assignment failed for brand {bid}: {se}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            # Brand Risk v2: fold freshly risk-flagged articles into issues.
+            # Runs after story dedup so story groups can carry the merge.
+            try:
+                from app.services.brand_risk_assessment import build_issues_for_brand
+                istats = await build_issues_for_brand(conn, bid)
+                conn.commit()
+                if istats["attached"] or istats["created"]:
+                    logger.info(f"BW Run {run_id}: issues for brand {bid}: {istats}")
+            except Exception as ie:
+                logger.warning(f"BW Run {run_id}: issue build failed for brand {bid}: {ie}")
                 try:
                     conn.rollback()
                 except Exception:
@@ -3650,117 +3662,26 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             if count > 0
         ]) or "No competitor mentions tracked"
 
-        # --- Compute Brand Risk Assessment (mirrors frontend logic) ---
-        # Sentiment trends: weekly sentiment aggregates
-        sent_result = conn.execute(text("""
-            SELECT DATE_TRUNC('week', a.publication_date::timestamp)::date as week,
-                   a.sentiment, COUNT(*) as cnt
+        # --- Brand Risk v2 assessment (docs/BRAND_RISK_BENCHMARK_SPEC.md) ---
+        # Event-driven: active issues as of the window end, attention readout,
+        # customer escalation tier. The 0-100 score is retired.
+        from app.services.brand_risk_assessment import get_assessment
+        assessment = get_assessment(conn, request.brand_id, start_date, end_date)
+
+        # Clinical sentiment facts for the prompt. Distinct articles, not
+        # category rows — multi-category articles used to vote once per category.
+        sent_row = conn.execute(text("""
+            SELECT COUNT(DISTINCT a.uri) FILTER (WHERE LOWER(a.sentiment) IN
+                       ('negative', 'pessimistic', 'concerning', 'concerned',
+                        'critical', 'alarming')) AS neg,
+                   COUNT(DISTINCT a.uri) AS total
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
-            GROUP BY week, a.sentiment
-            ORDER BY week
-        """), {"bid": request.brand_id, "start": start_date, "end": end_date})
-
-        # Normalize sentiment labels to match frontend bucketing
-        _NEGATIVE_LABELS = {"negative", "pessimistic", "concerning", "concerned", "critical", "alarming"}
-        _POSITIVE_LABELS = {"positive", "optimistic", "positive development"}
-
-        weekly_sentiments: Dict[str, Dict[str, int]] = {}
-        for row in sent_result.fetchall():
-            week_str = str(row[0])
-            raw_sentiment = row[1]
-            count = row[2]
-            if week_str not in weekly_sentiments:
-                weekly_sentiments[week_str] = {"Positive": 0, "Neutral": 0, "Negative": 0, "total": 0}
-            lo = raw_sentiment.lower().strip() if raw_sentiment else ""
-            if lo in _NEGATIVE_LABELS:
-                bucket = "Negative"
-            elif lo in _POSITIVE_LABELS:
-                bucket = "Positive"
-            else:
-                bucket = "Neutral"
-            weekly_sentiments[week_str][bucket] += count
-            weekly_sentiments[week_str]["total"] += count
-
-        sorted_weeks = sorted(weekly_sentiments.keys())
-        recent_4 = sorted_weeks[-4:] if len(sorted_weeks) >= 4 else sorted_weeks
-        older_4 = sorted_weeks[-8:-4] if len(sorted_weeks) >= 8 else sorted_weeks[:max(0, len(sorted_weeks) - 4)]
-
-        recent_neg = sum(weekly_sentiments[w].get("Negative", 0) for w in recent_4)
-        recent_total = sum(weekly_sentiments[w].get("total", 0) for w in recent_4)
-        older_neg = sum(weekly_sentiments[w].get("Negative", 0) for w in older_4)
-        older_total = sum(weekly_sentiments[w].get("total", 0) for w in older_4)
-
-        if older_total == 0:
-            # Short windows (e.g. a 7-day narrative) contain no in-window baseline;
-            # compare against the 28 days before the window instead of a 0% one,
-            # which made the trend delta equal the level itself.
-            baseline_start = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=28)).strftime("%Y-%m-%d")
-            base_row = conn.execute(text("""
-                SELECT COUNT(*) FILTER (WHERE LOWER(a.sentiment) IN ('negative', 'pessimistic',
-                           'concerning', 'concerned', 'critical', 'alarming')) AS neg,
-                       COUNT(*) AS total
-                FROM bw_article_categories bac
-                JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-                AND a.publication_date >= :bstart AND a.publication_date < :start
-                AND a.sentiment IS NOT NULL AND a.sentiment != ''
-            """), {"bid": request.brand_id, "bstart": baseline_start, "start": start_date}).fetchone()
-            older_neg, older_total = int(base_row[0] or 0), int(base_row[1] or 0)
-
-        recent_neg_pct = (recent_neg / recent_total * 100) if recent_total > 0 else 0
-        # No baseline data at all -> no trend claim, rather than treating it as 0%.
-        older_neg_pct = (older_neg / older_total * 100) if older_total > 0 else None
-        neg_trend = (recent_neg_pct - older_neg_pct) if older_neg_pct is not None else 0.0  # positive = worsening
-
-        # Category spike alerts (recent 7d vs prior 30d avg)
-        recent_alert = conn.execute(text("""
-            SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
-            FROM bw_article_categories bac
-            JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
-            GROUP BY bac.category
-        """), {"bid": request.brand_id})
-        recent_alert_counts = {row[0]: row[1] for row in recent_alert.fetchall()}
-
-        avg_alert = conn.execute(text("""
-            SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
-            FROM bw_article_categories bac
-            JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
-            AND a.publication_date < (NOW() - INTERVAL '7 days')::text
-            GROUP BY bac.category
-        """), {"bid": request.brand_id})
-        avg_alert_counts = {row[0]: float(row[1]) for row in avg_alert.fetchall()}
-
-        alerts = []
-        for category, count in recent_alert_counts.items():
-            avg = avg_alert_counts.get(category, 0)
-            if avg > 0 and count >= avg * 2 and count >= 3:
-                severity = "high" if count >= avg * 3 else "medium"
-                alerts.append({"category": category, "current": count, "average": round(avg, 1),
-                               "spike_ratio": round(count / avg, 1), "severity": severity})
-
-        alert_count = len(alerts)
-        high_alerts = sum(1 for a in alerts if a["severity"] == "high")
-
-        # Damp the sentiment terms by sample size: a 40% negative rate over 5 scored
-        # articles is weak evidence, over 50+ it is real. Trend is additionally damped
-        # by the baseline sample so a thin prior period can't manufacture a swing.
-        sample_damp = min(1.0, recent_total / 20.0)
-        trend_damp = sample_damp * min(1.0, older_total / 20.0)
-        risk_score = min(100, round(
-            (recent_neg_pct * 1.5 * sample_damp) +
-            (neg_trend * 2 * trend_damp if neg_trend > 0 else 0) +
-            (alert_count * 5) +
-            (high_alerts * 10)
-        ))
-        risk_level = "High" if risk_score >= 60 else "Elevated" if risk_score >= 30 else "Low"
+        """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchone()
+        win_neg, win_scored = int(sent_row[0] or 0), int(sent_row[1] or 0)
 
         # Fetch recent negative/concerning articles so the narrative can cite specific drivers
         neg_articles_result = conn.execute(text("""
@@ -3817,36 +3738,49 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 lines.append(f"- [{category}] ({pub_date}) [{title}]({uri}) — Source: {source} — {summary}")
             pos_articles_text = "\n".join(lines)
 
-        # Build risk assessment text for the prompt
-        risk_factors = []
-        if recent_neg_pct >= 15:
-            risk_factors.append(f"High negative sentiment volume ({recent_neg_pct:.1f}% of recent coverage, "
-                                f"{recent_neg} of {recent_total} scored articles)")
-        if neg_trend > 2 and older_neg_pct is not None:
-            risk_factors.append(f"Negative sentiment trending upward (+{neg_trend:.1f} percentage points vs the "
-                                f"prior 4 weeks: {older_neg_pct:.1f}% across {older_total} scored articles)")
-        if high_alerts > 0:
-            risk_factors.append(f"{high_alerts} high-severity category spike(s): " +
-                                ", ".join(a['category'] for a in alerts if a['severity'] == 'high'))
-        if alert_count > 0 and high_alerts == 0:
-            risk_factors.append(f"{alert_count} category spike alert(s): " +
-                                ", ".join(a['category'] for a in alerts))
-        if recent_total < 20:
-            risk_factors.append(f"LOW SAMPLE CAVEAT: only {recent_total} scored article(s) in this window — "
-                                "percentages are volatile and the risk score has been damped accordingly")
-
-        risk_assessment = f"Risk Level: {risk_level} (Score: {risk_score}/100)\n"
-        risk_assessment += f"Recent Negative Sentiment: {recent_neg_pct:.1f}% ({recent_neg} of {recent_total} scored articles)\n"
-        if older_neg_pct is not None:
-            risk_assessment += (f"Negative Trend (4-week change): {'+' if neg_trend > 0 else ''}{neg_trend:.1f} percentage points "
-                                f"(prior 4 weeks: {older_neg_pct:.1f}% across {older_total} scored articles)\n")
+        # Build the risk-assessment block for the prompt: clinical facts only.
+        # Severity language in the platform's own voice comes only from the
+        # customer's escalation tier; classifications below are stated as facts.
+        active_issues = assessment["active_issues"]
+        risk_level = active_issues[0]["severity"] if active_issues else None
+        _ra_lines = []
+        if active_issues:
+            _ra_lines.append(f"Active issues ({len(active_issues)}, most severe first):")
+            for i in active_issues:
+                sec = f" (+{', '.join(i['secondary_types'])})" if i["secondary_types"] else ""
+                peers_note = (f"; same story also covered for peers: {', '.join(i['sector_wide'])}"
+                              if i.get("sector_wide_display") and i.get("sector_wide") else "")
+                _ra_lines.append(
+                    f"- [{i['severity'].upper()}] {i['primary_type']}{sec}: {i['title']} — "
+                    f"{i['articles']} article(s), {i['sources']} source(s), "
+                    f"first seen {i['first_seen']}, last coverage {i['last_seen']}, {i['momentum']}"
+                    + (f". Basis: {i['justification']}" if i.get("justification") else "")
+                    + peers_note)
         else:
-            risk_assessment += "Negative Trend: no prior-period coverage to compare against — do not claim an increase or decrease\n"
-        risk_assessment += f"Active Alerts: {alert_count}" + (f" ({high_alerts} high-severity)" if high_alerts > 0 else "") + "\n"
-        if risk_factors:
-            risk_assessment += "Contributing Factors:\n" + "\n".join(f"- {f}" for f in risk_factors)
+            _ra_lines.append("Active issues: none — no adverse events currently open for this brand.")
+        _att = assessment["attention"]
+        if _att.get("available"):
+            if _att["category_spikes"]:
+                _sp = "; ".join(
+                    f"{s['category']} at {s['multiple']}x normal ({s['recent']} articles vs "
+                    f"{s['weekly_avg']}/week average)" for s in _att["category_spikes"])
+                _ra_lines.append(f"Attention — coverage volume, NOT risk: {_sp}. High volume with no "
+                                 "active issue is a visibility event, not an adverse one.")
+            else:
+                _ra_lines.append("Attention: coverage volume within the normal range for this brand.")
         else:
-            risk_assessment += "No significant risk factors identified"
+            _ra_lines.append(f"Attention: not computed — {_att.get('reason')}.")
+        _neg_pct = f"{(win_neg / win_scored * 100):.1f}%" if win_scored else "n/a"
+        _ra_lines.append(f"Window sentiment: {win_neg} negative of {win_scored} scored articles ({_neg_pct}).")
+        _tier = assessment.get("escalation_tier")
+        if _tier:
+            _ra_lines.append(f'CUSTOMER-DEFINED STATUS: "{_tier["label"]}" — triggered by: '
+                             + "; ".join(_tier["triggered"]))
+        else:
+            _ra_lines.append("No customer-defined escalation status is in force. Do not apply severity "
+                             "words (crisis, elevated, high risk) in the platform's own voice; restate "
+                             "the classifications above as facts.")
+        risk_assessment = "\n".join(_ra_lines)
 
         if neg_articles_text:
             risk_assessment += f"\n\n**Recent Negative/Concerning Articles ({len(neg_articles)} most recent):**\n{neg_articles_text}"
@@ -4090,12 +4024,14 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             "competitors": competitor_counts,
             "risk_assessment": {
                 "risk_level": risk_level,
-                "risk_score": risk_score,
-                "recent_neg_pct": round(recent_neg_pct, 1),
-                "neg_trend": round(neg_trend, 1),
-                "alert_count": alert_count,
-                "high_alerts": high_alerts,
-                "contributing_factors": risk_factors,
+                "active_issues": len(active_issues),
+                "issues": [{"title": i["title"], "severity": i["severity"],
+                            "primary_type": i["primary_type"], "articles": i["articles"],
+                            "momentum": i["momentum"]} for i in active_issues],
+                "window_negative": win_neg,
+                "window_scored": win_scored,
+                "attention": assessment["attention"],
+                "escalation_tier": assessment.get("escalation_tier"),
             },
             "social": social_summary,
             "risks": {"total": len(nrisk_rows), "by_type": nrisk_by_type},
@@ -4691,99 +4627,18 @@ async def run_schedule_now(
 
 
 # ============================================================================
-# Adverse risk taxonomy (cross-cutting dimension; see bw_article_risks)
+# Adverse risk screening moved to app/services/brand_screening.py (Brand Risk
+# v2, docs/BRAND_RISK_BENCHMARK_SPEC.md). Aliases kept for older imports.
 # ============================================================================
 
-RISK_TYPES = ["legal_regulatory", "financial_distress", "fraud_integrity",
-              "esg", "executive_misconduct", "data_breach", "workforce_labor"]
-
-# Cheap pre-screen: only articles that are negative OR contain risk vocabulary get
-# the LLM risk pass, bounding cost to the adverse sliver of the stream.
-_RISK_TRIGGER_RE = re.compile(
-    r"lawsuit|\bsues?\b|\bsued\b|litigat|\bcourt\b|regulator|antitrust|\bprobe\b|investigat|\bfine[sd]?\b|penalty|"
-    r"\bfraud|scandal|misconduct|bribe|corrupt|plagiar|retract|falsif|"
-    r"\bbreach|\bhack|ransom|\bleak\b|cyberattack|"
-    r"bankrupt|insolven|default|downgrade|layoff|restructur|going concern|"
-    r"boycott|discriminat|harass|greenwash|child labor|resign|ousted|fired|"
-    r"\bstrikes?\b|\bunion\b|redundanc|walkout|tribunal|unfair dismissal|"
-    r"toxic (workplace|culture)|pay dispute|wage theft|understaff",
-    re.IGNORECASE)
-
-_NEG_SENT_RE = re.compile(r"negativ|concern|pessimis|critical|alarm", re.IGNORECASE)
-
-
-def _keyword_risk_fallback(text_content: str) -> list:
-    """Heuristic risk tagging when the LLM is unavailable."""
-    t = (text_content or "").lower()
-    found = []
-    def add(rt, sev): found.append({"risk_type": rt, "severity": sev, "confidence": 0.4})
-    if re.search(r"lawsuit|\bsues?\b|\bsued\b|litigat|regulator|antitrust|\bprobe\b|investigat|\bfine[sd]?\b|penalty|\bcourt\b", t): add("legal_regulatory", "medium")
-    if re.search(r"bankrupt|insolven|default|downgrade|going concern|layoff|restructur", t): add("financial_distress", "medium")
-    if re.search(r"fraud|scandal|bribe|corrupt|plagiar|retract|falsif", t): add("fraud_integrity", "high")
-    if re.search(r"boycott|discriminat|harass|greenwash|child labor|environmental damage", t): add("esg", "medium")
-    if re.search(r"misconduct|resign|ousted|fired.*(ceo|cfo|executive|director)|(ceo|cfo|executive|director).*(misconduct|resign|ousted|fired)", t): add("executive_misconduct", "medium")
-    if re.search(r"\bbreach|\bhack|ransom|cyberattack|data leak", t): add("data_breach", "high")
-    # Bare "union"/"strike" collide with ordinary prose ("union of ideas", "striking
-    # design") — the fallback (which tags directly, no LLM adjudication) needs the
-    # compound forms only.
-    if re.search(r"(trade|labou?r|staff) union|union (members?|dispute|vote|action|strike)|(staff|workers?|employees?) (strike|walkout)|strike (action|ballot)|redundanc|tribunal|unfair dismissal|toxic (workplace|culture)|pay dispute|wage theft|mass layoff", t): add("workforce_labor", "medium")
-    return found
-
-
-async def _llm_detect_risks(title: str, summary: str, brand_name: str) -> Optional[list]:
-    """LLM risk classification. Returns list of {risk_type, severity, confidence} or None on failure."""
-    from app.ai_models import LiteLLMModel, extract_content
-    prompt = f"""You are an adverse-media screening analyst. Does this article describe an ADVERSE event involving the company "{brand_name}"?
-
-Article Title: {title}
-Article Summary: {(summary or "")[:1500]}
-
-Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action, fines, probes), financial_distress (bankruptcy risk, downgrades, defaults), fraud_integrity (fraud, corruption, research/publication integrity, retractions), esg (environmental/social harms, consumer discrimination, boycotts), executive_misconduct (leadership scandals, forced departures), data_breach (hacks, breaches, ransomware), workforce_labor (strikes, union disputes, mass layoffs/redundancies, employment tribunals, unfair-dismissal or workplace-discrimination claims, toxic-culture allegations, pay disputes).
-
-Rules:
-- Only flag risks where {brand_name} is the SUBJECT of the adverse event (not merely mentioned, not the plaintiff suing someone else unless it exposes them to counter-risk).
-- Routine negative sentiment (bad quarter, critical review) is NOT a risk finding unless it fits a type above.
-- severity: high = material/ongoing threat; medium = notable; low = minor/speculative.
-
-Respond with ONLY a JSON array (empty [] if none): [{{"risk_type": "...", "severity": "high|medium|low", "confidence": 0.0-1.0}}]"""
-    try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
-        response = await model.agenerate_response(
-            [{"role": "user", "content": prompt}], max_tokens=200, temperature=0.0)
-        raw = extract_content(response).strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
-        # The model sometimes appends prose after the array — parse the FIRST JSON
-        # value and ignore trailing text.
-        start = raw.find("[")
-        if start < 0:
-            return []
-        data, _ = json.JSONDecoder().raw_decode(raw[start:])
-        out = []
-        for item in (data if isinstance(data, list) else []):
-            rt = (item.get("risk_type") or "").strip()
-            if rt in RISK_TYPES:
-                sev = item.get("severity") if item.get("severity") in ("high", "medium", "low") else "medium"
-                out.append({"risk_type": rt, "severity": sev,
-                            "confidence": max(0.0, min(1.0, float(item.get("confidence") or 0.5)))})
-        return out
-    except Exception as e:
-        logger.debug(f"LLM risk detection failed: {e}")
-        return None
-
-
-def _store_article_risks(conn, uri: str, brand_id: int, risks: list, method: str) -> None:
-    for r in risks:
-        try:
-            conn.execute(text("""
-                INSERT INTO bw_article_risks (article_uri, brand_id, risk_type, severity, confidence, method)
-                VALUES (:u, :b, :rt, :sev, :c, :m)
-                ON CONFLICT (article_uri, brand_id, risk_type)
-                DO UPDATE SET severity = :sev, confidence = :c, method = :m, detected_at = NOW()
-            """), {"u": uri, "b": brand_id, "rt": r["risk_type"], "sev": r["severity"],
-                   "c": r.get("confidence"), "m": method})
-        except Exception as e:
-            logger.warning(f"risk store failed for {uri}: {e}")
+from app.services.brand_screening import (  # noqa: E402
+    RISK_TYPES,
+    RISK_TRIGGER_RE as _RISK_TRIGGER_RE,
+    NEG_SENT_RE as _NEG_SENT_RE,
+    keyword_risk_fallback as _keyword_risk_fallback,
+    llm_detect_risks as _llm_detect_risks,
+    store_article_risks as _store_article_risks,
+)
 
 
 # ============================================================================
@@ -6364,6 +6219,49 @@ async def get_employee_risk(
         raise
     except Exception as e:
         logger.error(f"employee-risk failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/brands/{brand_id}/risk")
+async def get_brand_risk_assessment(
+    brand_id: int,
+    start: Optional[str] = Query(None, description="YYYY-MM-DD window start"),
+    end: Optional[str] = Query(None, description="YYYY-MM-DD; issues evaluated as of this date"),
+    session=Depends(verify_session),
+):
+    """Brand Risk v2 assessment (docs/BRAND_RISK_BENCHMARK_SPEC.md): active
+    issues as of `end`, attention readout, peer context, escalation tier.
+    Deterministic given stored screening verdicts; carries no 0-100 score."""
+    from app.services.brand_risk_assessment import get_assessment
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        end_d = (end or date.today().isoformat())[:10]
+        start_d = (start or (date.today() - timedelta(days=30)).isoformat())[:10]
+        return get_assessment(conn, brand_id, start_d, end_d)
+    except Exception as e:
+        logger.error(f"risk assessment failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/brands/{brand_id}/issues/rebuild")
+async def rebuild_brand_issues(brand_id: int, session=Depends(verify_session)):
+    """Assign any not-yet-grouped risk-flagged articles to issues (normally
+    done at the end of each tracker run; this is the manual/backfill trigger)."""
+    from app.services.brand_risk_assessment import build_issues_for_brand
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        stats = await build_issues_for_brand(conn, brand_id)
+        conn.commit()
+        return stats
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"issue rebuild failed for brand {brand_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

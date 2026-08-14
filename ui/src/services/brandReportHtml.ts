@@ -8,7 +8,7 @@
 import type {
   Brand, BWStats, BWCategory, BWSentimentTrend, BWAlert,
   BWComparison, BWShareOfVoice, BWSocialResponse, BWSavedNarrative,
-  BWRiskSummary, BWIncident, BWEmployeeRisk,
+  BWRiskSummary, BWIncident, BWEmployeeRisk, BWRiskAssessment,
 } from './brandWatcherApi';
 import { stripSocialMarkdown } from './socialText';
 import { computePostedVsSeen, computePlatformMix, computeNegThemes,
@@ -26,6 +26,7 @@ export interface BrandReportData {
   narrative: BWSavedNarrative | null;
   social: BWSocialResponse | null;
   riskSummary?: BWRiskSummary | null;      // adverse-risk rollup (taxonomy counts + top findings)
+  riskAssessment?: BWRiskAssessment | null; // Brand Risk v2: active issues + attention (no score)
   incidents?: BWIncident[] | null;         // open incidents
   // Five Signals screens: articles carrying a completed signals_summary
   // (title/uri + verdict + composite + five per-signal bands).
@@ -638,6 +639,24 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
 
   <section id="risk">
     <h2>Risk &amp; Compliance</h2>
+    ${(() => {
+      const ra = d.riskAssessment;
+      if (!ra) return '';
+      const tierHtml = ra.escalation_tier
+        ? `<p style="font-weight:700;color:var(--neg)">Status: ${esc(ra.escalation_tier.label)} — triggered by: ${esc(ra.escalation_tier.triggered.join('; '))}</p>` : '';
+      const issuesHtml = ra.active_issues.length ? ra.active_issues.map(i => `
+        <div style="display:flex;gap:10px;align-items:flex-start;margin:8px 0">
+          <span style="font-weight:700;text-transform:uppercase;font-size:11px;color:${i.severity === 'high' ? 'var(--neg)' : i.severity === 'medium' ? 'var(--amber)' : 'var(--muted)'}">${esc(i.severity)}</span>
+          <div><strong>${esc(i.primary_type.replace(/_/g, ' '))}:</strong> ${esc(i.title)}
+            ${i.justification ? `<div class="muted" style="font-size:12px">${esc(i.justification)}</div>` : ''}
+            <div class="muted" style="font-size:11px">${i.articles} article${i.articles === 1 ? '' : 's'} · ${i.sources} source${i.sources === 1 ? '' : 's'} · first seen ${esc(i.first_seen)} · ${esc(i.momentum)}${i.sector_wide_display && i.sector_wide?.length ? ` · sector-wide (${esc(i.sector_wide.join(', '))})` : ''}</div>
+          </div>
+        </div>`).join('')
+        : '<p class="muted">No active issues — no adverse events currently open for this brand.</p>';
+      const attHtml = ra.attention?.available && ra.attention.category_spikes?.length
+        ? `<p class="muted" style="font-size:12px">Attention (coverage volume, not risk): ${ra.attention.category_spikes.map(s => `${esc(s.category)} at ${s.multiple}× normal (${s.recent} vs ${s.weekly_avg}/wk)`).join('; ')}.</p>` : '';
+      return `<div class="card"><h3>Active issues</h3>${tierHtml}${issuesHtml}${attHtml}</div>`;
+    })()}
     <div class="stat-grid">
       ${statCard('Risk findings', String(riskTypes.reduce((a, [, c]) => a + c.total, 0)), rs ? `last ${rs.days_back} days` : '')}
       ${statCard('High severity', String(riskTypes.reduce((a, [, c]) => a + c.high, 0)))}

@@ -3092,43 +3092,12 @@ export class ExportService {
     return { positive: p, neutral: nu, negative: ne };
   }
 
-  private static bwComputeRisk(sentimentTrends: any[], alerts: any[]): {
-    score: number; level: string; recentNegPct: number; negTrend: number;
-    alertCount: number; highAlerts: number;
-  } {
-    const recent = sentimentTrends.slice(-4);
-    const prior = sentimentTrends.slice(-8, -4);
-    const calc = (weeks: any[]) => {
-      let neg = 0, total = 0;
-      for (const w of weeks) {
-        const s = this.bwNormalizeSentiment(w.sentiments || {});
-        neg += s.negative;
-        total += s.positive + s.neutral + s.negative;
-      }
-      return { pct: total > 0 ? (neg / total) * 100 : 0, total };
-    };
-    const rec = calc(recent);
-    const pri = calc(prior);
-    const recentNegPct = rec.pct;
-    // No prior-period data -> no trend claim (a 0% baseline would double-count the level).
-    const negTrend = pri.total > 0 ? recentNegPct - pri.pct : 0;
-    const highAlerts = alerts.filter(a => a.severity === 'high').length;
-    const alertCount = alerts.length;
-    // Damp sentiment terms by sample size, matching the backend narrative formula.
-    const sampleDamp = Math.min(1, rec.total / 20);
-    const trendDamp = sampleDamp * Math.min(1, pri.total / 20);
-    const score = Math.min(100, Math.round(
-      (recentNegPct * 1.5 * sampleDamp) + (negTrend > 0 ? negTrend * 2 * trendDamp : 0) + (alertCount * 5) + (highAlerts * 10)
-    ));
-    const level = score >= 60 ? 'High' : score >= 30 ? 'Elevated' : 'Low';
-    return { score, level, recentNegPct: Math.round(recentNegPct * 10) / 10, negTrend: Math.round(negTrend * 10) / 10, alertCount, highAlerts };
-  }
-
   /**
    * Export Brand Watcher report as Markdown — comprehensive multi-section report
    */
   static exportBrandWatcherMarkdown(data: {
     brandName?: string; daysBack?: number; stats?: any; categories?: any[];
+    riskAssessment?: any;
     sentimentTrends?: any[]; comparison?: any[]; shareOfVoice?: any[];
     alerts?: any[]; narrative?: any; articles?: any[];
     temporalData?: any[]; selectedBrand?: any;
@@ -3185,15 +3154,25 @@ export class ExportService {
       }
     }
 
-    // Risk assessment
-    if (data.sentimentTrends && data.sentimentTrends.length > 0) {
-      const risk = this.bwComputeRisk(data.sentimentTrends, data.alerts || []);
+    // Risk assessment — Brand Risk v2: active issues, no 0-100 score
+    if (data.riskAssessment) {
+      const ra = data.riskAssessment;
       md += `## Brand Risk Assessment\n\n`;
-      md += `| Factor | Value |\n|--------|-------|\n`;
-      md += `| Risk Score | **${risk.score}/100** (${risk.level}) |\n`;
-      md += `| Recent Negative % | ${risk.recentNegPct}% |\n`;
-      md += `| Negative Trend | ${risk.negTrend > 0 ? '+' : ''}${risk.negTrend} pp vs prior period |\n`;
-      md += `| Active Alerts | ${risk.alertCount} (${risk.highAlerts} high severity) |\n\n`;
+      if (ra.escalation_tier) {
+        md += `**Status: ${ra.escalation_tier.label}** — triggered by: ${ra.escalation_tier.triggered.join('; ')}\n\n`;
+      }
+      if (ra.active_issues?.length) {
+        md += `| Severity | Type | Issue | Coverage | Momentum |\n|----------|------|-------|----------|----------|\n`;
+        ra.active_issues.forEach((i: any) => {
+          md += `| ${i.severity.toUpperCase()} | ${i.primary_type.replace(/_/g, ' ')} | ${i.title} | ${i.articles} articles, ${i.sources} sources, first seen ${i.first_seen} | ${i.momentum} |\n`;
+        });
+        md += `\n`;
+      } else {
+        md += `No active issues — no adverse events currently open for this brand.\n\n`;
+      }
+      if (ra.attention?.available && ra.attention.category_spikes?.length) {
+        md += `Attention (coverage volume, not risk): ${ra.attention.category_spikes.map((s: any) => `${s.category} at ${s.multiple}x normal (${s.recent} vs ${s.weekly_avg}/wk)`).join('; ')}.\n\n`;
+      }
     }
 
     // Spike alerts
@@ -3392,6 +3371,7 @@ export class ExportService {
    */
   static exportBrandWatcherPDF(data: {
     brandName?: string; daysBack?: number; stats?: any; categories?: any[];
+    riskAssessment?: any;
     sentimentTrends?: any[]; comparison?: any[]; shareOfVoice?: any[];
     alerts?: any[]; narrative?: any; articles?: any[];
     temporalData?: any[]; selectedBrand?: any;
@@ -3535,13 +3515,24 @@ export class ExportService {
         y += 5;
       }
 
-      // Risk assessment
-      const risk = this.bwComputeRisk(data.sentimentTrends, data.alerts || []);
-      addSubsectionTitle('Brand Risk Assessment');
-      const riskColor = risk.score >= 60 ? [200, 0, 0] : risk.score >= 30 ? [200, 150, 0] : [0, 150, 50];
-      addText(`Risk Score: ${risk.score}/100 (${risk.level})`, 12, true, riskColor);
-      addText(`Recent Negative: ${risk.recentNegPct}%  |  Trend: ${risk.negTrend > 0 ? '+' : ''}${risk.negTrend} pp  |  Alerts: ${risk.alertCount} (${risk.highAlerts} high)`, 10, false);
-      y += 5;
+      // Risk assessment — Brand Risk v2: active issues, no 0-100 score
+      if (data.riskAssessment) {
+        const ra = data.riskAssessment;
+        addSubsectionTitle('Brand Risk Assessment');
+        if (ra.escalation_tier) {
+          addText(`Status: ${ra.escalation_tier.label} — ${ra.escalation_tier.triggered.join('; ')}`, 11, true, [200, 0, 0]);
+        }
+        if (ra.active_issues?.length) {
+          ra.active_issues.forEach((i: any) => {
+            const c = i.severity === 'high' ? [200, 0, 0] : i.severity === 'medium' ? [200, 150, 0] : [150, 120, 0];
+            addText(`[${i.severity.toUpperCase()}] ${i.primary_type.replace(/_/g, ' ')}: ${i.title}`, 10, true, c);
+            addText(`${i.articles} articles, ${i.sources} sources, first seen ${i.first_seen}, ${i.momentum}`, 9, false);
+          });
+        } else {
+          addText('No active issues — no adverse events currently open for this brand.', 10, false);
+        }
+        y += 5;
+      }
     }
 
     // Spike alerts

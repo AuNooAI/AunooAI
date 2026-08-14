@@ -67,6 +67,15 @@ def _window_metrics(conn, brand_id: int, window_days: int) -> Dict[str, Any]:
           AND r.detected_at >= now() - (:w || ' days')::interval
         GROUP BY r.risk_type
     """), {"bid": brand_id, "w": window_days}).fetchall()
+    # Active issues (Brand Risk v2) for the issue-level rules. Lazy import —
+    # brand_risk_assessment calls back into this module for tier evaluation.
+    active_issues: list = []
+    try:
+        from datetime import date
+        from app.services.brand_risk_assessment import active_issues_as_of
+        active_issues = active_issues_as_of(conn, brand_id, date.today().isoformat())
+    except Exception:
+        logger.exception("active-issue lookup failed for brand %s", brand_id)
     return {
         "win_daily": win_n / max(window_days, 1),
         "base_daily": base_n / BASELINE_DAYS,
@@ -74,6 +83,7 @@ def _window_metrics(conn, brand_id: int, window_days: int) -> Dict[str, Any]:
                           if scored >= MIN_SCORED_FOR_SENTIMENT else None),
         "scored": scored,
         "high_risks": {rt: n for rt, n in risks},
+        "active_issues": active_issues,
     }
 
 
@@ -99,6 +109,24 @@ def _tier_fires(rules: Dict[str, Any], m: Dict[str, Any],
         total = sum(m["high_risks"].values())
         kinds = ", ".join(sorted(m["high_risks"]))
         reasons.append(f"{total} high-severity risk finding(s) ({kinds})")
+    if "active_issue_severity" in rules or "active_issue_types" in rules:
+        # Brand Risk v2 issue-level rules: fire on an active issue at/above a
+        # severity, optionally restricted to listed event types.
+        order = {"low": 0, "medium": 1, "high": 2}
+        min_sev = order.get(str(rules.get("active_issue_severity", "low")), 0)
+        wanted = set(rules.get("active_issue_types") or [])
+        hits = [i for i in m.get("active_issues", [])
+                if order.get(i["severity"], 0) >= min_sev
+                and (not wanted or i["primary_type"] in wanted
+                     or wanted.intersection(i.get("secondary_types") or []))]
+        if not hits:
+            return None
+        top = hits[0]
+        reasons.append(
+            f"active {top['severity']}-severity issue ({top['primary_type']}: "
+            f"{top['title'][:80]}, {top['articles']} article(s), "
+            f"first seen {top['first_seen']})"
+            + (f" and {len(hits) - 1} more" if len(hits) > 1 else ""))
     return reasons or None
 
 
