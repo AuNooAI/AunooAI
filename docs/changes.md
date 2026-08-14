@@ -75,6 +75,21 @@ attaches recurring same-source signals to one continuing issue. Issue tables wer
 truncated and rebuilt on all three tenants after each fix (safe only because zero
 `bw_issue_overrides` existed).
 
+### Regression after release — narrative 500 on brands with social posts
+The first production regenerate on wbm returned 500: `name '_POSITIVE_LABELS' is not
+defined`. The v2 switchover deleted the formula block that defined the two sentiment
+label sets, but the social-pulse block further down the same function still used them —
+and that block only runs when the brand has collected social posts, which the
+end-to-end test brand (bugfixing Elsevier) did not, so the test passed. Fixed by
+redefining the label sets ahead of the assessment block; an AST scan of
+`generate_narrative` then confirmed no other names were orphaned by the deletion.
+Re-verified with the exact failing call (wbm Wiley, 30 days): 200, social pulse
+rendered, then regenerated once more with the default standard-tier model so the
+saved "latest" narrative is not the mini-model test output. Lesson: when deleting a
+block from a long function, scan the WHOLE function for uses of every name the block
+defined — conditional paths (social-only, error-only) won't fail a single happy-path
+test.
+
 ### Narrative + UI switchover
 The generate-narrative route's formula block (weekly slicing, damping, score) is
 deleted; the prompt's risk-assessment block now lists active issues, the attention
@@ -104,16 +119,24 @@ active medium issue (workforce_labor, fading)", contains no "/100" and no "Eleva
 Served bundle checked: issue-panel strings present, zero `riskScore` references.
 
 ### Propagation
-Live on bugfixing, wileytest, and wbm: backend files + `bwr_001` migration + full
-screening backfill + UI rebuild/rsync + service restarts (pre-restart agent/tracker
-checks all zero, three restart rounds). abm, bwtemplate, wiley prod, and ibaset still
-run the old formula (with the interim baseline fix) and have no v2 tables — port =
-copy the six backend files + migration + run the backfill script + rsync UI +
-restart. pearson stays excluded until its general catch-up. Note: wbm's
-`gpt-5.4-mini` alias routes to Bedrock Haiku 4.5 (its existing per-tenant routing);
-the ~200-article backfill ran on it. bugfixing's `module_config` had brand_watcher
-DISABLED since 07-30 (every BW route 404s when off) — enabled for verification and
-left on.
+Live on ALL seven monolith tenants, in two waves the same day. Wave 1: bugfixing,
+wileytest, wbm (full screening backfill: 51/206/198 verdicts → 10/45/44 issues).
+Wave 2: abm, bwtemplate, wiley prod, ibaset — same file set + migration + UI rsync +
+restarts; backfills ran on abm (41 risk_found across 9 brands; Palantir's board:
+one 10-review Glassdoor stream issue, the NHS story grouped 5 articles) and ibaset
+(no new findings; issues built from its legacy July `bw_article_risks` rows).
+bwtemplate and wiley prod have zero brands configured — code ships for parity, the
+endpoint returns a clean empty assessment. ibaset needed two extras: the
+`1204fb391c21` index migration it had never received (its alembic head was one
+behind — chained through cleanly, `if_not_exists` concurrent index), and
+`escalation_tiers.py`, which it lacked entirely; the rest of the escalation-tiers
+feature's surfaces (digest line, timeline badge) remain on ibaset's general catch-up
+list. The `_POSITIVE_LABELS` regression fix went to all seven trees with a final
+restart round (pre-restart checks zero each time). pearson stays excluded until its
+general catch-up. Notes: wbm's `gpt-5.4-mini` alias routes to Bedrock Haiku 4.5 (its
+existing per-tenant routing); the backfills ran on it. bugfixing's `module_config`
+had brand_watcher DISABLED since 07-30 (every BW route 404s when off) — enabled for
+verification and left on.
 
 ### Lessons
 - NEVER auto-merge on embedding similarity from `articles.embedding`: the encoder is

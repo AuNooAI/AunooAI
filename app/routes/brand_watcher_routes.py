@@ -3662,6 +3662,10 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             if count > 0
         ]) or "No competitor mentions tracked"
 
+        # Sentiment label buckets, shared with the social-pulse block below.
+        _NEGATIVE_LABELS = {"negative", "pessimistic", "concerning", "concerned", "critical", "alarming"}
+        _POSITIVE_LABELS = {"positive", "optimistic", "positive development"}
+
         # --- Brand Risk v2 assessment (docs/BRAND_RISK_BENCHMARK_SPEC.md) ---
         # Event-driven: active issues as of the window end, attention readout,
         # customer escalation tier. The 0-100 score is retired.
