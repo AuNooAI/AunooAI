@@ -43,7 +43,7 @@ A signal is either:
 ## Selection rules
 
 1. Prefer recent over old (last 8 weeks > older).
-2. Prefer concrete actor / event mentions over generic commentary ("Novo Nordisk implements GLP-1 price cuts in India" >> "Pharma faces pricing pressure").
+2. Prefer concrete actor / event mentions over generic commentary ("<company> implements <drug-class> price cuts in <country>" >> "Pharma faces pricing pressure").
 3. Include at least one contradicting / cooling signal per topic if one exists in the data — directors need to see counter-evidence.
 4. Don't repeat the same article across scenarios. If the same article supports two scenarios, pick the stronger fit.
 5. Strip methodology jargon. Use customer-friendly language only.

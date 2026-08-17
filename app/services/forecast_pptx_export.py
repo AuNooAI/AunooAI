@@ -26,6 +26,8 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
+from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+
 # Brand asset paths (resolved at slide-build time so the deck embeds the
 # actual Aunoo brandmark instead of plain text). Fallback to the older
 # wordmark if the new mark isn't present (older tenants).
@@ -962,12 +964,59 @@ def _add_surprises_divider(prs, surprises: list):
           color=SLATE_MID)
     if surprises:
         rank = "\n".join(
-            f"  {s.get('size') or 0} articles   ·   {_truncate(s.get('label') or '(unlabelled)', 80)}"
-            for s in sorted(surprises, key=lambda s: -(s.get("size") or 0))[:6]
+            f"  {_theme_size_label(s)}   ·   {_truncate(s.get('label') or '(unlabelled)', 80)}"
+            for s in sorted(surprises, key=_theme_rank)[:6]
         )
         _text(slide, x=0.5, y=3.5, w=sw-1.0, h=1.5, text=rank,
               font_size=11, color=SLATE_BLACK, line_spacing=1.35)
     _add_brand_footer(slide, slide_label="Emerging Themes")
+
+
+def _theme_stories(sur: dict) -> int:
+    """Distinct stories in a theme, falling back to the row count.
+
+    ``distinct_stories`` is written by the current assessment service; older
+    stored assessments do not have it, so they keep reading as before.
+    """
+    return int(sur.get("distinct_stories") or sur.get("size") or 0)
+
+
+def _theme_rank(sur: dict):
+    """Sort key: distinct stories first, rows as a tiebreak."""
+    return (-_theme_stories(sur), -int(sur.get("size") or 0))
+
+
+def _theme_size_label(sur: dict) -> str:
+    """"N articles", or "N articles (M stories)" when syndication inflates N.
+
+    A wire piece republished by a dozen local outlets is a dozen rows and one
+    story; saying only "12 articles" implies twelve independent sources.
+    """
+    size = int(sur.get("size") or 0)
+    stories = int(sur.get("distinct_stories") or 0)
+    if stories and stories < size:
+        return f"{size} articles ({stories} {'story' if stories == 1 else 'stories'})"
+    return f"{size} articles"
+
+
+def _dedupe_by_title(samples: list) -> list:
+    """Drop syndicated repeats from a sample list, preserving order.
+
+    Belt and braces: the assessment service already dedupes when it builds a
+    cluster, but assessments stored before that change still carry five copies
+    of one headline.
+    """
+    import re as _re
+    seen, out = set(), []
+    for a in samples or []:
+        t = (a.get("title") or "").strip().lower()
+        key = " ".join(_re.sub(r"[^a-z0-9]+", " ", t).split())[:120]
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(a)
+    return out
 
 
 def _add_surprise_cluster_slide(prs, sur: dict):
@@ -1006,15 +1055,18 @@ def _add_surprise_cluster_slide(prs, sur: dict):
               font_size=10, italic=True, color=SLATE_MID, line_spacing=1.25)
         y += 1.55
 
-    samples = sur.get("sample_articles") or []
+    samples = _dedupe_by_title(sur.get("sample_articles") or [])
     if samples:
         _text(slide, x=1.9, y=y, w=7.9, h=0.25,
-              text=f"SAMPLE ARTICLES ({min(len(samples), 5)} of {size})",
+              text=f"SAMPLE ARTICLES ({min(len(samples), 5)} of {_theme_size_label(sur)})",
               font_size=8, bold=True, color=SLATE_LIGHT)
         y2 = y + 0.32
         for art in samples[:5]:
             title = art.get("title") or art.get("uri") or "(no title)"
-            date = art.get("date")
+            # ``date`` arrives as a raw DB timestamp ("2026-07-15
+            # 09:23:41.123456+02"); the reader needs the day, not the
+            # microseconds or the DST offset the row happened to store.
+            date = str(art.get("date") or "")[:10]
             _rect(slide, x=1.9, y=y2+0.04, w=0.08, h=0.3, fill=GOLD)
             line = f"{date}   ·   {_truncate(title, 110)}" if date else _truncate(title, 130)
             _text(slide, x=2.1, y=y2, w=7.7, h=0.35, text=line,
@@ -1101,6 +1153,7 @@ def build_assessment_pptx(
         for sur in sorted(surprises, key=lambda s: -(s.get("size") or 0)):
             _add_surprise_cluster_slide(prs, sur)
 
+    _ai_pptx_marker(prs)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     prs.save(buf)
     buf.seek(0)
@@ -2463,7 +2516,8 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
     _text(slide, x=0.5, y=0.2, w=sw - 1.0, h=0.4, text="Methodology",
           font_size=22, bold=True, color=WILEY_NAVY)
     _text(slide, x=0.5, y=0.7, w=sw - 1.0, h=0.3,
-          text="How this brief is produced — so you can trust it and challenge it",
+          text="How this brief is produced — so you can trust it and challenge it. "
+               "Contains AI-generated content; verify against cited sources before external use.",
           font_size=10.5, italic=True, color=WILEY_MUTED)
 
     _rect(slide, x=0.5, y=1.15, w=sw - 1.0, h=3.55, fill=WILEY_CARD_BG)
@@ -2481,11 +2535,17 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
          "claims the evidence isn't bearing out (the crowd may be wrong) and "
          "low-consensus outliers the evidence is confirming (signals the crowd "
          "missed)."),
+        # Say what the filter actually does. The old wording implied a
+        # curated corpus; the score is a coarse machine filter that keeps
+        # adjacent material in, and the reference list shows it.
         ("Sourcing & relevance",
-         "Articles are filtered to a topic by a per-article relevance score, "
-         "then events are extracted with an actor / action / magnitude / date, "
-         "de-duplicated, and tagged as confirming or countering each trend. "
-         "Low-confidence events are held for analyst review, not auto-published."),
+         "Articles are filtered to a topic by a machine relevance score above "
+         "0.7, then de-duplicated. That score is a coarse cut, not a curation "
+         "step: the reference list will contain adjacent material, so read the "
+         "cited sources before quoting a figure. Events are extracted with an "
+         "actor / action / magnitude / date and tagged as confirming or "
+         "countering each trend; low-confidence events are held for analyst "
+         "review, not auto-published."),
     ]
     y = 1.35
     for head, body in blocks:

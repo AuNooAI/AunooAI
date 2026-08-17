@@ -23,7 +23,13 @@ from datetime import datetime
 from typing import Optional
 
 from app.services.topic_report_pptx import _decode_raw_output
-from app.services.html_report_common import clean_article_ref
+from app.services.html_report_common import (
+    clean_article_ref, split_citation_groups, scrub_invented_consensus,
+)
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html as _ai_footer,
+    html_meta_tags as _ai_meta,
+)
 from app.services.horizons_html import render_horizons_chart, _HORIZONS_EXTRA_CSS
 
 logger = logging.getLogger(__name__)
@@ -185,6 +191,8 @@ def _esc_cites(v, topic_idx: int, articles: list | None = None) -> str:
     escaped = _esc(v)
     if not escaped or "[" not in escaped:
         return escaped
+    # "[44, 52]" → "[44][52]" so grouped markers link like single ones.
+    escaped = split_citation_groups(escaped)
 
     def _replace(m):
         n_str = m.group(1)
@@ -258,12 +266,15 @@ def _render_executive_summary(cards: list, topic_idx: int, articles=None) -> str
             continue
         horizon = (c.get("primary_horizon") or "h1").lower()
         h_label = c.get("horizon_label") or ""
-        cons = c.get("consensus_percentage")
-        cons_pct = f"{int(cons)}%" if isinstance(cons, (int, float)) else ""
+        # ``consensus_percentage`` is deliberately NOT rendered. The prompt
+        # used to ask the model to invent one ("typically 70-90%"), and a
+        # "82% CONSENSUS" pill presents that guess as a measurement. The
+        # measured figure lives in scenario_verdicts.current_consensus_pct
+        # on the assessment path, not on these cards.
         title = c.get("topic_title") or "—"
-        opening = c.get("opening_statement") or ""
+        opening = scrub_invented_consensus(c.get("opening_statement") or "")
         mv = c.get("minority_view") or {}
-        signal = c.get("primary_signal") or ""
+        signal = scrub_invented_consensus(c.get("primary_signal") or "")
         fork = c.get("decision_fork") or {}
         fa = fork.get("condition_a") or {}
         fb = fork.get("condition_b") or {}
@@ -276,23 +287,19 @@ def _render_executive_summary(cards: list, topic_idx: int, articles=None) -> str
         parts.append(f'<h3>{_esc(title)}</h3>')
         parts.append('<div class="es-meta">')
         parts.append(f'<span class="es-pill {horizon}">{horizon.upper()} · {_esc(h_label)}</span>')
-        if cons_pct:
-            parts.append(f'<span class="es-pill consensus">{cons_pct} CONSENSUS</span>')
         parts.append('</div>')
         if opening:
             parts.append(f'<p>{_esc_cites(opening, topic_idx, articles)}</p>')
-        # Minority view
+        # Minority view — the percentage_range on cached cards is invented
+        # too, so only the statement is shown.
         if mv.get("statement"):
-            pct = mv.get("percentage_range") or ""
-            label = "Minority view" + (f"  ·  {pct}" if pct else "")
             parts.append('<div class="es-minority">')
-            parts.append(f'<div class="label">{_esc(label)}</div>')
-            parts.append(f'<div>{_esc_cites(mv.get("statement") or "", topic_idx, articles)}</div>')
+            parts.append('<div class="label">Minority view</div>')
+            parts.append(f'<div>{_esc_cites(scrub_invented_consensus(mv.get("statement") or ""), topic_idx, articles)}</div>')
             parts.append('</div>')
         # Primary signal
         if signal:
-            label = "Primary signal" + (f"  ·  {cons_pct} consensus" if cons_pct else "")
-            parts.append(f'<div class="es-signal-label">{_esc(label)}</div>')
+            parts.append('<div class="es-signal-label">Primary signal</div>')
             parts.append(f'<p class="es-signal">{_esc_cites(signal, topic_idx, articles)}</p>')
         # Source scenarios — link this card back to the H1/H2/H3 scenarios
         # the LLM clustered.
@@ -436,11 +443,16 @@ def _render_black_swans(eos: list, topic_idx: int, articles=None) -> str:
         cat = (s.get("category") or "black_swan").lower().replace("_", " ").upper()
         impact = s.get("impact_rating")
         impact_str = f"Impact {int(impact)}/10" if impact is not None else ""
-        timeframe = s.get("timeframe") or ""
+        # The EOS generator writes ``title`` / ``description`` /
+        # ``time_horizon`` (see ExtremeOutlierScenario.to_dict). This
+        # renderer read ``name`` / ``trajectory`` / ``timeframe``, so every
+        # card printed its title as the "—" fallback and lost its horizon.
+        timeframe = s.get("time_horizon") or s.get("timeframe") or ""
         parts.append('<div class="card">')
         parts.append(f'<div class="scenario-meta">{_esc(cat)}</div>')
-        parts.append(f'<h4>{_esc(s.get("name") or "—")}</h4>')
-        trajectory = (s.get("trajectory") or s.get("description") or "").strip()
+        parts.append(f'<h4>{_esc(s.get("title") or s.get("name") or "—")}</h4>')
+        trajectory = (s.get("description") or s.get("trajectory")
+                      or s.get("subtitle") or "").strip()
         if trajectory:
             parts.append(f'<p>{_esc_cites(trajectory, topic_idx, articles)}</p>')
         if impact_str or timeframe:
@@ -516,6 +528,43 @@ def _render_scenarios(scenarios: list, topic: str, topic_idx: int, articles=None
                 parts.append(f'<p class="desc">{_esc_cites(desc, topic_idx, articles)}</p>')
             parts.append('</div>')
         parts.append('</div>')
+    parts.append('</section>')
+    return "\n".join(parts)
+
+
+def _render_analysis_provenance(items: list) -> str:
+    """Per-topic analysis ID + when it was produced.
+
+    Render time is not provenance. A deck and an HTML report can be
+    exported hours apart, and each picks up whatever the latest analysis
+    row is at that moment — which is how one set of artefacts ended up
+    carrying different scenarios and different consensus figures under
+    the same cover. Printing the analysis ID makes that visible: two
+    artefacts from one analysis show the same IDs, two runs do not.
+    """
+    rows = []
+    for (assessment, _run, _prior) in items:
+        run_id = (assessment.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        gen = (assessment.get("run_generated_at") or "")[:16].replace("T", " ")
+        rows.append((assessment.get("topic") or "—", run_id, gen))
+    if not rows:
+        return ""
+    parts = [_section_open("Analysis Provenance", eyebrow="VERSIONS BEHIND THIS REPORT")]
+    parts.append('<table class="articles">')
+    parts.append('<tr><td style="font-weight:600">Topic</td>'
+                 '<td style="font-weight:600">Analysis ID</td>'
+                 '<td style="font-weight:600">Produced</td></tr>')
+    for topic, run_id, gen in rows:
+        parts.append(f'<tr><td>{_esc(topic)}</td>'
+                     f'<td style="font-family:monospace;font-size:.8rem">{_esc(run_id)}</td>'
+                     f'<td>{_esc(gen or "—")}</td></tr>')
+    parts.append('</table>')
+    parts.append('<p style="color:#6b7280;font-size:.82rem;margin-top:.6rem">'
+                 'Other exports of this report carry the same analysis IDs. '
+                 'If they differ, the artefacts came from different runs and '
+                 'should not be read side by side.</p>')
     parts.append('</section>')
     return "\n".join(parts)
 
@@ -614,27 +663,33 @@ def build_topic_report_html(items: list, *, period_label: str,
             articles=articles,
         ))
 
-        # Article References (numbered list — target for the [N] citations
-        # in this topic's exec-summary cards, scenarios, and recs).
+        # Article References — this MUST be the same numbered corpus the
+        # body text cites, or [N] resolves to the wrong article. It used to
+        # render ``_supporting_articles``: the 7 most recent on-topic items,
+        # a different list in a different order, while inline citations ran
+        # up to [90]. Reader had no way to resolve anything past [7].
         body_parts.append(_render_supporting_articles(
-            assessment.get("_supporting_articles") or [],
+            articles or assessment.get("_supporting_articles") or [],
             topic_idx,
         ))
 
         body_parts.append("<hr />")
 
+    body_parts.append(_render_analysis_provenance(items))
     body_parts.append(
         '<footer class="meta">'
         f'Topic report rendered {_esc(datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))}'
         '  ·  AunooAI Wiley Horizons Foresight'
         '</footer>'
     )
+    body_parts.append(_ai_footer())  # EU AI Act Art. 50 visible disclosure
 
     html = (
         '<!doctype html><html lang="en"><head>'
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f'<title>Topic Report — {_esc(period_display)}</title>'
+        + _ai_meta()  # EU AI Act Art. 50 machine-readable marker
+        + f'<title>Topic Report — {_esc(period_display)}</title>'
         f'<style>{_CSS}</style></head><body>'
         '<div class="container">'
         + "\n".join(body_parts)

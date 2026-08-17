@@ -49,13 +49,13 @@ do not editorialise, do not assess whether any forecast is "playing out".
 
 ## What counts as an event
 
-A concrete action by a named actor. Examples:
+A concrete action by a named actor. The examples below are SHAPES — every value in your output must come from the articles, never from these instructions. Examples:
 
-- "Springer Nature **retracted** 1,200 papers from Hindawi journals" (2026-03-14)
+- "<publisher> **retracted** <N> papers from <imprint> journals" (<date>)
 - "NIH **announced** an 18% reduction in extramural grants" (2026-04-02)
 - "Max Planck Society **adopted** Diamond Open Access across its journals"
 - "The EU **passed** the AI-in-research transparency directive"
-- "Novo Nordisk's semaglutide patent **expired** in India, triggering generics"
+- "<company>'s <drug> patent **expired** in <country>, triggering generics"
 
 ## Topic materiality gate (READ FIRST — this is where most errors happen)
 
@@ -131,9 +131,9 @@ that genuinely move the topic, not every dated action in the batch.
 {
   "events": [
     {
-      "actor": "Springer Nature",
+      "actor": "<publisher from the article>",
       "action": "retracted",
-      "subject": "1,200 papers from Hindawi journals",
+      "subject": "<N> papers from <imprint> journals",
       "magnitude_value": 1200,
       "magnitude_unit": "papers",
       "event_date": "2026-03-14",

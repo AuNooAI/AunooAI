@@ -30,11 +30,17 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-from typing import List, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from urllib.parse import quote
 import re
+
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html,
+    disclosure_text,
+    email_headers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,25 +150,61 @@ def _legacy_markdown_to_html(text: str) -> str:
 
 
 def social_ref(uri: str, fallback: Optional[str] = None) -> dict:
-    """Parse a social post URL into {short, profile, post, platform}.
+    """Parse a match URL into {short, profile, post, platform, kind}.
 
-    `short` is the display handle (with @) used as anchor text; `profile`/`post`
-    are the account and post URLs. Falls back to the raw uri for unknown hosts."""
+    For social posts `short` is the display handle (with @) and `profile`/`post`
+    are the account and post URLs. Anything that isn't a recognised social post
+    is a web article: it's labelled with its domain, not "Social" — most observer
+    matches are news, and calling them posts mislabels the whole source list."""
     u = (uri or "").strip()
     m = re.match(r'https?://(?:www\.)?bsky\.app/profile/([^/?#]+)/post/', u)
     if m:
         h = m.group(1)
         return {"short": "@" + h.split('.')[0], "profile": f"https://bsky.app/profile/{h}",
-                "post": u, "platform": "Bluesky"}
+                "post": u, "platform": "Bluesky", "kind": "social"}
     m = re.match(r'https?://(?:www\.)?(?:x|twitter)\.com/([^/?#]+)/status/', u)
     if m:
         h = m.group(1)
-        return {"short": "@" + h, "profile": f"https://x.com/{h}", "post": u, "platform": "X"}
+        return {"short": "@" + h, "profile": f"https://x.com/{h}", "post": u,
+                "platform": "X", "kind": "social"}
     m = re.match(r'https?://(?:www\.)?reddit\.com/(r/[^/?#]+)', u)
     if m:
         sub = m.group(1)
-        return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u, "platform": "Reddit"}
-    return {"short": fallback or "source", "profile": u or "#", "post": u or "#", "platform": "Social"}
+        # The URL only names the subreddit; the posting account arrives via
+        # `fallback` (from social_meta). With it, the account leads the card and
+        # the subreddit stays alongside as `community`.
+        if fallback:
+            h = re.sub(r'^(@|u/)', '', fallback)
+            return {"short": "u/" + h, "profile": f"https://reddit.com/user/{h}",
+                    "community": sub, "community_url": f"https://reddit.com/{sub}",
+                    "post": u, "platform": "Reddit", "kind": "social"}
+        return {"short": sub, "profile": f"https://reddit.com/{sub}", "post": u,
+                "platform": "Reddit", "kind": "social"}
+    m = re.match(r'https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/', u)
+    if m:
+        # Instagram post URLs are just a shortcode — the username never appears
+        # in them, so it has to arrive via `fallback` (looked up from the
+        # collected article's social_meta).
+        if fallback:
+            h = fallback.lstrip('@')
+            return {"short": "@" + h, "profile": f"https://www.instagram.com/{h}/",
+                    "post": u, "platform": "Instagram", "kind": "social"}
+        return {"short": "Instagram post", "profile": u, "post": u,
+                "platform": "Instagram", "kind": "social"}
+    m = re.match(r'https?://(?:www\.)?tiktok\.com/(@[^/?#]+)/video/', u)
+    if m:
+        h = m.group(1)
+        return {"short": h, "profile": f"https://www.tiktok.com/{h}", "post": u,
+                "platform": "TikTok", "kind": "social"}
+    # Web article — show the publisher domain and link to the site, not "Social".
+    m = re.match(r'https?://([^/?#]+)', u)
+    if m:
+        host = m.group(1).split('@')[-1]
+        return {"short": fallback or re.sub(r'^www\.', '', host),
+                "profile": f"https://{host}/", "post": u,
+                "platform": "News", "kind": "web"}
+    return {"short": fallback or "source", "profile": u or "#", "post": u or "#",
+            "platform": "Source", "kind": "web"}
 
 
 def linkify_handles_md(md: str, matches: Optional[List[dict]]) -> str:
@@ -171,15 +213,54 @@ def linkify_handles_md(md: str, matches: Optional[List[dict]]) -> str:
     prefixes don't mis-link; skips handles already inside a link."""
     if not md or not matches:
         return md
+    authors = _social_post_authors(matches)
     prof = {}
     for m in matches:
-        r = social_ref(m.get("article_uri", ""))
-        if r["short"].startswith("@") and r["profile"] and r["profile"] != "#":
+        uri = m.get("article_uri", "")
+        r = social_ref(uri, authors.get((uri or "").strip()))
+        if r["short"].startswith(("@", "u/")) and r["profile"] and r["profile"] != "#":
             prof.setdefault(r["short"], r["profile"])
     for h in sorted(prof, key=len, reverse=True):
         md = re.sub(r'(?<![\[\w/])' + re.escape(h) + r'(?![\w.])',
                     f'[{h}]({prof[h]})', md)
     return md
+
+
+_AUTHORLESS_URL = re.compile(
+    r'https?://(?:www\.)?(?:instagram\.com/(?:p|reel|tv)/|reddit\.com/r/)')
+
+
+def _social_post_authors(matches: List[dict]) -> Dict[str, str]:
+    """Map post URIs to their account names for platforms whose post URLs don't
+    carry the username (Instagram: just a shortcode; Reddit: just the
+    subreddit). The name comes from the collected article's social_meta
+    (written by the xpoz collector). One IN-query for all posts; failures just
+    mean the cards keep their URL-derived label."""
+    uris = [u for u in ((m.get("article_uri") or "").strip() for m in matches)
+            if _AUTHORLESS_URL.match(u)]
+    if not uris:
+        return {}
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        qs = ",".join("?" * len(uris))
+        rows = db.fetch_all(
+            f"SELECT uri, social_meta FROM articles WHERE uri IN ({qs})", uris)
+    except Exception as e:
+        logger.warning(f"Social author lookup failed: {e}")
+        return {}
+    authors = {}
+    for row in rows or []:
+        meta = row.get("social_meta")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = None
+        author = (meta or {}).get("author")
+        if author:
+            authors[row["uri"]] = str(author)
+    return authors
 
 
 def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
@@ -188,9 +269,11 @@ def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
     online report so both show the same complete, navigable source list."""
     if not matches:
         return ""
+    authors = _social_post_authors(matches)
     cards = []
     for m in matches:
-        r = social_ref(m.get("article_uri", ""))
+        uri = m.get("article_uri", "")
+        r = social_ref(uri, authors.get((uri or "").strip()))
         summary = (m.get("summary") or "").strip()
         threat = (m.get("threat_level") or "medium").lower()
         conf = m.get("confidence", 0) or 0
@@ -199,15 +282,19 @@ def render_matched_sources_html(matches: Optional[List[dict]]) -> str:
         except Exception:
             conf_s = str(conf)
         color = {"high": "#dc3545", "medium": "#d39e00", "low": "#28a745"}.get(threat, "#6c757d")
-        post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">view post ↗</a>'
+        link_label = "view post" if r.get("kind") == "social" else "read article"
+        post_link = (f' &nbsp;·&nbsp; <a href="{r["post"]}" style="color:#4055c6;">{link_label} ↗</a>'
                      if r["post"] and r["post"] != "#" else "")
+        community = (f' <span style="color:#888;">·</span> '
+                     f'<a href="{r["community_url"]}" style="color:#4055c6;text-decoration:none;">{r["community"]}</a>'
+                     if r.get("community") else "")
         cards.append(
             '<div style="margin:0 0 12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-radius:8px;">'
             '<p style="margin:0 0 6px 0;">'
             f'<a href="{r["profile"]}" style="color:#4055c6;font-weight:bold;text-decoration:none;">{r["short"]}</a>'
-            f'<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
+            f'{community}<span style="color:#888;"> · {r["platform"]}</span>{post_link}</p>'
             f'<p style="margin:0 0 6px 0;color:#333;">{summary}</p>'
-            '<p style="margin:0;font-size:12px;color:#555;"><strong>Threat:</strong> '
+            '<p style="margin:0;font-size:12px;color:#555;"><strong>Priority:</strong> '
             f'<span style="color:{color};font-weight:bold;">{threat.upper()}</span> &nbsp;|&nbsp; '
             f'<strong>Confidence:</strong> {conf_s}</p></div>')
     return "\n".join(cards)
@@ -230,8 +317,12 @@ class EmailProvider(ABC):
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Send an email.
+
+        ``extra_headers`` (optional) sets additional message headers, e.g. the
+        ``X-AI-Generated`` marker on AI-generated content (EU AI Act Art. 50).
 
         ``attachments`` (optional) is a list of dicts each shaped as::
 
@@ -262,6 +353,7 @@ class ResendProvider(EmailProvider):
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("Resend not configured. Set RESEND_API_KEY environment variable.")
@@ -287,6 +379,9 @@ class ResendProvider(EmailProvider):
 
             if body_text:
                 data["text"] = body_text
+
+            if extra_headers:
+                data["headers"] = extra_headers
 
             if attachments:
                 data["attachments"] = [
@@ -342,6 +437,7 @@ class SMTPProvider(EmailProvider):
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD.")
@@ -378,6 +474,8 @@ class SMTPProvider(EmailProvider):
             msg["Subject"] = subject
             msg["From"] = from_email or self.from_email
             msg["To"] = ", ".join(to_addresses)
+            for _hk, _hv in (extra_headers or {}).items():
+                msg[_hk] = _hv
 
             with smtplib.SMTP(self.host, self.port) as server:
                 if self.use_tls:
@@ -423,14 +521,29 @@ class EmailService:
         body_text: Optional[str] = None,
         from_email: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
+        ai_generated: bool = False,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Send an email using the configured provider.
+
+        Set ``ai_generated=True`` for emails whose body is AI-generated
+        content (reports, briefings, alerts): a visible disclosure footer is
+        appended and an ``X-AI-Generated`` marker header is attached, per EU
+        AI Act Article 50. Leave it False for transactional mail (password
+        resets, verification), which must not be labelled as AI content.
 
         See :meth:`EmailProvider.send_email` for the ``attachments`` shape.
         """
         if not to_addresses:
             logger.warning("No recipients specified for email")
             return False
+
+        headers = dict(extra_headers or {})
+        if ai_generated:
+            body_html = f"{body_html}{disclosure_footer_html()}"
+            if body_text is not None:
+                body_text = f"{body_text}\n\n{disclosure_text()}"
+            headers.update(email_headers())
 
         return self.provider.send_email(
             to_addresses=to_addresses,
@@ -439,6 +552,7 @@ class EmailService:
             body_text=body_text,
             from_email=from_email,
             attachments=attachments,
+            extra_headers=headers or None,
         )
 
     def send_signal_alert_email(
@@ -537,7 +651,7 @@ class EmailService:
 
             html_parts.append(f"""
             <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-left: 4px solid #667eea; border-radius: 4px;">
-                <h3 style="margin-top: 0; color: #667eea;">📊 Generated Report</h3>
+                <h3 style="margin-top: 0; color: #667eea;">📊 AI-Generated Report</h3>
                 <div style="font-family: inherit; line-height: 1.6;">
                     {report_html}{truncated}
                     {podcast_html}
@@ -572,7 +686,7 @@ class EmailService:
             """)
 
         html_parts.append("<hr>")
-        html_parts.append("<h3>Matched posts:</h3>")
+        html_parts.append("<h3>Matched sources:</h3>")
         html_parts.append(render_matched_sources_html(matches))
 
         html_parts.extend([
@@ -594,7 +708,7 @@ Investigate with Auspex AI: {auspex_url}
 """
         if report_content:
             body_text += f"""
---- GENERATED REPORT ---
+--- AI-GENERATED REPORT ---
 {report_content[:2000]}{'...' if len(report_content) > 2000 else ''}
 ------------------------
 
@@ -606,7 +720,7 @@ Investigate with Auspex AI: {auspex_url}
         body_text += "--- MATCHED ARTICLES ---\n"
         for i, match in enumerate(matches[:10], 1):
             body_text += f"Match {i}: {match.get('summary', 'No summary')}\n"
-            body_text += f"Threat: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"
+            body_text += f"Priority: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"
 
         if report_download_url:
             body_text += f"\nDownload full report (no login needed, 30 days): {report_download_url}\n"
@@ -617,6 +731,7 @@ Investigate with Auspex AI: {auspex_url}
             body_html=body_html,
             body_text=body_text,
             attachments=attachments,
+            ai_generated=True,
         )
 
 

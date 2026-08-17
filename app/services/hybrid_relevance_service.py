@@ -49,13 +49,45 @@ LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 # Cross-encoder as an intermediate tier between classifier+embedding and LLM
 # fallback. Gated by its own env flag so we can roll it out independently of
 # the retrieval reranker (which shares the underlying model).
-# NOTE: score_pair returns a sigmoid probability in [0, 1]. Defaults below
-# pick the confident tails; re-run scripts/evaluate_ce_vs_llm_fallback.py
-# after changing models and when user_relevance_feedback grows past ~50
-# labels to tighten these.
+# score_pair returns a sigmoid probability, but NOT one spread over [0, 1] for
+# this input: the reranker was trained on (search query, passage) pairs and a
+# topic label is not a search query. Measured on REAL production documents
+# (title + summary, the same string _compute_cross_encoder_score builds) from
+# wileytest:
+#
+#   THEME topics  AUC 0.885   relevant median 0.0014   other median 0.00003
+#   BRAND topics  AUC 0.478   relevant median 0.00043  other median 0.00055
+#
+# So the tier is theme-only (see the gate in score_relevance) and accept-only.
+# Both restrictions are load-bearing:
+#
+#  1. The previous CE_LOW=0.10 sits above essentially the whole relevant
+#     population — every relevant article measured scored below it. Enabling
+#     the flag as shipped would have "confidently rejected" ~100% of relevant
+#     articles with no LLM review. Only the default-off saved it.
+#  2. There is no honest reject threshold at all: relevant and irrelevant both
+#     live in 1e-5..1e-2, and the widest cut losing no relevant article is
+#     itself the lowest relevant article. That is a coincidence, not a margin.
+#
+# The asymmetry is what settles it. A wrong "confident accept" costs one
+# enrichment call. A wrong "confident reject" drops the article for good,
+# because nothing downstream re-examines it — the exact failure mode that made
+# news vanish from the observer agents. Only the safe direction is wired up.
+#
+# Beware measuring this on titles alone: title-only scoring reports a far
+# rosier AUC than the production title+summary document, because the summary
+# adds text the reranker cannot align to a topic label.
+#
+# Re-derive CE_HIGH with scripts/evaluate_ce_vs_llm_fallback.py after any
+# reranker model change, and when user_relevance_feedback passes ~50 labels.
 USE_CE_TIER = os.getenv("RELEVANCE_USE_CE_TIER", "false").lower() in {"1", "true", "yes"}
-CE_LOW = float(os.getenv("RELEVANCE_CE_LOW", "0.10"))   # below → confident reject
-CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.90"))  # above → confident accept
+# On theme topics 0.05 accepts 28/199 relevant (14%) while wrongly accepting
+# 2/114 irrelevant (1.8%) — a modest saving of LLM calls at a cost of at worst
+# a couple of extra enrichments.
+CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.05"))  # above → confident accept
+
+# Both brand-topic naming conventions in use across tenants.
+_BRAND_TOPIC_RE = re.compile(r'^Brand Monitoring\s+|\s-\sBrand Watch$', re.I)
 
 
 class HybridRelevanceService:
@@ -511,9 +543,18 @@ Score:"""
         else:
             embedding_score = None
 
-        # Compute classifier score (if available)
-        if self._classifier_loaded:
-            classifier_score = self._compute_classifier_score(topic, title, summary)
+        # Compute classifier score (if available).
+        # The classifier was trained on "topic [SEP] title. summary" and collapses
+        # to ~0 for EVERY article when the summary is missing: measured on ibaset's
+        # 72-article brand corpus, title+summary scores 0.0001-0.9469 (AUC 0.981)
+        # while title-only scores 0.0001-0.0034 (AUC 0.677) -- every article under
+        # 0.005. Collection-time scoring often has no summary yet, so feed the
+        # classifier the same text the embedding tier gets, and treat "no text to
+        # judge" as unavailable rather than as a confident zero. Blending a
+        # meaningless 0.0 at CLASSIFIER_WEIGHT dragged every score down by 60%.
+        classifier_text = summary if (summary or "").strip() else (full_text or "")
+        if self._classifier_loaded and classifier_text.strip():
+            classifier_score = self._compute_classifier_score(topic, title, classifier_text)
             result["classifier_score"] = classifier_score
         else:
             classifier_score = None
@@ -562,17 +603,42 @@ Score:"""
         # Cross-encoder tier: for borderline cases, try the CE before paying
         # for an LLM call. Populates ce_score either way when enabled so we
         # can audit CE vs LLM agreement over time.
+        # Theme topics only. Measured on real production documents
+        # (title + summary, as scored below):
+        #
+        #   THEME topics  AUC 0.885  (199 relevant / 114 not)
+        #   BRAND topics  AUC 0.478  (9 relevant / 86 not, hand-labelled)
+        #
+        # Brand relevance is entity disambiguation — SAGE Publishing vs Sage
+        # Group plc vs sage the herb vs sage-agent-sdk on PyPI. That is a
+        # named-entity problem, and a semantic reranker rates all of those as
+        # similar, so on brand topics it performs at chance. Same underlying
+        # reason the classifier-confidence guard above exempts brand topics.
+        # NOTE: is_brand_topic above only recognises the "Brand Monitoring X"
+        # naming. Tenants also carry "X - Brand Watch" topics (live, low
+        # volume), which that predicate misses — so the CE gate uses its own,
+        # covering both. Left the narrower one alone rather than silently
+        # changing which topics the classifier-confidence guard applies to.
+        is_brand_like = bool(_BRAND_TOPIC_RE.search(topic or ''))
         result["ce_score"] = None
-        if USE_CE_TIER and result["confidence"] == "medium":
+        if USE_CE_TIER and result["confidence"] == "medium" and not is_brand_like:
             ce_score = self._compute_cross_encoder_score(topic, title, summary)
             if ce_score is not None:
                 result["ce_score"] = ce_score
-                if ce_score < CE_LOW or ce_score > CE_HIGH:
-                    result["score"] = ce_score
+                # Accept-only: a CE below the bar means "no opinion", not
+                # "reject", and falls through to the LLM. See the CE_HIGH note
+                # at the top of this module for why the reject side is gone.
+                if ce_score > CE_HIGH:
+                    # Keep the hybrid score rather than adopting the CE's own
+                    # value — the CE's scale is not comparable to the
+                    # embedding/classifier scale, so writing it into `score`
+                    # would corrupt the threshold comparison downstream.
+                    result["score"] = max(result["score"], threshold)
                     result["method"] = f"{result['method']}+ce"
                     result["confidence"] = "high"
                     logger.info(
-                        f"🎯 CE resolved borderline case: {ce_score:.3f} (thresholds {CE_LOW}/{CE_HIGH})"
+                        f"🎯 CE confirmed borderline case: ce={ce_score:.4f} "
+                        f"(> {CE_HIGH}), skipping LLM"
                     )
 
         # LLM fallback for uncertain/borderline scores

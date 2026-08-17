@@ -81,8 +81,10 @@ If none of the three applies, use no percentage.
 
 - Open with a plain-English read of the quarter, grounded in what the
   per-topic briefings actually say (`briefing_lede`, `briefing_tensions`).
-- Name actors and institutions: Springer Nature, NIH, Max Planck, Hindawi,
-  PubPeer, specific publishers and agencies — drawn from the input.
+- Name actors and institutions — specific publishers, funders and agencies —
+  but ONLY names that appear in the input data. These instructions contain no
+  citable facts: a name or figure that appears here and not in the input must
+  never appear in the letter.
 - Quote the strongest line from a `briefing_lede` verbatim, in quotation marks.
 - End on decisions and actions, not vibes.
 
@@ -120,6 +122,14 @@ Separate paragraphs with a blank line (`\n\n`). ~80–130 words each.
 per-topic `briefing_lede`, in double quotation marks. Place it in paragraph 4.
 A letter without a quoted briefing line is incomplete — do not return one.**
 
+**The quote is WOVEN IN as evidence, never presented and then discussed.**
+Right: `Analysts' own reporting concedes that "the scientific vetting
+infrastructure is demonstrably failing", and the retraction ledger backs it.`
+Wrong, banned outright: quoting a line and then commenting on the quotation —
+"That line matters because…", "This quote captures…", "That sentence is
+important…". No human analyst narrates their own quotations; a sentence whose
+subject is the quote itself (rather than the world) is a defect.
+
 1. **The bottom line.** Lead with the trends where the **evidence since
    forecast is most notable** — first those where what was forecast is NOT
    yet showing up in events (counter-evidence or a conspicuous absence of
@@ -132,17 +142,24 @@ A letter without a quoted briefing line is incomplete — do not return one.**
    the prose. Ground each in a named event, not a number.
 
 2. **What happened this quarter.** Lead with named events from
-   `events_by_topic` if present — actor, action, magnitude, date (e.g.
-   "Springer Nature retracted 1,200 Hindawi-linked papers in March"). If
-   `events_by_topic` is empty, summarise the concrete developments described
+   `events_by_topic` if present — actor, action, magnitude, date, in the
+   shape "<publisher> retracted <N> papers in <month>", with every value
+   taken from the event record. Never reuse a name or number from these
+   instructions; only the input data supplies facts. If `events_by_topic`
+   is empty, summarise the concrete developments described
    in the `briefing_lede` / `briefing_tensions` for the most active topics.
    Where press attention clearly shifted, you may say so, labelled as press
    attention ("integrity coverage rose sharply"), never as forecast movement.
 
 3. **The headline tail risk.** If `top_black_swan` exists, name it — title,
-   timeframe, and one sentence of consequence to Wiley. If none, name the
-   highest-impact wild card from `all_black_swans`. If neither, write "No new
-   tail-risk scenarios surfaced this quarter." and stop. Do not pad.
+   timeframe, and one sentence of consequence to Wiley. (`top_black_swan` is
+   the highest-impact card across all tail-risk categories — black swans,
+   wild cards and contrarian scenarios alike.) You may add that it is one of
+   `black_swan_count` tail-risk scenarios tracked this quarter. Write "No new
+   tail-risk scenarios surfaced this quarter." ONLY when `black_swan_count`
+   is 0 — the deck renders every tracked card, so claiming there are none
+   while the deck shows a page of them contradicts the deliverable it
+   accompanies. Do not pad.
 
 4. **What this means for Wiley.** Up to four one-sentence-header sub-points,
    each grounded in the input. Include only those you can ground:
@@ -160,8 +177,69 @@ A letter without a quoted briefing line is incomplete — do not return one.**
    one sentence on what we will be watching next quarter (events, not
    percentages).
 
+## This letter is an installment, not a standalone review
+
+When the payload contains ``prior_letter`` (last quarter's letter, which the
+reader has read), the letter's job is to ADVANCE that narrative, not to
+re-introduce the world:
+
+- Track the prior letter's claims: what we said, what this quarter's events
+  did to it. "The predicted decline in public trust is now evident", "X was
+  expected to advance, yet no development has occurred" — that register,
+  claim by claim, is the core of the letter.
+- The headline tail risk must state its continuity: it either **remains**
+  last quarter's scenario, or has been displaced — and if displaced, name
+  what displaced it and why.
+- New developments are framed as new against the standing picture ("a new
+  pressure this quarter…"), not as items in a fresh inventory.
+- The prior letter is NARRATIVE context only. Its facts are LAST quarter's:
+  never recycle them as this quarter's events; this quarter's facts come
+  from the current payload alone.
+- This continuity is claims-and-events continuity. The consensus-number
+  bans below still apply in full: track WHAT WAS SAID, never grade
+  percentages or use verdict vocabulary.
+
+**The installment framing changes what the five sections SAY, never which
+sections exist.** Every letter carries all five bold sections at full length
+(the exemplar's ~600 words is the target): The bottom line / What happened
+this quarter / The headline tail risk / What this means for Wiley / Next
+quarter. "Don't re-introduce the world" means the sections advance the
+standing narrative — it never means dropping sections.
+
+If the payload contains ``structure_defects``, your previous draft was
+incomplete in exactly the ways listed; produce the complete letter.
+
+When ``prior_letter`` is absent (a first letter for a period type), write a
+self-contained letter.
+
 ## Hard rules
 
+- **The letter OPENS with the quarter's sharpest named development or
+  forecast-vs-evidence contrast** — an actor, an action, a consequence, in the
+  first sentence ("Forecasts anticipated progress in restoring science-policy
+  trust; the administration's revocation of the EPA endangerment finding points
+  the other way" is the shape). NEVER open with commentary about the analysis
+  itself. Banned openers, zero tolerance: "The most decision-relevant read",
+  "The key takeaway", "At a high level", "The most important thing to
+  understand", "not a single event but", or any sentence whose subject is the
+  read/analysis/picture rather than the world.
+- **If the payload contains `golden_gate_critique`**, treat it as editor notes
+  from a prose review of your previous draft: fix every quality it names while
+  keeping all grounded facts. It never contains facts to add.
+- **Illustrative phrasing in these instructions is never quotable.** Any
+  example sentence supplied here exists to show a shape for one situation
+  mid-letter; building the lede or any sentence around it verbatim is the same
+  error as copying an example fact.
+- **NEVER name an internal field, file, or data structure in the letter.**
+  The reader must not learn what the inputs are called or that any input was
+  empty — no "events_by_topic", "scenario event file", "records supplied",
+  "payload", "tracker". When the tracked scenarios have no confirmed events
+  yet, frame them as in motion, not as lacking evidence: "these scenarios are
+  still developing" / "the situation is still evolving — the pressures named
+  in this quarter's reporting have not yet crystallised into discrete
+  events." Never write that events are "missing", "absent" or
+  "unconfirmed" — that phrasing reads as a gap in our coverage rather than
+  the state of the world.
 - **MUST NOT** contain any consensus/confidence percentage, verdict word
   (Cooling/Stable/Strengthening), or "since {quarter} baseline" comparison.
 - Any percentage present MUST be an event magnitude or a labelled

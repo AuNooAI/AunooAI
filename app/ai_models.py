@@ -284,7 +284,11 @@ class AIModel:
         self.temperature = model_config.get("temperature", 0.7)
         # Ensure a uniform attribute name that other components expect.
         # ``LiteLLMModel`` uses ``model_name`` so we mirror that here.
-        self.model_name = self.model  # type: ignore[attr-defined]
+        self.model_name = self.model
+        # The concrete model this will actually invoke; ``self.model``
+        # is whatever the caller asked for, usually an alias for a
+        # different vendor's model. Record THIS when attributing output.
+        self.resolved_model = resolve_model_identity(self.model)  # type: ignore[attr-defined]
 
     def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Synchronous version of generate() for use in sync contexts."""
@@ -388,6 +392,32 @@ class AIModel:
         async with _get_llm_semaphore():
             return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 
+# mtime-stamped memo for load_model_config(): re-reading and re-parsing the
+# YAML cost ~17ms and sat on the hot path of every LLM request.
+_MODEL_CONFIG_CACHE = {}
+
+
+def resolve_model_identity(model_name):
+    """Return the concrete provider/model a name actually invokes.
+
+    Most names in litellm_config.yaml are aliases whose target is a different
+    vendor entirely — ``gpt-5.4-mini`` calls Claude Haiku 4.5, ``gemini-pro``
+    and ``mixtral-8x7b`` also call Claude. Anything recording or displaying
+    which model produced an output must record THIS, not the alias: naming a
+    model that never ran is a false provenance record.
+
+    Unknown names pass through unchanged, so a concrete ``provider/model``
+    string keeps working.
+    """
+    if not model_name:
+        return ""
+    try:
+        cfg = load_model_config().get(model_name)
+    except Exception:  # config unreadable — never break a call to log a name
+        cfg = None
+    return str((cfg or {}).get("model") or model_name)
+
+
 def load_model_config() -> Dict[str, Dict[str, Any]]:
     """Load model configuration from *litellm_config.yaml*.
 
@@ -411,6 +441,15 @@ def load_model_config() -> Dict[str, Dict[str, Any]]:
         "config",
         "litellm_config.yaml",
     )
+
+    global _MODEL_CONFIG_CACHE
+    try:
+        _st = os.stat(config_path)
+        _stamp = (config_path, _st.st_mtime_ns, _st.st_size)
+    except OSError:
+        _stamp = None
+    if _stamp is not None and _MODEL_CONFIG_CACHE.get("stamp") == _stamp:
+        return _MODEL_CONFIG_CACHE["value"]
 
     try:
         with open(config_path, "r") as f:
@@ -440,6 +479,8 @@ def load_model_config() -> Dict[str, Dict[str, Any]]:
                     **litellm_params,
                 }
 
+        if _stamp is not None:
+            _MODEL_CONFIG_CACHE = {"stamp": _stamp, "value": models}
         return models
 
     except FileNotFoundError:
@@ -576,8 +617,11 @@ class LiteLLMModel(AIModel):
             logger.error("❌ No model configurations found in either config file")
             raise ValueError("No model configurations found in either config file")
         
-        # Get currently configured models with their API keys
-        configured_models = get_available_models()
+        # Get currently configured models with their API keys. Validation asks
+        # "will this name route?", so hidden legacy aliases MUST count — hiding
+        # them here broke every gpt-* default (timeline extraction, the factory
+        # default) the day the picker filter landed.
+        configured_models = get_available_models(include_hidden=True)
         logger.info(f"🔑 Found {len(configured_models)} configured models with API keys")
         
         # Verify the model is configured
@@ -1146,8 +1190,14 @@ def _short_model_id(model_path: str) -> str:
     return tail
 
 
-def get_available_models():
-    """Get models that have API keys configured in the environment."""
+def get_available_models(include_hidden: bool = False):
+    """Get models that have API keys configured in the environment.
+
+    ``include_hidden=False`` (default) hides routing-only legacy aliases —
+    the list users may pick from. ``include_hidden=True`` returns every
+    resolvable name and is what VALIDATION must use: stored configs and old
+    call sites still request alias names, and those still route.
+    """
     logger.debug("🔍 Scanning for configured models from litellm_config.yaml...")
 
     models = []
@@ -1176,6 +1226,11 @@ def get_available_models():
 
             for model_config in model_list:
                 model_name = model_config.get('model_name')
+                # Routing-only compatibility names (legacy gpt-*/gemini-* entries kept
+                # so stored configs and old call sites still resolve). Never listed:
+                # the name a user can pick must be the model that actually runs.
+                if not include_hidden and (model_config.get('model_info') or {}).get('legacy_alias'):
+                    continue
                 litellm_params = model_config.get('litellm_params', {})
                 model_path = litellm_params.get('model', '')
 
@@ -1239,6 +1294,9 @@ def ai_get_available_models():
         # Convert litellm format to existing format
         models = []
         for model in config.get('model_list', []):
+            # Routing-only compatibility names — resolvable, never listed.
+            if (model.get('model_info') or {}).get('legacy_alias'):
+                continue
             provider = model['litellm_params']['model'].split('/')[0]
             models.append({
                 "name": model['model_name'],

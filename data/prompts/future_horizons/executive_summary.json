@@ -1,16 +1,13 @@
 {
   "prompt_name": "Future Horizons - Executive Summary",
   "feature": "future_horizons_executive_summary",
-  "version": "2.1.0",
+  "version": "3.0.1",
   "created_at": "2025-01-22T12:00:00Z",
   "updated_at": "2025-01-22T16:00:00Z",
   "author": "System",
-  "description": "Generates executive summaries from Future Horizons scenarios with consensus percentages, minority views, and decision forks framed as conditional outcomes. Uses organizational profile for context.",
-
-  "system_prompt": "You are a strategic foresight analyst. Your role is to synthesize Future Horizons scenarios into concise, actionable executive summaries tailored to the organization's context. Each summary must include consensus percentages derived from scenario analysis, minority views, and decision forks framed as conditional business outcomes relevant to the organization.",
-
-  "user_prompt": "Analyze the following Future Horizons scenarios for \"{topic}\" and generate executive summaries.\n\nORGANIZATIONAL CONTEXT:\n{organizational_profile}\n\nSCENARIOS:\n{scenarios_json}\n\nYOUR TASK:\n1. Identify 4-6 major thematic clusters across the H1, H2, and H3 scenarios\n2. For each cluster, synthesize a consensus view with an estimated percentage based on scenario weight/prevalence\n3. Identify the minority view (dissenting scenarios) with percentage range\n4. Frame decision forks as conditional business outcomes (\"If X happens → Y outcome\") relevant to the organization\n5. Reference the organizational profile when framing strategic implications and action windows\n\nFORMAT RULES:\n- Topic titles: ALL CAPS (e.g., \"PATENT CLIFFS & PHARMA TRANSFORMATION\")\n- Opening statement: Context sentence with consensus percentage embedded naturally (e.g., \"...with 85% of sources expecting...\")\n- Consensus percentage: Estimate based on how many scenarios support this view (typically 70-90%)\n- Minority view: The contrarian perspective with percentage range (e.g., \"7-12%\")\n- Primary signal: The key takeaway statement (we add the \"Primary Signal (X% consensus):\" prefix in UI)\n- Decision forks: Frame as \"If [condition] →\" NOT as \"H1 persists\" or \"H2 executes\"\n- No hedging in primary signal - direct statements\n- Name specific companies, sectors, geographies where relevant\n- Source scenarios: Include the horizon type (H1/H2/H3) for each source scenario\n\nEXAMPLE OUTPUT FORMAT:\n```\nPATENT CLIFFS & PHARMA TRANSFORMATION\n\nPatent cliffs will reshape pharma competitive dynamics 2026-2030, with 85% of sources expecting intensified generic competition and defensive consolidation.*\n\n*Minority view (7-12%): Incumbent innovation or regulatory shifts could preserve branded margins\n\nPrimary Signal (85% consensus): Generic entry in weight-loss and specialty drugs will intensify competition 2026-2028, forcing defensive M&A and portfolio diversification.\n\nDecision Fork:\n- If incumbents execute well → Novo Nordisk/Lilly retain dominance through oral formulations and pipeline depth\n- If disruption accelerates → Branded revenue erosion outpaces mitigation; biosimilar players gain structural advantage\n\nYour Window: 0-6 months to assess exposure; 6-18 months to position.\n```\n\nOUTPUT FORMAT (JSON):\n{\n  \"summaries\": [\n    {\n      \"topic_title\": \"TOPIC TITLE IN CAPS\",\n      \"primary_horizon\": \"h1|h2|h3\",\n      \"horizon_label\": \"Declining System|Transition/Innovation|Future Vision\",\n      \"opening_statement\": \"Context statement with consensus percentage embedded naturally\",\n      \"consensus_percentage\": 85,\n      \"minority_view\": {\n        \"percentage_range\": \"7-12%\",\n        \"statement\": \"The contrarian/minority perspective\"\n      },\n      \"primary_signal\": \"The main consensus takeaway (without the prefix - we add that in UI)\",\n      \"decision_fork\": {\n        \"condition_a\": {\n          \"condition\": \"If incumbents execute well\",\n          \"outcome\": \"Specific outcome with named entities\"\n        },\n        \"condition_b\": {\n          \"condition\": \"If disruption accelerates\",\n          \"outcome\": \"Alternative outcome with named entities\"\n        }\n      },\n      \"action_window\": {\n        \"assessment\": { \"timeframe\": \"0-6 months\", \"action\": \"assess exposure\" },\n        \"positioning\": { \"timeframe\": \"6-18 months\", \"action\": \"position for X\" }\n      },\n      \"source_scenarios\": [\n        { \"title\": \"Scenario Title 1\", \"horizon\": \"h1\" },\n        { \"title\": \"Scenario Title 2\", \"horizon\": \"h2\" }\n      ]\n    }\n  ]\n}\n\nGenerate 4-6 executive summaries. Return ONLY the JSON object.",
-
+  "description": "Generates executive summaries from Future Horizons scenarios with qualitative consensus and minority views and decision forks framed as conditional outcomes. Percentages were removed in v3 — the model was inventing them ('typically 70-90%'), and an invented number rendered as '82% CONSENSUS' reads as a measurement.",
+  "system_prompt": "You are a strategic foresight analyst. Your role is to synthesize Future Horizons scenarios into concise, actionable executive summaries tailored to the organization's context. Each summary must include a consensus view, a minority view, and decision forks framed as conditional business outcomes relevant to the organization. Never invent a percentage or any other number: every figure you output must come from the scenario text itself. Consensus strength is expressed qualitatively, not numerically.",
+  "user_prompt": "TODAY IS {today}. These summaries are read as a forecast made today. Every decision fork, action window and named deadline must lie in the future relative to that date — never name a quarter or year that has already passed.\n\nAnalyze the following Future Horizons scenarios for \"{topic}\" and generate executive summaries.\n\nORGANIZATIONAL CONTEXT:\n{organizational_profile}\n\nSCENARIOS:\n{scenarios_json}\n\nYOUR TASK:\n1. Identify 4-6 major thematic clusters across the H1, H2, and H3 scenarios\n2. For each cluster, synthesize the consensus view across its scenarios\n3. Identify the minority view (dissenting scenarios)\n4. Frame decision forks as conditional business outcomes (\"If X happens → Y outcome\") relevant to the organization\n5. Reference the organizational profile when framing strategic implications and action windows\n\nFORMAT RULES:\n- Topic titles: ALL CAPS (e.g., \"PATENT CLIFFS & PHARMA TRANSFORMATION\")\n- Opening statement: Context sentence stating what most scenarios expect\n- Never state a consensus percentage or probability. Consensus here is a reading of the scenario set, not a measurement, so it must not be dressed as one\n- Minority view: The contrarian perspective, stated without any percentage\n- Primary signal: The key takeaway statement (the UI adds the \"Primary Signal:\" prefix)\n- Decision forks: Frame as \"If [condition] →\" NOT as \"H1 persists\" or \"H2 executes\"\n- No hedging in primary signal - direct statements\n- Name specific companies, sectors, geographies where relevant\n- Source scenarios: Include the horizon type (H1/H2/H3) for each source scenario\n\nEXAMPLE OUTPUT FORMAT:\n```\nPATENT CLIFFS & PHARMA TRANSFORMATION\n\nPatent cliffs will reshape pharma competitive dynamics over the coming five years, with most scenarios expecting intensified generic competition and defensive consolidation.*\n\n*Minority view: Incumbent innovation or regulatory shifts could preserve branded margins\n\nPrimary Signal: <named development> will intensify competition in <named segment>, forcing defensive M&A and portfolio diversification.\n\nDecision Fork:\n- If incumbents execute well → <incumbent A> and <incumbent B> retain dominance through <named capability>\n- If disruption accelerates → <incumbent> revenue erosion outpaces mitigation; <challenger class> gains structural advantage\n\nYour Window: 0-6 months to assess exposure; 6-18 months to position.\n```\n\nOUTPUT FORMAT (JSON):\n{\n  \"summaries\": [\n    {\n      \"topic_title\": \"TOPIC TITLE IN CAPS\",\n      \"primary_horizon\": \"h1|h2|h3\",\n      \"horizon_label\": \"Declining System|Transition/Innovation|Future Vision\",\n      \"opening_statement\": \"Context statement of what most scenarios expect\",\n      \"minority_view\": {\n        \"statement\": \"The contrarian/minority perspective\"\n      },\n      \"primary_signal\": \"The main consensus takeaway (without the prefix - we add that in UI)\",\n      \"decision_fork\": {\n        \"condition_a\": {\n          \"condition\": \"If incumbents execute well\",\n          \"outcome\": \"Specific outcome with named entities\"\n        },\n        \"condition_b\": {\n          \"condition\": \"If disruption accelerates\",\n          \"outcome\": \"Alternative outcome with named entities\"\n        }\n      },\n      \"action_window\": {\n        \"assessment\": { \"timeframe\": \"0-6 months\", \"action\": \"assess exposure\" },\n        \"positioning\": { \"timeframe\": \"6-18 months\", \"action\": \"position for X\" }\n      },\n      \"source_scenarios\": [\n        { \"title\": \"Scenario Title 1\", \"horizon\": \"h1\" },\n        { \"title\": \"Scenario Title 2\", \"horizon\": \"h2\" }\n      ]\n    }\n  ]\n}\n\nGenerate 4-6 executive summaries. Return ONLY the JSON object.",
   "expected_output_schema": {
     "type": "object",
     "properties": {
@@ -19,34 +16,57 @@
         "items": {
           "type": "object",
           "properties": {
-            "topic_title": {"type": "string"},
-            "primary_horizon": {"type": "string", "enum": ["h1", "h2", "h3"]},
-            "horizon_label": {"type": "string"},
-            "opening_statement": {"type": "string"},
-            "consensus_percentage": {"type": "number"},
+            "topic_title": {
+              "type": "string"
+            },
+            "primary_horizon": {
+              "type": "string",
+              "enum": [
+                "h1",
+                "h2",
+                "h3"
+              ]
+            },
+            "horizon_label": {
+              "type": "string"
+            },
+            "opening_statement": {
+              "type": "string"
+            },
             "minority_view": {
               "type": "object",
               "properties": {
-                "percentage_range": {"type": "string"},
-                "statement": {"type": "string"}
+                "statement": {
+                  "type": "string"
+                }
               }
             },
-            "primary_signal": {"type": "string"},
+            "primary_signal": {
+              "type": "string"
+            },
             "decision_fork": {
               "type": "object",
               "properties": {
                 "condition_a": {
                   "type": "object",
                   "properties": {
-                    "condition": {"type": "string"},
-                    "outcome": {"type": "string"}
+                    "condition": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string"
+                    }
                   }
                 },
                 "condition_b": {
                   "type": "object",
                   "properties": {
-                    "condition": {"type": "string"},
-                    "outcome": {"type": "string"}
+                    "condition": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -57,15 +77,23 @@
                 "assessment": {
                   "type": "object",
                   "properties": {
-                    "timeframe": {"type": "string"},
-                    "action": {"type": "string"}
+                    "timeframe": {
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string"
+                    }
                   }
                 },
                 "positioning": {
                   "type": "object",
                   "properties": {
-                    "timeframe": {"type": "string"},
-                    "action": {"type": "string"}
+                    "timeframe": {
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -75,8 +103,17 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "title": {"type": "string"},
-                  "horizon": {"type": "string", "enum": ["h1", "h2", "h3"]}
+                  "title": {
+                    "type": "string"
+                  },
+                  "horizon": {
+                    "type": "string",
+                    "enum": [
+                      "h1",
+                      "h2",
+                      "h3"
+                    ]
+                  }
                 }
               }
             }
@@ -85,13 +122,11 @@
       }
     }
   },
-
   "variables": {
     "topic": "Research topic name",
     "organizational_profile": "Organization profile text with industry, focus areas, and strategic priorities",
     "scenarios_json": "JSON array of all H1, H2, H3 scenarios from Future Horizons analysis"
   },
-
   "metadata": {
     "model": "gpt-4o",
     "temperature": 0.4,

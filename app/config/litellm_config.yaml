@@ -16,6 +16,8 @@
 model_list:
   # ---- mini / nano / small -> Bedrock Claude Haiku 4.5 ----
   - model_name: gpt-4.1-mini
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -24,6 +26,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-4o-mini
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -32,6 +36,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-4.1-nano
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -40,6 +46,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5-mini
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -48,6 +56,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5-nano
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -56,6 +66,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5.4-mini
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -64,6 +76,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5.4-nano
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -73,6 +87,8 @@ model_list:
 
   # ---- flagship / standard -> Bedrock Claude Sonnet 4.5 ----
   - model_name: gpt-4o
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -81,6 +97,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-4.1
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -89,6 +107,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -97,6 +117,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5.5
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -105,6 +127,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gpt-5.4
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -114,6 +138,8 @@ model_list:
 
   # ---- Anthropic-direct names -> Bedrock Claude Sonnet 4.5 ----
   - model_name: claude-4-sonnet-latest
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -122,6 +148,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: claude-3-7-sonnet-latest
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -130,6 +158,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: claude-3-5-sonnet-latest
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -139,6 +169,8 @@ model_list:
 
   # ---- Legacy HF name -> Bedrock Claude Haiku 4.5 (cheap) ----
   - model_name: mixtral-8x7b
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -148,6 +180,8 @@ model_list:
 
   # ---- Gemini names -> Bedrock Claude Haiku 4.5 (cheap) ----
   - model_name: gemini-pro
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -156,6 +190,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: gemini-2.0-flash-exp
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -165,6 +201,8 @@ model_list:
 
   # ---- Canonical Bedrock aliases (used by SOCIAL_EVAL_MODEL / RELEVANCE_MODEL / etc.) ----
   - model_name: bedrock-claude-haiku
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -173,6 +211,8 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
   - model_name: bedrock-claude-sonnet
+    model_info:
+      legacy_alias: true
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
@@ -215,6 +255,24 @@ model_list:
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
       additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
+
+  # Honest canonical names for the model actually invoked. The vendor-
+  # branded aliases above resolve here too and still work; prefer these so
+  # stored records name the model that really ran.
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format"]
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format"]
 
 fallbacks:
   - bedrock-kimi-k2-5:

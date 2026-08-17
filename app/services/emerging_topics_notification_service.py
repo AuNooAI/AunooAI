@@ -150,7 +150,8 @@ class EmergingTopicsNotificationService:
                         to_addresses=[recipient],
                         subject=subject,
                         body_html=html_body,
-                        body_text=body
+                        body_text=body,
+                        ai_generated=True,
                     )
                 except Exception as e:
                     logger.error(f"Failed to send email to {recipient}: {e}")

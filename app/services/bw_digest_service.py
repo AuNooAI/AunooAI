@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from app.services.report_style import CLINICAL_STYLE_SHORT
+
 logger = logging.getLogger(__name__)
 
 _NEG = ("sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%'"
@@ -54,7 +56,8 @@ def _brand_narration(brand: str, alert_titles: list, articles: list) -> Optional
             + "\n\nIn 1-2 plain sentences, say what this coverage is actually "
             "about — the concrete stories/themes, named specifically. "
             "Observations only, no advice, nothing not present in the "
-            "articles. No preamble, no bullets — just the sentence(s)."
+            "articles." + CLINICAL_STYLE_SHORT +
+            " No preamble, no bullets — just the sentence(s)."
         )
         out = (model.generate_response(
             [{"role": "user", "content": prompt}], temperature=0.2) or "").strip()
@@ -81,13 +84,14 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
             "You are writing the one-paragraph lead for an adverse-media digest "
             f"email covering the {period_label}. Below are ALL the facts, as "
             "bullet points per brand. Write 2-4 plain sentences a comms analyst "
-            "would skim: name the brands that need attention first, say what "
-            "changed and how bad it is relative to peers, and note anything "
-            "quiet/stable in half a sentence. When the facts say what the "
-            "coverage or social posts are actually about ('What's driving it' / "
-            "'What the posts say'), lead with that substance — counts alone are "
-            "not the story. Observations only — no advice, no "
-            "recommendations. Never state a number or fact that is not in the "
+            "would skim: order brands by size of change, largest first, say "
+            "what changed with the numbers, and note anything quiet/stable in "
+            "half a sentence. When the facts say what the coverage or social "
+            "posts are actually about ('What's driving it' / 'What the posts "
+            "say'), lead with that substance — counts alone are not the story. "
+            "Observations only — no advice, no recommendations, no verdicts on "
+            "which brand 'needs attention'." + CLINICAL_STYLE_SHORT +
+            " Never state a number or fact that is not in the "
             "bullets. Net-sentiment numbers: MORE NEGATIVE = WORSE (-38 is "
             "worse than -26) — do not compare them the wrong way round. No "
             "greeting, no markdown, no bullet points — just the "
@@ -169,6 +173,15 @@ def _compose_digest(conn, period_days: int):
     had_content = False
     for bid, bname, bcfg in brands:
         section = []
+        # Customer-defined escalation tier: the only path by which the digest
+        # may use severity language in its own voice (spec:
+        # docs/CUSTOMER_ESCALATION_TIERS_SPEC.md). None configured → no line.
+        from app.services.escalation_tiers import evaluate_brand_tier
+        tier = evaluate_brand_tier(conn, bid)
+        if tier:
+            section.append(
+                f"- Customer-defined status: **{tier['label']}** — triggered by: "
+                + "; ".join(tier["triggered"]))
         pos, neg, scored = stats[bid]
         net = round(((pos - neg) / scored) * 100) if scored else None
         if scored:
@@ -408,6 +421,14 @@ def maybe_send_digest(db) -> bool:
             if not svc.is_available():
                 logger.warning("bw digest skipped: email service not configured")
                 return False
+            # Release gate (advisory): same checks the topic-report pipeline
+            # runs — internal-name leaks, invented consensus, past deadlines.
+            # Findings are logged; the digest still sends.
+            try:
+                from app.services.report_lint import lint_outbound
+                lint_outbound(body_md, kind="html", context="bw_digest")
+            except Exception:
+                pass
             # The text/plain alternative must NOT carry markdown syntax — clients
             # that prefer (or preview) the text part would show it literally.
             text_body = re.sub(r"^### (.+)$", r"\1", body_md, flags=re.MULTILINE)
@@ -418,6 +439,7 @@ def maybe_send_digest(db) -> bool:
                 subject=f"[AuNoo AI] {title}",
                 body_html=markdown_to_html(f"## {title}\n\n{body_md}"),
                 body_text=f"{title}\n\n{text_body}",
+                ai_generated=True,
             )
             # sent_uris = the digest's cross-period memory (_previously_digested).
             conn.execute(text("UPDATE bw_alert_events SET delivered = :d, body = :b, payload = :p WHERE id = :i"),

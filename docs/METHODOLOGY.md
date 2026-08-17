@@ -91,7 +91,14 @@ A language model generates:
 
 ### 2.6 Vector Embedding
 
-The enriched article (title + summary) is encoded as a 1,536-dimension vector using OpenAI's text-embedding-3-small model and stored in PostgreSQL with pgvector. This enables semantic search — finding articles by meaning rather than keyword match — which underpins the research and foresight features described below.
+The enriched article (title + summary) is encoded as a vector and stored in PostgreSQL with pgvector. This enables semantic search — finding articles by meaning rather than keyword match — which underpins the research and foresight features described below.
+
+The encoder is tenant-dependent, and the vector width must match the tenant's `articles.embedding` column exactly. Two configurations are in use (verified 2026-08-02):
+
+- **Local DeBERTa encoder, 768 dimensions** — bugfixing, wileytest, wbm. The default. No external call, and no fallback: it raises rather than writing a fabricated vector.
+- **OpenAI `text-embedding-3-small`, 1,536 dimensions** — wiley only, and the last tenant on this path. Article text is sent to OpenAI for this step. If the call fails, the store returns a random vector rather than raising; see the gotcha in `AI_DESIGN_PATTERNS.md` §3.1.
+
+Vectors from the two encoders are not comparable. Cosine distance between a 768-d and a 1536-d space is meaningless, which is why the width is enforced at the column and a mismatch fails loudly rather than degrading.
 
 ---
 

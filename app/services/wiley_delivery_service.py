@@ -278,7 +278,10 @@ def _render_cache_dir() -> str:
     paths funnel through :func:`generate_bundle`, so without a cache that's
     two full ~10-second matplotlib + python-pptx render passes per click."""
     import os, tempfile
-    d = os.path.join(tempfile.gettempdir(), "wiley_bundle_render_cache")
+    # Scoped by DB name — the shared dir was keyed only by period_label, so
+    # two tenants with the same period would serve each other's decks.
+    tenant = os.getenv("DB_NAME") or "default"
+    d = os.path.join(tempfile.gettempdir(), f"wiley_bundle_render_cache_{tenant}")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -734,6 +737,7 @@ async def deliver_bundle(
         subject=subject,
         body_html=body_html,
         body_text=body_text,
+        ai_generated=True,
         attachments=[{
             "filename": fname,
             "content": blob,

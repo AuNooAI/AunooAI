@@ -378,13 +378,22 @@ export async function getAvailableProviders(): Promise<AvailableProvider[]> {
 
 // Available LLM models
 export interface AvailableModel {
+  /** The id stored in settings — must be a real litellm alias. */
   name: string;
+  /** Human-readable label for the dropdown. */
+  label?: string;
   description?: string;
 }
 
+/**
+ * Reads /api/trend-convergence/models, which returns the distinct models under
+ * real names. /api/auto-ingest/models returns the raw litellm alias list (~two
+ * dozen entries that collapse onto the same few models) and must not be used
+ * for a picker.
+ */
 export async function getAvailableModels(): Promise<AvailableModel[]> {
-  const response = await fetchJson<{ success: boolean; models: AvailableModel[] }>('/api/auto-ingest/models');
-  return response?.models || [];
+  const models = await fetchJson<Array<{ id: string; name: string }>>('/api/trend-convergence/models');
+  return (models || []).map(m => ({ name: m.id, label: m.name }));
 }
 
 // Topics (for dropdowns)

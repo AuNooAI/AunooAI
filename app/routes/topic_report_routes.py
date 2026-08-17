@@ -171,7 +171,12 @@ async def download_topic_report_html(period_label: str):
 
 @router.get("/api/topic-reports/{period_label}/download.docx")
 async def download_topic_report_docx(period_label: str):
-    """Render the cached topic-report synthesis as a Word document."""
+    """Executive-summary Word document for this period.
+
+    Generates the synthesis on first request if the period has none, which
+    can take minutes — the supervisor persists as it goes, so a retry after
+    a proxy timeout renders from the stored row.
+    """
     from app.services.topic_report_service import generate_topic_report_docx
     try:
         blob, *_ = await generate_topic_report_docx(period_label)
@@ -182,6 +187,25 @@ async def download_topic_report_docx(period_label: str):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition": f'attachment; filename="topic_report_{period_label}.docx"',
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+    )
+
+
+@router.get("/api/topic-reports/{period_label}/download-full.docx")
+async def download_topic_report_docx_full(period_label: str):
+    """Every slide's content as a Word document, for when the executive
+    summary is not enough. Long by design — about 5,000 words per topic."""
+    from app.services.topic_report_service import generate_topic_report_docx_full
+    try:
+        blob, *_ = await generate_topic_report_docx_full(period_label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="topic_report_{period_label}_full.docx"',
             "Cache-Control": "no-store, no-cache, must-revalidate",
         },
     )

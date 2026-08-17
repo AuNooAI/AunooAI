@@ -16,6 +16,7 @@ import { GeopoliticalInsightsTab } from './GeopoliticalInsightsTab';
 import { GeopoliticalArticlesTab } from './GeopoliticalArticlesTab';
 import { GeopoliticalImportModal } from './GeopoliticalImportModal';
 import { GeopoliticalAnalysisTab } from './GeopoliticalAnalysisTab';
+import { AIDisclosureFooter } from '../AIDisclosureFooter';
 import type { Hotspot } from '../../services/geopoliticalHotspotsApi';
 
 interface GeopoliticalHotspotsTabProps {
@@ -279,6 +280,14 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-5.4-mini'
         onClose={() => setShowImportModal(false)}
         onImportComplete={refresh}
         model={model}
+      />
+
+      {/* EU AI Act Art. 50 visible disclosure — covers all geopolitical sub-tabs */}
+      <AIDisclosureFooter
+        dashboardName="Geopolitical Hotspots"
+        aiTools={['GPT-4']}
+        purpose="To identify and analyze geopolitical risk hotspots, themes, and trends from news coverage"
+        modelUsed={model}
       />
     </div>
   );

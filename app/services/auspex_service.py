@@ -41,6 +41,30 @@ from app.services.conversation_compactor import (
 logger = logging.getLogger(__name__)
 
 
+# Articles the collector rejected at the relevance gate. They were saved for
+# audit but never sent for AI analysis, so they have no category and no
+# sentiment. Counting them makes coverage look broken — on wileytest's ASML
+# Watch topic, 752 of 888 collected articles are rejects, which is why a report
+# read "80.2% unclassified" — and it skews any sentiment breakdown, because the
+# formatters below default a missing sentiment to "Neutral". Auspex answers
+# about a topic's coverage, so its corpus is the articles that were analysed.
+REJECTED_INGEST_STATUSES = ["filtered_relevance"]
+
+
+def _exclude_rejected_filter(metadata_filter: Optional[Dict]) -> Dict:
+    """Add the rejected-article exclusion to a vector-search metadata filter.
+
+    Uses $ne, which the pgvector store compiles to IS DISTINCT FROM, so rows
+    whose ingest_status was never written are kept.
+    """
+    exclusion = {"ingest_status": {"$ne": REJECTED_INGEST_STATUSES[0]}}
+    if not metadata_filter:
+        return exclusion
+    if "$and" in metadata_filter:
+        return {"$and": list(metadata_filter["$and"]) + [exclusion]}
+    return {"$and": [metadata_filter, exclusion]}
+
+
 def _bedrock_routed(model: str) -> bool:
     """True when litellm_config.yaml routes this model alias to a Bedrock
     target. On Bedrock-repointed tenants the gpt-5.x aliases land on Claude
@@ -595,6 +619,12 @@ class OptimizedContextManager:
             "impact": (article.get("time_to_impact") or "Unknown")[:12],
             "date": (article.get("publication_date") or "")[:10],
             "source": (article.get("news_source") or "")[:15],
+            # Tags survive compression uncut: they carry the collection-time
+            # keyword matches — for niche brands the only occurrence of the
+            # brand name outside the article body.
+            "tags": ", ".join(str(t) for t in article["tags"] if t)
+                    if isinstance(article.get("tags"), (list, tuple))
+                    else (article.get("tags") or ""),
             "score": round(relevance_score, 2) if relevance_score else round(article.get("similarity_score", 0), 2)
         }
     
@@ -819,9 +849,11 @@ class OptimizedContextManager:
             for i, article in enumerate(cat_articles, 1):
                 # Compact format with URL preserved for link generation
                 url = article.get('url') or article.get('uri', '')
+                tags_line = f"   Tags: {article['tags']}\n" if article.get('tags') else ""
                 context += (f"{i}. [{article['id']}] {article['title']}\n"
                            f"   URL: {url}\n"
                            f"   Summary: {article['summary']}\n"
+                           + tags_line +
                            f"   Metadata: {article['sentiment']} | {article['signal']} | "
                            f"{article['impact']} | {article['date']} | Score: {article['score']}\n\n")
         
@@ -1169,7 +1201,7 @@ class QueryRouter:
             results = vector_search_articles(
                 query=query,
                 top_k=fetch_k,
-                metadata_filter=metadata_filter
+                metadata_filter=_exclude_rejected_filter(metadata_filter)
             )
 
             articles = []
@@ -1282,7 +1314,7 @@ class QueryRouter:
             results = vector_search_articles(
                 query=query,
                 top_k=fetch_k,
-                metadata_filter=metadata_filter
+                metadata_filter=_exclude_rejected_filter(metadata_filter)
             )
 
             articles = []
@@ -1490,6 +1522,7 @@ class AuspexService:
                 # Search using the database's search_articles method with keyword search
                 articles, count = self.db.search_articles(
                     topic=topic,
+                    exclude_ingest_status=REJECTED_INGEST_STATUSES,
                     keyword=entity,  # This searches title, summary, category, future_signal, sentiment, tags
                     page=1,
                     per_page=100  # Get a reasonable sample to validate existence
@@ -1532,6 +1565,7 @@ class AuspexService:
                 # Search using the database's search_articles method
                 articles, count = self.db.search_articles(
                     topic=topic,
+                    exclude_ingest_status=REJECTED_INGEST_STATUSES,
                     keyword=entity,
                     page=1,
                     per_page=limit * 2  # Get more to allow for filtering
@@ -1857,9 +1891,15 @@ class AuspexService:
                 *conversation
             ]
 
+            # Context blocks below ride as assistant turns so they can't override
+            # the system prompt, but they must sit BEFORE the user's final message:
+            # a conversation ending on an assistant turn is a prefill, which the
+            # Claude 5 family rejects outright ("conversation must end with a user
+            # message") and older models mistake for their own partial output
+            # (the "[/TOOLS]" echo). insert(len-1) keeps the user question last.
             # Inject URL lookup context if URLs were detected
             if url_context:
-                llm_messages.append({
+                llm_messages.insert(len(llm_messages) - 1, {
                     "role": "assistant",
                     "content": f"[URL LOOKUP RESULTS]\n{url_context}\n[END URL LOOKUP]"
                 })
@@ -1894,7 +1934,7 @@ class AuspexService:
                         logger.info(f"Plugin produced final response, skipping main LLM")
                     else:
                         # Plugin produced context for main LLM
-                        llm_messages.append({
+                        llm_messages.insert(len(llm_messages) - 1, {
                             "role": "assistant",
                             "content": plugin_results
                         })
@@ -1911,7 +1951,7 @@ class AuspexService:
                     tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit, sampling_strategy)
                     if tool_results:
                         # Add tool results as assistant context to avoid overriding system instructions
-                        llm_messages.append({
+                        llm_messages.insert(len(llm_messages) - 1, {
                             "role": "assistant",
                             "content": f"[TOOLS] {tool_results}"
                         })
@@ -2343,7 +2383,7 @@ If your analysis requires tables or comparison matrices (e.g., strategic assessm
             vector_results = vector_search_articles(
                 query=search_query,
                 top_k=limit,
-                metadata_filter=metadata_filter
+                metadata_filter=_exclude_rejected_filter(metadata_filter)
             )
 
             articles = []
@@ -2853,7 +2893,7 @@ Extracted search query (respond with ONLY the query, no explanation):"""
                     vector_results = vector_search_articles(
                         query=search_query,
                         top_k=search_limit,  # Use search_limit which may be increased by citation_limit
-                        metadata_filter=metadata_filter
+                        metadata_filter=_exclude_rejected_filter(metadata_filter)
                     )
 
                     # Convert vector results to article format with comprehensive null checks
@@ -3126,6 +3166,7 @@ Return your search strategy in this format:
                         try:
                             articles, total_count = self.db.search_articles(
                                 topic=topic,
+                                exclude_ingest_status=REJECTED_INGEST_STATUSES,
                                 keyword=message,
                                 page=1,
                                 per_page=limit
@@ -3195,6 +3236,7 @@ Return your search strategy in this format:
                                 if category:
                                     articles_batch, count = self.db.search_articles(
                                         topic=topic,
+                                        exclude_ingest_status=REJECTED_INGEST_STATUSES,
                                         category=category,
                                         pub_date_start=pub_date_start,
                                         pub_date_end=pub_date_end,
@@ -3205,6 +3247,7 @@ Return your search strategy in this format:
                                 else:
                                     articles_batch, count = self.db.search_articles(
                                         topic=topic,
+                                        exclude_ingest_status=REJECTED_INGEST_STATUSES,
                                         keyword=keyword,
                                         sentiment=sentiment,
                                         future_signal=future_signal,
@@ -3279,6 +3322,7 @@ Analyzing the {len(articles)} most recent articles
                     # Fallback to basic search
                     articles, total_count = self.db.search_articles(
                         topic=topic,
+                        exclude_ingest_status=REJECTED_INGEST_STATUSES,
                         keyword=message,
                         page=1,
                         per_page=limit
@@ -3408,6 +3452,7 @@ Use these dimensions to identify patterns, but don't force analysis into a rigid
             try:
                 articles, count = self.db.search_articles(
                     topic=topic,
+                    exclude_ingest_status=REJECTED_INGEST_STATUSES,
                     keyword=message,
                     page=1,
                     per_page=limit
@@ -3691,10 +3736,17 @@ Please try rephrasing your question or contact support if the issue persists."""
         for i, article in enumerate(articles[:detail_limit]):
             similarity_text = f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else ""
             url = article.get('url') or article.get('link') or article.get('uri', 'No URL')
+            # Tags carry the collection-time keyword matches — for niche brands
+            # the only place the brand name appears outside the article body, so
+            # omitting them here left the model denying coverage it was holding.
+            _tags = article.get('tags')
+            if isinstance(_tags, (list, tuple)):
+                _tags = ', '.join(str(t) for t in _tags if t)
+            tags_text = f"\n    Tags: {_tags}" if _tags else ""
             detail = (f"[{i+1}] {article['title'][:100]}...\n" +
                      f"    URL: {url}\n" +
                      f"    Category: {article.get('category', 'N/A')} | Sentiment: {article.get('sentiment', 'N/A')}" +
-                     f" | Future Signal: {article.get('future_signal', 'N/A')}" + similarity_text +
+                     f" | Future Signal: {article.get('future_signal', 'N/A')}" + similarity_text + tags_text +
                      f"\n    Summary: {article.get('summary', 'No summary')[:200]}...")
             article_details.append(detail)
 

@@ -7,6 +7,7 @@ import { Sparkles, RefreshCw, BarChart2, Lightbulb, TrendingUp, AlertCircle, Ext
 import { parseConversationStats, hasEnoughContent, formatNumber, backendStatsToConversationStats, type ConversationStats, type BackendArticleStats } from '../../utils/insightsParser';
 import { generateInsights, type ChatInsights } from '../../services/auspexService';
 import { extractErrorMessage } from '../../services/api';
+import { AIDisclosureFooter } from '../AIDisclosureFooter';
 
 interface InsightsPanelProps {
   messages: Array<{ role: string; content: string }>;
@@ -407,6 +408,12 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
           </p>
         )}
       </div>
+
+      {/* EU AI Act Art. 50 visible disclosure */}
+      <AIDisclosureFooter
+        dashboardName="Auspex Insights"
+        purpose="To summarize conversation themes, findings, and sentiment from analyzed sources"
+      />
     </div>
   );
 }

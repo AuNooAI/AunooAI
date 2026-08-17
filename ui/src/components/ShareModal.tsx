@@ -205,7 +205,7 @@ export interface ShareExecutiveSummaryData {
   opening_statement?: string;
   consensus_percentage?: number;
   minority_view?: {
-    percentage_range: string;
+    percentage_range?: string;   // pre-v3 cards only — no longer produced
     statement: string;
   };
   primary_signal?: string;

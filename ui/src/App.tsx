@@ -2614,7 +2614,7 @@ function App() {
                           key={idx}
                           name={convergence.name || 'Unnamed Convergence'}
                           description={convergence.description || ''}
-                          consensusPercentage={convergence.consensus_percentage || 80}
+                          consensusPercentage={typeof convergence.consensus_percentage === 'number' ? convergence.consensus_percentage : undefined}
                           timelineStartYear={convergence.timeline_start_year || 2024}
                           timelineEndYear={convergence.timeline_end_year || 2050}
                           optimisticOutlier={convergence.optimistic_outlier || {

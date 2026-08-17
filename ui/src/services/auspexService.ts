@@ -121,12 +121,16 @@ export async function getTopics(): Promise<Topic[]> {
   }));
 }
 
+/**
+ * Reads /api/trend-convergence/models — the distinct models under real names.
+ * /api/auto-ingest/models and /api/available_models both return the raw litellm
+ * alias list, which is ~two dozen names for the same few models.
+ */
 export async function getModels(): Promise<Model[]> {
-  const response = await fetch('/api/auto-ingest/models');
+  const response = await fetch('/api/trend-convergence/models');
   if (!response.ok) throw new Error('Failed to fetch models');
   const data = await response.json();
-  // Transform to ensure each model has an id
-  return (data.models || []).map((m: any) => ({
+  return (Array.isArray(data) ? data : []).map((m: any) => ({
     id: m.id || m.name,
     name: m.name,
     provider: m.provider

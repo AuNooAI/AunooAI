@@ -136,6 +136,21 @@ async def assess_run(
     if use_deck:
         scenarios = _build_deck_scenarios(db_scenarios, deck_overlay)
         scenario_level = "deck"
+        if not scenarios:
+            # The overlay's scenario_title_to_deck_key matched NONE of this
+            # run's titles — a stale overlay written against a different run.
+            # This used to flow straight through: assign_exclusive([]) → 0
+            # assigned → a "completed" assessment with zero verdicts in 0.2s,
+            # which the quarterly bundle then read as the topic's status.
+            # Fall back to the raw scenarios and say so loudly.
+            logger.error(
+                "Deck overlay for %r maps 0 of this run's %d scenario titles "
+                "(stale overlay — check for a .proposed replacement in the "
+                "overlay dir). Falling back to db-level scenarios.",
+                topic, len(db_scenarios),
+            )
+            scenarios = list(db_scenarios)
+            scenario_level = "db"
     else:
         scenarios = db_scenarios
         scenario_level = "db"
@@ -987,14 +1002,15 @@ def _cluster_with_hdbscan(articles: list[dict]) -> list[dict]:
         cluster_articles = [by_uri[u] for u in uri_list if u in by_uri]
         out.append({
             "size": len(cluster_articles),
+            # Rows minus syndicated repeats. A theme whose rows are one story
+            # republished by 13 local papers is not a 14-article theme.
+            "distinct_stories": _distinct_stories(cluster_articles),
             "label": _keyword_label([a.get("title", "") for a in cluster_articles]),
-            "sample_articles": [
-                {"uri": a.get("uri") or a.get("id"),
-                 "title": a.get("title"),
-                 "date": a.get("submission_date") or a.get("publication_date")}
-                for a in cluster_articles[:5]
-            ],
+            "sample_articles": _dedupe_samples(cluster_articles),
         })
+    # Rank by distinct stories so a single wire story cannot outrank a theme
+    # that genuinely has several independent ones.
+    out.sort(key=lambda c: (-(c.get("distinct_stories") or 0), -(c.get("size") or 0)))
     return out
 
 
@@ -1075,17 +1091,52 @@ async def _label_clusters_with_llm(topic: str, clusters: list[dict]) -> list[dic
     return out
 
 
+def _story_key(title: str) -> str:
+    """Normalised headline, for collapsing syndicated copies of one story.
+
+    Wire and Conversation pieces get republished verbatim by dozens of local
+    outlets under the same headline and different URLs, so they are distinct
+    rows but a single story. Counting the rows made a one-article theme look
+    like a fourteen-article one and filled the sample list with the same
+    headline five times.
+    """
+    import re as _re
+    t = (title or "").strip().lower()
+    t = _re.sub(r"[‘’“”'\"]", "", t)
+    t = _re.sub(r"[^a-z0-9]+", " ", t)
+    return " ".join(t.split())[:120]
+
+
+def _dedupe_samples(articles: list[dict], limit: int = 5) -> list[dict]:
+    """Up to ``limit`` sample articles, one per distinct story."""
+    seen: set = set()
+    out: list[dict] = []
+    for a in articles:
+        key = _story_key(a.get("title") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append({"uri": a.get("uri") or a.get("id"),
+                    "title": a.get("title"),
+                    "date": a.get("submission_date") or a.get("publication_date")})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _distinct_stories(articles: list[dict]) -> int:
+    """Distinct headlines in a cluster, ignoring syndicated repeats."""
+    return len({_story_key(a.get("title") or "") for a in articles if a.get("title")})
+
+
 def _cluster_keyword_fallback(articles: list[dict]) -> list[dict]:
     """No-cluster fallback: just label the residual as one bucket."""
     return [{
         "size": len(articles),
+        "distinct_stories": _distinct_stories(articles),
         "label": _keyword_label([a.get("title", "") for a in articles]),
-        "sample_articles": [
-            {"uri": a.get("uri") or a.get("id"),
-             "title": a.get("title"),
-             "date": a.get("submission_date") or a.get("publication_date")}
-            for a in articles[:5]
-        ],
+        "sample_articles": _dedupe_samples(articles),
         "note": "Unclustered residual — install hdbscan or scikit-learn for clustering",
     }]
 
@@ -1153,6 +1204,27 @@ def _load_deck_overlay(topic: str) -> dict:
         if data.get("topic") == topic:
             return data
     return {}
+
+
+def source_topic_for_display_name(display_name: str) -> Optional[str]:
+    """Reverse of the deck overlay's ``display_name`` — the real DB topic.
+
+    Exports that stored a post-overlay name ("Scientific Publishing") cannot
+    look it up in ``articles`` / ``future_horizons_runs`` / ``forecast_assessments``,
+    which hold the source name ("Scientific Publishers - General Monitoring").
+    Returns None when the string is not a display name, so callers can tell
+    "no mapping" from "maps to itself".
+    """
+    if not display_name or not DECK_OVERLAY_DIR.exists():
+        return None
+    for path in sorted(DECK_OVERLAY_DIR.glob("*_deck_overlay.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("display_name") == display_name and data.get("topic"):
+            return data["topic"]
+    return None
 
 
 def _build_deck_scenarios(db_scenarios: list[dict], overlay: dict) -> list[dict]:

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import logging
@@ -55,9 +56,29 @@ class NewsFirehoseCollector(ArticleCollector):
         Strategy: extract all meaningful terms (quoted phrases become unquoted words),
         strip parentheses and special operators, join with OR for broad matching.
         Precision comes from the relevance scoring downstream, not the search query.
+
+        One exception: a query that is nothing but a single quoted phrase is passed
+        through with its quotes intact, because the endpoint supports that form and
+        it is the only way to ask for adjacent words. Unquoted, `Atlantis Press`
+        becomes an AND of two terms found anywhere in the document, which matched a
+        Tomb Raider page containing the word "press"; quoted, it matches nothing,
+        which is the honest answer. Callers wanting a phrase must quote it —
+        multi-word keywords are still normalized as before, so nothing that relies
+        on the broad behaviour changes.
         """
         if not query:
             return query
+
+        # A lone quoted phrase is the one form worth preserving. Anything else —
+        # several phrases, or a phrase mixed with operators — is what the endpoint
+        # cannot parse, so it still gets flattened below.
+        stripped = query.strip()
+        if re.fullmatch(r'"[^"]+"', stripped):
+            inner = stripped[1:-1].strip()
+            # &, !, :, * are tsquery operators and break the parse even inside a
+            # phrase, so a phrase containing them cannot be preserved.
+            if inner and not re.search(r'[&!:*\\|+()]', inner):
+                return f'"{inner}"'
 
         # Extract quoted phrases and convert to unquoted words
         # "artificial general intelligence" -> artificial general intelligence
@@ -78,6 +99,12 @@ class NewsFirehoseCollector(ArticleCollector):
         # Remove NOT terms entirely (they break tsquery and we filter downstream)
         normalized = re.sub(r'\bNOT\s+\S+', '', normalized, flags=re.IGNORECASE)
 
+        # Drop characters that break PostgreSQL tsquery when they appear
+        # literally in a term (e.g. "John Wiley & Sons", "Taylor & Francis").
+        # &, !, :, * are tsquery operators; replace with a space so the term
+        # degrades to plain words. (| and + were already converted to OR above.)
+        normalized = re.sub(r'[&!:*\\]+', ' ', normalized)
+
         # Clean up multiple spaces and dangling ORs
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         normalized = re.sub(r'^OR\s+|\s+OR$', '', normalized)
@@ -87,6 +114,23 @@ class NewsFirehoseCollector(ArticleCollector):
             logger.debug(f"Normalized query: '{query}' -> '{normalized}'")
 
         return normalized
+
+    @staticmethod
+    def _split_query_terms(normalized_query: str, max_terms: int = 8) -> List[str]:
+        """Split a normalized flat OR-chain into chunks of at most max_terms.
+
+        The API rejects queries with more than 8 OR terms since the 2026-08
+        remediation. A lone quoted phrase (no " OR ") passes through whole.
+        """
+        if not normalized_query or " OR " not in normalized_query:
+            return [normalized_query]
+        terms = [t.strip() for t in normalized_query.split(" OR ") if t.strip()]
+        if len(terms) <= max_terms:
+            return [normalized_query]
+        return [
+            " OR ".join(terms[i:i + max_terms])
+            for i in range(0, len(terms), max_terms)
+        ]
 
     def __init__(self):
         self.api_key = os.getenv('PROVIDER_NEWSFIREHOSE_API_KEY') or os.getenv('NEWSFIREHOSE_API_KEY')
@@ -168,24 +212,26 @@ class NewsFirehoseCollector(ArticleCollector):
             if categories:
                 params["categories"] = ",".join(categories)
 
-            # Note: Date filtering (from_date/to_date) is disabled due to API bug
-            # The server expects datetime objects but the HTTP API can only pass strings
-            # Workaround: NewsFirehose returns recent articles by default (sorted by relevance)
-            # Once the API is fixed, uncomment the following:
-            #
-            # if timeframe:
-            #     from_dt = datetime.now() - timedelta(hours=timeframe)
-            #     params["from_date"] = from_dt.strftime("%Y-%m-%d")
-            # elif start_date:
-            #     if isinstance(start_date, datetime):
-            #         params["from_date"] = start_date.strftime("%Y-%m-%d")
-            #     else:
-            #         params["from_date"] = str(start_date)[:10]
-            # if end_date:
-            #     if isinstance(end_date, datetime):
-            #         params["to_date"] = end_date.strftime("%Y-%m-%d")
-            #     else:
-            #         params["to_date"] = str(end_date)[:10]
+            # Server-side date bounds (re-enabled 2026-08-10; the API now
+            # parses ISO date strings and enforces its own 14-day default /
+            # 90-day cap, so an unbounded query is no longer possible). We
+            # send our real window explicitly so the server bound matches the
+            # client-side filter below instead of silently narrowing to 14d.
+            if start_date is not None:
+                from_dt = start_date
+            elif timeframe:
+                from_dt = datetime.now() - timedelta(hours=timeframe)
+            else:
+                from_dt = datetime.now() - timedelta(days=30)
+            params["from_date"] = (
+                from_dt.strftime("%Y-%m-%d")
+                if isinstance(from_dt, datetime) else str(from_dt)[:10]
+            )
+            if end_date is not None:
+                params["to_date"] = (
+                    end_date.strftime("%Y-%m-%d")
+                    if isinstance(end_date, datetime) else str(end_date)[:10]
+                )
 
             logger.debug(f"NewsFirehose /v1/search params: {params}")
 
@@ -195,80 +241,127 @@ class NewsFirehoseCollector(ArticleCollector):
                 "Accept": "application/json"
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.base_url}/v1/search",
-                    params=params,
-                    headers=headers
-                ) as response:
-                    response_status = response.status
-                    response_content_type = response.content_type
-
-                    if response.status != 200:
-                        logger.error(f"NewsFirehose HTTP ERROR: status={response_status}")
-                        try:
-                            if 'json' in response_content_type:
-                                error_data = await response.json()
-                                logger.error(f"Error Response: {error_data}")
-                            else:
-                                error_text = await response.text()
-                                logger.error(f"Error Response: {error_text[:500]}...")
-                        except Exception as parse_error:
-                            logger.error(f"Could not parse error response: {parse_error}")
-                        return []
-
-                    self.requests_today += 1
-
-                    # Parse JSON response
-                    try:
-                        data = await response.json()
-                    except Exception as json_error:
-                        logger.error(f"NewsFirehose JSON parse error: {json_error}")
-                        return []
-
-                    articles = data.get("articles", [])
-                    total = data.get("total_results", len(articles))
-                    logger.info(f"NewsFirehose returned {len(articles)} articles (total: {total}) for query '{query}'")
-
-                    # Client-side date filtering (API date filtering is broken)
-                    # Filter to only keep articles from the last N days
-                    max_age_days = 30  # Extended to 30 days since NewsFirehose may have stale index
-                    cutoff_date = datetime.now() - timedelta(days=max_age_days)
-
-                    filtered_articles = []
-                    oldest_date = None
-                    newest_date = None
-
-                    for article in articles:
-                        pub_date_str = article.get('publishedAt', '')
-                        if pub_date_str:
+            # Single fetch since 2026-08-10. The old 20s newest-first attempt
+            # followed by a 60s relevance re-issue ran two concurrent scans by
+            # design (the abandoned first attempt kept executing server-side).
+            # The server now cancels on disconnect, bounds every query with a
+            # 60s statement timeout, and runs published_at sorts on bitmap
+            # plans, so the pathology the two-stage fetch worked around
+            # (q=Solumina hanging past 130s newest-first, 2026-08-06) is gone.
+            # Client timeout 75s > server 60s: the server always resolves
+            # first, so we never abandon a query that is still running.
+            #
+            # Retries are for requests the server never received: retry only
+            # connection-establishment failures, never read timeouts.
+            async def _fetch(fetch_params, timeout_seconds):
+                timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(
+                        f"{self.base_url}/v1/search",
+                        params=fetch_params,
+                        headers=headers
+                    ) as response:
+                        if response.status != 200:
+                            logger.error(f"NewsFirehose HTTP ERROR: status={response.status}")
                             try:
-                                # Parse ISO format date
-                                if 'T' in pub_date_str:
-                                    pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00').replace('+00:00', ''))
+                                if 'json' in response.content_type:
+                                    logger.error(f"Error Response: {await response.json()}")
                                 else:
-                                    pub_date = datetime.strptime(pub_date_str[:10], '%Y-%m-%d')
+                                    logger.error(f"Error Response: {(await response.text())[:500]}...")
+                            except Exception as parse_error:
+                                logger.error(f"Could not parse error response: {parse_error}")
+                            return None
+                        try:
+                            return await response.json()
+                        except Exception as json_error:
+                            logger.error(f"NewsFirehose JSON parse error: {json_error}")
+                            return None
 
-                                # Track date range for logging
-                                if oldest_date is None or pub_date < oldest_date:
-                                    oldest_date = pub_date
-                                if newest_date is None or pub_date > newest_date:
-                                    newest_date = pub_date
+            async def _fetch_with_connect_retry(fetch_params, timeout_seconds):
+                for attempt in (1, 2):
+                    try:
+                        return await _fetch(fetch_params, timeout_seconds)
+                    except aiohttp.ClientConnectorError as exc:
+                        if attempt == 2:
+                            raise
+                        logger.warning(f"NewsFirehose connect failed ({exc}); one retry in 2s")
+                        await asyncio.sleep(2)
 
-                                if pub_date >= cutoff_date:
-                                    filtered_articles.append(article)
-                            except (ValueError, TypeError) as e:
-                                # If we can't parse date, include the article
-                                filtered_articles.append(article)
+            # The API rejects queries with more than 8 OR terms (HTTP 400).
+            # Normalized queries are flat OR-chains, so split into chunks and
+            # merge, deduplicating by URL. Chunk order preserves the caller's
+            # term order; per-chunk relevance ranking is kept within chunks.
+            chunks = self._split_query_terms(normalized_query)
+            merged: list = []
+            seen_urls: set = set()
+            for chunk in chunks:
+                data = await _fetch_with_connect_retry({**params, "q": chunk}, 75)
+                if data is None:
+                    continue
+                self.requests_today += 1
+                for article in data.get("articles", []):
+                    key = article.get("url") or article.get("external_id")
+                    if key and key in seen_urls:
+                        continue
+                    if key:
+                        seen_urls.add(key)
+                    merged.append(article)
+                if len(merged) >= max_results * 2:
+                    break
+
+            articles = merged
+            logger.info(
+                f"NewsFirehose returned {len(articles)} articles across "
+                f"{len(chunks)} chunk(s) for query '{query[:80]}'"
+            )
+
+            # Client-side date filtering (API date filtering is broken)
+            # Filter to only keep articles from the last N days. 30 days is
+            # a floor, not a ceiling: the caller's start_date widens the
+            # window but never narrows it, so a group with a deliberately
+            # long search_date_range (backfilling a low-volume brand) gets
+            # its older coverage, while every group left on the 7-day
+            # default keeps the 30 days it collects today.
+            max_age_days = 30  # Extended to 30 days since NewsFirehose may have stale index
+            if start_date is not None:
+                requested_days = (datetime.now() - start_date).days
+                max_age_days = max(max_age_days, requested_days)
+            cutoff_date = datetime.now() - timedelta(days=max_age_days)
+
+            filtered_articles = []
+            oldest_date = None
+            newest_date = None
+
+            for article in articles:
+                pub_date_str = article.get('publishedAt', '')
+                if pub_date_str:
+                    try:
+                        # Parse ISO format date
+                        if 'T' in pub_date_str:
+                            pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00').replace('+00:00', ''))
                         else:
-                            # No date, include the article
+                            pub_date = datetime.strptime(pub_date_str[:10], '%Y-%m-%d')
+
+                        # Track date range for logging
+                        if oldest_date is None or pub_date < oldest_date:
+                            oldest_date = pub_date
+                        if newest_date is None or pub_date > newest_date:
+                            newest_date = pub_date
+
+                        if pub_date >= cutoff_date:
                             filtered_articles.append(article)
+                    except (ValueError, TypeError) as e:
+                        # If we can't parse date, include the article
+                        filtered_articles.append(article)
+                else:
+                    # No date, include the article
+                    filtered_articles.append(article)
 
-                    if len(filtered_articles) < len(articles):
-                        date_range = f"API returned dates: {oldest_date.strftime('%Y-%m-%d') if oldest_date else 'N/A'} to {newest_date.strftime('%Y-%m-%d') if newest_date else 'N/A'}"
-                        logger.info(f"📅 Date filter: kept {len(filtered_articles)}/{len(articles)} from last {max_age_days} days. {date_range}")
+            if len(filtered_articles) < len(articles):
+                date_range = f"API returned dates: {oldest_date.strftime('%Y-%m-%d') if oldest_date else 'N/A'} to {newest_date.strftime('%Y-%m-%d') if newest_date else 'N/A'}"
+                logger.info(f"📅 Date filter: kept {len(filtered_articles)}/{len(articles)} from last {max_age_days} days. {date_range}")
 
-                    return [self._format_article(article, topic) for article in filtered_articles]
+            return [self._format_article(article, topic) for article in filtered_articles[:max_results]]
 
         except aiohttp.ClientError as e:
             logger.error(f"NewsFirehose network error: {type(e).__name__}: {e}")

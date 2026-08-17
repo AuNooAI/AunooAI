@@ -6,6 +6,14 @@ from typing import Dict, Optional
 from datetime import datetime
 from pathlib import Path
 
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html,
+    disclosure_markdown,
+    disclosure_text,
+    html_meta_tags,
+    pdf_marker_kwargs,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -168,7 +176,7 @@ class DashboardExportService:
         lines.append("\n---")
         lines.append(f"\n*Exported on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
 
-        return '\n'.join(lines)
+        return '\n'.join(lines) + disclosure_markdown()  # EU AI Act Art. 50
 
     @staticmethod
     def export_to_pdf(
@@ -200,10 +208,16 @@ class DashboardExportService:
         if output_path is None:
             output_path = tempfile.mktemp(suffix='.pdf', prefix='dashboard_')
 
-        # Create PDF document
+        # Create PDF document (with EU AI Act Art. 50 machine-readable marker)
+        _m = pdf_marker_kwargs()
         doc = SimpleDocTemplate(
             output_path,
             pagesize=letter,
+            title=dashboard_data.get('title') or 'Dashboard Export',
+            author=_m["author"],
+            subject=_m["subject"],
+            creator=_m["creator"],
+            keywords=_m["keywords"],
             rightMargin=72,
             leftMargin=72,
             topMargin=72,
@@ -428,6 +442,12 @@ class DashboardExportService:
 
                 elements.append(Spacer(1, 12))
 
+        # EU AI Act Art. 50 visible disclosure — closing footnote.
+        _ai_style = ParagraphStyle('ai_disclosure', parent=styles['Normal'],
+                                   fontSize=8, textColor='#6b7280', spaceBefore=8)
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph(disclosure_text(), _ai_style))
+
         # Build PDF
         doc.build(elements)
 
@@ -509,6 +529,7 @@ class DashboardExportService:
         <html>
         <head>
             <meta charset="UTF-8">
+            {html_meta_tags()}
             <style>
                 body {{
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
@@ -600,7 +621,8 @@ class DashboardExportService:
                 </div>
                 '''
 
-        html += """
+        html += f"""
+        {disclosure_footer_html()}
         </body>
         </html>
         """

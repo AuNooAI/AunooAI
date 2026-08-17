@@ -261,6 +261,14 @@ class KeywordMonitor:
                 # Article already exists - keep the one from higher priority provider
                 existing = seen_urls[url]
 
+                # Union matched keywords onto both copies so the stamp survives
+                # whichever provider's copy wins the priority swap below.
+                mk = sorted({*(existing.get('_matched_keywords') or []),
+                             *(article.get('_matched_keywords') or [])})
+                if mk:
+                    existing['_matched_keywords'] = mk
+                    article['_matched_keywords'] = mk
+
                 current_priority = provider_priority.get(
                     article.get('collector_source', ''), 0
                 )
@@ -310,9 +318,12 @@ class KeywordMonitor:
                 timeout=SEARCH_TIMEOUT_SECONDS
             )
 
-            # Tag articles with provider source
+            # Tag articles with provider source and the keyword that found them —
+            # ingest stamps it into tags so body-only brand mentions stay findable.
+            matched_tag = search_term.strip().strip('"').strip()
             for article in articles:
                 article['collector_source'] = provider
+                article['_matched_keywords'] = [matched_tag] if matched_tag else []
 
             logger.info(f"{provider}: Found {len(articles)} articles")
             return articles
@@ -363,6 +374,26 @@ class KeywordMonitor:
             logger.info(f"Starting keyword check for group {group_id}...")
         else:
             logger.info("Starting keyword check for all groups...")
+
+        # The group's own relevance threshold. _run_group_check (the scheduler)
+        # sets this before calling us, but /check-now calls check_keywords
+        # directly, and used to leave it unset — so a manual run silently used
+        # the global threshold and rejected articles the group would have kept.
+        if group_id is None:
+            # An all-groups run must not inherit a per-group threshold left
+            # behind by an earlier manual single-group run.
+            self._group_relevance_threshold = None
+        elif getattr(self, '_group_relevance_threshold', None) is None:
+            try:
+                # get_keyword_group_with_settings, not get_keyword_group_by_id —
+                # the latter selects a fixed narrow column list without it.
+                group_row = self.db.facade.get_keyword_group_with_settings(group_id)
+                threshold = (group_row or {}).get('min_relevance_threshold')
+                if threshold is not None:
+                    self._group_relevance_threshold = threshold
+                    logger.info(f"Using group {group_id} relevance threshold {threshold}")
+            except Exception as e:
+                logger.warning(f"Could not read group {group_id} relevance threshold: {e}")
         new_articles_count = 0
         processed_keywords = 0
 

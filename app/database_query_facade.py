@@ -3571,9 +3571,14 @@ class DatabaseQueryFacade:
         query = text("""
             SELECT
                 COUNT(*) as total_count,
-                COUNT(CASE WHEN a.keyword_relevance_score >= :threshold THEN 1 END) as relevant_count,
-                COUNT(CASE WHEN a.keyword_relevance_score IS NOT NULL AND a.keyword_relevance_score < :threshold THEN 1 END) as irrelevant_count,
-                COUNT(CASE WHEN a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
+                -- topic_alignment_score holds the relevance verdict. Since the hybrid
+                -- scorer (694b4b67) keyword_relevance_score is the raw embedding
+                -- similarity (~0.5 for almost any text pair), so comparing it against
+                -- a relevance threshold counts nearly everything as relevant. It is
+                -- kept only as a fallback for pre-hybrid rows, where it was LLM-written.
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) >= :threshold THEN 1 END) as relevant_count,
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) < :threshold THEN 1 END) as irrelevant_count,
+                COUNT(CASE WHEN a.topic_alignment_score IS NULL AND a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
                 COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '24 hours' THEN 1 END) as articles_past_24h,
                 COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '7 days' THEN 1 END) as articles_past_week,
                 COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '30 days' THEN 1 END) as articles_past_month
@@ -3608,6 +3613,62 @@ class DatabaseQueryFacade:
             'articles_past_month': row['articles_past_month'] if row else 0,
             'daily_counts': daily_counts,
         }
+
+    def get_all_group_article_stats(self, relevance_threshold: float = 0.39):
+        """Get article statistics for ALL keyword groups in two queries.
+
+        Same per-group shape as get_group_article_stats, keyed by group_id.
+        The Gather group-summary handler used to call the single-group method
+        in a loop — 22 groups x 2 queries on wileytest, each seq-scanning
+        keyword_article_matches, ~20s per page load. Grouping by group_id does
+        the same work in one pass.
+        """
+        query = text("""
+            SELECT
+                kam.group_id,
+                COUNT(*) as total_count,
+                -- topic_alignment_score holds the relevance verdict; see
+                -- get_group_article_stats for why keyword_relevance_score is
+                -- only a fallback for pre-hybrid rows.
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) >= :threshold THEN 1 END) as relevant_count,
+                COUNT(CASE WHEN COALESCE(a.topic_alignment_score, a.keyword_relevance_score) < :threshold THEN 1 END) as irrelevant_count,
+                COUNT(CASE WHEN a.topic_alignment_score IS NULL AND a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '24 hours' THEN 1 END) as articles_past_24h,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '7 days' THEN 1 END) as articles_past_week,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '30 days' THEN 1 END) as articles_past_month
+            FROM keyword_article_matches kam
+            JOIN articles a ON kam.article_uri = a.uri
+            GROUP BY kam.group_id
+        """)
+        result = self._execute_with_rollback(query, {'threshold': relevance_threshold})
+        stats_by_group = {}
+        for row in result.mappings().fetchall():
+            stats_by_group[row['group_id']] = {
+                'total_count': row['total_count'],
+                'relevant_count': row['relevant_count'],
+                'irrelevant_count': row['irrelevant_count'],
+                'unscored_count': row['unscored_count'],
+                'articles_past_24h': row['articles_past_24h'],
+                'articles_past_week': row['articles_past_week'],
+                'articles_past_month': row['articles_past_month'],
+                'daily_counts': [],
+            }
+
+        daily_query = text("""
+            SELECT
+                kam.group_id,
+                DATE(kam.detected_at::timestamp) as date,
+                COUNT(*) as count
+            FROM keyword_article_matches kam
+            WHERE kam.detected_at::timestamp >= NOW() - INTERVAL '30 days'
+            GROUP BY kam.group_id, DATE(kam.detected_at::timestamp)
+            ORDER BY kam.group_id, date
+        """)
+        daily_result = self._execute_with_rollback(daily_query)
+        for r in daily_result.mappings().fetchall():
+            if r['group_id'] in stats_by_group:
+                stats_by_group[r['group_id']]['daily_counts'].append((str(r['date']), r['count']))
+        return stats_by_group
 
     def get_group_last_run_stats(self, group_id: int):
         """Get stats from the last collection run for a keyword group.
@@ -5215,9 +5276,17 @@ class DatabaseQueryFacade:
         per_page=10,
         date_type='publication',
         date_field=None,
-        require_category=False
+        require_category=False,
+        exclude_ingest_status=None
     ):
-        """Search articles with filters including topic - SQLAlchemy version."""
+        """Search articles with filters including topic - SQLAlchemy version.
+
+        exclude_ingest_status: list of ingest_status values to leave out, e.g.
+        ["filtered_relevance"] for articles the collector rejected before the AI
+        analysis step. Rows with a NULL status are kept, since NULL means the
+        column was never written rather than "rejected". Default None keeps
+        every row, so existing callers are unaffected.
+        """
         from typing import Tuple, List, Dict, Optional
 
         # Use the appropriate date field based on date_type
@@ -5232,6 +5301,12 @@ class DatabaseQueryFacade:
         # Add topic filter
         if topic:
             conditions.append(articles.c.topic == topic)
+
+        if exclude_ingest_status:
+            conditions.append(or_(
+                articles.c.ingest_status.is_(None),
+                articles.c.ingest_status.notin_(list(exclude_ingest_status))
+            ))
 
         if category:
             conditions.append(articles.c.category.in_(category))
@@ -12712,14 +12787,48 @@ class DatabaseQueryFacade:
         - total_matches, avg_relevance, avg_topic_alignment, avg_confidence
         - high_relevance_count (>=0.7), low_relevance_count (<0.4)
         """
+        # Join articles at match granularity (784k rows), THEN unnest, and
+        # aggregate with plain COUNT/FILTER. (article_uri, group_id) is unique
+        # in keyword_article_matches and keyword_ids holds no duplicates
+        # (verified 2026-08-11), so COUNT(DISTINCT article_uri) equals a plain
+        # row count — dropping the three COUNT(DISTINCT)s removes a ~600MB
+        # temp-spill sort over the 1.3M unnested rows. Warm timings on
+        # wileytest data: 13.9s the DISTINCT way, 2.3s this way; output
+        # verified row-identical on one snapshot. The prior shape timed out
+        # at 30s under ingest IO (user-visible 500 on /gather, 2026-08-11).
         query = text("""
-            WITH keyword_matches AS (
+            WITH per_match AS (
+                SELECT
+                    kam.group_id,
+                    kam.keyword_ids,
+                    a.keyword_relevance_score,
+                    a.topic_alignment_score,
+                    a.confidence_score
+                FROM keyword_article_matches kam
+                LEFT JOIN articles a ON kam.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
+            ),
+            expanded AS (
                 -- Expand keyword_ids to individual keywords
                 SELECT
-                    kam.article_uri,
-                    kam.group_id,
-                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
-                FROM keyword_article_matches kam
+                    group_id,
+                    unnest(string_to_array(keyword_ids, ','))::int as keyword_id,
+                    keyword_relevance_score,
+                    topic_alignment_score,
+                    confidence_score
+                FROM per_match
+            ),
+            match_stats AS (
+                SELECT
+                    keyword_id,
+                    group_id,
+                    COUNT(*) as total_matches,
+                    AVG(keyword_relevance_score) as avg_relevance,
+                    AVG(topic_alignment_score) as avg_topic_alignment,
+                    AVG(confidence_score) as avg_confidence,
+                    COUNT(*) FILTER (WHERE keyword_relevance_score >= 0.7) as high_relevance_count,
+                    COUNT(*) FILTER (WHERE keyword_relevance_score < 0.4) as low_relevance_count
+                FROM expanded
+                GROUP BY keyword_id, group_id
             )
             SELECT
                 mk.id as keyword_id,
@@ -12727,22 +12836,36 @@ class DatabaseQueryFacade:
                 kg.id as group_id,
                 kg.name as group_name,
                 kg.topic,
-                COUNT(DISTINCT km.article_uri) as total_matches,
-                ROUND(AVG(a.keyword_relevance_score)::numeric, 3) as avg_relevance,
-                ROUND(AVG(a.topic_alignment_score)::numeric, 3) as avg_topic_alignment,
-                ROUND(AVG(a.confidence_score)::numeric, 3) as avg_confidence,
-                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN km.article_uri END) as high_relevance_count,
-                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN km.article_uri END) as low_relevance_count
+                COALESCE(ms.total_matches, 0) as total_matches,
+                ROUND(ms.avg_relevance::numeric, 3) as avg_relevance,
+                ROUND(ms.avg_topic_alignment::numeric, 3) as avg_topic_alignment,
+                ROUND(ms.avg_confidence::numeric, 3) as avg_confidence,
+                COALESCE(ms.high_relevance_count, 0) as high_relevance_count,
+                COALESCE(ms.low_relevance_count, 0) as low_relevance_count
             FROM monitored_keywords mk
             JOIN keyword_groups kg ON mk.group_id = kg.id
-            LEFT JOIN keyword_matches km ON km.keyword_id = mk.id AND km.group_id = kg.id
-            LEFT JOIN articles a ON km.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
-            GROUP BY mk.id, mk.keyword, kg.id, kg.name, kg.topic
+            LEFT JOIN match_stats ms ON ms.keyword_id = mk.id AND ms.group_id = kg.id
             ORDER BY avg_relevance DESC NULLS LAST
         """)
 
-        result = self._execute_with_rollback(query)
-        return result.mappings().fetchall()
+        # This aggregate scans keyword_article_matches and articles. Under
+        # heavy ingest IO it has taken minutes, holding a pool connection the
+        # whole time (2026-08-07 outage on wileytest). SET LOCAL caps the
+        # runtime for this transaction only; on timeout the caller gets an
+        # error instead of the app hanging.
+        connection = self._get_connection()
+        try:
+            connection.execute(text("SET LOCAL statement_timeout = '30s'"))
+            result = connection.execute(query)
+            connection.commit()
+            return result.mappings().fetchall()
+        except Exception as e:
+            self.logger.error(f"Error executing keyword relevance stats: {e}")
+            try:
+                connection.rollback()
+            except Exception as rollback_error:
+                self.logger.error(f"Error during rollback: {rollback_error}")
+            raise
 
     def get_articles_for_keyword(self, keyword_id: int, group_id: int, relevance_filter: str = 'all', limit: int = 50):
         """Get articles matched to a specific keyword with relevance data.

@@ -654,9 +654,9 @@ async def _risk_pass(conn, brand: Dict[str, Any], landed_uris: List[str],
     """WS3 adverse-risk pass over freshly landed official records (bounded)."""
     if not landed_uris:
         return 0
-    from app.routes.brand_watcher_routes import (
-        _RISK_TRIGGER_RE, _llm_detect_risks, _keyword_risk_fallback,
-        _store_article_risks)
+    from app.services.brand_screening import (
+        RISK_TRIGGER_RE, llm_detect_risks, keyword_risk_fallback,
+        store_article_risks, record_verdict)
     rows = conn.execute(text("""
         SELECT uri, title, COALESCE(summary, '') FROM articles
         WHERE uri = ANY(:uris)
@@ -666,17 +666,19 @@ async def _risk_pass(conn, brand: Dict[str, Any], landed_uris: List[str],
         if budget[0] <= 0:
             break
         blob = f"{title}. {summary}"
-        if not _RISK_TRIGGER_RE.search(blob):
+        if not RISK_TRIGGER_RE.search(blob):
             continue
         budget[0] -= 1
-        risks = await _llm_detect_risks(title or "", summary or "", brand["display_name"])
+        risks = await llm_detect_risks(title or "", summary or "", brand["display_name"])
         method = "llm"
         if risks is None:
-            risks = _keyword_risk_fallback(blob)
+            risks = keyword_risk_fallback(blob)
             method = "keyword"
         if risks:
-            _store_article_risks(conn, uri, brand["id"], risks, method)
+            store_article_risks(conn, uri, brand["id"], risks, method)
             flagged += 1
+        record_verdict(conn, uri, brand["id"],
+                       "risk_found" if risks else "no_risk_found", method)
     return flagged
 
 

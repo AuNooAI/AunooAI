@@ -55,11 +55,26 @@ interface TimelineSummary {
     current_trend: string | null;
     generated_at: string | null;
   } | null;
+  escalation_tier?: {
+    label: string;
+    triggered: string[];
+    window_days: number;
+  } | null;
   monthly: TimelineEvent[];
   weekly: TimelineEvent[];
   analyst_notes: TimelineEvent[];
   daily: TimelineEvent[];
 }
+
+// current_trend enum values describe coverage-volume direction; render them
+// neutrally instead of echoing judgment words like "escalating".
+const TREND_LABELS: Record<string, string> = {
+  escalating: 'coverage rising',
+  'de-escalating': 'coverage falling',
+  stable: 'steady',
+  emerging: 'new',
+  mixed: 'mixed',
+};
 
 const SIG_COLORS: Record<string, string> = {
   critical: 'bg-red-100 text-red-800 border-red-300',
@@ -348,7 +363,15 @@ export function TimelineTab() {
                 </span>
                 {trend && (
                   <span className="text-xs px-2 py-0.5 bg-white border border-indigo-200 rounded text-indigo-700 capitalize">
-                    {trend}
+                    {TREND_LABELS[trend.toLowerCase()] ?? trend}
+                  </span>
+                )}
+                {summary.escalation_tier && (
+                  <span
+                    className="text-xs px-2 py-0.5 bg-red-50 border border-red-300 rounded text-red-800 font-semibold"
+                    title={`Customer-defined status — triggered by: ${summary.escalation_tier.triggered.join('; ')}`}
+                  >
+                    {summary.escalation_tier.label}
                   </span>
                 )}
               </div>

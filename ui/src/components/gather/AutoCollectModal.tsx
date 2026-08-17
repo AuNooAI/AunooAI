@@ -291,9 +291,17 @@ export function AutoCollectModal({
                   <SelectValue placeholder={loadingModels ? "Loading models..." : "Select a model..."} />
                 </SelectTrigger>
                 <SelectContent>
+                  {/* Keep an already-saved alias listed even when it is no
+                      longer offered, so the trigger is not blank. */}
+                  {formData.default_llm_model
+                    && !availableModels.some(m => m.name === formData.default_llm_model) && (
+                    <SelectItem value={formData.default_llm_model}>
+                      {formData.default_llm_model}
+                    </SelectItem>
+                  )}
                   {availableModels.map((model) => (
                     <SelectItem key={model.name} value={model.name}>
-                      {model.name}
+                      {model.label || model.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

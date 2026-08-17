@@ -22,13 +22,13 @@ export interface TopicExecutiveSummary {
   topic_title: string;                    // CAPS title (e.g., "PATENT CLIFFS & BRANDED MARGIN PRESSURE")
   primary_horizon: HorizonType;           // Which horizon this topic anchors to
   horizon_label: string;                  // "Declining System" | "Transition/Innovation" | "Future Vision"
-  opening_statement: string;              // Opening context with consensus % embedded (e.g., "Patent cliffs will reshape pharma competitive dynamics 2026-2030, with 85% of sources expecting...")
-  consensus_percentage: number;           // e.g., 85
+  opening_statement: string;              // Opening context stating what most scenarios expect
+  consensus_percentage?: number;          // Only on cards generated before prompt v3 — the model invented it, so it is no longer produced
   minority_view: {
-    percentage_range: string;             // e.g., "7-12%"
+    percentage_range?: string;            // Only on pre-v3 cards — invented, no longer produced
     statement: string;                    // e.g., "Incumbent innovation or regulatory shifts could preserve branded margins"
   };
-  primary_signal: string;                 // "Primary Signal (X% consensus): ..." - the main takeaway
+  primary_signal: string;                 // The main takeaway (UI adds the "Primary Signal:" prefix)
   counter_signals?: HorizonCounterSignal[]; // Optional counter-signals from other horizons
   decision_fork: {
     condition_a: {

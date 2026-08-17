@@ -464,9 +464,18 @@ export function GroupSettingsModal({
                           <SelectValue placeholder="Select a model..." />
                         </SelectTrigger>
                         <SelectContent>
+                          {/* A group can already be set to an alias that is no
+                              longer offered; keep it listed so the trigger is
+                              not blank and saving does not silently change it. */}
+                          {formData.default_llm_model
+                            && !availableModels.some(m => m.name === formData.default_llm_model) && (
+                            <SelectItem value={formData.default_llm_model}>
+                              {formData.default_llm_model}
+                            </SelectItem>
+                          )}
                           {availableModels.map((model) => (
                             <SelectItem key={model.name} value={model.name}>
-                              {model.name}
+                              {model.label || model.name}
                             </SelectItem>
                           ))}
                         </SelectContent>

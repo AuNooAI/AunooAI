@@ -36,23 +36,65 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Singleton OpenAI client for embeddings
-_OPENAI_CLIENT: Optional[Any] = None
+# Local DeBERTa encoder service (768d). Mirrors saasmvp app/ai/llm.get_embedding.
+# articles.embedding is vector(768) — there is NO OpenAI fallback, because a
+# 1536d vector (or a random one) silently written here corrupts every cosine
+# search and crashes inserts. Fail loud instead.
+DEBERTA_ENCODER_URL = os.getenv("DEBERTA_ENCODER_URL", "http://localhost:8001")
+EMBEDDING_DIM = 768
 
 
-def _get_openai_client():
-    """Get or create singleton OpenAI client for embeddings."""
-    global _OPENAI_CLIENT
+def _encode_one(text_value: str) -> List[float]:
+    """Encode a single text via the local DeBERTa encoder. Raises on failure."""
+    import httpx
 
-    if _OPENAI_CLIENT is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key and openai and hasattr(openai, "OpenAI"):
-            _OPENAI_CLIENT = openai.OpenAI(api_key=api_key)
-            logger.info("Created singleton OpenAI client for pgvector embeddings")
-        else:
-            logger.warning("OpenAI client not available for pgvector embeddings")
+    # Split into title + body on the first newline (DeBERTa expects structured
+    # input); callers pass a single blob (raw | summary | title).
+    parts = text_value.split("\n", 1)
+    title = parts[0].strip()
+    content = parts[1].strip() if len(parts) > 1 else ""
 
-    return _OPENAI_CLIENT
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                f"{DEBERTA_ENCODER_URL}/encode",
+                json={"title": title, "description": "", "content": content},
+            )
+            resp.raise_for_status()
+            embedding = resp.json()["embedding"]
+    except Exception as e:
+        logger.error("DeBERTa encoder unreachable at %s: %s", DEBERTA_ENCODER_URL, e)
+        raise RuntimeError(
+            f"DeBERTa encoder service unreachable at {DEBERTA_ENCODER_URL}: {e}. "
+            "articles.embedding is 768d — no fallback is safe. "
+            "Restart the encoder service and retry."
+        ) from e
+
+    if len(embedding) != EMBEDDING_DIM:
+        raise RuntimeError(
+            f"DeBERTa encoder returned {len(embedding)}d, expected {EMBEDDING_DIM}d"
+        )
+    return embedding
+
+
+def _with_tags(doc_text: str, article: Dict[str, Any]) -> str:
+    """Weave the article's tags into the embedded text, after the title line.
+
+    Tags carry the collection-time keyword matches — for niche brands the only
+    occurrence of the brand name outside the article body — so they belong in
+    the embedding. They go right after the first line (the encoder's title
+    split) rather than at the tail, where the 8000-token truncation could
+    silently drop them on long raw texts.
+    """
+    tags = article.get("tags")
+    if isinstance(tags, (list, tuple)):
+        tags = ", ".join(str(t) for t in tags if t)
+    tags = str(tags).strip() if tags else ""
+    if not tags:
+        return doc_text
+    head, _, rest = doc_text.partition("\n")
+    tagged = f"{head}\nTags: {tags}"
+    return f"{tagged}\n{rest}" if rest else tagged
 
 
 def _truncate_text_for_embedding(text: str, max_tokens: int = 8000) -> str:
@@ -100,56 +142,39 @@ def _truncate_text_for_embedding(text: str, max_tokens: int = 8000) -> str:
 
 
 def _embed_texts(texts: List[str]) -> List[List[float]]:
-    """Embed texts into vectors using OpenAI.
+    """Embed texts into 768d vectors via the local DeBERTa encoder.
 
     Args:
-        texts: List of texts to embed
+        texts: List of texts to embed (callers pass single-element lists)
 
     Returns:
-        List of embedding vectors (1536 dimensions each)
+        List of 768d embedding vectors, one per non-empty input text.
+
+    Raises:
+        RuntimeError if the encoder is unreachable or a text is empty after
+        cleaning. NEVER returns a random/placeholder vector — a fake embedding
+        written to articles.embedding is silently corrupting and unrecoverable.
     """
-    # Clean and validate texts
     cleaned_texts = []
-    for text in texts:
-        if text is None:
+    for text_value in texts:
+        if text_value is None:
             continue
-        cleaned = str(text).strip()
+        cleaned = str(text_value).strip()
         if cleaned:
             cleaned = _truncate_text_for_embedding(cleaned)
             cleaned_texts.append(cleaned)
 
     if not cleaned_texts:
-        import numpy as np
-        logger.warning("No valid texts to embed")
-        return np.random.rand(1, 1536).tolist()
+        # Callers guard against empty content before calling, so reaching here
+        # is a bug. Fail loud rather than fabricate a vector.
+        raise RuntimeError("No valid (non-empty) texts to embed")
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or not openai:
-        logger.warning("OpenAI not available, using random embeddings")
-        import numpy as np
-        return np.random.rand(len(cleaned_texts), 1536).tolist()
+    embeddings_list = [_encode_one(t) for t in cleaned_texts]
 
-    try:
-        client = _get_openai_client()
-        if client is None:
-            raise Exception("OpenAI client not available")
-
-        logger.debug("Calling OpenAI embedding API with %d texts", len(cleaned_texts))
-        resp = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=cleaned_texts,
-        )
-
-        embeddings_list = []
-        for item in sorted(resp.data, key=lambda x: x.index):
-            embeddings_list.append(item.embedding)
-
-        return embeddings_list
-
-    except Exception as exc:
-        logger.warning("OpenAI embedding failed, falling back to random: %s", exc)
-        import numpy as np
-        return np.random.rand(len(cleaned_texts), 1536).tolist()
+    assert len(embeddings_list) == len(cleaned_texts), (
+        f"embedding count {len(embeddings_list)} != input count {len(cleaned_texts)}"
+    )
+    return embeddings_list
 
 
 # --------------------------------------------------------------------------------------
@@ -174,6 +199,7 @@ def upsert_article(article: Dict[str, Any]) -> None:
         if not doc_text:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
+        doc_text = _with_tags(doc_text, article)
 
         # Generate embedding
         embeddings = _embed_texts([doc_text])
@@ -232,6 +258,7 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
         if not doc_text:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
+        doc_text = _with_tags(doc_text, article)
 
         # Generate embedding (sync call, but relatively fast)
         embeddings = _embed_texts([doc_text])
@@ -310,6 +337,10 @@ def search_articles(
                                     where_clauses.append(f"{key} > :{param_name}")
                                 elif op == "$lt":
                                     where_clauses.append(f"{key} < :{param_name}")
+                                elif op == "$ne":
+                                    # IS DISTINCT FROM, not <>, so rows where the
+                                    # column is NULL survive the exclusion.
+                                    where_clauses.append(f"{key} IS DISTINCT FROM :{param_name}")
                                 else:
                                     where_clauses.append(f"{key} = :{param_name}")
                                 params[param_name] = op_value
@@ -334,6 +365,10 @@ def search_articles(
                                 where_clauses.append(f"{key} > :{key}")
                             elif op == "$lt":
                                 where_clauses.append(f"{key} < :{key}")
+                            elif op == "$ne":
+                                # IS DISTINCT FROM, not <>, so rows where the
+                                # column is NULL survive the exclusion.
+                                where_clauses.append(f"{key} IS DISTINCT FROM :{key}")
                             else:
                                 where_clauses.append(f"{key} = :{key}")
                             params[key] = op_value

@@ -30,6 +30,11 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.shared import Inches, Pt, RGBColor
 
+from app.compliance.ai_disclosure import (
+    disclosure_text as _ai_text,
+    docx_set_marker as _ai_docx_marker,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,6 +112,10 @@ def build_bundle_docx(
     _hrule(doc)
     signoff = (exec_summary or {}).get("signoff") \
               or f"AunooAI Editorial Team · {period_label}"
+    # The agent echoes whatever period string its payload carried, which for a
+    # topic report is the internal cache key ("Q3_2026__2cec74a7"). Swap any
+    # such token for the human period the header already uses.
+    signoff = re.sub(r"\S*__[0-9a-f]{6,}\S*", period_label, signoff)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     run = p.add_run(f"— {signoff}")
@@ -114,6 +123,14 @@ def build_bundle_docx(
     run.font.size = Pt(10)
     run.font.color.rgb = WILEY_TEAL
 
+    # EU AI Act Art. 50 visible disclosure
+    dp = doc.add_paragraph()
+    drun = dp.add_run(_ai_text())
+    drun.italic = True
+    drun.font.size = Pt(9)
+    drun.font.color.rgb = WILEY_MUTED
+
+    _ai_docx_marker(doc)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     doc.save(buf)
     buf.seek(0)

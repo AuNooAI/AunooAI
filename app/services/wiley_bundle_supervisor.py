@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -231,8 +232,34 @@ async def _call_agent(agent_name: str, payload: dict, *, reasoning_effort: str =
     try:
         return json.loads(s, strict=False)
     except Exception as e:
-        logger.error("Agent %s JSON parse failed: %s | raw=%.400s", agent_name, e, raw or "")
-        return {}
+        # One retry. A malformed reply here costs the whole field silently —
+        # on 2026-08-03 wiley_exec_summary_agent broke at char 2109 of the
+        # letter and the topic report shipped with no executive summary at
+        # all, everything else intact. The pipeline reported success.
+        logger.error("Agent %s JSON parse failed: %s | raw=%.400s — retrying once",
+                     agent_name, e, raw or "")
+        try:
+            retry_messages = messages + [
+                {"role": "assistant", "content": (raw or "")[:4000]},
+                {"role": "user", "content": (
+                    "That reply was not valid JSON: "
+                    f"{e}. Return the same content as a single valid JSON "
+                    "object. Escape every double quote and backslash inside "
+                    "string values. No code fences, no prose outside the object."
+                )},
+            ]
+            raw2 = await model.agenerate_response(retry_messages, **call_kwargs)
+            s2 = (raw2 or "").strip()
+            if s2.startswith("```"):
+                s2 = s2.strip("`").lstrip()
+                if s2.lower().startswith("json"):
+                    s2 = s2[4:].lstrip()
+            parsed = json.loads(s2, strict=False)
+            logger.info("Agent %s: retry produced valid JSON", agent_name)
+            return parsed
+        except Exception as e2:
+            logger.error("Agent %s retry also failed: %s", agent_name, e2)
+            return {}
 
 
 # ── Per-stage payload builders ──────────────────────────────────────
@@ -661,7 +688,8 @@ def _exec_summary_payload(items: list, period_label: str,
                           briefings: dict = None,
                           recommendations: dict = None,
                           next_steps: dict = None,
-                          calibration: list = None) -> dict:
+                          calibration: list = None,
+                          cadence: str = None) -> dict:
     """Build the exec-summary agent's input.
 
     The agent needs more than the strategic overview + a biggest-mover —
@@ -805,21 +833,54 @@ def _exec_summary_payload(items: list, period_label: str,
             ),
         })
 
+    # Tail-risk cards for the letter. Every EOS category counts —
+    # black_swan, wild_card AND contrarian — because the generator's
+    # default category is "wild_card", so filtering to "black_swan" alone
+    # left this list empty on runs where the deck showed 24 cards, and the
+    # agent then wrote "No new tail-risk scenarios surfaced this quarter"
+    # as instructed. Keys match ExtremeOutlierScenario.to_dict
+    # (``impact_rating`` / ``time_horizon``; the old ``impact_score`` /
+    # ``timeframe`` reads were always None).
     black_swans = []
     for topic, scenarios in (eos_per_topic or {}).items():
         for s in scenarios or []:
-            if (s.get("category") or "").lower() == "black_swan":
-                black_swans.append({
-                    "topic": topic,
-                    "title": s.get("title"),
-                    "impact": s.get("impact_score"),
-                    "timeframe": s.get("timeframe"),
-                    "description": s.get("description"),
-                })
+            black_swans.append({
+                "topic": topic,
+                "category": (s.get("category") or "wild_card"),
+                "title": s.get("title"),
+                "impact": s.get("impact_rating") or s.get("impact_score"),
+                "timeframe": s.get("time_horizon") or s.get("timeframe"),
+                "description": s.get("description"),
+            })
+
+    def _impact(s):
+        try:
+            return float(s.get("impact") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    black_swans.sort(key=_impact, reverse=True)
+
+    # The PRIOR period's letter — without it the writer cannot produce an
+    # update ("the tail risk REMAINS…", "last quarter we flagged…") and
+    # falls back to a standalone quarter review, which is what the Q3 2026
+    # letter did. Facts inside the prior letter are LAST quarter's; the
+    # agent instructions require treating it as narrative to advance, never
+    # as a source of current facts.
+    prior_letter = ""
+    if cadence:
+        try:
+            from app.database import get_database_instance as _gdb
+            _prior = _gdb().facade.get_forecast_bundle_synthesis(
+                cadence, _prior_period_label(period_label).replace(" baseline", "")) or {}
+            prior_letter = (((_prior.get("payload") or {}).get("exec_summary")
+                             or {}).get("letter") or "")[:8000]
+        except Exception as e:
+            logger.warning("exec payload: prior letter load failed: %s", e)
 
     return {
         "period_label": period_label,
         "prior_period_label": _prior_period_label(period_label),
+        "prior_letter": prior_letter,
         "strategic_overview": overview,
         "status_distribution": dist,
         "total_scenarios": total_scenarios,
@@ -859,6 +920,16 @@ def _prior_period_label(period_label: str) -> str:
     """
     import re as _re
     from datetime import datetime as _dt
+    # Topic-report labels: "Q3_2026__2cec74a7" (quarter + topic-set hash).
+    # The prior is the SAME topic set one quarter back — this is what lets
+    # the topic-report letter receive its predecessor as ``prior_letter``
+    # and be written as an installment from the second quarter onward.
+    m = _re.fullmatch(r"Q([1-4])_(\d{4})__([0-9a-f]+)", (period_label or "").strip())
+    if m:
+        q, year, h = int(m.group(1)), int(m.group(2)), m.group(3)
+        pq = 4 if q == 1 else q - 1
+        py = year - 1 if q == 1 else year
+        return f"Q{pq}_{py}__{h} baseline"
     # Match "Q2 2026", "Quarterly 2026-04-15", or fallback "2026-05-26"
     m = _re.search(r"(Q[1-4]\s*\d{4})", period_label or "")
     if m:
@@ -877,6 +948,110 @@ def _prior_period_label(period_label: str) -> str:
         except Exception:
             pass
     return "prior bundle"
+
+
+_GOLDEN_EXEMPLAR_PATH = os.path.join(
+    "data", "auspex", "golden", "wiley_exec_summary_q2_2026.txt")
+
+# The five mandatory letter sections. Deterministic — the 2026-08-04 serial
+# letter shipped as a 102-word fragment (bottom line only) because the
+# installment instructions said what NOT to repeat without restating the
+# structure, and no gate checked completeness: the golden gate scored the
+# fragment 8/10 on prose form.
+_LETTER_SECTIONS = ("The bottom line", "What happened this quarter",
+                    "headline tail risk", "What this means for Wiley",
+                    "Next quarter")
+_LETTER_MIN_WORDS = 400
+
+
+def _letter_defects(letter: str) -> list:
+    """Missing sections / too short — empty list means structurally complete."""
+    out = []
+    text = letter or ""
+    for sec in _LETTER_SECTIONS:
+        if sec.lower() not in text.lower():
+            out.append(f"missing section: {sec}")
+    if len(text.split()) < _LETTER_MIN_WORDS:
+        out.append(f"only {len(text.split())} words (minimum {_LETTER_MIN_WORDS})")
+    return out
+
+
+async def _golden_gate(letter: str) -> dict:
+    """Judge the letter against the Q2 2026 exemplar — the letter the
+    customer called good.
+
+    The Q3 2026 letters regressed silently when the writer model changed
+    (gpt-4.1 → gpt-5.5) with no before/after: the new writer opened with
+    meta-commentary ("The most decision-relevant read is…") where the
+    exemplar opens with an actor and an action. This gate makes that
+    comparison explicit on every generation.
+
+    Returns ``{passes, score, critique}``. The critique describes QUALITIES
+    to fix and quotes only CANDIDATE sentences — never exemplar facts, so a
+    retry cannot import last quarter's events into this quarter's letter.
+    Fails open: any error returns passes=True with an empty critique.
+    """
+    out = {"passes": True, "score": None, "critique": ""}
+    if not letter or not letter.strip():
+        return out
+    try:
+        with open(_GOLDEN_EXEMPLAR_PATH, encoding="utf-8") as f:
+            exemplar = f.read().strip()
+    except Exception as e:
+        logger.warning("golden gate: exemplar unavailable (%s) — skipping", e)
+        return out
+    try:
+        from app.ai_models import AIModelFactory
+        sys_prompt = (
+            "You are judging a quarterly executive letter (CANDIDATE) against a "
+            "reference letter (EXEMPLAR) the customer has approved as the "
+            "standard. Judge PROSE QUALITY only — the facts differ by design "
+            "(different quarters). Score the candidate 0-10 on how well it "
+            "matches the exemplar's standard on:\n"
+            "1. Opening: first sentence names an actor and an action (never "
+            "meta-commentary about 'the read' or 'the analysis').\n"
+            "2. Named-event density: concrete actors, actions, magnitudes and "
+            "dates per paragraph, at comparable density to the exemplar.\n"
+            "3. Forecast-vs-evidence contrast: what was expected vs what the "
+            "named events show.\n"
+            "4. Consequences stated for the customer, concretely.\n"
+            "5. No abstraction padding, no list-like cataloguing without "
+            "narrative, no sentence whose subject is the analysis itself.\n"
+            "6a. Completeness: the exemplar has five bold sections at ~600 "
+            "words; a candidate missing sections or far shorter FAILS "
+            "regardless of prose quality — passes must be false.\n"
+            "6. Serial continuity: the exemplar reads as an installment — "
+            "'the leading tail-risk scenario REMAINS…', 'X was expected to "
+            "advance, yet no developments have occurred', 'the predicted "
+            "decline IS NOW EVIDENT'. A candidate that reads as a standalone "
+            "quarter review, never tracking what the standing forecast said, "
+            "fails this criterion.\n"
+            "passes = score >= 7 AND the opening meets criterion 1.\n"
+            "The critique must describe what to fix and may quote sentences "
+            "FROM THE CANDIDATE ONLY. Never quote or reference the exemplar's "
+            "facts, names or figures — the writer must not see them.\n"
+            'Return STRICT JSON: {"score": <0-10>, "passes": <bool>, '
+            '"critique": "<what to fix, candidate quotes only>"}'
+        )
+        usr = f"EXEMPLAR:\n{exemplar}\n\nCANDIDATE:\n{letter}"
+        model = AIModelFactory.get_model("gpt-5.4")
+        raw = await model.agenerate_response(
+            [{"role": "system", "content": sys_prompt},
+             {"role": "user", "content": usr}],
+            temperature=0.1, max_tokens=1200,
+        )
+        s = (raw or "").strip()
+        if "{" in s and "}" in s:
+            s = s[s.find("{"): s.rfind("}") + 1]
+        parsed = json.loads(s)
+        out["score"] = parsed.get("score")
+        out["passes"] = bool(parsed.get("passes"))
+        out["critique"] = (parsed.get("critique") or "")[:2000]
+        logger.info("golden gate: score=%s passes=%s", out["score"], out["passes"])
+        return out
+    except Exception as e:
+        logger.warning("golden gate failed (fails open): %s", e)
+        return {"passes": True, "score": None, "critique": ""}
 
 
 # ── Reviewer payload — combines everything for the judge ─────────────
@@ -1062,6 +1237,32 @@ async def run_pipeline(
             in {"strategic_overview", "cross_cutting_themes", "executive_decision_framework"}
         ]
         cross_topic = _apply_locks_after_call(prior_payload, cross_topic, ct_locks)
+
+        # Subject-check the overview's figures against the per-topic material it
+        # was derived from. This is where a number's meaning gets rewritten:
+        # on 2026-08-03 an assessment's "federal R&D funding 14.5% below
+        # baseline expectations" came out of this stage as "a 14.5% drop in
+        # manuscript submissions", and every stage downstream — the letter, the
+        # cross-cutting themes, the DOCX — repeated it faithfully. Correcting it
+        # here fixes it everywhere; correcting it in the letter would not.
+        try:
+            from app.services.wiley_humanizer import ground_check_figures
+            overview = (cross_topic or {}).get("strategic_overview")
+            if isinstance(overview, str) and overview.strip() \
+                    and "strategic_overview" not in (locked_keys or []):
+                ct_sources = [json.dumps(_cross_topic_payload(items, period_label, briefings),
+                                         default=str)]
+                ct_sources += [json.dumps(a.get("summary") or {}, default=str)
+                               for (a, _r, _p) in items]
+                cg = await ground_check_figures(overview, ct_sources, check_subjects=True)
+                if cg["changed"]:
+                    cross_topic["strategic_overview"] = cg["text"]
+                    yield {"stage": "cross_topic", "status": "figures_grounded",
+                           "progress": 0.815,
+                           "payload": {"unsourced": cg.get("unsupported") or []}}
+        except Exception as e:
+            logger.warning("cross-topic figure-check failed (non-fatal): %s", e)
+
         yield {"stage": "cross_topic", "status": "completed", "progress": 0.82}
 
     # ── Stage 8: Executive Summary letter ────────────────────────────
@@ -1070,16 +1271,44 @@ async def run_pipeline(
     if _stage_in_plan(plan, "exec_summary") or not exec_summary:
         exec_regenerated = True
         yield {"stage": "exec_summary", "status": "started", "progress": 0.85}
-        exec_summary = await _call_agent(
-            "wiley_exec_summary_agent",
-            _exec_summary_payload(
-                items, period_label, cross_topic, eos_per_topic,
-                briefings=briefings,
-                recommendations=recommendations,
-                next_steps=next_steps,
-                calibration=_compute_calibration(items, cadence, period_label),
-            ),
+        # Keep the payload: the figure ground-check below must treat exactly
+        # what this agent was GIVEN as its source of truth. Checking the letter
+        # against assessments alone would delete figures the upstream stages
+        # legitimately supplied (briefing ledes carry cited numbers like
+        # "99.9975% demonstrated [18]").
+        exec_payload = _exec_summary_payload(
+            items, period_label, cross_topic, eos_per_topic,
+            briefings=briefings,
+            recommendations=recommendations,
+            next_steps=next_steps,
+            calibration=_compute_calibration(items, cadence, period_label),
+            cadence=cadence,
         )
+        exec_summary = await _call_agent("wiley_exec_summary_agent", exec_payload)
+        # Structural completeness is validated, not requested: all five
+        # sections, minimum length. Up to two retries with the defect list
+        # spelled out; a still-incomplete letter fails the stage loudly
+        # rather than shipping a fragment.
+        for _attempt in range(2):
+            defects = _letter_defects((exec_summary or {}).get("letter") or "")
+            if not defects:
+                break
+            logger.warning("exec letter structurally incomplete (%s) — retrying",
+                           "; ".join(defects))
+            retry_payload = dict(exec_payload)
+            retry_payload["structure_defects"] = (
+                "Your previous draft was structurally incomplete: "
+                + "; ".join(defects)
+                + ". Produce the COMPLETE letter with all five bold sections "
+                  "at full length. The installment framing changes what the "
+                  "sections SAY, never which sections exist."
+            )
+            exec_summary = await _call_agent("wiley_exec_summary_agent", retry_payload)
+        defects = _letter_defects((exec_summary or {}).get("letter") or "")
+        if defects:
+            raise RuntimeError(
+                f"Exec letter still structurally incomplete after retries: "
+                f"{'; '.join(defects)}")
         # Restore locks scoped to exec_summary fields. Locked path
         # 'exec_summary.letter' on the bundle becomes 'letter' here
         # because exec_summary is the local subtree.
@@ -1174,6 +1403,100 @@ async def run_pipeline(
                                "progress": 0.919}
                 except Exception as e:
                     logger.warning("exec-summary ground-check failed (non-fatal): %s", e)
+
+                # Figures get their own check. The event check above compares
+                # actor/action/subject/date, so a statistic passes it untouched.
+                #
+                # The source of truth is the agent's OWN payload first. This
+                # agent does not invent numbers — measured on 2026-08-03, every
+                # figure in a letter that looked fabricated was present verbatim
+                # in its input, and a different model (GPT-5.5) reproduced the
+                # same ones. What this catches is a figure with no upstream
+                # origin at all. Subject drift introduced UPSTREAM (a briefing
+                # or the strategic overview restating "14.5% below baseline" as
+                # "14.5% drop in manuscript submissions") is not visible here,
+                # because by then the payload itself carries the wrong claim.
+                try:
+                    from app.services.wiley_humanizer import ground_check_figures
+                    sources = [json.dumps(exec_payload, default=str)]
+                    sources += [json.dumps(a.get("summary") or {}, default=str)
+                                for (a, _r, _p) in items]
+                    sources.append(json.dumps(bundle_payload.get("whats_changed") or {},
+                                              default=str))
+                    sources.append(json.dumps(named, default=str))
+                    fg = await ground_check_figures(es["letter"], sources)
+                    if fg.get("unsupported"):
+                        logger.warning("exec summary asserted unsourced figures: %s",
+                                       ", ".join(fg["unsupported"]))
+                    if fg["changed"]:
+                        es["letter"] = fg["text"]
+                        exec_summary = es
+                        yield {"stage": "humanize", "status": "figures_grounded",
+                               "progress": 0.9195,
+                               "payload": {"unsourced": fg.get("unsupported") or []}}
+
+                    # Names get the same treatment as figures. A letter that
+                    # named Hindawi among publishers facing retractions passed
+                    # both checks above: a name is not an event and not a
+                    # number. It was in no source, and it is this customer's
+                    # own retired imprint.
+                    from app.services.wiley_humanizer import ground_check_entities
+                    eg = await ground_check_entities(es["letter"], sources)
+                    if eg.get("unsupported"):
+                        logger.warning("exec summary named unsourced organisations: %s",
+                                       ", ".join(eg["unsupported"]))
+                    if eg["changed"]:
+                        es["letter"] = eg["text"]
+                        exec_summary = es
+                        yield {"stage": "humanize", "status": "entities_grounded",
+                               "progress": 0.9197,
+                               "payload": {"unsourced_names": eg.get("unsupported") or []}}
+                except Exception as e:
+                    logger.warning("exec-summary figure-check failed (non-fatal): %s", e)
+
+                # Golden-set gate — judge the finished letter against the Q2
+                # exemplar. On failure, ONE retry: re-call the exec agent with
+                # the judge's critique (qualities to fix, candidate quotes
+                # only — never exemplar facts), re-run the deterministic
+                # scrubs on the rewrite, and re-judge. The final result ships
+                # either way, with the verdict persisted for audit.
+                try:
+                    gate = await _golden_gate(es["letter"])
+                    yield {"stage": "golden_gate",
+                           "status": "passed" if gate["passes"] else "failed",
+                           "progress": 0.9198,
+                           "payload": {"score": gate.get("score")}}
+                    if not gate["passes"] and gate.get("critique"):
+                        retry_payload = dict(exec_payload)
+                        retry_payload["golden_gate_critique"] = gate["critique"]
+                        retry = await _call_agent("wiley_exec_summary_agent", retry_payload)
+                        new_letter = (retry or {}).get("letter") or ""
+                        if new_letter.strip():
+                            from app.services.wiley_humanizer import (
+                                strip_forecast_verdicts, ground_check_figures,
+                                ground_check_entities as _gce,
+                            )
+                            r2 = await strip_forecast_verdicts(new_letter)
+                            new_letter = r2["text"]
+                            fg2 = await ground_check_figures(new_letter, sources)
+                            new_letter = fg2["text"]
+                            eg2 = await _gce(new_letter, sources)
+                            new_letter = eg2["text"]
+                            gate2 = await _golden_gate(new_letter)
+                            # Keep the retry when it scores at least as well.
+                            if (gate2.get("score") or 0) >= (gate.get("score") or 0):
+                                es["letter"] = new_letter
+                                exec_summary = es
+                                gate = gate2
+                            yield {"stage": "golden_gate",
+                                   "status": "retry_" + ("passed" if gate["passes"] else "failed"),
+                                   "progress": 0.9199,
+                                   "payload": {"score": gate.get("score")}}
+                    bundle_payload["golden_gate"] = {
+                        "score": gate.get("score"), "passes": gate.get("passes"),
+                    }
+                except Exception as e:
+                    logger.warning("golden gate failed (non-fatal): %s", e)
         # Same deterministic verdict guard on the expert commentary.
         ec_text = bundle_payload.get("expert_commentary")
         if (isinstance(ec_text, str) and ec_text.strip()
@@ -1491,6 +1814,7 @@ async def regenerate_single_stage(
                 items, period_label, prior_payload, eos_per_topic,
                 briefings={}, recommendations={}, next_steps={},
                 calibration=_compute_calibration(items, cadence, period_label),
+                cadence=cadence,
             ),
         )
         es_locks = [

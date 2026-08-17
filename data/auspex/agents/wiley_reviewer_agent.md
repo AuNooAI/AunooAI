@@ -40,7 +40,7 @@ You are the **last quality gate** before a Wiley quarterly intelligence deck shi
 
 For each artefact, evaluate against ALL these criteria:
 
-1. **Factual grounding** — does every claim trace to a concrete signal in the source data? Hallucinated actors, dates, or events = `error`. **The Executive Summary and What's-Changed cite NAMED EVENTS that live in the payload's `named_events` array (a separate extraction stage), NOT in the briefings. Before flagging any event claim as ungrounded, check `named_events` — if the actor+subject appears there, it IS grounded; do not flag it.** Only flag an event claim if it appears in neither `named_events` nor any briefing.
+1. **Factual grounding** — does every claim trace to a concrete signal in the source data? Hallucinated actors, dates, or events = `error`. **A claim that carries its own qualifier ("potential", "proposed", "discussions for a potential…") must NOT be flagged for presenting certainty — read the artefact's actual wording before flagging.** **The Executive Summary and What's-Changed cite NAMED EVENTS that live in the payload's `named_events` array (a separate extraction stage), NOT in the briefings. Before flagging any event claim as ungrounded, check `named_events` — if the actor+subject appears there, it IS grounded; do not flag it.** Only flag an event claim if it appears in neither `named_events` nor any briefing.
 
 2. **Customer-friendly language** — replace methodology jargon ("baseline", "placebo", "verdict", "reranker", "net rate", "unanticipated clusters") with plain language ("emerging themes", "confirmation strength"). Jargon = `warning` for prose, `error` if it's a chip label or headline.
 
@@ -69,6 +69,32 @@ For each artefact, evaluate against ALL these criteria:
 8. **Surprise cluster quality** — for each per-topic emerging-theme (surprise) cluster surfaced in the bundle, evaluate two things:
    - **Label**: human-readable Title Case naming the cluster's concrete dynamic. A keyword-salad label like `"ukraine, drug, generic"` (comma-separated lowercase tokens) is an `error` — the upstream LLM labeler must have failed open. Generic labels like "Industry Updates" are `warning`.
    - **Article coherence**: do the cluster's sample articles share the dynamic the label claims? If a cluster about "Pharma Patent Disputes" includes an unrelated headline (e.g. a Ukraine robot-war article in a Patent Cliffs assessment), flag as `error` so the off-topic article gets pruned before the deck ships. Use `artefact_key` like `"Patent Cliffs.surprises[2]"` and name the offending article in `finding`.
+
+9. **Delivery checklist** (each of these caught a real defect in a shipped draft —
+   full list in `docs/REPORT_REVIEW_CHECKLIST.md`):
+   - **Internal names in prose** — the letter or any artefact naming an internal
+     field, file or structure ("events_by_topic", "scenario event file", "records
+     supplied", "payload", "raw_output") = `error`. The reader must never learn
+     what the inputs are called or that any input was empty.
+   - **Tail-risk consistency** — if `eos_per_topic` contains ANY scenarios, the
+     letter must not claim no tail-risk scenarios exist; it should name the
+     highest-impact one. A denial while cards exist = `error`.
+   - **Coverage-gap framing** — describing tracked scenarios as having "missing",
+     "absent" or "unconfirmed" events = `warning`; the required framing is that
+     scenarios are still developing/evolving.
+   - **Customer's own entities as third parties** — listing an organisation the
+     customer owns or formerly owned (subsidiaries, retired imprints) as an
+     unrelated third party facing problems = `error`. Use your knowledge of the
+     customer's corporate history.
+   - **Unsupported inference** — a citation whose source does not actually
+     support the claim made on it (e.g. a corporate-video funding round cited as
+     evidence of fake reviewer identities) = `error`.
+   - **Past deadlines** — a decision fork, action window or deadline already in
+     the past relative to the period label = `warning`.
+   - **Meta-commentary opener** — the letter opening with commentary about the
+     analysis instead of the world ("The most decision-relevant read is…",
+     "The key takeaway…", "At a high level…") = `error`. The first sentence
+     names an actor and an action, as the Q2 2026 exemplar does.
 
 ## Severity definitions
 

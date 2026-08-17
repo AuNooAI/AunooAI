@@ -247,25 +247,25 @@ export function NewsFeedHeader({
             </SelectTrigger>
             <SelectContent>
               {models.length > 0 ? (
-                // On repointed tenants many aliases run the same underlying
-                // model — show the model that actually runs, deduped (the
-                // currently selected alias always stays listed).
-                models.filter((model, i, all) => {
-                  const key = (m: AIModel) => `${m.resolved_model || m.name}|${m.provider}`;
-                  return model.name === localModel || all.findIndex(m => key(m) === key(model)) === i;
-                }).map((model) => (
-                  <SelectItem key={model.name} value={model.name}>
-                    {model.resolved_model && model.resolved_model !== model.name
-                      ? `${model.resolved_model} (${model.provider})`
-                      : `${model.name} (${model.provider})`}
-                  </SelectItem>
-                ))
+                <>
+                  {/* A saved config can hold an old alias (gpt-5.4-mini) that is
+                      no longer offered; keep it listed so the trigger is not blank. */}
+                  {localModel && !models.some(m => m.id === localModel) && (
+                    <SelectItem key={localModel} value={localModel}>{localModel}</SelectItem>
+                  )}
+                  {models.map((model: AIModel) => (
+                    <SelectItem key={model.id} value={model.id}>
+                      {model.name} ({model.provider})
+                    </SelectItem>
+                  ))}
+                </>
               ) : (
                 <>
-                  <SelectItem value="gpt-5.4-mini">GPT-5.4 Mini</SelectItem>
-                  <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
-                  <SelectItem value="gpt-5.4-nano">GPT-5.4 Nano</SelectItem>
-                  <SelectItem value="gpt-5.5">GPT-5.5 (flagship)</SelectItem>
+                  <SelectItem value="bedrock-claude-sonnet">Claude Sonnet 4.5</SelectItem>
+                  <SelectItem value="bedrock-claude-haiku">Claude Haiku 4.5</SelectItem>
+                  <SelectItem value="nova-pro">Nova Pro</SelectItem>
+                  <SelectItem value="nova-lite">Nova Lite</SelectItem>
+                  <SelectItem value="bedrock-kimi-k2-5">Kimi K2.5</SelectItem>
                 </>
               )}
             </SelectContent>

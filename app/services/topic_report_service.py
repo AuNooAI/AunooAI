@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.ai_models import resolve_litellm_call_params
+from app.services.report_style import CLINICAL_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -158,9 +159,21 @@ def _resolve_items_for_topics(topics: list[str]) -> list:
 
 
 def _render_cache_dir() -> str:
+    """Per-tenant render-cache dir.
+
+    The old path was ``$TMPDIR/topic_report_render_cache`` — shared by every
+    tenant on the box, keyed only by period_label. Two tenants generating the
+    same topic set for the same period would silently serve each other's
+    decks and sidecars. Scope by DB name (unique per tenant). Files from the
+    shared dir are migrated on first touch so pinned-run sidecars survive.
+    """
     import tempfile
-    d = os.path.join(tempfile.gettempdir(), "topic_report_render_cache")
+    tenant = os.getenv("DB_NAME") or "default"
+    d = os.path.join(tempfile.gettempdir(), f"topic_report_render_cache_{tenant}")
     os.makedirs(d, exist_ok=True)
+    # No automatic migration from the old shared dir — its files carry no
+    # tenant marker, so copying them in bulk would recreate the leak.
+    # Existing sidecars are placed into the right tenant dir by hand.
     return d
 
 
@@ -207,10 +220,20 @@ def _state_sidecar_path(period_label: str) -> str:
     return os.path.join(_render_cache_dir(), f"topic_report_{period_label}.state.json")
 
 
-def _write_state_sidecar(period_label: str, topics: list[str], period: Optional[str]) -> None:
+def _write_state_sidecar(period_label: str, topics: list[str], period: Optional[str],
+                         run_ids: Optional[dict] = None) -> None:
+    """Persist the period's build state.
+
+    ``run_ids`` maps SOURCE topic name → the future_horizons_runs id the
+    PPTX build used. Every other export resolves through this mapping, so
+    a horizons re-run between exports cannot silently swap the analysis
+    under an artifact — the failure where the deck and the HTML carried
+    different scenarios under the same cover.
+    """
     try:
         with open(_state_sidecar_path(period_label), "w", encoding="utf-8") as f:
-            json.dump({"topics": list(topics or []), "period": period or ""}, f)
+            json.dump({"topics": list(topics or []), "period": period or "",
+                       "run_ids": dict(run_ids or {})}, f)
     except Exception as e:
         logger.warning("state-sidecar write failed (%s): %s", period_label, e)
 
@@ -264,8 +287,19 @@ def _build_topic_report_prompt(topic: str, article_rows: list) -> str:
         article_summary_lines.append(" · ".join(bits))
     article_summary = "\n".join(article_summary_lines)
 
+    # Horizon years are anchored to TODAY, not baked into the prompt. The
+    # hard-coded "2025-2040" produced a Q3 2026 report whose H1 window had
+    # already started and whose chart labelled 2025 as "Present".
+    from datetime import date as _date
+    _y0 = _date.today().year
+    _yq = f"Q{(_date.today().month - 1) // 3 + 1} {_y0}"
+
     return f"""You are a strategic foresight expert producing a forward-looking
 report on "{topic}" for a scientific-publisher executive audience.
+
+TODAY IS {_date.today().isoformat()} ({_yq}). Everything you write is read as
+a forecast made now. Never propose a deadline, decision point or action window
+that has already passed; the earliest date you may name is {_y0}.
 
 AUDIENCE CONSTRAINT: every strategic_recommendation, next_step, and executive_decision_framework principle must be an action a scientific publisher can actually take within its own remit (editorial, commissioning, portfolio, licensing, research-integrity, partnership, or communication decisions). Never recommend actions for governments, regulators, funders, health authorities, or other third parties the publisher does not control; if the topic involves a crisis the publisher cannot act on directly, frame the action as how the publisher should respond within its remit, not how the crisis itself should be managed.
 
@@ -290,7 +324,7 @@ Output schema (strict):
       "type": "h1" | "h2" | "h3",
       "title": "<short scenario name, max 12 words>",
       "description": "<2-3 sentences with [n] citations to the article references>",
-      "timeframe": "<year-year, within 2025-2040>",
+      "timeframe": "<year-year, within {_y0}-{_y0 + 15}>",
       "sentiment": "Positive" | "Negative" | "Mixed" | "Neutral" | "Mixed/Positive" | "Critical/Neutral" | "Negative/Disruptive" | "Trend/Evolution" | "Breakthrough" | "Disruption/Warning" | "Warning/Disruption"
     }}
   ],
@@ -323,7 +357,7 @@ Output schema (strict):
 Required quantities and structure:
 - topic_briefing.tensions: EXACTLY 3-4 defining tensions
 - scenarios: 12-14 total → 4-5 H1 (declining), 4-5 H2 (transition), 3-4 H3 (future vision)
-  H1 timeframes 2025-2032 · H2 timeframes 2027-2037 · H3 timeframes 2033-2040
+  H1 timeframes {_y0}-{_y0 + 7} · H2 timeframes {_y0 + 2}-{_y0 + 12} · H3 timeframes {_y0 + 8}-{_y0 + 15}
 - strategic_recommendations: EXACTLY 3 (one per horizon: 0-6 / 6-18 / 18+ months)
 - key_insights: 4-5 distinct observations grounded in the article set
 - next_steps: EXACTLY 3 prioritised actions
@@ -334,6 +368,39 @@ Citation rules:
 - Every scenario description should cite 2-4 articles
 - Every recommendation rationale should cite 1-3 articles
 - Every key_insight should cite at least 1 article
+- One bracket per article. Write "[44][52]", never "[44, 52]".
+
+Rules for figures (a wrong number here goes to the customer as fact):
+- Only state a figure that appears in one of the numbered articles below, and
+  put its citation in the same sentence.
+- Copy the unit exactly as the source wrote it. "1.4L" and "1.5 lakh" mean
+  140,000 and 150,000, not 1.4 million. "crore" is 10 million. If a source
+  uses a unit you are not certain of, leave the figure out.
+- Never restate a figure in a unit the source did not use, and never convert
+  a count into a rate ("one in forty") unless the source states that rate.
+- When the articles disagree on a figure, say so and name both, or use the
+  peer-reviewed source and drop the aggregator. Do not present a contested
+  number as settled.
+
+Writing rules (this text goes on a slide in front of a publishing executive —
+these are not style preferences, they are requirements):
+- Lead with the finding, then explain it. Never build up to the point.
+- Use the plain word. "AI-generated citations that do not exist" beats
+  "phantom citations infiltrating the research record at industrial scale".
+- Give every number a meaning in the same sentence: "AUC 0.478, no better than
+  a coin toss" beats "AUC 0.478 — the signal is weak". Use a figure from THIS
+  article set for the meaning, never one carried over from an example.
+- Do NOT use: unprecedented, crisis point, at scale, weaponize, dual/twin
+  (assault, threat, challenge), core value proposition, the window is
+  narrowing, existential, seismic, transformative, paradigm.
+- Do NOT open a sentence with Critically, Notably, Importantly, or Crucially.
+  If it matters, the sentence itself must show why.
+- No "not X, but Y" antithesis more than once in the whole response.
+- No three-item lists where the third item exists only for rhythm. Two real
+  items beat three padded ones.
+- Em dashes: at most one per paragraph. Prefer a comma, colon or full stop.
+- No closing sentence that restates what was just said in grander words.
+{CLINICAL_STYLE}
 
 Article references (use these citation numbers):
 {article_refs}
@@ -384,6 +451,9 @@ async def generate_executive_summary_for_run(
         {
             "topic": topic,
             "scenarios_json": scenarios_json,
+            # Without this the model has no idea what quarter it is, and
+            # writes decision forks with deadlines already in the past.
+            "today": _dt.now().date().isoformat(),
             "organizational_profile": (
                 "Wiley — global academic publisher. Scientific publishing, "
                 "research integrity, open science, peer review at scale."
@@ -443,7 +513,10 @@ async def generate_executive_summary_for_run(
         logger.warning("exec summary: JSON parse failed — skipping")
         return None
 
-    summary_data["generated_at"] = _dt.utcnow().isoformat()
+    # Offset-aware local time. utcnow() produced a naive UTC string, so a
+    # deck built at 12:16 local stamped itself 10:16 while the dates on the
+    # neighbouring divider slide were local — two clocks, two slides apart.
+    summary_data["generated_at"] = _dt.now().astimezone().isoformat()
     summary_data["topic"] = topic
     summary_data["analysis_id"] = run_id
 
@@ -457,6 +530,61 @@ async def generate_executive_summary_for_run(
         logger.warning("exec summary: facade save failed: %s", e)
 
     return summary_data
+
+
+# Slide prose is short, so a passage can read as slop while sitting at or
+# under the global threshold of 3. The briefing lede that prompted this had
+# exactly 3 tells and sailed through.
+_REPORT_TELL_THRESHOLD = int(os.getenv("REPORT_TELL_THRESHOLD", "1"))
+
+
+async def _humanize_report_prose(raw_output: dict) -> None:
+    """Strip AI tells from the narrative fields of a topic-report run, in place.
+
+    Until now the humanizer was only wired into the Wiley bundle supervisor,
+    so topic-report prose went from the model straight onto a slide with no
+    check at all. Only genuinely narrative fields are rewritten: headlines,
+    scenario titles and imperative phrases are left alone, since rewriting
+    them for rhythm would fight the schema's length limits.
+
+    Best-effort — never blocks report generation.
+    """
+    try:
+        from app.services.wiley_humanizer import humanize_text, humanize_enabled
+    except Exception as e:
+        logger.warning("humanize unavailable for topic report: %s", e)
+        return
+    if not humanize_enabled():
+        return
+
+    brief = raw_output.get("topic_briefing") or {}
+    targets = [
+        (brief, "lede"),
+        (brief, "intelligence_view"),
+    ]
+    for t in (brief.get("tensions") or []):
+        if isinstance(t, dict):
+            targets.append((t, "body"))
+    for r in (raw_output.get("strategic_recommendations") or []):
+        if isinstance(r, dict):
+            targets.append((r, "rationale"))
+
+    rewritten = 0
+    for holder, key in targets:
+        cur = holder.get(key)
+        if not isinstance(cur, str) or not cur.strip():
+            continue
+        try:
+            res = await humanize_text(cur, threshold=_REPORT_TELL_THRESHOLD)
+        except Exception as e:
+            logger.warning("humanize failed on %s: %s", key, e)
+            continue
+        if res.get("changed"):
+            holder[key] = res["text"]
+            rewritten += 1
+    if rewritten:
+        logger.info("humanize: rewrote %d/%d topic-report prose fields",
+                    rewritten, len(targets))
 
 
 async def _rerun_future_horizons_for_topic(
@@ -511,6 +639,18 @@ async def _rerun_future_horizons_for_topic(
             )
     except Exception as e:
         logger.warning("rerun horizons: article fetch failed for %s: %s", topic, e)
+    # Corpus hygiene BEFORE numbering — the numbered list the model sees is
+    # the list we persist and the list every export cites, so it has to
+    # happen here, not at render time. Three steps:
+    #   1. drop blocked publishers (misinformation sites are not evidence)
+    #   2. drop syndicated duplicates (one story counted five times)
+    #   3. cheap LLM yes/no screen — ``topic_alignment_score`` saturates at
+    #      the top of its range (43 articles at exactly 1.00 on this topic,
+    #      including plain AI business news), so a threshold cannot help.
+    #      The screen fails open: on any error the corpus passes unchanged.
+    from app.services.report_corpus import filter_report_corpus, screen_corpus_relevance
+    article_rows = filter_report_corpus(article_rows, topic=topic)
+    article_rows = await screen_corpus_relevance(article_rows, topic)
     if not article_rows:
         raise RuntimeError(
             f"No on-topic articles for '{topic}' — can't run Three Horizons."
@@ -603,16 +743,18 @@ async def _rerun_future_horizons_for_topic(
             "topic_label": topic,
             "articles_analyzed": len(article_rows),
             "model_used": model,
-            "generated_at": _dt.utcnow().isoformat(),
+            "generated_at": _dt.now().astimezone().isoformat(),
             "analysis_type": "topic_report_rerun",
         },
         "articles_analyzed":      len(article_rows),
         "total_articles_found":   len(article_rows),
         "model_used":             model,
-        "generated_at":           _dt.utcnow().isoformat(),
+        "generated_at":           _dt.now().astimezone().isoformat(),
         "persona":                "executive",
         "timeframe_days":         180,
     }
+    await _humanize_report_prose(raw_output)
+
     db.facade.save_future_horizons_analysis(
         analysis_id=run_id,
         user_id=None,
@@ -759,9 +901,153 @@ async def generate_topic_report(
     _write_render_cache(period_label, blob)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     # Sidecar so HTML/MD/DOCX endpoints can resolve the same topic set.
-    _write_state_sidecar(period_label, included_topics, period)
+    # Write the SOURCE topic names, not ``included_topics`` — the latter have
+    # been through ``_apply_overlay_display_names``, so a topic with a deck
+    # overlay is stored under its display name ("Scientific Publishing")
+    # while future_horizons_runs holds the real one ("Scientific Publishers -
+    # General Monitoring"). resolve_items looks up by the real name, so every
+    # export silently dropped that topic, logging only
+    # "skipping <display name> — no forecast run".
+    #
+    # run_ids pin every later export to THE RUNS THIS DECK USED. Without
+    # the pin, each export resolved "latest run per topic" at its own
+    # moment, so a re-run between exports produced a deck and an HTML
+    # report with different scenarios under the same cover.
+    run_ids = {a.get("_source_topic"): a.get("run_id")
+               for (a, _r, _p) in items
+               if a.get("_source_topic") and a.get("run_id")}
+    _write_state_sidecar(period_label, list(topics), period, run_ids=run_ids)
+
+    # Release lint — the machine version of the Q3 review. Findings are
+    # logged and stored on the sidecar; they never block the render.
+    try:
+        from app.services.report_lint import lint_topic_report, deck_text_from_blob
+        lint = lint_topic_report(items, deck_text=deck_text_from_blob(blob))
+        if lint:
+            _emit(99, f"⚠ Release lint: {len(lint)} finding(s) — see logs")
+            state = _read_state_sidecar(period_label) or {}
+            state["lint"] = lint
+            with open(_state_sidecar_path(period_label), "w", encoding="utf-8") as f:
+                json.dump(state, f)
+    except Exception as e:
+        logger.warning("release lint failed (non-fatal): %s", e)
+
+    # Reference check — probes every cited URL for dead links and paywalls.
+    # Network-bound (about a minute for a full corpus), advisory like the
+    # lint, and skippable with REPORT_REFERENCE_CHECK=0.
+    if os.getenv("REPORT_REFERENCE_CHECK", "1").lower() not in ("0", "false", "no"):
+        try:
+            from app.services.reference_check import check_urls, summarize
+            ref_urls: list = []
+            _seen_urls: set = set()
+            for (a, _r, _p) in items:
+                for art in a.get("_articles_corpus") or []:
+                    u = ((art or {}).get("uri") or "").strip()
+                    if (u.lower().startswith(("http://", "https://"))
+                            and u not in _seen_urls):
+                        _seen_urls.add(u)
+                        ref_urls.append(u)
+            if ref_urls:
+                _emit(99, f"Checking {len(ref_urls)} reference link(s)")
+                ref_results = await check_urls(ref_urls, concurrency=12,
+                                               timeout=10.0)
+                ref_counts = summarize(ref_results)
+                state = _read_state_sidecar(period_label) or {}
+                state["reference_check"] = {
+                    "counts": ref_counts,
+                    "problems": [r for r in ref_results
+                                 if r["verdict"] != "ok"],
+                }
+                with open(_state_sidecar_path(period_label), "w",
+                          encoding="utf-8") as f:
+                    json.dump(state, f)
+                logger.info("reference check: %s", ref_counts)
+                if ref_counts.get("dead") or ref_counts.get("redirect"):
+                    _emit(99, f"⚠ References: {ref_counts['dead']} dead, "
+                              f"{ref_counts['redirect']} redirected — "
+                              f"see sidecar")
+        except Exception as e:
+            logger.warning("reference check failed (non-fatal): %s", e)
     _emit(100, "Done")
     return blob, period_label, included_topics, None, []
+
+
+async def ensure_bundle_synthesis(period_label: str, *, progress_callback=None) -> bool:
+    """Make sure a ``topic_report`` synthesis row exists for this period.
+
+    The synthesis is what the executive-summary exports render: the
+    five-section letter, what changed, cross-cutting themes and the decision
+    framework. The deck path deliberately skips the supervisor (it reads
+    ``future_horizons_runs`` directly), so nothing else writes this row —
+    which is why the DOCX and Markdown exports had nothing to render for any
+    period generated after 2026-06-03.
+
+    Returns True if it ran the pipeline, False if the row already existed.
+    The supervisor persists the payload itself, so a request that dies at the
+    proxy before this returns still leaves the row behind and the next call
+    is instant.
+    """
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    existing = db.facade.get_forecast_bundle_synthesis("topic_report", period_label) or {}
+    if existing.get("payload"):
+        return False
+
+    state = _read_state_sidecar(period_label) or {}
+    topics = state.get("topics") or []
+    if not topics:
+        raise ValueError(
+            f"No state sidecar for period_label={period_label}. "
+            "Generate the report first so the export can resolve the topic set."
+        )
+
+    from app.services.topic_report_pptx import resolve_items
+    from app.services.wiley_bundle_supervisor import run_pipeline
+
+    # Pin the synthesis to the same runs the deck used, so the letter and
+    # the deck describe one analysis.
+    items = resolve_items(topics, run_ids=state.get("run_ids") or {})
+    if not items:
+        raise ValueError(
+            f"None of the topics for {period_label} have a stored forecast run."
+        )
+
+    # EOS must come from the same source the DECK renders — resolve_items
+    # loads ``_eos_scenarios`` from saved_eos per topic. Reading only the
+    # assessment summary (empty on the topic-report path) told the letter
+    # agent black_swan_count=0, and it wrote "No new tail-risk scenarios
+    # surfaced this quarter" under a deck showing 24 cards — the exact
+    # contradiction the Q3 review flagged.
+    eos_per_topic: dict = {}
+    for a, _r, _p in items:
+        summary = a.get("summary") or {}
+        eos = (a.get("_eos_scenarios")
+               or summary.get("extreme_outlier_scenarios")
+               or summary.get("eos") or [])
+        if eos:
+            eos_per_topic[a.get("topic")] = eos
+
+    logger.info("topic report %s: no synthesis row — running the supervisor pipeline "
+                "over %d topics", period_label, len(items))
+    final_status = None
+    async for ev in run_pipeline(items, cadence="topic_report",
+                                 period_label=period_label,
+                                 eos_per_topic=eos_per_topic):
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("stage") == "complete":
+            final_status = ev.get("status")
+        if progress_callback:
+            try:
+                progress_callback(ev.get("progress"), f"{ev.get('stage')} {ev.get('status')}")
+            except Exception:
+                pass
+    # A reviewer verdict of revision_requested still leaves a usable payload;
+    # the exports surface the findings rather than refusing to render.
+    logger.info("topic report %s: synthesis complete (reviewer: %s)",
+                period_label, final_status or "n/a")
+    return True
 
 
 def _load_cached_state(period_label: str):
@@ -785,20 +1071,47 @@ def _load_cached_state(period_label: str):
             "the cached synthesis."
         )
 
+    # Prefer the sidecar's topic list: it records the SOURCE names, while the
+    # synthesis row's ``topics`` were captured after
+    # ``_apply_overlay_display_names`` ran, so a topic with a deck overlay is
+    # stored there under its display name and cannot be looked up.
+    sidecar_topics = (_read_state_sidecar(period_label) or {}).get("topics") or []
+    topic_names = sidecar_topics or [
+        (e.get("topic") if isinstance(e, dict) else e) for e in (synth.get("topics") or [])
+    ]
+
+    from app.services.forecast_assessment_service import source_topic_for_display_name
+
     items: list = []
-    for entry in (synth.get("topics") or []):
-        topic = entry.get("topic") if isinstance(entry, dict) else entry
+    for topic in topic_names:
         if not topic:
             continue
         a = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        if not a:
+            # Rows and sidecars written before 2026-08-03 hold display names.
+            source = source_topic_for_display_name(topic)
+            if source:
+                a = db.facade.get_latest_forecast_assessment_by_topic(source)
         if a:
             items.append((a, None, None))
+        else:
+            logger.info("topic report %s: no assessment for %r — omitted from the export",
+                        period_label, topic)
     items = _apply_overlay_display_names(items)
 
+    # Same saved_eos source the deck uses (see ensure_bundle_synthesis) —
+    # the assessment summary is empty on the topic-report path.
     eos_per_topic: dict = {}
     for a, _r, _p in items:
         eos = (a.get("summary") or {}).get("extreme_outlier_scenarios") \
             or (a.get("summary") or {}).get("eos") or []
+        if not eos:
+            try:
+                row = db.facade.get_latest_saved_eos_for_topic(
+                    a.get("topic"), max_age_days=180) or {}
+                eos = row.get("scenarios") or []
+            except Exception:
+                eos = []
         if eos:
             eos_per_topic[a.get("topic")] = eos
 
@@ -807,10 +1120,18 @@ def _load_cached_state(period_label: str):
 
 
 async def generate_topic_report_markdown(period_label: str) -> Tuple[bytes, str, list, str, list]:
-    """Render the cached topic-report synthesis as Markdown."""
+    """Render the topic-report synthesis as Markdown — the same executive
+    summary the DOCX carries, in plain text.
+
+    Generates the synthesis on first request when the period has none, same as
+    the DOCX path. Without it this raised "No generated topic report for
+    period_label=…" for every period created after 2026-06-03, since nothing
+    writes that row any more.
+    """
     from app.services.forecast_bundle_markdown import build_bundle_markdown
     from app.services.wiley_delivery_service import _events_by_topic
 
+    await ensure_bundle_synthesis(period_label)
     items, synth, eos_per_topic, review = _load_cached_state(period_label)
     blob = build_bundle_markdown(
         items,
@@ -846,21 +1167,66 @@ async def generate_topic_report_html(period_label: str) -> Tuple[bytes, str, lis
             f"No state sidecar for period_label={period_label}. "
             "Generate the PPTX first so the export can resolve the same topic set."
         )
-    items = resolve_items(topics)
+    # Pin to the exact runs the PPTX build used (sidecars written before
+    # 2026-08-03 have no run_ids and fall back to latest-run resolution).
+    items = resolve_items(topics, run_ids=state.get("run_ids") or {})
     blob = build_topic_report_html(items, period_label=period_label, period=period)
+    try:
+        from app.services.report_lint import lint_topic_report
+        lint_topic_report(items, html_text=blob.decode("utf-8", "replace"))
+    except Exception as e:
+        logger.warning("release lint failed (non-fatal): %s", e)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     return blob, period_label, included_topics, None, []
 
 
 async def generate_topic_report_docx(period_label: str) -> Tuple[bytes, str, list, str, list]:
-    """Render the topic-report deck as a Word document.
+    """Render the topic-report synthesis as an executive-summary Word document.
 
-    Uses the same ``items`` list ``build_topic_report_pptx`` consumes
-    (resolved via ``topic_report_pptx.resolve_items``) so the DOCX
-    carries Briefing Synthesis, Executive Summary cards, Key Insights,
-    Strategic Recs, Decision Framework, Next Steps, Black Swans, the
-    H1/H2/H3 scenario walk, and the numbered article references —
-    matching the HTML/PPTX. NOT the back-test bundle DOCX.
+    This is the emailable briefing — the five-section letter, what changed,
+    cross-cutting themes, decision framework and a one-paragraph status per
+    topic — not a transcript of the deck. Same renderer and same
+    ``updates_only=True`` mode that produced the Q2 2026 document.
+
+    Between 2026-06-18 (``451bed56``) and today this pointed at
+    ``topic_report_docx.build_topic_report_docx``, which walks the deck and
+    emits every slide's content in Word: 5,316 words per topic, including
+    slide furniture like "CARD 3 OF 6" and "YOUR WINDOW". That renderer is
+    still available on the ``download-full.docx`` route for anyone who wants
+    the whole thing.
+
+    The synthesis is generated on first request if the period does not have
+    one yet, which is slow — it is the multi-agent pipeline. The supervisor
+    persists as it goes, so a proxy timeout on that first call is not fatal:
+    the next request renders from the row.
+    """
+    from app.services.forecast_bundle_docx import build_bundle_docx
+
+    await ensure_bundle_synthesis(period_label)
+    items, synth, eos_per_topic, review = _load_cached_state(period_label)
+    # The header and signoff show this verbatim, so use the human period
+    # ("Q3 2026") rather than the internal topics-hash label
+    # ("Q3_2026__2cec74a7") that keys the cache.
+    display_period = (_read_state_sidecar(period_label) or {}).get("period") or period_label
+    blob = build_bundle_docx(
+        items,
+        period_label=display_period,
+        cadence="topic_report",
+        updates_only=True,
+        bundle_synthesis=synth.get("payload") or synth,
+        eos_per_topic=eos_per_topic,
+        review_findings=review.get("reviewer_findings"),
+        review_verdict=review.get("status"),
+    )
+    included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
+    return blob, period_label, included_topics, review.get("status"), review.get("reviewer_findings")
+
+
+async def generate_topic_report_docx_full(period_label: str) -> Tuple[bytes, str, list, str, list]:
+    """Render the full deck content as a Word document — every slide, in order.
+
+    Kept for anyone who wants the whole report in Word rather than the
+    executive summary. Long by design: one topic runs to roughly 5,000 words.
     """
     from app.services.topic_report_pptx import resolve_items
     from app.services.topic_report_docx import build_topic_report_docx
@@ -873,7 +1239,8 @@ async def generate_topic_report_docx(period_label: str) -> Tuple[bytes, str, lis
             f"No state sidecar for period_label={period_label}. "
             "Generate the PPTX first so the export can resolve the same topic set."
         )
-    items = resolve_items(topics)
+    # Same run pinning as the HTML export — render the runs the deck used.
+    items = resolve_items(topics, run_ids=state.get("run_ids") or {})
     blob = build_topic_report_docx(items, period_label=period_label, period=period)
     included_topics = [(a.get("topic") or "—") for (a, _r, _p) in items]
     return blob, period_label, included_topics, None, []

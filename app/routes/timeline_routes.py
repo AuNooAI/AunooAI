@@ -118,7 +118,14 @@ async def timeline_summary(
             "scope_type": scope_type, "scope_id": scope_id,
             "label": scope_label(conn, scope_type, scope_id),
             "state_doc": get_state_doc(conn, scope_type, scope_id),
+            "escalation_tier": None,
         }
+        if scope_type == "brand":
+            from app.services.escalation_tiers import evaluate_brand_tier
+            try:
+                out["escalation_tier"] = evaluate_brand_tier(conn, int(scope_id))
+            except (ValueError, TypeError):
+                pass
         for gran, limit, key in (("monthly", 1, "monthly"), ("weekly", 4, "weekly"),
                                  ("permanent", 10, "analyst_notes")):
             rows = conn.execute(text(f"""

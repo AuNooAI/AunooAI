@@ -178,7 +178,9 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
         # Use the new method that includes schedule info
         groups = db.facade.get_all_keyword_groups_with_schedule_info()
         keywords = db.facade.get_monitored_keywords()
-        relevance_stats = db.facade.get_keyword_relevance_stats()
+        # Off the event loop for the same reason as /relevance-stats: this is
+        # the one slow query in this handler.
+        relevance_stats = await asyncio.to_thread(db.facade.get_keyword_relevance_stats)
 
         # Get monitoring status
         status = db.facade.get_keyword_monitoring_counter()
@@ -186,6 +188,19 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
         # Get relevance threshold from settings
         settings = db.facade.get_keyword_monitor_settings_by_id(1)
         relevance_threshold = settings.get('min_relevance_threshold', 0.39) if settings else 0.39
+
+        # One bulk query for all groups instead of two per group in the loop
+        # below (22 groups x 2 seq scans took ~20s on wileytest), and off the
+        # event loop like the relevance-stats call above.
+        all_article_stats = await asyncio.to_thread(
+            db.facade.get_all_group_article_stats, relevance_threshold
+        )
+        _EMPTY_GROUP_STATS = {
+            'total_count': 0, 'relevant_count': 0, 'irrelevant_count': 0,
+            'unscored_count': 0, 'articles_past_24h': 0,
+            'articles_past_week': 0, 'articles_past_month': 0,
+            'daily_counts': [],
+        }
 
         summaries = []
         for group in groups:
@@ -223,8 +238,8 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
             elif last_checked:
                 status_value = "success"
 
-            # Get detailed article stats for this group (pass relevance threshold)
-            article_stats = db.facade.get_group_article_stats(group_id, relevance_threshold)
+            # Detailed article stats for this group, from the bulk query above
+            article_stats = all_article_stats.get(group_id, _EMPTY_GROUP_STATS)
 
             # Calculate relevance percentage (relevant / total scored)
             total_scored = article_stats.get('relevant_count', 0) + article_stats.get('irrelevant_count', 0)
@@ -3412,7 +3427,10 @@ async def get_relevance_stats(
     try:
         # Get keyword stats from database
         logger.info("Fetching keyword relevance stats from database...")
-        keyword_stats = db.facade.get_keyword_relevance_stats()
+        # Run off the event loop: this query can take minutes under ingest IO
+        # load, and a sync call here froze every request in the process
+        # (2026-08-07 wileytest outage).
+        keyword_stats = await asyncio.to_thread(db.facade.get_keyword_relevance_stats)
         logger.info(f"Got {len(keyword_stats) if keyword_stats else 0} keyword stats")
 
         # Convert to list of dicts for JSON serialization

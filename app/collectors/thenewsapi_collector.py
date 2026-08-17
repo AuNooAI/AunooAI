@@ -112,6 +112,11 @@ class TheNewsAPICollector(ArticleCollector):
             if exclude_categories:
                 params["exclude_categories"] = ",".join(exclude_categories)
             if search_fields:
+                # Callers (keyword_monitor) may pass a comma-separated string
+                # instead of a list; ",".join() on a string iterates characters
+                # and malforms the param. Normalise to a list first.
+                if isinstance(search_fields, str):
+                    search_fields = [f.strip() for f in search_fields.split(",") if f.strip()]
                 params["search_fields"] = ",".join(search_fields)
 
             logger.debug(f"TheNewsAPI search params: {params}")

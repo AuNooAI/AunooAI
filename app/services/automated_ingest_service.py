@@ -24,6 +24,22 @@ from app.services.async_db import AsyncDatabase, get_async_database_instance
 from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator
 from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+
+
+def _merge_matched_keyword_tags(article_data, tags):
+    """Fold the collection-time keyword matches into the article's tags.
+
+    For niche brands the name often appears only in the article body, which
+    title+summary consumers (search, Auspex context, the brand-watcher
+    filter) never see — tags are the one field they all read, so the keyword
+    that caused collection must survive enrichment's tag rewrite.
+    """
+    tags_list = list(tags) if isinstance(tags, list) else ([str(tags)] if tags else [])
+    seen = {t.strip().lower() for t in tags_list}
+    for kw in (article_data.get('_matched_keywords') or []):
+        if kw and kw.strip().lower() not in seen:
+            tags_list.append(kw)
+    return ','.join(tags_list) if tags_list else None
 from app.services.enrichment_service import get_enrichment_service
 from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
 from app.analyzers.article_analyzer import ArticleAnalyzer
@@ -389,8 +405,7 @@ class AutomatedIngestService:
             )
 
             # Step 3: Merge results - SLM for confident classifications, LLM for rest
-            tags = analysis_result.get('tags', [])
-            tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
+            tags_str = _merge_matched_keyword_tags(article_data, analysis_result.get('tags', []))
 
             final_result = {
                 'summary': analysis_result.get('summary'),
@@ -456,9 +471,11 @@ class AutomatedIngestService:
                 self.hybrid_relevance_service.load_models()
                 self.logger.info("🤖 Initialized Hybrid Relevance Service (embedding + classifier + LLM fallback)")
 
-            # Prepare article text
-            article_full_content = article_data.get('content', '')
-            article_summary = article_data.get('summary', '')
+            # Prepare article text. Use `or ''` (not a .get default) because the
+            # keys can be present with an explicit None value, which would make
+            # len(article_content) raise "NoneType has no len()".
+            article_full_content = article_data.get('content') or ''
+            article_summary = article_data.get('summary') or ''
             article_content = article_full_content or article_summary
             title = article_data.get('title', '')
 
@@ -1082,8 +1099,18 @@ class AutomatedIngestService:
 
             # Step 5: Check final relevance threshold (double-check after full analysis)
             relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
+            # Brand Watch groups only: honor the group's own threshold here too.
+            # The quick check above already honors it, so without this a brand group
+            # tuned to keep marginal mentions (a small competitor with little
+            # coverage) collects and analyses them, then files them below the
+            # global threshold where nothing can see them. Scoped to Brand
+            # Monitoring topics so ordinary topics keep the global threshold and
+            # their collection volume is unchanged.
             relevance_threshold = self.get_relevance_threshold()
-            
+            if (relevance_threshold_override is not None
+                    and (topic or "").startswith("Brand Monitoring ")):
+                relevance_threshold = relevance_threshold_override
+
             if relevance_score >= relevance_threshold:
                 # Step 5: Quality check (simplified for async)
                 try:
@@ -1271,8 +1298,7 @@ class AutomatedIngestService:
             )
             
             # Update article data with analysis results
-            tags = analysis_result.get('tags', [])
-            tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
+            tags_str = _merge_matched_keyword_tags(article_data, analysis_result.get('tags', []))
 
             article_data.update({
                 'summary': analysis_result.get('summary'),  # ✅ CRITICAL: Include AI-generated summary
@@ -1779,6 +1805,15 @@ class AutomatedIngestService:
             Dictionary mapping URIs to scraped content
         """
         try:
+            # Guard: Firecrawl 400s ("No valid URLs provided") when handed an
+            # empty or all-invalid list (e.g. non-http scheme). Filter first and
+            # skip the call entirely when nothing valid remains.
+            valid_uris = [u for u in (uris or []) if isinstance(u, str) and u.startswith(("http://", "https://"))]
+            if not valid_uris:
+                self.logger.info(f"Skipping Firecrawl batch scrape: no valid http(s) URLs among {len(uris or [])}")
+                return {}
+            uris = valid_uris
+
             self.logger.info(f"Starting Firecrawl batch scrape for {len(uris)} URLs")
             start_time = time.time()
 
@@ -1864,6 +1899,13 @@ class AutomatedIngestService:
             return {}
         except Exception as e:
             duration = time.time() - start_time
+            # Firecrawl rejects some URLs it can't scrape (e.g. Google-News RSS
+            # redirects) with "No valid URLs provided". That's an expected,
+            # non-fatal rejection — log quietly at WARNING and skip, rather than
+            # emitting an ERROR + traceback for every such batch.
+            if "No valid URLs" in str(e):
+                self.logger.warning(f"Firecrawl rejected {len(uris)} URL(s) as unscrapable; skipping batch.")
+                return {}
             self.logger.error(f"❌ Error in Firecrawl batch scraping after {duration:.1f}s: {e}")
             import traceback
             self.logger.error(traceback.format_exc())

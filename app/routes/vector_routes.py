@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field, field_validator
 import uuid
 import threading
 
-from app.ai_models import resolve_litellm_call_params
+from app.ai_models import resolve_litellm_call_params, resolve_model_identity
+from app.services.report_style import CLINICAL_STYLE
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -3326,6 +3327,21 @@ _NO_SOURCE_LINKS = (
 )
 
 
+def _report_date_directive():
+    """The model is never told what day it is, so it dates reports from what it
+    can infer and falls back to its training prior — which is how a report
+    generated in August 2026 came out headed "August 2025". Computed per call:
+    a module constant would freeze the date at import."""
+    _n = datetime.now()
+    return (
+        "\n\nTODAY'S DATE IS " + _n.strftime("%d %B %Y") + ". The current month is "
+        + _n.strftime("%B %Y") + ". Use it for the report date, the analysis period, "
+        "and any relative timing ('recent', 'last month', 'this year'). Do NOT infer "
+        "the date from the articles or from your training data — articles can be "
+        "older than today, and your training cut-off is not the present."
+    )
+
+
 def _apply_recommendations_pref(prompt: str, instr_config) -> str:
     """Append report output-policy directives (recommendations + no source links)."""
     prompt = prompt or ""
@@ -3333,7 +3349,7 @@ def _apply_recommendations_pref(prompt: str, instr_config) -> str:
         prompt += _RECOMMENDATIONS_ON
     else:
         prompt += _RECOMMENDATIONS_OFF
-    return prompt + _NO_SOURCE_LINKS
+    return prompt + _NO_SOURCE_LINKS + _report_date_directive()
 
 
 def _strip_source_links(md: str) -> str:
@@ -3434,7 +3450,7 @@ async def download_signal_report(report_id: int, exp: int, token: str,
     sources_block = (f'<hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">'
                      f'<h2 style="font-size:18px;color:#333;margin:18px 0 12px 0;">Sources '
                      f'<span style="font-size:13px;color:#888;font-weight:normal;">'
-                     f'({len(alerts)} matched posts)</span></h2>{sources}') if sources else ""
+                     f'({len(alerts)} matched)</span></h2>{sources}') if sources else ""
     page = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title></head>
@@ -3747,19 +3763,19 @@ async def analyze_real_time_signals(
             
             # Create analysis prompt
             system_prompt = f"""
-            You are a threat intelligence analyst. Analyze the provided articles using this specific signal instruction:
-            
+            You are a news-monitoring analyst. Analyze the provided articles using this specific signal instruction:
+
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
             INSTRUCTION: {instruction['instruction']}
-            
+
             Return a JSON response with:
             {{
                 "signal_detected": true/false,
                 "confidence": 0.0-1.0,
                 "matching_articles": ["uri1", "uri2", ...],
                 "summary": "Brief explanation of what was detected",
-                "threat_level": "low"|"medium"|"high",
+                "threat_level": "low"|"medium"|"high" (how much this match warrants reader attention),
                 "recommended_action": "What should analysts do next"
             }}
             """
@@ -3942,6 +3958,7 @@ _SIGNAL_REPORT_SYSTEM_BASE = (
     "third parties the reader does not control; if a matched signal concerns a crisis the reader cannot act "
     "on directly, frame recommendations as how the reader should respond within their own sphere, not how the "
     "crisis itself should be managed."
+    + CLINICAL_STYLE
 )
 
 
@@ -4041,16 +4058,16 @@ def _build_fallback_report(instruction_name: str, alerts: list) -> str:
     """Deterministic markdown roll-up of matched alerts.
 
     Guard for when the LLM report call keeps returning empty after retries:
-    the customer alert still gets an analysis section (threat breakdown + the
+    the customer alert still gets an analysis section (priority breakdown + the
     matched articles) instead of silently shipping as a bare list of links.
     Labelled as automated so it is not mistaken for the AI analyst report."""
     from collections import Counter
     alerts = alerts or []
-    threat_counts = Counter((str(a.get('threat_level') or 'UNKNOWN')).upper()
-                            for a in alerts)
+    priority_counts = Counter((str(a.get('threat_level') or 'UNKNOWN')).upper()
+                              for a in alerts)
     order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
-    threat_line = ", ".join(f"{threat_counts[t]} {t.title()}"
-                            for t in order if threat_counts.get(t))
+    priority_line = ", ".join(f"{priority_counts[t]} {t.title()}"
+                              for t in order if priority_counts.get(t))
     lines = [
         f"# Signal Summary: {instruction_name}",
         "",
@@ -4059,8 +4076,8 @@ def _build_fallback_report(instruction_name: str, alerts: list) -> str:
         f"article(s)._",
         "",
     ]
-    if threat_line:
-        lines += [f"**Threat levels:** {threat_line}", ""]
+    if priority_line:
+        lines += [f"**Priorities:** {priority_line}", ""]
     lines.append("## Matched Articles")
     for i, a in enumerate(alerts[:10], 1):
         level = str(a.get('threat_level') or 'N/A').upper()
@@ -4375,7 +4392,7 @@ async def run_signal_instructions(
 
             # Build system prompt once per instruction
             system_prompt = f"""
-            You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+            You are a news-monitoring analyst. Analyze the provided articles using this signal instruction:
 
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
@@ -4391,7 +4408,7 @@ async def run_signal_instructions(
                 "confidence": 0.0-1.0,
                 "summary": "Brief summary of what was detected",
                 "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
-                "threat_level": "low"|"medium"|"high",
+                "threat_level": "low"|"medium"|"high" (how much this match warrants reader attention),
                 "recommended_action": "What analysts should do"
             }}
 
@@ -4516,7 +4533,7 @@ Analyze the following signal matches and create a comprehensive intelligence rep
 ## Your Task
 1. Summarize the key findings across all matched articles
 2. Identify common themes and patterns
-3. Assess the overall significance and urgency
+3. State what happened and what changed, with counts; distinguish new developments from ongoing ones
 4. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.
@@ -4535,7 +4552,7 @@ Format your response as a structured markdown report with clear sections.
                 alerts_summary = "\n\n".join([
                     f"### Match {i+1}: {a['instruction_name']}\n"
                     f"**Article URI:** {a['article_uri']}\n"
-                    f"**Threat Level:** {a['threat_level']}\n"
+                    f"**Priority:** {a['threat_level']}\n"
                     f"**Confidence:** {a['confidence']}\n"
                     f"**Summary:** {a['summary']}\n"
                     f"**Reasoning:** {a['reasoning']}"
@@ -4605,8 +4622,11 @@ Use the timeline only to distinguish new developments from ongoing ones; do not 
                         alerts_data=alerts_created,
                         article_uris=[a['article_uri'] for a in alerts_created],
                         articles_used=len(alerts_created),
-                        config={'days_back': req.days_back, 'max_articles': req.max_articles},
-                        model_used=req.model
+                        config={'days_back': req.days_back, 'max_articles': req.max_articles, 'model_requested': req.model},
+                        # Record the model that actually ran, not the alias asked for:
+                        # most names resolve to a different vendor entirely, and a
+                        # provenance record naming a model that never ran is false.
+                        model_used=resolve_model_identity(req.model)
                     )
 
                     report_data = {
@@ -4915,14 +4935,14 @@ Write the complete podcast script:
                                             # Generate a quick report for this instruction only
                                             instruction_report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings and significance.
+State what happened and what changed, with counts; distinguish new developments from ongoing ones.
 Format as a concise markdown report.
 """
                                             instruction_report_prompt = _apply_recommendations_pref(
                                                 instruction_report_prompt, instruction.get('config'))
                                             alerts_summary = "\n\n".join([
                                                 f"**Article:** {a['article_uri']}\n"
-                                                f"**Threat Level:** {a['threat_level']}\n"
+                                                f"**Priority:** {a['threat_level']}\n"
                                                 f"**Summary:** {a['summary']}\n"
                                                 f"**Reasoning:** {a['reasoning']}"
                                                 for a in instruction_alerts[:10]  # Limit to 10 for email
@@ -4937,7 +4957,7 @@ Format as a concise markdown report.
 {alerts_summary}
 """
                                             per_inst_messages = [
-                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control."},
+                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports. Any recommendations must be actions the READER can take within their own remit — never directives to governments, regulators, or other third parties the reader does not control." + CLINICAL_STYLE},
                                                 {"role": "user", "content": per_inst_prompt}
                                             ]
                                             per_inst_report = await _generate_report_with_retry(
@@ -5460,7 +5480,7 @@ IMPORTANT: Prioritize articles that mention any of these specific entities. If a
                 continue
             articles_text = format_articles_for_llm(batch_articles)
 
-            system_prompt = f"""You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+            system_prompt = f"""You are a news-monitoring analyst. Analyze the provided articles using this signal instruction:
 
 SIGNAL: {instruction['name']}
 DESCRIPTION: {instruction.get('description', 'No description')}
@@ -5476,7 +5496,7 @@ For EACH article that matches the signal, return a separate JSON object:
     "confidence": 0.0-1.0,
     "summary": "Brief summary of what was detected",
     "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
-    "threat_level": "low"|"medium"|"high",
+    "threat_level": "low"|"medium"|"high" (how much this match warrants reader attention),
     "recommended_action": "What analysts should do"
 }}
 
@@ -5574,13 +5594,13 @@ If no articles match, return an empty array: []"""
                 try:
                     report_prompt = instruction.get('report_prompt') or """
 Analyze the following signal matches and create a brief intelligence summary.
-Summarize key findings and significance.
+State what happened and what changed, with counts; distinguish new developments from ongoing ones.
 Format as a concise markdown report.
 """
                     report_prompt = _apply_recommendations_pref(report_prompt, config)
                     alerts_summary = "\n\n".join([
                         f"**Article:** {a['article_uri']}\n"
-                        f"**Threat Level:** {a['threat_level']}\n"
+                        f"**Priority:** {a['threat_level']}\n"
                         f"**Confidence:** {a.get('confidence', 0.5)}\n"
                         f"**Summary:** {a['summary']}\n"
                         f"**Reasoning:** {a.get('reasoning', '')}"
@@ -5617,8 +5637,11 @@ Format as a concise markdown report.
                             alerts_data=instruction_alerts,
                             article_uris=[a['article_uri'] for a in instruction_alerts],
                             articles_used=len(instruction_alerts),
-                            config={'days_back': days_back},
-                            model_used=model
+                            config={'days_back': days_back, 'model_requested': model},
+                            # Record the model that actually ran, not the alias asked for:
+                            # most names resolve to a different vendor entirely, and a
+                            # provenance record naming a model that never ran is false.
+                            model_used=resolve_model_identity(model)
                         )
                         logger.info(f"Generated signal report ID: {report_id} for {instruction['name']}")
                     else:

@@ -19,6 +19,8 @@ from pptx import Presentation
 from pptx.util import Inches
 from pptx.enum.text import PP_ALIGN
 
+from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+
 from app.services.forecast_pptx_export import (
     PINK, PINK_DEEP, WHITE, NAVY, SLATE_DARK, SLATE_MID, SLATE_LIGHT,
     SLATE_BLACK, RULE_GRAY, PALE_PINK_1, GREEN_DEEP, RED_DEEP, AMBER_DEEP,
@@ -274,6 +276,7 @@ def build_bundle_pptx(
     # trust and challenge the brief.
     _add_methodology_appendix_slide(prs, data_quality_note=data_quality_note)
 
+    _ai_pptx_marker(prs)  # EU AI Act Art. 50 machine-readable marker
     buf = BytesIO()
     prs.save(buf)
     buf.seek(0)
@@ -756,7 +759,7 @@ def _add_bundle_cover(prs, period_label: str, cadence: str, topics: list, *, upd
     # Topic count + Aunoo producer credit
     _text(slide, x=0.6, y=4.4, w=sw-1.2, h=0.3,
           text=f"{len(topics)} {'topic' if len(topics) == 1 else 'topics'}    ·    "
-               f"Produced by AunooAI",
+               f"Produced by AunooAI · Contains AI-generated content",
           font_size=11, bold=True, color=WILEY_TEAL_LT, align=PP_ALIGN.CENTER)
 
     # Aunoo brandmark top-right corner
@@ -820,6 +823,32 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
           font_size=8.5, italic=True, color=WILEY_MUTED, align=PP_ALIGN.CENTER)
 
 
+def _days_between(earlier, later) -> Optional[int]:
+    """Whole days from ``earlier`` to ``later``, or None if either is unusable.
+
+    Both sides arrive as ISO strings or datetimes, and one side is often
+    timezone-aware while the other is not, so compare on the date alone.
+    """
+    from datetime import datetime as _dt, date as _date
+
+    def _as_date(v):
+        if v is None:
+            return None
+        if isinstance(v, _dt):
+            return v.date()
+        if isinstance(v, _date):
+            return v
+        try:
+            return _dt.fromisoformat(str(v).replace("Z", "+00:00")).date()
+        except Exception:
+            return None
+
+    a, b = _as_date(earlier), _as_date(later)
+    if a is None or b is None:
+        return None
+    return (b - a).days
+
+
 def _add_topic_divider(prs, assessment: dict, forecast_run: dict, *, topic_idx: Optional[int] = None):
     """Per-topic section divider — mirrors Wiley deck slide 19. Full-bleed
     soft-teal background with the topic name large and centred, framed by a
@@ -844,9 +873,25 @@ def _add_topic_divider(prs, assessment: dict, forecast_run: dict, *, topic_idx: 
     summary = assessment.get("summary") or {}
     forecast_at = summary.get("forecast_generated_at") or forecast_run.get("created_at")
     assessed_at = summary.get("assessed_at") or assessment.get("assessed_at")
-    line = (
-        f"Original forecast {_short_date(forecast_at)}    ·    "
-        f"Latest assessment {_short_date(assessed_at)}"
-    )
+    # The run this deck actually visualises. Without it the divider showed
+    # only the original forecast and the last assessment — February and May
+    # dates on a deck generated in August, with nothing saying the horizons
+    # analysis had just been re-run.
+    analysed_at = forecast_run.get("created_at")
+
+    parts = []
+    if analysed_at:
+        parts.append(f"This analysis {_short_date(analysed_at)}")
+    if forecast_at and _short_date(forecast_at) != _short_date(analysed_at):
+        parts.append(f"Original forecast {_short_date(forecast_at)}")
+    # Assessments are re-run on their own cadence, so the tracking layer can
+    # be months behind the analysis. Say how far behind rather than leaving
+    # the reader to subtract two dates.
+    assessed_label = f"Latest assessment {_short_date(assessed_at)}"
+    age_days = _days_between(assessed_at, analysed_at)
+    if age_days is not None and age_days >= 30:
+        assessed_label += f" ({age_days}d earlier)"
+    parts.append(assessed_label)
+    line = "    ·    ".join(parts)
     _text(slide, x=0.5, y=3.85, w=sw-1.0, h=0.3, text=line,
           font_size=12, italic=True, color=WILEY_MUTED, align=PP_ALIGN.CENTER)

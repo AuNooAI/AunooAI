@@ -835,28 +835,17 @@ Format your response EXACTLY as follows:
 
         # Get response from LLM
         try:
-            # Dynamically get the first available OpenAI model from litellm_config.yaml
-            config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'litellm_config.yaml')
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-
-            # Find first OpenAI model with configured API key
-            selected_model = None
-            for model_config in config.get('model_list', []):
-                model_name = model_config.get('model_name')
-                litellm_params = model_config.get('litellm_params', {})
-                model_path = litellm_params.get('model', '')
-
-                # Check if it's an OpenAI model and has API key configured
-                if 'openai/' in model_path:
-                    api_key_env = litellm_params.get('api_key', '').replace('os.environ/', '')
-                    if api_key_env and os.getenv(api_key_env):
-                        selected_model = model_name
-                        logger.info(f"Selected model for topic suggestions: {selected_model}")
-                        break
-
-            if not selected_model:
-                raise HTTPException(status_code=500, detail="No OpenAI model configured with API key")
+            # Resolve a working model via the app's litellm helper. The old
+            # code scanned litellm_config for the first 'openai/' model with an
+            # API key — but after the Bedrock migration there are NO openai/
+            # entries, so it always raised "No OpenAI model configured" and the
+            # wizard silently stopped using the LLM. resolve_litellm_call_params
+            # maps a bare alias onto whatever the tenant actually runs
+            # (Bedrock/OpenAI/etc.). Default to a Claude alias — Nova emits
+            # unreliable JSON for structured output.
+            from app.ai_models import resolve_litellm_call_params
+            selected_model = os.getenv("ONBOARDING_SUGGEST_MODEL", "gpt-5.4-mini")
+            call_params = resolve_litellm_call_params(selected_model)
 
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -866,10 +855,10 @@ Format your response EXACTLY as follows:
             logger.info(f"Sending prompt to LLM using model {selected_model}: {prompt[:200]}...")
 
             response = completion(
-                model=selected_model,
                 messages=messages,
                 max_tokens=1500,
-                temperature=0.2  # Lower temperature for more consistent JSON formatting
+                temperature=0.2,  # Lower temperature for more consistent JSON formatting
+                **call_params,
             )
             
             # Parse the response - try to extract JSON even from non-JSON responses
@@ -1217,7 +1206,9 @@ async def get_available_models():
         for model_config in config.get('model_list', []):
             model_name = model_config.get('model_name')
             litellm_params = model_config.get('litellm_params', {})
-            
+            # Routing-only compatibility names — resolvable, never listed.
+            if (model_config.get('model_info') or {}).get('legacy_alias'):
+                continue
             if model_name:
                 # Extract provider from the litellm model path
                 litellm_model = litellm_params.get('model', '')

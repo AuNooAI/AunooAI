@@ -16,6 +16,11 @@ import logging as _logging
 import re as _re
 import urllib.parse as _urlparse
 
+from app.compliance.ai_disclosure import (
+    disclosure_footer_html as _ai_footer,
+    html_meta_tags as _ai_meta,
+)
+
 _log = _logging.getLogger(__name__)
 
 
@@ -159,6 +164,25 @@ def esc(v) -> str:
 
 _CITATION_RE = _re.compile(r"\[(\d{1,3})\]")
 
+# Models group citations as "[44, 52]" or "[11, 51, 60, 70, 71]" however
+# firmly the prompt asks for one bracket each. Every renderer's citation
+# regex matches a single number, so a grouped marker stayed plain text —
+# unclickable, and visibly inconsistent next to the linked ones on the
+# same page. Split groups into separate markers before any renderer looks
+# at them, so all four (HTML ×2, DOCX, PPTX) get the same treatment.
+_CITE_GROUP_RE = _re.compile(r"\[\s*(\d{1,3}(?:\s*,\s*\d{1,3})+)\s*\]")
+
+
+def split_citation_groups(text: str) -> str:
+    """Rewrite ``[44, 52]`` as ``[44][52]``. Idempotent; leaves single
+    markers and non-numeric brackets untouched."""
+    if not text or "[" not in text:
+        return text or ""
+    return _CITE_GROUP_RE.sub(
+        lambda m: "".join(f"[{n.strip()}]" for n in m.group(1).split(",")),
+        text,
+    )
+
 
 def linkify_citations(escaped_html: str, articles: list | None = None) -> str:
     """Wrap ``[N]`` markers in already-HTML-escaped text with anchors.
@@ -174,6 +198,7 @@ def linkify_citations(escaped_html: str, articles: list | None = None) -> str:
     """
     if not escaped_html or "[" not in escaped_html:
         return escaped_html or ""
+    escaped_html = split_citation_groups(escaped_html)
 
     def _replace(m):
         n_str = m.group(1)
@@ -191,6 +216,36 @@ def linkify_citations(escaped_html: str, articles: list | None = None) -> str:
         return f'<a class="cite" href="#ref-{n_str}">[{n_str}]</a>'
 
     return _CITATION_RE.sub(_replace, escaped_html)
+
+
+# Invented consensus figures in cached exec-summary card prose. The old
+# prompt told the model to embed "an estimated percentage" ("typically
+# 70-90%") — so cached cards read "with 80% of sources expecting…" where
+# no measurement exists. New runs no longer produce these (prompt v3);
+# this scrub cleans cards generated before that. It only touches
+# source/scenario-share phrasing — a figure about the world ("67% of
+# hospitals") is a citable claim, not a consensus dressing, and is left
+# for the citation rules to police.
+_INVENTED_SHARE_RE = _re.compile(
+    r"(?:\b(?:approximately|about|roughly|around|over|between|nearly|near)\s+)?"
+    r"\d{1,3}(?:\s*[-–]\s*\d{1,3})?\s*%\s+of\s+((?:[a-z][a-z-]*\s+){0,4}"
+    r"(?:sources|scenarios))\b",
+    _re.IGNORECASE,
+)
+_INVENTED_CONSENSUS_RE = _re.compile(
+    r"(?:\bnear(?:ly)?\s+)?\d{1,3}\s*%\s+consensus\b", _re.IGNORECASE,
+)
+
+
+def scrub_invented_consensus(text: str) -> str:
+    """Rewrite "80% of sources expect" as "most sources expect" etc."""
+    if not text or "%" not in text:
+        return text or ""
+    out = _INVENTED_SHARE_RE.sub(lambda m: f"most {m.group(1)}", text)
+    out = _INVENTED_CONSENSUS_RE.sub("broad consensus", out)
+    if out and out[0].islower() and text[0] != out[0]:
+        out = out[0].upper() + out[1:]
+    return out
 
 
 def esc_cites(v, articles: list | None = None) -> str:
@@ -297,10 +352,12 @@ def html_document(title: str, body: str) -> str:
         '<!doctype html><html lang="en"><head>'
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f'<title>{esc(title)}</title>'
+        + _ai_meta()  # EU AI Act Art. 50 machine-readable marker
+        + f'<title>{esc(title)}</title>'
         f'<style>{BASE_CSS}</style></head><body>'
         '<div class="container">'
         + body
+        + _ai_footer()  # EU AI Act Art. 50 visible disclosure
         + '</div></body></html>'
     )
 
@@ -322,12 +379,13 @@ def render_executive_summary_cards(cards: list, articles: list | None = None) ->
             continue
         horizon = (c.get("primary_horizon") or "h1").lower()
         h_label = c.get("horizon_label") or ""
-        cons = c.get("consensus_percentage")
-        cons_pct = f"{int(cons)}%" if isinstance(cons, (int, float)) else ""
+        # ``consensus_percentage`` is deliberately NOT rendered — the model
+        # invented it (the prompt used to say "typically 70-90%"), and a
+        # pill reading "82% CONSENSUS" presents the guess as a measurement.
         title = c.get("topic_title") or "—"
-        opening = c.get("opening_statement") or ""
+        opening = scrub_invented_consensus(c.get("opening_statement") or "")
         mv = c.get("minority_view") or {}
-        signal = c.get("primary_signal") or ""
+        signal = scrub_invented_consensus(c.get("primary_signal") or "")
         fork = c.get("decision_fork") or {}
         fa = fork.get("condition_a") or {}
         fb = fork.get("condition_b") or {}
@@ -340,21 +398,16 @@ def render_executive_summary_cards(cards: list, articles: list | None = None) ->
         parts.append(f'<h3>{esc(title)}</h3>')
         parts.append('<div class="es-meta">')
         parts.append(f'<span class="es-pill {horizon}">{horizon.upper()} · {esc(h_label)}</span>')
-        if cons_pct:
-            parts.append(f'<span class="es-pill consensus">{cons_pct} CONSENSUS</span>')
         parts.append('</div>')
         if opening:
             parts.append(f'<p>{esc_cites(opening, articles)}</p>')
         if mv.get("statement"):
-            pct = mv.get("percentage_range") or ""
-            label = "Minority view" + (f"  ·  {pct}" if pct else "")
             parts.append('<div class="es-minority">')
-            parts.append(f'<div class="label">{esc(label)}</div>')
-            parts.append(f'<div>{esc_cites(mv.get("statement") or "", articles)}</div>')
+            parts.append('<div class="label">Minority view</div>')
+            parts.append(f'<div>{esc_cites(scrub_invented_consensus(mv.get("statement") or ""), articles)}</div>')
             parts.append('</div>')
         if signal:
-            label = "Primary signal" + (f"  ·  {cons_pct} consensus" if cons_pct else "")
-            parts.append(f'<div class="es-signal-label">{esc(label)}</div>')
+            parts.append('<div class="es-signal-label">Primary signal</div>')
             parts.append(f'<p class="es-signal">{esc_cites(signal, articles)}</p>')
         # Source scenarios — list the H1/H2/H3 scenario titles the card
         # draws from, so the reader can trace each summary back to the
