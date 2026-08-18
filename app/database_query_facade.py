@@ -10405,12 +10405,17 @@ class DatabaseQueryFacade:
         from sqlalchemy import text as sa_text
 
         keep = [t for t in (keep_task_ids or []) if t]
+        # 'pending' as well as 'running'. A task waiting on the concurrency
+        # semaphore is persisted as pending, so anything queued behind it at
+        # shutdown would otherwise stay pending forever with no worker — the
+        # same forever-polling failure this method exists to close, arriving
+        # from the queue side instead of the running side.
         sql = (
             "UPDATE background_tasks "
             "SET status = 'failed', completed_at = NOW(), "
             "    error = COALESCE(error, 'Interrupted: the process running this task "
             "stopped before it finished.') "
-            "WHERE status = 'running'"
+            "WHERE status IN ('running', 'pending')"
         )
         params = {}
         if keep:

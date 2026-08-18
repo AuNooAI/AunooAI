@@ -59,29 +59,30 @@ def _install_facade(monkeypatch, removed=None, fail=False):
     return facade
 
 
-def test_regenerate_clears_deck_sidecar_synthesis_and_review(cache_dir, monkeypatch):
-    """All four pieces of derived state go, not just the deck."""
+def test_regenerate_clears_deck_synthesis_review_and_pins(cache_dir, monkeypatch):
+    """All the derived state goes, not just the deck."""
     from app.services import topic_report_service as svc
 
     facade = _install_facade(monkeypatch)
     _seed_artifacts(svc, PERIOD)
     assert svc._read_render_cache(PERIOD) is not None
-    assert svc._read_state_sidecar(PERIOD) is not None
 
     cleared = svc.invalidate_report_state(PERIOD)
 
     assert svc._read_render_cache(PERIOD) is None, "cached deck survived"
-    assert svc._read_state_sidecar(PERIOD) is None, "state sidecar survived"
+    assert not (svc._read_state_sidecar(PERIOD) or {}).get("run_ids"), (
+        "stale run pins survived"
+    )
     facade.delete_forecast_bundle_state.assert_called_once_with("topic_report", PERIOD)
     assert cleared["pptx"] is True
-    assert cleared["state_sidecar"] is True
+    assert cleared["pinned_runs"] is True
     assert cleared["synthesis_rows"] == 1
     assert cleared["review_rows"] == 1
 
 
 def test_the_stale_pinned_runs_do_not_survive(cache_dir, monkeypatch):
-    """The sidecar holds the old run pins; leaving it would let the next
-    build's HTML and DOCX resolve runs the new deck never used."""
+    """The old pins point at the runs the previous deck used; leaving them would
+    let the next build's HTML and DOCX resolve runs the new deck never saw."""
     from app.services import topic_report_service as svc
 
     _install_facade(monkeypatch)
@@ -92,7 +93,25 @@ def test_the_stale_pinned_runs_do_not_survive(cache_dir, monkeypatch):
 
     svc.invalidate_report_state(PERIOD)
 
-    assert svc._read_state_sidecar(PERIOD) is None
+    assert not (svc._read_state_sidecar(PERIOD) or {}).get("run_ids")
+
+
+def test_the_topic_set_survives_so_the_report_can_be_rebuilt(cache_dir, monkeypatch):
+    """period_label is a hash of the topic names, so the sidecar is the only
+    record of which topics a report covers. Deleting it outright — which the
+    first version of this did — leaves every export failing with "No state
+    sidecar" and no way to reconstruct the topic list server-side."""
+    from app.services import topic_report_service as svc
+
+    _install_facade(monkeypatch)
+    _seed_artifacts(svc, PERIOD)
+
+    svc.invalidate_report_state(PERIOD)
+
+    state = svc._read_state_sidecar(PERIOD)
+    assert state is not None, "the report's identity was destroyed"
+    assert state["topics"] == ["Quantum Advantage"]
+    assert state["period"] == "Q3 2026"
 
 
 def test_artifacts_are_kept_when_the_database_cannot_be_cleared(cache_dir, monkeypatch):
@@ -120,7 +139,7 @@ def test_invalidating_a_period_with_nothing_cached_is_not_an_error(cache_dir, mo
     cleared = svc.invalidate_report_state("never-generated")
 
     assert cleared["pptx"] is False
-    assert cleared["state_sidecar"] is False
+    assert cleared["pinned_runs"] is False
 
 
 def test_regenerate_route_reports_failure_instead_of_claiming_success(monkeypatch):
@@ -152,7 +171,7 @@ def test_regenerate_route_returns_what_it_cleared(monkeypatch):
 
     monkeypatch.setattr(
         svc, "invalidate_report_state",
-        Mock(return_value={"pptx": True, "state_sidecar": True,
+        Mock(return_value={"pptx": True, "pinned_runs": True,
                            "synthesis_rows": 1, "review_rows": 1}),
     )
 

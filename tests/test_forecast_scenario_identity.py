@@ -272,3 +272,67 @@ def test_identity_columns_are_exposed_to_the_api():
     assert {i.name for i in t_forecast_scenario_verdicts.indexes} >= {
         "ix_scenario_verdicts_user_scenario", "ix_scenario_verdicts_scenario_key",
     }
+
+
+# ── Deck vs raw granularity ─────────────────────────────────────────────
+
+
+def _overlay_for(titles, key="deck_key_one"):
+    return {
+        "topic": "T",
+        "deck_scenarios": {key: {"deck_scenario_name": "Collapsed deck scenario",
+                                 "horizon": "h1"}},
+        "scenario_title_to_deck_key": {t: key for t in titles},
+    }
+
+
+def test_key_derivation_uses_the_list_the_assessment_actually_scores():
+    """A run has two scenario lists: the raw one the forecast stored, and the
+    deck one that collapses overlapping raw scenarios into the named scenarios
+    the customer's deck shows. Whenever the topic has an overlay the deck list
+    is what gets assessed, and its titles, order and length all differ from the
+    raw list.
+
+    patch_scenario_status derived keys from the RAW list while assess_run
+    stamped them from the DECK list. The two key sets had zero entries in
+    common, so marking a scenario done returned 409 for every topic with an
+    overlay. Both sides now go through build_original_scenarios.
+    """
+    from app.services.forecast_assessment_service import build_original_scenarios
+
+    raw = [
+        {"title": "Raw one", "type": "h1"},
+        {"title": "Raw two", "type": "h1"},
+        {"title": "Raw three", "type": "h2"},
+    ]
+    overlay = _overlay_for(["Raw one", "Raw two", "Raw three"])
+
+    deck_list, level = build_original_scenarios("run-1", raw, overlay, topic="T")
+    assert level == "deck", "the overlay should have collapsed the raw scenarios"
+    assert len(deck_list) < len(raw), "deck granularity should collapse"
+
+    deck_keys = {s["scenario_key"] for s in deck_list}
+    raw_keys, raw_level = build_original_scenarios("run-1", raw, None, topic="T")
+    assert raw_level == "db"
+    assert deck_keys.isdisjoint({s["scenario_key"] for s in raw_keys}), (
+        "this is the trap: the two lists genuinely produce different keys"
+    )
+
+    # ...so the only safe thing is that every caller builds the list the same
+    # way. A second call with the same inputs must reproduce the same keys.
+    again, _ = build_original_scenarios("run-1", raw, overlay, topic="T")
+    assert {s["scenario_key"] for s in again} == deck_keys
+
+
+def test_a_stale_overlay_falls_back_to_raw_consistently():
+    """When an overlay matches none of the run's titles the assessment falls
+    back to raw scenarios. The status route must fall back identically."""
+    from app.services.forecast_assessment_service import build_original_scenarios
+
+    raw = [{"title": "Raw one", "type": "h1"}]
+    stale = _overlay_for(["Some title from a different run"])
+
+    scenarios, level = build_original_scenarios("run-1", raw, stale, topic="T")
+
+    assert level == "db"
+    assert [s["title"] for s in scenarios] == ["Raw one"]

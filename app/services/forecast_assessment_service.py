@@ -57,6 +57,78 @@ INCONCLUSIVE_MIN_ARTICLES: int = 6
 DECK_OVERLAY_DIR = Path("data/wiley_horizons")
 
 
+def build_original_scenarios(run_id, db_scenarios, deck_overlay, *,
+                             granularity="auto", topic=None):
+    """The run's ORIGINAL scenario list, exactly as an assessment sees it.
+
+    A run has two possible scenario lists. The raw list is what the forecast
+    stored; the deck list collapses overlapping raw scenarios into the named
+    ones the customer's deck shows, and is what actually gets assessed whenever
+    the topic has an overlay (``granularity='auto'`` is the default). Their
+    titles, order and length all differ.
+
+    Everything that needs to identify a scenario must build the list the same
+    way, or the keys do not match. When ``patch_scenario_status`` derived keys
+    from the raw list while ``assess_run`` stamped them from the deck list, the
+    two key sets had **zero** overlap, so marking a scenario done returned 409
+    for every topic with an overlay — which is all five Wiley Horizons topics.
+
+    Returns ``(scenarios, level)`` where level is ``'deck'`` or ``'db'``, with
+    ``scenario_key`` stamped on each entry. Callers must not re-derive keys.
+    """
+    from app.services.scenario_identity import scenario_key_for
+
+    use_deck = deck_overlay and granularity in ("deck", "auto")
+    scenario_level = "db"
+    scenarios = list(db_scenarios)
+
+    if use_deck:
+        built = _build_deck_scenarios(db_scenarios, deck_overlay)
+        if built:
+            scenarios = built
+            scenario_level = "deck"
+        else:
+            # The overlay's scenario_title_to_deck_key matched NONE of this
+            # run's titles — a stale overlay written against a different run.
+            # This used to flow straight through: assign_exclusive([]) → 0
+            # assigned → a "completed" assessment with zero verdicts in 0.2s,
+            # which the quarterly bundle then read as the topic's status.
+            # Fall back to the raw scenarios and say so loudly.
+            logger.error(
+                "Deck overlay for %r maps 0 of this run's %d scenario titles "
+                "(stale overlay — check for a .proposed replacement in the "
+                "overlay dir). Falling back to db-level scenarios.",
+                topic, len(db_scenarios),
+            )
+
+    for i, sc in enumerate(scenarios):
+        if isinstance(sc, dict):
+            sc["scenario_key"] = scenario_key_for(run_id, sc, i)
+    return scenarios, scenario_level
+
+
+def load_original_scenarios_for_run(db, run_id):
+    """``build_original_scenarios`` for a stored run, loading its own inputs.
+
+    For callers outside the assessment pipeline (the status route) that have a
+    run id and nothing else.
+    """
+    forecast = db.facade.get_future_horizons_analysis(run_id)
+    if not forecast:
+        return [], "db"
+    raw = forecast.get("raw_output") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    topic = forecast.get("topic") or (raw or {}).get("topic")
+    return build_original_scenarios(
+        run_id, (raw or {}).get("scenarios") or [], _load_deck_overlay(topic),
+        topic=topic,
+    )
+
+
 # ── Public entry point ─────────────────────────────────────────────────────
 
 async def assess_run(
@@ -129,44 +201,13 @@ async def assess_run(
     # raw run all describe the same underlying system) into the 5 named
     # scenarios Wiley sees in the deck. The reranker margin gate then works
     # because the deck scenarios are well-separated.
-    use_deck = (
-        deck_overlay
-        and (granularity == "deck" or granularity == "auto")
+    scenarios, scenario_level = build_original_scenarios(
+        run_id, db_scenarios, deck_overlay, granularity=granularity, topic=topic,
     )
-    if use_deck:
-        scenarios = _build_deck_scenarios(db_scenarios, deck_overlay)
-        scenario_level = "deck"
-        if not scenarios:
-            # The overlay's scenario_title_to_deck_key matched NONE of this
-            # run's titles — a stale overlay written against a different run.
-            # This used to flow straight through: assign_exclusive([]) → 0
-            # assigned → a "completed" assessment with zero verdicts in 0.2s,
-            # which the quarterly bundle then read as the topic's status.
-            # Fall back to the raw scenarios and say so loudly.
-            logger.error(
-                "Deck overlay for %r maps 0 of this run's %d scenario titles "
-                "(stale overlay — check for a .proposed replacement in the "
-                "overlay dir). Falling back to db-level scenarios.",
-                topic, len(db_scenarios),
-            )
-            scenarios = list(db_scenarios)
-            scenario_level = "db"
-    else:
-        scenarios = db_scenarios
-        scenario_level = "db"
 
     # Addendum scenarios promoted by the user from prior "unanticipated
     # development" clusters. Appended after the original scenarios so they
     # take higher scenario_idx values and the original ordering is stable.
-    # Stamp each ORIGINAL scenario with its stable key before the addendums are
-    # appended, so the key reflects the scenario's own position in the run and
-    # not where it lands in the combined list. Runs stored before fa_012 have
-    # theirs derived here; they are not written back to raw_output.
-    from app.services.scenario_identity import scenario_key_for
-    for i, sc in enumerate(scenarios):
-        if isinstance(sc, dict):
-            sc["scenario_key"] = scenario_key_for(run_id, sc, i)
-
     user_scenarios = db.facade.get_forecast_user_scenarios(run_id)
     addendum_count = 0
     for us in user_scenarios:

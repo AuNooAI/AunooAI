@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-18 — Topics / Forecast Tracker / Topic Reports spec: phases 1, 2, 4 and part of 9
+## 2026-08-18 — Topics / Forecast Tracker / Topic Reports spec: phases 1-9
 
 ### Goal
 Implementing the Topics, Forecast Tracker and Topic Reports spec against baseline
@@ -117,7 +117,7 @@ these paths, so nothing server-side broke.
 - **A cache key or a task id is not a credential.** Report downloads keyed by
   `period_label` and job polling keyed by `task_id` were both fully public.
 
-### Phase 2 — a run's assessment is now its own
+### Phase 2 — a run's assessment is now its own (commit `b03447a9`)
 `GET /api/forecast/{run_id}/assessment` used to fall back to "latest assessment for
 this topic" whenever the requested run had none, and put that row straight into
 `assessment`. The `scenarios` in the same response came from the *requested* run, so
@@ -142,7 +142,7 @@ an addendum to this run, so its source surprise has to come from this run.
 within the run's own scenario count (originals plus addendums) or the write is rejected
 **422**, and a `user_scenario_id` must belong to this run or it is rejected **409**.
 
-### Phase 4 — scenario promotion is polled to completion
+### Phase 4 — scenario promotion is polled to completion (commit `b03447a9`)
 Promotion returns `{scenario_id, task_id, status_url}` for the paired reassessment it
 starts. `PromoteScenarioModal.handleSave` never read the response body, and the parent
 compensated by setting `running = true` with nothing polling — the spinner ran forever
@@ -166,7 +166,7 @@ now also refuses to start while a job is already running. `handleSave` refuses a
 submit while the first is in flight, which would otherwise create a duplicate scenario
 and a competing job.
 
-### Phase 9 (part) — wizard activation no longer fails silently
+### Phase 9 (part) — wizard activation no longer fails silently (commit `b03447a9`)
 `AddTopicWizard.finish()` awaited the activation `PATCH .../metadata {status:'active'}`
 without checking the result, while every other call in the file checks `r.ok`. A failure
 left the topic as a draft server-side while the wizard reported success, closed, and
@@ -190,7 +190,7 @@ type errors against the baseline). Full backend suite: **95 failed, 31 errors** 
 same pre-existing set as before this work; passing count rose 117 → 130, which is the 13
 new tests.
 
-### Phase 3 — scenarios have stable identity (migration `fa_012`)
+### Phase 3 — scenarios have stable identity (commit `96794762`, migration `fa_012`)
 A verdict's `scenario_idx` is only its place in the list `assess_run` builds: the run's
 original scenarios followed by any promoted ones. That position moves whenever a
 promoted scenario is added or skipped, and it means different things in different runs,
@@ -239,7 +239,7 @@ the server resolves it to this run's key before writing. React keys are scenario
 rather than array index. A promoted scenario with no verdict yet is badged "assessment
 pending" instead of being attached to an original verdict card.
 
-### Phase 5 — Topic Report reruns honour source topics
+### Phase 5 — Topic Report reruns honour source topics (commit `13da3313`)
 `_rerun_future_horizons_for_topic` queried `WHERE topic = :topic` using the tracked
 topic's deck name. The Add-Topic wizard decouples that name from the article `topic` tag
 — an analyst can name a topic "Quantum Advantage" while the seed articles stay tagged
@@ -262,7 +262,7 @@ the list the model was shown. The "no articles" error now names the topics searc
 parameters the rerun issues rather than running it, since the real path calls a model
 and writes to the database.
 
-### Phase 6 — one run-pinned resolver for every export format
+### Phase 6 — one run-pinned resolver for every export format (commit `0a459e66`)
 A report label pins each source topic to the exact `future_horizons_runs` id the deck was
 built from, so a horizons rerun between exports cannot swap the analysis under an
 artifact. Three holes let it happen anyway.
@@ -305,7 +305,7 @@ generation), a foreign assessment row is dropped, all five formats go through th
 resolver, the dead resolver is gone, and routes do not import the renderer at module
 scope.
 
-### Phase 8 — assessments are scheduled per run, not per topic
+### Phase 8 — assessments are scheduled per run, not per topic (commit `d0bc79a0`)
 `forecast_tracker_monitor` compared the newest assessment for a *topic* against the
 staleness threshold. Generating a new forecast for a topic assessed last week left that
 new run unassessed until the topic's 30-day clock expired: the tracker showed a fresh
@@ -331,7 +331,7 @@ topic was assessed yesterday, freshness is queried per run and only for complete
 recently-assessed run is left alone, a stale one is rescheduled, a second tick does not
 duplicate an active job, and both a finished and a lost task release the run.
 
-### Phase 7 — regeneration clears the whole derived state
+### Phase 7 — regeneration clears the whole derived state (commit `b49f712c`)
 `POST /api/topic-reports/{period_label}/regenerate` deleted exactly one file: the cached
 PPTX. The supervisor synthesis row, the review verdict and the state sidecar all
 survived. Because `ensure_bundle_synthesis` returns early when a payload already exists,
@@ -359,7 +359,7 @@ stubbed facade: all four pieces of state are cleared, the stale run pins do not 
 artifacts are kept intact when the database cannot be cleared, an uncached period is not
 an error, and the route reports failure rather than claiming success.
 
-### Phase 9 — Topics wizard correctness
+### Phase 9 — Topics wizard correctness (commit `bb2aedef`)
 Three ways the wizard reported success while the stored state was wrong.
 
 `POST /api/forecast/topics` returned an existing row untouched, so an analyst who
@@ -396,7 +396,7 @@ production data.
 horizons, dangling title-map keys, the atomic write leaving no temp files, and a rejected
 overlay never reaching the production path.
 
-### Phase 4 (task reliability) — work over the limit is queued, not lost
+### Phase 4 (task reliability) — work over the limit is queued, not lost (commit `cdc03fc1`)
 `BackgroundTaskManager.run_task()` checked the concurrency limit and, when it was
 reached, logged "Too many concurrent tasks, queuing task" and returned. Nothing queued
 it. The row stayed `pending` with no worker, so a caller polling its `status_url`
@@ -434,6 +434,80 @@ startup, and neither facade method uses `self.session`.
 
 Not done from Phase 4: active-job keys, `Idempotency-Key` on scenario creation,
 requester/tenant scope in task metadata with authorization on status and cancel.
+
+### Code-review pass — nine defects, four of them mine from earlier today
+A review of the branch diff found real problems in the work above. Fixed in the same
+session; the two that mattered most were regressions this work introduced.
+
+**Mark-as-done was broken for every topic with a deck overlay.** A run has two scenario
+lists: the raw one the forecast stored, and the deck list that collapses overlapping raw
+scenarios into the named ones the customer's deck shows. Whenever a topic has an overlay —
+all five Wiley Horizons topics, since `granularity` defaults to `auto` — the deck list is
+what gets assessed. `assess_run` stamped keys from the deck list while
+`patch_scenario_status` derived them from the raw list. Measured on wileytest: the two key
+sets had **zero** entries in common, so every mark-as-done would have returned 409. Both
+now go through one `build_original_scenarios()`; verified across 12 real runs including a
+genuine deck-granularity case (Quantum Advantage, 5 collapsed scenarios) that the two
+sides now produce identical keys.
+
+**Regeneration destroyed the report's identity.** `period_label` is a hash of the topic
+names, so the state sidecar is the only record of which topics a report covers. Deleting
+it — which the spec asks for, assuming the Phase 6A manifest exists to hold that
+information — left every export failing with "No state sidecar" and no server-side way to
+rebuild. Regeneration now clears the *derived* parts (the stale run pins) and keeps
+`topics` and `period`.
+
+**Legacy display-name sidecars silently dropped topics.** Replacing `_load_cached_state`
+with the shared resolver lost the `source_topic_for_display_name` fallback for sidecars
+written before 2026-08-03. Those topics resolved no run and were dropped from the export
+with only an info log. The fallback is restored, and it carries the pin across to the
+resolved source name.
+
+**Switching topic mid-assessment left a permanent spinner.** The new run-change cleanup
+cleared the polling interval but not `running`/`progress`, so the new run inherited the
+old one's progress bar, kept "Run assessment" disabled and suppressed its own empty state
+until a reload.
+
+**Queued tasks reintroduced the forever-pending bug.** Restart reconciliation only closed
+`running` rows, but a task waiting on the new semaphore is persisted as `pending`, so
+anything queued at shutdown stayed pending with no worker. Reconciliation now covers both.
+Relatedly, the monitor's in-progress marker was only cleared inside the job body, so a task
+cancelled while queued wedged that run out of scheduling for the life of the process; the
+asyncio handle is now checked rather than trusting the persisted status.
+
+**Three in the briefing resolver.** A two-character id was trusted over a full URI with no
+cross-check, so `a7` for `a17` would silently rebind the write-up to another article — the
+title now breaks the tie and an unresolvable conflict drops the pick. Two garbled picks
+could resolve onto the same article and both be kept. And a title shared by several
+syndicated copies matched whichever came first; ambiguous titles are no longer usable as
+identifiers.
+
+Two review notes not treated as defects: `ensure_scenario_keys` ignores its `run_id`
+argument (it stamps a UUID, which is correct, but the parameter is misleading), and
+`_require_assessment_in_run` hydrates verdicts it does not need when checking ownership on
+the articles endpoint.
+
+### Propagation (whole entry)
+Every backend change is on bugfixing (canonical), wiley and wileytest, byte-identical —
+checked with `md5sum` on `forecast_assessment_routes.py`, `topic_report_service.py`,
+`scenario_identity.py`, `forecast_tracker_monitor.py` and `background_task_manager.py`.
+All three services restarted and serving; anonymous `/api/forecast/topics` returns 401 and
+`/login` returns 200 on each.
+
+Migration `fa_012` applied to all three databases — `test`, `wiley` and `wileytest` all
+report `fa_012` in `alembic_version`. It was upgraded, downgraded and re-upgraded on
+canonical first to prove the downgrade path.
+
+The UI was rebuilt once with `./ui/deploy-react-ui.sh` and rsynced to both tenants
+(`main-CS5oao_y.js`); the templates were checked for stale asset references afterwards.
+
+`app/database_query_facade.py` went to wiley and wileytest as a `patch -p1`, never a
+wholesale copy: wileytest's copy carries local `social_meta` lines that are not in
+canonical, and a copy would have deleted them. Confirmed still present after each of the
+three patches.
+
+Not propagated anywhere: nothing. wbm, abm, bwtemplate, ibaset and the saas trees do not
+carry these surfaces.
 
 ### Still open
 Done so far: phases 1, 2, 3, 4 (polling + task reliability), 5, 6, 7 (invalidation half),

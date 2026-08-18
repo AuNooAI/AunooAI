@@ -51,6 +51,10 @@ _status = {
 # every tick. Cleared in the job's finally block, so a failure cannot wedge a
 # run out of scheduling permanently.
 _ACTIVE_RUN_JOBS: dict = {}
+# run_id -> the asyncio task handle, so a job that was cancelled or died before
+# its body ran (and therefore never reached the finally that clears the marker)
+# can still be detected as finished.
+_ACTIVE_TASK_HANDLES: dict = {}
 
 
 def _is_job_active(task_manager, run_id: str) -> bool:
@@ -70,6 +74,17 @@ def _is_job_active(task_manager, run_id: str) -> bool:
     if status in ("completed", "failed", "cancelled", "error", None):
         _ACTIVE_RUN_JOBS.pop(run_id, None)
         return False
+    if status == "pending":
+        # A queued task is legitimately pending while it waits for a slot, but
+        # a task cancelled before its body ran also stays pending forever and
+        # never clears the marker — which would wedge this run out of
+        # scheduling for the life of the process. Trust the asyncio task, not
+        # the persisted status.
+        handle = _ACTIVE_TASK_HANDLES.get(run_id)
+        if handle is None or handle.done():
+            _ACTIVE_RUN_JOBS.pop(run_id, None)
+            _ACTIVE_TASK_HANDLES.pop(run_id, None)
+            return False
     return True
 
 
@@ -276,7 +291,7 @@ async def _check_and_kick_off():
         )
 
         _ACTIVE_RUN_JOBS[run_id] = task_id
-        asyncio.create_task(
+        _ACTIVE_TASK_HANDLES[run_id] = asyncio.create_task(
             tm.run_task(task_id, _build_paired_job(run_id, topic))
         )
         _status["last_kicked_off"] = (
@@ -299,6 +314,7 @@ def _build_paired_job(run_id: str, topic: str):
             return await _run_paired(progress_callback)
         finally:
             _ACTIVE_RUN_JOBS.pop(run_id, None)
+            _ACTIVE_TASK_HANDLES.pop(run_id, None)
 
     async def _run_paired(progress_callback=None):
         def _cb_for(start, end):

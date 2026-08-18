@@ -662,20 +662,14 @@ async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
         )
         return {"status_row": row}
 
-    # Original scenario. Resolve to this run's own scenarios so an identifier
-    # carried over from a previously-displayed run cannot mark an unrelated
-    # scenario done, and so an index is converted to the stable key before it is
-    # written.
-    from app.services.scenario_identity import scenario_key_for
+    # Original scenario. Resolve against the SAME scenario list the assessment
+    # builds — deck-level when the topic has an overlay, raw otherwise. Deriving
+    # keys from the raw list here while assess_run stamped them from the deck
+    # list gave the two sides zero keys in common, so every mark-as-done on an
+    # overlay topic returned 409.
+    from app.services.forecast_assessment_service import load_original_scenarios_for_run
 
-    raw = run.get("raw_output")
-    if isinstance(raw, str):
-        import json
-        try:
-            raw = json.loads(raw)
-        except Exception:
-            raw = {}
-    originals = (raw or {}).get("scenarios") or []
+    originals, level = load_original_scenarios_for_run(db, run_id)
 
     resolved_idx = None
     resolved_key = None
@@ -685,15 +679,15 @@ async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
                 status_code=422,
                 detail=(
                     f"scenario_idx {payload.scenario_idx} is not an original scenario of "
-                    f"run {run_id} (it has {len(originals)}). Promoted scenarios are "
-                    "identified by user_scenario_id."
+                    f"run {run_id} (it has {len(originals)} at {level} granularity). "
+                    "Promoted scenarios are identified by user_scenario_id."
                 ),
             )
         resolved_idx = payload.scenario_idx
-        resolved_key = scenario_key_for(run_id, originals[resolved_idx], resolved_idx)
+        resolved_key = originals[resolved_idx].get("scenario_key")
     else:
         for i, sc in enumerate(originals):
-            if isinstance(sc, dict) and scenario_key_for(run_id, sc, i) == payload.scenario_key:
+            if isinstance(sc, dict) and sc.get("scenario_key") == payload.scenario_key:
                 resolved_idx, resolved_key = i, payload.scenario_key
                 break
         if resolved_key is None:

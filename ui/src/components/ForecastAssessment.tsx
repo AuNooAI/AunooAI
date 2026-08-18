@@ -259,7 +259,18 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
   // Stop polling on unmount AND on run change. Keyed on [] before, so switching
   // topic mid-assessment left an interval polling the old run's job and letting
   // its completion overwrite the new run's state.
-  useEffect(() => stopPolling, [runId, stopPolling]);
+  //
+  // Clearing the interval is not enough on a run change: pollJob is the only
+  // thing that resets `running` and `progress`, so the new run would inherit the
+  // old one's progress bar, keep "Run assessment" disabled, and suppress its own
+  // empty state until a page reload.
+  useEffect(() => {
+    return () => {
+      stopPolling();
+      setRunning(false);
+      setProgress(null);
+    };
+  }, [runId, stopPolling]);
 
   /**
    * Watch one background job to completion, then refresh everything the job

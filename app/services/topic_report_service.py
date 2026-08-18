@@ -110,18 +110,38 @@ def invalidate_report_state(period_label: str) -> dict:
         "synthesis_rows": removed.get("synthesis", 0),
         "review_rows": removed.get("review", 0),
         "pptx": False,
-        "state_sidecar": False,
+        "pinned_runs": False,
     }
 
     pptx_path = os.path.join(_render_cache_dir(), _render_cache_key(period_label))
-    sidecar_path = _state_sidecar_path(period_label)
-    for path, key in ((pptx_path, "pptx"), (sidecar_path, "state_sidecar")):
+    try:
+        if os.path.exists(pptx_path):
+            os.remove(pptx_path)
+            cleared["pptx"] = True
+    except Exception as e:
+        logger.warning("report-state invalidate failed (%s): %s", pptx_path, e)
+
+    # Strip the DERIVED parts of the sidecar but keep `topics` and `period`.
+    #
+    # Deleting the sidecar outright loses the report's identity: `period_label`
+    # is a hash of the topic names (see _topics_period_label), so nothing
+    # server-side can reconstruct which topics the report covered. Every export
+    # would then fail with "No state sidecar" until someone re-issued /start
+    # with the original list from memory. The stale pins are what has to go —
+    # they point at the runs the OLD deck used — not the topic set.
+    state = _read_state_sidecar(period_label)
+    if state:
         try:
-            if os.path.exists(path):
-                os.remove(path)
-                cleared[key] = True
+            had_pins = bool(state.get("run_ids"))
+            _write_state_sidecar(
+                period_label,
+                state.get("topics") or [],
+                state.get("period") or "",
+                run_ids={},          # re-pinned by the next build
+            )
+            cleared["pinned_runs"] = had_pins
         except Exception as e:
-            logger.warning("report-state invalidate failed (%s): %s", path, e)
+            logger.warning("report-state sidecar reset failed (%s): %s", period_label, e)
 
     logger.info("topic report %s: invalidated %s", period_label, cleared)
     return cleared
@@ -1071,11 +1091,38 @@ def _load_cached_state(period_label: str):
     ]
     topic_names = [t for t in topic_names if t]
 
+    # Sidecars and synthesis rows written before 2026-08-03 hold DISPLAY names,
+    # which cannot be looked up in future_horizons_runs. Map those back to their
+    # source topic first; the resolver would otherwise find no run and drop the
+    # topic from the export with only an info log.
+    from app.services.forecast_assessment_service import source_topic_for_display_name
+
+    resolved_names = []
+    for name in topic_names:
+        source = None
+        try:
+            source = source_topic_for_display_name(name)
+        except Exception as e:
+            logger.warning("display-name lookup failed for %r: %s", name, e)
+        if source and source != name:
+            logger.info(
+                "topic report %s: %r is a display name, resolving to source topic %r",
+                period_label, name, source,
+            )
+            resolved_names.append(source)
+        else:
+            resolved_names.append(name)
+
     # The sidecar's run_ids are authoritative for an existing report. Resolving
     # through the shared resolver applies overlay display names itself, after
     # stamping _source_topic and _source_run_id, so provenance survives the
     # rename.
-    items = resolve_items(topic_names, run_ids=state.get("run_ids") or {})
+    run_ids = dict(state.get("run_ids") or {})
+    for original, source in zip(topic_names, resolved_names):
+        if source != original and original in run_ids and source not in run_ids:
+            run_ids[source] = run_ids[original]
+    topic_names = resolved_names
+    items = resolve_items(topic_names, run_ids=run_ids)
     if len(items) < len(topic_names):
         rendered = {a.get("_source_topic") for (a, _r, _p) in items}
         for t in topic_names:

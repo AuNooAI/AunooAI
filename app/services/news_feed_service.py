@@ -1980,6 +1980,7 @@ Tags: {article.get('tags', '')}
         uri_map = {}
         base_uri_map = {}
         title_map = {}
+        ambiguous_titles = set()
         for i, article in enumerate(corpus):
             uri = article.get('uri')
             if not uri:
@@ -1989,10 +1990,20 @@ Tags: {article.get('tags', '')}
             base_uri_map[uri.split('?')[0]] = uri
             title_key = self._normalize_title_for_match(article.get('title', ''))
             if title_key:
+                # Syndicated wire copy appears under several publishers with the
+                # same headline. Mapping such a title to whichever copy happened
+                # to come first would attach the analysis to a different outlet
+                # and URL than the model picked, so an ambiguous title is not
+                # usable as an identifier at all.
+                if title_key in title_map and title_map[title_key] != uri:
+                    ambiguous_titles.add(title_key)
                 title_map.setdefault(title_key, uri)
+        for key in ambiguous_titles:
+            title_map.pop(key, None)
 
         resolved = []
         unresolved = []
+        claimed_uris = set()
 
         for article in selected:
             # The model sometimes returns 'url' instead of 'uri' - accept both
@@ -2007,6 +2018,26 @@ Tags: {article.get('tags', '')}
             if article_id and article_id in id_map:
                 matched_uri = id_map[article_id]
                 how = f"id {article_id}"
+                # An id is two characters, so "a7" for "a17" is exactly the kind
+                # of slip this resolver exists to catch. If the uri also names a
+                # real corpus article and the two disagree, the id alone is not
+                # enough — let the title decide, and drop the pick if it can't,
+                # rather than silently binding the analysis to another article.
+                uri_says = uri_map.get(article_uri) or base_uri_map.get(article_uri.split('?')[0])
+                if uri_says and uri_says != matched_uri:
+                    title_says = title_map.get(
+                        self._normalize_title_for_match(article.get('title', ''))
+                    )
+                    logger.warning(
+                        "Selected article disagrees with itself: id %s -> %s but uri -> %s "
+                        "(title -> %s)", article_id, matched_uri, uri_says, title_says,
+                    )
+                    if title_says in (matched_uri, uri_says):
+                        matched_uri = title_says
+                        how = f"id/uri conflict resolved by title"
+                    else:
+                        matched_uri = None
+                        how = None
             elif article_uri in uri_map:
                 matched_uri = article_uri
             elif article_uri.split('?')[0] in base_uri_map:
@@ -2030,10 +2061,21 @@ Tags: {article.get('tags', '')}
                         matched_uri = candidates.pop()
                         how = "title prefix"
 
+            if matched_uri and matched_uri in claimed_uris:
+                # Two garbled picks can land on the same corpus article — one by
+                # id, one by title prefix. Keeping both would put the same story
+                # in the briefing twice under two different write-ups.
+                logger.warning(
+                    "Two selected articles resolved to %s; dropping the later one "
+                    "(title: %s)", matched_uri, article.get('title', 'Unknown'),
+                )
+                matched_uri = None
+
             if matched_uri:
                 if how and matched_uri != article_uri:
                     logger.info(f"Resolved selected article by {how}: {article_uri or '(no uri)'} -> {matched_uri}")
                 article['uri'] = matched_uri
+                claimed_uris.add(matched_uri)
                 resolved.append(article)
             else:
                 unresolved.append(article)
