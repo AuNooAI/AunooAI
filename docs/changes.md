@@ -305,11 +305,37 @@ generation), a foreign assessment row is dropped, all five formats go through th
 resolver, the dead resolver is gone, and routes do not import the renderer at module
 scope.
 
+### Phase 8 — assessments are scheduled per run, not per topic
+`forecast_tracker_monitor` compared the newest assessment for a *topic* against the
+staleness threshold. Generating a new forecast for a topic assessed last week left that
+new run unassessed until the topic's 30-day clock expired: the tracker showed a fresh
+forecast with nothing scored against it, and the report pipeline could pin a run no
+assessment had ever covered.
+
+Freshness is now keyed on `run_id`, and the query filters `status='completed'` — a failed
+or partial row must not look like the run has been scored, or a run that keeps failing
+would never retry. A run with no completed assessment is due immediately. The 30-day
+threshold still applies to runs that have been assessed.
+
+There was also no guard against launching the same job twice: the paired job takes about
+fifteen minutes and the loop wakes every six hours, so ticks rarely overlapped in
+practice, but a hung or slow run was relaunched on every tick with no bound. A
+`_ACTIVE_RUN_JOBS` marker keyed by run id now blocks that, is cleared in the job's
+`finally` so a failure cannot wedge a run out of scheduling, and is cross-checked against
+the task manager so a task that died without unwinding (process restart, cancellation)
+releases the run rather than blocking it forever.
+
+`tests/test_forecast_tracker_scheduling.py` (new, 7 tests) drives the monitor with a
+stubbed connection and task manager: a new unassessed run is scheduled even though the
+topic was assessed yesterday, freshness is queried per run and only for completed rows, a
+recently-assessed run is left alone, a stale one is rescheduled, a second tick does not
+duplicate an active job, and both a finished and a lost task release the run.
+
 ### Still open
 Phase 0 (typed contracts, error codes, OpenAPI snapshot, state machines), Phase 4's
 background-task admission/idempotency/reconciliation work,
 Phase 7 (regenerate only deletes the cached PPTX and leaves the synthesis, review and
-sidecar stale), Phase 6A (durable report manifest), Phase 8 (scheduling is per topic),
+sidecar stale), Phase 6A (durable report manifest),
 Phase 10 (observability and limits), and the rest of Phase 9.
 
 
