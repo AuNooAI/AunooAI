@@ -2,6 +2,103 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-18 — Explore briefing dropped articles when the model miscopied a URI
+
+### Goal
+The /explore briefing on wileytest asked for 6 articles and rendered 4. Oliver's
+question was "this worked every day before, what changed?" — nothing had. The cause
+was a latent flaw that had been firing intermittently since the feature shipped.
+
+### Fix — **`app/services/news_feed_service.py`**
+The briefing asks a model to choose N articles from a 50-article corpus and echo each
+article's URI back verbatim, so the backend can match the choice to a real record.
+Techmeme URIs differ from one another by one or two characters
+(`https://www.techmeme.com/260817/p9#a260817p9` vs `.../p35#a260817p35`), and this
+morning the model wrote `p9` where it meant `p35`, and `p43` where it meant `p21`.
+Both were sound picks — it copied both titles perfectly — but validation could not
+match the URIs, dropped both, and put nothing in their place. A repair retry existed
+but only fired when more than half the picks were invalid, so 2 of 6 never triggered
+it. The prompt body also told the model to strip tracking parameters from URLs while
+the system message told it to copy URIs exactly.
+
+Corpus entries now carry a short stable id (`ID: a7`) that the model returns alongside
+the uri. This is the lesson the Briefing Desk compose pipeline already learned: give
+the model short ids to echo, never long strings. One resolver,
+`_resolve_selected_articles()`, replaces the validation block that had been duplicated
+across both generation paths (`_generate_six_articles_report` and
+`_generate_six_articles_with_political_analysis`). It matches on id, then exact uri,
+then uri without query parameters, then title, then title prefix. The prefix step is
+required because the prompt instructs the model to append "(Source, date, author)" to
+every title, so exact title equality misses; `TITLE_MATCH_MIN_CHARS = 40` is the
+shortest prefix trusted to identify one article, and a prefix matching two or more
+corpus articles is rejected rather than guessed. The retry now fires whenever the
+result is short of the requested count rather than only above 50% invalid, and it
+tops up the surviving picks instead of replacing them. The contradicting
+strip-tracking instruction is gone.
+
+Commit subject: `emergency fix: explore briefing returned fewer articles than requested`.
+
+### This was not a regression
+No commit had touched `news_feed_service.py` since `67cc5563`. The cached results in
+`article_analysis_cache` (`analysis_type='six_articles'`, requested count parsed out of
+the cache key) show the failure is long-standing:
+
+```
+runs | short_runs | pct_short | short_since_june
+ 237 |         34 |      14.3 |                7
+```
+
+34 of 237 runs came back short, spread across all four models the briefing has used
+since 2025-11-21 — gpt-5.4, gpt-4.1-mini, bedrock-kimi-k2-5 and bedrock-claude-sonnet.
+Recent short days: 14 Aug (5 of 6), 29 Jul (5), 24 Jul (4), 10 Jul (4). Techmeme intake
+was steady across the boundary (37 articles on 17 Aug, 38 on 14 Aug), so the corpus mix
+did not change either.
+
+### Verification
+Resolver tested against this morning's two real failures plus a control:
+
+```
+Resolved by title prefix: .../260817/p9#a260817p9  -> .../260817/p35#a260817p35
+Resolved by id a1:        .../260817/p43#a260817p43 -> .../260817/p21#a260817p21
+Resolved by URI without query params: https://example.com/a -> https://example.com/a?utm_source=x
+Could not match: https://nope.example/x (invented article — correctly rejected)
+```
+
+Then the real generation path was driven against the live wileytest corpus
+(`_generate_six_articles_with_political_analysis`, model `bedrock-claude-sonnet`):
+`RESULT: 6 articles returned (requested 6)`, including `.../260817/p35`, the Aylo
+settlement article that was dropped this morning. The model's response carried
+`"id": "a18"` alongside the uri, confirming the id round-trips.
+
+Session-cookie minting for a curl test against the HTTP endpoint is blocked by the
+permission classifier, so the service-layer call is the practical end-to-end check.
+
+### Propagation
+Identical file on all three monolith tenants that carry the briefing —
+`md5 3121e06bb1ecca3755a0f1ffca98daf3` on bugfixing (canonical), wiley and wileytest.
+All three services restarted and `active`; no background jobs were running at restart
+(newest `background_tasks` row with status `running` started 2026-08-10, before the
+2026-08-14 19:50 service boot, so it was stale). Backend-only change, no UI rebuild
+needed. The stale 4-article cache row for today was deleted on wileytest
+(`article_uri = 'six_articles_six_articles_v6_2026-08-18_all_CEO_6_default_'`) so the
+next load regenerates a full six.
+
+### Lessons
+- **A user saying "it worked every day before" is a hypothesis, not evidence.** Check
+  the stored history before hunting a code change. Here `article_analysis_cache` held
+  ten months of per-run article counts and settled it in one query.
+- **Never make a model echo a long, near-identical string as a key.** Give it a short
+  stable id from the corpus and resolve the id server-side. Second time this has bitten
+  the briefing pipeline.
+- **A validation step that drops items must either replace them or say it came up
+  short.** Silent shrinkage looked like an editorial decision, not a bug, which is why
+  it survived 34 occurrences.
+
+### Adjacent, not fixed
+Deep-analysis enrichment logs `Failed to parse detailed analysis JSON: Extra data` on
+some articles, and content scraping returns empty for techmeme and joemygod URLs. Both
+are separate from the article-count bug and were left alone.
+
 ## 2026-08-14 — Brand Risk v2: event-driven issues replace the 0–100 risk score
 
 ### Goal

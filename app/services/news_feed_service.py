@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import asyncio
@@ -553,7 +554,8 @@ class NewsFeedService:
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
-- uri (string - REQUIRED: the exact URI from the Article Corpus - THIS IS THE ARTICLE'S UNIQUE IDENTIFIER - COPY IT EXACTLY)
+- id (string - REQUIRED: the ID line of the article you picked in the Article Corpus, e.g. "a7" - COPY IT EXACTLY)
+- uri (string - REQUIRED: the exact URI from the Article Corpus - COPY IT EXACTLY)
 - title (string)
 - source (string)
 - date (string YYYY-MM-DD)
@@ -570,17 +572,21 @@ CRITICAL: Use ONLY these field names in your JSON response:
 FORBIDDEN: Do NOT use these old field names: why_interesting, devils_advocate, perspectives
 
 EXAMPLE - If the Article Corpus contains:
+  Article 8:
+  ID: a7
   URI: https://techcrunch.com/2025/11/20/ai-startup-raises-100m
   Title: AI Startup Raises $100M Series B
 
-Then your response MUST include the EXACT URI:
+Then your response MUST include the EXACT ID and URI:
   {
+    "id": "a7",
     "uri": "https://techcrunch.com/2025/11/20/ai-startup-raises-100m",
     "title": "AI Startup Raises $100M Series B",
     ...
   }
 
-DO NOT create new URIs. DO NOT modify URIs. DO NOT summarize URIs. COPY THEM EXACTLY.
+DO NOT create new IDs or URIs. DO NOT modify them. DO NOT summarize URIs. COPY THEM EXACTLY.
+Some URIs differ from each other by only one or two characters, so check every character you copy.
 
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
 
@@ -620,64 +626,33 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
                 logger.debug(f"Failed response text: {response_text}")
                 return await self._create_fallback_six_articles(articles_data, date)
 
-            # Validate URIs exist in the input articles
-            valid_uris = {article.get('uri') for article in articles_data if article.get('uri')}
-            # Also create a mapping for fuzzy matching (LLM often strips query params)
-            uri_base_map = {}
-            for uri in valid_uris:
-                # Store both full URI and base URI (without query params)
-                base_uri = uri.split('?')[0] if '?' in uri else uri
-                uri_base_map[base_uri] = uri
+            # Match every selected article back to the corpus
+            valid_articles, invalid_articles = self._resolve_selected_articles(articles_data_parsed, articles_data)
 
-            invalid_articles = []
-            valid_articles = []
-
-            for article in articles_data_parsed:
-                # LLM sometimes returns 'url' instead of 'uri' - accept both
-                article_uri = article.get('uri', '') or article.get('url', '')
-                # If we got url instead of uri, copy it to uri field
-                if not article.get('uri') and article.get('url'):
-                    article['uri'] = article.get('url')
-                    logger.info(f"LLM returned 'url' instead of 'uri', using url: {article_uri}")
-
-                matched_uri = None
-                if article_uri:
-                    # Try exact match first
-                    if article_uri in valid_uris:
-                        matched_uri = article_uri
-                    else:
-                        # Try fuzzy match (LLM may have stripped query params)
-                        base_uri = article_uri.split('?')[0] if '?' in article_uri else article_uri
-                        if base_uri in uri_base_map:
-                            matched_uri = uri_base_map[base_uri]
-                            # Update article with full URI including query params
-                            article['uri'] = matched_uri
-                            logger.info(f"Fuzzy matched URI: {article_uri} -> {matched_uri}")
-
-                if matched_uri:
-                    valid_articles.append(article)
-                else:
-                    invalid_articles.append(article)
-                    logger.warning(f"Invalid URI returned by LLM: {article_uri} (title: {article.get('title', 'Unknown')})")
-
-            # If more than half the articles have invalid URIs, retry once with stronger instructions
-            if len(invalid_articles) > len(articles_data_parsed) / 2 and not getattr(self, '_six_articles_retry_attempted', False):
-                logger.error(f"LLM returned {len(invalid_articles)}/{len(articles_data_parsed)} articles with invalid URIs. Retrying with stronger prompt.")
+            # Ask again if we are short of the article count the user asked for
+            if len(valid_articles) < request.article_count and invalid_articles \
+                    and not getattr(self, '_six_articles_retry_attempted', False):
+                logger.error(
+                    f"{len(valid_articles)}/{request.article_count} articles matched the corpus "
+                    f"({len(invalid_articles)} unmatched). Asking for replacements."
+                )
                 self._six_articles_retry_attempted = True
 
-                # Add stronger warning to the prompt
+                already_picked = {a.get('uri') for a in valid_articles}
+                shortfall = request.article_count - len(valid_articles)
                 retry_messages = [
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": response_text},
-                    {"role": "user", "content": f"""ERROR: You returned {len(invalid_articles)} articles with URIs that don't exist in the Article Corpus.
+                    {"role": "user", "content": f"""ERROR: {len(invalid_articles)} of your picks did not match any article in the Article Corpus.
 
-CRITICAL: You MUST copy URIs EXACTLY from the Article Corpus. Do NOT create or modify URIs.
+Return {shortfall} replacement article(s) in the same JSON format. Copy the ID line
+(e.g. "a7") and the URI of each pick exactly as they appear in the Article Corpus.
 
-The valid URIs from the Article Corpus are:
-{chr(10).join([f"- {uri}" for uri in list(valid_uris)[:20]])}
+Do NOT pick any of these, they are already in the briefing:
+{chr(10).join([f"- {uri}" for uri in already_picked]) or "- (none)"}
 
-Please try again and return ONLY articles with URIs from this list."""}
+Return ONLY a JSON array of {shortfall} article(s)."""}
                 ]
 
                 retry_response = await litellm.acompletion(
@@ -692,25 +667,23 @@ Please try again and return ONLY articles with URIs from this list."""}
 
                 retry_parsed = self._parse_six_articles_response(retry_text)
                 if retry_parsed:
-                    # Validate retry response
-                    retry_valid = [a for a in retry_parsed if a.get('uri') in valid_uris]
-                    if len(retry_valid) > len(valid_articles):
-                        logger.info(f"Retry successful: {len(retry_valid)} valid articles (was {len(valid_articles)})")
-                        articles_data_parsed = retry_valid
-                    else:
-                        logger.warning(f"Retry didn't improve results: {len(retry_valid)} valid (was {len(valid_articles)})")
-                        articles_data_parsed = valid_articles if valid_articles else retry_valid
+                    retry_valid, _ = self._resolve_selected_articles(retry_parsed, articles_data)
+                    for article in retry_valid:
+                        if article.get('uri') not in already_picked and len(valid_articles) < request.article_count:
+                            valid_articles.append(article)
+                            already_picked.add(article.get('uri'))
+                    logger.info(f"Retry: now {len(valid_articles)}/{request.article_count} articles")
                 else:
                     logger.error("Retry parsing failed, using original valid articles")
-                    articles_data_parsed = valid_articles
 
                 # Reset retry flag
                 self._six_articles_retry_attempted = False
-            else:
-                # Use only valid articles
-                articles_data_parsed = valid_articles
-                if invalid_articles:
-                    logger.info(f"Using {len(valid_articles)} valid articles, discarded {len(invalid_articles)} with invalid URIs")
+
+            articles_data_parsed = valid_articles
+            if len(articles_data_parsed) < request.article_count:
+                logger.warning(
+                    f"Returning {len(articles_data_parsed)} articles, {request.article_count} were requested"
+                )
 
             # If no valid articles after validation, use fallback
             if not articles_data_parsed:
@@ -918,7 +891,8 @@ Please try again and return ONLY articles with URIs from this list."""}
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
-- uri (string - REQUIRED: the exact URI from the Article Corpus - THIS IS THE ARTICLE'S UNIQUE IDENTIFIER - COPY IT EXACTLY)
+- id (string - REQUIRED: the ID line of the article you picked in the Article Corpus, e.g. "a7" - COPY IT EXACTLY)
+- uri (string - REQUIRED: the exact URI from the Article Corpus - COPY IT EXACTLY)
 - title (string)
 - source (string)
 - date (string YYYY-MM-DD)
@@ -935,17 +909,21 @@ CRITICAL: Use ONLY these field names in your JSON response:
 FORBIDDEN: Do NOT use these old field names: why_interesting, devils_advocate, perspectives
 
 EXAMPLE - If the Article Corpus contains:
+  Article 8:
+  ID: a7
   URI: https://techcrunch.com/2025/11/20/ai-startup-raises-100m
   Title: AI Startup Raises $100M Series B
 
-Then your response MUST include the EXACT URI:
+Then your response MUST include the EXACT ID and URI:
   {
+    "id": "a7",
     "uri": "https://techcrunch.com/2025/11/20/ai-startup-raises-100m",
     "title": "AI Startup Raises $100M Series B",
     ...
   }
 
-DO NOT create new URIs. DO NOT modify URIs. DO NOT summarize URIs. COPY THEM EXACTLY.
+DO NOT create new IDs or URIs. DO NOT modify them. DO NOT summarize URIs. COPY THEM EXACTLY.
+Some URIs differ from each other by only one or two characters, so check every character you copy.
 
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             
@@ -978,63 +956,33 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
                 logger.info("JSON parsing returned empty array in cached version, using fallback articles")
                 return await self._create_fallback_six_articles(articles_data, date)
 
-            # Validate URIs exist in the input articles (same validation as non-cached version)
-            valid_uris = {article.get('uri') for article in articles_data if article.get('uri')}
-            # Also create a mapping for fuzzy matching (LLM often strips query params)
-            uri_base_map = {}
-            for uri in valid_uris:
-                # Store both full URI and base URI (without query params)
-                base_uri = uri.split('?')[0] if '?' in uri else uri
-                uri_base_map[base_uri] = uri
+            # Match every selected article back to the corpus (same logic as non-cached version)
+            valid_articles, invalid_articles = self._resolve_selected_articles(articles, articles_data)
 
-            invalid_articles = []
-            valid_articles = []
-
-            for article in articles:
-                # LLM sometimes returns 'url' instead of 'uri' - accept both
-                article_uri = article.get('uri', '') or article.get('url', '')
-                # If we got url instead of uri, copy it to uri field
-                if not article.get('uri') and article.get('url'):
-                    article['uri'] = article.get('url')
-                    logger.info(f"LLM returned 'url' instead of 'uri', using url: {article_uri}")
-
-                matched_uri = None
-                if article_uri:
-                    # Try exact match first
-                    if article_uri in valid_uris:
-                        matched_uri = article_uri
-                    else:
-                        # Try fuzzy match (LLM may have stripped query params)
-                        base_uri = article_uri.split('?')[0] if '?' in article_uri else article_uri
-                        if base_uri in uri_base_map:
-                            matched_uri = uri_base_map[base_uri]
-                            # Update article with full URI including query params
-                            article['uri'] = matched_uri
-                            logger.info(f"Fuzzy matched URI: {article_uri} -> {matched_uri}")
-
-                if matched_uri:
-                    valid_articles.append(article)
-                else:
-                    invalid_articles.append(article)
-                    logger.warning(f"Invalid URI in cached version: {article_uri} (title: {article.get('title', 'Unknown')})")
-
-            # If more than half the articles have invalid URIs, retry once
-            if len(invalid_articles) > len(articles) / 2 and not getattr(self, '_six_articles_cached_retry_attempted', False):
-                logger.error(f"Enhanced: LLM returned {len(invalid_articles)}/{len(articles)} articles with invalid URIs. Retrying.")
+            # Ask again if we are short of the article count the user asked for
+            if len(valid_articles) < request.article_count and invalid_articles \
+                    and not getattr(self, '_six_articles_cached_retry_attempted', False):
+                logger.error(
+                    f"Enhanced: {len(valid_articles)}/{request.article_count} articles matched the corpus "
+                    f"({len(invalid_articles)} unmatched). Asking for replacements."
+                )
                 self._six_articles_cached_retry_attempted = True
 
+                already_picked = {a.get('uri') for a in valid_articles}
+                shortfall = request.article_count - len(valid_articles)
                 retry_messages = [
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": content},
-                    {"role": "user", "content": f"""ERROR: You returned {len(invalid_articles)} articles with URIs that don't exist in the Article Corpus.
+                    {"role": "user", "content": f"""ERROR: {len(invalid_articles)} of your picks did not match any article in the Article Corpus.
 
-CRITICAL: You MUST copy URIs EXACTLY from the Article Corpus. Do NOT create or modify URIs.
+Return {shortfall} replacement article(s) in the same JSON format. Copy the ID line
+(e.g. "a7") and the URI of each pick exactly as they appear in the Article Corpus.
 
-The valid URIs from the Article Corpus are:
-{chr(10).join([f"- {uri}" for uri in list(valid_uris)[:20]])}
+Do NOT pick any of these, they are already in the briefing:
+{chr(10).join([f"- {uri}" for uri in already_picked]) or "- (none)"}
 
-Please try again and return ONLY articles with URIs from this list."""}
+Return ONLY a JSON array of {shortfall} article(s)."""}
                 ]
 
                 retry_response = await litellm.acompletion(
@@ -1049,22 +997,22 @@ Please try again and return ONLY articles with URIs from this list."""}
 
                 retry_parsed = self._parse_six_articles_response(retry_content)
                 if retry_parsed:
-                    retry_valid = [a for a in retry_parsed if a.get('uri') in valid_uris]
-                    if len(retry_valid) > len(valid_articles):
-                        logger.info(f"Enhanced retry successful: {len(retry_valid)} valid articles")
-                        articles = retry_valid
-                    else:
-                        logger.warning(f"Enhanced retry didn't improve: {len(retry_valid)} valid")
-                        articles = valid_articles if valid_articles else retry_valid
+                    retry_valid, _ = self._resolve_selected_articles(retry_parsed, articles_data)
+                    for article in retry_valid:
+                        if article.get('uri') not in already_picked and len(valid_articles) < request.article_count:
+                            valid_articles.append(article)
+                            already_picked.add(article.get('uri'))
+                    logger.info(f"Enhanced retry: now {len(valid_articles)}/{request.article_count} articles")
                 else:
                     logger.error("Enhanced retry parsing failed")
-                    articles = valid_articles
 
                 self._six_articles_cached_retry_attempted = False
-            else:
-                articles = valid_articles
-                if invalid_articles:
-                    logger.info(f"Enhanced: Using {len(valid_articles)} valid, discarded {len(invalid_articles)} invalid")
+
+            articles = valid_articles
+            if len(articles) < request.article_count:
+                logger.warning(
+                    f"Enhanced: returning {len(articles)} articles, {request.article_count} were requested"
+                )
 
             # If no valid articles after validation, use fallback
             if not articles:
@@ -1576,10 +1524,11 @@ You MUST return exactly this JSON structure with these exact field names:
 
 [
   {{
+    "id": "The ID line of the article you picked, copied exactly from the corpus (e.g. a7)",
+    "uri": "The URI of that same article, copied character for character from the corpus",
     "title": "Full headline (Source, YYYY-MM-DD, Author if available)",
     "source": "Publisher name only",
     "date": "YYYY-MM-DD",
-    "url": "Clean URL without tracking parameters",
     "executive_takeaway": "One sentence under 20 words with critical CEO insight",
     "summary": "2-3 sentences of core facts and developments",
     "strategic_relevance": "One paragraph on why this matters for executive decisions",
@@ -1596,6 +1545,7 @@ You MUST return exactly this JSON structure with these exact field names:
 ]
 
 MANDATORY FIELD REQUIREMENTS:
+- id and uri: Copy both from the corpus entry you picked, exactly as written. Never invent, shorten or edit them. Several corpus URIs differ by only one or two characters, so check every character.
 - title: Must include source and date in parentheses
 - executive_takeaway: Must be under 20 words, one sentence
 - time_horizon: Must be exactly "Immediate", "Medium", or "Long-term"
@@ -1608,7 +1558,7 @@ MANDATORY FIELD REQUIREMENTS:
 - Be concise but analytical; each field <100 words (takeaway ≤ 20 words).
 - Prefer primary reporting and regulator/court/filing documents over PR or opinion.
 - No duplicates, no filler, no hype words.
-- Use plain URLs (LinkedIn-safe). Strip tracking (?utm_…, &ref=…, fbclid, etc.).
+- Never edit the uri field, not even to strip tracking parameters - it must match the corpus exactly.
 - If multiple sources cover the same development, pick the most authoritative or the one with new data.
 
 CRITICAL OUTPUT REQUIREMENTS:
@@ -1923,10 +1873,11 @@ You MUST return exactly this JSON structure with these exact field names:
 
 [
   {{
+    "id": "The ID line of the article you picked, copied exactly from the corpus (e.g. a7)",
+    "uri": "The URI of that same article, copied character for character from the corpus",
     "title": "Full headline (Source, YYYY-MM-DD, Author if available)",
     "source": "Publisher name only",
     "date": "YYYY-MM-DD",
-    "url": "Clean URL without tracking parameters",
     "executive_takeaway": "One sentence under 20 words with critical CEO insight",
     "summary": "2-3 sentences of core facts and developments",
     "strategic_relevance": "One paragraph on why this matters for executive decisions",
@@ -1943,6 +1894,7 @@ You MUST return exactly this JSON structure with these exact field names:
 ]
 
 MANDATORY FIELD REQUIREMENTS:
+- id and uri: Copy both from the corpus entry you picked, exactly as written. Never invent, shorten or edit them. Several corpus URIs differ by only one or two characters, so check every character.
 - title: Must include source and date in parentheses
 - executive_takeaway: Must be under 20 words, one sentence
 - time_horizon: Must be exactly "Immediate", "Medium", or "Long-term"
@@ -1955,7 +1907,7 @@ MANDATORY FIELD REQUIREMENTS:
 - Be concise but analytical; each field <100 words (takeaway ≤ 20 words).
 - Prefer primary reporting and regulator/court/filing documents over PR or opinion.
 - No duplicates, no filler, no hype words.
-- Use plain URLs (LinkedIn-safe). Strip tracking (?utm_…, &ref=…, fbclid, etc.).
+- Never edit the uri field, not even to strip tracking parameters - it must match the corpus exactly.
 - If multiple sources cover the same development, pick the most authoritative or the one with new data.
 
 CRITICAL OUTPUT REQUIREMENTS:
@@ -1991,6 +1943,7 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
             article_text = f"""
 {starred_marker}Article {i+1}:
+ID: a{i}
 URI: {article_uri}
 Title: {article.get('title', '')}
 Source: {article.get('news_source', '')} {bias_info} {factuality_info}
@@ -2004,7 +1957,93 @@ Tags: {article.get('tags', '')}
             articles_text.append(article_text.strip())
 
         return "\n\n".join(articles_text)
-    
+
+    # Shortest normalised title prefix trusted to identify one corpus article
+    TITLE_MATCH_MIN_CHARS = 40
+
+    @staticmethod
+    def _normalize_title_for_match(title: str) -> str:
+        """Strip case, punctuation and spacing so an echoed title can be matched to the corpus."""
+        return re.sub(r'[^a-z0-9]+', '', (title or '').lower())
+
+    def _resolve_selected_articles(self, selected: List[Dict], articles_data: List[Dict],
+                                   max_articles: int = 50) -> Tuple[List[Dict], List[Dict]]:
+        """Map each article the model selected back to a real article in the corpus.
+
+        The model copies the corpus ID and title reliably but garbles long URIs that
+        differ by a couple of characters, so try the ID first, then the URI, then the
+        title. Sets 'uri' on every resolved article and returns (resolved, unresolved).
+        """
+        corpus = articles_data[:max_articles]
+
+        id_map = {}
+        uri_map = {}
+        base_uri_map = {}
+        title_map = {}
+        for i, article in enumerate(corpus):
+            uri = article.get('uri')
+            if not uri:
+                continue
+            id_map[f"a{i}"] = uri
+            uri_map[uri] = uri
+            base_uri_map[uri.split('?')[0]] = uri
+            title_key = self._normalize_title_for_match(article.get('title', ''))
+            if title_key:
+                title_map.setdefault(title_key, uri)
+
+        resolved = []
+        unresolved = []
+
+        for article in selected:
+            # The model sometimes returns 'url' instead of 'uri' - accept both
+            if not article.get('uri') and article.get('url'):
+                article['uri'] = article.get('url')
+            article_uri = article.get('uri', '')
+            article_id = str(article.get('id', '') or '').strip().lower()
+
+            matched_uri = None
+            how = None
+
+            if article_id and article_id in id_map:
+                matched_uri = id_map[article_id]
+                how = f"id {article_id}"
+            elif article_uri in uri_map:
+                matched_uri = article_uri
+            elif article_uri.split('?')[0] in base_uri_map:
+                matched_uri = base_uri_map[article_uri.split('?')[0]]
+                how = "URI without query params"
+            else:
+                # The prompt asks for "headline (Source, date, author)", so the echoed title
+                # is usually the corpus title plus a suffix. Match on the shared prefix.
+                title_key = self._normalize_title_for_match(article.get('title', ''))
+                if title_key and title_key in title_map:
+                    matched_uri = title_map[title_key]
+                    how = "title"
+                elif len(title_key) >= self.TITLE_MATCH_MIN_CHARS:
+                    candidates = {
+                        uri for corpus_key, uri in title_map.items()
+                        if len(corpus_key) >= self.TITLE_MATCH_MIN_CHARS
+                        and (corpus_key.startswith(title_key[:self.TITLE_MATCH_MIN_CHARS])
+                             or title_key.startswith(corpus_key[:self.TITLE_MATCH_MIN_CHARS]))
+                    }
+                    if len(candidates) == 1:
+                        matched_uri = candidates.pop()
+                        how = "title prefix"
+
+            if matched_uri:
+                if how and matched_uri != article_uri:
+                    logger.info(f"Resolved selected article by {how}: {article_uri or '(no uri)'} -> {matched_uri}")
+                article['uri'] = matched_uri
+                resolved.append(article)
+            else:
+                unresolved.append(article)
+                logger.warning(
+                    f"Could not match selected article to the corpus: id={article_id or 'none'} "
+                    f"uri={article_uri or 'none'} (title: {article.get('title', 'Unknown')})"
+                )
+
+        return resolved, unresolved
+
     def _parse_overview_response(self, response_text: str) -> Dict[str, Any]:
         """Parse AI response for overview"""
         try:
