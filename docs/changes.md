@@ -2,6 +2,123 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-18 — Forecast Tracker, Topic Report and candidate APIs were unauthenticated
+
+### Goal
+Phase 1 of the Topics / Forecast Tracker / Topic Reports spec. The spec asked us to
+first trace the deployed ASGI stack and prove where authentication is enforced before
+changing anything. Tracing it found that, for these surfaces, it is enforced nowhere.
+
+### What was wrong
+`app/server_run.py` (gitignored, the file systemd runs) does `from main import app`,
+which resolves to `app/main.py`; that calls `create_app()` at `app/main.py:97-98` and
+then bolts ~2,500 lines of legacy routes onto the same app object. The only middleware
+in that chain is Starlette's `SessionMiddleware` (`app/middleware/setup.py:11-14`),
+which reads and writes the session cookie but authenticates nothing, plus
+`HTTPSRedirectMiddleware`. The one `@app.middleware("http")` in `app/main.py:2633` is
+`add_app_info`, a template-context helper.
+
+So a route on these surfaces was protected only if it declared the dependency itself,
+and none of them did. All three routers were built as a bare `APIRouter()`:
+`forecast_assessment_routes.py:28`, `topic_report_routes.py:27`,
+`wiley_candidates_routes.py:27`. Confirmed live, unauthenticated, over public HTTPS:
+
+```
+https://bugfixing.aunoo.ai/api/forecast/topics        200   (returns tracked topics)
+https://bugfixing.aunoo.ai/api/topic-reports/recent   200
+https://wileytest.aunoo.ai/api/forecast/topics        200
+https://wileytest.aunoo.ai/api/topic-reports/recent   200
+```
+
+60 endpoints in total. The exposure included reading tracked topics and candidate
+triage rows, downloading generated reports in five formats, polling background-task
+status, and every write operation — starting report generation, promoting candidates,
+approving overlays, changing delivery recipients, and sending bundles by email.
+`wileytest` is a paying customer's tenant.
+
+### Fix — router-level authentication
+`app/routes/forecast_assessment_routes.py`, `topic_report_routes.py`,
+`wiley_candidates_routes.py` now build their router as
+`APIRouter(dependencies=[Depends(verify_session_api)])`. Every endpoint on these
+routers is private, so enforcing it once at the router is both correct and means a
+route added later cannot arrive unprotected. `verify_session_api`
+(`app/security/session.py:105`) is the repository's existing API-side dependency and
+returns 401; `verify_session` returns a 307 redirect to `/login` and is for page
+routes, so it is deliberately not used here.
+
+Four operations additionally carry `Depends(require_admin)`
+(`app/security/session.py:186`), the repository's existing authorization helper — no
+new role system: `PATCH /api/forecast/topics/{topic}/delivery` (decides who receives
+reports by email), `POST /api/forecast/topics/{topic}/overlay/approve` (replaces a
+production file), `POST /api/forecast/deliverables/send` (emails customers), and
+`POST /api/forecast/deliverables/review/approve` (releases content for delivery).
+
+**Convention conflict, resolved in favour of the repository:** `require_admin` calls
+`verify_session` internally, so on its own it would answer an anonymous API caller
+with a login redirect rather than the 401 the spec asks for. Because the router-level
+`verify_session_api` runs first, an anonymous caller gets 401 and `require_admin` is
+only ever reached by an authenticated user, where it correctly returns 403. A test
+pins that ordering so the pairing cannot be broken later.
+
+### Verification
+`tests/test_forecast_routes_auth.py` (new, 5 tests, passing) reads the real router
+objects and walks each route's full dependency tree. It asserts every route carries
+`verify_session_api`, that the four privileged routes also carry `require_admin`, and
+that admin routes are session-checked too. It builds no database and no app, per the
+harness constraints below. Coverage measured directly off the router objects:
+
+```
+forecast_assessment_routes   routes= 45  session-protected= 45  admin=4
+topic_report_routes          routes=  8  session-protected=  8  admin=0
+wiley_candidates_routes      routes=  7  session-protected=  7  admin=0
+TOTAL routes=60 admin-gated=4
+```
+
+60 matches the route count from the running app's own `/openapi.json`, so the test
+covers every exposed endpoint rather than a subset.
+
+Live, after deploy — anonymous now rejected, app otherwise healthy:
+
+```
+https://bugfixing.aunoo.ai/api/forecast/topics       401     /login 200   /explore 307
+https://wileytest.aunoo.ai/api/forecast/topics       401     /login 200
+https://wiley.aunoo.ai/api/forecast/topics           401     /login 200
+```
+
+Full suite before and after the change: **95 failed, 31 errors both times** — every one
+pre-existing (`pytest-asyncio` is not installed so `@pytest.mark.asyncio` tests cannot
+run, and several `tests/test_week*.py` files are scripts that request a `db` fixture
+that does not exist). The change added 5 passing tests and regressed nothing.
+
+### Propagation
+All three route files identical across bugfixing (canonical), wiley and wileytest;
+each tenant's file was confirmed to match pre-change canonical before copying, so no
+local drift was overwritten. All three services restarted, no background jobs were
+running. Backend-only, no UI rebuild needed.
+
+The React panels call these endpoints with bare `fetch()` and no `credentials` option.
+That is fine: the requests are same-origin, so the default `same-origin` credentials
+mode still sends the session cookie. Signed-in users are unaffected. Checked for
+internal callers before locking down — no cron entry and no in-repo HTTP client calls
+these paths, so nothing server-side broke.
+
+### Lessons
+- **"Documentation says there is auth middleware" is not evidence.** The architecture
+  note referred to `app/auth/middleware.py`, which does not exist in this repo. Trace
+  the entrypoint the service actually runs — here a gitignored `server_run.py` — and
+  probe the running app before believing any layer protects anything.
+- **Enforce authentication at the router when every endpoint is private.** Per-endpoint
+  dependencies are a standing invitation for the next route to be added open.
+- **A cache key or a task id is not a credential.** Report downloads keyed by
+  `period_label` and job polling keyed by `task_id` were both fully public.
+
+### Still open
+This is Phase 1 of 9. Phases 2-9 (run-consistency in the tracker, promoted-scenario
+identity, promotion polling, source-topic-aware reruns, one run-pinned resolver for all
+five export formats, complete regeneration invalidation, per-run scheduling, and the
+Topics wizard fixes) are not done. Whether customers need to be told about the exposure
+window is a decision for Oliver, not something this entry settles.
+
 ## 2026-08-18 — Explore briefing dropped articles when the model miscopied a URI
 
 ### Goal

@@ -19,12 +19,15 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from app.security.session import verify_session_api
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Candidate triage is private: task IDs are not credentials.
+router = APIRouter(dependencies=[Depends(verify_session_api)])
 
 
 # ── Request models ──────────────────────────────────────────────────

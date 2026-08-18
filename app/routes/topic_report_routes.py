@@ -19,12 +19,15 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from app.security.session import verify_session_api
+
 logger = logging.getLogger(__name__)
-router = APIRouter()
+# Report downloads are private: a period_label is a cache key, not a credential.
+router = APIRouter(dependencies=[Depends(verify_session_api)])
 
 
 class _StartTopicReportRequest(BaseModel):

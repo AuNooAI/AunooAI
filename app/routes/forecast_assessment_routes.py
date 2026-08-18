@@ -20,12 +20,16 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, JSONResponse
+
+from app.security.session import require_admin, verify_session_api
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Every endpoint on this router is private. Authentication is enforced once here
+# rather than per-endpoint so a new route cannot be added unprotected by accident.
+router = APIRouter(dependencies=[Depends(verify_session_api)])
 
 
 @router.post("/api/forecast/{run_id}/assess")
@@ -613,9 +617,11 @@ class _TopicDeliveryRequest(__import__("pydantic").BaseModel):  # noqa: N801
     recipient_email: str | None = None
 
 
-@router.patch("/api/forecast/topics/{topic}/delivery")
+@router.patch("/api/forecast/topics/{topic}/delivery",
+              dependencies=[Depends(require_admin)])
 async def patch_topic_delivery_config(topic: str, payload: _TopicDeliveryRequest):
-    """Upsert the delivery cadence + recipient for a topic."""
+    """Upsert the delivery cadence + recipient for a topic. Admin only: this
+    decides who receives generated reports by email."""
     from app.database import get_database_instance
     db = get_database_instance()
     cadence = (payload.cadence or "none").lower()
@@ -910,10 +916,12 @@ class _OverlayApprove(__import__("pydantic").BaseModel):  # noqa: N801
     overlay: dict
 
 
-@router.post("/api/forecast/topics/{topic}/overlay/approve")
+@router.post("/api/forecast/topics/{topic}/overlay/approve",
+             dependencies=[Depends(require_admin)])
 async def approve_topic_overlay(topic: str, payload: _OverlayApprove):
     """Persist the (possibly human-edited) overlay JSON as the production
-    file. Marks overlay_status='human_reviewed', metadata.status='active'."""
+    file. Marks overlay_status='human_reviewed', metadata.status='active'.
+    Admin only: this replaces a production file."""
     import json
     from app.database import get_database_instance
 
@@ -1183,7 +1191,8 @@ async def export_bundle_docx(
     )
 
 
-@router.post("/api/forecast/deliverables/send")
+@router.post("/api/forecast/deliverables/send",
+             dependencies=[Depends(require_admin)])
 async def send_bundle(
     cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
     updates_only: bool = Query(True),
@@ -1297,9 +1306,11 @@ class _BundleReviewApproveRequest(__import__("pydantic").BaseModel):  # noqa: N8
     approved_by: str | None = None
 
 
-@router.post("/api/forecast/deliverables/review/approve")
+@router.post("/api/forecast/deliverables/review/approve",
+             dependencies=[Depends(require_admin)])
 async def approve_bundle_review(payload: _BundleReviewApproveRequest):
-    """Override the reviewer gate and approve the bundle for delivery."""
+    """Override the reviewer gate and approve the bundle for delivery.
+    Admin only: this releases content to customers."""
     from app.database import get_database_instance
     from datetime import datetime, timezone
 
