@@ -359,9 +359,45 @@ stubbed facade: all four pieces of state are cleared, the stale run pins do not 
 artifacts are kept intact when the database cannot be cleared, an uncached period is not
 an error, and the route reports failure rather than claiming success.
 
+### Phase 9 — Topics wizard correctness
+Three ways the wizard reported success while the stored state was wrong.
+
+`POST /api/forecast/topics` returned an existing row untouched, so an analyst who
+stepped back in the wizard and corrected the display name, description, owner, tags or
+source topics had those edits silently discarded. Re-posting an existing **draft** now
+applies whichever of those fields were supplied and reports `updated: true`; a bare
+re-post stays idempotent and writes nothing. An **active or archived** topic returns 409
+pointing at PATCH, since overwriting a live topic's metadata from a create call is not
+what the caller asked for.
+
+`_TopicMetadataPatch` had no `source_topics`, so the corpus backing a tracked topic could
+be set only at creation and a wrong choice was uncorrectable through the API. Added; the
+facade already accepted the keyword.
+
+The overlay was written straight to the production path with no structural check and no
+atomic write. `_validate_overlay()` now runs first — topic match, non-empty
+`deck_scenarios`, a display name and a horizon on each, and every
+`scenario_title_to_deck_key` entry pointing at a key that exists (a dangling key renders
+nothing, silently). The write goes to a temporary sibling and `os.replace`s into place,
+so a crash or a concurrent reader never sees a half-written file.
+
+**The validator was wrong first.** I wrote it from a guessed schema — `scenarios` as a
+list of `{title, type}` — and checked it against the five shipped overlays before
+shipping: it rejected all five. The real shape is `deck_scenarios` keyed by slug with
+`deck_scenario_name` and `horizon`, plus a title→key map. The corrected version then
+rejected two more because three overlays use spanning horizons (`h1_h2`, `h2_h3`,
+`h1_h3`), which `forecast_assessment_service` explicitly supports and treats as
+display-only. Spans are now accepted. A test validates every file in
+`data/wiley_horizons/` so a future change to the validator cannot quietly start rejecting
+production data.
+
+`tests/test_topics_wizard.py` (new, 16 tests) covers the create/update semantics, the
+409 on non-draft, PATCH carrying source topics, each structural failure, spanning
+horizons, dangling title-map keys, the atomic write leaving no temp files, and a rejected
+overlay never reaching the production path.
+
 ### Still open
-Done so far: phases 1, 2, 3, 5, 6, 7 (invalidation half), 8, and the activation check
-from 9. Not started:
+Done so far: phases 1, 2, 3, 5, 6, 7 (invalidation half), 8, 9. Not started:
 
 - **Phase 0** — typed request/response contracts, machine-readable error codes, an
   OpenAPI snapshot with contract tests, and documented state machines.
@@ -374,9 +410,6 @@ from 9. Not started:
   artifact hashes; `period_label` becomes a display label only.
 - **Phase 7 (generations half)** — immutable generations with an atomic
   current-generation pointer, which depends on 6A.
-- **Phase 9 (rest)** — create-vs-PATCH semantics on `POST /api/forecast/topics`,
-  `source_topics` on `_TopicMetadataPatch`, overlay structural validation, and atomic
-  overlay writes.
 - **Phase 10** — structured provenance logging, evidence-set hashes, counters, caps, and
   path sanitisation.
 

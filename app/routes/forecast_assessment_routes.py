@@ -766,6 +766,11 @@ class _TopicMetadataPatch(__import__("pydantic").BaseModel):  # noqa: N801
     owner: str | None = None
     status: str | None = None  # 'draft' | 'active' | 'archived'
     tags: list[str] | None = None
+    # Which corpus topics back this tracked topic. PATCH is the update path for
+    # an existing topic, so it has to be able to change this — without it an
+    # analyst could set source topics only at creation, and a wrong choice was
+    # uncorrectable through the API.
+    source_topics: list[str] | None = None
 
 
 @router.get("/api/forecast/topics")
@@ -854,7 +859,16 @@ async def suggest_source_topics(
 @router.post("/api/forecast/topics")
 async def create_topic_metadata(payload: _TopicMetadataCreate):
     """Register a new topic — wizard step 1. Creates a metadata row in
-    'draft' status. Idempotent: if a row already exists, returns it."""
+    'draft' status.
+
+    Re-posting an existing **draft** updates the metadata supplied with it.
+    This used to return the stored row untouched and report ``created: false``,
+    so an analyst who went back in the wizard and corrected the display name,
+    description, owner, tags or source topics had those edits silently
+    discarded while the UI reported success. An **active or archived** topic is
+    not editable this way and returns 409, because overwriting a live topic's
+    metadata from a create call is not something the caller asked for.
+    """
     from app.database import get_database_instance
     topic = (payload.topic or "").strip()
     if not topic:
@@ -862,7 +876,30 @@ async def create_topic_metadata(payload: _TopicMetadataCreate):
     db = get_database_instance()
     existing = db.facade.get_forecast_topic_metadata(topic)
     if existing:
-        return {"topic": existing, "created": False}
+        status = (existing.get("status") or "draft").lower()
+        if status != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Topic {topic!r} already exists with status {status!r}. "
+                    f"Use PATCH /api/forecast/topics/{topic}/metadata to change it."
+                ),
+            )
+        supplied = {
+            k: v for k, v in {
+                "display_name": payload.display_name,
+                "description": payload.description,
+                "owner": payload.owner,
+                "tags": payload.tags,
+                "source_topics": payload.source_topics,
+            }.items() if v is not None
+        }
+        if not supplied:
+            return {"topic": existing, "created": False, "updated": False}
+        row = db.facade.upsert_forecast_topic_metadata(topic, **supplied)
+        logger.info("Topic %r already existed as a draft; updated %s",
+                    topic, sorted(supplied))
+        return {"topic": row, "created": False, "updated": True}
     row = db.facade.upsert_forecast_topic_metadata(
         topic,
         display_name=payload.display_name,
@@ -878,7 +915,8 @@ async def create_topic_metadata(payload: _TopicMetadataCreate):
 
 @router.patch("/api/forecast/topics/{topic}/metadata")
 async def patch_topic_metadata(topic: str, payload: _TopicMetadataPatch):
-    """Edit description / owner / tags / status. Only supplied fields update."""
+    """Edit display name / description / owner / tags / source topics / status.
+    Only supplied fields update."""
     from app.database import get_database_instance
     if payload.status is not None and payload.status not in ("draft", "active", "archived"):
         raise HTTPException(status_code=422, detail="status must be draft|active|archived")
@@ -890,6 +928,7 @@ async def patch_topic_metadata(topic: str, payload: _TopicMetadataPatch):
         owner=payload.owner,
         status=payload.status,
         tags=payload.tags,
+        source_topics=payload.source_topics,
     )}
 
 
@@ -904,6 +943,80 @@ def _overlay_slug(topic: str) -> str:
 def _overlay_dir():
     from pathlib import Path
     return Path(__file__).resolve().parents[2] / "data" / "wiley_horizons"
+
+
+# Horizons the deck builder knows how to render. An overlay naming anything
+# else produces slides with no horizon styling and no label.
+_OVERLAY_HORIZONS = {"h1", "h2", "h3"}
+
+
+def _is_valid_overlay_horizon(horizon: str) -> bool:
+    """h1/h2/h3, or a span across them such as ``h1_h3``.
+
+    Spans are deliberate: three of the shipped overlays use them, and the deck
+    builder treats a combined horizon as display-only, taking the real horizon
+    from the member scenarios (see forecast_assessment_service, "the overlay's
+    horizon is for display only").
+    """
+    parts = (horizon or "").strip().lower().split("_")
+    return bool(parts) and all(p in _OVERLAY_HORIZONS for p in parts)
+
+
+def _validate_overlay(overlay: dict, topic: str) -> list:
+    """Structural checks on a deck overlay before it replaces the live file.
+
+    Returns a list of human-readable problems; empty means usable. Deliberately
+    structural only — this does not judge the prose, only that the deck builder
+    can consume the file. The shape is the one the five shipped overlays use:
+    ``deck_scenarios`` keyed by slug, each with a display name and a horizon,
+    plus ``scenario_title_to_deck_key`` mapping stored scenario titles onto
+    those keys. Every rule here was checked against those files first — an
+    earlier version of this validator was written from a guessed schema and
+    would have rejected all five.
+    """
+    problems = []
+
+    if not isinstance(overlay, dict):
+        return ["overlay must be a JSON object"]
+    if (overlay.get("topic") or "").strip() != (topic or "").strip():
+        problems.append(f"'topic' must be {topic!r}")
+
+    deck_scenarios = overlay.get("deck_scenarios")
+    if not isinstance(deck_scenarios, dict) or not deck_scenarios:
+        problems.append("'deck_scenarios' must be a non-empty object keyed by deck key")
+        return problems
+
+    for key, sc in deck_scenarios.items():
+        where = f"deck_scenarios[{key!r}]"
+        if not isinstance(sc, dict):
+            problems.append(f"{where}: must be an object")
+            continue
+        if not (sc.get("deck_scenario_name") or "").strip():
+            problems.append(f"{where}: needs a deck_scenario_name")
+        horizon = (sc.get("horizon") or "").strip().lower()
+        if not horizon:
+            problems.append(f"{where}: needs a horizon")
+        elif not _is_valid_overlay_horizon(horizon):
+            problems.append(
+                f"{where}: horizon {horizon!r} must be h1, h2, h3 or a span of them "
+                f"such as h1_h3"
+            )
+
+    # The title map is what joins a run's stored scenarios onto the deck. An
+    # entry pointing at a key that does not exist renders nothing, silently.
+    title_map = overlay.get("scenario_title_to_deck_key")
+    if title_map is not None:
+        if not isinstance(title_map, dict):
+            problems.append("'scenario_title_to_deck_key' must be an object")
+        else:
+            for title, key in title_map.items():
+                if key not in deck_scenarios:
+                    problems.append(
+                        f"scenario_title_to_deck_key[{title!r}] points at {key!r}, "
+                        f"which is not in deck_scenarios"
+                    )
+
+    return problems
 
 
 class _WizardBuildRequest(__import__("pydantic").BaseModel):  # noqa: N801
@@ -1048,9 +1161,39 @@ async def approve_topic_overlay(topic: str, payload: _OverlayApprove):
             detail=f"Overlay's 'topic' field '{overlay.get('topic')}' must match URL topic '{topic}'",
         )
 
+    # Validate BEFORE writing. This file is read by the deck builder and the
+    # scheduler's topic enumeration, so a structurally broken overlay written to
+    # the production path degrades those silently rather than failing here.
+    problems = _validate_overlay(overlay, topic)
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail="Overlay is not usable: " + "; ".join(problems),
+        )
+
     slug = _overlay_slug(topic)
     final_path = _overlay_dir() / f"{slug}.json"
-    final_path.write_text(json.dumps(overlay, indent=2, ensure_ascii=False))
+    # Write to a temporary sibling and replace, so a crash or a concurrent
+    # reader never sees a half-written overlay. os.replace is atomic within a
+    # filesystem, and the sibling guarantees the same one.
+    import os as _os
+    import tempfile as _tempfile
+    body = json.dumps(overlay, indent=2, ensure_ascii=False)
+    fd, tmp_path = _tempfile.mkstemp(
+        dir=str(_overlay_dir()), prefix=f".{slug}.", suffix=".tmp",
+    )
+    try:
+        with _os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+            fh.flush()
+            _os.fsync(fh.fileno())
+        _os.replace(tmp_path, final_path)
+    except Exception:
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+        raise
     # Best-effort clean up the .proposed sibling
     proposed_path = _overlay_dir() / f"{slug}.json.proposed"
     if proposed_path.exists():
