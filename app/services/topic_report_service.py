@@ -51,113 +51,6 @@ def _topics_period_label(period: str, topics: list[str]) -> str:
     return f"{safe}__{h}"
 
 
-def _synthesize_verdicts_from_forecast(forecast_run: dict) -> list:
-    """When the assessment ran with 0 evidence (e.g. the forecast is too
-    fresh for any post-forecast articles), the verdicts table is empty —
-    but the forecast itself has scenarios we still want to render in the
-    deck as a forward-looking view.
-
-    Pulls scenarios from ``raw_output.scenarios`` (parsing the double-
-    encoded JSON the supervisor sometimes stores) and emits placeholder
-    verdicts with ``verdict_label='Pending evidence'`` so the deck's
-    per-scenario builder fires and produces H1/H2/H3 slides.
-    """
-    import json as _json
-    raw = forecast_run.get("raw_output") or {}
-    if isinstance(raw, str):
-        try:
-            raw = _json.loads(raw)
-        except Exception:
-            raw = {}
-    if isinstance(raw, str):  # doubly-encoded
-        try:
-            raw = _json.loads(raw)
-        except Exception:
-            raw = {}
-    scenarios = (raw or {}).get("scenarios") or []
-    out: list = []
-    for idx, s in enumerate(scenarios):
-        if not isinstance(s, dict):
-            continue
-        h = (s.get("type") or "h1").lower()
-        out.append({
-            "scenario_idx": idx,
-            "scenario_title": s.get("title") or s.get("name") or f"Scenario {idx+1}",
-            "scenario_description": s.get("description") or "",
-            # Deck builder reads ``horizon_type`` (see forecast_pptx_export.py
-            # _add_scenario_slide line ~862) — keeping both fields for safety.
-            "horizon_type": h,
-            "horizon": h,
-            "timeframe": s.get("timeframe") or "",
-            "sentiment": s.get("sentiment") or "",
-            "verdict_label": "Pending evidence",
-            "confirming_articles": [],
-            "countering_articles": [],
-            "top_articles": {},
-        })
-    return out
-
-
-def _resolve_items_for_topics(topics: list[str]) -> list:
-    """Resolve ``(assessment, forecast_run, prior_assessment)`` triples for
-    an explicit topic list.
-
-    If a topic has a forecast run but the latest assessment has no scenario
-    verdicts (because the assessment found 0 evidence — common when the
-    forecast was just generated and no post-forecast articles exist yet),
-    synthesize placeholder verdicts from ``forecast_run.raw_output`` so the
-    deck still surfaces the forward-looking scenarios.
-    """
-    from app.database import get_database_instance
-    from app.services.wiley_delivery_service import _apply_overlay_display_names
-
-    db = get_database_instance()
-    items: list = []
-    for topic in topics:
-        topic = (topic or "").strip()
-        if not topic:
-            continue
-        assessment = db.facade.get_latest_forecast_assessment_by_topic(topic)
-        forecast_run = None
-        if assessment:
-            forecast_run = db.facade.get_future_horizons_analysis(assessment.get("run_id"))
-        else:
-            # No assessment at all — try to find the latest forecast run for
-            # this topic so we can still produce a forward-looking deck.
-            from sqlalchemy import text as sa_text
-            row = db.facade._execute_with_rollback(sa_text("""
-                SELECT id FROM future_horizons_runs
-                WHERE topic = :topic ORDER BY created_at DESC LIMIT 1
-            """), {"topic": topic}).fetchone()
-            if not row:
-                logger.info("Topic report: skipping %s — no forecast or assessment", topic)
-                continue
-            run_id = (row._mapping["id"] if hasattr(row, "_mapping") else row[0])
-            forecast_run = db.facade.get_future_horizons_analysis(run_id)
-            # Stub assessment so the per-topic loop has something to read
-            assessment = {
-                "topic": topic, "run_id": run_id, "scenario_verdicts": [],
-                "summary": {}, "surprises": [], "evidence_count": 0,
-            }
-
-        # If the assessment has no verdicts, synthesize them from the
-        # forecast's raw_output so the H1/H2/H3 slides render anyway.
-        verdicts = assessment.get("scenario_verdicts") or []
-        if not verdicts and forecast_run:
-            synth = _synthesize_verdicts_from_forecast(forecast_run)
-            if synth:
-                # Shallow copy + inject so we don't pollute the cached
-                # assessment dict in the facade.
-                a = dict(assessment)
-                a["scenario_verdicts"] = synth
-                assessment = a
-                logger.info("Topic report: synthesized %d verdicts for %s from forecast raw_output",
-                            len(synth), topic)
-
-        items.append((assessment, forecast_run or {}, None))
-    return _apply_overlay_display_names(items)
-
-
 def _render_cache_dir() -> str:
     """Per-tenant render-cache dir.
 
@@ -1103,9 +996,16 @@ def _load_cached_state(period_label: str):
     The MD / HTML / DOCX exports are *views* of the cached synthesis — they
     never re-run the multi-agent pipeline. The PPTX path is the canonical
     generator.
+
+    Items come from the shared run-pinned ``resolve_items``, the same resolver
+    the PPTX, HTML and full-DOCX exports use. This function used to call
+    ``get_latest_forecast_assessment_by_topic`` per topic instead, which
+    resolved to whatever run was assessed most recently — so Markdown and the
+    executive DOCX could describe a different forecast run than the deck they
+    were supposed to be views of, under the same report label.
     """
     from app.database import get_database_instance
-    from app.services.wiley_delivery_service import _apply_overlay_display_names
+    from app.services.topic_report_pptx import resolve_items
 
     db = get_database_instance()
     synth = db.facade.get_forecast_bundle_synthesis("topic_report", period_label) or {}
@@ -1120,29 +1020,26 @@ def _load_cached_state(period_label: str):
     # synthesis row's ``topics`` were captured after
     # ``_apply_overlay_display_names`` ran, so a topic with a deck overlay is
     # stored there under its display name and cannot be looked up.
-    sidecar_topics = (_read_state_sidecar(period_label) or {}).get("topics") or []
+    state = _read_state_sidecar(period_label) or {}
+    sidecar_topics = state.get("topics") or []
     topic_names = sidecar_topics or [
         (e.get("topic") if isinstance(e, dict) else e) for e in (synth.get("topics") or [])
     ]
+    topic_names = [t for t in topic_names if t]
 
-    from app.services.forecast_assessment_service import source_topic_for_display_name
-
-    items: list = []
-    for topic in topic_names:
-        if not topic:
-            continue
-        a = db.facade.get_latest_forecast_assessment_by_topic(topic)
-        if not a:
-            # Rows and sidecars written before 2026-08-03 hold display names.
-            source = source_topic_for_display_name(topic)
-            if source:
-                a = db.facade.get_latest_forecast_assessment_by_topic(source)
-        if a:
-            items.append((a, None, None))
-        else:
-            logger.info("topic report %s: no assessment for %r — omitted from the export",
-                        period_label, topic)
-    items = _apply_overlay_display_names(items)
+    # The sidecar's run_ids are authoritative for an existing report. Resolving
+    # through the shared resolver applies overlay display names itself, after
+    # stamping _source_topic and _source_run_id, so provenance survives the
+    # rename.
+    items = resolve_items(topic_names, run_ids=state.get("run_ids") or {})
+    if len(items) < len(topic_names):
+        rendered = {a.get("_source_topic") for (a, _r, _p) in items}
+        for t in topic_names:
+            if t not in rendered:
+                logger.info(
+                    "topic report %s: no forecast run for %r — omitted from the export",
+                    period_label, t,
+                )
 
     # Same saved_eos source the deck uses (see ensure_bundle_synthesis) —
     # the assessment summary is empty on the topic-report path.

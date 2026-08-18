@@ -262,13 +262,56 @@ the list the model was shown. The "no articles" error now names the topics searc
 parameters the rerun issues rather than running it, since the real path calls a model
 and writes to the database.
 
+### Phase 6 — one run-pinned resolver for every export format
+A report label pins each source topic to the exact `future_horizons_runs` id the deck was
+built from, so a horizons rerun between exports cannot swap the analysis under an
+artifact. Three holes let it happen anyway.
+
+`resolve_items` loaded the assessment with `get_latest_forecast_assessment_by_topic()`,
+which resolves to whichever run was assessed most recently — so a report pinned to run A
+merged run B's summary and surprises into A's scenarios. It now loads
+`get_latest_forecast_assessment(run_id)` for the pinned run and refuses a row whose
+`run_id` disagrees rather than mixing runs.
+
+Markdown and the executive DOCX did not use the resolver at all: they went through
+`_load_cached_state`, which looked up the latest assessment per topic and ignored the
+sidecar's `run_ids` entirely. Both now resolve through the same pinned `resolve_items` as
+PPTX, HTML and full DOCX, so all five formats and the supervisor synthesis inputs share
+one path.
+
+A pin that no longer resolved fell back to the latest run with a warning — the exact
+drift pinning exists to prevent. It now raises `MissingPinnedRun`, which the download
+routes translate into **409** telling the caller to regenerate.
+
+The resolver stamps `_source_topic`, `_source_run_id` and `_assessment_id` before overlay
+display names are applied, so provenance survives the rename and every renderer can print
+which run it rendered. The dead third resolver `_resolve_items_for_topics` and its
+now-orphaned helper `_synthesize_verdicts_from_forecast` (107 lines, zero callers) are
+deleted.
+
+**Incident during this deploy — wiley down ~3 minutes.** The 409 handling needed
+`MissingPinnedRun` in the route module, and I imported it from `topic_report_pptx` at
+module scope. That module imports `python-pptx`, which is not installed in wiley's venv;
+every previous import of it in this area was function-local for exactly that reason.
+wiley crash-looped with `ModuleNotFoundError: No module named 'pptx'` and served 502 until
+the exception was moved to a new dependency-free `app/services/topic_report_errors.py`
+(re-exported from `topic_report_pptx` for callers who look for it there). A test now
+parses the route module's AST and fails on any module-scope import of the renderer.
+
+`tests/test_topic_report_run_pinning.py` (new, 8 tests): the assessment comes from the
+pinned run and never from a by-topic lookup, provenance fields survive, a missing pin
+raises rather than switching runs, an unpinned topic still resolves to latest (first
+generation), a foreign assessment row is dropped, all five formats go through the
+resolver, the dead resolver is gone, and routes do not import the renderer at module
+scope.
+
 ### Still open
 Phase 0 (typed contracts, error codes, OpenAPI snapshot, state machines), Phase 4's
 background-task admission/idempotency/reconciliation work,
-Phase 6 (one run-pinned resolver — Markdown and executive DOCX still re-resolve latest
-assessment by topic), Phase 7 (regenerate only deletes the cached PPTX and leaves the
-synthesis, review and sidecar stale), Phase 8 (scheduling is per topic, so a new run is
-not assessed until the topic's 30-day clock expires), and the rest of Phase 9.
+Phase 7 (regenerate only deletes the cached PPTX and leaves the synthesis, review and
+sidecar stale), Phase 6A (durable report manifest), Phase 8 (scheduling is per topic),
+Phase 10 (observability and limits), and the rest of Phase 9.
+
 
 Whether customers need to be told about the Phase 1 exposure window is a decision for
 Oliver, not something this entry settles.

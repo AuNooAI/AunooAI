@@ -24,6 +24,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.security.session import verify_session_api
+# From the dependency-free error module, NOT topic_report_pptx: that one imports
+# python-pptx, which is not installed on every tenant, and importing it here at
+# module scope took wiley down with ModuleNotFoundError at startup.
+from app.services.topic_report_errors import MissingPinnedRun
 
 logger = logging.getLogger(__name__)
 # Report downloads are private: a period_label is a cache key, not a credential.
@@ -142,6 +146,10 @@ async def download_topic_report_markdown(period_label: str):
     from app.services.topic_report_service import generate_topic_report_markdown
     try:
         blob, *_ = await generate_topic_report_markdown(period_label)
+    except MissingPinnedRun as e:
+        # The report is pinned to a run that no longer exists. Regenerating is
+        # the fix; rendering a different run under this label is not.
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return Response(
@@ -160,6 +168,10 @@ async def download_topic_report_html(period_label: str):
     from app.services.topic_report_service import generate_topic_report_html
     try:
         blob, *_ = await generate_topic_report_html(period_label)
+    except MissingPinnedRun as e:
+        # The report is pinned to a run that no longer exists. Regenerating is
+        # the fix; rendering a different run under this label is not.
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return Response(
@@ -183,6 +195,10 @@ async def download_topic_report_docx(period_label: str):
     from app.services.topic_report_service import generate_topic_report_docx
     try:
         blob, *_ = await generate_topic_report_docx(period_label)
+    except MissingPinnedRun as e:
+        # The report is pinned to a run that no longer exists. Regenerating is
+        # the fix; rendering a different run under this label is not.
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return Response(
@@ -202,6 +218,10 @@ async def download_topic_report_docx_full(period_label: str):
     from app.services.topic_report_service import generate_topic_report_docx_full
     try:
         blob, *_ = await generate_topic_report_docx_full(period_label)
+    except MissingPinnedRun as e:
+        # The report is pinned to a run that no longer exists. Regenerating is
+        # the fix; rendering a different run under this label is not.
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return Response(
