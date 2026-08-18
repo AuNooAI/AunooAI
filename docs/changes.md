@@ -396,16 +396,54 @@ production data.
 horizons, dangling title-map keys, the atomic write leaving no temp files, and a rejected
 overlay never reaching the production path.
 
+### Phase 4 (task reliability) — work over the limit is queued, not lost
+`BackgroundTaskManager.run_task()` checked the concurrency limit and, when it was
+reached, logged "Too many concurrent tasks, queuing task" and returned. Nothing queued
+it. The row stayed `pending` with no worker, so a caller polling its `status_url`
+watched a task that would never start, never finish and never fail. With a limit of
+three, the fourth simultaneous assessment or report generation was simply lost.
+
+`run_task` now awaits a semaphore, so the queue is real: the task genuinely is pending
+and starts when a slot frees. Every caller launches it through `asyncio.create_task`, and
+no job awaits another job, so waiting for a slot cannot deadlock. The body moved into
+`_run_task_body` with the slot released in a `finally`, so a failing job cannot leak its
+slot and wedge the queue.
+
+Workers only exist inside the process that started them, so rows persisted as `running`
+after a restart had nobody advancing them — the same symptom from the other end.
+`reconcile_interrupted_tasks()` runs once at startup and fails them with an explicit
+interruption reason, protecting any task live in the current process. It closed 65
+orphaned rows across the three tenants on first run, the newest eight days old.
+
+**A bug I shipped in Phase 7, caught here.** `DatabaseQueryFacade` has no `self.session`
+— `_execute_with_rollback` commits by itself — and the `self.session.commit()` calls
+elsewhere in that file are dead code that survives only because they sit inside
+`except Exception: pass`. I copied that idiom into `delete_forecast_bundle_state`, where
+the surrounding error handling *re-raises*: the deletes committed but the method always
+raised `AttributeError`, so `POST .../regenerate` would have returned 500 on every
+request. The Phase 7 test stubbed the facade, so it never touched the real method and
+never saw this. Both new facade methods now rely on `_execute_with_rollback`, both were
+exercised against the live database, and a test parses their AST for `self.session` so
+the idiom cannot be copied back in.
+
+`tests/test_background_task_admission.py` (new, 7 tests): four jobs under a limit of
+three all complete with the fourth genuinely `pending` while it waits, nothing is left
+pending with a limit of one, a failing job releases its slot, restart reconciliation
+closes orphaned rows and protects live ones, a reconciliation failure does not block
+startup, and neither facade method uses `self.session`.
+
+Not done from Phase 4: active-job keys, `Idempotency-Key` on scenario creation,
+requester/tenant scope in task metadata with authorization on status and cancel.
+
 ### Still open
-Done so far: phases 1, 2, 3, 5, 6, 7 (invalidation half), 8, 9. Not started:
+Done so far: phases 1, 2, 3, 4 (polling + task reliability), 5, 6, 7 (invalidation half),
+8, 9. Not started:
 
 - **Phase 0** — typed request/response contracts, machine-readable error codes, an
   OpenAPI snapshot with contract tests, and documented state machines.
-- **Phase 4 (task reliability half)** — `BackgroundTaskManager.run_task()` still returns
-  immediately at the concurrency limit, leaving the persisted task `pending` with no
-  worker; plus active-job keys, `Idempotency-Key` on scenario creation, requester/tenant
-  scope in task metadata with authorization on status and cancel, and startup
-  reconciliation of `running` tasks with no live worker. The polling side is done.
+- **Phase 4 (remainder)** — active-job keys, `Idempotency-Key` on scenario creation, and
+  requester/tenant scope in task metadata with authorization on status and cancel. The
+  polling, admission-queue and restart-reconciliation work is done.
 - **Phase 6A** — durable `topic_report_runs` manifest with `report_id`, generations and
   artifact hashes; `period_label` becomes a display label only.
 - **Phase 7 (generations half)** — immutable generations with an atomic

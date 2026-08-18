@@ -139,6 +139,16 @@ async def lifespan(app: FastAPI):
         for _mod, _func, _delay, _label in _BACKGROUND_TASKS:
             _schedule_background_task(_mod, _func, _delay, _label)
 
+        # Background-task workers only exist inside the process that started
+        # them, so any row this database still has as "running" was orphaned by
+        # a previous process. Close them now, or a caller polling one waits
+        # forever on a task that will never finish and never fail.
+        try:
+            from app.services.background_task_manager import get_task_manager
+            get_task_manager().reconcile_interrupted_tasks()
+        except Exception as e:
+            logger.warning("Background-task reconciliation skipped: %s", e)
+
         # Dynamically schedule background tasks for enabled analysis modules
         from app.core.modules import get_enabled_modules
 

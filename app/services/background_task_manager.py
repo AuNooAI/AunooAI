@@ -54,6 +54,9 @@ class BackgroundTaskManager:
         self._tasks: Dict[str, TaskInfo] = {}
         self._running_tasks: Dict[str, asyncio.Task] = {}
         self._max_concurrent_tasks = 3
+        # Admission gate. Created lazily because the manager is constructed at
+        # import time, before there is a running event loop to bind to.
+        self._slots: Optional[asyncio.Semaphore] = None
         self._task_cleanup_interval = 3600  # 1 hour
         self._db = db  # Database instance for persistence
 
@@ -127,6 +130,32 @@ class BackgroundTaskManager:
             logger.error(f"Failed to load task {task_id} from database: {e}")
             return None
 
+    def reconcile_interrupted_tasks(self) -> int:
+        """Mark tasks the previous process left `running` as failed.
+
+        A worker only exists inside the process that started it. After a restart
+        or a crash, rows persisted as ``running`` have nobody advancing them, so
+        a caller polling ``status_url`` waits on a task that will never finish
+        and never fail. Called once at startup.
+
+        Only rows with no in-memory task in *this* process are touched, so a
+        genuinely live task is never mislabelled. Returns how many were closed.
+        """
+        try:
+            db = self._get_db()
+            closed = db.facade.close_interrupted_background_tasks(
+                keep_task_ids=list(self._running_tasks.keys()),
+            )
+        except Exception as e:
+            logger.warning("Could not reconcile interrupted tasks: %s", e)
+            return 0
+
+        if closed:
+            logger.warning(
+                "Closed %d background task(s) left running by a previous process", closed,
+            )
+        return closed
+
     def create_task(self, name: str, total_items: int = 0, metadata: Optional[Dict] = None) -> str:
         """Create a new background task and return its ID"""
         task_id = str(uuid.uuid4())
@@ -152,11 +181,35 @@ class BackgroundTaskManager:
 
         task_info = self._tasks[task_id]
 
-        # Check if we have too many running tasks
-        if len(self._running_tasks) >= self._max_concurrent_tasks:
-            logger.warning(f"Too many concurrent tasks, queuing task {task_id}")
-            return
+        # Wait for a slot instead of dropping the task on the floor.
+        #
+        # This used to log "queuing task" and return, but nothing queued it: the
+        # row stayed PENDING with no worker, forever. A caller polling its
+        # status_url saw a task that never started and never failed. Awaiting a
+        # semaphore makes the queue real — the task genuinely is pending, and it
+        # starts when a slot frees. Every caller launches run_task through
+        # asyncio.create_task, so waiting here blocks nothing else.
+        slots = self._get_slots()
+        if slots.locked():
+            logger.info(
+                "Task %s (%s) is waiting for a slot (%d concurrent max)",
+                task_id, task_info.name, self._max_concurrent_tasks,
+            )
+        await slots.acquire()
+        try:
+            await self._run_task_body(task_id, task_info, task_func, *args, **kwargs)
+        finally:
+            slots.release()
 
+    def _get_slots(self) -> asyncio.Semaphore:
+        """The admission semaphore, bound to the running loop on first use."""
+        if self._slots is None:
+            self._slots = asyncio.Semaphore(self._max_concurrent_tasks)
+        return self._slots
+
+    async def _run_task_body(self, task_id: str, task_info, task_func: Callable,
+                             *args, **kwargs) -> None:
+        """Run one task with a slot already held."""
         task_info.status = TaskStatus.RUNNING
         task_info.started_at = datetime.now()
         self._persist_task(task_info)  # Persist status change

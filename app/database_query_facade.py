@@ -9382,6 +9382,10 @@ class DatabaseQueryFacade:
 
         removed = {"synthesis": 0, "review": 0}
         try:
+            # _execute_with_rollback commits on success and rolls back on error.
+            # This facade has no `self.session`; the `self.session.commit()`
+            # calls elsewhere in this file are dead code that only survives
+            # because they sit inside `except Exception: pass`.
             syn = self._execute_with_rollback(
                 delete(t_forecast_bundle_synthesis).where(
                     (t_forecast_bundle_synthesis.c.cadence == cadence)
@@ -9396,17 +9400,12 @@ class DatabaseQueryFacade:
             )
             removed["synthesis"] = getattr(syn, "rowcount", 0) or 0
             removed["review"] = getattr(rev, "rowcount", 0) or 0
-            self.session.commit()
             self.logger.info(
                 "Cleared bundle state for %s/%s: %s synthesis, %s review row(s)",
                 cadence, period_label, removed["synthesis"], removed["review"],
             )
             return removed
         except Exception as e:
-            try:
-                self.session.rollback()
-            except Exception:
-                pass
             # Never report a period as cleared when it was not: the caller would
             # then generate a new deck on top of the old executive letter.
             self.logger.error(
@@ -10390,6 +10389,40 @@ class DatabaseQueryFacade:
             'metadata': metadata
         })
         self.connection.commit()
+
+    def close_interrupted_background_tasks(self, keep_task_ids=None) -> int:
+        """Fail every task still marked ``running`` that no live worker owns.
+
+        A worker only exists inside the process that started it, so after a
+        restart or crash these rows have nobody advancing them: a caller polling
+        the task waits forever on something that will never finish and never
+        fail. One UPDATE, so a task that starts while this runs is either
+        already excluded or not yet visible as running.
+
+        ``keep_task_ids`` protects tasks live in the calling process. Returns
+        how many rows were closed.
+        """
+        from sqlalchemy import text as sa_text
+
+        keep = [t for t in (keep_task_ids or []) if t]
+        sql = (
+            "UPDATE background_tasks "
+            "SET status = 'failed', completed_at = NOW(), "
+            "    error = COALESCE(error, 'Interrupted: the process running this task "
+            "stopped before it finished.') "
+            "WHERE status = 'running'"
+        )
+        params = {}
+        if keep:
+            sql += " AND id <> ALL(:keep)"
+            params["keep"] = keep
+        try:
+            # _execute_with_rollback commits on success and rolls back on error.
+            result = self._execute_with_rollback(sa_text(sql), params)
+            return getattr(result, "rowcount", 0) or 0
+        except Exception as e:
+            self.logger.error(f"Error closing interrupted background tasks: {e}")
+            return 0
 
     def get_background_task(self, task_id: str):
         """Retrieve a background task from the database"""
