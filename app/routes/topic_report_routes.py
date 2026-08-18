@@ -236,12 +236,31 @@ async def download_topic_report_docx_full(period_label: str):
 
 @router.post("/api/topic-reports/{period_label}/regenerate")
 async def regenerate_topic_report(period_label: str):
-    """Drop the cached PPTX for this (topics, period) so the next start
-    re-runs the pipeline from scratch. Analyst-triggered when content
-    looks stale."""
-    from app.services.topic_report_service import invalidate_render_cache
-    invalidate_render_cache(period_label)
-    return {"ok": True, "period_label": period_label}
+    """Clear this report's derived state so the next start rebuilds it whole.
+
+    Analyst-triggered when content looks stale. This used to drop only the
+    cached PPTX; the supervisor synthesis, review verdict and state sidecar all
+    survived. Since ``ensure_bundle_synthesis`` returns early when a payload
+    exists, the Markdown and executive-DOCX exports then kept serving the
+    previous executive letter against a freshly generated deck, and the stale
+    sidecar still held the old pinned run ids.
+    """
+    from app.services.topic_report_service import invalidate_report_state
+    try:
+        cleared = invalidate_report_state(period_label)
+    except Exception as e:
+        # Report the failure rather than letting the caller regenerate a deck
+        # on top of synthesis we could not clear.
+        logger.error("topic report %s: regenerate failed to clear state: %s",
+                     period_label, e)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Could not clear the previous report state for {period_label}; "
+                f"nothing was regenerated. {e}"
+            ),
+        )
+    return {"ok": True, "period_label": period_label, "cleared": cleared}
 
 
 @router.get("/api/topic-reports/recent")

@@ -9362,6 +9362,58 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error saving bundle synthesis ({cadence}/{period_label}): {e}")
 
+    def delete_forecast_bundle_state(self, cadence: str, period_label: str) -> dict:
+        """Drop the synthesis and review rows for one report period.
+
+        Regenerating a report has to clear everything derived from the old
+        state, not just the cached deck. ``ensure_bundle_synthesis`` returns
+        early when a payload already exists, so leaving the synthesis row behind
+        meant the Markdown and executive-DOCX exports kept serving the previous
+        executive letter against a freshly generated deck, indefinitely.
+
+        Both deletes run in one transaction: a half-cleared period would leave a
+        review verdict attached to synthesis that no longer exists. Returns what
+        was actually removed so the caller can report it.
+        """
+        from app.database_models import (
+            t_forecast_bundle_review, t_forecast_bundle_synthesis,
+        )
+        from sqlalchemy import delete
+
+        removed = {"synthesis": 0, "review": 0}
+        try:
+            syn = self._execute_with_rollback(
+                delete(t_forecast_bundle_synthesis).where(
+                    (t_forecast_bundle_synthesis.c.cadence == cadence)
+                    & (t_forecast_bundle_synthesis.c.period_label == period_label)
+                )
+            )
+            rev = self._execute_with_rollback(
+                delete(t_forecast_bundle_review).where(
+                    (t_forecast_bundle_review.c.cadence == cadence)
+                    & (t_forecast_bundle_review.c.period_label == period_label)
+                )
+            )
+            removed["synthesis"] = getattr(syn, "rowcount", 0) or 0
+            removed["review"] = getattr(rev, "rowcount", 0) or 0
+            self.session.commit()
+            self.logger.info(
+                "Cleared bundle state for %s/%s: %s synthesis, %s review row(s)",
+                cadence, period_label, removed["synthesis"], removed["review"],
+            )
+            return removed
+        except Exception as e:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            # Never report a period as cleared when it was not: the caller would
+            # then generate a new deck on top of the old executive letter.
+            self.logger.error(
+                "Failed clearing bundle state for %s/%s: %s", cadence, period_label, e
+            )
+            raise
+
     # Bundle review gate (forecast_bundle_review) — backs the human-in-the-loop
     # review step in the WileyBundleSupervisor pipeline.
     def get_forecast_bundle_review(self, cadence: str, period_label: str) -> dict:

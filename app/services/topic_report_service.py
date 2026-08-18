@@ -83,6 +83,50 @@ def invalidate_render_cache(period_label: str) -> None:
         logger.warning("render-cache invalidate failed (%s): %s", path, e)
 
 
+def invalidate_report_state(period_label: str) -> dict:
+    """Clear everything derived from a topic report's previous generation.
+
+    Regenerate used to drop only the cached PPTX. Everything else survived, and
+    because ``ensure_bundle_synthesis`` returns early when a payload already
+    exists, the Markdown and executive-DOCX exports went on serving the previous
+    executive letter against a freshly generated deck — indefinitely. The stale
+    sidecar also kept the OLD pinned run ids, so the next build's HTML and full
+    DOCX could resolve to runs the new deck had not used.
+
+    Order matters: the database rows go first and are allowed to fail loudly. If
+    they cannot be cleared we must not delete the artifacts, because that would
+    leave a period with no deck and an old letter still being served.
+
+    Returns a summary of what was cleared, for the API response and the log.
+    """
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    # Raises on failure — the caller turns that into an error rather than
+    # reporting a regeneration that did not happen.
+    removed = db.facade.delete_forecast_bundle_state("topic_report", period_label)
+
+    cleared = {
+        "synthesis_rows": removed.get("synthesis", 0),
+        "review_rows": removed.get("review", 0),
+        "pptx": False,
+        "state_sidecar": False,
+    }
+
+    pptx_path = os.path.join(_render_cache_dir(), _render_cache_key(period_label))
+    sidecar_path = _state_sidecar_path(period_label)
+    for path, key in ((pptx_path, "pptx"), (sidecar_path, "state_sidecar")):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                cleared[key] = True
+        except Exception as e:
+            logger.warning("report-state invalidate failed (%s): %s", path, e)
+
+    logger.info("topic report %s: invalidated %s", period_label, cleared)
+    return cleared
+
+
 def _read_render_cache(period_label: str) -> Optional[bytes]:
     path = os.path.join(_render_cache_dir(), _render_cache_key(period_label))
     if os.path.exists(path):

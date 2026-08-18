@@ -331,13 +331,54 @@ topic was assessed yesterday, freshness is queried per run and only for complete
 recently-assessed run is left alone, a stale one is rescheduled, a second tick does not
 duplicate an active job, and both a finished and a lost task release the run.
 
-### Still open
-Phase 0 (typed contracts, error codes, OpenAPI snapshot, state machines), Phase 4's
-background-task admission/idempotency/reconciliation work,
-Phase 7 (regenerate only deletes the cached PPTX and leaves the synthesis, review and
-sidecar stale), Phase 6A (durable report manifest),
-Phase 10 (observability and limits), and the rest of Phase 9.
+### Phase 7 — regeneration clears the whole derived state
+`POST /api/topic-reports/{period_label}/regenerate` deleted exactly one file: the cached
+PPTX. The supervisor synthesis row, the review verdict and the state sidecar all
+survived. Because `ensure_bundle_synthesis` returns early when a payload already exists,
+the Markdown and executive-DOCX exports then kept serving the previous executive letter
+against a freshly generated deck, indefinitely. The stale sidecar also still held the OLD
+pinned run ids, so the next build's HTML and full DOCX could resolve runs the new deck
+had never used. The quarterly-bundle path already did all of this; only the topic-report
+route was incomplete.
 
+New facade method `delete_forecast_bundle_state(cadence, period_label)` removes the
+`forecast_bundle_synthesis` and `forecast_bundle_review` rows in one transaction — a
+half-cleared period would leave a review verdict attached to synthesis that no longer
+exists — and raises rather than swallowing a failure. `invalidate_report_state()` calls
+it first and only deletes the deck and sidecar once the database rows are gone: deleting
+the artifacts while the old letter survived would leave the period serving a mixture. The
+route returns what was actually cleared, and turns a failure into a 500 saying nothing
+was regenerated instead of reporting success.
+
+This is the invalidation half of Phase 7. The expanded spec also asks for regeneration to
+create a new immutable generation under a durable `report_id` with an atomic
+current-generation pointer, which depends on the Phase 6A manifest table and is not done.
+
+`tests/test_topic_report_invalidation.py` (new, 6 tests) uses a temp cache dir and a
+stubbed facade: all four pieces of state are cleared, the stale run pins do not survive,
+artifacts are kept intact when the database cannot be cleared, an uncached period is not
+an error, and the route reports failure rather than claiming success.
+
+### Still open
+Done so far: phases 1, 2, 3, 5, 6, 7 (invalidation half), 8, and the activation check
+from 9. Not started:
+
+- **Phase 0** — typed request/response contracts, machine-readable error codes, an
+  OpenAPI snapshot with contract tests, and documented state machines.
+- **Phase 4 (task reliability half)** — `BackgroundTaskManager.run_task()` still returns
+  immediately at the concurrency limit, leaving the persisted task `pending` with no
+  worker; plus active-job keys, `Idempotency-Key` on scenario creation, requester/tenant
+  scope in task metadata with authorization on status and cancel, and startup
+  reconciliation of `running` tasks with no live worker. The polling side is done.
+- **Phase 6A** — durable `topic_report_runs` manifest with `report_id`, generations and
+  artifact hashes; `period_label` becomes a display label only.
+- **Phase 7 (generations half)** — immutable generations with an atomic
+  current-generation pointer, which depends on 6A.
+- **Phase 9 (rest)** — create-vs-PATCH semantics on `POST /api/forecast/topics`,
+  `source_topics` on `_TopicMetadataPatch`, overlay structural validation, and atomic
+  overlay writes.
+- **Phase 10** — structured provenance logging, evidence-set hashes, counters, caps, and
+  path sanitisation.
 
 Whether customers need to be told about the Phase 1 exposure window is a decision for
 Oliver, not something this entry settles.
