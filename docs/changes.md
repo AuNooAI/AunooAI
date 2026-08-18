@@ -190,10 +190,59 @@ type errors against the baseline). Full backend suite: **95 failed, 31 errors** 
 same pre-existing set as before this work; passing count rose 117 → 130, which is the 13
 new tests.
 
+### Phase 3 — scenarios have stable identity (migration `fa_012`)
+A verdict's `scenario_idx` is only its place in the list `assess_run` builds: the run's
+original scenarios followed by any promoted ones. That position moves whenever a
+promoted scenario is added or skipped, and it means different things in different runs,
+so it cannot be what status and verdicts hang off. Two failures came from that: the UI
+inferred which promoted scenario a verdict belonged to by arithmetic (the i-th addendum
+was assumed to be the `(N-K+i)`-th verdict), and original scenarios were keyed by index
+so a reordered payload moved status onto a different scenario.
+
+**Schema, additive.** `fa_012` adds `forecast_scenario_verdicts.user_scenario_id` and
+`.scenario_key`, and `forecast_scenario_status.scenario_key`, all nullable and indexed.
+No historical `raw_output` is rewritten and `scenario_idx` is retained for display
+ordering and legacy reads. No foreign keys: `forecast_user_scenarios` rows are deletable
+and verdict history is meant to survive that, matching the existing absence of an FK on
+`run_id` in these tables.
+
+**Identity — `app/services/scenario_identity.py`** (new). Promoted scenarios already
+have a UUID of their own. Original scenarios live inside immutable run output, so newly
+persisted runs get a `scenario_key` stamped in at `save_future_horizons_analysis` — the
+single point where a run first becomes durable — and runs stored earlier get the same
+key *derived* on read from the run id, horizon, normalized title and original index.
+Titles are not unique within a run (decks repeat a heading across horizons), which is
+why the index is part of the derivation. The normalizer strips separators rather than
+collapsing them to a space, so "1,000" and "1000" are one scenario; a test caught the
+first version changing a scenario's identity over a thousands separator.
+
+**Constraints that actually fire.** The old
+`UNIQUE (run_id, scenario_idx, user_scenario_id)` could never fire — one of those columns
+is always NULL and Postgres treats NULLs as distinct — so it had enforced nothing since
+`fa_003`, and the facade hand-rolled a SELECT-then-INSERT that races with no database
+backstop. Replaced with a CHECK that a row names exactly one scenario plus three partial
+unique indexes: keyed originals, addendums, and legacy index-only originals. Proved
+against the real database that a duplicate key, a duplicate addendum, and a row naming
+both identities are all now rejected.
+
+**Dual read / single write.** New writes always carry `scenario_key` for originals.
+Reads prefer it and fall back to the index-keyed row only when no keyed row exists; when
+a keyed write finds a legacy row for the same scenario it adopts that row rather than
+inserting a second one that would disagree about status. `get_forecast_scenario_statuses`
+now returns `by_key` alongside `originals` and logs a count whenever it serves legacy
+rows, which is the signal for when index-keyed reads can be removed.
+
+**UI.** `mapAddendumScenariosByIdx` now joins on `verdict.user_scenario_id` instead of
+`verdicts.length - addendums.length`. Mark-done and un-mark send `scenario_key` or
+`user_scenario_id`; `scenario_idx` is sent only by verdicts predating the migration, and
+the server resolves it to this run's key before writing. React keys are scenario identity
+rather than array index. A promoted scenario with no verdict yet is badged "assessment
+pending" instead of being attached to an original verdict card.
+
 ### Still open
-Phase 3 (promoted-scenario identity: `user_scenario_id` on verdicts, partial unique
-indexes to replace the inert nullable composite constraint, and removing the positional
-`mapAddendumScenariosByIdx` inference), Phase 5 (source-topic-aware report reruns),
+Phase 0 (typed contracts, error codes, OpenAPI snapshot, state machines), Phase 4's
+background-task admission/idempotency/reconciliation work, Phase 5 (source-topic-aware
+report reruns),
 Phase 6 (one run-pinned resolver — Markdown and executive DOCX still re-resolve latest
 assessment by topic), Phase 7 (regenerate only deletes the cached PPTX and leaves the
 synthesis, review and sidecar stale), Phase 8 (scheduling is per topic, so a new run is

@@ -227,7 +227,13 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
   }, [fetchAssessment, fetchAddendumScenarios]);
 
   const updateScenarioStatus = useCallback(async (
-    payload: { scenario_idx?: number; user_scenario_id?: string; status: 'active' | 'done'; note?: string }
+    payload: {
+      scenario_idx?: number;
+      scenario_key?: string;
+      user_scenario_id?: string;
+      status: 'active' | 'done';
+      note?: string;
+    }
   ) => {
     if (!runId) return;
     const r = await fetch(`/api/forecast/${runId}/scenarios/status`, {
@@ -408,16 +414,26 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
             baseline={assessment.summary?.baseline_correction}
             addendumByIdx={mapAddendumScenariosByIdx(assessment.scenario_verdicts || [], addendumScenarios)}
             onMarkDone={async (verdict) => {
-              const idx = verdict.scenario_idx;
-              const addendum = mapAddendumScenariosByIdx(assessment.scenario_verdicts || [], addendumScenarios)[idx];
-              if (addendum) {
-                await updateScenarioStatus({ user_scenario_id: addendum.id, status: 'done' });
+              // Identify by the scenario's own key/id. Sending scenario_idx
+              // would name a position, which points at a different scenario
+              // once a promoted one is added or skipped.
+              if (verdict.user_scenario_id) {
+                await updateScenarioStatus({ user_scenario_id: verdict.user_scenario_id, status: 'done' });
+              } else if (verdict.scenario_key) {
+                await updateScenarioStatus({ scenario_key: verdict.scenario_key, status: 'done' });
               } else {
-                await updateScenarioStatus({ scenario_idx: idx, status: 'done' });
+                // Verdict predates fa_012 and carries no key; the server
+                // resolves the index to this run's key before writing.
+                await updateScenarioStatus({ scenario_idx: verdict.scenario_idx, status: 'done' });
               }
             }}
           />
-          <AddedScenariosPanel scenarios={addendumScenarios.filter(s => scenarioStatuses.addendums[s.id]?.status !== 'done')} />
+          <AddedScenariosPanel
+            scenarios={addendumScenarios.filter(s => scenarioStatuses.addendums[s.id]?.status !== 'done')}
+            pendingIds={new Set(
+              pendingAddendums(assessment.scenario_verdicts || [], addendumScenarios).map(a => a.id),
+            )}
+          />
           <ResolvedScenariosPanel
             verdicts={assessment.scenario_verdicts || []}
             addendums={addendumScenarios}
@@ -628,7 +644,9 @@ function ScenarioGrid({ verdicts, baseline, addendumByIdx, onMarkDone }: {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {active.map((v) => (
           <ScenarioCard
-            key={v.scenario_idx}
+            // Keyed by scenario identity, not position, so React reuses the
+            // right card when the scenario list shifts between assessments.
+            key={v.user_scenario_id || v.scenario_key || `idx-${v.scenario_idx}`}
             verdict={v}
             baseline={baseline?.per_scenario?.[String(v.scenario_idx)]}
             addendum={addendumByIdx?.[v.scenario_idx]}
@@ -640,23 +658,46 @@ function ScenarioGrid({ verdicts, baseline, addendumByIdx, onMarkDone }: {
   );
 }
 
+/**
+ * Map scenario_idx -> the promoted scenario that verdict is for.
+ *
+ * Joins on `verdict.user_scenario_id`, which the assessment records when it
+ * scores a promoted scenario. This used to be inferred positionally — the i-th
+ * addendum was assumed to be the (N-K+i)-th verdict — which silently mis-paired
+ * every addendum after any promoted scenario that was added since the last
+ * assessment or skipped because it was marked done. A mis-pairing showed one
+ * scenario's verdict under another's title, and "mark done" wrote to the wrong
+ * scenario.
+ *
+ * Verdicts written before fa_012 have no user_scenario_id and simply do not
+ * match, which renders them as ordinary scenarios rather than mis-attributing
+ * them.
+ */
 function mapAddendumScenariosByIdx(
   verdicts: ScenarioVerdict[],
   addendums: AddendumScenario[],
 ): Record<number, AddendumScenario> {
-  // Addendum scenarios are appended after the originals, so they occupy the
-  // tail of the scenario_verdicts list. We match them by ordering — the
-  // i-th addendum corresponds to the (N-K+i)-th verdict where K = addendums.length
-  // and N = total verdicts. This mirrors the order assess_run produces.
   const out: Record<number, AddendumScenario> = {};
   if (!addendums.length || !verdicts.length) return out;
-  const start = verdicts.length - addendums.length;
-  if (start < 0) return out;
-  for (let i = 0; i < addendums.length; i++) {
-    const v = verdicts[start + i];
-    if (v) out[v.scenario_idx] = addendums[i];
+  const byId = new Map(addendums.map(a => [a.id, a]));
+  for (const v of verdicts) {
+    const id = v.user_scenario_id;
+    if (!id) continue;
+    const addendum = byId.get(id);
+    if (addendum) out[v.scenario_idx] = addendum;
   }
   return out;
+}
+
+/** Promoted scenarios with no verdict yet — the reassessment has not finished. */
+function pendingAddendums(
+  verdicts: ScenarioVerdict[],
+  addendums: AddendumScenario[],
+): AddendumScenario[] {
+  const assessed = new Set(
+    verdicts.map(v => v.user_scenario_id).filter(Boolean) as string[],
+  );
+  return addendums.filter(a => !assessed.has(a.id));
 }
 
 function ScenarioCard({ verdict, baseline, addendum, onMarkDone }: {
@@ -843,7 +884,11 @@ function SurprisesPanel({
   );
 }
 
-function AddedScenariosPanel({ scenarios }: { scenarios: AddendumScenario[] }) {
+function AddedScenariosPanel({ scenarios, pendingIds }: {
+  scenarios: AddendumScenario[];
+  /** Promoted scenarios with no verdict yet, badged "assessment pending". */
+  pendingIds?: Set<string>;
+}) {
   if (!scenarios?.length) return null;
   return (
     <div className="space-y-3">
@@ -863,6 +908,11 @@ function AddedScenariosPanel({ scenarios }: { scenarios: AddendumScenario[] }) {
                   {s.timeframe && <span className="ml-2 text-gray-500 dark:text-gray-400">{s.timeframe}</span>}
                 </div>
                 <div className="font-medium text-gray-900 dark:text-gray-100 leading-snug">{s.title}</div>
+                {pendingIds?.has(s.id) && (
+                  <div className="mt-1 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200">
+                    Assessment pending
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0">
                 {new Date(s.created_at).toLocaleDateString()}
@@ -887,7 +937,9 @@ function ResolvedScenariosPanel({
   verdicts: ScenarioVerdict[];
   addendums: AddendumScenario[];
   statuses: ScenarioStatusesResponse;
-  onUnmark: (key: { scenario_idx?: number; user_scenario_id?: string }) => Promise<void>;
+  onUnmark: (key: {
+    scenario_idx?: number; scenario_key?: string; user_scenario_id?: string;
+  }) => Promise<void>;
 }) {
   const addendumByIdx = mapAddendumScenariosByIdx(verdicts, addendums);
   const done = verdicts.filter(v => v.verdict_label === 'Done');
@@ -905,9 +957,15 @@ function ResolvedScenariosPanel({
           const addendum = addendumByIdx[v.scenario_idx];
           const statusRow = addendum
             ? statuses.addendums[addendum.id]
-            : statuses.originals[String(v.scenario_idx)];
+            // Key first; the index-keyed row is only for statuses written
+            // before fa_012.
+            : (v.scenario_key ? statuses.by_key?.[v.scenario_key] : undefined)
+              ?? statuses.originals[String(v.scenario_idx)];
           return (
-            <div key={v.scenario_idx} className="p-3 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded">
+            <div
+              key={v.user_scenario_id || v.scenario_key || `idx-${v.scenario_idx}`}
+              className="p-3 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -921,9 +979,10 @@ function ResolvedScenariosPanel({
                 <button
                   type="button"
                   onClick={async () => {
-                    await onUnmark(addendum
-                      ? { user_scenario_id: addendum.id }
-                      : { scenario_idx: v.scenario_idx });
+                    await onUnmark(
+                      addendum ? { user_scenario_id: addendum.id }
+                        : v.scenario_key ? { scenario_key: v.scenario_key }
+                          : { scenario_idx: v.scenario_idx });
                   }}
                   className="text-[11px] px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700"
                   title="Restore to active tracking"

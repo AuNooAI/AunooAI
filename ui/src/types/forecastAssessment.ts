@@ -65,6 +65,18 @@ export interface ScenarioVerdict {
     /** Deck-overlay enrichment (deck-granularity assessments only). */
     deck_info?: DeckInfo;
   };
+  /**
+   * Set when this verdict scores a PROMOTED scenario, naming which one. Null or
+   * absent for a run's original scenarios and for verdicts stored before the
+   * fa_012 migration. Join on this rather than inferring from list position.
+   */
+  user_scenario_id?: string | null;
+  /**
+   * Stable key of the ORIGINAL scenario this verdict scored. Use this to key
+   * React rows and status mutations; `scenario_idx` is presentation order and a
+   * legacy compatibility field, not identity.
+   */
+  scenario_key?: string | null;
 }
 
 export interface SurpriseCluster {
@@ -216,6 +228,13 @@ export interface ScenarioStatusRow {
 }
 
 export interface ScenarioStatusesResponse {
+  /** Original scenarios by scenario_key — the authoritative view. */
+  by_key?: Record<string, ScenarioStatusRow>;
+  /**
+   * Original scenarios by scenario_idx. Kept for rows written before the
+   * fa_012 migration; read only when `by_key` has no entry, since an index
+   * moves between assessments.
+   */
   originals: Record<string, ScenarioStatusRow>;
   addendums: Record<string, ScenarioStatusRow>;
 }

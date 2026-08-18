@@ -158,6 +158,15 @@ async def assess_run(
     # Addendum scenarios promoted by the user from prior "unanticipated
     # development" clusters. Appended after the original scenarios so they
     # take higher scenario_idx values and the original ordering is stable.
+    # Stamp each ORIGINAL scenario with its stable key before the addendums are
+    # appended, so the key reflects the scenario's own position in the run and
+    # not where it lands in the combined list. Runs stored before fa_012 have
+    # theirs derived here; they are not written back to raw_output.
+    from app.services.scenario_identity import scenario_key_for
+    for i, sc in enumerate(scenarios):
+        if isinstance(sc, dict):
+            sc["scenario_key"] = scenario_key_for(run_id, sc, i)
+
     user_scenarios = db.facade.get_forecast_user_scenarios(run_id)
     addendum_count = 0
     for us in user_scenarios:
@@ -184,7 +193,11 @@ async def assess_run(
         if sc.get("origin") == "user_promoted":
             st = statuses["addendums"].get(sc.get("user_scenario_id"))
         else:
-            st = statuses["originals"].get(i)
+            # Key first; fall back to the positional row only when this scenario
+            # has no keyed row yet (rows written before fa_012).
+            st = (statuses.get("by_key") or {}).get(sc.get("scenario_key"))
+            if st is None:
+                st = statuses["originals"].get(i)
         if st and st.get("status") == "done":
             sc["_status"] = "done"
             sc["_status_marked_at"] = st.get("marked_done_at")
@@ -338,6 +351,8 @@ async def assess_run(
                     + (f" — {note}" if note else "")
                 ).strip(),
                 "top_articles": {"supports": [], "contradicts": []},
+                "user_scenario_id": scenario.get("user_scenario_id"),
+                "scenario_key": scenario.get("scenario_key"),
             })
             continue
         verdicts = [c for c in classified if c["scenario_idx"] == s_idx]
@@ -347,6 +362,15 @@ async def assess_run(
             verdicts=verdicts,
             elapsed_days=elapsed_days,
             deck_overlay=deck_overlay,
+        )
+        # Record WHICH scenario this verdict is for. scenario_idx alone is just
+        # a position in the originals+addendums list, so it shifts when a
+        # promoted scenario is added or skipped, and the UI used to infer the
+        # pairing by arithmetic. Exactly one of these is set.
+        row["user_scenario_id"] = scenario.get("user_scenario_id")
+        row["scenario_key"] = (
+            None if scenario.get("origin") == "user_promoted"
+            else scenario.get("scenario_key")
         )
         scenario_verdict_rows.append(row)
     _emit(progress_callback, 88, "Aggregated scenario verdicts")

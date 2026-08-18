@@ -602,6 +602,9 @@ async def list_user_scenarios(run_id: str):
 class _ScenarioStatusRequest(__import__("pydantic").BaseModel):  # noqa: N801
     scenario_idx: int | None = None
     user_scenario_id: str | None = None
+    # Preferred identifier for an original scenario. scenario_idx is accepted
+    # for older clients and resolved to a key server-side.
+    scenario_key: str | None = None
     status: str  # 'active' | 'done'
     note: str | None = None
 
@@ -610,17 +613,27 @@ class _ScenarioStatusRequest(__import__("pydantic").BaseModel):  # noqa: N801
 async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
     """Mark a scenario as done (or revert to active).
 
-    Exactly one of ``scenario_idx`` (originals) or ``user_scenario_id``
-    (addendums) must be supplied. Done scenarios are skipped from
-    reranker/LLM on the next assessment run and rendered in the
-    "Resolved scenarios" section in the UI.
+    Identify the scenario with ``scenario_key`` (originals) or
+    ``user_scenario_id`` (promoted). ``scenario_idx`` is still accepted from
+    older clients and resolved to the run's key here, because an index is only
+    a position and moves between assessments. Done scenarios are skipped from
+    reranker/LLM on the next assessment run and rendered in the "Resolved
+    scenarios" section in the UI.
     """
     from app.database import get_database_instance
 
-    if (payload.scenario_idx is None) == (payload.user_scenario_id is None):
+    identifiers = [
+        payload.scenario_key is not None,
+        payload.user_scenario_id is not None,
+        payload.scenario_idx is not None,
+    ]
+    if sum(identifiers) != 1:
         raise HTTPException(
             status_code=422,
-            detail="Exactly one of scenario_idx or user_scenario_id must be set",
+            detail=(
+                "Exactly one of scenario_key (originals), user_scenario_id "
+                "(promoted) or scenario_idx (legacy originals) must be set"
+            ),
         )
     status = (payload.status or "active").lower()
     if status not in ("active", "done"):
@@ -631,29 +644,7 @@ async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
     if not run:
         raise HTTPException(status_code=404, detail=f"Forecast run {run_id} not found")
 
-    # The status key must name a scenario that exists in THIS run. Without this
-    # the UI could carry an index from a previously-displayed run and mark an
-    # unrelated scenario done, or write a row for an index that never existed.
-    if payload.scenario_idx is not None:
-        raw = run.get("raw_output")
-        if isinstance(raw, str):
-            import json
-            try:
-                raw = json.loads(raw)
-            except Exception:
-                raw = {}
-        original_count = len((raw or {}).get("scenarios") or [])
-        addendum_count = len(db.facade.get_forecast_user_scenarios(run_id) or [])
-        total = original_count + addendum_count
-        if payload.scenario_idx < 0 or payload.scenario_idx >= total:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"scenario_idx {payload.scenario_idx} is not a scenario of run "
-                    f"{run_id} (it has {total})."
-                ),
-            )
-    else:
+    if payload.user_scenario_id is not None:
         owned = {s.get("id") for s in (db.facade.get_forecast_user_scenarios(run_id) or [])}
         if payload.user_scenario_id not in owned:
             raise HTTPException(
@@ -663,11 +654,61 @@ async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
                     f"{run_id}. Promoted scenarios stay with the run they were added to."
                 ),
             )
+        row = db.facade.save_forecast_scenario_status(
+            run_id=run_id,
+            user_scenario_id=payload.user_scenario_id,
+            status=status,
+            note=(payload.note or None),
+        )
+        return {"status_row": row}
+
+    # Original scenario. Resolve to this run's own scenarios so an identifier
+    # carried over from a previously-displayed run cannot mark an unrelated
+    # scenario done, and so an index is converted to the stable key before it is
+    # written.
+    from app.services.scenario_identity import scenario_key_for
+
+    raw = run.get("raw_output")
+    if isinstance(raw, str):
+        import json
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    originals = (raw or {}).get("scenarios") or []
+
+    resolved_idx = None
+    resolved_key = None
+    if payload.scenario_idx is not None:
+        if payload.scenario_idx < 0 or payload.scenario_idx >= len(originals):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"scenario_idx {payload.scenario_idx} is not an original scenario of "
+                    f"run {run_id} (it has {len(originals)}). Promoted scenarios are "
+                    "identified by user_scenario_id."
+                ),
+            )
+        resolved_idx = payload.scenario_idx
+        resolved_key = scenario_key_for(run_id, originals[resolved_idx], resolved_idx)
+    else:
+        for i, sc in enumerate(originals):
+            if isinstance(sc, dict) and scenario_key_for(run_id, sc, i) == payload.scenario_key:
+                resolved_idx, resolved_key = i, payload.scenario_key
+                break
+        if resolved_key is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"scenario_key {payload.scenario_key} is not a scenario of run {run_id}. "
+                    "Reload the Forecast Tracker for this run."
+                ),
+            )
 
     row = db.facade.save_forecast_scenario_status(
         run_id=run_id,
-        scenario_idx=payload.scenario_idx,
-        user_scenario_id=payload.user_scenario_id,
+        scenario_key=resolved_key,
+        scenario_idx=resolved_idx,   # stored as display ordering, not identity
         status=status,
         note=(payload.note or None),
     )

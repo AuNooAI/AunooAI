@@ -7976,11 +7976,28 @@ class DatabaseQueryFacade:
         total_articles_analyzed: int,
         analysis_duration_seconds: float
     ) -> bool:
-        """Save a future horizons analysis run to the database."""
+        """Save a future horizons analysis run to the database.
+
+        Stamps a stable ``scenario_key`` onto each scenario on the way in. This
+        is the single choke point where a run first becomes durable, so keying
+        here means every new run has explicit identities and only runs stored
+        before fa_012 need keys derived on read. Historical ``raw_output`` is
+        never rewritten.
+        """
         try:
             from app.database_models import t_future_horizons_runs
+            from app.services.scenario_identity import ensure_scenario_keys
             from sqlalchemy import insert
             import json
+
+            try:
+                if isinstance(raw_output, dict) and isinstance(raw_output.get("scenarios"), list):
+                    ensure_scenario_keys(analysis_id, raw_output["scenarios"])
+            except Exception as e:  # keying must never block persisting the run
+                self.logger.warning(
+                    "Could not stamp scenario keys on run %s: %s — keys will be "
+                    "derived on read instead", analysis_id, e,
+                )
 
             stmt = insert(t_future_horizons_runs).values(
                 id=analysis_id,
@@ -8143,6 +8160,12 @@ class DatabaseQueryFacade:
                     "synthesis": (
                         json.dumps(r["synthesis"]) if r.get("synthesis") else None
                     ),
+                    # Which scenario this verdict is for. Exactly one is set:
+                    # user_scenario_id for promoted scenarios, scenario_key for
+                    # originals. Lets callers join on identity instead of
+                    # guessing from list position.
+                    "user_scenario_id": r.get("user_scenario_id"),
+                    "scenario_key": r.get("scenario_key"),
                 })
             self._execute_with_rollback(insert(t_forecast_scenario_verdicts), payload)
             return True
@@ -8577,16 +8600,28 @@ class DatabaseQueryFacade:
         *,
         scenario_idx: int = None,
         user_scenario_id: str = None,
+        scenario_key: str = None,
         status: str = "done",
         note: str = None,
     ) -> dict:
         """Upsert a scenario status row.
 
-        Exactly one of ``scenario_idx`` (originals) or ``user_scenario_id``
-        (addendums) must be supplied. Returns the persisted row.
+        A row names exactly one scenario: an original by ``scenario_key``, or a
+        promoted one by ``user_scenario_id``. ``scenario_idx`` is accepted and
+        stored alongside a key as display ordering, and on its own only for
+        legacy callers — new writes should always pass ``scenario_key`` for
+        originals, because an index moves between assessments.
         """
-        if (scenario_idx is None) == (user_scenario_id is None):
-            raise ValueError("Exactly one of scenario_idx or user_scenario_id required")
+        if user_scenario_id is not None and (scenario_key is not None or scenario_idx is not None):
+            raise ValueError(
+                "user_scenario_id identifies a promoted scenario; do not also pass "
+                "scenario_key or scenario_idx"
+            )
+        if user_scenario_id is None and scenario_key is None and scenario_idx is None:
+            raise ValueError(
+                "one of scenario_key (originals), user_scenario_id (promoted) or "
+                "scenario_idx (legacy originals) is required"
+            )
         try:
             from app.database_models import t_forecast_scenario_status
             from sqlalchemy import select, insert, update
@@ -8594,31 +8629,62 @@ class DatabaseQueryFacade:
 
             marked_at = datetime.now(timezone.utc) if status == "done" else None
 
-            # Postgres treats NULL as DISTINCT in unique constraints, so
-            # ``ON CONFLICT (run_id, scenario_idx, user_scenario_id)`` with one
-            # of the columns NULL won't fire. We do an explicit existence
-            # check + UPDATE/INSERT instead.
+            # Locate the row this write owns. Partial unique indexes (fa_012)
+            # now back each of these, so a concurrent duplicate insert fails at
+            # the database instead of silently creating a second row.
             sel = (
                 select(t_forecast_scenario_status)
                 .where(t_forecast_scenario_status.c.run_id == run_id)
             )
-            if scenario_idx is not None:
+            if user_scenario_id is not None:
                 sel = sel.where(
-                    t_forecast_scenario_status.c.scenario_idx == scenario_idx,
-                    t_forecast_scenario_status.c.user_scenario_id.is_(None),
+                    t_forecast_scenario_status.c.user_scenario_id == user_scenario_id,
+                )
+            elif scenario_key is not None:
+                sel = sel.where(
+                    t_forecast_scenario_status.c.scenario_key == scenario_key,
                 )
             else:
                 sel = sel.where(
-                    t_forecast_scenario_status.c.user_scenario_id == user_scenario_id,
-                    t_forecast_scenario_status.c.scenario_idx.is_(None),
+                    t_forecast_scenario_status.c.scenario_idx == scenario_idx,
+                    t_forecast_scenario_status.c.scenario_key.is_(None),
+                    t_forecast_scenario_status.c.user_scenario_id.is_(None),
                 )
             existing = self._execute_with_rollback(sel).fetchone()
+
+            # Dual read: an original may still have a pre-fa_012 row keyed only
+            # by index. Adopt it rather than inserting a second row for the same
+            # scenario, which would leave two rows disagreeing about status.
+            if existing is None and scenario_key is not None and scenario_idx is not None:
+                legacy_sel = (
+                    select(t_forecast_scenario_status)
+                    .where(
+                        t_forecast_scenario_status.c.run_id == run_id,
+                        t_forecast_scenario_status.c.scenario_idx == scenario_idx,
+                        t_forecast_scenario_status.c.scenario_key.is_(None),
+                        t_forecast_scenario_status.c.user_scenario_id.is_(None),
+                    )
+                )
+                legacy = self._execute_with_rollback(legacy_sel).fetchone()
+                if legacy is not None:
+                    lr = dict(legacy._mapping) if hasattr(legacy, "_mapping") else dict(legacy)
+                    self._execute_with_rollback(
+                        update(t_forecast_scenario_status)
+                        .where(t_forecast_scenario_status.c.id == lr["id"])
+                        .values(scenario_key=scenario_key)
+                    )
+                    self.logger.info(
+                        "Upgraded legacy scenario status row %s (run %s, idx %s) to key %s",
+                        lr["id"], run_id, scenario_idx, scenario_key,
+                    )
+                    existing = self._execute_with_rollback(sel).fetchone()
 
             if existing is None:
                 stmt = insert(t_forecast_scenario_status).values(
                     run_id=run_id,
                     scenario_idx=scenario_idx,
                     user_scenario_id=user_scenario_id,
+                    scenario_key=scenario_key,
                     status=status,
                     marked_done_at=marked_at,
                     note=note,
@@ -8653,9 +8719,15 @@ class DatabaseQueryFacade:
         """Return active status overlays for a run.
 
         Returns ``{"originals": {scenario_idx: status_dict},
+                    "by_key": {scenario_key: status_dict},
                     "addendums": {user_scenario_id: status_dict}}``.
+
+        ``by_key`` is the authoritative view for original scenarios.
+        ``originals`` is kept keyed by index so existing callers and the shipped
+        UI bundle keep working during the compatibility window; a row that has
+        a key appears in both.
         """
-        out = {"originals": {}, "addendums": {}}
+        out = {"originals": {}, "by_key": {}, "addendums": {}}
         try:
             from app.database_models import t_forecast_scenario_status
             from sqlalchemy import select
@@ -8664,15 +8736,28 @@ class DatabaseQueryFacade:
                 select(t_forecast_scenario_status)
                 .where(t_forecast_scenario_status.c.run_id == run_id)
             )
+            legacy_rows = 0
             for r in self._execute_with_rollback(stmt).fetchall():
                 rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
                 ma = rd.get("marked_done_at")
                 if hasattr(ma, "isoformat"):
                     rd["marked_done_at"] = ma.isoformat()
+                if rd.get("user_scenario_id"):
+                    out["addendums"][rd["user_scenario_id"]] = rd
+                    continue
+                if rd.get("scenario_key"):
+                    out["by_key"][rd["scenario_key"]] = rd
+                elif rd.get("scenario_idx") is not None:
+                    legacy_rows += 1
                 if rd.get("scenario_idx") is not None:
                     out["originals"][rd["scenario_idx"]] = rd
-                elif rd.get("user_scenario_id"):
-                    out["addendums"][rd["user_scenario_id"]] = rd
+            if legacy_rows:
+                # Counter for the compatibility window: when this reaches zero
+                # across production, index-keyed reads can be removed.
+                self.logger.info(
+                    "forecast scenario status: run %s served %d legacy index-keyed row(s)",
+                    run_id, legacy_rows,
+                )
             return out
         except Exception as e:
             self.logger.error(f"Error getting forecast scenario statuses for run {run_id}: {e}")

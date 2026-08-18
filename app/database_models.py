@@ -1050,8 +1050,16 @@ t_forecast_scenario_verdicts = Table(
     # Per-scenario LLM-synthesised artefacts: key_signals (list of 2-3 phrases),
     # strategic_imperative (single sentence). Cached lazily.
     Column('synthesis', JSONB),
+    # Which scenario this verdict actually scored. scenario_idx is only a
+    # position in the originals+addendums list and moves between assessments,
+    # so identity lives in these two instead (fa_012). Exactly one is set on
+    # new rows; both are NULL on verdicts written before the migration.
+    Column('user_scenario_id', String(36)),   # set for PROMOTED scenarios
+    Column('scenario_key', String(64)),       # set for ORIGINAL scenarios
     UniqueConstraint('assessment_id', 'scenario_idx', name='uq_scenario_verdicts_assessment_scenario'),
     Index('ix_scenario_verdicts_assessment', 'assessment_id'),
+    Index('ix_scenario_verdicts_user_scenario', 'user_scenario_id'),
+    Index('ix_scenario_verdicts_scenario_key', 'scenario_key'),
 )
 
 # Cross-topic LLM-synthesised artefacts that span an entire bundle run —
@@ -1188,8 +1196,29 @@ t_forecast_scenario_status = Table(
     Column('status', String(16), nullable=False, server_default=text("'active'")),
     Column('marked_done_at', DateTime(timezone=True)),
     Column('note', Text),
-    UniqueConstraint('run_id', 'scenario_idx', 'user_scenario_id',
-                     name='uq_scenario_status_run_keys'),
+    # Stable key of an ORIGINAL scenario (fa_012). New writes always set this;
+    # rows written earlier carry only scenario_idx and are read as a fallback.
+    Column('scenario_key', String(64)),
+    # A row names exactly one scenario: a keyed original, a legacy index-only
+    # original, or an addendum. scenario_idx may accompany scenario_key as
+    # display ordering, so it is not an identity of its own when a key is set.
+    # The old UNIQUE(run_id, scenario_idx, user_scenario_id) could never fire —
+    # one of those columns is always NULL and Postgres treats NULLs as distinct.
+    CheckConstraint(
+        '(CASE WHEN scenario_key IS NOT NULL THEN 1 ELSE 0 END '
+        ' + CASE WHEN user_scenario_id IS NOT NULL THEN 1 ELSE 0 END) <= 1 '
+        'AND (scenario_key IS NOT NULL OR user_scenario_id IS NOT NULL '
+        '     OR scenario_idx IS NOT NULL)',
+        name='ck_scenario_status_one_identity'),
+    Index('uq_scenario_status_key', 'run_id', 'scenario_key',
+          unique=True, postgresql_where=text('scenario_key IS NOT NULL')),
+    Index('uq_scenario_status_addendum', 'run_id', 'user_scenario_id',
+          unique=True, postgresql_where=text('user_scenario_id IS NOT NULL')),
+    Index('uq_scenario_status_legacy_idx', 'run_id', 'scenario_idx',
+          unique=True, postgresql_where=text(
+              'scenario_key IS NULL AND user_scenario_id IS NULL '
+              'AND scenario_idx IS NOT NULL')),
+    Index('ix_forecast_scenario_status_key', 'scenario_key'),
     Index('ix_forecast_scenario_status_run', 'run_id'),
 )
 
