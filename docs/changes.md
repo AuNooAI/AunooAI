@@ -239,10 +239,32 @@ the server resolves it to this run's key before writing. React keys are scenario
 rather than array index. A promoted scenario with no verdict yet is badged "assessment
 pending" instead of being attached to an original verdict card.
 
+### Phase 5 — Topic Report reruns honour source topics
+`_rerun_future_horizons_for_topic` queried `WHERE topic = :topic` using the tracked
+topic's deck name. The Add-Topic wizard decouples that name from the article `topic` tag
+— an analyst can name a topic "Quantum Advantage" while the seed articles stay tagged
+"Quantum Computing" — and `forecast_topic_metadata.source_topics` records the mapping.
+The forecast assessment path already honoured it; this one did not, so any decoupled
+topic matched zero articles and the rerun failed outright with "No on-topic articles".
+
+The rerun now resolves `source_topics` (falling back to the tracked name when there are
+none, or only blank entries) and queries `topic = ANY(:topics)`. The run's own `topic`
+stays the tracked/deck name, with `raw_output.metadata.source_topics` recording which
+corpora it was actually built from, alongside the alignment floor and sample size. The
+same article can be tagged under two source topics, so the first occurrence wins, and
+ordering gained `uri ASC` as a final tie-break — articles from different source topics
+interleave, and without a unique key the numbered citations could differ between two
+runs over identical data. Existing hygiene (blocklist, syndication dedup, LLM relevance
+screen) runs over the combined corpus, and the persisted ordered URIs are still exactly
+the list the model was shown. The "no articles" error now names the topics searched.
+
+`tests/test_topic_report_source_topics.py` (new, 6 tests) captures the SQL and
+parameters the rerun issues rather than running it, since the real path calls a model
+and writes to the database.
+
 ### Still open
 Phase 0 (typed contracts, error codes, OpenAPI snapshot, state machines), Phase 4's
-background-task admission/idempotency/reconciliation work, Phase 5 (source-topic-aware
-report reruns),
+background-task admission/idempotency/reconciliation work,
 Phase 6 (one run-pinned resolver — Markdown and executive DOCX still re-resolve latest
 assessment by topic), Phase 7 (regenerate only deletes the cached PPTX and leaves the
 synthesis, review and sidecar stale), Phase 8 (scheduling is per topic, so a new run is

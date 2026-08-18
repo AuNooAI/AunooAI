@@ -617,28 +617,62 @@ async def _rerun_future_horizons_for_topic(
     sample_size = calculate_optimal_sample_size(model, sample_size_mode="auto")
     logger.info("rerun horizons: %s seeding with up to %d articles", model, sample_size)
 
+    # A tracked topic's deck name is decoupled from the article `topic` tag: the
+    # Add-Topic wizard lets an analyst name "Quantum Advantage" while the seed
+    # articles stay tagged "Quantum Computing". Querying the deck name alone
+    # returned zero rows and failed the rerun outright. The forecast assessment
+    # path already honours source_topics; this one did not.
+    eval_topics = [topic]
+    try:
+        meta = db.facade.get_forecast_topic_metadata(topic) or {}
+        src = meta.get("source_topics")
+        if isinstance(src, list) and [t for t in src if (t or "").strip()]:
+            eval_topics = [t.strip() for t in src if (t or "").strip()]
+    except Exception as e:
+        logger.warning(
+            "rerun horizons: could not read source_topics for %r (%s) — "
+            "falling back to the tracked topic name", topic, e,
+        )
+    if eval_topics != [topic]:
+        logger.info(
+            "rerun horizons: tracked topic %r is backed by source topics %s",
+            topic, eval_topics,
+        )
+
     from sqlalchemy import text as sa_text
     article_rows: list = []
     try:
+        # Ordering is fully deterministic — alignment, then date, then uri as
+        # the tie-break. Articles from different source topics interleave, so
+        # without the final key the numbered citations could differ between two
+        # runs over identical data.
         sql = sa_text(f"""
             SELECT uri, title, summary, publication_date, sentiment, category,
                    future_signal, driver_type, time_to_impact, quality_score,
-                   news_source, topic_alignment_score
+                   news_source, topic_alignment_score, topic
             FROM articles
-            WHERE topic = :topic
+            WHERE topic = ANY(:topics)
               AND analyzed = TRUE
               AND topic_alignment_score IS NOT NULL
               AND topic_alignment_score > 0.7
-            ORDER BY topic_alignment_score DESC, publication_date DESC
+            ORDER BY topic_alignment_score DESC, publication_date DESC, uri ASC
             LIMIT {int(sample_size)}
         """)
-        rows = db.facade._execute_with_rollback(sql, {"topic": topic}).fetchall()
+        rows = db.facade._execute_with_rollback(sql, {"topics": eval_topics}).fetchall()
+        seen_uris = set()
         for r in rows:
-            article_rows.append(
-                dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
-            )
+            rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            # The same article can be tagged under two source topics; keep the
+            # first occurrence so numbering stays stable.
+            if rd.get("uri") in seen_uris:
+                continue
+            seen_uris.add(rd.get("uri"))
+            article_rows.append(rd)
     except Exception as e:
-        logger.warning("rerun horizons: article fetch failed for %s: %s", topic, e)
+        logger.warning(
+            "rerun horizons: article fetch failed for %r (source topics %s): %s",
+            topic, eval_topics, e,
+        )
     # Corpus hygiene BEFORE numbering — the numbered list the model sees is
     # the list we persist and the list every export cites, so it has to
     # happen here, not at render time. Three steps:
@@ -653,9 +687,13 @@ async def _rerun_future_horizons_for_topic(
     article_rows = await screen_corpus_relevance(article_rows, topic)
     if not article_rows:
         raise RuntimeError(
-            f"No on-topic articles for '{topic}' — can't run Three Horizons."
+            f"No on-topic articles for '{topic}' (searched source topics "
+            f"{eval_topics}) — can't run Three Horizons."
         )
-    logger.info("rerun horizons: pulled %d articles for %s", len(article_rows), topic)
+    logger.info(
+        "rerun horizons: pulled %d articles for %r from source topics %s",
+        len(article_rows), topic, eval_topics,
+    )
 
     formatted_prompt = _build_topic_report_prompt(topic, article_rows)
 
@@ -745,6 +783,13 @@ async def _rerun_future_horizons_for_topic(
             "model_used": model,
             "generated_at": _dt.now().astimezone().isoformat(),
             "analysis_type": "topic_report_rerun",
+            # Provenance: which corpus topics this run was actually built from.
+            # The run's own `topic` stays the tracked/deck name, so without this
+            # there is no record that "Quantum Advantage" was sourced from
+            # "Quantum Computing".
+            "source_topics": list(eval_topics),
+            "evidence_alignment_min": 0.7,
+            "evidence_sample_size": int(sample_size),
         },
         "articles_analyzed":      len(article_rows),
         "total_articles_found":   len(article_rows),
