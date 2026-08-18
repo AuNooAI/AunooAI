@@ -142,7 +142,17 @@ export interface ForecastAssessmentResponse {
     sentiment?: string;
   }>;
   forecast_generated_at?: string | null;
-  /** True if the assessment is tied to a different horizons run for the same topic. */
+  /**
+   * An assessment of a DIFFERENT horizons run for the same topic, shown while
+   * this run is still unassessed. Read-only: its scenario_idx values belong to
+   * the other run, so nothing here may be a mutation target.
+   */
+  historical_assessment?: ForecastAssessment | null;
+  /** The run the historical assessment actually belongs to. */
+  historical_assessment_run_id?: string | null;
+  /** True when historical_assessment is populated; disables all mutations. */
+  historical_read_only?: boolean;
+  /** @deprecated Use historical_read_only. Kept so older builds keep working. */
   topic_fallback?: boolean;
 }
 

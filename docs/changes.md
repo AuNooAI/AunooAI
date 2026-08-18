@@ -2,12 +2,17 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-18 — Forecast Tracker, Topic Report and candidate APIs were unauthenticated
+## 2026-08-18 — Topics / Forecast Tracker / Topic Reports spec: phases 1, 2, 4 and part of 9
 
 ### Goal
-Phase 1 of the Topics / Forecast Tracker / Topic Reports spec. The spec asked us to
-first trace the deployed ASGI stack and prove where authentication is enforced before
-changing anything. Tracing it found that, for these surfaces, it is enforced nowhere.
+Implementing the Topics, Forecast Tracker and Topic Reports spec against baseline
+`84a1fb25`. Work is split per phase, one commit each. This entry grows as phases land;
+phases 3 and 5-8 are not done yet and are listed at the end.
+
+### Phase 1 — authentication (commit `40df8418`)
+The spec asked us to first trace the deployed ASGI stack and prove where authentication
+is enforced before changing anything. Tracing it found that, for these surfaces, it is
+enforced nowhere.
 
 ### What was wrong
 `app/server_run.py` (gitignored, the file systemd runs) does `from main import app`,
@@ -112,12 +117,90 @@ these paths, so nothing server-side broke.
 - **A cache key or a task id is not a credential.** Report downloads keyed by
   `period_label` and job polling keyed by `task_id` were both fully public.
 
+### Phase 2 — a run's assessment is now its own
+`GET /api/forecast/{run_id}/assessment` used to fall back to "latest assessment for
+this topic" whenever the requested run had none, and put that row straight into
+`assessment`. The `scenarios` in the same response came from the *requested* run, so
+the UI paired one run's scenario list with another run's verdicts. `scenario_idx` is
+positional per run, so a verdict could be displayed against — and "mark done" written
+against — an unrelated scenario.
+
+`assessment` now only ever holds an assessment whose `run_id` matches the URL. An older
+run's assessment for the same topic is returned separately as `historical_assessment`,
+alongside `historical_assessment_run_id` and `historical_read_only`. The tracker renders
+it for reference with every mutation control off, and the amber banner now names both
+the run being viewed and the run the assessment belongs to.
+
+Three run-scoped endpoints took an `assessment_id` and did not check it belonged to the
+run in the URL. A new `_require_assessment_in_run()` helper loads the assessment by its
+own id and returns **409** on mismatch; it is applied to `export.pptx` (which previously
+logged the mismatch and rendered the latest anyway), `assessment/{id}/articles`, and
+`scenarios/draft-from-surprise` — the last matters because the drafted scenario becomes
+an addendum to this run, so its source surprise has to come from this run.
+
+`PATCH /scenarios/status` now validates the key before writing: `scenario_idx` must be
+within the run's own scenario count (originals plus addendums) or the write is rejected
+**422**, and a `user_scenario_id` must belong to this run or it is rejected **409**.
+
+### Phase 4 — scenario promotion is polled to completion
+Promotion returns `{scenario_id, task_id, status_url}` for the paired reassessment it
+starts. `PromoteScenarioModal.handleSave` never read the response body, and the parent
+compensated by setting `running = true` with nothing polling — the spinner ran forever
+and the new verdict never appeared without a manual reload.
+
+The modal now parses the job and hands it to the parent, which drives it through the
+same poller as "run assessment". That poller was extracted from `runAssessment` into one
+`pollJob(statusUrl, startMsg)` rather than adding a second implementation, and gained
+three fixes on the way: it clears any existing interval before starting (double-clicking
+Run used to leak a second one), it treats a 404 job as terminal instead of spinning, and
+it handles `status === 'error'` as well as `'failed'`. Cleanup now runs on **run change**
+as well as unmount — the effect was keyed `[]` despite its comment, so switching topic
+mid-assessment left an interval polling the old run and letting its completion overwrite
+the new run's state. On completion it refreshes assessment, promoted scenarios and
+statuses together through one `refreshRunState()`, closing the window where verdicts came
+from the new run and addendums from the old.
+
+`runAssessment` was missing `windowWeeks` from its `useCallback` dependencies, so
+changing the window from 8 to 12 submitted the previous value. Added, and the callback
+now also refuses to start while a job is already running. `handleSave` refuses a second
+submit while the first is in flight, which would otherwise create a duplicate scenario
+and a competing job.
+
+### Phase 9 (part) — wizard activation no longer fails silently
+`AddTopicWizard.finish()` awaited the activation `PATCH .../metadata {status:'active'}`
+without checking the result, while every other call in the file checks `r.ok`. A failure
+left the topic as a draft server-side while the wizard reported success, closed, and
+called `clearState(name)` — destroying the resumable wizard state. It now raises on a
+non-ok response so the error surfaces and the state survives. The rest of Phase 9
+(create-vs-PATCH semantics, `source_topics` on the patch model, overlay validation and
+atomic overlay writes) is not done.
+
+### Verification (phases 2, 4, 9-part)
+`tests/test_forecast_run_consistency.py` (new, 8 tests, passing) drives the real route
+handlers with a stubbed facade — no database, and `asyncio.run()` rather than
+`@pytest.mark.asyncio`, because this repo has no test DB and no `pytest-asyncio`. It
+sets up run A (assessed) and newer run B (not), then asserts run B's response leaves
+`assessment` null, exposes run A only as read-only `historical_assessment`, that run A's
+own request still works normally, and that a status write with an out-of-range index
+(422), a promoted scenario from another run (409), article detail across runs (409) and
+a cross-run surprise draft (409) are all rejected with nothing written.
+
+`cd ui && npm run typecheck` → "Type check clean: 246 errors, all 246 known" (no new
+type errors against the baseline). Full backend suite: **95 failed, 31 errors** — the
+same pre-existing set as before this work; passing count rose 117 → 130, which is the 13
+new tests.
+
 ### Still open
-This is Phase 1 of 9. Phases 2-9 (run-consistency in the tracker, promoted-scenario
-identity, promotion polling, source-topic-aware reruns, one run-pinned resolver for all
-five export formats, complete regeneration invalidation, per-run scheduling, and the
-Topics wizard fixes) are not done. Whether customers need to be told about the exposure
-window is a decision for Oliver, not something this entry settles.
+Phase 3 (promoted-scenario identity: `user_scenario_id` on verdicts, partial unique
+indexes to replace the inert nullable composite constraint, and removing the positional
+`mapAddendumScenariosByIdx` inference), Phase 5 (source-topic-aware report reruns),
+Phase 6 (one run-pinned resolver — Markdown and executive DOCX still re-resolve latest
+assessment by topic), Phase 7 (regenerate only deletes the cached PPTX and leaves the
+synthesis, review and sidecar stale), Phase 8 (scheduling is per topic, so a new run is
+not assessed until the topic's 30-day clock expires), and the rest of Phase 9.
+
+Whether customers need to be told about the Phase 1 exposure window is a decision for
+Oliver, not something this entry settles.
 
 ## 2026-08-18 — Explore briefing dropped articles when the model miscopied a URI
 

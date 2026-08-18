@@ -245,25 +245,44 @@ async def get_latest_run_for_topic(topic: str):
 
 @router.get("/api/forecast/{run_id}/assessment")
 async def get_latest_assessment(run_id: str):
-    """Return the most recent assessment for the run (with scenario verdicts).
+    """Return the most recent assessment **for this run**, with scenario verdicts.
 
-    If the supplied run has no assessments stored, falls back to the latest
-    assessment for the run's topic across any horizons run. This keeps the
-    Forecast Tracker tab useful when the trend-convergence page has
-    freshly-generated a new horizons run while the saved assessments are
-    against an older run for the same topic.
+    ``assessment`` only ever holds an assessment whose ``run_id`` matches the
+    URL. When the run has not been assessed yet it is ``null`` and the caller
+    gets this run's own scenarios, so the UI can render a real empty state.
+
+    An assessment of an *older* run for the same topic used to be served in
+    ``assessment`` as if it belonged to this run. Scenarios came from the
+    requested run while verdicts came from the other one, so ``scenario_idx``
+    values did not line up and the two could describe different scenarios. Any
+    such assessment is now returned separately in ``historical_assessment``,
+    carries its own ``run_id``, and is flagged read-only: it is for display
+    while the new run is still being assessed, never a mutation target.
     """
     from app.database import get_database_instance
     db = get_database_instance()
     record = db.facade.get_latest_forecast_assessment(run_id)
 
-    # Always resolve the run's topic so we can fallback by topic.
+    # An assessment row that is not for this run must never land in `assessment`.
+    if record and record.get("run_id") and record.get("run_id") != run_id:
+        logger.error(
+            "get_latest_forecast_assessment(%s) returned an assessment for run %s; "
+            "dropping it rather than serving cross-run state",
+            run_id, record.get("run_id"),
+        )
+        record = None
+
     run = db.facade.get_future_horizons_analysis(run_id)
     topic = (run or {}).get("topic")
-    fallback_used = False
+
+    historical = None
     if not record and topic:
-        record = db.facade.get_latest_forecast_assessment_by_topic(topic)
-        fallback_used = bool(record)
+        candidate = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        # Only historical if it really is another run — never re-label this run's own.
+        if candidate and candidate.get("run_id") and candidate.get("run_id") != run_id:
+            historical = candidate
+        elif candidate and candidate.get("run_id") == run_id:
+            record = candidate
 
     raw = run.get("raw_output") if run else None
     if isinstance(raw, str):
@@ -279,8 +298,41 @@ async def get_latest_assessment(run_id: str):
         "assessment": record or None,
         "scenarios": scenarios,
         "forecast_generated_at": run.get("created_at") if run else None,
-        "topic_fallback": fallback_used,
+        # Read-only view of an older run's assessment for the same topic. The
+        # UI must not offer scenario status or promotion against this.
+        "historical_assessment": historical,
+        "historical_assessment_run_id": (historical or {}).get("run_id"),
+        "historical_read_only": bool(historical),
+        # Retained for older UI builds that branch on this flag.
+        "topic_fallback": bool(historical),
     }
+
+
+def _require_assessment_in_run(db, run_id: str, assessment_id: str) -> dict:
+    """Load an assessment and refuse it if it belongs to a different run.
+
+    Run-scoped URLs carry both ids. Serving an assessment from another run
+    under this URL is what let the Forecast Tracker mix a run's scenarios with
+    another run's verdicts, so a mismatch is an error rather than something to
+    paper over with the latest row.
+    """
+    from app.services.forecast_assessment_service import _hydrate_assessment_by_id
+
+    record = _hydrate_assessment_by_id(db, assessment_id)
+    if not record:
+        raise HTTPException(
+            status_code=404, detail=f"Assessment {assessment_id} not found",
+        )
+    owner = record.get("run_id")
+    if owner and owner != run_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Assessment {assessment_id} belongs to run {owner}, not {run_id}. "
+                "Reload the Forecast Tracker for this run."
+            ),
+        )
+    return record
 
 
 @router.get("/api/forecast/snapshots/by-topic")
@@ -317,9 +369,11 @@ async def export_assessment_pptx(
     """Render the assessment as a slide-per-scenario PowerPoint deck mirroring
     the Wiley Horizons brief layout (slides 64-68 of the Feb 2026 deck).
 
-    Pulls the latest assessment for the run (we treat the explicit
-    ``assessment_id`` as a sanity-check parameter so a stale URL doesn't
-    silently render a newer assessment).
+    Renders exactly the ``assessment_id`` in the URL, and only if it belongs
+    to ``run_id``. It used to render whatever the latest assessment for the run
+    was — including, via a topic fallback, one belonging to a different run —
+    which meant a stale link could silently produce a deck of someone else's
+    analysis under this run's heading.
 
     On the first export for an assessment that has no cached narratives,
     LLM synthesis fires and persists the prose to ``summary_md`` /
@@ -335,20 +389,7 @@ async def export_assessment_pptx(
     from app.services.forecast_narrative import ensure_narratives_for_assessment
 
     db = get_database_instance()
-    record = db.facade.get_latest_forecast_assessment(run_id)
-    if not record:
-        # Fallback: assessment may be for a sibling run of the same topic.
-        run = db.facade.get_future_horizons_analysis(run_id)
-        topic = (run or {}).get("topic")
-        if topic:
-            record = db.facade.get_latest_forecast_assessment_by_topic(topic)
-    if not record:
-        raise HTTPException(status_code=404, detail="No assessment found")
-    if record.get("id") != assessment_id:
-        logger.info(
-            "PPTX export requested assessment %s but latest is %s; rendering latest",
-            assessment_id, record.get("id"),
-        )
+    record = _require_assessment_in_run(db, run_id, assessment_id)
 
     # Lazily synthesize any missing narratives + persist them so the next
     # export is fast. This can add 5-15s on first export per assessment.
@@ -410,13 +451,11 @@ async def draft_scenario_from_surprise(run_id: str, payload: _DraftScenarioReque
 
     db = get_database_instance()
 
-    # Load the assessment to fetch the topic and the requested surprise cluster.
-    # We use the by-id path rather than by-run because the assessment may live
-    # on a sibling run for the same topic.
-    from app.services.forecast_assessment_service import _hydrate_assessment_by_id
-    assessment = _hydrate_assessment_by_id(db, payload.assessment_id)
-    if not assessment:
-        raise HTTPException(status_code=404, detail="Assessment not found")
+    # The drafted scenario becomes an addendum to THIS run, so the surprise it
+    # is drafted from must come from this run's own assessment. Promoting a
+    # surprise found in a sibling run's assessment would attach evidence from
+    # one forecast to another.
+    assessment = _require_assessment_in_run(db, run_id, payload.assessment_id)
 
     surprises = assessment.get("surprises") or []
     if payload.surprise_index < 0 or payload.surprise_index >= len(surprises):
@@ -588,8 +627,42 @@ async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
         raise HTTPException(status_code=422, detail="status must be 'active' or 'done'")
 
     db = get_database_instance()
-    if not db.facade.get_future_horizons_analysis(run_id):
+    run = db.facade.get_future_horizons_analysis(run_id)
+    if not run:
         raise HTTPException(status_code=404, detail=f"Forecast run {run_id} not found")
+
+    # The status key must name a scenario that exists in THIS run. Without this
+    # the UI could carry an index from a previously-displayed run and mark an
+    # unrelated scenario done, or write a row for an index that never existed.
+    if payload.scenario_idx is not None:
+        raw = run.get("raw_output")
+        if isinstance(raw, str):
+            import json
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                raw = {}
+        original_count = len((raw or {}).get("scenarios") or [])
+        addendum_count = len(db.facade.get_forecast_user_scenarios(run_id) or [])
+        total = original_count + addendum_count
+        if payload.scenario_idx < 0 or payload.scenario_idx >= total:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"scenario_idx {payload.scenario_idx} is not a scenario of run "
+                    f"{run_id} (it has {total})."
+                ),
+            )
+    else:
+        owned = {s.get("id") for s in (db.facade.get_forecast_user_scenarios(run_id) or [])}
+        if payload.user_scenario_id not in owned:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Promoted scenario {payload.user_scenario_id} does not belong to run "
+                    f"{run_id}. Promoted scenarios stay with the run they were added to."
+                ),
+            )
 
     row = db.facade.save_forecast_scenario_status(
         run_id=run_id,
@@ -1382,9 +1455,15 @@ async def get_assessment_articles(
     scenario_idx: Optional[int] = Query(None),
     limit: int = Query(200, ge=1, le=2000),
 ):
-    """Paginated per-article verdicts. If scenario_idx supplied, scopes to one scenario."""
+    """Paginated per-article verdicts. If scenario_idx supplied, scopes to one scenario.
+
+    Rejects an ``assessment_id`` from a different run with 409 — the URL is
+    run-scoped, so returning another run's article verdicts here would attribute
+    evidence to the wrong forecast.
+    """
     from app.database import get_database_instance
     db = get_database_instance()
+    _require_assessment_in_run(db, run_id, assessment_id)
     rows = db.facade.get_forecast_article_verdicts(assessment_id, scenario_idx=scenario_idx)
     if not rows:
         return {"assessment_id": assessment_id, "articles": []}

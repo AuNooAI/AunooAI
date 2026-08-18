@@ -386,11 +386,19 @@ export function AddTopicWizard({
           throw new Error(`${r.status} ${t || r.statusText}`);
         }
       }
-      await fetch(`/api/forecast/topics/${encodeURIComponent(name)}/metadata`, {
+      // This is the activation call — it is what takes the topic out of draft.
+      // It used to be awaited without checking the result, so a failure here
+      // left the topic as a draft while the wizard reported success and
+      // clearState() destroyed the resumable state.
+      const act = await fetch(`/api/forecast/topics/${encodeURIComponent(name)}/metadata`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'active' }),
       });
+      if (!act.ok) {
+        const t = await act.text();
+        throw new Error(`Could not activate the topic: ${act.status} ${t || act.statusText}`);
+      }
       clearState(name);
       onCompleted && onCompleted(name);
       onClose();
