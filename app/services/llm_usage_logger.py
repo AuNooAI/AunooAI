@@ -177,6 +177,24 @@ def _install_call_site_tagging() -> None:
                 continue
         logger.info("llm_usage_log: tagging litellm.%s (%d early import(s) rebound)", name, rebound)
 
+    # Router needs its own wrapper. It does not call litellm.acompletion from the
+    # caller's frame — it hands the work to its scheduler, so by the time the
+    # module-level wrapper runs the app is no longer on the stack and the tag
+    # comes out "unknown". Wrapping the Router methods captures the caller at the
+    # boundary where it is still there. This is the path AIModelFactory uses,
+    # which on wileytest is the highest-volume LLM path there is.
+    try:
+        from litellm.router import Router
+
+        for name, wrap in (("completion", _wrap_sync), ("acompletion", _wrap_async)):
+            original = getattr(Router, name, None)
+            if original is None or getattr(original, "_aunoo_tagged", False):
+                continue
+            setattr(Router, name, wrap(original))
+            logger.info("llm_usage_log: tagging Router.%s", name)
+    except Exception:  # noqa: BLE001 — Router tagging is a bonus, never a blocker
+        logger.debug("could not tag litellm Router", exc_info=True)
+
 
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     m = (model or "").lower()

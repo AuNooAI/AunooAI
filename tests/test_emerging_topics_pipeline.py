@@ -108,7 +108,10 @@ def build_service(store, *, themes=None, sampled=5, analysis=None,
     service._create_detection_run = store.create_run
 
     async def fake_historical(**kwargs):
-        return historical
+        # Mirrors the real (status, shadow) contract. A stub that returns the
+        # old bool would make these tests pass while the caller crashed on
+        # unpacking, and the run would be "failed" for the wrong reason.
+        return (historical or "unknown", None)
 
     service._check_historical_coverage = fake_historical
 
@@ -681,3 +684,151 @@ def test_confidence_floor_applies():
     topic = {"detection_type": "llm_proposed", "confidence_score": 0.5}
     assert nf.select_topics_for_notification([topic], ["llm_proposed"], 0.7) == []
     assert nf.select_topics_for_notification([topic], ["llm_proposed"], 0.4) == [topic]
+
+
+# ---------------------------------------------------------------------------
+# 8. Historical coverage is gated, and unknown by default
+# ---------------------------------------------------------------------------
+
+def test_historical_check_is_off_by_default_and_returns_unknown(monkeypatch):
+    """No env var, no classification. The honest answer is "we cannot tell"."""
+    from app.services.emerging_topics import historical_backend as hb
+    from app.services.emerging_topics.emerging_topics_service import (
+        EmergingTopicsService, EmergingTopicsConfig,
+    )
+
+    monkeypatch.delenv("EMERGING_TOPICS_HISTORICAL_MODE", raising=False)
+    service = EmergingTopicsService(config=EmergingTopicsConfig())
+
+    def explode():
+        raise AssertionError("must not touch the database when the check is off")
+
+    service._get_connection = explode
+
+    status, shadow = asyncio.run(service._check_historical_coverage(
+        theme=a_theme(), days_back=7,
+    ))
+
+    assert status == hb.UNKNOWN
+    assert shadow is None
+
+
+def test_unknown_and_not_found_both_stay_llm_proposed():
+    """Only a positive enforced finding may mark a topic ongoing.
+
+    A topic wrongly marked ongoing is dropped from new-topic alerts, and an
+    alert that never fires is invisible — so anything short of a real finding
+    keeps the topic proposed.
+    """
+    from app.services.emerging_topics import historical_backend as hb
+    from app.services.emerging_topics.emerging_topics_service import (
+        EmergingTopicsService, EmergingTopicsConfig,
+    )
+    from app.services.emerging_topics.deep_analyzer import DeepAnalysis
+    from app.services.emerging_topics.trend_scorer import TrendScore
+
+    service = EmergingTopicsService(config=EmergingTopicsConfig())
+
+    def build(status):
+        return service._create_topic_from_theme(
+            theme=a_theme(), analysis=DeepAnalysis(), trend=TrendScore(),
+            detection_date=date(2026, 8, 19), historical_status=status,
+        )
+
+    assert build(hb.UNKNOWN).detection_type == "llm_proposed"
+    assert build(hb.NOT_FOUND).detection_type == "llm_proposed"
+    assert build(hb.ONGOING).detection_type == "ongoing_topic"
+
+    for status in (hb.UNKNOWN, hb.NOT_FOUND, hb.ONGOING):
+        assert build(status).historical_coverage_status == status
+
+
+def test_the_status_is_exposed_on_the_topic_payload():
+    from app.services.emerging_topics.emerging_topics_service import EmergingTopic
+
+    assert EmergingTopic().to_dict()["historical_coverage_status"] == "unknown"
+    assert EmergingTopic(
+        historical_coverage_status="not_found"
+    ).to_dict()["historical_coverage_status"] == "not_found"
+
+
+def test_a_classification_failure_degrades_to_unknown(monkeypatch):
+    """A broken index must not fail the run, and must not invent a verdict."""
+    from app.services.emerging_topics import historical_backend as hb
+    from app.services.emerging_topics.emerging_topics_service import (
+        EmergingTopicsService, EmergingTopicsConfig,
+    )
+
+    monkeypatch.setenv("EMERGING_TOPICS_HISTORICAL_MODE", "shadow")
+    service = EmergingTopicsService(config=EmergingTopicsConfig())
+
+    def boom(*a, **kw):
+        raise RuntimeError("relation article_embeddings_ml does not exist")
+
+    service._classify_historical_coverage = boom
+
+    status, shadow = asyncio.run(service._check_historical_coverage(
+        theme=a_theme(), days_back=7,
+    ))
+
+    assert status == hb.UNKNOWN
+    assert shadow is None
+
+
+def test_shadow_mode_reports_unknown_whatever_it_would_have_decided(monkeypatch):
+    """Shadow means observed, not applied."""
+    from app.services.emerging_topics import historical_backend as hb
+    from app.services.emerging_topics import historical_cutoff as hc
+    from app.services.emerging_topics.emerging_topics_service import (
+        EmergingTopicsService, EmergingTopicsConfig,
+    )
+
+    monkeypatch.setenv("EMERGING_TOPICS_HISTORICAL_MODE", "shadow")
+    service = EmergingTopicsService(config=EmergingTopicsConfig())
+
+    captured = {}
+
+    def fake_classify(theme, days_back, topic_filter, window, min_articles, mode):
+        captured["mode"] = mode
+        decision = hc.decide(
+            [0.10, 0.11, 0.12, 0.13], [0.30 + i * 0.001 for i in range(50)],
+            [{"distance": 0.09, "news_source": "reuters", "publication_day": "2026-07-01"},
+             {"distance": 0.10, "news_source": "ft", "publication_day": "2026-07-03"},
+             {"distance": 0.11, "news_source": "bloomberg", "publication_day": "2026-07-05"}],
+            backend=hb.E5,
+        )
+        assert decision.is_ongoing, "fixture should produce an ongoing verdict"
+        return (hb.UNKNOWN, {"would_be": hb.ONGOING, "mode": mode})
+
+    service._classify_historical_coverage = fake_classify
+
+    status, shadow = asyncio.run(service._check_historical_coverage(
+        theme=a_theme(), days_back=7,
+    ))
+
+    assert captured["mode"] == "shadow"
+    assert status == hb.UNKNOWN, "shadow must not change the topic"
+    assert shadow["would_be"] == hb.ONGOING, "but it must record what it saw"
+
+
+def test_a_successful_run_persists_topics_and_completes():
+    """Guards the stub contract above: the success path must actually complete.
+
+    Written after a test double returned the old boolean where the code now
+    returns a tuple. Every lifecycle test still passed, because the unpacking
+    error simply failed the run and "failed" was what several of them asserted.
+    """
+    store = FakeRunStore()
+    service = build_service(store, themes=[a_theme(), a_theme("Second")], sampled=25)
+
+    events = collect(service)
+
+    assert store.statuses() == ["completed"]
+    assert len(store.saved_topics) == 2
+    assert len(store.saved_history) == 2
+    complete = [e for e in events if e["event"] == "complete"]
+    assert len(complete) == 1
+    assert complete[0]["total_emerging_topics"] == 2
+    assert not [e for e in events if e["event"] == "error"]
+    # And every persisted topic carries an explicit coverage status.
+    assert all(t.historical_coverage_status == "unknown" for t in store.saved_topics)

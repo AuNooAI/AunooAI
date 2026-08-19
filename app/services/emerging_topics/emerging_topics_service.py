@@ -34,6 +34,7 @@ from .run_lock import (
     DetectionRunLock,
     normalize_topic_filter,
 )
+from . import historical_backend
 from . import historical_cutoff
 from . import sentinels
 
@@ -104,6 +105,11 @@ class EmergingTopic:
     # The scope this topic belongs to. Part of its identity: the same label
     # under two filters is two topics.
     topic_filter: Optional[str] = None
+    # Whether older coverage was found: 'ongoing', 'not_found' or 'unknown'.
+    # 'unknown' is the normal answer until a validated E5 index exists.
+    historical_coverage_status: str = "unknown"
+    # What the shadow classifier would have said, when one ran.
+    historical_shadow: Optional[Dict[str, Any]] = None
 
     # V2: Key entities from proposal
     key_entities: List[str] = field(default_factory=list)
@@ -158,6 +164,7 @@ class EmergingTopic:
             "cluster_id": self.cluster_id,
             "article_count": self.article_count,
             "topic_filter": self.topic_filter,
+            "historical_coverage_status": self.historical_coverage_status,
             # V2 fields
             "key_entities": self.key_entities,
             "why_emerging": self.why_emerging,
@@ -573,8 +580,9 @@ class EmergingTopicsService:
                     self.trend_scorer.calculate, theme.article_uris, days
                 )
 
-                # Is this actually an ongoing topic with older coverage?
-                is_ongoing = await self._check_historical_coverage(
+                # Has this been covered before? Usually "unknown" — see
+                # historical_backend.py.
+                historical_status, historical_shadow = await self._check_historical_coverage(
                     theme=theme,
                     days_back=days,
                     topic_filter=topic_filter,
@@ -588,7 +596,8 @@ class EmergingTopicsService:
                     trend=trend,
                     detection_date=detection_date,
                     topic_filter=topic_filter,
-                    is_ongoing=is_ongoing
+                    historical_status=historical_status,
+                    historical_shadow=historical_shadow,
                 ))
 
             yield {
@@ -828,151 +837,209 @@ class EmergingTopicsService:
         topic_filter: Optional[str] = None,
         history_window_days: int = 60,
         min_historical_articles: int = 3
-    ) -> bool:
-        """Does this theme already have coverage from before the analysis window?
+    ) -> tuple:
+        """Has this theme already been covered before the analysis window?
 
-        If it does, the topic is ongoing rather than emerging.
+        Returns ``(status, shadow)`` where status is one of ``ongoing``,
+        ``not_found`` or ``unknown``, and shadow is the decision detail to
+        record when running in shadow mode (None otherwise).
 
-        The search is scoped to the historical window *before* ranking. The
-        previous version took the global top 50 matches and then intersected
-        them with the historical set, so a theme whose older coverage ranked
-        51st looked brand new — which is exactly the case this check exists to
-        catch, since recent articles crowd out older ones in a global ranking.
+        ``unknown`` is the honest answer almost everywhere today. This check
+        used to compare DeBERTa distances against a fixed 0.85, which matched
+        100% of the corpus and so labelled every theme — including invented
+        ones — as ongoing. That decision is gone rather than retuned: the
+        signal is missing from the store, not the threshold. See
+        historical_backend.py.
 
-        Which of those older articles count is decided by a cutoff calibrated
-        per theme, not a fixed distance — see historical_cutoff.py for why a
-        constant cannot work in this embedding space.
-
-        Raises on encoder or database failure. Guessing "new" on error would
-        mislabel topics and trigger new-topic notifications off the back of an
-        outage.
+        Never raises for a classification problem. An unavailable index, a
+        missing vector, or a failed query all mean "we could not tell", and the
+        caller keeps ``llm_proposed``. Suppressing a genuinely new topic is the
+        worse failure, because nobody sees a notification that never fires.
         """
-        search_text = theme.search_query or theme.theme_label
-        if not search_text:
-            return False
+        mode = historical_backend.resolve_mode()
+        if mode == historical_backend.MODE_OFF:
+            return (historical_backend.UNKNOWN, None)
 
-        query_embedding = await asyncio.to_thread(
-            self.theme_proposer._embed_query, search_text
-        )
+        try:
+            return await asyncio.to_thread(
+                self._classify_historical_coverage,
+                theme,
+                days_back,
+                topic_filter,
+                history_window_days,
+                min_historical_articles,
+                mode,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Historical coverage check failed for '%s' (%s); recording unknown",
+                theme.theme_label, exc,
+            )
+            return (historical_backend.UNKNOWN, None)
 
-        return await asyncio.to_thread(
-            self._count_historical_matches,
-            theme,
-            query_embedding,
-            days_back,
-            topic_filter,
-            history_window_days,
-            min_historical_articles,
-        )
-
-    # How much of the in-scope historical corpus to sample when calibrating the
-    # background distribution, and how many candidates to rank against it.
-    BACKGROUND_SAMPLE_SIZE = 400
-    HISTORICAL_CANDIDATE_LIMIT = 60
-
-    def _count_historical_matches(
+    def _classify_historical_coverage(
         self,
         theme: ProposedTheme,
-        query_embedding,
         days_back: int,
         topic_filter: Optional[str],
         history_window_days: int,
         min_historical_articles: int,
-    ) -> bool:
-        """Blocking half of :meth:`_check_historical_coverage`.
+        mode: str,
+    ) -> tuple:
+        """Blocking half of :meth:`_check_historical_coverage`, E5 only.
 
-        Ranks the in-scope historical window against the theme's query vector,
-        then applies a cutoff calibrated per theme (see historical_cutoff.py).
-        A fixed distance cannot work here: this embedding space puts unrelated
-        articles at distances a fixed threshold either admits wholesale or
-        rejects wholesale.
+        Anchors on the E5 vectors of the theme's own articles rather than
+        embedding its label. Those vectors already exist in the store, so this
+        costs one query instead of loading a 2GB sentence-transformer into the
+        detection process — and comparing a theme's actual articles against
+        older articles is a better question than comparing a short label string
+        against them.
         """
         conn = None
         try:
             conn = self._get_connection()
 
+            if not historical_backend.e5_available(conn):
+                logger.info(
+                    "Theme '%s': %s",
+                    theme.theme_label,
+                    historical_backend.describe(mode, False),
+                )
+                return (historical_backend.UNKNOWN, None)
+
+            uris = list(theme.article_uris or [])[:30]
+            if len(uris) < 2:
+                return (historical_backend.UNKNOWN, None)
+
+            placeholders = ", ".join(f":u{i}" for i in range(len(uris)))
+            params = {f"u{i}": u for i, u in enumerate(uris)}
+
+            # The theme's own vectors, averaged into a centroid. Anchoring on
+            # the members is what removes the need for a query encoder.
+            member_rows = conn.execute(text(f"""
+                SELECT embedding::text
+                FROM {historical_backend.E5_TABLE}
+                WHERE article_uri IN ({placeholders})
+            """), params).fetchall()
+
+            vectors = []
+            for row in member_rows:
+                try:
+                    vectors.append([float(v) for v in row[0].strip("[]").split(",")])
+                except (AttributeError, ValueError):
+                    continue
+            if len(vectors) < 2:
+                logger.info(
+                    "Theme '%s': only %s of %s articles have E5 vectors; unknown",
+                    theme.theme_label, len(vectors), len(uris),
+                )
+                return (historical_backend.UNKNOWN, None)
+
+            dim = len(vectors[0])
+            centroid = [sum(v[i] for v in vectors) / len(vectors) for i in range(dim)]
+            norm = sum(c * c for c in centroid) ** 0.5 or 1.0
+            centroid = [c / norm for c in centroid]
+            centroid_literal = "[" + ",".join(str(c) for c in centroid) + "]"
+
             now = utcnow()
-            params = {
-                "query_embedding": "[" + ",".join(str(v) for v in query_embedding) + "]",
+            published_ts = publication_ts_sql("a.publication_date")
+            scope = {
+                "centroid": centroid_literal,
                 "history_start": now - timedelta(days=history_window_days),
                 "history_end": now - timedelta(days=days_back),
                 "limit": max(min_historical_articles * 10, self.HISTORICAL_CANDIDATE_LIMIT),
                 "background": self.BACKGROUND_SAMPLE_SIZE,
             }
-
             topic_clause = ""
             if topic_filter:
-                topic_clause = "AND topic = :topic"
-                params["topic"] = topic_filter
+                topic_clause = "AND a.topic = :topic"
+                scope["topic"] = topic_filter
 
-            published_ts = publication_ts_sql("publication_date")
+            # How close the theme's own members are to their centroid, which is
+            # the "about as close as this theme's own articles" calibration term.
+            theme_distances = [
+                float(r[0]) for r in conn.execute(text(f"""
+                    SELECT embedding <=> CAST(:centroid AS vector)
+                    FROM {historical_backend.E5_TABLE}
+                    WHERE article_uri IN ({placeholders})
+                """), {**params, "centroid": centroid_literal}).fetchall()
+            ]
 
-            # The nearest historical articles, with the metadata the
-            # corroboration rules need.
-            candidate_stmt = text(f"""
-                SELECT uri,
-                       news_source,
-                       ({published_ts})::date AS publication_day,
-                       embedding <=> CAST(:query_embedding AS vector) AS distance
-                FROM articles
-                WHERE embedding IS NOT NULL
-                  AND {published_ts} >= :history_start
-                  AND {published_ts} < :history_end
-                  {topic_clause}
-                ORDER BY distance, uri
-                LIMIT :limit
-            """)
             candidates = [
                 {
-                    "uri": row["uri"],
-                    "news_source": row["news_source"],
-                    "publication_day": row["publication_day"],
-                    "distance": float(row["distance"]),
+                    "distance": float(r["distance"]),
+                    "news_source": r["news_source"],
+                    "publication_day": r["publication_day"],
                 }
-                for row in conn.execute(candidate_stmt, params).mappings()
+                for r in conn.execute(text(f"""
+                    SELECT a.news_source,
+                           ({published_ts})::date AS publication_day,
+                           m.embedding <=> CAST(:centroid AS vector) AS distance
+                    FROM {historical_backend.E5_TABLE} m
+                    JOIN articles a ON a.uri = m.article_uri
+                    WHERE {published_ts} >= :history_start
+                      AND {published_ts} < :history_end
+                      {topic_clause}
+                    ORDER BY distance, a.uri
+                    LIMIT :limit
+                """), scope).mappings()
             ]
 
-            # A background sample of the same window, chosen by a hash of the
-            # uri rather than by distance. Ordering by distance would sample the
-            # very tail we are trying to measure against; the hash gives an even,
-            # deterministic spread so two runs calibrate identically.
-            background_stmt = text(f"""
-                SELECT embedding <=> CAST(:query_embedding AS vector) AS distance
-                FROM articles
-                WHERE embedding IS NOT NULL
-                  AND {published_ts} >= :history_start
-                  AND {published_ts} < :history_end
-                  AND left(md5(uri), 1) IN ('0', '1')
-                  {topic_clause}
-                LIMIT :background
-            """)
             background = [
-                float(row[0]) for row in conn.execute(background_stmt, params).fetchall()
+                float(r[0]) for r in conn.execute(text(f"""
+                    SELECT m.embedding <=> CAST(:centroid AS vector)
+                    FROM {historical_backend.E5_TABLE} m
+                    JOIN articles a ON a.uri = m.article_uri
+                    WHERE {published_ts} >= :history_start
+                      AND {published_ts} < :history_end
+                      AND left(md5(m.article_uri), 1) IN ('0', '1')
+                      {topic_clause}
+                    LIMIT :background
+                """), scope).fetchall()
             ]
-
-            theme_distances = list(getattr(theme, "article_distances", None) or [])
 
             decision = historical_cutoff.decide(
                 theme_distances=theme_distances,
                 background_distances=background,
                 candidates=candidates,
+                backend=historical_backend.E5,
                 min_articles=min_historical_articles,
             )
 
-            logger.info(
-                "Theme '%s' historical check: %s",
-                theme.theme_label, decision.describe(),
-            )
-            return decision.is_ongoing
+            shadow = {
+                "backend": historical_backend.E5,
+                "mode": mode,
+                "would_be": (
+                    historical_backend.ONGOING if decision.is_ongoing
+                    else historical_backend.NOT_FOUND
+                ),
+                "cutoff": round(decision.cutoff, 4),
+                "provisional": decision.provisional,
+                "qualifying_articles": decision.qualifying_articles,
+                "qualifying_sources": decision.qualifying_sources,
+                "qualifying_dates": decision.qualifying_dates,
+                "candidates_examined": decision.candidates_examined,
+            }
 
-        except Exception as e:
-            logger.error(
-                f"Historical coverage check failed for '{theme.theme_label}': {e}"
+            if mode == historical_backend.MODE_SHADOW:
+                # Logged with a stable prefix so the labelled-set validation can
+                # grep for it, and recorded on the topic so it can be queried.
+                logger.info(
+                    "HISTORICAL_SHADOW theme=%r %s",
+                    theme.theme_label, decision.describe(),
+                )
+                return (historical_backend.UNKNOWN, shadow)
+
+            status = (
+                historical_backend.ONGOING if decision.is_ongoing
+                else historical_backend.NOT_FOUND
             )
-            raise RuntimeError(
-                f"Could not determine historical coverage for "
-                f"'{theme.theme_label}': {e}"
-            ) from e
+            logger.info(
+                "Theme '%s' historical check (%s): %s",
+                theme.theme_label, historical_backend.E5, decision.describe(),
+            )
+            return (status, shadow)
+
         finally:
             if conn:
                 conn.close()
@@ -984,14 +1051,22 @@ class EmergingTopicsService:
         trend: TrendScore,
         detection_date: date,
         topic_filter: Optional[str] = None,
-        is_ongoing: bool = False
+        historical_status: str = historical_backend.UNKNOWN,
+        historical_shadow: Optional[Dict[str, Any]] = None,
     ) -> EmergingTopic:
         """Create an EmergingTopic from theme, analysis, and trend data.
 
         The LLM's "Not mentioned" placeholders are cleaned out here, before
         anything is scored or stored, so an empty finding is stored as empty.
         """
-        topic_detection_type = "ongoing_topic" if is_ongoing else "llm_proposed"
+        # Only a positive, enforced finding makes a topic "ongoing". Unknown
+        # and not_found both stay llm_proposed: a topic wrongly marked ongoing
+        # is suppressed from new-topic alerts and nobody sees the absence.
+        topic_detection_type = (
+            "ongoing_topic"
+            if historical_status == historical_backend.ONGOING
+            else "llm_proposed"
+        )
 
         actors = sentinels.clean_list_dict(
             analysis.actors.to_dict() if analysis.actors else {}
@@ -1025,6 +1100,8 @@ class EmergingTopicsService:
             article_count=len(theme.article_uris),
             article_uris=theme.article_uris,
             topic_filter=normalize_topic_filter(topic_filter),
+            historical_coverage_status=historical_status,
+            historical_shadow=historical_shadow,
             # From theme proposal
             key_entities=key_entities,
             why_emerging=theme.why_emerging,
@@ -1192,6 +1269,8 @@ class EmergingTopicsService:
                         detection_count = COALESCE(detection_count, 0) + 1,
                         consecutive_detections = COALESCE(consecutive_detections, 0) + 1,
                         missed_runs = 0,
+                        historical_coverage_status = :historical_status,
+                        historical_shadow = CAST(:historical_shadow AS jsonb),
                         status = CASE WHEN status = 'retired' THEN status ELSE 'active' END
                     WHERE id = :id
                     AND topic_filter IS NOT DISTINCT FROM :topic_filter
@@ -1200,6 +1279,11 @@ class EmergingTopicsService:
                 conn.execute(update_stmt, {
                     "id": existing_id,
                     "topic_filter": topic_filter,
+                    "historical_status": topic.historical_coverage_status,
+                    "historical_shadow": (
+                        json_module.dumps(topic.historical_shadow)
+                        if topic.historical_shadow else None
+                    ),
                     "description": topic.topic_description,
                     "date": topic.detection_date,
                     "count": topic.article_count,
@@ -1236,7 +1320,8 @@ class EmergingTopicsService:
                     actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
                     first_detection_date, last_detection_date, detection_count,
-                    consecutive_detections, missed_runs
+                    consecutive_detections, missed_runs,
+                    historical_coverage_status, historical_shadow
                 ) VALUES (
                     :label, :description, :date, :type,
                     :cluster_id, :count, :growth_rate, :velocity,
@@ -1247,7 +1332,8 @@ class EmergingTopicsService:
                     CAST(:implications AS jsonb), CAST(:org_implications AS jsonb),
                     CAST(:signals AS jsonb), CAST(:synthesis AS jsonb),
                     :volume_score, :velocity_score, :diversity_score, :novelty_score, :composite_score,
-                    :date, :date, 1, 1, 0
+                    :date, :date, 1, 1, 0,
+                    :historical_status, CAST(:historical_shadow AS jsonb)
                 )
                 RETURNING id
             """)
@@ -1269,6 +1355,11 @@ class EmergingTopicsService:
                 "sample_uris": topic.article_uris[:5],
                 "filter": topic_filter,
                 "status": topic.status,
+                "historical_status": topic.historical_coverage_status,
+                "historical_shadow": (
+                    json_module.dumps(topic.historical_shadow)
+                    if topic.historical_shadow else None
+                ),
                 "actors": actors_json,
                 "events": events_json,
                 "implications": implications_json,
@@ -1711,6 +1802,7 @@ class EmergingTopicsService:
                     detection_type, cluster_id, article_count, growth_rate,
                     velocity, confidence_score, key_themes, representative_keywords,
                     emergence_rationale, article_uris, status, topic_filter,
+                    historical_coverage_status,
                     actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
                     first_detection_date, last_detection_date, detection_count, consecutive_detections,
@@ -1735,6 +1827,8 @@ class EmergingTopicsService:
                     article_count=row["article_count"],
                     article_uris=row["article_uris"] or [],
                     topic_filter=row.get("topic_filter"),
+                    historical_coverage_status=(
+                        row.get("historical_coverage_status") or "unknown"),
                     growth_rate=row["growth_rate"] or 0.0,
                     velocity=row["velocity"] or "stable",
                     confidence_score=row["confidence_score"] or 0.0,
@@ -1813,6 +1907,7 @@ class EmergingTopicsService:
                     detection_type, cluster_id, article_count, growth_rate,
                     velocity, confidence_score, key_themes, representative_keywords,
                     emergence_rationale, article_uris, status, topic_filter,
+                    historical_coverage_status,
                     actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
                     first_detection_date, last_detection_date, detection_count, consecutive_detections,
@@ -1837,6 +1932,8 @@ class EmergingTopicsService:
                     article_count=row["article_count"],
                     article_uris=row["article_uris"] or [],
                     topic_filter=row.get("topic_filter"),
+                    historical_coverage_status=(
+                        row.get("historical_coverage_status") or "unknown"),
                     growth_rate=row["growth_rate"] or 0.0,
                     velocity=row["velocity"] or "stable",
                     confidence_score=row["confidence_score"] or 0.0,

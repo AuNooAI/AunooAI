@@ -73,7 +73,8 @@ Explore → **Emerging Topics**.
 3. Open any detected topic. The panel shows the companies, people and organisations involved,
    the triggering event and timeline, the implications, and the four component scores.
 4. Alert settings are under the gear icon → **Notifications**. The choices are now "new theme",
-   "ongoing topic" and "accelerating", which is what the engine actually produces.
+   "ongoing topic" and "accelerating". Note that nothing is currently labelled "ongoing topic" —
+   see Limits below — so an alert set to that alone will not fire.
 
 ## Positioning notes
 
@@ -88,19 +89,28 @@ and scheduling actions on shared data are now restricted to administrators.
 
 ## Limits and what's next
 
-**The "new topic" versus "ongoing topic" label is not trustworthy, and is unchanged by this
-release.** The system decides whether a theme already had earlier coverage by comparing text
-similarity against a fixed cutoff. We measured that cutoff this session and it matches 100% of
-the article corpus, so the test always answers "ongoing". As a check, we ran two invented
+**The "new topic" versus "ongoing topic" label has been switched off, and now reads
+"unknown".** The system used to decide whether a theme already had earlier coverage by
+comparing text similarity against a fixed cutoff. We measured that cutoff and it matched 100%
+of the article corpus, so the test always answered "ongoing". As a check we ran two invented
 topics through it — a fictional product recall and a fictional licensing reform, neither of
-which exists — and both were labelled as having prior coverage from around 40 sources. The
-label is currently near-meaningless, and it feeds the "new theme" alert filter.
+which exists — and both were reported as having prior coverage from around 40 sources.
 
-The cause is the text-similarity model used for article search, which does not separate topics
-sharply enough for this comparison. A second, stronger model is already installed on two of the
-four customer sites and does separate them in our measurements. Making the labels meaningful
-needs a decision on rolling that model out, so it is not promised here. Until then, treat the
-"ongoing topic" badge as unreliable and do not build alerting on it.
+Rather than retune the number, we turned the test off. Every topic now carries an explicit
+"unknown" for prior coverage and stays labelled a proposed theme, which is the truthful answer
+while we cannot tell. Existing topics that carried the old "ongoing" label have been reset, and
+the previous label is kept in the record.
+
+This is deliberately the cautious direction. A topic wrongly marked "ongoing" is dropped from
+new-topic alerts, and an alert that never fires is invisible — nobody notices the thing they
+were not told about. "Unknown" keeps the topic visible.
+
+A stronger text-similarity model is installed on two of the four customer sites and does
+separate real topics from invented ones in our measurements. It now runs on those two sites in
+observation mode: it records what it would have decided and changes nothing. Before it is
+allowed to set labels it has to be checked against a prepared set of known-ongoing topics,
+genuinely new topics, and deliberate nonsense, and it has to be very reliable when it says
+"ongoing" — because that is the answer that silences an alert. No date is promised.
 
 Also not covered:
 

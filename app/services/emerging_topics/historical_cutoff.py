@@ -35,6 +35,8 @@ invisible — the topic simply never appears.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from . import historical_backend
+
 # Hard ceiling: no calibration may produce a looser cutoff than this.
 MAX_CUTOFF = 0.20
 
@@ -147,13 +149,22 @@ def decide(
     theme_distances: Sequence[float],
     background_distances: Sequence[float],
     candidates: List[Dict[str, Any]],
+    backend: str,
     min_articles: int = 3,
 ) -> CutoffDecision:
     """Classify a theme from its calibration data and historical candidates.
 
     ``candidates`` are the nearest in-scope historical articles, each a dict
     with ``distance``, ``news_source``, and ``publication_day``.
+
+    ``backend`` names the embedding store the distances came from and is
+    required, not optional. Calling this with the DeBERTa store raises: those
+    distances cannot separate a real topic from invented text, so a cutoff over
+    them produces a confident answer that means nothing. The requirement is
+    positional so it cannot be forgotten.
     """
+    historical_backend.require_approved(backend)
+
     cutoff, provisional, theme_p75, background_p10 = calibrate_cutoff(
         theme_distances, background_distances
     )

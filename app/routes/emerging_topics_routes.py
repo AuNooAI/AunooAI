@@ -605,7 +605,7 @@ async def get_emerging_topic_detail(
                 et.detection_type, et.cluster_id, et.article_count, et.growth_rate,
                 et.velocity, et.confidence_score, et.key_themes, et.representative_keywords,
                 et.emergence_rationale, et.article_uris, et.sample_article_uris, et.status,
-                et.topic_filter,
+                et.topic_filter, et.historical_coverage_status, et.historical_shadow,
                 et.actors, et.events, et.implications, et.organization_implications,
                 et.signals, et.synthesis, et.future_horizons,
                 et.volume_score, et.velocity_score, et.diversity_score,

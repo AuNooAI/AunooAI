@@ -2,6 +2,121 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-19 (later) — The new-vs-ongoing label was knowingly false; it now says "unknown"
+
+### Goal
+Follow-up to the entry below. The historical-coverage check was measured and found to have no
+usable signal. Oliver's decision: gate it off rather than retune it, make the missing answer an
+explicit state, and run the alternative in shadow only until it is validated against a labelled
+set.
+
+### What was wrong
+The check asked whether at least 3 articles in the previous 60 days sat within cosine distance
+0.85 of the theme. Measured against 5,000 bugfixing articles, distances ran 0.072-0.455 with a
+median of 0.148, so **0.85 matched 100% of the corpus**. The negative control is the clearer
+proof — two invented themes with no possible coverage:
+
+```
+probe                                    verdict   3rd-nearest  qualifying  sources
+FAKE Zorblax Quantum Teapot Recall       ONGOING         0.080          60       39
+FAKE Liechtenstein Ferret Licensing      ONGOING         0.106          60       44
+REAL US-Iran War Impact                  ONGOING         0.071          60       27
+```
+
+Gibberish scored as close as a real topic. The store is the problem, not the number:
+`articles.embedding` holds deberta-base vectors, and deberta-base does not separate topical
+identity. A per-theme adaptive cutoff was tried first and failed identically — anchoring on the
+background's 10th percentile admits 10% of the corpus by construction, which is ~50,000 of
+~500k historical articles.
+
+### `app/services/emerging_topics/historical_backend.py` (new) — the gate
+Names the stores (`deberta`, `e5`), and `APPROVED_BACKENDS` contains only `e5`.
+`require_approved()` is called from `historical_cutoff.decide()`, whose `backend` argument is
+required and positional, so wiring the classifier back to DeBERTa raises `UnsupportedBackend`
+at the call site instead of producing confident nonsense.
+
+Mode comes from `EMERGING_TOPICS_HISTORICAL_MODE`:
+
+| mode | behaviour |
+|---|---|
+| `off` (default, unset) | no classification; every theme is `unknown` |
+| `shadow` | classify with E5, log the decision, still return `unknown` |
+| `enforce` | act on the E5 decision — not enabled anywhere |
+
+`e5_available()` additionally requires `article_embeddings_ml` to exist with at least 10,000
+rows, so a half-built index cannot start deciding.
+
+### Three states instead of a boolean
+`_check_historical_coverage` returns `(status, shadow)` where status is `ongoing`, `not_found`
+or `unknown`. `detection_type` becomes `ongoing_topic` only for `ongoing`; both `not_found` and
+`unknown` keep `llm_proposed`. That asymmetry is deliberate — a topic wrongly marked ongoing is
+dropped from new-topic alerts, and an alert that never fires is invisible.
+
+The check never raises for a classification problem. A missing index, a missing vector or a
+failed query all mean "we could not tell".
+
+Shadow classification anchors on the **E5 vectors of the theme's own articles**, averaged into
+a centroid, rather than embedding the theme label. Those vectors already exist, so it costs one
+query instead of loading a 2GB sentence-transformer into the detection process — the E5 task is
+not wired into the app on any tenant, so the model is not resident.
+
+### Migration `et_008_historical_coverage_status.py`
+Adds `emerging_topics.historical_coverage_status` (default `'unknown'`) and
+`historical_shadow` JSONB, the latter so the labelled-set validation can query real production
+decisions instead of scraping logs.
+
+Existing `ongoing_topic` rows are reset to `llm_proposed` — 12 on bugfixing, 9 on wiley, 9 on
+wileytest, 0 on wbm. Those labels came from a test that could not tell a real topic from
+gibberish; leaving them keeps a known-false claim on screen and suppresses those topics from
+alerts. The previous value is preserved in `historical_shadow` and the downgrade restores it.
+
+### Verification
+```
+pytest (7 emerging-topics files) -q   → 154 passed
+pytest tests/ -q --ignore=tests/load  → 95 failed, 466 passed, 31 errors (all pre-existing)
+```
+
+Live run on bugfixing after the change (run 1694):
+```
+US-Iran War Economic Spillover    type=llm_proposed   coverage=unknown
+```
+That same theme was one of the 12/12 labelled `ongoing` by the retired rule.
+
+An earlier attempt (run 1693) hit a transient litellm timeout and was recorded `failed` with
+the reason, and released its lock — the lifecycle fix from the previous entry doing its job.
+
+Post-deploy, all four tenants report `llm_proposed/unknown` for every topic: 356 bugfixing, 406
+wiley, 2,290 wileytest, 1,978 wbm. The gate was checked in each tenant's own venv; all three
+raise `UnsupportedBackend` for DeBERTa.
+
+### Propagation
+Identical code on all four tenants — no canonical/tenant fork. `et_008` applied everywhere.
+`EMERGING_TOPICS_HISTORICAL_MODE=shadow` is set in `.env` on wileytest and wbm, the two tenants
+with an E5 index (520,249 and 487,233 rows). bugfixing and wiley leave it unset, which is `off`.
+
+Pre-change backup: `backups/emerging-topics-gate-2026-08-19/` with checksums.
+
+### Incident — a restart killed a live customer run
+Checking for in-flight runs and restarting were chained in one shell command, so the check
+printed `wileytest: 1 runs in flight` and the restart proceeded anyway. wileytest run 2990 was
+killed mid-flight.
+
+No cleanup was needed: the run recorded itself as `failed` with "Detection cancelled before
+completion (client disconnected)" at 13:54:11. The lifecycle work from the previous entry
+turned what would have been another permanently stuck row into an accurate record.
+
+### Lessons
+- **ALWAYS gate a check on the evidence it needs, in code.** A threshold that cannot fail looks
+  like a working feature. The gate here is a required positional argument and an allow-list, so
+  the mistake cannot be repeated by forgetting.
+- **"Unknown" is a real answer and deserves a real state.** Collapsing it into "no" hides the
+  gap; collapsing it into "yes" suppresses notifications silently.
+- **NEVER chain a safety check and the destructive action in one command.** The check has to
+  gate the action, or it is decoration. This cost a customer's detection run.
+- Anchor a semantic comparison on vectors you already store where you can. It removed a 2GB
+  model load from the detection path and asks a better question — the theme's own articles
+  against older articles, rather than a short label string against them.
+
 ## 2026-08-19 — Half of every tenant's emerging-topic detection runs never finished, and nobody could tell
 
 ### Goal

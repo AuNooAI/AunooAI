@@ -14,6 +14,7 @@ hides it completely, and nobody sees the absence.
 
 import pytest
 
+from app.services.emerging_topics import historical_backend as hb
 from app.services.emerging_topics import historical_cutoff as hc
 
 
@@ -108,7 +109,7 @@ def test_the_old_0_85_behaviour_no_longer_classifies_everything_as_ongoing():
     # Well inside the old 0.85 threshold, nowhere near this theme.
     candidates = [candidate(0.40, f"src{i}", f"2026-07-0{i+1}") for i in range(6)]
 
-    decision = hc.decide(theme, background, candidates)
+    decision = hc.decide(theme, background, candidates, backend=hb.E5)
 
     assert not decision.is_ongoing
     assert decision.qualifying_articles == 0
@@ -124,7 +125,7 @@ def test_genuinely_close_and_corroborated_coverage_is_ongoing():
         candidate(0.11, "bloomberg", "2026-07-05"),
     ]
 
-    decision = hc.decide(theme, background, candidates)
+    decision = hc.decide(theme, background, candidates, backend=hb.E5)
 
     assert decision.is_ongoing
     assert decision.qualifying_articles == 3
@@ -137,7 +138,7 @@ def test_one_outlet_republishing_is_not_a_history_of_coverage():
     background = spread(50, 0.30)
     candidates = [candidate(0.09, "wire", f"2026-07-0{i+1}") for i in range(5)]
 
-    decision = hc.decide(theme, background, candidates)
+    decision = hc.decide(theme, background, candidates, backend=hb.E5)
 
     assert not decision.is_ongoing
     assert decision.qualifying_sources == 1
@@ -153,7 +154,7 @@ def test_one_day_of_coverage_is_a_moment_not_a_history():
         candidate(0.11, "bloomberg", "2026-07-01"),
     ]
 
-    decision = hc.decide(theme, background, candidates)
+    decision = hc.decide(theme, background, candidates, backend=hb.E5)
 
     assert not decision.is_ongoing
     assert decision.qualifying_dates == 1
@@ -169,14 +170,14 @@ def test_two_qualifying_articles_are_not_enough():
         candidate(0.40, "bloomberg", "2026-07-05"),   # too far
     ]
 
-    decision = hc.decide(theme, background, candidates)
+    decision = hc.decide(theme, background, candidates, backend=hb.E5)
 
     assert not decision.is_ongoing
     assert decision.qualifying_articles == 2
 
 
 def test_no_candidates_at_all_stays_new():
-    decision = hc.decide([0.1] * 5, spread(50, 0.3), [])
+    decision = hc.decide([0.1]*5, spread(50, 0.3), [], backend=hb.E5)
     assert not decision.is_ongoing
     assert decision.candidates_examined == 0
 
@@ -188,7 +189,7 @@ def test_thin_calibration_uses_the_provisional_cutoff_and_can_still_decide():
         candidate(0.06, "ft", "2026-07-03"),
         candidate(0.07, "bloomberg", "2026-07-05"),
     ]
-    decision = hc.decide([], [], candidates)
+    decision = hc.decide([], [], candidates, backend=hb.E5)
 
     assert decision.provisional
     assert decision.cutoff == hc.PROVISIONAL_CUTOFF
@@ -202,7 +203,7 @@ def test_thin_calibration_is_strict_about_middling_distances():
         candidate(0.16, "ft", "2026-07-03"),
         candidate(0.17, "bloomberg", "2026-07-05"),
     ]
-    decision = hc.decide([], [], candidates)
+    decision = hc.decide([], [], candidates, backend=hb.E5)
 
     assert not decision.is_ongoing, "thin data must err towards a new topic"
 
@@ -217,7 +218,7 @@ def test_the_log_line_reports_qualifying_count_not_retrieval_count():
         + [candidate(0.60, f"far{i}", "2026-07-09") for i in range(57)]
     )
 
-    line = hc.decide(theme, background, candidates).describe()
+    line = hc.decide(theme, background, candidates, backend=hb.E5).describe()
 
     assert "3 of 60 historical candidates qualified" in line
     assert "cutoff=" in line
@@ -226,10 +227,10 @@ def test_the_log_line_reports_qualifying_count_not_retrieval_count():
 
 
 def test_the_log_line_names_the_calibration_basis():
-    calibrated = hc.decide([0.10, 0.11, 0.12, 0.13], spread(50, 0.30), []).describe()
+    calibrated = hc.decide([0.10, 0.11, 0.12, 0.13], spread(50, 0.30), [], backend=hb.E5).describe()
     assert "p75=" in calibrated and "p10=" in calibrated
 
-    provisional = hc.decide([], [], []).describe()
+    provisional = hc.decide([], [], [], backend=hb.E5).describe()
     assert "provisional" in provisional
 
 
@@ -240,5 +241,58 @@ def test_decisions_are_deterministic():
                   candidate(0.10, "ft", "2026-07-03"),
                   candidate(0.11, "bloomberg", "2026-07-05")]
 
-    lines = {hc.decide(theme, background, candidates).describe() for _ in range(10)}
+    lines = {hc.decide(theme, background, candidates, backend=hb.E5).describe() for _ in range(10)}
     assert len(lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# The backend gate
+# ---------------------------------------------------------------------------
+
+def test_deberta_cannot_classify():
+    """The whole point of the gate.
+
+    DeBERTa distances put invented text as close as a real topic, so a cutoff
+    over them yields a confident answer that means nothing. Wiring the
+    classifier back to that store must fail at the call, not produce output.
+    """
+    with pytest.raises(hb.UnsupportedBackend, match="deberta"):
+        hc.decide([0.1] * 5, spread(50, 0.3), [], backend=hb.DEBERTA)
+
+
+def test_an_unknown_backend_cannot_classify():
+    with pytest.raises(hb.UnsupportedBackend):
+        hc.decide([0.1] * 5, spread(50, 0.3), [], backend="something-new")
+
+
+def test_the_backend_argument_is_required():
+    """Positional and required, so it cannot be forgotten in a refactor."""
+    with pytest.raises(TypeError):
+        hc.decide([0.1] * 5, spread(50, 0.3), [])
+
+
+def test_only_e5_is_approved():
+    assert hb.APPROVED_BACKENDS == frozenset({hb.E5})
+    assert hb.DEBERTA not in hb.APPROVED_BACKENDS
+
+
+def test_mode_defaults_to_off(monkeypatch):
+    monkeypatch.delenv("EMERGING_TOPICS_HISTORICAL_MODE", raising=False)
+    assert hb.resolve_mode() == hb.MODE_OFF
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("off", hb.MODE_OFF),
+    ("shadow", hb.MODE_SHADOW),
+    ("ENFORCE", hb.MODE_ENFORCE),
+    ("  shadow  ", hb.MODE_SHADOW),
+    ("nonsense", hb.MODE_OFF),
+    ("", hb.MODE_OFF),
+])
+def test_mode_parsing(monkeypatch, value, expected):
+    monkeypatch.setenv("EMERGING_TOPICS_HISTORICAL_MODE", value)
+    assert hb.resolve_mode() == expected
+
+
+def test_statuses_are_the_three_documented_values():
+    assert set(hb.STATUSES) == {"ongoing", "not_found", "unknown"}

@@ -500,144 +500,57 @@ def _vector(seed, dim=768):
     return "[" + ",".join(str(v) for v in values) + "]"
 
 
-def test_historical_match_outside_the_global_top_50_is_still_found(db):
-    """The check used to take the global top 50 and intersect afterwards.
+# ---------------------------------------------------------------------------
+# Historical coverage: gated off, and honest about it
+# ---------------------------------------------------------------------------
 
-    Recent coverage crowds a global ranking, so a theme's older articles could
-    rank 51st and the topic was called new. Scoping the search to the historical
-    window first finds them.
+def test_historical_coverage_is_unknown_without_an_e5_index(db, monkeypatch):
+    """The sandbox has no article_embeddings_ml, which is the normal case.
+
+    The DeBERTa rule this replaced answered "ongoing" for everything, including
+    invented themes. Absent a calibrated index the only truthful answer is that
+    we do not know.
     """
-    from app.services.emerging_topics.emerging_topics_service import (
-        EmergingTopicsService, EmergingTopicsConfig,
-    )
+    from app.services.emerging_topics import historical_backend as hb
     from app.services.emerging_topics.theme_proposer import ProposedTheme
-    import numpy as np
+    import asyncio
 
-    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    monkeypatch.setenv("EMERGING_TOPICS_HISTORICAL_MODE", "shadow")
+    hb.reset_probe_cache()
+    service = service_on(db)
 
-    # 60 recent articles that all sit exactly on the query vector, so they would
-    # occupy every slot of a global top-50.
-    for i in range(60):
-        db.execute(text("""
-            INSERT INTO articles (uri, title, summary, news_source,
-                                  publication_date, topic, embedding)
-            VALUES (:uri, 't', 's', 'wire', :pub, 'climate', CAST(:emb AS vector))
-        """), {"uri": f"recent-{i}", "pub": recent, "emb": _vector(0)})
-    # 4 older ones, equally close, spread across sources and days so they
-    # satisfy the corroboration rules as well as the distance cutoff.
-    for i in range(4):
-        stamp = (datetime.now(timezone.utc) - timedelta(days=30 + i)).isoformat()
-        db.execute(text("""
-            INSERT INTO articles (uri, title, summary, news_source,
-                                  publication_date, topic, embedding)
-            VALUES (:uri, 't', 's', :src, :pub, 'climate', CAST(:emb AS vector))
-        """), {"uri": f"old-{i}", "src": f"outlet-{i}", "pub": stamp,
-               "emb": _vector(0)})
-    db.commit()
-
-    class Passthrough:
-        def __init__(self, conn):
-            self._conn = conn
-
-        def execute(self, *a, **kw):
-            return self._conn.execute(*a, **kw)
-
-        def close(self):
-            pass
-
-    service = EmergingTopicsService(config=EmergingTopicsConfig())
-    service._get_connection = lambda: Passthrough(db)
-
-    query = np.zeros(768)
-    query[0] = 1.0
     theme = ProposedTheme("T", "d", "q", [], "")
+    theme.article_uris = ["a", "b", "c"]
 
-    assert service._count_historical_matches(
-        theme, query, days_back=7, topic_filter="climate",
-        history_window_days=60, min_historical_articles=3,
-    ) is True
+    status, shadow = asyncio.run(service._check_historical_coverage(
+        theme=theme, days_back=7, topic_filter="climate",
+    ))
+
+    assert status == hb.UNKNOWN
+    assert shadow is None
+    hb.reset_probe_cache()
 
 
-def test_one_outlet_on_one_day_is_not_historical_coverage(db):
-    """Distance alone is not evidence.
+def test_the_status_round_trips_through_the_database(db):
+    """It has to be queryable, or "observable" is just a word."""
+    from app.services.emerging_topics.emerging_topics_service import EmergingTopic
 
-    A single wire story republished under one dateline satisfies any distance
-    cutoff you like, and says nothing about whether a topic has a history. The
-    check requires corroboration across at least two sources and two dates.
-    """
-    from app.services.emerging_topics.emerging_topics_service import (
-        EmergingTopicsService, EmergingTopicsConfig,
+    service = service_on(db)
+    topic = EmergingTopic(
+        topic_label="Gated Theme",
+        detection_date=date.today(),
+        historical_coverage_status="unknown",
+        historical_shadow={"backend": "e5", "would_be": "ongoing"},
     )
-    from app.services.emerging_topics.theme_proposer import ProposedTheme
-    import numpy as np
 
-    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    for i in range(6):
-        db.execute(text("""
-            INSERT INTO articles (uri, title, summary, news_source,
-                                  publication_date, topic, embedding)
-            VALUES (:uri, 't', 's', 'wire', :pub, 'climate', CAST(:emb AS vector))
-        """), {"uri": f"syndicated-{i}", "pub": old, "emb": _vector(0)})
+    topic_id = service._save_emerging_topic(db, topic, "climate")
     db.commit()
 
-    class Passthrough:
-        def __init__(self, conn):
-            self._conn = conn
+    row = db.execute(text("""
+        SELECT historical_coverage_status, historical_shadow, detection_type
+        FROM emerging_topics WHERE id = :id
+    """), {"id": topic_id}).fetchone()
 
-        def execute(self, *a, **kw):
-            return self._conn.execute(*a, **kw)
-
-        def close(self):
-            pass
-
-    service = EmergingTopicsService(config=EmergingTopicsConfig())
-    service._get_connection = lambda: Passthrough(db)
-
-    query = np.zeros(768)
-    query[0] = 1.0
-
-    assert service._count_historical_matches(
-        ProposedTheme("T", "d", "q", [], ""), query, days_back=7,
-        topic_filter="climate", history_window_days=60,
-        min_historical_articles=3,
-    ) is False
-
-
-def test_historical_check_respects_the_topic_filter(db):
-    from app.services.emerging_topics.emerging_topics_service import (
-        EmergingTopicsService, EmergingTopicsConfig,
-    )
-    from app.services.emerging_topics.theme_proposer import ProposedTheme
-    import numpy as np
-
-    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    for i in range(5):
-        db.execute(text("""
-            INSERT INTO articles (uri, title, summary, news_source,
-                                  publication_date, topic, embedding)
-            VALUES (:uri, 't', 's', 'wire', :pub, 'markets', CAST(:emb AS vector))
-        """), {"uri": f"other-{i}", "pub": old, "emb": _vector(0)})
-    db.commit()
-
-    class Passthrough:
-        def __init__(self, conn):
-            self._conn = conn
-
-        def execute(self, *a, **kw):
-            return self._conn.execute(*a, **kw)
-
-        def close(self):
-            pass
-
-    service = EmergingTopicsService(config=EmergingTopicsConfig())
-    service._get_connection = lambda: Passthrough(db)
-
-    query = np.zeros(768)
-    query[0] = 1.0
-
-    assert service._count_historical_matches(
-        ProposedTheme("T", "d", "q", [], ""), query, days_back=7,
-        topic_filter="climate", history_window_days=60,
-        min_historical_articles=3,
-    ) is False
+    assert row[0] == "unknown"
+    assert row[1]["would_be"] == "ongoing", "the shadow verdict must be queryable"
+    assert row[2] == "llm_proposed", "unknown must not mark a topic ongoing"
