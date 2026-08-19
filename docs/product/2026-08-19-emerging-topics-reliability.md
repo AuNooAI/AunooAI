@@ -107,10 +107,21 @@ were not told about. "Unknown" keeps the topic visible.
 
 A stronger text-similarity model is installed on two of the four customer sites and does
 separate real topics from invented ones in our measurements. It now runs on those two sites in
-observation mode: it records what it would have decided and changes nothing. Before it is
-allowed to set labels it has to be checked against a prepared set of known-ongoing topics,
-genuinely new topics, and deliberate nonsense, and it has to be very reliable when it says
-"ongoing" — because that is the answer that silences an alert. No date is promised.
+observation mode: it records what it would have decided and changes nothing.
+
+Before it is allowed to set labels it has to pass a written test, per customer site:
+
+- right at least 95% of the time when it says a topic is "ongoing";
+- never wrong about a made-up topic — not rarely, never;
+- at least 100 judged decisions spread over at least seven days.
+
+The strictness is one-sided on purpose. "Ongoing" is the answer that silences a new-topic
+alert, and nobody notices an alert that does not arrive.
+
+**No date is promised, and the clock has not started.** The stronger index on both sites has not
+been updated for over a month. The label asks about coverage in the previous 60 days, so with
+the index that stale, roughly half that period is missing and the feature cannot be judged
+fairly yet. Bringing the index up to date is a separate decision.
 
 Also not covered:
 
