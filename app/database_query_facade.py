@@ -1169,6 +1169,79 @@ class DatabaseQueryFacade:
 
         return self._execute_with_rollback(statement).mappings().fetchall()
 
+    def get_briefing_candidate_articles(
+        self, topic: str, *, days_back: int = 7,
+        min_alignment: float = 0.4, limit: int = 60,
+        exclude_social: bool = True,
+    ):
+        """Briefing Desk candidate articles for one topic, with ranking signals.
+
+        Separate from ``get_relevant_articles_for_topic`` because the briefing
+        composer needs more than the five columns that method projects: it ranks
+        candidates on keyword relevance, analysis confidence and source
+        credibility as well as topic alignment, and it cannot do that if the
+        query never returns them.
+
+        ``min_alignment`` is inclusive (``>= min_alignment``) — the composer's
+        request model advertises a floor and a candidate sitting exactly on it
+        should pass. Note this differs from ``get_relevant_articles_for_topic``,
+        which is exclusive; that method's callers depend on its current
+        behaviour, so the two are not unified here.
+
+        ``exclude_social`` drops Reddit/Bluesky/X/Instagram/TikTok posts. They
+        share the ``articles`` table with news, are collected continuously and
+        so are always the freshest rows, and their titles ('Post by @handle')
+        give a curator nothing to judge. They belong to the brand-monitoring
+        surfaces, not to a daily news briefing.
+
+        Ordered by alignment then recency so a caller that truncates keeps the
+        most on-topic material.
+        """
+        from datetime import datetime, timedelta
+        from app.services.social_sources import SOCIAL_SOURCES
+
+        cutoff_str = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%dT%H:%M:%S')
+        conditions = [
+            articles.c.topic == topic,
+            articles.c.analyzed == True,
+            articles.c.publication_date >= cutoff_str,
+            articles.c.topic_alignment_score != None,
+            articles.c.topic_alignment_score >= min_alignment,
+            articles.c.uri != None,
+            articles.c.title != None,
+            articles.c.title != '',
+        ]
+        if exclude_social:
+            for key in SOCIAL_SOURCES:
+                conditions.append(
+                    or_(articles.c.news_source == None,
+                        not_(func.lower(articles.c.news_source).like(f"%{key}%")))
+                )
+
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.publication_date,
+            articles.c.news_source,
+            articles.c.topic,
+            articles.c.topic_alignment_score,
+            articles.c.keyword_relevance_score,
+            articles.c.quality_score,
+            articles.c.confidence_score,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.overall_match_explanation,
+            articles.c.extracted_article_topics,
+            articles.c.extracted_article_keywords,
+            articles.c.user_preference,
+        ).where(and_(*conditions)).order_by(
+            desc(articles.c.topic_alignment_score),
+            desc(articles.c.publication_date),
+        ).limit(limit)
+
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
     def count_relevant_articles_for_topic_window(
         self, topic: str, *, start: str, end: str, min_alignment: float = 0.3,
     ) -> int:

@@ -61,17 +61,23 @@ joins `forecast_topic_metadata` (sidecar lifecycle data),
 
 ### Health dot
 
-Computed client-side from the joined row, in priority order:
+Computed client-side in `computeHealth()`
+(`ui/src/components/TopicsDashboard.tsx`), first match wins:
 
-1. **Red** if `status='archived'` (excluded from bundles).
+1. **Amber** if `status='archived'` — "excluded from bundles". Archived is
+   a deliberate state, not a fault, so it does not go red.
 2. **Red** if no assessment has been run.
-3. **Red** if the most recent assessment is >90 days old.
-4. **Red** if `overlay_status='missing'` (bundle delivery would warn).
-5. **Amber** if the most recent assessment is 30–90 days old.
-6. **Amber** if `overlay_status='auto_generated'` (pending human review).
-7. **Amber** if no delivery cadence is set.
-8. **Green** otherwise — fresh assessment, reviewed overlay, cadence
+3. **Red** if `overlay_status='missing'` (bundle delivery would warn).
+4. **Amber** if the assessment date is missing or unparseable.
+5. **Red** if the most recent assessment is more than 90 days old.
+6. **Amber** if it is more than 30 days old.
+7. **Amber** if `overlay_status='auto_generated'` (pending human review).
+8. **Amber** if no delivery cadence is set.
+9. **Green** otherwise — fresh assessment, reviewed overlay, cadence
    configured.
+
+Order matters: a topic with no overlay reads red even when its assessment
+is fresh, because the missing overlay is checked before either date test.
 
 Hover the dot for the specific reason.
 
@@ -525,10 +531,13 @@ Keyed by `topic` (text PK). One row per tracked topic.
 | `tags` | JSONB string array. |
 | `overlay_status` | `missing` / `auto_generated` / `human_reviewed`. |
 | `source_candidate_id` | Optional FK to `topic_candidates.id` when the topic was promoted from a candidate. |
+| `source_topics` | JSONB array of the article `topic` tags this topic is actually built from, when the deck name is decoupled from the corpus tag. Every article query for the topic reads this; a decoupled topic with an empty value silently matches nothing. |
+| `claim_statement`, `basis_consensus_pct`, `formalized_at`, `last_evidence_cycle`, `dormant_since` | Consensus-topic lifecycle fields, used by the consensus track rather than the Topics tab. |
 | `created_at`, `updated_at` | Timestamps. |
 
 Migration: `fa_006_add_topic_metadata.py`. Source-candidate column
-added in `fa_007_add_topic_candidates.py`.
+added in `fa_007_add_topic_candidates.py`, consensus lifecycle in
+`fa_010`, `source_topics` in `fa_011`.
 
 ### `topic_candidates` (inbox)
 

@@ -218,15 +218,23 @@ export interface ComposeDailyBriefingResult {
  * stage detected topics and relevant articles for the named topics. Leaves the
  * briefing as a DRAFT for curation. Detection can take ~30-120s per topic.
  */
+/**
+ * Compose configuration. Both the streaming and non-streaming endpoints take
+ * the same shape, and anything omitted falls back to the server default —
+ * which is what the UI relies on, since it exposes no controls for these.
+ */
+export interface ComposeOptions {
+  min_confidence?: number;
+  min_alignment?: number;
+  days_back?: number;
+  history_days?: number;
+  run_detection?: boolean;
+  model?: string;
+}
+
 export async function composeDailyBriefing(
   topics?: string[],
-  opts?: {
-    min_confidence?: number;
-    min_alignment?: number;
-    days_back?: number;
-    run_detection?: boolean;
-    model?: string;
-  }
+  opts?: ComposeOptions
 ): Promise<ComposeDailyBriefingResult> {
   const response = await fetch('/api/desk-briefings/auto-compose', {
     method: 'POST',
@@ -254,6 +262,7 @@ export interface ComposeProgressEvent {
   current?: number;
   total?: number;
   fallback?: boolean;
+  backfill_count?: number;
   articles_staged?: number;
   incidents_staged?: number;
   emerging_topics_staged?: number;
@@ -266,7 +275,7 @@ export interface ComposeProgressEvent {
  */
 export async function streamComposeDailyBriefing(
   topics: string[] | undefined,
-  opts: { days_back?: number; run_detection?: boolean; model?: string } | undefined,
+  opts: ComposeOptions | undefined,
   onEvent: (e: ComposeProgressEvent) => void,
 ): Promise<ComposeProgressEvent | null> {
   const response = await fetch('/api/desk-briefings/auto-compose/stream', {

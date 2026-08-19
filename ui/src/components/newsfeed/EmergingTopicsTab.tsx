@@ -49,6 +49,7 @@ import {
   Newspaper,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
+import { readSSEStream } from '../../utils/sseParser';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -151,6 +152,8 @@ interface EmergingTopic {
   why_emerging?: string;
   representative_keywords: string[];
   status: string;
+  /** The scope this topic belongs to; null for the global scope. */
+  topic_filter?: string | null;
   // V2 fields
   trend_score?: TrendScore;
   actors?: Actors;
@@ -188,6 +191,13 @@ interface DetectionProgress {
   validated_count?: number;
   total_emerging_topics?: number;
   emerging_topics?: EmergingTopic[];
+  /** 'progress' | 'complete' | 'error', matching the SSE event name. */
+  event?: string;
+  status?: string;
+  code?: string;
+  run_id?: number | null;
+  articles_sampled?: number;
+  articles_analyzed?: number;
 }
 
 interface EmergingTopicsTabProps {
@@ -443,38 +453,43 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) throw new Error(`Detection failed: ${response.status}`);
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const text = decoder.decode(value);
-        const lines = text.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              setDetectionProgress(data);
-
-              if (data.emerging_topics) {
-                setEmergingTopics(data.emerging_topics);
-              }
-            } catch (e) {
-              // Ignore parse errors
-            }
-          }
-        }
+      if (response.status === 409) {
+        const conflict = await response.json().catch(() => null);
+        throw new Error(
+          conflict?.detail?.message ||
+          'A detection run is already in progress for this topic.'
+        );
       }
+      if (!response.ok) throw new Error(`Detection failed: ${response.status}`);
+      if (!response.body) throw new Error('No response body');
+
+      // The server's error frames carry the reason a run failed; surface the
+      // last one instead of finishing silently as if nothing had happened.
+      let streamError: string | null = null;
+
+      await readSSEStream(response.body, (event) => {
+        const data = event.data as (DetectionProgress & {
+          emerging_topics?: EmergingTopic[];
+          message?: string;
+        }) | null;
+        if (!data) return;
+
+        if (event.event === 'error') {
+          streamError = data.message || 'Detection failed';
+          return;
+        }
+
+        setDetectionProgress(data);
+        if (data.emerging_topics) {
+          setEmergingTopics(data.emerging_topics);
+        }
+      });
+
+      if (streamError) throw new Error(streamError);
 
       // Refresh data after detection
       await fetchTopics();
@@ -1513,7 +1528,11 @@ Please provide:
                   velocity: t.velocity as any,
                   detection_type: t.detection_type as any,
                   keywords: t.representative_keywords || [],
-                  topic_filter: null,
+                  // The topic's own scope, falling back to the tab's selected
+                  // topic. Hard-coding null put every signal in the same
+                  // bucket, so the dashboard's category filter never matched
+                  // anything.
+                  topic_filter: t.topic_filter ?? topic ?? null,
                   first_detected_at: t.first_detection_date || t.detection_date || null,
                   actors: t.actors || null,
                   events: t.events ? {

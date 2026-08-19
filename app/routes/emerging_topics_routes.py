@@ -10,7 +10,7 @@ Provides endpoints for:
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 import json
 import logging
@@ -18,11 +18,58 @@ import logging
 from app.services.emerging_topics import (
     get_emerging_topics_service,
     EmergingTopicsConfig,
+    DetectionAlreadyRunning,
+    DetectionRunLock,
+    normalize_filters,
+    validate_filters,
+    ALLOWED_FILTERS,
 )
-from app.security.session import verify_session
+from app.security.session import verify_session, require_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/emerging-topics", tags=["Emerging Topics"])
+
+
+# ============================================================================
+# SSE framing
+#
+# Every frame is a named event plus one data line, terminated by a blank line.
+# Clients that only look for "data: " keep working; clients that listen for
+# named events now get "progress", "complete", and "error" instead of having to
+# infer the outcome from the payload.
+# ============================================================================
+
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def sse_frame(payload: Dict[str, Any], event: Optional[str] = None) -> str:
+    """Serialize one payload as an SSE frame."""
+    name = event or payload.get("event") or "progress"
+    body = json.dumps(payload, default=str)
+    return f"event: {name}\ndata: {body}\n\n"
+
+
+def sse_error(message: str, code: str = "detection_failed", **extra) -> str:
+    """An error frame for a failure the generator itself has to report."""
+    payload = {"event": "error", "status": "failed", "code": code, "message": message}
+    payload.update(extra)
+    return sse_frame(payload, "error")
+
+
+def _lock_conflict(exc: DetectionAlreadyRunning) -> HTTPException:
+    """409 with a machine-readable code, raised before any run row exists."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": exc.code,
+            "message": str(exc),
+            "topic_filter": exc.topic_filter,
+        },
+    )
 
 
 # ============================================================================
@@ -118,104 +165,8 @@ class NoveltyScoreResponse(BaseModel):
 # Streaming Helper
 # ============================================================================
 
-async def stream_detection(
-    topic: Optional[str],
-    days_back: int,
-    sample_size: int = 250,
-    distance_threshold: float = 0.85,
-    min_articles_per_theme: int = 3,
-    max_articles_per_theme: int = 30,
-    model: str = "gpt-5.4"
-):
-    """Stream detection progress as SSE events."""
-    from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
-    from app.ai_models import get_ai_model
-
-    # Create config with custom parameters
-    config = EmergingTopicsConfig(
-        max_sample_articles=sample_size,
-        theme_distance_threshold=distance_threshold,
-        min_articles_for_theme=min_articles_per_theme,
-        max_articles_per_theme=max_articles_per_theme,
-        days_back=days_back,
-        model=model
-    )
-
-    # Create service with custom config
-    service = EmergingTopicsService(
-        config=config,
-        ai_model_getter=get_ai_model
-    )
-
-    async for update in service.run_detection_streaming(
-        topic_filter=topic,
-        days_back=days_back
-    ):
-        yield f"data: {json.dumps(update)}\n\n"
-
-
-# ============================================================================
-# Detection Endpoints
-# ============================================================================
-
-@router.post("/detect")
-async def run_detection(
-    request: DetectionRequest,
-    session=Depends(verify_session)
-):
-    """
-    Run emerging topic detection.
-
-    If stream=True, returns a Server-Sent Events stream with progress updates.
-    Otherwise, returns the complete detection result.
-    """
-    if request.stream:
-        return StreamingResponse(
-            stream_detection(
-                topic=request.topic,
-                days_back=request.days_back,
-                sample_size=request.sample_size,
-                distance_threshold=request.distance_threshold,
-                min_articles_per_theme=request.min_articles_per_theme,
-                max_articles_per_theme=request.max_articles_per_theme,
-                model=request.model
-            ),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
-    else:
-        from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
-        from app.ai_models import get_ai_model
-
-        config = EmergingTopicsConfig(
-            max_sample_articles=request.sample_size,
-            theme_distance_threshold=request.distance_threshold,
-            min_articles_for_theme=request.min_articles_per_theme,
-            max_articles_per_theme=request.max_articles_per_theme,
-            days_back=request.days_back,
-            model=request.model
-        )
-        service = EmergingTopicsService(config=config, ai_model_getter=get_ai_model)
-        result = await service.run_detection(
-            topic_filter=request.topic,
-            days_back=request.days_back
-        )
-        return result
-
-
-@router.post("/detect/sync")
-async def run_detection_sync(
-    request: DetectionRequest,
-    session=Depends(verify_session)
-):
-    """
-    Run emerging topic detection synchronously (no streaming).
-    Returns the complete detection result.
-    """
+def _build_service(request: "DetectionRequest"):
+    """Build a service configured from one detection request."""
     from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
     from app.ai_models import get_ai_model
 
@@ -227,12 +178,118 @@ async def run_detection_sync(
         days_back=request.days_back,
         model=request.model
     )
-    service = EmergingTopicsService(config=config, ai_model_getter=get_ai_model)
-    result = await service.run_detection(
-        topic_filter=request.topic,
-        days_back=request.days_back
-    )
-    return result
+    return EmergingTopicsService(config=config, ai_model_getter=get_ai_model)
+
+
+async def stream_detection(request: "DetectionRequest", lock: DetectionRunLock):
+    """Stream one detection run as SSE frames.
+
+    The lock is taken by the endpoint before the stream starts, so a second run
+    in the same scope is refused with a status code rather than a mid-stream
+    error. It is released here in ``finally``, which covers success, failure,
+    and the client hanging up.
+    """
+    service = _build_service(request)
+    try:
+        async for update in service.run_detection_streaming(
+            topic_filter=request.topic,
+            days_back=request.days_back,
+            run_lock=lock,
+        ):
+            yield sse_frame(update)
+    except Exception as exc:
+        logger.exception("Emerging topics stream failed")
+        yield sse_error(f"{exc.__class__.__name__}: {exc}")
+    finally:
+        lock.release()
+
+
+# ============================================================================
+# Detection Endpoints
+# ============================================================================
+
+@router.post("/detect")
+async def run_detection(
+    request: DetectionRequest,
+    session=Depends(require_admin)
+):
+    """
+    Run emerging topic detection.
+
+    If stream=True, returns a Server-Sent Events stream with progress updates.
+    Otherwise, returns the complete detection result.
+
+    Detection writes global state, so it is admin-only, and only one run per
+    scope may be in flight — a second one gets 409 ``detection_already_running``.
+    """
+    try:
+        lock = DetectionRunLock(request.topic).acquire()
+    except DetectionAlreadyRunning as exc:
+        raise _lock_conflict(exc)
+
+    if request.stream:
+        return StreamingResponse(
+            stream_detection(request, lock),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
+
+    try:
+        service = _build_service(request)
+        return await service.run_detection(
+            topic_filter=request.topic,
+            days_back=request.days_back,
+            run_lock=lock,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Emerging topics detection failed")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": getattr(exc, "code", "detection_failed"),
+                "message": f"{exc.__class__.__name__}: {exc}",
+            },
+        )
+    finally:
+        lock.release()
+
+
+@router.post("/detect/sync")
+async def run_detection_sync(
+    request: DetectionRequest,
+    session=Depends(require_admin)
+):
+    """
+    Run emerging topic detection synchronously (no streaming).
+    Returns the complete detection result, or an error status if the run failed.
+    """
+    try:
+        lock = DetectionRunLock(request.topic).acquire()
+    except DetectionAlreadyRunning as exc:
+        raise _lock_conflict(exc)
+
+    try:
+        service = _build_service(request)
+        return await service.run_detection(
+            topic_filter=request.topic,
+            days_back=request.days_back,
+            run_lock=lock,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Emerging topics detection failed")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": getattr(exc, "code", "detection_failed"),
+                "message": f"{exc.__class__.__name__}: {exc}",
+            },
+        )
+    finally:
+        lock.release()
 
 
 # ============================================================================
@@ -281,7 +338,12 @@ class BatchDetectionRequest(BaseModel):
 
 
 async def stream_batch_detection(request: BatchDetectionRequest):
-    """Stream batch detection across selected or all topics."""
+    """Stream batch detection across selected or all topics.
+
+    Each topic is its own scope, so each takes its own lock: a topic already
+    being scanned elsewhere is reported and skipped, and the rest of the batch
+    carries on.
+    """
     from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
     from app.ai_models import get_ai_model
     from app.config.config import load_config
@@ -296,15 +358,39 @@ async def stream_batch_detection(request: BatchDetectionRequest):
 
     total_topics = len(topics)
     all_themes = []
+    failed_topics = []
 
-    yield f"data: {json.dumps({'step': 0, 'progress': 0, 'message': f'Starting batch detection across {total_topics} topics...'})}\n\n"
+    if not total_topics:
+        yield sse_frame({
+            "event": "complete",
+            "status": "completed",
+            "step": 0,
+            "progress": 100,
+            "message": "No topics configured to scan",
+            "total_themes": 0,
+            "topics_scanned": 0,
+            "emerging_topics": [],
+        })
+        return
+
+    yield sse_frame({
+        "event": "progress",
+        "step": 0,
+        "progress": 0,
+        "message": f"Starting batch detection across {total_topics} topics...",
+    })
 
     for i, topic_name in enumerate(topics):
         base_progress = (i / total_topics) * 100
 
-        yield f"data: {json.dumps({'step': i + 1, 'progress': base_progress, 'message': f'Scanning topic {i + 1}/{total_topics}: {topic_name}', 'current_topic': topic_name})}\n\n"
+        yield sse_frame({
+            "event": "progress",
+            "step": i + 1,
+            "progress": base_progress,
+            "message": f"Scanning topic {i + 1}/{total_topics}: {topic_name}",
+            "current_topic": topic_name,
+        })
 
-        # Create config for this run
         et_config = EmergingTopicsConfig(
             max_sample_articles=request.sample_size,
             theme_distance_threshold=request.distance_threshold,
@@ -316,41 +402,103 @@ async def stream_batch_detection(request: BatchDetectionRequest):
 
         service = EmergingTopicsService(config=et_config, ai_model_getter=get_ai_model)
 
+        try:
+            lock = DetectionRunLock(topic_name).acquire()
+        except DetectionAlreadyRunning as exc:
+            failed_topics.append(topic_name)
+            yield sse_error(
+                str(exc), code=exc.code, current_topic=topic_name, step=i + 1,
+                progress=base_progress,
+            )
+            continue
+
         topic_themes = []
+        topic_failed = False
         try:
             async for update in service.run_detection_streaming(
                 topic_filter=topic_name,
-                days_back=request.days_back
+                days_back=request.days_back,
+                run_lock=lock,
             ):
-                # Forward progress updates with adjusted progress
                 sub_progress = update.get('progress', 0)
                 adjusted_progress = base_progress + (sub_progress / total_topics)
-
                 msg = update.get('message', '')
-                progress_data = {'step': i + 1, 'progress': adjusted_progress, 'message': f'[{topic_name}] {msg}', 'current_topic': topic_name}
-                yield f"data: {json.dumps(progress_data)}\n\n"
 
-                if 'emerging_topics' in update:
-                    topic_themes = update['emerging_topics']
+                if update.get("event") == "error":
+                    topic_failed = True
+                    yield sse_error(
+                        f"[{topic_name}] {msg}",
+                        code=update.get("code", "detection_failed"),
+                        current_topic=topic_name,
+                        step=i + 1,
+                        progress=adjusted_progress,
+                        run_id=update.get("run_id"),
+                    )
+                    continue
+
+                yield sse_frame({
+                    "event": "progress",
+                    "step": i + 1,
+                    "progress": adjusted_progress,
+                    "message": f"[{topic_name}] {msg}",
+                    "current_topic": topic_name,
+                })
+
+                if update.get("event") == "complete":
+                    topic_themes = update.get("emerging_topics", [])
                     all_themes.extend(topic_themes)
 
         except Exception as exc:
-            logger.error(f"Error detecting topics for {topic_name}: {exc}")
-            error_data = {'step': i + 1, 'progress': base_progress, 'message': f'Error scanning {topic_name}: {str(exc)}', 'error': True}
-            yield f"data: {json.dumps(error_data)}\n\n"
+            topic_failed = True
+            logger.exception(f"Error detecting topics for {topic_name}")
+            yield sse_error(
+                f"Error scanning {topic_name}: {exc.__class__.__name__}: {exc}",
+                code=getattr(exc, "code", "detection_failed"),
+                current_topic=topic_name,
+                step=i + 1,
+                progress=base_progress,
+            )
+        finally:
+            lock.release()
 
-        complete_data = {'step': i + 1, 'progress': base_progress + (100 / total_topics), 'message': f'Completed {topic_name}: {len(topic_themes)} themes found', 'topic_complete': topic_name, 'themes_found': len(topic_themes)}
-        yield f"data: {json.dumps(complete_data)}\n\n"
+        if topic_failed:
+            failed_topics.append(topic_name)
+            continue
 
-    # Final summary
-    final_data = {'step': total_topics + 1, 'progress': 100, 'message': f'Batch detection complete: {len(all_themes)} total themes across {total_topics} topics', 'total_themes': len(all_themes), 'topics_scanned': total_topics, 'emerging_topics': all_themes}
-    yield f"data: {json.dumps(final_data)}\n\n"
+        yield sse_frame({
+            "event": "progress",
+            "step": i + 1,
+            "progress": base_progress + (100 / total_topics),
+            "message": f"Completed {topic_name}: {len(topic_themes)} themes found",
+            "topic_complete": topic_name,
+            "themes_found": len(topic_themes),
+        })
+
+    scanned = total_topics - len(failed_topics)
+    summary = (
+        f"Batch detection complete: {len(all_themes)} total themes across "
+        f"{scanned} of {total_topics} topics"
+    )
+    if failed_topics:
+        summary += f" ({len(failed_topics)} failed: {', '.join(failed_topics[:5])})"
+
+    yield sse_frame({
+        "event": "complete",
+        "status": "completed" if not failed_topics else "partial",
+        "step": total_topics + 1,
+        "progress": 100,
+        "message": summary,
+        "total_themes": len(all_themes),
+        "topics_scanned": scanned,
+        "topics_failed": failed_topics,
+        "emerging_topics": all_themes,
+    })
 
 
 @router.post("/detect/batch")
 async def run_batch_detection(
     request: BatchDetectionRequest,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """
     Run emerging topic detection across ALL configured topics.
@@ -359,11 +507,7 @@ async def run_batch_detection(
     return StreamingResponse(
         stream_batch_detection(request),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+        headers=SSE_HEADERS,
     )
 
 
@@ -450,13 +594,34 @@ async def get_emerging_topic_detail(
     try:
         conn = db._temp_get_connection()
 
+        # The canonical v2 projection. The analysis blocks (actors, events,
+        # implications, organization_implications, signals, synthesis) and the
+        # component scores were missing here, so the UI's detail panel fell back
+        # to v1 fields and "model_used" was read off a synthesis column that was
+        # never selected — which is why it always showed a guessed model.
         stmt = text("""
             SELECT
                 et.id, et.topic_label, et.topic_description, et.detection_date,
                 et.detection_type, et.cluster_id, et.article_count, et.growth_rate,
                 et.velocity, et.confidence_score, et.key_themes, et.representative_keywords,
-                et.emergence_rationale, et.article_uris, et.sample_article_uris, et.status
+                et.emergence_rationale, et.article_uris, et.sample_article_uris, et.status,
+                et.topic_filter,
+                et.actors, et.events, et.implications, et.organization_implications,
+                et.signals, et.synthesis, et.future_horizons,
+                et.volume_score, et.velocity_score, et.diversity_score,
+                et.novelty_score, et.composite_score,
+                et.first_detection_date, et.last_detection_date,
+                et.detection_count, et.consecutive_detections, et.missed_runs,
+                th.source_count
             FROM emerging_topics et
+            LEFT JOIN LATERAL (
+                SELECT h.source_count
+                FROM topic_history h
+                JOIN detection_runs dr ON dr.id = h.detection_run_id
+                WHERE h.topic_id = et.id
+                ORDER BY dr.run_date DESC, h.id DESC
+                LIMIT 1
+            ) th ON TRUE
             WHERE et.id = :topic_id
         """)
 
@@ -467,57 +632,78 @@ async def get_emerging_topic_detail(
 
         row = dict(result._mapping)
 
-        # Fetch article details with novelty scores
+        def _as_dict(value):
+            """JSONB comes back parsed; older rows may hold a JSON string."""
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except (ValueError, TypeError):
+                    return {}
+            return value or {}
+
+        for jsonb_field in (
+            "actors", "events", "implications", "organization_implications",
+            "signals", "synthesis",
+        ):
+            row[jsonb_field] = _as_dict(row.get(jsonb_field))
+
+        # Fetch article details with novelty scores, in the topic's own ranking
         article_uris = row.get("article_uris") or []
         articles = []
 
         if article_uris:
-            placeholders = ", ".join([f":uri_{i}" for i in range(min(len(article_uris), 20))])
-            params = {f"uri_{i}": uri for i, uri in enumerate(article_uris[:20])}
+            wanted = article_uris[:20]
+            placeholders = ", ".join([f":uri_{i}" for i in range(len(wanted))])
+            params = {f"uri_{i}": uri for i, uri in enumerate(wanted)}
 
-            # Join with novelty scores
+            # LATERAL, not a join: an article accumulates one novelty row per
+            # calculation date, and a plain join returned the article once per
+            # row — the same headline listed three times.
             article_stmt = text(f"""
                 SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
                        COALESCE(ns.composite_novelty_score, 0) as novelty_score,
                        ns.knn_distance_score,
                        ns.is_outlier
                 FROM articles a
-                LEFT JOIN article_novelty_scores ns ON a.uri = ns.article_uri
+                LEFT JOIN LATERAL (
+                    SELECT n.composite_novelty_score, n.knn_distance_score, n.is_outlier
+                    FROM article_novelty_scores n
+                    WHERE n.article_uri = a.uri
+                    ORDER BY n.calculation_date DESC, n.id DESC
+                    LIMIT 1
+                ) ns ON TRUE
                 WHERE a.uri IN ({placeholders})
-                ORDER BY ns.composite_novelty_score DESC NULLS LAST
             """)
 
             article_result = conn.execute(article_stmt, params)
+            by_uri = {}
             for a_row in article_result.mappings():
-                articles.append({
+                by_uri[a_row["uri"]] = {
                     **dict(a_row),
                     "novelty_score": round(a_row["novelty_score"], 1) if a_row["novelty_score"] else 0,
-                })
+                }
+            articles = [by_uri[uri] for uri in wanted if uri in by_uri]
 
-        # Get the model used from the synthesis or deep analysis data
+        # model_used is recorded on the topic's synthesis at analysis time.
         synthesis = row.get("synthesis") or {}
-        if isinstance(synthesis, str):
-            import json
-            try:
-                synthesis = json.loads(synthesis)
-            except:
-                synthesis = {}
-
-        # Get model_used from synthesis
-        model_used = synthesis.get("model_used")
+        model_used = synthesis.get("model_used") if isinstance(synthesis, dict) else None
         if not model_used:
-            # For legacy themes without model_used, use first available model from config
-            from app.config.config import load_config
-            config = load_config()
-            ai_models = config.get("ai_models", [])
-            if ai_models:
-                model_used = ai_models[0].get("name", "unknown")
-            else:
-                model_used = None  # Don't show if we can't determine
+            # Older rows predate the field. Say so rather than inventing one.
+            model_used = None
 
         return {
             **row,
             "detection_date": str(row["detection_date"]) if row["detection_date"] else None,
+            "first_detection_date": str(row["first_detection_date"]) if row.get("first_detection_date") else None,
+            "last_detection_date": str(row["last_detection_date"]) if row.get("last_detection_date") else None,
+            "trend_score": {
+                "volume": round(row.get("volume_score") or 0, 1),
+                "velocity": round(row.get("velocity_score") or 0, 1),
+                "diversity": round(row.get("diversity_score") or 0, 1),
+                "novelty": round(row.get("novelty_score") or 0, 1),
+                "composite": round(row.get("composite_score") or 0, 1),
+            },
+            "source_count": row.get("source_count") or 0,
             "articles": articles,
             "model_used": model_used
         }
@@ -535,7 +721,7 @@ async def get_emerging_topic_detail(
 @router.delete("/topics/{topic_id}")
 async def delete_emerging_topic(
     topic_id: int,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """
     Delete an emerging topic.
@@ -571,7 +757,7 @@ async def delete_emerging_topic(
 @router.delete("/topics")
 async def clear_emerging_topics(
     topic: Optional[str] = Query(None, description="Topic filter to clear (optional, clears all if not specified)"),
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """
     Clear all emerging topics, optionally filtered by topic.
@@ -916,20 +1102,27 @@ async def get_novelty_scores(
             filter_clause += " AND a.topic = :topic"
             params["topic"] = topic
 
+        # One row per article — its most recent scoring run inside the window.
+        # Without DISTINCT ON, an article re-scored on seven consecutive days
+        # took seven of the result slots. With an explicit date this is a no-op:
+        # (article_uri, calculation_date) is unique.
         stmt = text(f"""
-            SELECT
-                ns.article_uri,
-                a.title as article_title,
-                ns.composite_novelty_score,
-                ns.knn_distance_score,
-                ns.density_score,
-                ns.centroid_distance_score,
-                ns.is_outlier,
-                ns.calculation_date
-            FROM article_novelty_scores ns
-            JOIN articles a ON a.uri = ns.article_uri
-            {filter_clause}
-            ORDER BY ns.composite_novelty_score DESC
+            SELECT * FROM (
+                SELECT DISTINCT ON (ns.article_uri)
+                    ns.article_uri,
+                    a.title as article_title,
+                    ns.composite_novelty_score,
+                    ns.knn_distance_score,
+                    ns.density_score,
+                    ns.centroid_distance_score,
+                    ns.is_outlier,
+                    ns.calculation_date
+                FROM article_novelty_scores ns
+                JOIN articles a ON a.uri = ns.article_uri
+                {filter_clause}
+                ORDER BY ns.article_uri, ns.calculation_date DESC, ns.id DESC
+            ) latest
+            ORDER BY composite_novelty_score DESC, article_uri
             LIMIT :limit
         """)
 
@@ -1223,7 +1416,7 @@ async def untrack_topic(
 @router.post("/topics/{topic_id}/retire")
 async def retire_topic(
     topic_id: int,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """
     Manually retire an emerging topic (move to archived/retired status).
@@ -1241,7 +1434,7 @@ async def retire_topic(
 @router.post("/topics/{topic_id}/restore")
 async def restore_topic(
     topic_id: int,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """
     Restore a retired emerging topic back to active status.
@@ -1378,6 +1571,17 @@ class NotificationSettingsRequest(BaseModel):
     bluesky_handle: Optional[str] = None
     detection_type_filters: Optional[List[str]] = None
 
+    @field_validator("detection_type_filters")
+    @classmethod
+    def _check_filters(cls, value):
+        """Reject unknown filters, and store legacy ones under their v2 name."""
+        if value is None:
+            return None
+        try:
+            return validate_filters(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
 
 @router.get("/schedule/status")
 async def get_schedule_status(
@@ -1448,7 +1652,7 @@ async def get_schedule_status(
 @router.post("/schedule/settings")
 async def update_schedule_settings(
     request: ScheduleSettingsRequest,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """Update schedule settings."""
     from app.database import get_database_instance
@@ -1506,9 +1710,9 @@ async def update_schedule_settings(
 @router.post("/schedule/run-now")
 async def run_detection_now(
     topic: Optional[str] = Query(None, description="Topic filter"),
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
-    """Trigger immediate detection run."""
+    """Trigger an immediate detection run."""
     from app.database import get_database_instance
     from app.tasks.emerging_topics_monitor import run_detection_now
 
@@ -1520,10 +1724,14 @@ async def run_detection_now(
             "success": result.get("success", False),
             "topics_detected": result.get("topics_detected", 0),
             "articles_analyzed": result.get("articles_analyzed", 0),
+            "run_id": result.get("run_id"),
             "error": result.get("error"),
+            "code": result.get("code"),
         }
+    except DetectionAlreadyRunning as exc:
+        raise _lock_conflict(exc)
     except Exception as e:
-        logger.error(f"Failed to run detection: {e}")
+        logger.exception("Failed to run detection")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1557,7 +1765,11 @@ async def get_notification_settings(
                 "cooldown_minutes": row["cooldown_minutes"],
                 "email_recipients": row["email_recipients"] or [],
                 "bluesky_handle": row["bluesky_handle"],
-                "detection_type_filters": row["detection_type_filters"] or [],
+                # Legacy values are mapped to their v2 equivalent on the way
+                # out, so the UI shows what the monitor will actually match.
+                "detection_type_filters": normalize_filters(row["detection_type_filters"]),
+                "stored_detection_type_filters": row["detection_type_filters"] or [],
+                "allowed_detection_type_filters": list(ALLOWED_FILTERS),
                 "last_notification_time": row["last_notification_time"].isoformat() if row["last_notification_time"] else None,
             }
         return {}
@@ -1568,7 +1780,7 @@ async def get_notification_settings(
 @router.post("/notifications/settings")
 async def update_notification_settings(
     request: NotificationSettingsRequest,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """Update notification settings."""
     from app.database import get_database_instance
@@ -1623,7 +1835,7 @@ async def update_notification_settings(
 
 @router.post("/notifications/test")
 async def send_test_notification(
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """Send a test notification through enabled channels."""
     from app.database import get_database_instance
@@ -1941,7 +2153,7 @@ Return JSON with this structure:
 async def save_topic_horizons(
     topic_id: int,
     horizons_data: dict,
-    session=Depends(verify_session)
+    session=Depends(require_admin)
 ):
     """
     Save Future Horizons analysis to an emerging topic.

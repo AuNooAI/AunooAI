@@ -8,14 +8,18 @@ we ask the LLM to identify specific developments.
 Inspired by Newsletter's section proposal pattern.
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Dict, List, Optional, Any, Callable
 from sqlalchemy import text
 import numpy as np
 
 from app.database import get_database_instance
+from .date_utils import publication_ts_sql, utcnow
+from .run_lock import normalize_topic_filter
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +89,21 @@ class ProposedTheme:
         }
 
 
+@dataclass
+class ProposalResult:
+    """What one proposal step produced, including how much it actually read.
+
+    ``sampled_uris`` is the real sample, so a run reports the number of articles
+    it looked at rather than the configured ceiling.
+    """
+    themes: List[ProposedTheme] = field(default_factory=list)
+    sampled_uris: List[str] = field(default_factory=list)
+
+    @property
+    def articles_sampled(self) -> int:
+        return len(self.sampled_uris)
+
+
 class ThemeProposer:
     """
     Uses LLM to propose emerging themes from article samples.
@@ -105,52 +124,98 @@ class ThemeProposer:
         db = get_database_instance()
         return db._temp_get_connection()
 
+    # How many eligible rows the diversity pass may consider. The window
+    # functions run in the database over this bounded set; Python only ever
+    # receives ``max_articles`` rows.
+    SCAN_CAP_MULTIPLIER = 20
+    SCAN_CAP_FLOOR = 2000
+
     def _fetch_sample_articles(
         self,
         topic_filter: Optional[str] = None,
         days_back: int = 7,
         max_articles: int = 50
     ) -> List[Dict[str, Any]]:
+        """Fetch a bounded, source-diverse sample of high-novelty recent articles.
+
+        The whole sample is chosen in SQL. Ranking is a round robin over sources:
+        every source contributes its best article before any source contributes
+        its second, so one prolific wire cannot swallow the sample. Once every
+        source has been drawn from, the remaining capacity fills with the next
+        best articles regardless of source.
+
+        Ordering is fully deterministic (novelty, then uri) so two runs over the
+        same corpus sample the same articles.
+
+        Raises:
+            RuntimeError if the sample cannot be read. An empty sample and a
+            broken query must not look alike to the caller.
         """
-        Fetch a diverse sample of high-novelty recent articles.
-        Prioritizes novelty score, recency, and source diversity.
-        """
+        topic_filter = normalize_topic_filter(topic_filter)
         conn = None
         try:
             conn = self._get_connection()
 
-            # Build query - prioritize novelty if scores exist, else recency
-            params = {"days_back": days_back, "limit": max_articles}
+            scan_cap = max(self.SCAN_CAP_FLOOR, max_articles * self.SCAN_CAP_MULTIPLIER)
+            cutoff = utcnow() - timedelta(days=days_back)
+            params = {
+                "cutoff": cutoff,
+                "limit": max_articles,
+                "scan_cap": scan_cap,
+            }
 
             topic_clause = ""
             if topic_filter:
                 topic_clause = "AND a.topic = :topic"
                 params["topic"] = topic_filter
 
+            published_ts = publication_ts_sql("a.publication_date")
+
             stmt = text(f"""
-                SELECT DISTINCT ON (a.news_source, a.uri)
-                    a.uri, a.title, a.summary, a.news_source,
-                    a.publication_date, a.category,
-                    COALESCE(n.composite_novelty_score, 50) as novelty_score
-                FROM articles a
-                LEFT JOIN article_novelty_scores n ON a.uri = n.article_uri
-                WHERE a.publication_date::date >= CURRENT_DATE - :days_back
-                AND a.summary IS NOT NULL
-                AND LENGTH(a.summary) > 50
-                {topic_clause}
-                ORDER BY a.news_source, a.uri, COALESCE(n.composite_novelty_score, 50) DESC
+                WITH eligible AS (
+                    SELECT
+                        a.uri, a.title, a.summary, a.news_source,
+                        a.publication_date, a.category,
+                        COALESCE(n.composite_novelty_score, 50) AS novelty_score
+                    FROM articles a
+                    LEFT JOIN LATERAL (
+                        SELECT ns.composite_novelty_score
+                        FROM article_novelty_scores ns
+                        WHERE ns.article_uri = a.uri
+                        ORDER BY ns.calculation_date DESC, ns.id DESC
+                        LIMIT 1
+                    ) n ON TRUE
+                    WHERE {published_ts} >= :cutoff
+                      AND a.summary IS NOT NULL
+                      AND LENGTH(a.summary) > 50
+                      {topic_clause}
+                    ORDER BY COALESCE(n.composite_novelty_score, 50) DESC, a.uri
+                    LIMIT :scan_cap
+                ),
+                ranked AS (
+                    SELECT
+                        eligible.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY COALESCE(news_source, '')
+                            ORDER BY novelty_score DESC, uri
+                        ) AS source_rank
+                    FROM eligible
+                )
+                SELECT uri, title, summary, news_source, publication_date,
+                       category, novelty_score
+                FROM ranked
+                ORDER BY source_rank, novelty_score DESC, uri
+                LIMIT :limit
             """)
 
             result = conn.execute(stmt, params)
-            rows = [dict(row) for row in result.mappings()]
-
-            # Sort by novelty and take top articles
-            rows.sort(key=lambda x: x.get("novelty_score", 50), reverse=True)
-            return rows[:max_articles]
+            return [dict(row) for row in result.mappings()]
 
         except Exception as exc:
             logger.error(f"Error fetching sample articles: {exc}")
-            return []
+            raise RuntimeError(
+                f"Could not read the article sample for theme proposal: {exc}"
+            ) from exc
         finally:
             if conn:
                 conn.close()
@@ -220,26 +285,35 @@ class ThemeProposer:
         days_back: int = 7,
         model_name: Optional[str] = None,
         max_sample: int = 250
-    ) -> List[ProposedTheme]:
-        """
-        Use LLM to propose emerging themes from article sample.
+    ) -> ProposalResult:
+        """Use the LLM to propose emerging themes from an article sample.
 
-        Returns list of ProposedTheme objects (without article assignments yet).
+        Returns a :class:`ProposalResult` carrying both the themes (without
+        article assignments yet) and the URIs actually sampled.
+
+        Raises:
+            RuntimeError if the model is unavailable or the sample cannot be
+            read. A thin corpus returns an empty result; a broken pipeline
+            raises. The two must not look the same to the caller.
         """
         if not self.ai_model_getter:
-            logger.warning("No AI model getter configured")
-            return []
+            raise RuntimeError(
+                "No AI model getter configured for theme proposal — detection "
+                "cannot run without a model."
+            )
 
-        # Fetch sample articles
-        articles = self._fetch_sample_articles(
-            topic_filter=topic_filter,
-            days_back=days_back,
-            max_articles=max_sample
+        # Fetch sample articles (blocking DB work, kept off the event loop)
+        articles = await asyncio.to_thread(
+            self._fetch_sample_articles,
+            topic_filter,
+            days_back,
+            max_sample,
         )
+        sampled_uris = [a["uri"] for a in articles if a.get("uri")]
 
         if len(articles) < 5:
             logger.warning(f"Not enough articles ({len(articles)}) to propose themes")
-            return []
+            return ProposalResult(themes=[], sampled_uris=sampled_uris)
 
         logger.info(f"Proposing themes from {len(articles)} sample articles")
 
@@ -253,59 +327,130 @@ class ThemeProposer:
         # Call LLM
         model_to_use = model_name or self.default_model
 
+        model = self.ai_model_getter(model_to_use)
+        if not model:
+            raise RuntimeError(f"AI model '{model_to_use}' is not available")
+        if not hasattr(model, 'generate'):
+            raise RuntimeError(
+                f"AI model '{model_to_use}' has no generate() method — "
+                "theme proposal cannot run"
+            )
+
         try:
-            model = self.ai_model_getter(model_to_use)
-            if not model:
-                logger.error(f"Could not get AI model: {model_to_use}")
-                return []
-
-            if hasattr(model, 'generate'):
-                response = await model.generate(prompt, max_tokens=2000)
-            else:
-                logger.error("Model does not have generate method")
-                return []
-
-            # Parse response
-            parsed = self._parse_llm_response(response)
-            if not parsed:
-                return []
-
-            # Convert to ProposedTheme objects
-            themes = []
-            proposed = parsed.get("proposed_themes", [])
-
-            for theme_data in proposed:
-                theme = ProposedTheme(
-                    theme_label=theme_data.get("theme_label", "Unknown Theme"),
-                    theme_description=theme_data.get("theme_description", ""),
-                    search_query=theme_data.get("search_query", theme_data.get("theme_label", "")),
-                    key_entities=theme_data.get("key_entities", []),
-                    why_emerging=theme_data.get("why_emerging", ""),
-                )
-                themes.append(theme)
-
-            logger.info(f"LLM proposed {len(themes)} themes")
-            return themes
-
+            response = await model.generate(prompt, max_tokens=2000)
         except Exception as exc:
-            logger.error(f"Error proposing themes: {exc}")
-            return []
+            logger.error(f"Theme proposal model call failed: {exc}")
+            raise RuntimeError(f"Theme proposal model call failed: {exc}") from exc
 
-    async def _get_embedding(self, text: str) -> Optional[np.ndarray]:
-        """Get embedding for text using pgvector's embedding function."""
+        # A model that answers with unparseable text is a thin result, not an
+        # infrastructure failure: the run completes with zero themes.
+        parsed = self._parse_llm_response(response)
+        if not parsed:
+            logger.warning("Theme proposal returned no parseable JSON")
+            return ProposalResult(themes=[], sampled_uris=sampled_uris)
+
+        themes = []
+        for theme_data in parsed.get("proposed_themes", []):
+            if not isinstance(theme_data, dict):
+                continue
+            label = str(theme_data.get("theme_label") or "Unknown Theme")
+            entities = theme_data.get("key_entities") or []
+            if not isinstance(entities, list):
+                entities = [str(entities)]
+            themes.append(ProposedTheme(
+                theme_label=label,
+                theme_description=str(theme_data.get("theme_description") or ""),
+                search_query=str(theme_data.get("search_query") or label),
+                key_entities=[str(e) for e in entities if e],
+                why_emerging=str(theme_data.get("why_emerging") or ""),
+            ))
+
+        logger.info(f"LLM proposed {len(themes)} themes")
+        return ProposalResult(themes=themes, sampled_uris=sampled_uris)
+
+    def _embed_query(self, query_text: str) -> np.ndarray:
+        """Embed one search query. Raises if the encoder cannot answer.
+
+        This is the synchronous encoder call; async callers route it through a
+        worker thread. An encoder failure is an infrastructure failure and must
+        reach the caller — a theme silently left without articles used to look
+        exactly like a theme with no matching coverage.
+        """
+        from app.vector_store_pgvector import embed_query
+
+        embedding = embed_query(query_text)
+        if not embedding:
+            raise RuntimeError("Encoder returned an empty embedding")
+        return np.array(embedding)
+
+    async def _get_embedding(self, text: str) -> np.ndarray:
+        """Async wrapper around the blocking encoder call."""
+        return await asyncio.to_thread(self._embed_query, text)
+
+    def _assign_one_theme(
+        self,
+        theme: ProposedTheme,
+        query_embedding: np.ndarray,
+        topic_filter: Optional[str],
+        days_back: int,
+        max_per_theme: int,
+        distance_threshold: float,
+    ) -> None:
+        """Fill one theme's article list by nearest-neighbour search (blocking)."""
+        conn = None
         try:
-            # Use the existing pgvector embedding function directly
-            from app.vector_store_pgvector import _embed_texts
+            conn = self._get_connection()
 
-            embeddings = _embed_texts([text])
-            if embeddings and len(embeddings) > 0:
-                return np.array(embeddings[0])
-            else:
-                logger.error("Empty embedding returned")
-                return None
-        except Exception as exc:
-            logger.error(f"Error getting embedding: {exc}")
-            return None
+            embedding_str = "[" + ",".join([str(v) for v in query_embedding]) + "]"
+            params = {
+                "query_embedding": embedding_str,
+                "cutoff": utcnow() - timedelta(days=days_back),
+                "limit": max_per_theme,
+            }
+
+            topic_clause = ""
+            if topic_filter:
+                topic_clause = "AND topic = :topic"
+                params["topic"] = topic_filter
+
+            published_ts = publication_ts_sql("publication_date")
+
+            # OFFSET 0 forces materialization of the filtered set: the HNSW
+            # index does not combine well with the date/topic pre-filters.
+            stmt = text(f"""
+                SELECT * FROM (
+                    SELECT uri, title, summary,
+                           embedding <=> CAST(:query_embedding AS vector) as distance
+                    FROM articles
+                    WHERE {published_ts} >= :cutoff
+                    AND embedding IS NOT NULL
+                    {topic_clause}
+                    OFFSET 0
+                ) filtered
+                ORDER BY distance, uri
+                LIMIT :limit
+            """)
+
+            result = conn.execute(stmt, params)
+
+            uris: List[str] = []
+            distances: List[float] = []
+            for row in result.mappings():
+                distance = float(row["distance"])
+                if distance <= distance_threshold:
+                    uris.append(row["uri"])
+                    distances.append(distance)
+
+            theme.article_uris = uris
+            theme.article_distances = distances
+
+            logger.info(
+                f"Theme '{theme.theme_label}': assigned {len(uris)} articles "
+                f"(threshold={distance_threshold})"
+            )
+        finally:
+            if conn:
+                conn.close()
 
     async def assign_articles_to_themes(
         self,
@@ -315,81 +460,29 @@ class ThemeProposer:
         max_per_theme: int = 20,
         distance_threshold: float = 0.85
     ) -> List[ProposedTheme]:
-        """
-        Assign articles to themes using semantic search on search_query.
+        """Assign articles to themes by semantic search on each search_query.
 
-        For each theme, embed its search_query and find similar articles.
+        Raises on encoder or database failure. Assigning no articles to a theme
+        is a legitimate outcome; failing to ask the question is not.
         """
         if not themes:
             return []
 
-        conn = None
-        try:
-            conn = self._get_connection()
+        topic_filter = normalize_topic_filter(topic_filter)
 
-            for theme in themes:
-                # Get embedding for search query
-                query_embedding = await self._get_embedding(theme.search_query)
-                if query_embedding is None:
-                    logger.warning(f"Could not get embedding for theme: {theme.theme_label}")
-                    continue
+        for theme in themes:
+            query_embedding = await self._get_embedding(theme.search_query)
+            await asyncio.to_thread(
+                self._assign_one_theme,
+                theme,
+                query_embedding,
+                topic_filter,
+                days_back,
+                max_per_theme,
+                distance_threshold,
+            )
 
-                # Convert to pgvector format
-                embedding_str = "[" + ",".join([str(v) for v in query_embedding]) + "]"
-
-                # Build query
-                params = {
-                    "query_embedding": embedding_str,
-                    "days_back": days_back,
-                    "threshold": distance_threshold,
-                    "limit": max_per_theme
-                }
-
-                topic_clause = ""
-                if topic_filter:
-                    topic_clause = "AND topic = :topic"
-                    params["topic"] = topic_filter
-
-                # Use subquery with OFFSET 0 to force materialization and avoid HNSW index issue
-                # The HNSW index doesn't work well with pre-filters (date, topic)
-                stmt = text(f"""
-                    SELECT * FROM (
-                        SELECT uri, title, summary,
-                               embedding <=> CAST(:query_embedding AS vector) as distance
-                        FROM articles
-                        WHERE publication_date::date >= CURRENT_DATE - CAST(:days_back AS INTEGER)
-                        AND embedding IS NOT NULL
-                        {topic_clause}
-                        OFFSET 0
-                    ) filtered
-                    ORDER BY distance
-                    LIMIT :limit
-                """)
-
-                result = conn.execute(stmt, params)
-
-                theme.article_uris = []
-                theme.article_distances = []
-
-                for row in result.mappings():
-                    distance = float(row["distance"])
-                    if distance <= distance_threshold:
-                        theme.article_uris.append(row["uri"])
-                        theme.article_distances.append(distance)
-
-                logger.info(
-                    f"Theme '{theme.theme_label}': assigned {len(theme.article_uris)} articles "
-                    f"(threshold={distance_threshold})"
-                )
-
-            return themes
-
-        except Exception as exc:
-            logger.error(f"Error assigning articles to themes: {exc}")
-            return themes
-        finally:
-            if conn:
-                conn.close()
+        return themes
 
     async def propose_and_assign(
         self,
@@ -404,12 +497,13 @@ class ThemeProposer:
         Full pipeline: propose themes via LLM, then assign articles via semantic search.
         """
         # Step 1: Propose themes
-        themes = await self.propose_themes(
+        proposal = await self.propose_themes(
             topic_filter=topic_filter,
             days_back=days_back,
             model_name=model_name,
             max_sample=max_sample
         )
+        themes = proposal.themes
 
         if not themes:
             return []

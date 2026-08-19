@@ -10,6 +10,11 @@ from typing import Dict, Optional, Any
 from sqlalchemy import text
 
 from app.database import Database
+from app.services.emerging_topics.notification_filters import (
+    DEFAULT_FILTERS,
+    normalize_filters,
+    select_topics_for_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +74,7 @@ class EmergingTopicsMonitor:
                 self.cooldown_minutes = row['cooldown_minutes'] or 360
                 self.email_recipients = row['email_recipients'] or []
                 self.bluesky_handle = row['bluesky_handle']
-                self.detection_type_filters = row['detection_type_filters'] or ['accelerating', 'new_cluster']
+                self.detection_type_filters = normalize_filters(row['detection_type_filters'])
                 self.last_notification_time = row['last_notification_time']
 
                 # Calculate interval in seconds
@@ -103,7 +108,7 @@ class EmergingTopicsMonitor:
         self.cooldown_minutes = 360
         self.email_recipients = []
         self.bluesky_handle = None
-        self.detection_type_filters = ['accelerating', 'new_cluster']
+        self.detection_type_filters = list(DEFAULT_FILTERS)
         self.last_notification_time = None
 
     def _update_status(
@@ -190,7 +195,9 @@ class EmergingTopicsMonitor:
             "topics_detected": 0,
             "articles_analyzed": 0,
             "new_topics": [],
-            "error": None
+            "run_id": None,
+            "error": None,
+            "code": None,
         }
 
         try:
@@ -199,6 +206,7 @@ class EmergingTopicsMonitor:
                 EmergingTopicsService,
                 EmergingTopicsConfig
             )
+            from app.services.emerging_topics.run_lock import DetectionAlreadyRunning
             from app.ai_models import get_ai_model
 
             # Try to get embedding model getter
@@ -233,14 +241,16 @@ class EmergingTopicsMonitor:
             topics = detection_result.get("emerging_topics", [])
             result["success"] = True
             result["topics_detected"] = len(topics)
-            result["articles_analyzed"] = detection_result.get("articles_sampled", 0)
+            result["articles_analyzed"] = detection_result.get("articles_analyzed", 0)
+            result["run_id"] = detection_result.get("run_id")
 
-            # Filter for new/accelerating topics for notifications
-            new_topics = [
-                t for t in topics
-                if t.get("detection_type") in self.detection_type_filters
-                and t.get("confidence_score", 0) >= self.min_confidence
-            ]
+            # Which topics are worth an alert. Detection-type filters are
+            # matched against detection_type and velocity filters against
+            # velocity — the old single comparison meant "accelerating" never
+            # matched anything the v2 pipeline writes.
+            new_topics = select_topics_for_notification(
+                topics, self.detection_type_filters, self.min_confidence
+            )
             result["new_topics"] = new_topics
 
             # Update global status
@@ -264,10 +274,21 @@ class EmergingTopicsMonitor:
 
             logger.info(f"Detection complete: {len(topics)} topics detected")
 
+        except DetectionAlreadyRunning as e:
+            # Another run holds this scope. Not an error state for the monitor:
+            # leave last_error alone and let the caller decide (the API turns
+            # this into a 409).
+            logger.info("Skipping scheduled detection: %s", e)
+            result["error"] = str(e)
+            result["code"] = e.code
+            self._update_status(is_running=False)
+            raise
+
         except Exception as e:
-            error_msg = str(e)
+            error_msg = f"{e.__class__.__name__}: {e}"
             logger.error(f"Detection error: {error_msg}", exc_info=True)
             result["error"] = error_msg
+            result["code"] = getattr(e, "code", "detection_failed")
 
             _background_task_status["last_error"] = error_msg
             self._update_status(last_error=error_msg, is_running=False)
@@ -325,6 +346,8 @@ async def run_emerging_topics_monitor():
     """Background task to periodically run emerging topics detection."""
     global _background_task_status
 
+    from app.services.emerging_topics.run_lock import DetectionAlreadyRunning
+
     db = Database()
     monitor = EmergingTopicsMonitor(db)
 
@@ -353,7 +376,14 @@ async def run_emerging_topics_monitor():
             # was down: run now (catch-up) rather than waiting a full interval.
             if next_check is None or now >= next_check:
                 logger.info("Starting scheduled emerging topics detection")
-                result = await monitor.run_detection()
+                try:
+                    result = await monitor.run_detection()
+                except DetectionAlreadyRunning as exc:
+                    # Someone triggered a run by hand. Skip this slot and come
+                    # back at the next interval rather than piling on.
+                    logger.info("Scheduled detection skipped: %s", exc)
+                    result = {"success": False, "error": str(exc),
+                              "topics_detected": 0, "articles_analyzed": 0}
 
                 if result["success"]:
                     logger.info(

@@ -82,6 +82,39 @@ const DEFAULT_CONFIG: EmergingTopicsConfig = {
 
 const STORAGE_KEY = 'emergingTopicsConfig';
 
+/**
+ * What the pipeline can actually notify on, mirroring
+ * app/services/emerging_topics/notification_filters.py.
+ *
+ * v2 writes two detection types, llm_proposed and ongoing_topic. "accelerating"
+ * is a velocity, matched against the topic's velocity rather than its type —
+ * offering it alongside "new_cluster" (a v1 type v2 never writes) meant the
+ * default selection matched nothing at all.
+ */
+export const NOTIFICATION_FILTER_OPTIONS: {
+  value: string;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: 'llm_proposed',
+    label: 'new theme',
+    description: 'A theme proposed for the first time in this scope',
+  },
+  {
+    value: 'ongoing_topic',
+    label: 'ongoing topic',
+    description: 'A theme that already had coverage before the analysis window',
+  },
+  {
+    value: 'accelerating',
+    label: 'accelerating',
+    description: 'Coverage is growing faster in the second half of the window',
+  },
+];
+
+export const DEFAULT_NOTIFICATION_FILTERS = ['llm_proposed', 'accelerating'];
+
 export function loadEmergingTopicsConfig(): EmergingTopicsConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -117,7 +150,7 @@ export function EmergingTopicsConfigModal({
     cooldown_minutes: 360,
     email_recipients: [],
     bluesky_handle: null,
-    detection_type_filters: ['accelerating', 'new_cluster'],
+    detection_type_filters: [...DEFAULT_NOTIFICATION_FILTERS],
   });
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [testingNotification, setTestingNotification] = useState(false);
@@ -142,7 +175,10 @@ export function EmergingTopicsConfigModal({
           cooldown_minutes: data.cooldown_minutes || 360,
           email_recipients: data.email_recipients || [],
           bluesky_handle: data.bluesky_handle || null,
-          detection_type_filters: data.detection_type_filters || ['accelerating', 'new_cluster'],
+          detection_type_filters:
+            data.detection_type_filters?.length
+              ? data.detection_type_filters
+              : [...DEFAULT_NOTIFICATION_FILTERS],
         });
       }
     } catch (e) {
@@ -560,14 +596,15 @@ export function EmergingTopicsConfigModal({
               <div className="space-y-2">
                 <Label className="font-medium">Notify For</Label>
                 <div className="flex flex-wrap gap-2">
-                  {['accelerating', 'new_cluster', 'llm_proposed', 'proto_cluster'].map((type) => (
+                  {NOTIFICATION_FILTER_OPTIONS.map(({ value, label, description }) => (
                     <Badge
-                      key={type}
-                      variant={notificationSettings.detection_type_filters.includes(type) ? 'default' : 'outline'}
+                      key={value}
+                      variant={notificationSettings.detection_type_filters.includes(value) ? 'default' : 'outline'}
                       className="cursor-pointer"
-                      onClick={() => toggleDetectionType(type)}
+                      title={description}
+                      onClick={() => toggleDetectionType(value)}
                     >
-                      {type.replace('_', ' ')}
+                      {label}
                     </Badge>
                   ))}
                 </div>

@@ -2,6 +2,236 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-19 — Briefing Desk picked whatever was newest, including Bluesky posts scored 0.00
+
+### Goal
+Oliver reported that Briefing Desk's "Compose Today's Briefing" was selecting badly, and that a
+social post had turned up in that morning's briefing. A spec listed 13 suspected defects. All 13
+held up, and the evidence pass found eight more.
+
+### What was wrong
+The compose flow retrieved articles **recency-first with the relevance filter switched off**.
+`_gather_candidate_articles` called the database with `min_alignment=-1.0`, which passes every
+row scoring 0.0 or above, then discarded the database's relevance ordering and re-sorted the whole
+pool by publication date.
+
+Replaying the old code against wileytest's live data with its 18 configured topics, the top of the
+list the AI curator was shown looked like this:
+
+```
+1 | Brand Monitoring Pearsons Education | align 0.00 | bluesky | Post by @sjpete.bsky.social
+2 | AI and Machine Learning             | align 0.84 | Techmeme | Austin-based Smack Technologies…
+3 | Brand Monitoring Pearsons Education | align 0.00 | bluesky | Post by @civicapi.org
+4 | Brand Monitoring Pearsons Education | align 0.00 | bluesky | Post by @uncrewed.bsky.social
+```
+
+Those three Bluesky posts are about a Jacksonville City Council election. The relevance scorer had
+correctly given them 0.00; the briefing ignored the score. Social posts share the `articles` table
+with news and are collected continuously, so they are always the freshest rows and always won.
+
+Three more consequences of the same sort order, all measured on that replay:
+
+- **11 of the 18 topics got zero slots** in the 30 candidates the curator saw. Quantum Computing
+  took 8, M&A Updates 6, AI and Machine Learning 6. "Brand Monitoring Wiley" had 31 eligible
+  articles, 21 of them scoring 0.7 or better, and reached the curator with none.
+- **At least 6 of the 30 slots were the same story twice.** The per-source cap deduplicated by
+  outlet, which does nothing against syndication: NTT DOCOMO/D-Wave appeared at positions 19, 26
+  and 30 from three outlets.
+- **The fallback made it worse.** If the curator failed, `_heuristic_select` took the first eight
+  by date — which is to say the Bluesky posts.
+
+The result over the month: compose staged a median of 2 articles against a target of 8, while
+staging up to 18 incidents against a target of 7 because nothing capped what the model returned.
+On briefing 129 that morning it staged **1 article**, and Oliver added three by hand at 08:37.
+
+### `app/services/daily_briefing_ranking.py` (new) — deterministic relevance-first ranking
+616 lines, pure functions, no database and no LLM, so the selection rules are testable on their
+own. Composite score is `0.50 alignment + 0.15 keyword relevance + 0.10 quality + 0.10 analysis
+confidence + 0.05 source credibility + 0.10 recency`, then ±0.05 for an explicit reader
+preference. Weights live in one named `WEIGHTS` dict.
+
+Normalization rules that matter: a missing signal contributes **zero**, not a neutral average.
+Recency is exponential decay with a 3-day half-life. An unparseable or missing publication date
+scores 0.0 rather than getting an accidental freshness advantage, and a future date is capped at
+1.0. Unknown source credibility contributes zero rather than rejecting the article. Final order is
+composite desc, alignment desc, publication time desc, URI asc — total, so two runs over the same
+data produce the same briefing.
+
+Story deduplication runs three passes: normalized URL (tracking parameters, `www.`, fragment and
+trailing slash stripped), then normalized title, then token **containment** ≥ 0.85. Containment
+rather than Jaccard because a syndicated rewrite keeps the substance and changes the framing — the
+two real Concentric AI headlines share seven of eight significant tokens but score only 0.70 on
+Jaccard, below any threshold safe enough to use. Guards against over-merging: both titles need at
+least 5 significant tokens, and the shorter must be at least half the longer's length.
+
+Shortlist construction rotates through the requested topics one candidate at a time, so a
+high-volume topic cannot take every slot. A candidate that would be the fourth from its outlet is
+**deferred, not dropped**, and a second pass spends unfilled slots on the deferred candidates in
+rank order. Final backfill covers every requested topic first when there is room, then fills by
+global rank, with one documented escape from the 3-per-source cap: it yields when every remaining
+under-cap alternative is worse by more than 0.15 composite.
+
+### `app/database_query_facade.py` — a dedicated Briefing Desk projection
+New `get_briefing_candidate_articles`, 73 lines. `get_relevant_articles_for_topic` returns five
+columns; the composer needs sixteen, because it cannot rank on keyword relevance, analysis
+confidence or source credibility if the query never returns them. The new method also enforces the
+eligibility rules in SQL rather than loading a corpus and filtering it in Python: topic match,
+`analyzed`, publication window, alignment floor, present URI and title.
+
+Two behaviour differences from the old method, both deliberate and documented in the docstring.
+The alignment floor is **inclusive** (`>=`), so a candidate sitting exactly on an advertised floor
+passes. And `exclude_social=True` drops Reddit/Bluesky/X/Instagram/TikTok rows using the existing
+`app/services/social_sources.py` predicate — those posts belong to the Brand Watcher surfaces, not
+to a daily news briefing, and their titles ("Post by @handle") give a curator nothing to judge.
+The old method is untouched, so its four other callers are unaffected.
+
+### `app/services/daily_briefing_compose_service.py` — wiring, validation, fallback
+The gather now takes `days_back` and `min_alignment` from the caller instead of a hard-coded
+3-day window and a disabled floor. `min_confidence` reaches `get_emerging_topics`, which was
+hard-coded to `0.0`.
+
+The curator payload carries every ranking signal — alignment, keyword relevance, quality,
+confidence, credibility, the composite pre-rank score and the existing relevance explanation. It
+previously got title, source, date, topic and 300 characters of summary, and was then asked to
+judge material relevance with every computed signal withheld from it. The prompt now states that
+relevance outranks recency and delimits the candidate block as untrusted source material.
+
+New `_validate_picks` rejects unknown ids, duplicate ids, malformed entries and below-floor
+candidates, caps each section at its target, and records why each was dropped. An empty article
+list returned over a non-empty pool is treated as a failed call rather than an editorial verdict.
+Whatever the model leaves short, `rank_backfill` fills deterministically from the best remaining
+candidates, preserving topic coverage and source diversity.
+
+Curator `max_tokens` raised 1500 → 4000. At 1500 a reasoning model can spend the whole budget
+before emitting any JSON, which parses as "curator failed" and drops the run to the fallback for
+no reason.
+
+Two failure-handling fixes. A draft created at step 1 and never populated is now deleted when the
+pipeline throws, instead of appearing in the list as a successful empty briefing. And the browser
+gets a stable message while the exception stays in the log.
+
+Every run now logs one structured diagnostics line: effective config, eligible candidates per
+topic, unique candidates, exclusions by story duplication and by history, shortlist slots per
+topic, whether curation succeeded, rejected ids with reasons, backfill count, and the final
+selection with its component scores. No article bodies, summaries, or organizational profile
+content.
+
+### `app/routes/daily_reports_routes.py` — one configuration for both endpoints
+The two endpoints had drifted in opposite directions. The streaming route silently dropped
+`min_alignment` and `min_confidence`; the non-streaming route passed both to a generator that did
+not accept them, so **every call to `POST /api/desk-briefings/auto-compose` was a 500**. Both now
+build their arguments from one `_compose_kwargs` helper.
+
+`min_alignment` default changed 0.7 → 0.4. Across 852 articles in finalized briefings the median
+alignment is 0.80, but the distribution is bimodal and a 0.7 gate drops about 30% of what analysts
+have historically picked. Alignment carries half the ranking weight, so a low floor removes the
+noise without deciding the ordering by itself.
+
+Raw exception text no longer reaches the browser on either path.
+
+### `ui/src/services/briefingDeskApi.ts`
+Shared `ComposeOptions` type for both calls, plus `backfill_count` on the progress event. Types
+only — no runtime change, so no UI redeploy was required for this work.
+
+### Verification
+Ran before writing this entry, in the canonical tree:
+
+```
+.venv/bin/python -m pytest tests/test_daily_briefing_ranking.py \
+    tests/test_daily_briefing_compose.py -q          → 85 passed
+python -m py_compile <the four changed/added .py files> → OK
+cd ui && npm run typecheck   → Type check clean: 246 errors, all 246 known
+cd ui && npm run build       → built in 17.67s
+```
+
+Full backend suite, to show no regression:
+
+```
+pytest tests/ -q --ignore=tests/load --ignore=tests/integration
+    with my files removed: 95 failed, 318 passed, 31 errors
+    with my files present: 95 failed, 401 passed, 31 errors
+```
+
+The 95 failures and 31 errors are pre-existing and unrelated — SQLite `PRAGMA` statements run
+against PostgreSQL, and `Mock` objects that are not JSON-serializable. Same set both ways.
+
+**Live compose on wileytest**, driven through the same streaming endpoint the UI calls, with a
+minted `admin` session cookie:
+
+```
+gather    Ranked 472 on-topic articles, shortlisted 30 across 16/18 topics
+          (14 already shared in the last 7d, skipped) (77 duplicate stories merged)
+emerging  Found 15 emerging topics (3 already shared, skipped)
+incidents Found 25 incidents (3 already shared, skipped)
+curate    Selected 8 articles, 7 incidents, 5 topics    fallback: false
+stage     Staged 8 articles, 7 incidents, 5 emerging topics
+```
+
+Draft 130 against briefing 129 from the same morning on the old code:
+
+| | 129 (old) | 130 (new) |
+|---|---|---|
+| articles staged by compose | 1 (of a target of 8) | 8 |
+| incidents staged | 11 (target 7) | 7 |
+| emerging topics staged | 2 (target 5) | 5 |
+
+The eight articles it chose score 0.70–0.90 on alignment across eight distinct topics, with no
+social posts and no duplicates: Sage retractions from acquired journals, a quantum computing
+replication crisis, paper mills, a COVID-vaccine causal-link claim, the Suno/Anthropic $1B
+copyright suits, Wiley's own FY26 results, the practical-quantum-computer race, and the Gates
+Foundation's $540M science gift.
+
+The diagnostics line confirms the mechanism rather than just the outcome: the shortlist gave
+**exactly 2 slots to each of the 14 topics with material**, plus 1 each to the two topics holding
+a single candidate. Zero source deferrals were needed. The curator returned 8 valid ids with zero
+rejections and zero backfill — given a shortlist worth choosing from, it chose well unaided.
+
+### Propagation
+Backend is on **bugfixing (canonical, uncommitted), wiley and wileytest**. Both prod tenants were
+restarted at 11:25 and return HTTP 200 on `/health` (wileytest :10002, wiley :10006), with no
+import errors in the startup logs. Before restarting, both showed zero `running`/`pending` rows in
+`background_tasks` and zero `llm_usage_log` rows in the preceding 15 minutes — nothing live to
+kill.
+
+`daily_briefing_compose_service.py` and `daily_reports_routes.py` were byte-identical to canonical
+HEAD on both tenants, so those were copied wholesale. **`database_query_facade.py` was patched
+surgically**, not copied — it is on the never-sync list because both tenants carry local xpoz
+`social_meta` work. The new method was inserted at a unique anchor and each tenant then diffed
+against its own pre-patch backup: 73 additions, 0 deletions on both. Backups at
+`app/database_query_facade.py.bak-briefingcand-20260819_112423` in each tree.
+
+pytest is not installed in either tenant venv, and I did not add packages to a prod venv. Instead
+each tenant's own interpreter verified that the modules import, that
+`_compose_kwargs(AutoComposeRequest())` binds against `compose_daily_briefing_stream`, that the
+facade method exists, and that the scorer returns the expected composite.
+
+**Not propagated:** abbott, abm, bwtemplate, ibaset, pbm, pearson, sage and wbm all carry
+`daily_briefing_compose_service.py` but not the ranking module. They will keep the old behaviour
+until someone copies four files. None of them run a scheduled daily briefing today.
+
+This entry is written pre-commit. The working tree also holds a **separate, concurrent
+emerging-topics change** from another session — roughly 1,200 lines across
+`app/routes/emerging_topics_routes.py`, `app/services/emerging_topics/*` and two UI components.
+It is not mine, it does not overlap anything above, and it is not documented here. Anyone
+committing should scope the commit rather than running `git add -u` across the whole tree.
+
+### Lessons
+**A relevance score the pipeline computes is worthless if the consumer sorts by something else.**
+The scorer had correctly marked those Bluesky posts 0.00. The failure was entirely downstream, in
+a sort key. When a selection looks random, check what the consumer orders by before suspecting the
+scorer.
+
+**`min_alignment=-1.0` disables a floor silently.** The filter is `topic_alignment_score >
+min_alignment`, so any negative value passes everything while the parameter still reads as
+present and configured. A test now asserts the string `-1.0` does not appear in the gather.
+
+**Deduplicating by outlet does not deduplicate by story.** A per-source cap is a diversity
+control, not a duplicate control. Syndication defeats it completely.
+
+**ALWAYS diff a tenant file against canonical before copying it.** Both prod facades carry local
+xpoz work; a wholesale copy would have silently reverted it. Two of the three files were
+byte-identical and safe to copy, one was not — the only way to know was to check each.
+
 ## 2026-08-19 — Briefing dropped good picks: my id/uri conflict check was too strict
 
 ### Symptom
@@ -55,9 +285,45 @@ added to `tests/test_briefing_resolver.py` (7 tests pass).
 2026-08-14 was also 5, but that predates all of this work and is the older intermittent
 shortfall (34 of 237 runs since Nov 2025), not this defect.
 
-### Deployed
-`app/services/news_feed_service.py` copied to wiley and wileytest, all three restarted at
-08:52. No background jobs were running. Health checks pass on all three.
+### Commit
+`459d7345` — `app/services/news_feed_service.py`, `tests/test_briefing_resolver.py`,
+`docs/changes.md`, plus the two how-it-works corrections carried over from yesterday.
+
+### Verification
+```
+pytest tests/test_briefing_resolver.py tests/test_forecast_scenario_identity.py
+25 passed
+```
+Offline replay of the four real picks from today's 06:44 wileytest run against a
+400-article corpus read from the wileytest database: 4 resolved, 0 unresolved, none bound
+to the wrong article. Before the fix the same four were all dropped.
+
+Article counts per cached briefing, `article_analysis_cache` on wileytest:
+
+```
+2026-08-19  5   <- first run under the tie-break
+2026-08-18  6
+2026-08-17  6
+2026-08-14  5   <- older intermittent shortfall, predates this work
+2026-08-13  6
+2026-08-11  6
+```
+
+### Propagation
+`app/services/news_feed_service.py` copied to wiley and wileytest; the three trees are
+byte-identical for that file. All three services restarted at 08:52 with no background
+jobs running. `login=200` on all three, no startup errors. No UI change, so no React
+rebuild. saasmvp-app and wbm do not have this code path.
+
+The cached briefing for today is not rewritten by the fix. Tomorrow's 06:44 generation is
+the first one that exercises it in production; hitting regenerate would also do it.
+
+### Still uncommitted
+`docs/how_it_works_anticipate.md` and `docs/how_it_works_topics.md` carry further
+corrections in the working tree from yesterday's documentation pass — line-number
+references replaced with symbol names (they had drifted by up to 137 lines in one file),
+and the Topics health-dot order rewritten to match `computeHealth()` in
+`ui/src/components/TopicsDashboard.tsx`. Not committed. Documentation only, no code.
 
 ## 2026-08-18 — Topics / Forecast Tracker / Topic Reports spec: phases 1-9
 

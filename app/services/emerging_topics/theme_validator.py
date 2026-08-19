@@ -185,6 +185,25 @@ class ThemeValidator:
         result.reason = "Valid"
         return result
 
+    @staticmethod
+    def _ordered_dedup(*sequences) -> List[Any]:
+        """Concatenate sequences, dropping repeats, keeping first-seen order.
+
+        ``set()`` was used here before. Set iteration order depends on hash
+        values, so two runs over identical inputs produced different article
+        rankings, and the theme's best-matching articles could end up outside
+        the deep-analysis window.
+        """
+        seen = set()
+        out = []
+        for sequence in sequences:
+            for item in sequence or []:
+                if item in seen:
+                    continue
+                seen.add(item)
+                out.append(item)
+        return out
+
     def merge_themes(
         self,
         theme1: Any,
@@ -193,7 +212,10 @@ class ThemeValidator:
         """
         Merge two themes into one.
 
-        Combines article lists and keeps the label of the larger theme.
+        Combines article lists and keeps the label of the larger theme. The
+        primary theme's ranking is preserved and the secondary's unseen
+        articles are appended in their own order, so the merged theme still
+        leads with its best matches.
         """
         # Determine which theme is larger
         if len(theme1.article_uris) >= len(theme2.article_uris):
@@ -203,13 +225,25 @@ class ThemeValidator:
             primary = theme2
             secondary = theme1
 
-        # Combine article URIs (dedup)
-        combined_uris = list(set(primary.article_uris) | set(secondary.article_uris))
+        # Distances travel with their URIs so the arrays stay aligned.
+        distances = {}
+        for theme in (primary, secondary):
+            for uri, distance in zip(
+                theme.article_uris, getattr(theme, 'article_distances', None) or []
+            ):
+                distances.setdefault(uri, distance)
+
+        combined_uris = self._ordered_dedup(primary.article_uris, secondary.article_uris)
         primary.article_uris = combined_uris
+        if hasattr(primary, 'article_distances'):
+            primary.article_distances = [
+                distances.get(uri, 0.0) for uri in combined_uris
+            ]
 
         # Combine key entities
-        combined_entities = list(set(primary.key_entities) | set(secondary.key_entities))
-        primary.key_entities = combined_entities[:10]  # Limit
+        primary.key_entities = self._ordered_dedup(
+            primary.key_entities, secondary.key_entities
+        )[:10]
 
         # Update description to note merge
         if secondary.theme_label not in primary.theme_description:
@@ -287,12 +321,27 @@ class ThemeValidator:
             merged_themes.append(current)
             processed.add(i)
 
+        # Re-check the minimum after merging. Article-relevance validation runs
+        # before this step and can take a theme below the floor; such a theme
+        # must not be analysed, scored, saved, or counted.
+        surviving = []
+        for theme in merged_themes:
+            count = len(getattr(theme, 'article_uris', []) or [])
+            if count < self.min_articles:
+                logger.info(
+                    f"Theme '{theme.theme_label}' dropped after merge: "
+                    f"{count} articles < {self.min_articles} required"
+                )
+                continue
+            surviving.append(theme)
+
         logger.info(
             f"Validation complete: {len(themes)} proposed -> "
-            f"{len(valid_themes)} valid -> {len(merged_themes)} after merge"
+            f"{len(valid_themes)} valid -> {len(merged_themes)} after merge -> "
+            f"{len(surviving)} above the {self.min_articles}-article floor"
         )
 
-        return merged_themes
+        return surviving
 
     async def validate(self, themes: List[Any]) -> List[Any]:
         """
