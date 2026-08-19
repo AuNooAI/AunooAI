@@ -1966,6 +1966,29 @@ Tags: {article.get('tags', '')}
         """Strip case, punctuation and spacing so an echoed title can be matched to the corpus."""
         return re.sub(r'[^a-z0-9]+', '', (title or '').lower())
 
+    def _match_title_to_corpus(self, title: str, title_map: Dict[str, str]) -> Optional[str]:
+        """Find the one corpus article a selected title names, or None.
+
+        The prompt asks for "headline (Source, date, author)", so the echoed
+        title is usually the corpus title plus a suffix. Try the whole title
+        first, then the shared prefix, and give up rather than guess when more
+        than one corpus article could be meant.
+        """
+        title_key = self._normalize_title_for_match(title)
+        if not title_key:
+            return None
+        if title_key in title_map:
+            return title_map[title_key]
+        if len(title_key) < self.TITLE_MATCH_MIN_CHARS:
+            return None
+        candidates = {
+            uri for corpus_key, uri in title_map.items()
+            if len(corpus_key) >= self.TITLE_MATCH_MIN_CHARS
+            and (corpus_key.startswith(title_key[:self.TITLE_MATCH_MIN_CHARS])
+                 or title_key.startswith(corpus_key[:self.TITLE_MATCH_MIN_CHARS]))
+        }
+        return candidates.pop() if len(candidates) == 1 else None
+
     def _resolve_selected_articles(self, selected: List[Dict], articles_data: List[Dict],
                                    max_articles: int = 50) -> Tuple[List[Dict], List[Dict]]:
         """Map each article the model selected back to a real article in the corpus.
@@ -2025,9 +2048,7 @@ Tags: {article.get('tags', '')}
                 # rather than silently binding the analysis to another article.
                 uri_says = uri_map.get(article_uri) or base_uri_map.get(article_uri.split('?')[0])
                 if uri_says and uri_says != matched_uri:
-                    title_says = title_map.get(
-                        self._normalize_title_for_match(article.get('title', ''))
-                    )
+                    title_says = self._match_title_to_corpus(article.get('title', ''), title_map)
                     logger.warning(
                         "Selected article disagrees with itself: id %s -> %s but uri -> %s "
                         "(title -> %s)", article_id, matched_uri, uri_says, title_says,
@@ -2044,22 +2065,9 @@ Tags: {article.get('tags', '')}
                 matched_uri = base_uri_map[article_uri.split('?')[0]]
                 how = "URI without query params"
             else:
-                # The prompt asks for "headline (Source, date, author)", so the echoed title
-                # is usually the corpus title plus a suffix. Match on the shared prefix.
-                title_key = self._normalize_title_for_match(article.get('title', ''))
-                if title_key and title_key in title_map:
-                    matched_uri = title_map[title_key]
+                matched_uri = self._match_title_to_corpus(article.get('title', ''), title_map)
+                if matched_uri:
                     how = "title"
-                elif len(title_key) >= self.TITLE_MATCH_MIN_CHARS:
-                    candidates = {
-                        uri for corpus_key, uri in title_map.items()
-                        if len(corpus_key) >= self.TITLE_MATCH_MIN_CHARS
-                        and (corpus_key.startswith(title_key[:self.TITLE_MATCH_MIN_CHARS])
-                             or title_key.startswith(corpus_key[:self.TITLE_MATCH_MIN_CHARS]))
-                    }
-                    if len(candidates) == 1:
-                        matched_uri = candidates.pop()
-                        how = "title prefix"
 
             if matched_uri and matched_uri in claimed_uris:
                 # Two garbled picks can land on the same corpus article — one by

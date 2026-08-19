@@ -106,17 +106,24 @@ each cluster against the Wiley remit.
 ### 3.1 Sample selection
 
 Each scan reads the last `WILEY_CANDIDATE_SCAN_DAYS_BACK` days of
-articles (default 14). The detector doesn't cluster every article — it
-samples high-novelty articles from each news source to ensure source
-diversity:
+articles (default 14; the detector's own default when called directly is
+7). The window cuts on `publication_date` here — note that the forecast
+assessment window cuts on `submission_date` instead, so the two are not
+comparable. The detector doesn't cluster every article — it samples
+high-novelty articles from each news source to ensure source diversity:
 
-- Articles are joined to `article_novelty_scores` to pull pre-computed
-  novelty scores.
+- Articles are LEFT JOINed to `article_novelty_scores` to pull
+  pre-computed novelty scores.
 - The SQL uses `DISTINCT ON (news_source, uri) ORDER BY news_source,
-  uri, novelty_score DESC` so each source contributes its most-novel
-  articles first.
-- The final pool is sorted by `composite_novelty_score DESC` and capped
-  at `max_articles` (default 250).
+  uri, COALESCE(novelty_score, 50) DESC` so each source contributes its
+  most-novel article before any source contributes a second one.
+- The rows are then sorted by novelty and truncated to `max_articles`
+  (default 250). That sort and cap happen in Python, not in the SQL.
+
+The `COALESCE` matters: an article that has never been scored is treated
+as novelty 50, the midpoint, rather than excluded. On a corpus where the
+novelty job hasn't run, every article samples as equally novel and the
+source-diversity ordering quietly stops doing anything.
 
 This is `_fetch_sample_articles()` in
 `app/services/emerging_topics/theme_proposer.py`.
@@ -126,18 +133,15 @@ This is `_fetch_sample_articles()` in
 `article_novelty_scores` is a composite of three independent signals
 computed from article embeddings (see `novelty_scorer.py`):
 
-- **knn_distance_score** — average cosine distance to the article's
-  k-nearest neighbours (default k=10). Articles in dense neighbourhoods
-  score lower; outliers score higher.
-- **density_score** — count of articles within a fixed cosine radius
-  (default 0.2). Inverted, scaled 0–100.
-- **centroid_distance_score** — distance to the global corpus centroid.
-  Articles drawn from underrepresented regions of embedding space score
-  higher.
+| Signal | What it measures | Weight |
+| --- | --- | --- |
+| **knn_distance_score** | Average cosine distance to the article's k-nearest neighbours (`k_neighbors=10`). Articles in dense neighbourhoods score lower; isolated ones score higher. | 0.40 |
+| **density_score** | Count of articles within `density_radius=0.3` cosine distance. Inverted, scaled 0–100. | 0.35 |
+| **centroid_distance_score** | Distance to the *nearest cluster centroid* — how far the article sits from the closest known topic, not from the corpus as a whole. Falls back to an approximation when no centroids are available. | 0.25 |
 
-`composite_novelty_score` is a weighted average; defaults favour kNN
-distance most heavily. Scores are written once per article per
-calculation date and cached.
+`composite_novelty_score` is the weighted sum, so kNN distance carries
+most of it. An article scoring above 75 is flagged an outlier. Scores are
+written once per article per calculation date and cached.
 
 ### 3.3 LLM theme proposal
 
@@ -326,7 +330,8 @@ seeded from the candidate's articles. Steps, in order:
    `triaged_at=NOW()`.
 
 The wizard auto-opens at step 3 (overlay review) when the job finishes.
-Total runtime ≈ 8–12 minutes per promotion.
+Runtime is typically 8–12 minutes per promotion — that is what operators
+observe, not an instrumented measurement.
 
 ### 5.2 Snooze
 
@@ -435,6 +440,20 @@ Strategic Domains slide needs:
 
 Model: `gpt-4.1` with `reasoning_effort='high'`. Output lands as a
 `.proposed` file the human reviews in wizard step 3.
+
+Two things about overlay files that are easy to get wrong:
+
+- An overlay is matched to a topic by the `topic` field **inside** the
+  JSON, not by its filename. Renaming the file changes nothing.
+- `horizon` may span — `h1_h2`, `h2_h3`, `h1_h3` — and three of the five
+  production overlays use spanning values. The deck builder treats them
+  as display-only and takes the real horizon from the first raw scenario
+  in the group, so anything validating overlays against a strict
+  h1/h2/h3 enum will reject working files.
+
+If an overlay's `scenario_title_to_deck_key` matches none of a run's
+scenario titles, the assessment falls back to raw scenarios and logs an
+error rather than producing an empty result.
 
 ## 7. The Add-topic wizard
 

@@ -2,6 +2,63 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-19 — Briefing dropped good picks: my id/uri conflict check was too strict
+
+### Symptom
+wileytest's Explore briefing showed 5 articles this morning instead of 6. It showed 6 on
+Monday, so this is a regression, and it is mine — from `00bd6a80` last night.
+
+### What the code does
+When the model picks the six articles, it echoes back an ID line (`a46`), a URI and a
+title for each one. `_resolve_selected_articles` maps each pick back to a real corpus
+article. Last night's review found that a two-character ID is easy for the model to get
+wrong, so when the ID and the URI both name real corpus articles and disagree, the
+resolver now asks the title to break the tie and drops the pick if it cannot.
+
+### What was wrong
+The tie-break looked the title up by exact match only. The prompt asks the model for
+`headline (Source, date, author)`, so the title it returns almost always carries a
+suffix the corpus title does not have. The resolver already had a prefix matcher for
+exactly this, but it sat in a different branch and the tie-break never reached it. So
+the tie-break found nothing every time and dropped the pick.
+
+Today's 06:44 run on wileytest, from the logs:
+
+```
+id a46 -> thehindu.com/...article71360586.ece  but uri -> techmeme.com/260818/p24  (title -> None)
+id a48 -> thehindubusinessline.com/...          but uri -> crowdfundinsider.com/...  (title -> None)
+id a10 -> techmeme.com/260818/p41               but uri -> quantumcomputingreport.com/ionq-...  (title -> None)
+3/6 articles matched the corpus (3 unmatched). Asking for replacements.
+id a26 -> quantumcomputingreport.com/oti-...    but uri -> cloudnativenow.com/...     (title -> None)
+retry: now 5/6 articles
+```
+
+Every one of those four URIs is a real corpus article and every title is the corpus title
+plus a suffix. All four picks were good and all four were thrown away. The retry
+recovered two, then lost one to the same bug, so the briefing came back with five.
+
+### Fix (this commit)
+Both branches now call one `_match_title_to_corpus()` helper: whole title first, then the
+shared 40-character prefix, and `None` when more than one corpus article could be meant.
+The ambiguity rule from last night is unchanged — a headline shared by two syndicated
+copies still identifies nothing.
+
+Replayed the four real picks from today's run against a 400-article corpus pulled from
+the wileytest database: all four resolve, none to the wrong article. Regression test
+added to `tests/test_briefing_resolver.py` (7 tests pass).
+
+### Timeline
+- 2026-08-18 09:00 restart — title-prefix fix live, no tie-break. Briefing at 07:15: 6 articles.
+- 2026-08-18 23:16 restart — tie-break live (`00bd6a80`, committed 23:17).
+- 2026-08-19 06:44 — first briefing generated under the tie-break: 5 articles.
+
+2026-08-14 was also 5, but that predates all of this work and is the older intermittent
+shortfall (34 of 237 runs since Nov 2025), not this defect.
+
+### Deployed
+`app/services/news_feed_service.py` copied to wiley and wileytest, all three restarted at
+08:52. No background jobs were running. Health checks pass on all three.
+
 ## 2026-08-18 — Topics / Forecast Tracker / Topic Reports spec: phases 1-9
 
 ### Goal

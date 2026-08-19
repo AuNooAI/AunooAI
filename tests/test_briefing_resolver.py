@@ -126,3 +126,42 @@ def test_a_unique_title_still_rescues_a_garbled_uri():
     resolved, _ = svc._resolve_selected_articles(selected, corpus)
 
     assert [a["uri"] for a in resolved] == ["https://example.com/real"]
+
+
+def test_a_suffixed_title_can_still_settle_an_id_uri_conflict():
+    """The wileytest briefing of 2026-08-19, reduced.
+
+    The model copied the right URI and the right headline but the wrong ID
+    line. The conflict check asked the title to break the tie, and the title
+    the model returns always carries a "(Source, date, author)" suffix — so an
+    exact-match-only lookup found nothing and the pick was dropped. Four picks
+    went that way in one run and the briefing came back with five articles.
+    """
+    svc = _svc()
+    corpus = [
+        {"uri": f"https://filler.example/{i}", "title": f"Filler headline number {i} about nothing at all"}
+        for i in range(24)
+    ]
+    corpus.append({
+        "uri": "https://www.techmeme.com/260818/p24#a260818p24",
+        "title": ("Harvey announces Harvey Tenet, its first in-house, proprietary model "
+                  "for legal work, trained on mock disputes and case files"),
+    })
+    corpus += [
+        {"uri": f"https://other.example/{i}", "title": f"Another unrelated headline number {i} entirely"}
+        for i in range(25, 47)
+    ]
+    assert corpus[46]["uri"] == "https://other.example/46"
+
+    selected = [{
+        "id": "a46",                                            # wrong
+        "uri": "https://www.techmeme.com/260818/p24#a260818p24",  # right
+        "title": ("Harvey announces Harvey Tenet, its first in-house, proprietary model "
+                  "for legal work, trained on mock disputes and case files "
+                  "(Business Insider, 2026-08-18, Melia Robinson)"),
+    }]
+
+    resolved, unresolved = svc._resolve_selected_articles(selected, corpus)
+
+    assert unresolved == []
+    assert [a["uri"] for a in resolved] == ["https://www.techmeme.com/260818/p24#a260818p24"]
