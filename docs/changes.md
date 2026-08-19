@@ -2,6 +2,275 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-19 — Half of every tenant's emerging-topic detection runs never finished, and nobody could tell
+
+### Goal
+A spec listed 12 areas of the emerging-topics v2 pipeline to harden. All 12 held up. The
+evidence pass then found two more defects in the fix itself, one of them serious, plus a
+measurement that invalidates a feature nobody had questioned.
+
+### What was wrong
+`detection_runs` rows were created with `status = 'running'` and only ever updated on the
+happy path. An encoder outage, a database error, a failed save — any of those just stopped the
+code, and the row sat at `running` forever. Meanwhile the stream still emitted a success event
+with zero topics, so "nothing is emerging" and "the encoder is down" produced identical output.
+
+Counted before the fix:
+
+| tenant | running | completed |
+|---|---|---|
+| bugfixing | 234 | 351 |
+| wiley | 240 | 270 |
+| wileytest | 1,472 | 1,515 |
+| wbm | 1,106 | 1,134 |
+
+**3,052 runs across four tenants**, about half of everything ever run, in a state no code path
+could leave.
+
+### `app/services/emerging_topics/emerging_topics_service.py` — one terminal state per run
+`run_detection_streaming` is wrapped in try/except/finally (`eb8ddfe3`). A run that samples
+articles and validates nothing is `completed` with zero topics. An encoder failure, database
+error, LLM failure or persistence failure is `failed` with a sanitized reason. Client
+disconnect (`GeneratorExit`) also closes the row out.
+
+Persistence became atomic. `_persist_run_results` opens one connection and commits topic rows,
+their `topic_history` snapshots, the missed-run counters and the run's own completion together.
+A failure saving the second of two topics now leaves nothing saved and no success event.
+`_save_emerging_topic` and `_save_topic_history` raise instead of returning `None` — the old
+code turned a failed save into a topic that reported success with no id.
+
+The non-streaming `run_detection` raises `DetectionFailed` instead of returning an empty
+successful result.
+
+`articles_analyzed` is the real sample size. It used to report `max_sample_articles`, the
+configured ceiling. wiley's last pre-deploy run recorded `articles_sampled=250` because 250 was
+the setting; the first post-deploy run on bugfixing recorded 60, which is what it actually read.
+
+### `app/services/emerging_topics/run_lock.py` (new) — one run per scope
+A PostgreSQL session advisory lock keyed on database plus normalized `topic_filter`, so a
+global run and a "climate" run do not block each other but two "climate" runs do. A second run
+gets HTTP 409 `detection_already_running` before any run row exists. Session locks are released
+by the server when the connection dies, so a crashed worker cannot wedge the pipeline.
+
+**This shipped broken and was caught by the live run.** The acquiring `SELECT` left the
+connection inside a transaction, and these servers set
+`idle_in_transaction_session_timeout = 1min`:
+
+```
+SHOW idle_in_transaction_session_timeout;  →  1min
+```
+
+Measured: the lock connection died at t+60s, every time. The server released the advisory lock
+with it while the run carried on believing it held the scope. The guarantee would have lapsed
+on every run longer than a minute — which is all of them. Fix is a commit after acquiring;
+advisory locks taken with `pg_try_advisory_lock` are session-scoped and survive it. Re-measured
+after the fix: backend state `idle`, lock held, still there at t+4min.
+
+### `app/routes/emerging_topics_routes.py` — admin-only mutations, valid SSE
+Detection, batch detection, clear, delete, retire, restore, save-horizons, schedule settings,
+run-now, notification settings and test-notification moved from `verify_session` to
+`require_admin` — 12 endpoints. Any logged-in user could previously start a run or delete every
+detected theme.
+
+SSE frames are now `event: progress|complete|error` plus one `data:` line and a blank line.
+`tests/test_emerging_topics_routes.py` asserts the framing; `ui/src/utils/sseParser.ts` (new)
+buffers across chunk boundaries. The old client decoded each network chunk on its own and
+scanned for `data: ` prefixes, so any event split across two reads was dropped.
+
+The topic detail endpoint returns the v2 projection — actors, events, implications,
+organization implications, signals, synthesis, component scores, source count, ordered article
+URIs, topic filter. It previously read `model_used` off a `synthesis` column it never selected,
+so it always fell back to guessing a model from config.
+
+### `app/vector_store_pgvector.py` — the encoder gets the real title
+`build_article_encoder_input` passes `article["title"]` as the title and tags plus body as
+content. The old path concatenated everything and split on the first newline, so the "title" it
+embedded was whatever the body happened to start with — a dateline, a standfirst, a newsletter
+banner. Tags lead the content so the 8000-token truncation cannot drop them.
+
+Encoder HTTP and blocking SQL moved off the event loop via `asyncio.to_thread`. wileytest was
+logging this before the deploy:
+
+```
+app.utils.event_loop_monitor - WARNING - Event loop lag 22.82s (threads=10) — something is blocking the loop
+```
+
+### Sampling, validation and ordering
+`_fetch_sample_articles` selects the whole sample in SQL with a round robin over
+`news_source`, so one wire cannot swallow it, bounded by a scan cap. `ORDER BY` is total
+(novelty, then uri) so two runs over the same corpus sample the same articles.
+
+The relevance sweep judges the first 15 articles for cost, but the rest of the theme's ranked
+list now survives. It used to return only the validated subset, silently truncating every theme
+to 15.
+
+`ThemeValidator.merge_themes` replaced `list(set(...))` with ordered deduplication. Set
+iteration order depends on hash values, so two runs over identical inputs produced different
+article rankings and different deep-analysis windows. `min_articles_for_theme` is re-checked
+after merging.
+
+### Dates, scoping, counters, confidence, notifications
+`app/services/emerging_topics/date_utils.py` (new) is the one path for `publication_date`,
+which is a TEXT column holding several formats. Guarded SQL returns NULL for unparseable rows
+instead of aborting the statement; the Python parser returns timezone-aware UTC. `TrendScorer`
+lost a slicing bug that computed its cut length from the format string, threw away the time of
+day, and put every article in a one-day window at midnight.
+
+`topic_filter` is now part of a topic's identity, counters and retirement, compared with
+`IS NOT DISTINCT FROM` so the global NULL scope matches only itself. Counters follow
+detect/detect/miss/detect → 1/0, 2/0, 0/1, 1/0. Failed runs move no counters.
+
+`app/services/emerging_topics/sentinels.py` (new) strips the LLM's "Not mentioned" placeholders
+before scoring. A topic whose actor lists all read "Not mentioned" collected the same confidence
+points as one with named companies, because a list holding a placeholder string is truthy.
+
+`app/services/emerging_topics/notification_filters.py` (new) is the single definition of what
+can be notified on. v2 writes `llm_proposed` and `ongoing_topic`; `accelerating` is a velocity,
+not a detection type. The shipped default `["accelerating", "new_cluster"]` compared both
+against `detection_type` and therefore matched nothing the pipeline writes. Legacy values map
+forward: `new_cluster` and `proto_cluster` → `llm_proposed`.
+
+### Migrations
+`et_007_detection_run_outcome.py` (new) adds `detection_runs.error_message` and `completed_at`,
+closes out runs stuck at `running` for over an hour, and remaps the notification filter default.
+
+`emb_768_02_embedding_repair.py` (new) verifies `articles.embedding` is `vector(768)`, reports
+population, and creates `articles_embedding_hnsw_idx` if missing.
+
+`emb_768_01_embeddings_to_768d.py` is applied on all four tenants, so `upgrade()` is untouched.
+Only `downgrade()` changed: it used to add an empty `vector(1536)` column and call that a
+rollback — a valid schema and a total data loss at once, which alembic would report as success.
+It now restores from `articles_embedding_1536_backup`, verifies the restored count, and refuses
+to run where no backup exists. wileytest keeps its own `emb_001` on a separate lineage; the same
+guard was applied there.
+
+`docs/EMBEDDING_768_MIGRATION_RUNBOOK.md` (new) documents preflight, backup, migrate, backfill,
+verify, index build, and 90-day backup retention.
+`scripts/embedding_768_postbackfill.py` (new) is the rerunnable verification and
+`CREATE INDEX CONCURRENTLY` step.
+
+### Incident — a test dropped the live HNSW index
+`emb_768_01`'s downgrade contained a bare `DROP INDEX IF EXISTS articles_embedding_hnsw_idx`,
+which resolves through `search_path`. The migration round-trip test runs under
+`search_path = sandbox, public`; the sandbox had no such index, so the statement fell through
+and dropped `public.articles_embedding_hnsw_idx` on the bugfixing database.
+
+Blast radius: bugfixing only, roughly four minutes, semantic search falling back to sequential
+scans. `emb_768_02` rebuilt it minutes later with identical parameters
+(`m=16, ef_construction=64`), verified present and used by the planner.
+
+Fixed at the root: the drop now resolves the index against the same schema as its `articles`
+table. The test fixture records `public.articles` index names before and after and fails if any
+disappear.
+
+### Measurement — the new-vs-ongoing classifier is measuring nothing
+The historical-coverage check classified a theme as `ongoing_topic` when at least 3 articles in
+the 60-day window sat within cosine distance 0.85. Measured against 5,000 articles on bugfixing:
+
+```
+distance: min=0.072  median=0.148  max=0.455
+within the 0.85 threshold: 5000 of 5000 (100.0%)
+```
+
+The threshold matched everything, so the check always said `ongoing_topic`.
+
+Per Oliver's decision, a per-theme adaptive cutoff was written
+(`app/services/emerging_topics/historical_cutoff.py`, 20 tests):
+`min(p75(theme distances)+0.02, p10(background), 0.20)`, plus corroboration across two sources
+and two dates. Replayed against 12 real themes it changed nothing — 12/12 `ongoing` before and
+after, with all 60 retrieved candidates qualifying. The diagnostic shows why: the cutoff *is*
+the background's 10th percentile, so exactly 10.0% of background passes by construction, and
+10% of ~500k historical articles is ~50,000.
+
+The negative control settles it. Invented themes with no possible coverage:
+
+```
+probe                                    old(0.85)      new    cut    3rd  qual  src
+FAKE Zorblax Quantum Teapot Recall         ONGOING  ONGOING  0.120  0.080    60   39
+FAKE Liechtenstein Ferret Licensing        ONGOING  ONGOING  0.120  0.106    60   44
+REAL US-Iran War Impact                    ONGOING  ONGOING  0.120  0.071    60   27
+```
+
+Gibberish is indistinguishable from a real topic. The problem is the encoder, not the
+threshold: deberta-base does not separate topical identity with enough contrast, which is what
+wileytest's own comment in `vector_store_pgvector.py` already warned about.
+
+The E5 store does separate them. On wileytest (`article_embeddings_ml`, 520,249 rows):
+
+| probe | 3rd nearest | background median |
+|---|---|---|
+| REAL US-Iran | 0.109 | 0.264 |
+| REAL Intel $15bn | 0.151 | 0.272 |
+| FAKE Zorblax | 0.161 | 0.267 |
+| FAKE Liechtenstein | 0.170 | 0.279 |
+
+Real topics sit well below background; invented ones sit near it. Not a clean split at the
+third-nearest — Intel (0.151) and Zorblax (0.161) overlap — but it is signal where DeBERTa had
+none. `article_embeddings_ml` exists on wileytest (520,249) and wbm (487,233) only.
+
+`historical_cutoff.py` is committed but **deliberately not deployed**. It is correct code
+resting on a signal that is not there. The tenants still run the 0.85 rule.
+
+### Verification
+```
+pytest tests/test_emerging_topics_{sql,pipeline,routes,lock}.py \
+       tests/test_embedding_{encoder_input,migration_roundtrip}.py \
+       tests/test_historical_cutoff.py -q      → 137 passed
+pytest tests/ -q --ignore=tests/load          → 95 failed, 406 passed, 31 errors
+```
+The 95 failures are all pre-existing. The failing test IDs were captured before and after the
+change and diffed: **zero new failures**.
+
+```
+npm test        (ui/)  → 17 passed
+npm run typecheck      → clean, 246 errors all in the baseline
+npm run build          → built in 14.46s
+python scripts/embedding_768_postbackfill.py --check
+  → articles.embedding is vector(768)
+  → 195,421 of 204,195 populated (95.7%)
+  → articles_embedding_hnsw_idx present, and used by a nearest-neighbour EXPLAIN
+```
+
+Live end-to-end run on bugfixing (run 1354): `progress` frames then one `complete`, 2 topics
+detected and persisted, `articles_sampled: 60`.
+
+### Propagation
+All four tenants are on `emb_768_02`, restarted, serving 307 with zero stuck runs and
+`["accelerating","llm_proposed"]` filters.
+
+| tenant | backend | UI | migrations | notes |
+|---|---|---|---|---|
+| bugfixing | canonical | rebuilt | et_007, emb_768_02 | commits `eb8ddfe3`, `e421de08` |
+| wiley | 24 files copied | rebuilt in its own tree | et_007, emb_768_02 | no drift |
+| wileytest | 22 files + patch | rebuilt in its own tree | et_007, emb_768_02 | keeps local docs; no `emb_768_01`; no signal-dashboard |
+| wbm | 24 files copied | rebuilt, `SKIP_TYPECHECK=1` | fa_012, et_007, emb_768_02 | needed fa_012 first; no tsc installed |
+
+The UI could **not** be rsynced: tenant `ui/src` differs from canonical by 46 (wiley), 112
+(wileytest) and 14 (wbm) files, so shipping canonical's bundle would have replaced their
+frontends. Each tenant was patched at source and built in its own tree.
+
+Rollback archive with checksums: `backups/emerging-topics-deploy-2026-08-19/` (36 files,
+`sha256sum -c SHA256SUMS` verifies). Gitignored, kept until 2026-11-19.
+
+`historical_cutoff.py` is canonical-only by design. Canonical and the tenants have deliberately
+diverged on that one file until the encoder question is settled.
+
+### Lessons
+- **NEVER leave a lock connection inside a transaction.** SQLAlchemy 2.0 autobegins on
+  `execute`, and `idle_in_transaction_session_timeout` is 1 minute on these servers. The
+  connection dies, the server releases the lock, and the code that thinks it holds the lock
+  gets no signal at all. Commit after acquiring; session advisory locks survive it.
+- **NEVER write a bare `DROP INDEX` / unqualified DDL in a migration.** It resolves through
+  `search_path` and can reach another schema's objects. Resolve against
+  `to_regclass('<table>')`'s namespace.
+- **ALWAYS test a threshold against a negative control.** A cutoff that classifies everything
+  the same way looks like a working feature. Feed it something that must fail; if it passes,
+  the signal is not there.
+- **A distance threshold is meaningless without its distribution.** Quote the corpus
+  percentiles beside any cutoff, or it is a magic number.
+- Tenant alembic lineages diverge. wileytest has `emb_001` where canonical has `emb_768_01`;
+  wbm was a revision behind. Check `down_revision` per tenant before copying a migration.
+
 ## 2026-08-19 — Briefing Desk picked whatever was newest, including Bluesky posts scored 0.00
 
 ### Goal
