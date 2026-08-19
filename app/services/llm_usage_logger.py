@@ -15,10 +15,15 @@ Design:
     connection, so no event loop is ever blocked and a DB hiccup can never
     break an LLM call. Queue is bounded; on overflow rows are dropped and
     counted rather than backing up the app.
-  * ``use_case`` is best-effort caller attribution: the first stack frame
-    inside ``app/`` that isn't this module / ai_models / litellm. For async
-    completions the stack may not contain the caller — falls back to the
-    litellm metadata model-group, else "unknown".
+  * ``use_case`` is caller attribution, captured **at call time** rather than
+    at callback time. litellm runs its callbacks on its own worker threads
+    (``ThreadPoolExecutor-0_0``, ``asyncio_0``), where none of the app's frames
+    are on the stack, so reading the stack from inside a callback returns
+    "unknown" for every asynchronous call — which is most of them. Instead
+    :func:`install` wraps ``litellm.completion``/``acompletion`` so the caller
+    is read from the live stack before the request leaves the app, and tucked
+    into litellm's ``metadata`` where the callback can find it again. The old
+    stack walk stays as the fallback for any path the wrapper misses.
 
 Query it exactly like saas:
   SELECT use_case, model, count(*), sum(cost_usd) FROM llm_usage_log
@@ -27,6 +32,7 @@ Query it exactly like saas:
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import queue
@@ -35,6 +41,9 @@ import traceback
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+#: Key under which the calling site is tucked into litellm ``metadata``.
+_USE_CASE_KEY = "aunoo_use_case"
 
 _QUEUE: "queue.Queue[tuple]" = queue.Queue(maxsize=10_000)
 _DROPPED = 0
@@ -79,6 +88,96 @@ def _guess_use_case() -> str:
     return "unknown"
 
 
+def _use_case_from(kwargs: dict) -> str:
+    """The caller recorded at call time, else the (usually futile) stack walk.
+
+    litellm copies whatever was passed as ``metadata`` into
+    ``kwargs["litellm_params"]["metadata"]`` before invoking callbacks, so the
+    tag survives the hop onto litellm's logging thread.
+    """
+    try:
+        lp = kwargs.get("litellm_params") or {}
+        for source in (lp.get("metadata"), kwargs.get("metadata")):
+            if isinstance(source, dict):
+                tagged = source.get(_USE_CASE_KEY)
+                if tagged:
+                    return str(tagged)[:200]
+    except Exception:  # noqa: BLE001
+        pass
+    return _guess_use_case()
+
+
+# --------------------------------------------------------------------------
+# Call-site tagging
+# --------------------------------------------------------------------------
+
+def _tagged_kwargs(kwargs: dict) -> dict:
+    """Add the calling site to litellm's metadata without disturbing what's there."""
+    metadata = kwargs.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if _USE_CASE_KEY not in metadata:
+        metadata = {**metadata, _USE_CASE_KEY: _guess_use_case()}
+        kwargs = {**kwargs, "metadata": metadata}
+    return kwargs
+
+
+def _wrap_sync(fn):
+    @functools.wraps(fn)
+    def _tagging_completion(*args, **kwargs):
+        try:
+            kwargs = _tagged_kwargs(kwargs)
+        except Exception:  # noqa: BLE001 — never break an LLM call over logging
+            logger.debug("use-case tagging failed", exc_info=True)
+        return fn(*args, **kwargs)
+    _tagging_completion._aunoo_tagged = True
+    return _tagging_completion
+
+
+def _wrap_async(fn):
+    @functools.wraps(fn)
+    async def _tagging_acompletion(*args, **kwargs):
+        try:
+            kwargs = _tagged_kwargs(kwargs)
+        except Exception:  # noqa: BLE001
+            logger.debug("use-case tagging failed", exc_info=True)
+        return await fn(*args, **kwargs)
+    _tagging_acompletion._aunoo_tagged = True
+    return _tagging_acompletion
+
+
+def _install_call_site_tagging() -> None:
+    """Wrap litellm's two entry points so every call carries its caller.
+
+    Twelve modules do ``from litellm import completion`` at import time, and
+    those bindings are already made by the time this runs, so setting the
+    attribute on the litellm module alone would miss them. Any already-imported
+    app module still holding the original function is rebound to the wrapper.
+    """
+    import sys
+
+    import litellm
+
+    for name, wrap in (("completion", _wrap_sync), ("acompletion", _wrap_async)):
+        original = getattr(litellm, name, None)
+        if original is None or getattr(original, "_aunoo_tagged", False):
+            continue
+        wrapped = wrap(original)
+        setattr(litellm, name, wrapped)
+        rebound = 0
+        for module in list(sys.modules.values()):
+            mod_name = getattr(module, "__name__", "") or ""
+            if not mod_name.startswith("app."):
+                continue
+            try:
+                if getattr(module, name, None) is original:
+                    setattr(module, name, wrapped)
+                    rebound += 1
+            except Exception:  # noqa: BLE001 — a module that dislikes getattr is not our problem
+                continue
+        logger.info("llm_usage_log: tagging litellm.%s (%d early import(s) rebound)", name, rebound)
+
+
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     m = (model or "").lower()
     for key, (inp, out) in _PRICE_PER_M.items():
@@ -120,7 +219,7 @@ def _extract(kwargs: dict, response, start_time, end_time, status: str, err: str
         pass
 
     return (
-        _guess_use_case(), alias, resolved, provider,
+        _use_case_from(kwargs), alias, resolved, provider,
         prompt_tokens, completion_tokens, total_tokens,
         round(cost, 8), latency_ms, status, (err or "")[:2000] or None,
         datetime.now(timezone.utc),
@@ -217,6 +316,7 @@ def install() -> None:
         litellm.success_callback.append(_on_success)
     if _on_failure not in litellm.failure_callback:
         litellm.failure_callback.append(_on_failure)
+    _install_call_site_tagging()
     threading.Thread(target=_flusher, name="llm-usage-flusher", daemon=True).start()
     _INSTALLED = True
     logger.info("llm_usage_log installed (queue=%d, flush=%.0fs)", _QUEUE.maxsize, _FLUSH_INTERVAL_SEC)

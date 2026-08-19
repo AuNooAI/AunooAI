@@ -524,13 +524,16 @@ def test_historical_match_outside_the_global_top_50_is_still_found(db):
                                   publication_date, topic, embedding)
             VALUES (:uri, 't', 's', 'wire', :pub, 'climate', CAST(:emb AS vector))
         """), {"uri": f"recent-{i}", "pub": recent, "emb": _vector(0)})
-    # 4 older ones, equally close.
+    # 4 older ones, equally close, spread across sources and days so they
+    # satisfy the corroboration rules as well as the distance cutoff.
     for i in range(4):
+        stamp = (datetime.now(timezone.utc) - timedelta(days=30 + i)).isoformat()
         db.execute(text("""
             INSERT INTO articles (uri, title, summary, news_source,
                                   publication_date, topic, embedding)
-            VALUES (:uri, 't', 's', 'wire', :pub, 'climate', CAST(:emb AS vector))
-        """), {"uri": f"old-{i}", "pub": old, "emb": _vector(0)})
+            VALUES (:uri, 't', 's', :src, :pub, 'climate', CAST(:emb AS vector))
+        """), {"uri": f"old-{i}", "src": f"outlet-{i}", "pub": stamp,
+               "emb": _vector(0)})
     db.commit()
 
     class Passthrough:
@@ -554,6 +557,51 @@ def test_historical_match_outside_the_global_top_50_is_still_found(db):
         theme, query, days_back=7, topic_filter="climate",
         history_window_days=60, min_historical_articles=3,
     ) is True
+
+
+def test_one_outlet_on_one_day_is_not_historical_coverage(db):
+    """Distance alone is not evidence.
+
+    A single wire story republished under one dateline satisfies any distance
+    cutoff you like, and says nothing about whether a topic has a history. The
+    check requires corroboration across at least two sources and two dates.
+    """
+    from app.services.emerging_topics.emerging_topics_service import (
+        EmergingTopicsService, EmergingTopicsConfig,
+    )
+    from app.services.emerging_topics.theme_proposer import ProposedTheme
+    import numpy as np
+
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    for i in range(6):
+        db.execute(text("""
+            INSERT INTO articles (uri, title, summary, news_source,
+                                  publication_date, topic, embedding)
+            VALUES (:uri, 't', 's', 'wire', :pub, 'climate', CAST(:emb AS vector))
+        """), {"uri": f"syndicated-{i}", "pub": old, "emb": _vector(0)})
+    db.commit()
+
+    class Passthrough:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, *a, **kw):
+            return self._conn.execute(*a, **kw)
+
+        def close(self):
+            pass
+
+    service = EmergingTopicsService(config=EmergingTopicsConfig())
+    service._get_connection = lambda: Passthrough(db)
+
+    query = np.zeros(768)
+    query[0] = 1.0
+
+    assert service._count_historical_matches(
+        ProposedTheme("T", "d", "q", [], ""), query, days_back=7,
+        topic_filter="climate", history_window_days=60,
+        min_historical_articles=3,
+    ) is False
 
 
 def test_historical_check_respects_the_topic_filter(db):
