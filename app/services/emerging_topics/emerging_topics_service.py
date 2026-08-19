@@ -899,16 +899,23 @@ class EmergingTopicsService:
         try:
             conn = self._get_connection()
 
-            if not historical_backend.e5_available(conn):
+            readiness = historical_backend.e5_readiness(conn)
+            needs_enforce = mode == historical_backend.MODE_ENFORCE
+            if not (readiness.enforce_ready if needs_enforce else readiness.shadow_ready):
                 logger.info(
-                    "Theme '%s': %s",
-                    theme.theme_label,
-                    historical_backend.describe(mode, False),
+                    "Theme '%s': E5 not usable for mode=%s — %s",
+                    theme.theme_label, mode, readiness.describe(),
                 )
                 return (historical_backend.UNKNOWN, None)
 
+            # article_embeddings_ml has no ANN index yet, so these are sequential
+            # scans. Bound them: a slow shadow query must not drag out a
+            # customer-facing run, and aborting yields unknown, which is safe.
+            conn.execute(text("SET LOCAL statement_timeout = :ms"),
+                         {"ms": str(self.HISTORICAL_QUERY_TIMEOUT_MS)})
+
             uris = list(theme.article_uris or [])[:30]
-            if len(uris) < 2:
+            if len(uris) < historical_cutoff.MIN_CENTROID_VECTORS:
                 return (historical_backend.UNKNOWN, None)
 
             placeholders = ", ".join(f":u{i}" for i in range(len(uris)))
@@ -928,16 +935,37 @@ class EmergingTopicsService:
                     vectors.append([float(v) for v in row[0].strip("[]").split(",")])
                 except (AttributeError, ValueError):
                     continue
-            if len(vectors) < 2:
+            if len(vectors) < historical_cutoff.MIN_CENTROID_VECTORS:
                 logger.info(
-                    "Theme '%s': only %s of %s articles have E5 vectors; unknown",
-                    theme.theme_label, len(vectors), len(uris),
+                    "Theme '%s': only %s of %s articles have E5 vectors, need %s; "
+                    "unknown", theme.theme_label, len(vectors), len(uris),
+                    historical_cutoff.MIN_CENTROID_VECTORS,
                 )
                 return (historical_backend.UNKNOWN, None)
 
+            # Normalize each vector before averaging, then normalize the mean.
+            # Without the first step a single long article with a larger norm
+            # drags the centroid towards itself, and the "centroid" stops
+            # representing the theme.
             dim = len(vectors[0])
-            centroid = [sum(v[i] for v in vectors) / len(vectors) for i in range(dim)]
-            norm = sum(c * c for c in centroid) ** 0.5 or 1.0
+            unit_vectors = []
+            for v in vectors:
+                if len(v) != dim:
+                    continue
+                n = sum(x * x for x in v) ** 0.5
+                if n <= 0:
+                    continue
+                unit_vectors.append([x / n for x in v])
+            if len(unit_vectors) < historical_cutoff.MIN_CENTROID_VECTORS:
+                return (historical_backend.UNKNOWN, None)
+
+            centroid = [
+                sum(v[i] for v in unit_vectors) / len(unit_vectors) for i in range(dim)
+            ]
+            norm = sum(c * c for c in centroid) ** 0.5
+            if norm <= 0:
+                # Vectors cancelled out: the theme has no coherent direction.
+                return (historical_backend.UNKNOWN, None)
             centroid = [c / norm for c in centroid]
             centroid_literal = "[" + ",".join(str(c) for c in centroid) + "]"
 
@@ -1009,6 +1037,14 @@ class EmergingTopicsService:
             shadow = {
                 "backend": historical_backend.E5,
                 "mode": mode,
+                "algorithm_version": historical_cutoff.ALGORITHM_VERSION,
+                "model_revision": (
+                    readiness.model_revisions[0] if readiness.model_revisions else None
+                ),
+                "vector_dimension": readiness.dimension,
+                "coverage_ratio": round(readiness.coverage_ratio, 4),
+                "centroid_vectors": len(unit_vectors),
+                "decided_at": utcnow().isoformat(),
                 "would_be": (
                     historical_backend.ONGOING if decision.is_ongoing
                     else historical_backend.NOT_FOUND

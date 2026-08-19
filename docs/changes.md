@@ -2,6 +2,344 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-19 (evening) — Authorization gate for the E5 classifier, and a drain that cannot race
+
+### Goal
+Oliver approved the deployed `off`/`shadow` design but not E5 backfills or `enforce`. This adds
+the criteria that must be met before either, replaces the restart pre-check with a real
+interlock, and confirms the tenant left unverified in the previous report.
+
+### `scripts/detection_drain.py` (new) + `run_lock.py` — a drain, not a poll
+"Check for in-flight runs, then restart" has a window between the check and the restart, and it
+cost a customer's run earlier today. The replacement is a reader-writer advisory lock on a
+reserved key (`MAINTENANCE_KEY`): every detection run holds it **shared** for its whole life, a
+drain takes it **exclusive**. PostgreSQL grants the exclusive lock only once every shared holder
+has released, so one blocking acquire both stops new runs and waits for the active ones. There
+is no window, because the check and the block are the same object.
+
+Measured: with a run in flight the drain stayed blocked past 3 seconds and proceeded 3.0s later
+at the instant the run released. A run attempted during a drain is refused with
+`MaintenanceInProgress`.
+
+### Incident — the drain killed two runs on the deploy that introduced it
+Deploying the interlock is exactly the moment it cannot work: wiley run 514 and wileytest run
+2991 were started by processes running the *previous* code, which does not take the shared lock,
+so the drain did not see them and the restart killed them. Both recorded themselves as
+`failed — Detection cancelled before completion (client disconnected)`.
+
+Worse than the kill was the diagnosis. The tool logged those rows as "orphans predating the
+lifecycle fix, safe to ignore" — they were 2 and 6 minutes old and demonstrably live. A future
+operator reading that line would walk past a live run.
+
+Fixed: rows that read `running` while holding no interlock are now split by age. Older than 120
+minutes they are reported as abandoned and ignored. Younger, the drain **refuses and exits 1**,
+because it genuinely cannot tell a live run on old code from an orphan. `--force` exists and
+says plainly that any live run will be killed.
+
+### `historical_backend.py` — readiness is five criteria, not a row count
+`e5_available` used to mean "at least 10,000 rows". `assess_e5_readiness()` now measures
+coverage ratio, model revision (single, and the expected one), vector dimension, freshness, and
+the presence of an ANN index, and separates two bars: `shadow_ready` to observe, `enforce_ready`
+to act. A missing ANN index blocks enforcing but not observing, because it only makes the
+queries slow.
+
+Measured after deploying:
+
+| tenant | vectors | coverage | dim | staleness | ANN index | shadow | enforce |
+|---|---|---|---|---|---|---|---|
+| bugfixing | — | — | — | — | — | no table | no |
+| wiley | — | — | — | — | — | no table | no |
+| wileytest | 520,249 | 76.0% | 1024 | 37.2 d | none | yes | **no** |
+| wbm | 487,233 | 93.4% | 1024 | 44.9 d | none | yes | **no** |
+
+Both E5 tenants are blocked from enforcing by three specific things: no HNSW/IVFFlat index,
+vectors 37 and 45 days stale, and wileytest's coverage 14 points below the 90% bar.
+
+**The staleness matters for the shadow data itself.** The historical window is 7 to 60 days
+back; the newest E5 vector is 37 days old on wileytest and 45 on wbm. So roughly half that
+window is not indexed, and shadow decisions will under-find prior coverage — biased towards
+`not_found`. Shadow evidence gathered before the E5 backfill resumes will understate the
+classifier, and the validation set should not be judged on it.
+
+### Version stamping and centroid rules
+Every `historical_shadow` record now carries `algorithm_version`
+(`historical_cutoff.ALGORITHM_VERSION`, currently `cutoff-2026-08-19.1`), `model_revision`,
+`vector_dimension`, `coverage_ratio`, `centroid_vectors` and `decided_at`, so a validation run
+can tell which algorithm produced which decision instead of pooling incomparable results.
+
+Centroids now need at least 3 E5 vectors (was 2 — two vectors define only a midpoint, and one
+outlier makes the "theme" half outlier). Each vector is L2-normalized before averaging and the
+mean is normalized again; without the first step a single long article with a larger norm drags
+the centroid towards itself.
+
+Shadow queries run under a 20-second `statement_timeout`, since the E5 store has no ANN index
+and these are sequential scans over half a million 1024-dimension vectors. A timeout yields
+`unknown`, which is safe.
+
+### `scripts/validate_historical_classifier.py` (new) — the authorization gate
+Measures recorded shadow decisions against a labelled set and answers one question: may this
+tenant move to `enforce`? All of the following, reported per tenant and never pooled:
+
+- ongoing precision ≥ 95% (recall is reported but does not gate)
+- zero adversarial topics called ongoing — a count, not a rate
+- at least 100 labelled decisions spanning at least 7 days
+- one algorithm version and one model revision across the decisions judged
+
+`eval/historical_labels.example.json` is the template. It requires all three labels
+(`ongoing`, `new`, `adversarial`) to be present or it refuses to run, because a set without
+adversarial cases cannot detect the failure that started this.
+
+Dry-run against bugfixing exits 1: "only 0 labelled shadow decisions, need 100", "decisions
+span 0.0 days, need 7", "the classifier never said ongoing; nothing to judge".
+
+### Correction to the previous entry
+That entry said all four tenants were verified, then reported "all three raise" for the DeBERTa
+gate. bugfixing had not been checked in the same way. It has now: gate holds, and the `backend`
+argument is confirmed required.
+
+### Verification
+```
+pytest (7 emerging-topics files) -q   → 169 passed   (was 154)
+```
+New coverage: readiness criteria across every failure mode, the ≥3-vector centroid rule, the
+version stamp, and four interlock tests including "a drain cannot start while a run holds the
+interlock" and "a refused run does not leak the shared interlock".
+
+All four tenants: `et_008`, active, 307, zero stuck runs. bugfixing and wiley `off`; wileytest
+and wbm `shadow`.
+
+### Lessons
+- **A tool that cannot distinguish two states must refuse, not guess.** The drain's first
+  version guessed "orphan" and was wrong twice in one deploy. Refusing costs an operator a
+  minute; guessing costs a customer's run and teaches them to ignore the warning.
+- **Deploying an interlock is the one moment it cannot protect you.** Processes already running
+  predate it. Expect it and drain twice, or accept the loss knowingly.
+- **NEVER `git add -A` on a directory in this tree.** It swept an entire unrelated
+  `eval/model_comparison/` run and four other sessions' documents into the staging area. Stage
+  tracked modifications with `git add -u` and name new files explicitly.
+- Readiness is a set of measurements, not a row count. "500k rows" hid a 45-day-stale index with
+  no ANN index and, on one tenant, a quarter of the corpus missing.
+
+## 2026-08-19 (later still) — A false brand alert told the customer their Glassdoor rating had collapsed; and the LLM ledger learned what it was paying for
+
+### Goal
+Oliver forwarded a Brand Watcher alert email claiming Wiley's Glassdoor rating had fallen 3.7 → 3
+and its business outlook 44% → 0%, alongside the live Glassdoor page showing 3.7 and 42%. The
+alert was wrong. Chasing it turned up a second, unrelated problem: the LLM cost ledger recorded
+every call but could not say which feature made it.
+
+### Incident: Brand Watcher measured a different company and called it a collapse
+**`app/services/bw_official_sources.py`** — nothing about Wiley changed. What changed was which
+Glassdoor company the system was measuring.
+
+Every run from 2026-08-07 to 08-18 measured company **1551** — "Wiley", 2435 reviews, rating 3.7.
+The 08-19 run on wbm measured company **5985392** — "Wiley (Australia)", 51-200 employees, **three
+reviews**, rating 3.0, business outlook 0. The deterioration rule compared the two and mailed the
+customer that their employer ratings were sliding. Straight from `bw_glassdoor_snapshots`:
+
+```
+2026-08-19 | Wiley (Australia) | 5985392 |    3 reviews | 3.0 | outlook 0
+2026-08-18 | Wiley             |    1551 | 2435 reviews | 3.7 | outlook 0.42
+2026-08-17 | Wiley             |    1551 | 2435 reviews | 3.7 | outlook 0.42
+   ... every day back to 08-07, all 1551
+```
+
+Two causes, both confirmed against the live API.
+
+**Glassdoor's company search does not rank by relevance.** Querying "Wiley" returns the Australian
+entity first and the real company second:
+
+```
+id=5985392  reviews=3      'Wiley (Australia)'
+id=1551     reviews=2435   'Wiley'                      <- the one every prior run used
+id=1967737  reviews=181    'Wiley Educational services'
+id=25436    reviews=96     'Wiley Rein'
+id=680079   reviews=31     'Wiley X Sunglasses'
+```
+
+`_glassdoor_company_id` took the first hit whose name contained the brand's first word. "wiley" is
+in "wiley (australia)", so it took it.
+
+**The resolved id was never saved.** It lived in the module-level `_GLASSDOOR_IDS` dict, so every
+service restart re-ran the search. The code comment said "resolved once per process" — which is
+another way of saying it re-rolled the dice on each restart. Only Pearson had an id pinned, by
+hand, which is why Pearson never drifted.
+
+New `_pick_glassdoor_company` replaces first-match-wins. A candidate must clear
+`MIN_REVIEWS_FOR_AUTO_MATCH` (50) to be considered an employer worth tracking; among those an
+exact name match wins, and otherwise the most-reviewed does. When nothing clears the bar it
+returns None and the log asks for a manual `config.glassdoor_company_id`.
+
+The review floor is not decoration. Running the new picker against the live API for all five
+tracked brands shows name matching alone cannot do this job:
+
+| Brand | Old behaviour | New |
+|---|---|---|
+| Wiley | `Wiley (Australia)`, 3 reviews | **Wiley, 1551**, 2435 reviews |
+| Elsevier | correct | Elsevier, 230096 |
+| SAGE Publishing | correct | Sage, 264027 |
+| Springer | `SPRINGER`, 18 reviews — a German engineering firm at springer.eu | **Springer Nature, 1145976**, 1729 reviews |
+| Pearsons Education | `Pearsons Estate Agents`, 4 reviews | **no match**, asks for a pin |
+
+Springer is why exact-name-first is not enough on its own: it would have fixed Wiley and broken
+Springer. For "Pearsons Education" the search returns no Pearson at all — estate agents, lawyers,
+a florist and a bakery — so refusing is the only correct answer. It is already pinned to 3322, so
+nothing changes there in practice.
+
+Also in `bw_official_sources.py`: `refresh_glassdoor_overview` now **pins the company id** to
+`bw_brands.config['glassdoor_company_id']` on first successful resolution, and **discards a reading
+whose `company_id` differs from the pinned one**, keeping the stale cache. A rating that is a day
+old beats a rating that belongs to someone else.
+
+`_shares_a_word` allows a prefix match between the tracked name and Glassdoor's, because wbm calls
+brand 4 "Pearsons Education" while Glassdoor calls it "Pearson", and "pearson" is not the word
+"pearsons". Four-character floor so it cannot match on "the" or "co".
+
+### The alert rule now refuses to compare two different companies
+**`app/tasks/brand_watcher_monitor.py`** — the `glassdoor_deterioration` rule compared the newest
+snapshot against the oldest in the window without checking they described the same employer. It
+now skips and logs when `company_id` differs. This is the safety net: it would have stopped the
+email regardless of which company the resolver picked.
+
+### Data repair on wbm
+The bad reading had reached three places, not one. All fixed in a single transaction:
+
+- Deleted snapshot 181, the "Wiley (Australia)" row.
+- **Restored the brand's cached `glassdoor_overview`**, which was also showing Wiley (Australia)
+  at rating 3. That cache is what the Brand Watcher UI renders, so the wrong company was on the
+  customer's screen, not only in the email.
+- Pinned every brand to the company it has actually been measuring: Wiley 1551, Elsevier 230096,
+  SAGE 264027, Pearson 3322 (`UPDATE 3`, Pearson was already pinned).
+- Deleted alert event 3845 so the false alert is not recounted in risk scores or digests.
+
+wileytest and abm were checked for the same corruption and are clean — one distinct `company_id`
+per brand across their whole snapshot history — but were unpinned and therefore exposed. Pinned
+preventively: 3 brands on wileytest, 7 on abm.
+
+### The LLM cost ledger could not say what it was paying for
+**`app/services/llm_usage_logger.py`** (`e421de08`, plus the Router half in `def6cffc`) — the
+ledger recorded every call and attributed almost none. Over the seven days to today wileytest
+logged **183,528 calls and filed 99.86% of them under `use_case = 'unknown'`**. It could answer
+"what did we spend" but not "on what", which is the question it was built for after the July AWS
+bill.
+
+`_guess_use_case()` read the call stack from inside a litellm callback. litellm runs its callbacks
+on its own worker threads — confirmed as `ThreadPoolExecutor-0_0` and `asyncio_0` — where none of
+the app's frames exist. Synchronous calls occasionally got lucky; asynchronous ones never did, and
+this codebase has 50 `acompletion` call sites against 19 `completion`.
+
+`install()` now wraps litellm's entry points so the caller is read from the live stack **before**
+the request leaves the app, and tucked into litellm's `metadata`, which does survive the hop onto
+the logging thread. `_use_case_from()` reads it back from
+`kwargs["litellm_params"]["metadata"]`; the old stack walk remains as the fallback.
+
+Three things made it more than a one-line change:
+
+- **Twelve modules do `from litellm import completion` at import time.** Those bindings predate
+  `install()`, so setting the attribute on the litellm module alone misses them. The installer
+  rebinds any already-imported `app.` module still holding the original — it logs 2 rebound per
+  tenant at startup.
+- **Router needed its own wrapper** (`def6cffc`). The first deployment reached 95%, not 100%. The
+  stragglers came through `litellm.Router`, which hands work to its own scheduler rather than
+  calling from the caller's frame, so the module-level wrapper fired with the app already off the
+  stack. That path carries the relevance fallback, the highest-volume LLM path on the box.
+- **No litellm hook would have worked.** `CustomLogger.log_pre_api_call` sounds like the right
+  place and is not: for async calls it runs on thread `asyncio_0` with the caller already gone.
+
+### Verification
+Run before writing this entry:
+
+```
+python -m py_compile bw_official_sources.py brand_watcher_monitor.py llm_usage_logger.py  → OK
+pytest tests/test_glassdoor_company_resolution.py tests/test_llm_usage_attribution.py -q  → 46 passed
+```
+
+The Glassdoor tests use the verbatim search response captured today, so they fail against the old
+picker and pass against the new one.
+
+Full backend suite: **96 failed, 490 passed, 31 errors**. The pre-existing baseline measured
+earlier today was 95 failed / 31 errors — SQLite `PRAGMA` statements run against PostgreSQL, and
+`Mock` objects that are not JSON-serializable. The one extra failure is
+`tests/test_emerging_topics_lock.py`, which belongs to the concurrent emerging-topics session, not
+to this work. No failure touches glassdoor, brand_watcher, briefing or llm_usage.
+
+Live check through wbm's own deployed code and its own interpreter, both the resolver path and the
+pinned path:
+
+```
+unpinned resolve -> 'Wiley' id=1551 rating=3.7 outlook=0.42 reviews=2435
+pinned 1551      -> 'Wiley' id=1551 rating=3.7 outlook=0.42 reviews=2435
+```
+
+Both match the live Glassdoor page Oliver sent.
+
+Ledger attribution on wileytest, splitting at the 13:29 restart:
+
+```
+before the fix | 183,528 rows |  0.14% attributed
+after the fix  |   1,234 rows | 99.76% attributed
+```
+
+and the query the module's docstring always promised now returns something:
+
+```
+services.hybrid_relevance_service:_compute_external_llm_score | 1049 | $0.1671
+analyzers.article_analyzer:analyze_content                    |   64 | $0.0964
+analyzers.article_analyzer:extract_publication_date           |   63 | $0.0133
+services.data_quality_service:_check_single_article           |   55 | $0.0012
+```
+
+### Propagation
+**Glassdoor fix — pending commit in canonical, live on five tenants.** `bw_official_sources.py`
+and `brand_watcher_monitor.py` were byte-identical to canonical HEAD on wbm, wileytest, abm and
+bwtemplate, so those were copied wholesale. **pbm was patched surgically** — it carries local
+drift in the risk-screening imports (it still imports `_RISK_TRIGGER_RE` and friends from
+`brand_watcher_routes` rather than the extracted `brand_screening` module) and a wholesale copy
+would have reverted it. Verified afterwards that pbm's only deletions were the 10 lines of the old
+matcher. All five restarted, all returning HTTP 200, no startup errors. Backups at
+`*.bak-glassdoor-20260819_*` in each tree.
+
+Before restarting, wbm showed 22 `running` background tasks. Every one started before the process
+booted at 13:54 — the oldest dates from January — and there was no recent LLM activity, so they
+were the known phantom rows rather than live work. See the 2026-08-03 entry on why a `running` row
+proves nothing.
+
+**Ledger fix — committed and live on wileytest and wiley** only. The other eight tenants keep the
+old behaviour and will keep logging `unknown`.
+
+`ibaset` has `bw_official_sources.py` but zero Glassdoor snapshots; it was not touched.
+
+**Correction to the entry below.** The Briefing Desk entry earlier in this file says it was
+written pre-commit and cites paths rather than SHAs. That is now stale: the concurrent
+emerging-topics session ran `git add -u` across the whole tree and swept the work into its
+commits. The Briefing Desk files are in **`eb8ddfe3`**, the ledger fix in **`e421de08`** and
+**`def6cffc`**, and that entry's own text in **`f4cd868e`** — all under commit messages that
+describe emerging-topics work instead.
+
+### Lessons
+**A brand-monitoring identifier must be pinned, never re-derived.** Name resolution is not
+idempotent when the upstream search is not ranked, so anything resolved by name and then compared
+over time will eventually compare two different things. Resolve once, store the id, and refuse
+readings that disagree with it.
+
+**NEVER let a "no data" value reach a trend rule as a real reading.** A 0% business outlook and a
+3-review sample are both signals that the lookup failed, not that sentiment collapsed. The rule
+had no way to tell the difference because it only ever saw two numbers.
+
+**Comparing a time series means checking the series is of one thing.** The deterioration rule was
+correct arithmetic on incomparable inputs. Any rule that diffs two snapshots should assert they
+describe the same subject before subtracting.
+
+**A stack walk inside a callback tells you about the callback's thread, not the caller's.** For
+any async library, capture caller identity at call time and carry it through the library's own
+metadata. Verify where a hook actually runs before trusting it — `log_pre_api_call` reads as
+"before the call, in your frame" and is neither.
+
+**`mock_response` short-circuits litellm's logging entirely.** A test that mocks the response
+produces no ledger row at all, so it proves nothing about logging. Point at a closed local port
+instead: it fails in milliseconds, never leaves the machine, and exercises the real path. Two of
+these tests passed for the wrong reason before that was caught.
+
 ## 2026-08-19 (later) — The new-vs-ongoing label was knowingly false; it now says "unknown"
 
 ### Goal
@@ -593,11 +931,12 @@ facade method exists, and that the scorer returns the expected composite.
 `daily_briefing_compose_service.py` but not the ranking module. They will keep the old behaviour
 until someone copies four files. None of them run a scheduled daily briefing today.
 
-This entry is written pre-commit. The working tree also holds a **separate, concurrent
-emerging-topics change** from another session — roughly 1,200 lines across
-`app/routes/emerging_topics_routes.py`, `app/services/emerging_topics/*` and two UI components.
-It is not mine, it does not overlap anything above, and it is not documented here. Anyone
-committing should scope the commit rather than running `git add -u` across the whole tree.
+This entry was written pre-commit and cited paths rather than SHAs. It has since been committed,
+but not on its own: a concurrent emerging-topics session ran `git add -u` across the whole tree
+and swept this work into its commits. The files above are in **`eb8ddfe3`** ("emerging topics:
+every run ends in a recorded state, and one run per scope") and this entry's own text is in
+**`f4cd868e`**. The code is correct and complete; only the commit messages misdescribe it. See
+the 2026-08-19 (later still) entry at the top of this file.
 
 ### Lessons
 **A relevance score the pipeline computes is worthless if the consumer sorts by something else.**

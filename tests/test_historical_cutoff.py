@@ -296,3 +296,92 @@ def test_mode_parsing(monkeypatch, value, expected):
 
 def test_statuses_are_the_three_documented_values():
     assert set(hb.STATUSES) == {"ongoing", "not_found", "unknown"}
+
+
+# ---------------------------------------------------------------------------
+# E5 readiness: row count is a floor, not a test
+# ---------------------------------------------------------------------------
+
+def readiness(**overrides):
+    r = hb.E5Readiness(
+        table_present=True,
+        rows=500_000,
+        articles=520_000,
+        dimension=1024,
+        model_revisions=["intfloat/multilingual-e5-large"],
+        coverage_ratio=0.96,
+        staleness_days=0.5,
+        has_ann_index=True,
+    )
+    for key, value in overrides.items():
+        setattr(r, key, value)
+    return r
+
+
+def test_a_healthy_index_is_ready_for_both_modes():
+    r = readiness()
+    assert r.shadow_ready and r.enforce_ready
+
+
+def test_a_missing_ann_index_blocks_enforce_but_not_shadow():
+    """Observing without an index is merely slow; acting on one is not the issue.
+
+    This is the real state of wileytest and wbm today — 500k vectors, no HNSW.
+    """
+    r = readiness(has_ann_index=False,
+                  failures=["enforce: no HNSW/IVFFlat index on the vectors"])
+    assert r.shadow_ready
+    assert not r.enforce_ready
+
+
+def test_partial_coverage_blocks_enforce():
+    r = readiness(coverage_ratio=0.60,
+                  failures=["enforce: coverage 60.0% below 90%"])
+    assert r.shadow_ready and not r.enforce_ready
+
+
+def test_coverage_too_low_even_to_observe():
+    r = readiness(coverage_ratio=0.10,
+                  failures=["coverage 10.0% below the 50% needed even to observe"])
+    assert not r.shadow_ready and not r.enforce_ready
+
+
+def test_mixed_model_revisions_block_everything():
+    """Two geometries in one index make the distances between them noise."""
+    r = readiness(
+        model_revisions=["intfloat/multilingual-e5-large", "intfloat/multilingual-e5-base"],
+        failures=["2 model revisions mixed in one index: e5-large, e5-base"],
+    )
+    assert not r.shadow_ready
+
+
+def test_wrong_dimension_blocks_everything():
+    r = readiness(dimension=768, failures=["dimension is 768, expected 1024"])
+    assert not r.shadow_ready
+
+
+def test_a_stale_index_blocks_enforce():
+    """'No older coverage' must not just mean 'not indexed yet'."""
+    r = readiness(staleness_days=30.0,
+                  failures=["enforce: newest vector is 30.0 days old, limit 7"])
+    assert r.shadow_ready and not r.enforce_ready
+
+
+def test_readiness_thresholds_are_what_was_agreed():
+    assert hb.SHADOW_MIN_COVERAGE == 0.50
+    assert hb.ENFORCE_MIN_COVERAGE == 0.90
+    assert hb.MAX_STALENESS_DAYS == 7
+    assert hb.E5_DIM == 1024
+
+
+def test_a_missing_table_describes_itself_plainly():
+    assert "no article_embeddings_ml table" in hb.E5Readiness().describe()
+
+
+def test_the_algorithm_version_is_stamped_and_specific():
+    assert hc.ALGORITHM_VERSION.startswith("cutoff-")
+    assert len(hc.ALGORITHM_VERSION) > len("cutoff-")
+
+
+def test_a_centroid_needs_at_least_three_vectors():
+    assert hc.MIN_CENTROID_VECTORS == 3

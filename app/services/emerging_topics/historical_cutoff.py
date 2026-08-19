@@ -37,6 +37,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import historical_backend
 
+# Bump whenever the formula, the thresholds, or the corroboration rules change.
+# Stamped into every shadow record so a validation run can tell which algorithm
+# produced which decision, instead of pooling incomparable results.
+ALGORITHM_VERSION = "cutoff-2026-08-19.1"
+
 # Hard ceiling: no calibration may produce a looser cutoff than this.
 MAX_CUTOFF = 0.20
 
@@ -204,3 +209,9 @@ def decide(
 
     decision.is_ongoing = True
     return decision
+
+
+# A centroid needs enough members to represent a theme rather than one article.
+# Two vectors define only a midpoint, and if one is an outlier the "theme" is
+# half outlier.
+MIN_CENTROID_VECTORS = 3

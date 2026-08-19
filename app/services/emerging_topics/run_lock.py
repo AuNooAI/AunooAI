@@ -30,10 +30,29 @@ logger = logging.getLogger(__name__)
 # database picks a different constant, so the two cannot collide.
 _LOCK_NAMESPACE = 0x45544C4B  # "ETLK"
 
+# Reserved key for the maintenance interlock. Every run holds this SHARED for
+# its whole life; a drain holds it EXCLUSIVE. Postgres refuses a shared lock
+# while an exclusive is held and vice versa, so "stop new runs and wait for the
+# active ones" is one atomic operation instead of a check followed by a restart.
+# A check-then-act sequence always has a window: a run can start in it.
+MAINTENANCE_KEY = 0x0D0A1E5  # "DRAINS"
+
 # Sentinel scope name for the global (topic_filter IS NULL) scope, so that a
 # NULL filter and a topic literally named "" hash to the same slot only if they
 # are in fact the same scope.
 _GLOBAL_SCOPE = "\x00__global__"
+
+
+class MaintenanceInProgress(RuntimeError):
+    """Raised when a drain holds the interlock, so no run may start."""
+
+    code = "maintenance_in_progress"
+
+    def __init__(self):
+        super().__init__(
+            "Emerging-topics detection is drained for maintenance; no new run "
+            "may start until the drain releases."
+        )
 
 
 class DetectionAlreadyRunning(RuntimeError):
@@ -105,10 +124,23 @@ class DetectionRunLock:
         db = get_database_instance()
         conn = db._temp_get_connection()
         try:
+            # Maintenance interlock first, held shared for the run's lifetime.
+            # A drain takes it exclusively, which both blocks new runs here and
+            # waits for the in-flight ones to release — no polling, no race.
+            open_for_business = conn.execute(
+                text("SELECT pg_try_advisory_lock_shared(:ns, :key)"),
+                {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY},
+            ).scalar()
+            if not open_for_business:
+                conn.close()
+                raise MaintenanceInProgress()
+
             acquired = conn.execute(
                 text("SELECT pg_try_advisory_lock(:ns, :key)"),
                 {"ns": _LOCK_NAMESPACE, "key": self.key},
             ).scalar()
+        except MaintenanceInProgress:
+            raise
         except Exception:
             try:
                 conn.close()
@@ -117,6 +149,14 @@ class DetectionRunLock:
             raise
 
         if not acquired:
+            try:
+                conn.execute(
+                    text("SELECT pg_advisory_unlock_shared(:ns, :key)"),
+                    {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY},
+                )
+                conn.commit()
+            except Exception:
+                pass
             try:
                 conn.close()
             except Exception:
@@ -159,6 +199,10 @@ class DetectionRunLock:
             self._conn.execute(
                 text("SELECT pg_advisory_unlock(:ns, :key)"),
                 {"ns": _LOCK_NAMESPACE, "key": self.key},
+            )
+            self._conn.execute(
+                text("SELECT pg_advisory_unlock_shared(:ns, :key)"),
+                {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY},
             )
             self._conn.commit()
         except Exception as exc:  # the connection may already be gone

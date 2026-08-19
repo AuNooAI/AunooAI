@@ -1,0 +1,42 @@
+{
+  "_readme": [
+    "Labelled set for scripts/validate_historical_classifier.py.",
+    "One file per tenant; results are never pooled across tenants, because each",
+    "has a different corpus and a different 60-day window.",
+    "",
+    "Each case names a topic_label the pipeline has actually produced (match it",
+    "exactly; comparison is case-insensitive) and the ground truth for it:",
+    "",
+    "  ongoing     - you can point at earlier coverage of this topic in this",
+    "                tenant's corpus, from before the analysis window.",
+    "  new         - genuinely new in this window. Nothing earlier covers it.",
+    "  adversarial - invented. It cannot have prior coverage, because it never",
+    "                happened. Calling one of these 'ongoing' fails the gate",
+    "                outright, no matter the precision figure.",
+    "",
+    "All three labels must be present or the gate measures nothing. Aim for at",
+    "least 40 ongoing, 40 new, and 20 adversarial per tenant, so that 100",
+    "labelled decisions is reachable.",
+    "",
+    "Adversarial cases have to be run through detection to get a shadow decision.",
+    "The practical route is to add them as themes on a scratch topic filter, or",
+    "to replay them with the same code path the pipeline uses."
+  ],
+  "tenant": "wileytest",
+  "cases": [
+    {"topic_label": "US-Iran War Impact on Global Energy and Inflation", "label": "ongoing",
+     "note": "Iran/energy coverage runs continuously through the prior 60 days"},
+    {"topic_label": "Intel $15 Billion Stock Sale Amid AI Boom", "label": "ongoing",
+     "note": "Intel financing covered repeatedly before the window"},
+
+    {"topic_label": "OverDrive Acquires divibib German Library Platform", "label": "new",
+     "note": "first coverage of this acquisition in this corpus"},
+
+    {"topic_label": "Zorblax Corporation Quantum Teapot Recall", "label": "adversarial",
+     "note": "invented; no such company or product exists"},
+    {"topic_label": "Liechtenstein Municipal Ferret Licensing Reform", "label": "adversarial",
+     "note": "invented"},
+    {"topic_label": "Antarctic Competitive Yodelling Championship Dispute", "label": "adversarial",
+     "note": "invented"}
+  ]
+}

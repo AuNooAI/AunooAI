@@ -339,6 +339,95 @@ _GLASSDOOR_API = "https://api.openwebninja.com/realtime-glassdoor-data"
 # via /company-search and cached here.
 _GLASSDOOR_IDS: Dict[str, str] = {}
 
+#: Reviews a Glassdoor company needs before name resolution will pick it on its
+#: own. The noise this exists to reject sits at 0-18 reviews — florists, estate
+#: agents, a satellite office, a same-named engineering firm. A brand small
+#: enough to fall under this bar gets no automatic match and a log line asking
+#: for config.glassdoor_company_id, rather than a confident wrong answer.
+MIN_REVIEWS_FOR_AUTO_MATCH = 50
+
+
+def _normalize_company_name(value: Any) -> str:
+    """Company name reduced for comparison: lowercase, no punctuation, no suffix.
+
+    'Wiley, Inc.' and 'Wiley' compare equal; 'Wiley (Australia)' does not,
+    because the qualifier is what distinguishes it.
+    """
+    s = re.sub(r"[^\w\s]", " ", str(value or "").lower())
+    s = re.sub(r"\b(inc|llc|ltd|limited|plc|corp|corporation|co|group|holdings|sons)\b", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _shares_a_word(term_words: set, name_words: set) -> bool:
+    """True when the two names have a word in common, allowing for a prefix.
+
+    Exact word equality is too strict for the names actually in use: wbm tracks
+    brand 4 as "Pearsons Education" while Glassdoor calls it "Pearson", and
+    "pearson" is not "pearsons". Prefixes bridge that. The four-character floor
+    keeps the rule from matching on "the" or "co".
+    """
+    if term_words & name_words:
+        return True
+    return any(
+        len(t) >= 4 and len(n) >= 4 and (n.startswith(t) or t.startswith(n))
+        for t in term_words for n in name_words
+    )
+
+
+def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str) -> Optional[Dict[str, Any]]:
+    """The candidate that actually IS the brand, or None.
+
+    Glassdoor's search does not rank by relevance. For "Wiley" it returns
+    "Wiley (Australia)" — 3 reviews, a different employer — ahead of the real
+    "Wiley", 2435 reviews. Taking the first plausible hit therefore picks the
+    wrong company roughly whenever the ordering shifts, and on 2026-08-19 it did
+    on wbm: an alert told the customer their rating had fallen 3.7 → 3 and their
+    business outlook 44% → 0%, when nothing had changed except which company was
+    being measured.
+
+    Name alone cannot settle it, as the live results for the tracked brands show:
+
+      Wiley    'Wiley (Australia)' 3 reviews | 'Wiley' 2435 | 'Wiley Rein' 96
+      Springer 'SPRINGER' 18 (springer.eu, an engineering firm) |
+               'Springer Nature' 1729 (the publisher the customer tracks)
+      Pearson  'Pearsons Estate Agents' 4 | 'Pearsons Lawyers' 2 | 'Pearson's Bakery' 3
+               — the real Pearson is not in the results at all
+
+    Matching on the name alone picks the Australian entity for Wiley and the
+    engineering firm for Springer. So a candidate must first clear
+    MIN_REVIEWS_FOR_AUTO_MATCH to be considered an employer worth tracking;
+    among those an exact name match wins, and otherwise the most-reviewed does.
+    When nothing clears the bar — Pearson — this returns None and the caller
+    asks for a manual pin, which is the right answer: no Glassdoor reading beats
+    a reading of somebody else's company.
+    """
+    term_norm = _normalize_company_name(term)
+    term_words = set(term_norm.split())
+    scored = []
+    for h in hits:
+        name = h.get("name") or h.get("company_name") or h.get("employer_name")
+        cid = h.get("company_id") or h.get("id")
+        if not cid or not name:
+            continue
+        name_norm = _normalize_company_name(name)
+        if not name_norm:
+            continue
+        # Still require a real word in common, so a search that returns junk
+        # yields nothing rather than the most-reviewed piece of junk.
+        if not _shares_a_word(term_words, set(name_norm.split())):
+            continue
+        try:
+            reviews = int(h.get("review_count") or 0)
+        except (TypeError, ValueError):
+            reviews = 0
+        if reviews < MIN_REVIEWS_FOR_AUTO_MATCH:
+            continue
+        scored.append((name_norm == term_norm, reviews, str(cid), h))
+    if not scored:
+        return None
+    scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
+    return scored[0][3]
+
 
 async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
                                 headers: Dict[str, str]) -> Optional[str]:
@@ -350,16 +439,11 @@ async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
     hits = resp.json().get("data") or []
     if isinstance(hits, dict):
         hits = hits.get("companies") or hits.get("results") or []
-    term_l = term.lower()
-    first_word = term_l.split()[0]
-    for h in hits:
-        name_l = str(h.get("name") or h.get("company_name") or h.get("employer_name") or "").lower()
-        cid = h.get("company_id") or h.get("id")
-        # Accept only a hit that plausibly IS the brand — search can return
-        # lookalikes, and reviews of the wrong employer are pure poison.
-        if cid and name_l and (first_word in name_l or (name_l.split()[0] and name_l.split()[0] in term_l)):
-            _GLASSDOOR_IDS[term] = str(cid)
-            return str(cid)
+    best = _pick_glassdoor_company(hits, term)
+    if best:
+        cid = str(best.get("company_id") or best.get("id"))
+        _GLASSDOOR_IDS[term] = cid
+        return cid
     logger.warning(f"glassdoor: no company match for {term!r} — set "
                    f"config.glassdoor_company_id on the brand to override")
     return None
@@ -458,7 +542,36 @@ async def refresh_glassdoor_overview(conn, brand_id: int, display_name: str,
         return cached
     if not data:
         return cached
+
+    # Refuse a reading for a different company than the one already being
+    # tracked. Name resolution only runs when no id is pinned, and it runs again
+    # after every restart, so without this a lookalike can silently take over a
+    # brand's rating history and the deterioration rule reads the swap as a
+    # collapse. Keeping the stale cache is the safe answer: a rating that is a
+    # day old beats a rating that belongs to someone else.
+    pinned = str(cfg.get("glassdoor_company_id") or "").strip()
+    fetched = str(data.get("company_id") or "").strip()
+    if pinned and fetched and pinned != fetched:
+        logger.warning(
+            "glassdoor: %s resolved to company_id %s but %s is pinned — keeping the "
+            "pinned company and discarding this reading", display_name, fetched, pinned)
+        return cached
+
     store_glassdoor_overview(conn, brand_id, data)
+    # Pin the company on first successful resolution. Until this existed the id
+    # lived only in a per-process dict, so every restart re-ran the search and
+    # could land on a different employer.
+    if not pinned and fetched:
+        try:
+            conn.execute(text("""
+                UPDATE bw_brands
+                   SET config = COALESCE(config, '{}'::jsonb)
+                       || jsonb_build_object('glassdoor_company_id', CAST(:cid AS text))
+                 WHERE id = :bid
+            """), {"bid": brand_id, "cid": fetched})
+            logger.info("glassdoor: pinned %s to company_id %s", display_name, fetched)
+        except Exception as e:  # noqa: BLE001 — pinning is an optimisation, not the job
+            logger.warning(f"glassdoor: could not pin company_id for {display_name}: {e}")
     conn.commit()
     snapshot_glassdoor_overview(conn, brand_id, data)
     return data

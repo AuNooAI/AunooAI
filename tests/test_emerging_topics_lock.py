@@ -193,3 +193,126 @@ def test_the_lock_is_actually_visible_in_pg_locks():
         assert during - before, "the advisory lock should be visible server-side"
     finally:
         lock.release()
+
+
+# ---------------------------------------------------------------------------
+# Maintenance interlock
+# ---------------------------------------------------------------------------
+
+def hold_maintenance_exclusive():
+    """Take the interlock the way scripts/detection_drain.py does."""
+    from sqlalchemy import text
+    from app.database import get_database_instance
+    from app.services.emerging_topics.run_lock import (
+        MAINTENANCE_KEY, _LOCK_NAMESPACE,
+    )
+
+    conn = get_database_instance()._temp_get_connection()
+    conn.execute(text("SELECT pg_advisory_lock(:ns, :key)"),
+                 {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY})
+    conn.commit()
+    return conn
+
+
+def release_maintenance(conn):
+    from sqlalchemy import text
+    from app.services.emerging_topics.run_lock import (
+        MAINTENANCE_KEY, _LOCK_NAMESPACE,
+    )
+    conn.execute(text("SELECT pg_advisory_unlock(:ns, :key)"),
+                 {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY})
+    conn.commit()
+    conn.close()
+
+
+def test_a_drain_blocks_new_runs():
+    """The interlock replaces "check for runs, then restart".
+
+    That sequence has a window between the check and the action, and a run can
+    start inside it. On 2026-08-19 it killed a customer's detection run. Here
+    the check and the block are the same lock, so there is no window.
+    """
+    from app.services.emerging_topics.run_lock import MaintenanceInProgress
+
+    drain = hold_maintenance_exclusive()
+    try:
+        with pytest.raises(MaintenanceInProgress) as caught:
+            DetectionRunLock("drain-block-probe").acquire()
+        assert caught.value.code == "maintenance_in_progress"
+    finally:
+        release_maintenance(drain)
+
+
+def test_runs_resume_once_the_drain_releases():
+    drain = hold_maintenance_exclusive()
+    release_maintenance(drain)
+
+    lock = DetectionRunLock("drain-resume-probe").acquire()
+    assert lock.held
+    lock.release()
+
+
+def test_a_drain_cannot_start_while_a_run_holds_the_interlock():
+    """The wait half: an exclusive acquire is refused while a run is in flight."""
+    from sqlalchemy import text
+    from app.database import get_database_instance
+    from app.services.emerging_topics.run_lock import (
+        MAINTENANCE_KEY, _LOCK_NAMESPACE,
+    )
+
+    run = DetectionRunLock("drain-wait-probe").acquire()
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        got_it = conn.execute(
+            text("SELECT pg_try_advisory_lock(:ns, :key)"),
+            {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY},
+        ).scalar()
+        conn.commit()
+        assert got_it is False, (
+            "a drain took the interlock while a run was in flight; the restart "
+            "would kill that run"
+        )
+    finally:
+        conn.close()
+        run.release()
+
+    # And once the run is done the drain gets in.
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        assert conn.execute(
+            text("SELECT pg_try_advisory_lock(:ns, :key)"),
+            {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY},
+        ).scalar() is True
+        conn.execute(text("SELECT pg_advisory_unlock(:ns, :key)"),
+                     {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY})
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_refused_run_does_not_leak_the_shared_interlock():
+    """A second run in the same scope must release what it took on the way in."""
+    from sqlalchemy import text
+    from app.database import get_database_instance
+    from app.services.emerging_topics.run_lock import (
+        MAINTENANCE_KEY, _LOCK_NAMESPACE,
+    )
+
+    first = DetectionRunLock("interlock-leak-probe").acquire()
+    try:
+        with pytest.raises(DetectionAlreadyRunning):
+            DetectionRunLock("interlock-leak-probe").acquire()
+    finally:
+        first.release()
+
+    # With every run finished, nothing should still hold the interlock.
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        holders = conn.execute(text("""
+            SELECT COUNT(*) FROM pg_locks
+            WHERE locktype = 'advisory' AND classid = :ns AND objid = :key
+        """), {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY}).scalar()
+        conn.commit()
+        assert holders == 0, "a refused run left the maintenance interlock held"
+    finally:
+        conn.close()

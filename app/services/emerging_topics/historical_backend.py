@@ -39,7 +39,8 @@ Modes, via ``EMERGING_TOPICS_HISTORICAL_MODE``:
 
 import logging
 import os
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 from sqlalchemy import text
 
@@ -67,8 +68,24 @@ MODES = (MODE_OFF, MODE_SHADOW, MODE_ENFORCE)
 E5_TABLE = "article_embeddings_ml"
 E5_DIM = 1024
 
-# Enough E5 rows for a background distribution to mean anything.
+# Row count is a floor, not a readiness test. An index can hold a million rows
+# and still be unusable: half the corpus missing, two model revisions mixed
+# together, or six weeks stale. The criteria below are what "ready" means.
 MIN_E5_ROWS = 10_000
+
+# The revision the vectors must all have been produced by. Mixing revisions puts
+# two different geometries in one index, and distances across them are noise.
+EXPECTED_MODEL = "intfloat/multilingual-e5-large"
+
+# Fraction of articles that must carry an E5 vector. Shadow tolerates a partial
+# index because a gap only weakens what it observes; enforcing on a partial
+# index silently decides from whichever half happens to be present.
+SHADOW_MIN_COVERAGE = 0.50
+ENFORCE_MIN_COVERAGE = 0.90
+
+# An index nobody has added to in this long is not tracking the corpus, so
+# "no older coverage found" would just mean "not indexed yet".
+MAX_STALENESS_DAYS = 7
 
 
 class UnsupportedBackend(RuntimeError):
@@ -104,41 +121,156 @@ def resolve_mode() -> str:
     return raw
 
 
-_e5_ready: Optional[bool] = None
+@dataclass
+class E5Readiness:
+    """Everything that decides whether the E5 index may be used, and how far."""
+    table_present: bool = False
+    rows: int = 0
+    articles: int = 0
+    dimension: Optional[int] = None
+    model_revisions: List[str] = field(default_factory=list)
+    coverage_ratio: float = 0.0
+    staleness_days: Optional[float] = None
+    has_ann_index: bool = False
+    failures: List[str] = field(default_factory=list)
+
+    @property
+    def shadow_ready(self) -> bool:
+        """Enough to observe. A missing ANN index only makes queries slow."""
+        return not [f for f in self.failures if not f.startswith("enforce:")]
+
+    @property
+    def enforce_ready(self) -> bool:
+        """Enough to act on. Every criterion, including the index."""
+        return not self.failures
+
+    def describe(self) -> str:
+        if not self.table_present:
+            return "E5 not ready: no article_embeddings_ml table on this tenant"
+        state = (
+            "enforce-ready" if self.enforce_ready
+            else "shadow-ready" if self.shadow_ready
+            else "not ready"
+        )
+        return (
+            f"E5 {state}: {self.rows} vectors for {self.articles} articles "
+            f"({self.coverage_ratio:.1%}), dim={self.dimension}, "
+            f"revisions={self.model_revisions or 'none'}, "
+            f"stale={self.staleness_days if self.staleness_days is None else round(self.staleness_days, 1)}d, "
+            f"ann_index={self.has_ann_index}"
+            + (f"; blocked by: {'; '.join(self.failures)}" if self.failures else "")
+        )
 
 
-def e5_available(conn) -> bool:
-    """Is there a usable E5 index on this tenant? Probed once per process."""
-    global _e5_ready
-    if _e5_ready is not None:
-        return _e5_ready
-
+def assess_e5_readiness(conn) -> E5Readiness:
+    """Measure the E5 index against every criterion. Never raises."""
+    r = E5Readiness()
     try:
-        present = conn.execute(
+        r.table_present = bool(conn.execute(
             text("SELECT to_regclass(:name)"), {"name": E5_TABLE}
-        ).scalar()
-        if not present:
-            _e5_ready = False
-        else:
-            rows = conn.execute(text(f"SELECT COUNT(*) FROM {E5_TABLE}")).scalar() or 0
-            _e5_ready = rows >= MIN_E5_ROWS
-            if not _e5_ready:
-                logger.info(
-                    "E5 store holds %s rows, below the %s needed to calibrate "
-                    "against; historical classification stays unknown",
-                    rows, MIN_E5_ROWS,
-                )
-    except Exception as exc:
-        logger.warning("Could not probe the E5 store: %s", exc)
-        _e5_ready = False
+        ).scalar())
+        if not r.table_present:
+            r.failures.append("no article_embeddings_ml table")
+            return r
 
-    return _e5_ready
+        row = conn.execute(text(f"""
+            SELECT COUNT(*),
+                   COUNT(DISTINCT model_version),
+                   MIN(model_version),
+                   EXTRACT(EPOCH FROM (NOW() - MAX(embedded_at))) / 86400.0
+            FROM {E5_TABLE}
+        """)).fetchone()
+        r.rows = row[0] or 0
+        distinct_revisions = row[1] or 0
+        r.staleness_days = float(row[3]) if row[3] is not None else None
+
+        r.model_revisions = [
+            x[0] for x in conn.execute(text(
+                f"SELECT DISTINCT model_version FROM {E5_TABLE} "
+                "WHERE model_version IS NOT NULL ORDER BY 1"
+            )).fetchall()
+        ]
+
+        r.articles = conn.execute(text("SELECT COUNT(*) FROM articles")).scalar() or 0
+        r.coverage_ratio = (r.rows / r.articles) if r.articles else 0.0
+
+        dim_text = conn.execute(text(f"""
+            SELECT format_type(a.atttypid, a.atttypmod)
+            FROM pg_attribute a
+            WHERE a.attrelid = to_regclass('{E5_TABLE}') AND a.attname = 'embedding'
+        """)).scalar() or ""
+        if dim_text.startswith("vector(") :
+            try:
+                r.dimension = int(dim_text[len("vector("):-1])
+            except ValueError:
+                r.dimension = None
+
+        r.has_ann_index = bool(conn.execute(text("""
+            SELECT COUNT(*) FROM pg_indexes
+            WHERE tablename = :t
+              AND (indexdef ILIKE '%hnsw%' OR indexdef ILIKE '%ivfflat%')
+        """), {"t": E5_TABLE}).scalar())
+
+        # Criteria. "enforce:" prefixed ones block acting but not observing.
+        if r.dimension != E5_DIM:
+            r.failures.append(f"dimension is {r.dimension}, expected {E5_DIM}")
+        if r.rows < MIN_E5_ROWS:
+            r.failures.append(f"only {r.rows} vectors, need {MIN_E5_ROWS}")
+        if distinct_revisions > 1:
+            r.failures.append(
+                f"{distinct_revisions} model revisions mixed in one index: "
+                f"{', '.join(r.model_revisions)}"
+            )
+        if r.model_revisions and EXPECTED_MODEL not in r.model_revisions[0]:
+            r.failures.append(
+                f"model is {r.model_revisions[0]!r}, expected {EXPECTED_MODEL!r}"
+            )
+        if r.coverage_ratio < SHADOW_MIN_COVERAGE:
+            r.failures.append(
+                f"coverage {r.coverage_ratio:.1%} below the {SHADOW_MIN_COVERAGE:.0%} "
+                "needed even to observe"
+            )
+        elif r.coverage_ratio < ENFORCE_MIN_COVERAGE:
+            r.failures.append(
+                f"enforce: coverage {r.coverage_ratio:.1%} below "
+                f"{ENFORCE_MIN_COVERAGE:.0%}"
+            )
+        if not r.has_ann_index:
+            r.failures.append("enforce: no HNSW/IVFFlat index on the vectors")
+        if r.staleness_days is not None and r.staleness_days > MAX_STALENESS_DAYS:
+            r.failures.append(
+                f"enforce: newest vector is {r.staleness_days:.1f} days old, "
+                f"limit {MAX_STALENESS_DAYS}"
+            )
+
+    except Exception as exc:
+        logger.warning("Could not assess the E5 store: %s", exc)
+        r.failures.append(f"probe failed: {exc}")
+    return r
+
+
+_e5_probe: Optional[E5Readiness] = None
+
+
+def e5_readiness(conn) -> E5Readiness:
+    """Cached readiness assessment, probed once per process."""
+    global _e5_probe
+    if _e5_probe is None:
+        _e5_probe = assess_e5_readiness(conn)
+        logger.info("Emerging topics: %s", _e5_probe.describe())
+    return _e5_probe
+
+
+def e5_available(conn, for_enforce: bool = False) -> bool:
+    """May this tenant's E5 index be used, for observation or for acting?"""
+    readiness = e5_readiness(conn)
+    return readiness.enforce_ready if for_enforce else readiness.shadow_ready
 
 
 def reset_probe_cache() -> None:
     """Forget the cached probe. For tests."""
-    global _e5_ready
-    _e5_ready = None
+    global _e5_probe
+    _e5_probe = None
 
 
 def describe(mode: str, available: bool) -> str:
