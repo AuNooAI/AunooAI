@@ -224,6 +224,24 @@ async def _probe(
 # Page state
 # ---------------------------------------------------------------------------
 
+def _html_title(html: str) -> Optional[str]:
+    """The page's own ``<title>``.
+
+    trafilatura's metadata title is absent on most vendor pages — all 91 stored
+    page snapshots had a null title — which left the pages dataset showing a
+    URL and nothing a reader could recognise. The tag itself is nearly always
+    there.
+    """
+    import html as html_mod
+
+    m = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.S | re.I)
+    if not m:
+        return None
+    title = re.sub(r"<[^>]+>", "", m.group(1))
+    title = re.sub(r"\s+", " ", html_mod.unescape(title)).strip()
+    return title[:300] or None
+
+
 def extract_text(html: str) -> tuple[Optional[str], Optional[str]]:
     """``(title, main text)`` with navigation and furniture removed.
 
@@ -241,7 +259,7 @@ def extract_text(html: str) -> tuple[Optional[str], Optional[str]]:
         meta = trafilatura.extract_metadata(html)
         title = getattr(meta, "title", None) if meta else None
         if text:
-            return title, text
+            return title or _html_title(html), text
     except Exception:  # noqa: BLE001 — extraction is best-effort
         logger.debug("trafilatura extraction failed", exc_info=True)
 
@@ -249,7 +267,7 @@ def extract_text(html: str) -> tuple[Optional[str], Optional[str]]:
                       flags=re.S | re.I)
     stripped = re.sub(r"<[^>]+>", " ", stripped)
     stripped = re.sub(r"\s+", " ", stripped).strip()
-    return None, stripped or None
+    return _html_title(html), stripped or None
 
 
 def normalize_lines(text: str | None) -> list[str]:

@@ -1257,11 +1257,16 @@ async def discover_candidates(
 
 @router.get("/markets/{market_id}/source-health")
 async def source_health(market_id: int, session=Depends(verify_session)):
-    """Per-source freshness, outcome and cost.
+    """Per-source freshness and outcome.
 
     "Failed" and "ran but found nothing" are reported as different things.
     Collapsing them is how a broken source hides for a month behind a quiet
     dashboard.
+
+    Spend is deliberately absent. ``bw_collection_runs.cost_amount`` exists and
+    is always NULL — the provider does not return a price with a job and no
+    caller computes one — so reporting it as a number implied we track spend
+    when we do not. The column stays for the day there is a price list.
     """
     from app.services.brightdata_linkedin import linkedin_enabled, webhook_secret
 
@@ -1285,7 +1290,6 @@ async def source_health(market_id: int, session=Depends(verify_session)):
                        MAX(started_at) AS last_attempt,
                        SUM(records_new) AS records_new,
                        SUM(records_received) AS records_received,
-                       SUM(cost_amount) AS cost,
                        (ARRAY_AGG(status ORDER BY started_at DESC))[1]
                            AS latest_status,
                        (ARRAY_AGG(error ORDER BY started_at DESC))[1]
@@ -1353,7 +1357,7 @@ async def list_runs(market_id: int, source: Optional[str] = Query(None),
             sql = """SELECT r.id, r.brand_id, r.source, r.provider, r.job_id,
                             r.status, r.records_received, r.records_new,
                             r.records_skipped, r.started_at, r.completed_at,
-                            r.latency_ms, r.cost_amount, r.error,
+                            r.latency_ms, r.error,
                             b.display_name AS vendor
                      FROM bw_collection_runs r
                      LEFT JOIN bw_brands b ON b.id = r.brand_id

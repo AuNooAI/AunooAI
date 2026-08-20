@@ -137,7 +137,6 @@ export interface SourceHealthRow {
   last_attempt: string | null;
   records_new: number | null;
   records_received: number | null;
-  cost: number | null;
   /** Only set when the most recent run is the one that failed. */
   last_error: string | null;
   stale_hours: number | null;
@@ -171,7 +170,6 @@ export interface CollectionRun {
   started_at: string | null;
   completed_at: string | null;
   latency_ms: number | null;
-  cost_amount: number | null;
   error: string | null;
 }
 

@@ -164,7 +164,8 @@ def store_snapshot(conn, *, market_id: int, brand_id: int, source: str,
 
 def land_article(conn, *, uri: str, title: str, summary: str, news_source: str,
                  published_at: Optional[str], topic: str,
-                 category: str, bias_source: str) -> bool:
+                 category: str, bias_source: str,
+                 social_meta: Optional[Dict[str, Any]] = None) -> bool:
     """Insert one article. Returns True when it was new.
 
     Mirrors ``bw_official_sources._land_and_attribute`` so market records look
@@ -172,19 +173,34 @@ def land_article(conn, *, uri: str, title: str, summary: str, news_source: str,
     *not* stamped with a credibility tier: a vendor's own post is evidence of
     what the vendor said, and stamping it authoritative would let source
     weighting treat marketing as corroboration.
+
+    ``social_meta`` carries reach and shape for a post — likes, comments,
+    shares, hashtags, post type. The provider returns all of it and we were
+    dropping it on the floor, which meant we paid for the only available
+    measure of whether an announcement reached anyone and then could not answer
+    the question. It is updated on re-read even when the row already exists,
+    because engagement is the one field on a post that genuinely changes after
+    publication.
     """
     now_iso = _now_iso()
+    payload = json.dumps(social_meta) if social_meta else None
     row = conn.execute(text("""
         INSERT INTO articles (uri, title, summary, news_source,
             publication_date, submission_date, topic, category, analyzed,
-            topic_alignment_score, bias_source, auto_ingested)
+            topic_alignment_score, bias_source, auto_ingested, social_meta)
         VALUES (:uri, :title, :summary, :ns, :pub, :sub, :topic, :cat, false,
-                1.0, :bsrc, true)
+                1.0, :bsrc, true, CAST(:meta AS JSONB))
         ON CONFLICT (uri) DO NOTHING
         RETURNING uri
     """), {"uri": uri, "title": (title or "")[:500], "summary": summary,
            "ns": news_source, "pub": published_at or now_iso, "sub": now_iso,
-           "topic": topic, "cat": category, "bsrc": bias_source}).fetchone()
+           "topic": topic, "cat": category, "bsrc": bias_source,
+           "meta": payload}).fetchone()
+    if not row and payload:
+        conn.execute(text("""
+            UPDATE articles SET social_meta = CAST(:meta AS JSONB)
+            WHERE uri = :uri
+        """), {"uri": uri, "meta": payload})
     return bool(row)
 
 
@@ -274,6 +290,34 @@ def ingest_profiles(conn, *, run: Dict[str, Any], records: List[dict],
     return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
 
 
+def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Reach and shape for one post, for ``articles.social_meta``.
+
+    Only the fields worth keeping. The mapper also returns the full post body
+    and an image URL; the body is already the article summary and the image is
+    of no analytic use.
+    """
+    engagement = mapped.get("engagement")
+    engagement = engagement if isinstance(engagement, dict) else {}
+    meta = {
+        "platform": "linkedin",
+        "author": mapped.get("author"),
+        "post_type": mapped.get("post_type"),
+        "hashtags": (mapped.get("hashtags") or [])[:20],
+        "likes": engagement.get("likes"),
+        "comments": engagement.get("comments"),
+        "shares": engagement.get("shares"),
+        "followers": engagement.get("followers"),
+    }
+    # A row of nothing but nulls is worse than no row — it reads as "measured,
+    # and measured zero".
+    if not any(meta[k] is not None for k in
+               ("likes", "comments", "shares", "followers")) \
+            and not meta["hashtags"] and not meta["post_type"]:
+        return None
+    return {k: v for k, v in meta.items() if v is not None and v != []}
+
+
 def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
                  url_to_brand: Dict[str, int],
                  brand_names: Dict[int, str]) -> Dict[str, int]:
@@ -311,6 +355,7 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
             published_at=(published.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                           if isinstance(published, datetime) else None),
             category="Product & Innovation", bias_source="vendor:linkedin",
+            social_meta=_post_social_meta(mapped),
         )
         if is_new:
             stored += 1

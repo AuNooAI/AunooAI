@@ -2,6 +2,94 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (phase 0) — Market Monitor: the exports were mostly empty columns
+
+### Goal
+Groundwork before building analysis, charts and a briefing generator on top of the market
+monitor. An audit of the feature found four defects that would have corrupted anything built on
+them, three of them in code written earlier the same day.
+
+### The Data tab's exports asked for JSON keys that do not exist — `app/services/market_publish.py`
+`build_table()`'s field lists were written against assumed key names rather than against the
+mappers that populate the snapshots. The jobs export rendered 5 of its 6 columns empty, pages 4
+of 6, funding 2 of 7, profiles 1 of 7 — in the on-screen table and in every CSV anyone
+downloaded.
+
+Every name is now checked against the mapper that writes it (`map_company_profile`,
+`map_crunchbase_company`, `map_job_listing`, and the `page_state` dict in
+`app/tasks/market_monitor.py`). `_snapshot_rows()` also learned nested paths, so
+`diff.added_count` reads `data->'diff'->>'added_count'` — the page-change counts are nested under
+`diff` and could not be selected at all before.
+
+The corrected lists are wider as well as right. Funding went from 7 columns to 15, picking up
+`founders`, `growth_trend`, `heat_trend`, `employee_band`, `operating_status` and `acquired_by`,
+all of which were already stored and unreadable.
+
+### `top_funded[].last_round` was always null — `app/services/market_publish.py`
+`build_overview()` read `baseline->'funding_baseline'->>'last_round'`. The importer writes only
+`status`, `total_musd` and `notes` there; Crunchbase's round lands at
+`baseline->'funding_crunchbase'->>'last_round'`. The UI renders the round label conditionally, so
+it simply never appeared.
+
+### Page snapshots had no titles — `app/collectors/vendor_web_collector.py`
+All 91 stored page snapshots had a null title, because the only source was trafilatura's metadata
+and it declines on most vendor pages. The pages dataset therefore showed a URL and nothing a
+reader could recognise. New `_html_title()` reads the page's own `<title>` tag, unescapes
+entities, and is used both when trafilatura extracts text without a title and on the crude
+fallback path.
+
+### Post engagement was fetched, paid for, and thrown away — `app/services/market_collect.py`
+`map_company_post()` returns `engagement{likes, comments, shares, followers}`, `hashtags` and
+`post_type`. `ingest_posts()` passed none of it to `land_article()`, so the only available
+measure of whether a vendor's announcement reached anybody was discarded on every fetch. There
+was no engagement data in the database at all.
+
+`land_article()` now takes `social_meta` and writes it to `articles.social_meta`, the existing
+column for this shape, which was null on every row in the database. It updates on re-read even
+when the row exists, because engagement is the one field on a post that genuinely changes after
+publication. `_post_social_meta()` returns None rather than a row of nulls when the provider sent
+no numbers — a null-filled row reads as "measured, and measured zero".
+
+### Spend reporting removed rather than faked — `app/routes/market_monitor_routes.py`
+`bw_collection_runs.cost_amount` is accepted by `close_run()`, passed by no caller, and always
+NULL. `/source-health` was summing it into a `cost` field and `/runs` returned `cost_amount`,
+both typed in the UI and rendered nowhere. Reporting a number there implied we track provider
+spend when we do not. Both are dropped from the responses and from the TypeScript types; the
+column stays for the day there is a price list.
+
+### Verification
+All nine datasets after the fix:
+
+```
+vendors  83 rows, 28 cols, all-null: none
+articles 196 rows, 13 cols, all-null: review_verdict, review_kind, review_reason
+posts    562 rows, 13 cols, all-null: sentiment
+profiles  19 rows, 10 cols, all-null: none
+funding   19 rows, 17 cols, all-null: none
+jobs      30 rows,  9 cols, all-null: none
+pages     91 rows, 10 cols, all-null: title
+runs      15 rows, 10 cols, all-null: none
+tasks     28 rows,  7 cols, all-null: none
+```
+
+The three remaining are correct rather than broken. The `articles` dataset excludes social posts
+and verdicts only exist on social posts; LinkedIn posts are never put through the AI analysis
+step so they have no sentiment; and the 91 page snapshots were collected before the title fix, so
+titles appear on the next collection rather than retroactively.
+
+`top_funded[].last_round` now returns `series_a`, `series_b`, `corporate_round` — nulls remain
+only for vendors with no Crunchbase record, which is correct.
+
+`_post_social_meta()` checked directly: a full payload returns all fields; an empty one returns
+None; an all-zero one keeps the zeros, because zero engagement is a measurement.
+
+`npm run typecheck` clean against baseline (246 known). Rebuilt, restarted, service active. No
+collection runs were in flight at restart.
+
+### Propagation
+bugfixing (canonical) only, like the rest of the market monitor. `land_article()`'s new keyword
+argument is optional, so no other caller changes.
+
 ## 2026-08-20 (later session) — Market Monitor: matching the category, reading the vendor posts, and showing the data
 
 ### Goal

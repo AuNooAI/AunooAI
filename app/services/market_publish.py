@@ -454,7 +454,12 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     top_funded = [dict(r) for r in conn.execute(text("""
         SELECT b.display_name AS vendor, b.id AS brand_id,
                (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS musd,
-               mb.baseline->'funding_baseline'->>'last_round' AS last_round
+               -- The round lives under funding_crunchbase, written by
+               -- ingest_crunchbase. The importer only ever writes status,
+               -- total_musd and notes into funding_baseline, so reading
+               -- last_round from there returned NULL for every vendor and the
+               -- UI's round label never appeared.
+               mb.baseline->'funding_crunchbase'->>'last_round' AS last_round
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
@@ -601,8 +606,23 @@ def _snapshot_latest(kind: str) -> str:
 
 def _snapshot_rows(conn, market_id: int, kind: str,
                    fields: List[str]) -> List[Dict[str, Any]]:
-    """Flatten one snapshot type into rows, one JSON key per column."""
-    selected = ", ".join(f"s.data->>'{f}' AS \"{f}\"" for f in fields)
+    """Flatten one snapshot type into rows, one JSON key per column.
+
+    A field may be a nested path — ``diff.added_count`` reads
+    ``data->'diff'->>'added_count'``. Without that, page-change counts have to
+    be left out entirely, because the collector nests them under ``diff``.
+
+    Field names here must match what the mapper actually stores. They did not:
+    this asked for ``job_title`` where the mapper writes ``title``, and five of
+    the six job columns came back empty in the UI and in the CSV.
+    """
+    def _sql(field: str) -> str:
+        if "." in field:
+            head, tail = field.split(".", 1)
+            return f"s.data->'{head}'->>'{tail}' AS \"{field}\""
+        return f"s.data->>'{field}' AS \"{field}\""
+
+    selected = ", ".join(_sql(f) for f in fields)
     return [dict(r) for r in conn.execute(text(f"""
         SELECT b.display_name AS vendor, s.observed_at, {selected}
         FROM bw_vendor_snapshots s
@@ -644,22 +664,30 @@ def build_table(conn, market_id: int, dataset: str) -> List[Dict[str, Any]]:
             "sentiment": r.get("sentiment"),
         } for r in rows]
 
+    # Every name below is checked against the mapper that writes it:
+    # brightdata_linkedin.map_company_profile / map_crunchbase_company /
+    # map_job_listing, and the page_state dict in tasks/market_monitor.py.
     if dataset == "profiles":
         return _snapshot_rows(conn, market_id, "profile", [
-            "employee_count", "followers", "headquarters", "industry",
-            "founded", "company_size", "website"])
+            "employee_count", "followers", "headquarters", "country",
+            "industry", "founded", "website", "specialties"])
     if dataset == "funding":
         return _snapshot_rows(conn, market_id, "funding", [
-            "funding_rounds", "last_round_type", "investors", "lead_investors",
-            "cb_rank", "ipo_status", "num_investors"])
+            "num_funding_rounds", "last_funding_type", "num_investors",
+            "investors", "lead_investors", "founders", "cb_rank",
+            "growth_score", "growth_trend", "heat_score", "heat_trend",
+            "employee_band", "operating_status", "ipo_status", "acquired_by"])
     if dataset == "jobs":
         return _snapshot_rows(conn, market_id, "job_posting", [
-            "job_title", "job_location", "job_seniority_level",
-            "job_function", "job_posted_date", "url"])
+            "title", "location", "seniority", "function", "employment_type",
+            "posted_date", "url"])
     if dataset == "pages":
+        # `text` is deliberately absent — it is the full page body and would
+        # make the CSV unusable.
         return _snapshot_rows(conn, market_id, "page_state", [
-            "url", "title", "content_hash", "changed", "added_count",
-            "removed_count"])
+            "url", "kind", "title", "http_status",
+            "diff.added_count", "diff.removed_count", "diff.moved_count",
+            "diff.material"])
 
     if dataset == "runs":
         return [dict(r) for r in conn.execute(text("""
