@@ -227,6 +227,36 @@ was measured elsewhere, at a different time" is now "LinkedIn employee count. Da
 imported baseline." Applied across `MarketMonitorTab.tsx` and `MarketVendorPage.tsx`, and to the
 code comments, which had the same problem.
 
+### Fix — the per-group relevance floor was never read
+Lowering `keyword_groups.min_relevance_threshold` for the market had no effect, and the reason
+was that nothing in the ingest path read it. `AutomatedIngestService.get_relevance_threshold()`
+took no arguments and always returned `keyword_monitor_settings WHERE id = 1` — the platform-wide
+0.45 — so every group ran against the global floor whatever it had configured. The market's
+context articles kept landing as `filtered_relevance`, and the first backfill attempt recovered
+1 of 26 because it was re-judged at 0.45.
+
+**`app/database_query_facade.py`** gains `get_group_relevance_threshold(topic)`, returning the
+active group's floor for a topic or None when it sets none. **`app/services/automated_ingest_service.py`**
+takes an optional `topic` and prefers the group's floor over the global, at both the quick check
+and the post-analysis check. Calling it without a topic behaves exactly as before, so no existing
+caller changes, and a group with no floor of its own still gets the global value — only groups
+that explicitly opt in behave differently. Verified: the SOC market topic resolves to 0.25, the
+AI topic to None and therefore 0.45.
+
+There was prior art. A comment at the second checkpoint recorded the same problem being fixed for
+Brand Watch groups, scoped deliberately to `Brand Monitoring %` topics so other topics' collection
+volume would not change. This generalises that fix while keeping the same guarantee.
+
+Re-running the backfill recovered **14 of 23**, against 1 before. Approved articles in the market
+went from 31 to 45, and no filtered article that qualifies under the new floor remains. What came
+back is the general AI SOC and secops context the market was asked to capture: "You Can't Bolt AI
+Onto the SOC and Expect It to Hold Up", "iSteps: The Building Blocks of Autonomous Investigations",
+"From Chaos to Confidence: Vulnerability Remediation With Guided AI".
+
+Measured after the fix: 324 articles collected in the market topic, 48 enriched and visible to
+observer queries (was 31), 11 of them inside a 7-day window (was 6). 27 articles still carry a
+null `ingest_status`, meaning they were never assessed at all — unexplained, not investigated.
+
 ### Verification
 `pytest tests/test_market_import.py tests/test_market_collection.py` — 32 passed. The wider suite
 is unchanged at 128 failed / 31 errors, the same before and after.

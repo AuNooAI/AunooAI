@@ -859,6 +859,29 @@ class DatabaseQueryFacade:
         if settings and settings['min_relevance_threshold'] is not None:
             return float(settings['min_relevance_threshold'])
 
+    def get_group_relevance_threshold(self, topic):
+        """Per-group relevance floor for a topic, or None if the group sets none.
+
+        A keyword group may carry its own floor; ``keyword_monitor_settings``
+        holds the platform default. Returns None rather than 0.0 when unset, so
+        callers can fall back instead of reading "no override" as "let
+        everything through".
+        """
+        if not topic:
+            return None
+        statement = select(
+            keyword_groups.c.min_relevance_threshold
+        ).where(
+            keyword_groups.c.topic == topic,
+            keyword_groups.c.is_active.is_(True),
+            keyword_groups.c.min_relevance_threshold.isnot(None),
+        ).order_by(keyword_groups.c.id).limit(1)
+        row = self._execute_with_rollback(statement).mappings().fetchone()
+        if row and row['min_relevance_threshold'] is not None:
+            return float(row['min_relevance_threshold'])
+        return None
+
+
     def get_auto_ingest_settings(self):
         statement = select(
             keyword_article_matches.c.auto_ingest_enabled,

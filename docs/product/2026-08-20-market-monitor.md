@@ -104,10 +104,10 @@ it is not switched on yet.
 does not support collecting them per company in any form we could get working. Every other source
 — news, vendor websites, LinkedIn posts and profiles, funding — is running.
 
-**Some collected articles are still being discarded.** The market gathers general AI SOC and
-security-operations coverage for context, but a relevance check downstream is rejecting vendor
-blog posts that are clearly on topic. Roughly one in six collected articles currently reaches the
-point where it can be analysed.
+**Relevance tuning now works per market.** Each market can set how strict its own relevance
+filter is, rather than inheriting one platform-wide setting. Loosening it for the SOC automation
+market recovered the general AI SOC and security-operations coverage that was being discarded.
+Other markets and topics are unaffected unless they set their own.
 
 **One market so far.** The design is meant to be reusable by importing a different registry, but
 that has not been tried.
