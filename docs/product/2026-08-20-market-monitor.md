@@ -100,9 +100,10 @@ hand.
 observer agent has been set up against the market to produce a written brief on a schedule, but
 it is not switched on yet.
 
-**Hiring data is not available.** Job listings were part of the plan and the provider's dataset
-does not support collecting them per company in any form we could get working. Every other source
-— news, vendor websites, LinkedIn posts and profiles, funding — is running.
+**Hiring data is thin, by nature rather than by fault.** Job listings collect correctly, but only
+6 of 20 vendors have any public postings and the larger ones dominate. Expect a weak hiring signal
+across an early-stage market, and read counts with care — a vendor at the collection limit shows
+that limit, not its real total.
 
 **Relevance tuning now works per market.** Each market can set how strict its own relevance
 filter is, rather than inheriting one platform-wide setting. Loosening it for the SOC automation

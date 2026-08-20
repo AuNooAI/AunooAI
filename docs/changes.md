@@ -257,6 +257,37 @@ Measured after the fix: 324 articles collected in the market topic, 48 enriched 
 observer queries (was 31), 11 of them inside a 7-day window (was 6). 27 articles still carry a
 null `ingest_status`, meaning they were never assessed at all — unexplained, not investigated.
 
+### LinkedIn job listings — working, after four wrong shapes and one control test
+Earlier in the day this source was disabled as unworkable. It works; the diagnosis was wrong.
+
+Four input shapes failed against `gd_lpfll7v5hcqtkxl6l`: `discover_by=company_url` (mode not
+supported), `/company/{slug}/jobs/` by url (every record a `proxy` error),
+`/jobs/{slug}-jobs?f_C={id}` by url (dead page — the documented examples are Semrush and Reddit,
+and small companies have no such page), and the company name placed in `keyword` (returned
+Drillbit, Arcade.dev and Office1 — other employers' postings, which is worse than nothing).
+
+The mistake was assuming each empty result meant a wrong input. A control run — identical shape,
+CrowdStrike alongside a 77-person vendor — separated the two explanations in one call:
+CrowdStrike returned 5 postings correctly attributed, the vendor returned none. The shape was
+already right; the vendor has no public listings. That test should have come four attempts
+earlier.
+
+**`app/services/brightdata_linkedin.py`** now uses `discover_by=keyword` with `company` as its
+own input field and location from the vendor's HQ country. Attribution still matches the returned
+`company_url` against the vendor's stored LinkedIn identifier — a name match alone is too loose,
+and "Method Security" or "Beacon Security" would eventually collide with another employer. The
+docstring records all four failed shapes so this is not rediscovered.
+
+Run 15: 30 records, 30 stored, 0 skipped, across 6 of 20 vendors — 7ai 20, Crogl 6, and one each
+for Andesite, Conifers AI, Qevlar and Twine Security. The signal is real but sparse and weighted
+to larger vendors: 7ai has 145 staff, while the 77-person Dropzone AI has no public listings.
+
+**7ai's 20 is the `limit_per_input` cap, not a count.** Any hiring chart must raise the limit or
+mark capped values, or it will show a plateau that does not exist.
+
+Rate for this account is $1.50/1k records, so the failed probes cost pennies. The earlier caution
+about "20 records per guess" was misplaced — the cost of not running a control was time.
+
 ### Verification
 `pytest tests/test_market_import.py tests/test_market_collection.py` — 32 passed. The wider suite
 is unchanged at 128 failed / 31 errors, the same before and after.

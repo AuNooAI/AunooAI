@@ -289,23 +289,42 @@ class LinkedInDatasetClient:
 
 
     async def trigger_jobs(
-        self, company_urls: list[str], *, limit_per_input: int = 20,
+        self, companies: list[dict[str, Any]], *, limit_per_input: int = 20,
         webhook_url: str | None = None, webhook_auth: str | None = None,
     ) -> TriggerResult:
-        """Discover job listings by company URL.
+        """Discover job listings by employer.
 
-        Same discovery shape as company posts — the payload carries the URL
-        only, and the bound goes in the query string. Hiring is the signal:
-        what a vendor is staffing says more about where it is investing than
-        what its marketing says.
+        Verified against the dataset on 2026-08-20. ``discover_by=keyword``
+        with ``company`` as its own input field is the only mode that works
+        here. The alternatives all fail, and two of them fail quietly:
+
+        - ``discover_by=company_url`` — rejected, mode not supported.
+        - ``/company/{slug}/jobs/`` by url — every record a ``proxy`` error.
+        - ``/jobs/{slug}-jobs?f_C={id}`` by url — dead page. The documented
+          examples are Semrush and Reddit; small companies have no such page.
+        - the company name in ``keyword`` — returns other employers' postings,
+          which is worse than returning nothing.
+
+        A control run separated "wrong input" from "nothing to find":
+        CrowdStrike returned five postings, all correctly attributed, while a
+        77-person vendor returned none. Small vendors simply have few public
+        listings, so expect this signal to be sparse across an early-stage
+        registry rather than to indicate a broken integration.
+
+        ``companies`` entries take ``name`` and optionally ``location`` and
+        ``keyword``.
         """
-        # This dataset discovers by "keyword" or "url" — not "company_url",
-        # which is what the posts dataset uses. The URL it wants is the
-        # company's jobs page, so the company URL alone returns nothing.
-        payload = [{"url": _jobs_url(url)} for url in company_urls]
+        payload = [
+            {
+                "company": c.get("name", ""),
+                "location": c.get("location") or "United States",
+                "keyword": c.get("keyword") or "",
+            }
+            for c in companies if c.get("name")
+        ]
         params: dict[str, Any] = {
             "type": "discover_new",
-            "discover_by": "url",
+            "discover_by": "keyword",
         }
         if limit_per_input:
             params["limit_per_input"] = str(limit_per_input)
@@ -329,12 +348,6 @@ class LinkedInDatasetClient:
             crunchbase_dataset(), [{"url": u} for u in urls],
             webhook_url=webhook_url, webhook_auth=webhook_auth,
         )
-
-
-def _jobs_url(company_url: str) -> str:
-    """The company's LinkedIn jobs page, which is what job discovery takes."""
-    base = (company_url or "").rstrip("/")
-    return f"{base}/jobs/" if base else base
 
 
 def crunchbase_url_for(slug: str) -> str:

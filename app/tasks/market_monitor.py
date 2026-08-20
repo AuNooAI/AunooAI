@@ -649,13 +649,32 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     if not key:
         return 0
 
+    companies: list = []
     if source == SOURCE_CRUNCHBASE:
         mc.seed_crunchbase_urls(conn, market["id"])
         conn.commit()
         urls = list(mc.crunchbase_url_map(conn, market["id"]).keys())
+    elif source == SOURCE_JOBS:
+        # Job discovery works on employer name, not URL. Attribution still
+        # happens on the company_url the provider returns, matched against the
+        # vendor's stored identifier — a name match alone is too loose to
+        # attribute a posting.
+        rows = conn.execute(text("""
+            SELECT b.display_name, mb.baseline->>'hq_country' AS country
+            FROM bw_market_brands mb
+            JOIN bw_brands b ON b.id = mb.brand_id
+            WHERE mb.market_id = :m AND mb.collection_enabled
+              AND mb.role <> 'excluded'
+            ORDER BY mb.sort_order
+        """), {"m": market["id"]}).fetchall()
+        companies = [{"name": r[0].split("(")[0].strip(),
+                      "location": r[1] or "United States"} for r in rows]
+        companies = companies[: _max_vendors_per_run()]
+        urls = [c["name"] for c in companies]
     else:
         urls = list(mc.linkedin_url_map(conn, market["id"])[0].keys())
-    urls = urls[: _max_vendors_per_run()]
+    if source != SOURCE_JOBS:
+        urls = urls[: _max_vendors_per_run()]
     if not urls:
         if forced_run_id:
             mc.close_run(conn, forced_run_id, status="succeeded",
@@ -676,7 +695,7 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                 webhook_auth=webhook_auth_value())
         else:
             result = await client.trigger_jobs(
-                urls, webhook_url=callback_url(run_id),
+                companies, webhook_url=callback_url(run_id),
                 webhook_auth=webhook_auth_value())
     except BrightDataError as e:
         mc.close_run(conn, run_id, status="failed", error=str(e))
