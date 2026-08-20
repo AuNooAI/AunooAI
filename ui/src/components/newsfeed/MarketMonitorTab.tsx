@@ -1401,11 +1401,60 @@ export function MarketMonitorTab() {
               ))}
             </select>
             <div className="flex-1" />
-            <button disabled={busy}
-              onClick={() => applyFilterToggle({ funding_status: ['Disclosed'] }, true, true)}
-              className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 disabled:opacity-50">
-              Preview: collect funded only
-            </button>
+            <span className="text-sm text-slate-500">
+              {shown.length} of {vendors?.length ?? 0} shown
+            </span>
+          </div>
+
+          {/* Bulk selection. Two switches, stated separately, because they are
+              independent and cost different things: collection spends on
+              fetching a vendor, brand monitoring puts it in Brand Watcher. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="border rounded-lg p-3 bg-white">
+              <div className="text-sm font-medium text-slate-800">Collection</div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Watch the vendor&apos;s website and LinkedIn.{' '}
+                {vendors ? `${vendors.filter(v => v.collection_enabled).length} on.` : ''}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, true, false)}
+                  className={BULK_BTN}>Select all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, false, false)}
+                  className={BULK_BTN}>Remove all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle({ funding_status: ['Disclosed'] },
+                                                   true, false)}
+                  className={BULK_BTN}>Select funded</button>
+              </div>
+            </div>
+
+            <div className="border rounded-lg p-3 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Brand monitoring
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Also track as a brand, with its own sentiment and alerts.{' '}
+                {vendors
+                  ? `${vendors.filter(v => v.brand_monitoring_enabled).length} on.`
+                  : ''}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, true, false,
+                                                   'brand_monitoring')}
+                  className={BULK_BTN}>Select all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, false, false,
+                                                   'brand_monitoring')}
+                  className={BULK_BTN}>Remove all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle({ funding_status: ['Disclosed'] },
+                                                   true, false, 'brand_monitoring')}
+                  className={BULK_BTN}>Select funded</button>
+              </div>
+            </div>
           </div>
 
           <div className="overflow-x-auto border rounded-lg bg-white">
@@ -1413,7 +1462,7 @@ export function MarketMonitorTab() {
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
                   {['Vendor', 'Sub-category', 'Country', 'Founded', 'Staff',
-                    'Funding', 'Links', 'Collecting'].map(h => (
+                    'Funding', 'Links', 'Collecting', 'Brand'].map(h => (
                     <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -1448,10 +1497,39 @@ export function MarketMonitorTab() {
                           <Linkedin className="w-4 h-4" aria-label="LinkedIn" />)}
                       </div>
                     </td>
+                    {/* Both switches, per vendor. Clicking one toggles just
+                        that vendor, so a single exception does not need a
+                        filter rule written for it. */}
                     <td className="px-3 py-2">
-                      {v.collection_enabled
-                        ? <ToggleRight className="w-5 h-5 text-emerald-600" />
-                        : <ToggleLeft className="w-5 h-5 text-slate-300" />}
+                      <button disabled={busy}
+                        title={v.collection_enabled
+                          ? 'Stop collecting for this vendor'
+                          : 'Collect for this vendor'}
+                        onClick={e => {
+                          e.stopPropagation();
+                          applyFilterToggle({ brand_ids: [v.brand_id] },
+                                            !v.collection_enabled, false);
+                        }}>
+                        {v.collection_enabled
+                          ? <ToggleRight className="w-5 h-5 text-emerald-600" />
+                          : <ToggleLeft className="w-5 h-5 text-slate-300" />}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button disabled={busy}
+                        title={v.brand_monitoring_enabled
+                          ? 'Stop monitoring as a brand'
+                          : 'Monitor as a brand'}
+                        onClick={e => {
+                          e.stopPropagation();
+                          applyFilterToggle({ brand_ids: [v.brand_id] },
+                                            !v.brand_monitoring_enabled, false,
+                                            'brand_monitoring');
+                        }}>
+                        {v.brand_monitoring_enabled
+                          ? <ToggleRight className="w-5 h-5 text-sky-600" />
+                          : <ToggleLeft className="w-5 h-5 text-slate-300" />}
+                      </button>
                     </td>
                   </tr>
                 ))}

@@ -482,7 +482,8 @@ async def list_vendors(
         try:
             _load_market(conn, market_id)
             sql = """SELECT mb.brand_id, mb.role, mb.sort_order, mb.is_public,
-                            mb.collection_enabled, mb.review_status, mb.baseline,
+                            mb.collection_enabled, mb.brand_monitoring_enabled,
+                            mb.review_status, mb.baseline,
                             b.name AS slug, b.display_name, b.enabled,
                             (SELECT json_agg(json_build_object(
                                  'kind', i.kind, 'value', i.display_value,
@@ -530,11 +531,16 @@ async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
             detail="Specify at least one filter field or an explicit brand_ids "
                    "list. An empty rule is not treated as 'all vendors'.",
         )
-    if not payload.filter.roles:
+    if not payload.filter.roles and not payload.filter.brand_ids:
         # A rule about funding or headcount says nothing about scope. Without
         # this, "collect for every funded vendor" also switches on the rows an
         # analyst marked out of scope — Edge Delta is funded and excluded. Ask
         # for them by naming the role.
+        #
+        # Naming brand_ids is exempt because it is not a rule: it is a choice
+        # about specific vendors, as deliberate as naming a role. Without the
+        # exemption a per-vendor toggle on an excluded row silently does
+        # nothing, which is worse than either outcome.
         where += " AND mb.role <> 'excluded'"
 
     def _work():
@@ -1987,7 +1993,8 @@ async def vendor_detail(market_id: int, brand_id: int,
         try:
             _load_market(conn, market_id)
             row = conn.execute(text("""
-                SELECT mb.brand_id, mb.role, mb.collection_enabled, mb.is_public,
+                SELECT mb.brand_id, mb.role, mb.collection_enabled,
+                       mb.brand_monitoring_enabled, mb.is_public,
                        mb.review_status, mb.baseline, mb.sort_order,
                        b.name AS slug, b.display_name, b.enabled, b.brand_keywords
                 FROM bw_market_brands mb

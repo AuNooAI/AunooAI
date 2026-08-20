@@ -2,6 +2,56 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (vendor selection) — the bulk controls were real but buried
+
+### Goal
+The brand-monitoring bulk controls existed after the previous change but nobody could find them:
+they were in the settings drawer, under Collection, while vendor selection is something you do on
+the Vendors tab looking at the vendor list.
+
+### Moved to where the vendors are — `MarketMonitorTab.tsx`
+Two cards above the vendor table, one per switch, each with **Select all / Remove all / Select
+funded** and a live count of how many are currently on. The switches are stated separately
+because they are independent and cost different things: collection spends on fetching a vendor,
+brand monitoring puts it in Brand Watcher with its own sentiment and alerts.
+
+The table gains a **Brand** column, and both toggles are now clickable per row — a single
+exception no longer needs a filter rule written for it. Collection is green, brand monitoring
+blue, matching the practitioner/vendor colour split used in Coverage.
+
+`GET /markets/{id}/vendors` and the vendor detail route now return
+`brand_monitoring_enabled`, which they did not, so the UI had no way to render the state at all.
+
+### An explicit vendor list now bypasses the excluded guard
+`set_vendor_collection` appends `AND mb.role <> 'excluded'` to any rule that does not name a role,
+so a broad rule cannot sweep in vendors an analyst marked out of scope. That guard is right for a
+rule and wrong for a per-vendor toggle: clicking the switch on an excluded row matched nothing and
+silently did nothing.
+
+`brand_ids` is now exempt. Naming a vendor by id is not a rule, it is a choice about that vendor,
+as deliberate as naming a role.
+
+### Verification
+All three brand-monitoring bulk actions over HTTP:
+
+```
+Select all     matched 82, changed 44, 1 keyword list rewritten
+Remove all     matched 82, changed 82
+Select funded  matched 38, changed 38
+```
+
+After: 38 vendors brand-monitored and 38 `bw_brands.enabled` — the two stay in step, which is
+what makes the switch work without changing Brand Watcher's own queries.
+
+Guard behaviour, both directions: a per-vendor toggle on the excluded vendor (brand_id 125)
+matched 1 and changed 1, then toggled back. The bulk "funded" rule still returns 38 and does not
+include Edge Delta, which is funded and excluded.
+
+`npm run typecheck` clean against baseline. Rebuilt, restarted, active, no runs in flight.
+
+### Propagation
+bugfixing (canonical) only.
+
 ## 2026-08-20 (social, glassdoor, selection) — practitioner posts surface, and Glassdoor was reading the wrong companies
 
 ### Goal

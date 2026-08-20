@@ -69,6 +69,8 @@ export interface Vendor {
   sort_order: number;
   is_public: boolean;
   collection_enabled: boolean;
+  /** Whether this vendor is also a Brand Watcher brand in its own right. */
+  brand_monitoring_enabled: boolean;
   review_status: string;
   enabled: boolean;
   baseline: VendorBaseline;
