@@ -119,6 +119,27 @@ _register(AnalysisModule(
     frontend_tab_icon="Target",
 ))
 
+# --- Market Monitor -----------------------------------------------------------
+# Extends Brand Watcher rather than duplicating it: a market is a portfolio of
+# bw_brands plus the question that makes them comparable. Its own module so the
+# whole thing — including anything that spends money at a provider — can be
+# switched off from the Explore gear icon.
+_register(AnalysisModule(
+    id="market_monitor",
+    name="Market Monitor",
+    description="Tracked vendor markets: registry import, LinkedIn and website "
+                "monitoring, and material-change events across a competitive set.",
+    route_module="app.routes.market_monitor_routes",
+    route_prefix="/api/market-monitor",
+    task_module="app.tasks.market_monitor",
+    task_function="run_market_monitor",
+    task_delay=55,
+    migration_prefix="mm_",
+    frontend_tab_id="market_monitor",
+    frontend_tab_label="Market Monitor",
+    frontend_tab_icon="LineChart",
+))
+
 # --- Threat Intelligence ----------------------------------------------------
 _register(AnalysisModule(
     id="threat_intel",

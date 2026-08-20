@@ -54,10 +54,24 @@ _SIG_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 # ---------------------------------------------------------------------------
 
 def get_timeline_scopes(conn) -> List[Dict[str, Any]]:
-    """All timeline scopes: enabled brands + active non-brand-lane topics."""
+    """All timeline scopes: enabled brands + active non-brand-lane topics.
+
+    Market-registry vendors are excluded. Daily extraction is one LLM call per
+    scope per day, so an 82-vendor market would add 82 calls a day to say what
+    the market's own topic timeline already says. The market is the scope; the
+    vendors are what it is measured against.
+    """
+    has_markets = conn.execute(text(
+        "SELECT to_regclass('public.bw_market_brands')")).scalar()
+    market_filter = ("""
+        AND NOT EXISTS (SELECT 1 FROM bw_market_brands mb
+                        WHERE mb.brand_id = bw_brands.id)
+    """ if has_markets else "")
+
     scopes: List[Dict[str, Any]] = []
     for bid, bname in conn.execute(text(
-            "SELECT id, display_name FROM bw_brands WHERE enabled = true ORDER BY id")).fetchall():
+            "SELECT id, display_name FROM bw_brands WHERE enabled = true "
+            f"{market_filter} ORDER BY id")).fetchall():
         scopes.append({"scope_type": "brand", "scope_id": str(bid), "label": bname})
     for topic, in conn.execute(text("""
             SELECT DISTINCT topic FROM keyword_groups

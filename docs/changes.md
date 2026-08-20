@@ -2,6 +2,149 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 — Market Monitor: a tracked vendor market on top of Brand Watcher
+
+### Goal
+Track the AI-led SOC automation market and report on it, seeded from an 83-vendor IT-Harvest
+workbook. The same design was built first in `saasmvp-app/` because the supplied specification
+was written against that architecture; this is the monolith build, and the two will diverge.
+
+### Registry and import — `app/services/market_import.py`, `alembic/versions/mm_001_market_monitor.py`
+A market is a set of `bw_brands` plus the question that makes them comparable. Migration `mm_001`
+adds eight tables (`bw_markets`, `bw_market_brands`, `bw_vendor_identifiers`,
+`bw_vendor_snapshots`, `bw_collection_runs`, `bw_review_tasks`, `bw_market_events`,
+`bw_event_vendors`). No tenant column and no RLS: a monolith deployment is one customer, so a
+tenant column would always hold the same value.
+
+The importer refuses to guess, and three rules came out of the workbook itself. A parenthetical
+is only a former name when it says so, so `Variance (was Intrinsic)` yields the alias
+"Intrinsic" while `Strike48 (A Devo company)` yields a review task rather than an alias called
+"A Devo company". An empty funding cell stays empty — 44 of 83 rows are Undisclosed or
+Bootstrapped, and writing 0 would turn "we don't know" into "they raised nothing". Two vendors
+resolving to one LinkedIn page is a merge nobody has made yet, so the later row loses the
+identifier and both companies are named in a high-severity task.
+
+That last rule earned itself. Crogl and System Two Security both carried
+`linkedin.com/company/system-two-security`. Without detection the partial unique index would
+have swallowed one insert silently; with it, the crossed URL surfaced later as a fabricated 85%
+headcount collapse in the brief, traced back, and was corrected from both vendors' own websites
+(Crogl is `/company/crogl`, System Two is `/company/detectionsai`).
+
+### Collection — `app/tasks/market_monitor.py`, `app/services/market_collect.py`
+What gets collected is the market's own language, not 82 company names. A market brief is about
+where the category is moving, and a third of this registry is single-word names — Nua, Joon,
+Mave, Cantina — that pull a media company, a first name and a restaurant. Fourteen market terms
+plus the 38 funded vendors by name, with eight ambiguous ones carrying `security` as a second
+required word. One keyword group for the whole market, because Brand Watcher's own
+`setup-monitoring` makes a group per brand and 82 groups would each poll the news providers on
+their own interval.
+
+Every source has its own cadence: posts and page state 12-hourly, LinkedIn profiles and
+Crunchbase weekly, job listings twice weekly, funding discovery daily, site rediscovery monthly.
+Per-market overrides live in `bw_markets.config['sources']` with a six-hour floor.
+
+Market topics are excluded from `run_collection_cycle`. The saas database had 17 active topics;
+giving 82 vendors a topic each would have been a 5.8x increase in the platform-wide 15-minute
+cycle for every tenant. The monolith avoids that differently — Brand Watcher classifies a shared
+corpus — but the exclusion is in place for the same reason.
+
+### Bright Data — `app/services/brightdata_linkedin.py`, `app/routes/market_monitor_routes.py`
+LinkedIn company profiles and posts, Crunchbase companies, LinkedIn job listings. The callback
+is mounted at `/api/market-monitor/webhooks/brightdata/linkedin` and declares no
+`verify_session` — a provider has no session. It authenticates on a shared secret the provider
+echoes back, fails closed on an unset secret, and takes its market from the run row rather than
+from anything in the request body.
+
+Field names were mapped against real payloads, not the documentation, and three were wrong. The
+company on a post is in `discovery_input.url`; there is no `company_url`, and matching on
+anything else made all 404 records in the first batch unattributable. `user_name` is the display
+name and `user_id` is the slug. `headline` is the human first line while `title` is hashtag soup.
+Crunchbase carries no dollar amounts at all — `funds_total` is empty and the detailed rounds have
+investors and titles but no `money_raised` — so it cannot fill a registry's undisclosed figures.
+What it does carry is round counts, named investors with lead flags, IPO status, and Crunchbase's
+own growth, heat and rank scores.
+
+### Incident — a lost callback, and a duplicate batch
+Two cost defects, both found by running it rather than by reading it.
+
+Bright Data completed a 404-record posts job and never called back; the profile job's callback
+arrived normally. Records are billed when the provider collects them, so a run stuck in
+`running` is money already spent waiting on a message that is not coming. `_reconcile_open_jobs`
+now polls `/progress` for any run older than ten minutes with a job id, fetches the snapshot when
+ready, and ingests it. The webhook is an optimisation; the poll is the guarantee.
+
+Separately, `_is_due` looked only at the last *success*, so a job still collecting looked overdue
+and fired again — run 9 went out ten minutes after run 8 and duplicated the same 406-record
+batch. `_in_flight` now suppresses a source with a queued or running job.
+
+### Discovery and outputs — `app/services/market_discovery.py`, `app/services/market_publish.py`
+New entrants are found by reading the market's own funding coverage: funding sentences are
+formulaic, so a deterministic extractor pulls the company being funded without an LLM call per
+article. Investors and publications are filtered out by name markers. Candidates become review
+tasks with the article behind them; nothing is added to the registry on a headline's say-so.
+A `topic_alignment_score` floor of 0.4 gates it — a fibre-optics raise mentioning data centres
+scored 0.1 and produced a candidate before the floor existed.
+
+Outputs are a dataset (`/dataset?fmt=csv|json`, one row per vendor, 28 columns), an RSS feed of
+the market timeline (`/feed.xml`), and a brief (`/brief?days=7`) with events by significance,
+headcount movers, loudest vendors, coverage and open questions. Workbook headcount and LinkedIn
+headcount are separate columns on purpose: they disagree, and that disagreement is the signal.
+
+### Timeline scope — `app/services/timeline_events.py`
+The market is already a timeline scope, because any active keyword-group topic becomes one. But
+all 83 vendors are `bw_brands` rows and had each become a scope too, and daily extraction is one
+LLM call per scope per day. Market-registry vendors are now excluded, guarded with `to_regclass`
+so the shared code still works on tenants without the table. Scopes went from 88 to 7.
+
+### UI — `ui/src/components/newsfeed/MarketMonitorTab.tsx`
+A Market Monitor tab in Explore, registered as its own module so it can be switched off from the
+gear icon. Views: Brief (charts for headcount movement and posting volume, plus dataset and feed
+links), Timeline, Vendors, Collection, New entrants, Review, Source health.
+
+### Keyword groups and topics trimmed
+Ten keyword groups and nine `config.json` topics removed at Oliver's request, keeping AI,
+Scientific Publishers - General Monitoring, Trump Administration Tracker, Geopolitical Hotspots
+and Market Monitoring SOC Automation. 86,316 `keyword_article_matches` rows cascaded. No articles
+were deleted; 92,433 of 205,143 now carry a topic with no ontology behind it, so they stay
+searchable but cannot be enriched. Backup in `backups/keyword_purge_20260820_085019/`.
+
+Brand Watcher stays enabled even though its Wiley groups were removed: its classifier is what
+attributes articles to `bw_brands`, and the market's 38 watched vendors are `bw_brands`.
+
+### Verification
+`pytest tests/test_market_import.py tests/test_market_collection.py` — 32 passed. The wider suite
+is unchanged at 128 failed / 31 errors, the same before and after.
+
+Live on bugfixing, market id 2, measured 2026-08-20:
+83 registry rows, 38 watched, 562 LinkedIn posts stored and attributed, 19 company profiles,
+19 Crunchbase records, 91 page snapshots, 7 vendor feeds registered, 4 timeline events,
+7 successful collection runs, 4 failed, 27 open review tasks.
+
+Field mapping confirmed against real records: 7ai 145 staff / 13,111 followers, exaforce 128,
+Qevlar 79. Crunchbase: exaforce 3 rounds ending series_b with AWS and Khosla as leads, growth
+score 91.
+
+### Propagation
+Monolith-only, and bugfixing-only. Not copied to wiley, wileytest or wbm — the feature is new and
+unproven, and `mm_001` would need applying per tenant. The saas build lives in `saasmvp-app/`
+under its own uncommitted change set with `market_monitor_01` / `market_vendor_toggle_01`; the two
+implementations are separate and will diverge.
+
+Requires in `.env`: `MARKET_MONITORING_ENABLED`, `BRIGHTDATA_API_KEY`,
+`BRIGHTDATA_LINKEDIN_ENABLED`, `BRIGHTDATA_LINKEDIN_WEBHOOK_SECRET`, `APP_URL`. `APP_URL` must be
+the public origin or every async batch is paid for and never claimed.
+
+### Lessons
+NEVER trust a provider's documented field names — map against a real payload before shipping the
+mapper. Three of the LinkedIn post fields were wrong, and the failure mode was 404 records
+claimed and zero stored.
+
+NEVER treat a webhook as the delivery guarantee for billed work. Store the provider job id and
+poll for anything that has not landed.
+
+ALWAYS check whether an in-flight job suppresses the next schedule decision. A cadence computed
+from last-success alone will re-fire and pay twice.
+
 ## 2026-08-19 (evening) — Authorization gate for the E5 classifier, and a drain that cannot race
 
 ### Goal

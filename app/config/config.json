@@ -1,776 +1,488 @@
 {
-    "topics": [
+  "topics": [
+    {
+      "name": "Scientific Publishers - General Monitoring",
+      "description": "General monitoring of scientific publishing industry trends and developments",
+      "categories": [
+        "Market Trends",
+        "Mergers & Acquisitions",
+        "Business Models",
+        "Technology",
+        "Other"
+      ],
+      "future_signals": [
+        "Industry consolidation",
+        "New entrants",
+        "Business model shifts",
+        "Technology disruption"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "AI and Machine Learning",
+      "description": "Tracking developments in artificial intelligence and machine learning",
+      "categories": [
+        "AI Warbots",
+        "AI Business",
+        "Releases and Announcements",
+        "Sovereign AI & AI Nationalism",
+        "AI Copyright, Regulation, and Antitrust",
+        "AI at Work and Employment",
+        "AI and Society",
+        "AI Trust, Risk, and Security Management",
+        "AI in Finance",
+        "AI in Journalism",
+        "AI Healthcare",
+        "AI in Education",
+        "AI in Law and the Legal Profession",
+        "AI in Science",
+        "AI in Art and the Media",
+        "AI in Software Development",
+        "AI Ethics",
+        "AI and Robotics",
+        "AI in the Data Center",
+        "AI Carbon Footprint",
+        "The Path to AGI",
+        "Interesting Papers & Articles on Applied AI",
+        "Other"
+      ],
+      "future_signals": [
+        "Breakthrough discovery",
+        "Widespread adoption",
+        "Regulatory framework",
+        "Ethical concerns addressed"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Geopolitical Hotspots",
+      "description": "Monitoring geopolitical tensions and conflicts worldwide",
+      "categories": [
+        "Regional Conflicts",
+        "Trade Disputes",
+        "Diplomatic Relations",
+        "Sanctions",
+        "Military Activity",
+        "Other"
+      ],
+      "future_signals": [
+        "Escalation",
+        "De-escalation",
+        "New alliances",
+        "Economic impact"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    },
+    {
+      "name": "Trump Administration Tracker",
+      "description": "Tracking executive actions, policy changes, and institutional impacts of the Trump administration. Monitors actions affecting democratic norms, federal institutions, civil rights, science policy, education, information control, and foreign policy. Based on taxonomy from trumpactiontracker.info.",
+      "categories": [
+        "Undermining Democracy",
+        "Hollowing State",
+        "Suppressing Dissent",
+        "Controlling Information",
+        "Attacking Science",
+        "Attacking Education",
+        "Weakening Civil Rights",
+        "Corruption",
+        "Foreign Policy",
+        "Nationalism & Immigration"
+      ],
+      "future_signals": [
+        "Democratic norm violation",
+        "Institutional weakening",
+        "Rights rollback",
+        "Policy reversal",
+        "International tension",
+        "Accountability action"
+      ],
+      "sentiment": [
+        "Alarming",
+        "Concerning",
+        "Neutral",
+        "Positive Development"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Executive Order",
+        "Policy Change",
+        "Personnel Action",
+        "Legal Action",
+        "Legislative Push",
+        "Regulatory Change",
+        "Other"
+      ],
+      "keywords": [
+        "Trump",
+        "executive order",
+        "Trump administration",
+        "DOGE",
+        "Elon Musk government",
+        "federal workforce",
+        "government efficiency",
+        "deportation",
+        "immigration enforcement",
+        "ICE raids",
+        "birthright citizenship",
+        "tariffs",
+        "trade war",
+        "NATO",
+        "Ukraine aid",
+        "DOJ",
+        "Department of Justice",
+        "FBI",
+        "inspector general",
+        "whistleblower",
+        "civil service",
+        "federal employees",
+        "government shutdown",
+        "Schedule F",
+        "politicization",
+        "loyalty test",
+        "pardons",
+        "January 6",
+        "insurrection",
+        "election denial",
+        "voter fraud claims",
+        "press freedom",
+        "journalist",
+        "media access",
+        "disinformation",
+        "misinformation",
+        "propaganda",
+        "CDC",
+        "FDA",
+        "NIH",
+        "scientific integrity",
+        "climate denial",
+        "EPA",
+        "environmental rollback",
+        "university funding",
+        "DEI",
+        "diversity equity inclusion",
+        "critical race theory",
+        "book bans",
+        "curriculum",
+        "Title IX",
+        "transgender rights",
+        "LGBTQ",
+        "abortion",
+        "reproductive rights",
+        "voting rights",
+        "civil rights rollback",
+        "emoluments",
+        "conflict of interest",
+        "corruption",
+        "nepotism",
+        "self-dealing",
+        "foreign policy",
+        "alliance",
+        "NATO withdrawal",
+        "Russia",
+        "Putin",
+        "China tariffs",
+        "border wall",
+        "mass deportation",
+        "denaturalization",
+        "asylum",
+        "refugee",
+        "Muslim ban",
+        "travel ban"
+      ]
+    },
+    {
+      "name": "Market Monitoring SOC Automation",
+      "description": "Market monitoring topic for SOC Automation. Tracks vendor coverage, positioning and material change across the market's registry.",
+      "categories": [
+        "Product & Innovation",
+        "Financial Performance",
+        "Leadership & Governance",
+        "Brand Sentiment & Perception",
+        "Competitive Landscape",
+        "Legal & Regulatory",
+        "Partnerships & Alliances",
+        "ESG & Social Responsibility",
+        "Customer & Product Issues",
+        "Market Strategy & Expansion",
+        "Media & Advertising"
+      ],
+      "future_signals": [
+        "Vendor gaining momentum",
+        "Vendor losing momentum",
+        "New entrant",
+        "Consolidation underway",
+        "Category boundary shifting",
+        "Funding cycle turning",
+        "Customer adoption accelerating",
+        "Competitive threat detected"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
+    }
+  ],
+  "ai_models": [
+    {
+      "name": "gpt-4.1-mini",
+      "provider": "openai"
+    },
+    {
+      "name": "gpt-4o",
+      "provider": "openai"
+    },
+    {
+      "name": "gpt-4o-mini",
+      "provider": "openai"
+    },
+    {
+      "name": "gpt-4.1",
+      "provider": "openai"
+    },
+    {
+      "name": "gpt-4.1-nano",
+      "provider": "openai"
+    },
+    {
+      "name": "mixtral-8x7b",
+      "provider": "huggingface"
+    },
+    {
+      "name": "claude-4-sonnet-latest",
+      "provider": "anthropic"
+    },
+    {
+      "name": "claude-3-7-sonnet-latest",
+      "provider": "anthropic"
+    },
+    {
+      "name": "claude-3-5-sonnet-latest",
+      "provider": "anthropic"
+    },
+    {
+      "name": "gemini-pro",
+      "provider": "gemini"
+    },
+    {
+      "name": "gemini-2.0-flash-exp",
+      "provider": "gemini"
+    },
+    {
+      "name": "mixtral",
+      "provider": "aunooai"
+    },
+    {
+      "name": "mixtral-instruct",
+      "provider": "aunooai"
+    },
+    {
+      "name": "qwen3:14b",
+      "provider": "aunooai"
+    },
+    {
+      "name": "gemma3:27b",
+      "provider": "aunooai"
+    },
+    {
+      "name": "phi4-reasoning",
+      "provider": "ollama"
+    },
+    {
+      "name": "llama3.1",
+      "provider": "ollama"
+    },
+    {
+      "name": "mistral-small3.1",
+      "provider": "ollama"
+    },
+    {
+      "name": "gemma3:4b",
+      "provider": "ollama"
+    },
+    {
+      "name": "bedrock-claude-haiku",
+      "provider": "bedrock"
+    }
+  ],
+  "providers": [
+    {
+      "name": "newsapi",
+      "display_name": "NewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from various sources worldwide",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_NEWSAPI_API_KEY",
+      "api_key_description": "Your NewsAPI API key",
+      "api_key_placeholder": "Enter your NewsAPI key",
+      "api_key_help": "Get your API key from https://newsapi.org/account"
+    },
+    {
+      "name": "newsdata",
+      "display_name": "NewsData.io",
+      "config_type": "api_key",
+      "description": "Access news articles with full content from NewsData.io",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_NEWSDATA_API_KEY",
+      "api_key_description": "Your NewsData.io API key",
+      "api_key_placeholder": "Enter your NewsData.io API key",
+      "api_key_help": "Get your API key from https://newsdata.io/account"
+    },
+    {
+      "name": "thenewsapi",
+      "display_name": "TheNewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from TheNewsAPI service",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_THENEWSAPI_API_KEY",
+      "api_key_description": "Your TheNewsAPI API key",
+      "api_key_placeholder": "Enter your TheNewsAPI key",
+      "api_key_help": "Get your API key from https://thenewsapi.com/account"
+    },
+    {
+      "name": "firecrawl",
+      "display_name": "Firecrawl Scraper",
+      "config_type": "api_key",
+      "description": "Scrape websites for news articles",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_FIRECRAWL_API_KEY",
+      "api_key_description": "Your Firecrawl API key",
+      "api_key_placeholder": "Enter your Firecrawl API key",
+      "api_key_help": "Get your API key from https://firecrawl.dev"
+    },
+    {
+      "name": "arxiv",
+      "display_name": "ArXiv",
+      "config_type": "none",
+      "description": "Access scientific papers and research articles",
+      "enabled": true
+    },
+    {
+      "name": "bluesky",
+      "display_name": "Bluesky",
+      "config_type": "username_password",
+      "description": "Access posts from the Bluesky social network",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_BLUESKY_USERNAME",
+      "api_key_description": "Your Bluesky username and password",
+      "api_key_placeholder": "Enter your Bluesky handle",
+      "api_key_help": "Your Bluesky handle (e.g. example.bsky.social or email)",
+      "extra_fields": [
         {
-            "name": "U.S. Federal R&D Pullback",
-            "description": "Tracking U.S. federal research and development funding changes and policy shifts",
-            "categories": [
-                "Policy Changes",
-                "Budget Cuts",
-                "Agency Restructuring",
-                "Research Priorities",
-                "Other"
-            ],
-            "future_signals": [
-                "Significant funding reduction",
-                "Program cancellation",
-                "Policy reversal",
-                "Budget restoration"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Open Science Transition Uncertainty",
-            "description": "Tracking the transition to open science practices and associated uncertainties",
-            "categories": [
-                "Open Access",
-                "Data Sharing",
-                "Preprints",
-                "Policy Changes",
-                "Publisher Response",
-                "Other"
-            ],
-            "future_signals": [
-                "Widespread adoption",
-                "Resistance from publishers",
-                "Hybrid models emerge",
-                "Regulatory mandates"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "University Grants & Science Infrastructure Impact",
-            "description": "Tracking impacts on university grants and scientific infrastructure",
-            "categories": [
-                "Grant Funding",
-                "Infrastructure Investment",
-                "Research Facilities",
-                "Equipment",
-                "Staffing",
-                "Other"
-            ],
-            "future_signals": [
-                "Funding increase",
-                "Funding decrease",
-                "Infrastructure modernization",
-                "Facility closures"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Compensatory R&D Investment Abroad",
-            "description": "Tracking R&D investment shifts to foreign markets compensating for domestic changes",
-            "categories": [
-                "Foreign Investment",
-                "Relocation",
-                "Partnerships",
-                "Talent Migration",
-                "Other"
-            ],
-            "future_signals": [
-                "Investment surge abroad",
-                "Talent exodus",
-                "Return of investment",
-                "New research hubs"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Attacks on Expertise & Peer Review",
-            "description": "Tracking challenges to scientific expertise and the peer review process",
-            "categories": [
-                "Misinformation",
-                "Policy Attacks",
-                "Peer Review Criticism",
-                "Expert Credibility",
-                "Other"
-            ],
-            "future_signals": [
-                "Increased skepticism",
-                "Reform movements",
-                "Alternative review systems",
-                "Expert rehabilitation"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Publishing & Integrity Organizations Watch List",
-            "description": "Monitoring publishing integrity organizations and their activities",
-            "categories": [
-                "Retractions",
-                "Misconduct",
-                "Policy Updates",
-                "Standards",
-                "Other"
-            ],
-            "future_signals": [
-                "New standards adopted",
-                "Major retractions",
-                "Organization changes",
-                "Industry consolidation"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Scientific Publishers - General Monitoring",
-            "description": "General monitoring of scientific publishing industry trends and developments",
-            "categories": [
-                "Market Trends",
-                "Mergers & Acquisitions",
-                "Business Models",
-                "Technology",
-                "Other"
-            ],
-            "future_signals": [
-                "Industry consolidation",
-                "New entrants",
-                "Business model shifts",
-                "Technology disruption"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Patent Cliffs",
-            "description": "Tracking pharmaceutical and technology patent expirations and their market impact",
-            "categories": [
-                "Pharmaceutical",
-                "Technology",
-                "Generic Entry",
-                "Market Impact",
-                "Other"
-            ],
-            "future_signals": [
-                "Major expirations",
-                "Generic launches",
-                "Market disruption",
-                "Innovation response"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "AI and Machine Learning",
-            "description": "Tracking developments in artificial intelligence and machine learning",
-            "categories": [
-                "AI Warbots",
-                "AI Business",
-                "Releases and Announcements",
-                "Sovereign AI & AI Nationalism",
-                "AI Copyright, Regulation, and Antitrust",
-                "AI at Work and Employment",
-                "AI and Society",
-                "AI Trust, Risk, and Security Management",
-                "AI in Finance",
-                "AI in Journalism",
-                "AI Healthcare",
-                "AI in Education",
-                "AI in Law and the Legal Profession",
-                "AI in Science",
-                "AI in Art and the Media",
-                "AI in Software Development",
-                "AI Ethics",
-                "AI and Robotics",
-                "AI in the Data Center",
-                "AI Carbon Footprint",
-                "The Path to AGI",
-                "Interesting Papers & Articles on Applied AI",
-                "Other"
-            ],
-            "future_signals": [
-                "Breakthrough discovery",
-                "Widespread adoption",
-                "Regulatory framework",
-                "Ethical concerns addressed"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Geopolitical Hotspots",
-            "description": "Monitoring geopolitical tensions and conflicts worldwide",
-            "categories": [
-                "Regional Conflicts",
-                "Trade Disputes",
-                "Diplomatic Relations",
-                "Sanctions",
-                "Military Activity",
-                "Other"
-            ],
-            "future_signals": [
-                "Escalation",
-                "De-escalation",
-                "New alliances",
-                "Economic impact"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
-        },
-        {
-            "name": "Trump Administration Tracker",
-            "description": "Tracking executive actions, policy changes, and institutional impacts of the Trump administration. Monitors actions affecting democratic norms, federal institutions, civil rights, science policy, education, information control, and foreign policy. Based on taxonomy from trumpactiontracker.info.",
-            "categories": [
-                "Undermining Democracy",
-                "Hollowing State",
-                "Suppressing Dissent",
-                "Controlling Information",
-                "Attacking Science",
-                "Attacking Education",
-                "Weakening Civil Rights",
-                "Corruption",
-                "Foreign Policy",
-                "Nationalism & Immigration"
-            ],
-            "future_signals": [
-                "Democratic norm violation",
-                "Institutional weakening",
-                "Rights rollback",
-                "Policy reversal",
-                "International tension",
-                "Accountability action"
-            ],
-            "sentiment": [
-                "Alarming",
-                "Concerning",
-                "Neutral",
-                "Positive Development"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Executive Order",
-                "Policy Change",
-                "Personnel Action",
-                "Legal Action",
-                "Legislative Push",
-                "Regulatory Change",
-                "Other"
-            ],
-            "keywords": [
-                "Trump",
-                "executive order",
-                "Trump administration",
-                "DOGE",
-                "Elon Musk government",
-                "federal workforce",
-                "government efficiency",
-                "deportation",
-                "immigration enforcement",
-                "ICE raids",
-                "birthright citizenship",
-                "tariffs",
-                "trade war",
-                "NATO",
-                "Ukraine aid",
-                "DOJ",
-                "Department of Justice",
-                "FBI",
-                "inspector general",
-                "whistleblower",
-                "civil service",
-                "federal employees",
-                "government shutdown",
-                "Schedule F",
-                "politicization",
-                "loyalty test",
-                "pardons",
-                "January 6",
-                "insurrection",
-                "election denial",
-                "voter fraud claims",
-                "press freedom",
-                "journalist",
-                "media access",
-                "disinformation",
-                "misinformation",
-                "propaganda",
-                "CDC",
-                "FDA",
-                "NIH",
-                "scientific integrity",
-                "climate denial",
-                "EPA",
-                "environmental rollback",
-                "university funding",
-                "DEI",
-                "diversity equity inclusion",
-                "critical race theory",
-                "book bans",
-                "curriculum",
-                "Title IX",
-                "transgender rights",
-                "LGBTQ",
-                "abortion",
-                "reproductive rights",
-                "voting rights",
-                "civil rights rollback",
-                "emoluments",
-                "conflict of interest",
-                "corruption",
-                "nepotism",
-                "self-dealing",
-                "foreign policy",
-                "alliance",
-                "NATO withdrawal",
-                "Russia",
-                "Putin",
-                "China tariffs",
-                "border wall",
-                "mass deportation",
-                "denaturalization",
-                "asylum",
-                "refugee",
-                "Muslim ban",
-                "travel ban"
-            ]
-        },
-        {
-            "name": "Brand Monitoring Wiley",
-            "description": "Brand monitoring topic for Wiley. Tracks brand mentions, sentiment, competitive positioning, and reputation across news articles.",
-            "categories": [
-                "Product & Innovation",
-                "Financial Performance",
-                "Leadership & Governance",
-                "Brand Sentiment & Perception",
-                "Competitive Landscape",
-                "Legal & Regulatory",
-                "Partnerships & Alliances",
-                "ESG & Social Responsibility",
-                "Customer & Product Issues",
-                "Market Strategy & Expansion",
-                "Media & Advertising"
-            ],
-            "future_signals": [
-                "Brand gaining momentum",
-                "Brand losing momentum",
-                "Reputation risk emerging",
-                "Competitive threat detected",
-                "Market opportunity identified",
-                "Crisis developing",
-                "Positive PR wave",
-                "Regulatory action pending"
-            ],
-            "sentiment": [
-                "Optimistic",
-                "Cautious",
-                "Neutral",
-                "Concerned",
-                "Pessimistic"
-            ],
-            "time_to_impact": [
-                "Immediate",
-                "Short-term",
-                "Mid-term",
-                "Long-term"
-            ],
-            "driver_types": [
-                "Catalyst",
-                "Accelerator",
-                "Delayer",
-                "Blocker",
-                "Initiator",
-                "Terminator",
-                "Unknown"
-            ]
-        },
-        {
-            "name": "ASML Watch",
-            "description": "Tracking all news coverage of ASML, the Dutch semiconductor equipment maker. Any article whose main subject is ASML is on-topic, including corporate, financial, market, analyst, technology, and supply-chain developments, as well as acquisition and takeover interest (notably aggressive US acquisition moves), US pressure, Dutch and EU government or regulatory responses, and export-control and chip-sovereignty geopolitics.",
-            "categories": [
-                "Acquisition & Takeover Interest",
-                "Government & Regulatory Response",
-                "Export Controls & Chip Geopolitics",
-                "Corporate & Financial Performance",
-                "Technology & Supply Chain",
-                "Other"
-            ],
-            "future_signals": [
-                "Formal acquisition bid",
-                "Dutch or EU government intervention",
-                "US pressure escalation",
-                "Deal blocked or abandoned",
-                "Ownership or governance change"
-            ],
-            "sentiment": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ],
-            "time_to_impact": [
-                "Immediate (0-6 months)",
-                "Short-term (6-18 months)",
-                "Mid-term (18-60 months)",
-                "Long-term (60+ months)"
-            ],
-            "driver_types": [
-                "Initiator",
-                "Accelerator",
-                "Catalyst",
-                "Inhibitor",
-                "Blocker"
-            ]
+          "field": "PROVIDER_BLUESKY_PASSWORD",
+          "label": "Password",
+          "placeholder": "Enter your Bluesky password",
+          "type": "password"
         }
-    ],
-    "ai_models": [
+      ]
+    },
+    {
+      "name": "elevenlabs",
+      "display_name": "ElevenLabs",
+      "config_type": "api_key",
+      "enabled": true,
+      "description": "AI Voice Generation and Podcast Creation",
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_ELEVENLABS_API_KEY",
+      "api_key_description": "Your ElevenLabs API key",
+      "api_key_placeholder": "Enter your ElevenLabs API key",
+      "api_key_validation": "^sk_[a-zA-Z0-9]{32,}$",
+      "api_key_validation_message": "Invalid ElevenLabs API key format",
+      "api_key_help": "Get your API key from https://elevenlabs.io/account/api-key"
+    },
+    {
+      "name": "dia",
+      "display_name": "Dia TTS",
+      "config_type": "api_key",
+      "description": "Open-weights Text-to-Speech (dialogue) service",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_DIA_API_KEY",
+      "api_key_description": "Your Dia TTS API key",
+      "api_key_placeholder": "Enter Dia API key",
+      "api_key_help": "See https://github.com/nari-labs/dia for setup",
+      "extra_fields": [
         {
-            "name": "gpt-4.1-mini",
-            "provider": "openai"
-        },
-        {
-            "name": "gpt-4o",
-            "provider": "openai"
-        },
-        {
-            "name": "gpt-4o-mini",
-            "provider": "openai"
-        },
-        {
-            "name": "gpt-4.1",
-            "provider": "openai"
-        },
-        {
-            "name": "gpt-4.1-nano",
-            "provider": "openai"
-        },
-        {
-            "name": "mixtral-8x7b",
-            "provider": "huggingface"
-        },
-        {
-            "name": "claude-4-sonnet-latest",
-            "provider": "anthropic"
-        },
-        {
-            "name": "claude-3-7-sonnet-latest",
-            "provider": "anthropic"
-        },
-        {
-            "name": "claude-3-5-sonnet-latest",
-            "provider": "anthropic"
-        },
-        {
-            "name": "gemini-pro",
-            "provider": "gemini"
-        },
-        {
-            "name": "gemini-2.0-flash-exp",
-            "provider": "gemini"
-        },
-        {
-            "name": "mixtral",
-            "provider": "aunooai"
-        },
-        {
-            "name": "mixtral-instruct",
-            "provider": "aunooai"
-        },
-        {
-            "name": "qwen3:14b",
-            "provider": "aunooai"
-        },
-        {
-            "name": "gemma3:27b",
-            "provider": "aunooai"
-        },
-        {
-            "name": "phi4-reasoning",
-            "provider": "ollama"
-        },
-        {
-            "name": "llama3.1",
-            "provider": "ollama"
-        },
-        {
-            "name": "mistral-small3.1",
-            "provider": "ollama"
-        },
-        {
-            "name": "gemma3:4b",
-            "provider": "ollama"
-        },
-        {
-            "name": "bedrock-claude-haiku",
-            "provider": "bedrock"
+          "field": "PROVIDER_DIA_TTS_URL",
+          "label": "Dia Base URL",
+          "placeholder": "http://localhost:8000/v1/tts",
+          "type": "text"
         }
-    ],
-    "providers": [
-        {
-            "name": "newsapi",
-            "display_name": "NewsAPI",
-            "config_type": "api_key",
-            "description": "Access news articles from various sources worldwide",
-            "enabled": true,
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_NEWSAPI_API_KEY",
-            "api_key_description": "Your NewsAPI API key",
-            "api_key_placeholder": "Enter your NewsAPI key",
-            "api_key_help": "Get your API key from https://newsapi.org/account"
-        },
-        {
-            "name": "newsdata",
-            "display_name": "NewsData.io",
-            "config_type": "api_key",
-            "description": "Access news articles with full content from NewsData.io",
-            "enabled": true,
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_NEWSDATA_API_KEY",
-            "api_key_description": "Your NewsData.io API key",
-            "api_key_placeholder": "Enter your NewsData.io API key",
-            "api_key_help": "Get your API key from https://newsdata.io/account"
-        },
-        {
-            "name": "thenewsapi",
-            "display_name": "TheNewsAPI",
-            "config_type": "api_key",
-            "description": "Access news articles from TheNewsAPI service",
-            "enabled": true,
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_THENEWSAPI_API_KEY",
-            "api_key_description": "Your TheNewsAPI API key",
-            "api_key_placeholder": "Enter your TheNewsAPI key",
-            "api_key_help": "Get your API key from https://thenewsapi.com/account"
-        },
-        {
-            "name": "firecrawl",
-            "display_name": "Firecrawl Scraper",
-            "config_type": "api_key",
-            "description": "Scrape websites for news articles",
-            "enabled": true,
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_FIRECRAWL_API_KEY",
-            "api_key_description": "Your Firecrawl API key",
-            "api_key_placeholder": "Enter your Firecrawl API key",
-            "api_key_help": "Get your API key from https://firecrawl.dev"
-        },
-        {
-            "name": "arxiv",
-            "display_name": "ArXiv",
-            "config_type": "none",
-            "description": "Access scientific papers and research articles",
-            "enabled": true
-        },
-        {
-            "name": "bluesky",
-            "display_name": "Bluesky",
-            "config_type": "username_password",
-            "description": "Access posts from the Bluesky social network",
-            "enabled": true,
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_BLUESKY_USERNAME",
-            "api_key_description": "Your Bluesky username and password",
-            "api_key_placeholder": "Enter your Bluesky handle",
-            "api_key_help": "Your Bluesky handle (e.g. example.bsky.social or email)",
-            "extra_fields": [
-                {
-                    "field": "PROVIDER_BLUESKY_PASSWORD",
-                    "label": "Password",
-                    "placeholder": "Enter your Bluesky password",
-                    "type": "password"
-                }
-            ]
-        },
-        {
-            "name": "elevenlabs",
-            "display_name": "ElevenLabs",
-            "config_type": "api_key",
-            "enabled": true,
-            "description": "AI Voice Generation and Podcast Creation",
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_ELEVENLABS_API_KEY",
-            "api_key_description": "Your ElevenLabs API key",
-            "api_key_placeholder": "Enter your ElevenLabs API key",
-            "api_key_validation": "^sk_[a-zA-Z0-9]{32,}$",
-            "api_key_validation_message": "Invalid ElevenLabs API key format",
-            "api_key_help": "Get your API key from https://elevenlabs.io/account/api-key"
-        },
-        {
-            "name": "dia",
-            "display_name": "Dia TTS",
-            "config_type": "api_key",
-            "description": "Open-weights Text-to-Speech (dialogue) service",
-            "enabled": true,
-            "api_key_required": true,
-            "api_key_name": "PROVIDER_DIA_API_KEY",
-            "api_key_description": "Your Dia TTS API key",
-            "api_key_placeholder": "Enter Dia API key",
-            "api_key_help": "See https://github.com/nari-labs/dia for setup",
-            "extra_fields": [
-                {
-                    "field": "PROVIDER_DIA_TTS_URL",
-                    "label": "Dia Base URL",
-                    "placeholder": "http://localhost:8000/v1/tts",
-                    "type": "text"
-                }
-            ]
-        }
-    ]
+      ]
+    }
+  ]
 }
