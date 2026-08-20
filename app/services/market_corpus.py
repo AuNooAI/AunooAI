@@ -456,6 +456,96 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     }
 
 
+# Social coverage repeats itself heavily: the same launch, the same Forbes
+# piece, the same benchmark, posted by a dozen accounts within a day. Shown as
+# a flat list that reads as twelve findings when it is one.
+_CLUSTER_STOP = {
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "for",
+    "with", "is", "are", "was", "were", "at", "by", "from", "this", "that",
+    "it", "its", "as", "be", "we", "our", "you", "your", "new", "how", "why",
+    "what", "more", "just", "now", "can", "will", "has", "have",
+}
+
+
+# Two posts are the same story when most of their meaningful words overlap.
+# An exact fingerprint of the "longest words" was tried first and grouped by
+# vendor name instead of by subject — every Exaforce post mentions Exaforce, so
+# they all collapsed into one cluster while genuinely duplicated coverage of a
+# SentinelOne announcement stayed apart.
+CLUSTER_SIMILARITY = 0.55
+
+# Below this a post has too few distinctive words for an overlap ratio to mean
+# anything: two five-word posts sharing three words are not the same story.
+MIN_CLUSTER_WORDS = 6
+
+
+def _content_words(title: str, summary: str, vendor_words: set) -> set:
+    """The words that carry a post's subject.
+
+    Vendor names are removed. They are the most repeated words in the corpus
+    and say only who is speaking, not what about — leaving them in makes every
+    vendor its own cluster.
+    """
+    text_value = f"{title or ''} {summary or ''}".lower()
+    text_value = re.sub(r"https?://\S+", " ", text_value)
+    words = set(re.findall(r"[a-z][a-z0-9'\-]{3,}", text_value))
+    return {w for w in words
+            if w not in _CLUSTER_STOP and w not in vendor_words}
+
+
+def cluster(rows: List[Dict[str, Any]], vendor_names: Optional[List[str]] = None
+            ) -> List[Dict[str, Any]]:
+    """Group coverage of the same story, newest first within each group.
+
+    Returns the same rows with a ``cluster`` block on the first of each group,
+    so a caller renders one card saying "and 6 more like this" rather than
+    seven cards that read as seven findings.
+    """
+    vendor_words = set()
+    for name in vendor_names or []:
+        for word in re.findall(r"[a-z][a-z0-9'\-]{2,}", (name or "").lower()):
+            vendor_words.add(word)
+
+    prepared = []
+    for row in rows:
+        words = _content_words(row.get("title") or "", row.get("summary") or "",
+                               vendor_words)
+        prepared.append((row, words if len(words) >= MIN_CLUSTER_WORDS else None))
+
+    used = [False] * len(prepared)
+    out: List[Dict[str, Any]] = []
+    for i, (row, words) in enumerate(prepared):
+        if used[i]:
+            continue
+        used[i] = True
+        head = dict(row)
+        if words:
+            members = []
+            for j in range(i + 1, len(prepared)):
+                if used[j]:
+                    continue
+                other, other_words = prepared[j]
+                if not other_words:
+                    continue
+                overlap = len(words & other_words)
+                union = len(words | other_words)
+                if union and overlap / union >= CLUSTER_SIMILARITY:
+                    used[j] = True
+                    members.append(other)
+            if members:
+                head["cluster"] = {
+                    "size": len(members) + 1,
+                    "others": [{"uri": m["uri"], "title": m.get("title"),
+                                "news_source": m.get("news_source"),
+                                "published": m.get("published"),
+                                "article_class": m.get("article_class"),
+                                "author": (m.get("social_meta") or {}).get("author")}
+                               for m in members],
+                }
+        out.append(head)
+    return out
+
+
 def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
              days: Optional[int] = None, origin: Optional[str] = None,
              min_score: float = 0.0,

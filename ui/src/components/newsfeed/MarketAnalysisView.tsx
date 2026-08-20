@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import {
   Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer,
   Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
@@ -60,7 +60,9 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
   const [showJobs, setShowJobs] = useState(false);
   const [voices, setVoices] = useState<TopVoices | null>(null);
   const [mix, setMix] = useState<ChannelMix | null>(null);
-  const [hiringCut, setHiringCut] = useState<'function' | 'region' | 'seniority'>('function');
+  const [hiringCut, setHiringCut] =
+    useState<'role' | 'function' | 'region' | 'seniority'>('role');
+  const [openVendorRow, setOpenVendorRow] = useState<number | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -137,7 +139,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
           <Panel title="When they started announcing">
             <CoverageLine
               coverage={f.announcement_coverage}
-              note="Vendor posts by month, split by whether the post states a fact." />
+              note="Vendor posts by month. The line is announcements — posts naming something that happened." />
             <ResponsiveContainer width="100%" height={230}>
               <ComposedChart data={f.announcements_by_month}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
@@ -160,7 +162,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
             <div className="flex-1">
               <CoverageLine
                 coverage={sn.coverage}
-                note={`${sn.totals.signal} of ${sn.totals.signal + sn.totals.commentary + sn.totals.noise} posts state a fact.`} />
+                note={`${sn.totals.signal} of ${sn.totals.signal + sn.totals.commentary + sn.totals.noise} vendor posts announce something.`} />
             </div>
             <button onClick={() => setSortByShare(v => !v)}
                     className="text-xs px-2 py-1 border rounded hover:bg-slate-50 shrink-0">
@@ -182,11 +184,11 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
               <YAxis type="category" dataKey="vendor" width={130}
                      tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="signal" stackId="a" fill={SIGNAL} name="States a fact"
+              <Bar dataKey="signal" stackId="a" fill={SIGNAL} name="Announcement"
                    cursor="pointer"
                    onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
-              <Bar dataKey="commentary" stackId="a" fill={COMMENTARY} name="Commentary" />
-              <Bar dataKey="noise" stackId="a" fill={NOISE} name="Noise" />
+              <Bar dataKey="commentary" stackId="a" fill={COMMENTARY} name="Opinion" />
+              <Bar dataKey="noise" stackId="a" fill={NOISE} name="Promotion" />
             </BarChart>
           </ResponsiveContainer>
           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -207,56 +209,91 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
           <Panel title="Share of voice">
             <CoverageLine
               coverage={sov.coverage}
-              note={`${sov.earned_total} mentions by somebody else, against ${sov.own_total} posts by the vendors themselves.`} />
+              note={`Of ${sov.earned_total} mentions by somebody other than the vendor.`} />
             <p className="text-xs text-slate-500 mb-2">
-              Earned and owned are counted separately on purpose. Collapsed into
-              one number a vendor climbs the table by posting more, which is the
-              opposite of what share of voice is for.
+              Share of what <em>other people</em> said. A vendor's own posts are
+              not counted here at all — they are volume, not voice, and they are
+              in the panel below.
             </p>
-            <ResponsiveContainer width="100%"
-              height={Math.max(200, sov.vendors.filter(v => v.total > 0).length * 22)}>
-              <BarChart layout="vertical"
-                        data={sov.vendors.filter(v => v.total > 0).slice(0, 16)}
-                        margin={{ left: 10, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
-                <YAxis type="category" dataKey="vendor" width={130}
-                       tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="earned" fill={SIGNAL} name="Said by others"
-                     cursor="pointer"
-                     onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
-                <Bar dataKey="own_posts" fill={NOISE} name="Said by the vendor"
-                     cursor="pointer"
-                     onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
-              </BarChart>
-            </ResponsiveContainer>
+            {sov.earned_total === 0 ? (
+              <p className="text-sm text-slate-500 py-8 text-center">
+                Nobody outside the vendors has mentioned any of them yet.
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%"
+                height={Math.max(180, sov.vendors.filter(v => v.earned > 0).length * 26)}>
+                <BarChart layout="vertical"
+                          data={sov.vendors.filter(v => v.earned > 0)}
+                          margin={{ left: 10, right: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                  <XAxis type="number" tick={{ fontSize: 11 }}
+                         tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
+                         domain={[0, 'dataMax']} />
+                  <YAxis type="category" dataKey="vendor" width={130}
+                         tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(v: any, _n: any, p: any) =>
+                      [`${(Number(v) * 100).toFixed(1)}% — ${p?.payload?.earned} of ${sov.earned_total} mentions`,
+                       'Share of voice']} />
+                  <Bar dataKey="earned_share" fill={SIGNAL} name="Share of voice"
+                       cursor="pointer"
+                       onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </Panel>
 
           <Panel title="Who shouts loudest, and who is heard">
             <p className="text-xs text-slate-500 mt-0.5 mb-2">
-              Posts published against reactions per post. Volume says who
-              shouts; reactions say whether anyone listened, and the two
-              disagree — the busiest account in this market is not the one
-              being read. {sov.reactions_total.toLocaleString()} reactions
-              measured across vendor posts.
+              Each dot is a vendor. Further right means it posts more; higher
+              means each post gets more reaction. The two are not the same
+              thing, and the gap between them is the finding —{' '}
+              {sov.reactions_total.toLocaleString()} reactions measured.
             </p>
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={sov.loudest} margin={{ left: 4, right: 8 }}>
+            <ResponsiveContainer width="100%" height={280}>
+              <ScatterChart margin={{ left: 4, right: 16, top: 8, bottom: 22 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                <XAxis dataKey="vendor" tick={{ fontSize: 9 }} angle={-25}
-                       textAnchor="end" height={70} interval={0} />
-                <YAxis yAxisId="l" tick={{ fontSize: 11 }} allowDecimals={false} />
-                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar yAxisId="l" dataKey="own_posts" fill={NOISE} name="Posts"
-                     cursor="pointer"
-                     onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
-                <Line yAxisId="r" type="monotone" dataKey="reactions_per_post"
-                      stroke="#d6409f" strokeWidth={2} dot={{ r: 3 }}
-                      name="Reactions per post" connectNulls />
-              </ComposedChart>
+                <XAxis type="number" dataKey="own_posts" name="Posts"
+                       tick={{ fontSize: 11 }}
+                       label={{ value: 'posts published', position: 'insideBottom',
+                                offset: -12, fontSize: 11, fill: '#64748b' }} />
+                <YAxis type="number" dataKey="reactions_per_post"
+                       name="Reactions per post" tick={{ fontSize: 11 }}
+                       label={{ value: 'reactions per post', angle: -90,
+                                position: 'insideLeft', fontSize: 11,
+                                fill: '#64748b' }} />
+                <ZAxis range={[90, 90]} />
+                <Tooltip
+                  cursor={{ strokeDasharray: '3 3' }}
+                  content={({ payload }) => {
+                    const p: any = payload?.[0]?.payload;
+                    if (!p) return null;
+                    return (
+                      <div className="bg-white border rounded px-2 py-1 text-xs shadow">
+                        <div className="font-medium">{p.vendor}</div>
+                        <div className="text-slate-600">
+                          {p.own_posts} posts · {p.reactions_per_post} reactions each
+                        </div>
+                        <div className="text-slate-500">
+                          {p.earned} mention{p.earned === 1 ? '' : 's'} by others
+                        </div>
+                      </div>
+                    );
+                  }} />
+                <Scatter
+                  data={sov.vendors.filter(v => v.reactions_per_post !== null)}
+                  fill="#d6409f">
+                  {sov.vendors.filter(v => v.reactions_per_post !== null).map(v => (
+                    <Cell key={v.brand_id} cursor="pointer"
+                          onClick={() => onVendor(v.brand_id)} />
+                  ))}
+                </Scatter>
+              </ScatterChart>
             </ResponsiveContainer>
+            <p className="text-xs text-slate-400">
+              Vendors with fewer than five measured posts are absent: an average
+              over two posts is not an average.
+            </p>
           </Panel>
 
           <Panel title="Top voices">
@@ -270,10 +307,34 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
                   rowKey={v => `${v.platform}:${v.author}`}
                   initialSort="posts" initialDir="desc"
                   columns={[
-                    { key: 'author', label: 'Account', groupable: false },
+                    { key: 'author', label: 'Account', groupable: false,
+                      render: v => `@${v.author}` },
                     { key: 'platform', label: 'Platform', groupable: true },
+                    // A ranked list of handles with no subject is a list of
+                    // strangers. What they talk about is the useful part.
+                    { key: 'about', label: 'Talking about', sortable: false,
+                      render: v => (
+                        <span className="flex flex-wrap gap-1">
+                          {v.terms.length === 0 && (
+                            <span className="text-slate-400">—</span>)}
+                          {v.terms.map(t => (
+                            <span key={t.term}
+                                  className="text-xs px-1 py-0.5 rounded border
+                                             bg-slate-50 text-slate-600">
+                              {t.term}
+                            </span>
+                          ))}
+                          {v.vendors.map(x => (
+                            <span key={x.vendor}
+                                  className="text-xs px-1 py-0.5 rounded border
+                                             bg-sky-50 text-sky-700 border-sky-200">
+                              {x.vendor}
+                            </span>
+                          ))}
+                        </span>
+                      ) },
                     { key: 'posts', label: 'Posts', align: 'right' },
-                    { key: 'engagement', label: 'Engagement', align: 'right' },
+                    { key: 'engagement', label: 'Reactions', align: 'right' },
                   ]} />
               </>
             ) : (
@@ -401,7 +462,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
                   note={`${hi.openings} open listings. Engineering-heavy hiring says a vendor is still building; sales-heavy says it has started selling.`} />
               </div>
               <div className="flex gap-1 shrink-0">
-                {(['function', 'region', 'seniority'] as const).map(k => (
+                {(['role', 'function', 'region', 'seniority'] as const).map(k => (
                   <button key={k} onClick={() => setHiringCut(k)}
                           className={`text-xs px-2 py-1 rounded border ${
                             hiringCut === k
@@ -414,10 +475,14 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={
-                hiringCut === 'function' ? hi.by_function
+                hiringCut === 'role' ? hi.by_role.slice(0, 12)
+                : hiringCut === 'function' ? hi.by_function
                 : hiringCut === 'region' ? hi.by_region : hi.by_seniority}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                <XAxis dataKey={hiringCut} tick={{ fontSize: 11 }} />
+                <XAxis dataKey={hiringCut} tick={{ fontSize: 9 }}
+                       angle={hiringCut === 'role' ? -30 : 0}
+                       textAnchor={hiringCut === 'role' ? 'end' : 'middle'}
+                       height={hiringCut === 'role' ? 80 : 30} interval={0} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
                 <Bar dataKey="openings" fill={INK} name="Openings" />
@@ -471,16 +536,82 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
                   ]} />
               )
             ) : (
-              <DataTable
-                rows={hi.by_vendor} dense rowKey={v => v.brand_id}
-                initialSort="openings" initialDir="desc"
-                onRowClick={v => onVendor(v.brand_id)}
-                columns={[
-                  { key: 'vendor', label: 'Vendor' },
-                  { key: 'openings', label: 'Open', align: 'right' },
-                  { key: 'engineering', label: 'Eng', align: 'right' },
-                  { key: 'sales', label: 'Sales', align: 'right' },
-                ]} />
+              <>
+                <DataTable
+                  rows={hi.by_vendor} dense rowKey={v => v.brand_id}
+                  initialSort="openings" initialDir="desc"
+                  onRowClick={v => setOpenVendorRow(
+                    openVendorRow === v.brand_id ? null : v.brand_id)}
+                  columns={[
+                    { key: 'vendor', label: 'Vendor',
+                      render: v => (
+                        <span className="inline-flex items-center gap-1">
+                          {openVendorRow === v.brand_id
+                            ? <ChevronDown className="w-3 h-3 text-slate-400" />
+                            : <ChevronRight className="w-3 h-3 text-slate-400" />}
+                          {v.vendor}
+                        </span>
+                      ) },
+                    { key: 'openings', label: 'Open', align: 'right' },
+                    { key: 'engineering', label: 'Eng', align: 'right' },
+                    { key: 'sales', label: 'Sales', align: 'right' },
+                  ]} />
+                {/* Expanding a vendor shows what those openings actually are.
+                    A count of twenty says a company is hiring; the split says
+                    whether it is building or selling. */}
+                {openVendorRow !== null && (() => {
+                  const v = hi.by_vendor.find(x => x.brand_id === openVendorRow);
+                  if (!v) return null;
+                  return (
+                    <div className="border rounded-lg p-3 bg-slate-50 mt-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm font-medium text-slate-800">
+                          {v.vendor}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {v.openings} open
+                        </span>
+                        <div className="flex-1" />
+                        <button onClick={() => onVendor(v.brand_id)}
+                                className="text-xs px-2 py-1 border rounded
+                                           bg-white hover:bg-slate-50">
+                          Open vendor
+                        </button>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <div className="text-xs text-slate-500 mb-1">By function</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(v.by_function)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([k, n]) => (
+                              <span key={k}
+                                    className="text-xs px-1.5 py-0.5 rounded border
+                                               bg-white text-slate-700">
+                                {k} <span className="text-slate-400">{n}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500 mb-1">By role</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(v.by_role)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([k, n]) => (
+                              <span key={k}
+                                    className="text-xs px-1.5 py-0.5 rounded border
+                                               bg-white text-slate-700">
+                                {k} <span className="text-slate-400">{n}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
             )}
           </Panel>
         </div>

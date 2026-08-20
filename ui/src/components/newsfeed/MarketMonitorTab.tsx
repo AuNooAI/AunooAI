@@ -83,8 +83,16 @@ const DRILL_LABEL: Record<string, string> = {
   hiring: 'Vendors with open job listings',
 };
 
+const COVERAGE_PAGE = 25;
+
 const BULK_BTN = 'text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 '
   + 'disabled:opacity-50';
+
+/** Plain words for the review verdicts. "States a fact" was internal jargon
+ *  that told a reader nothing about what they were looking at. */
+const VERDICT_LABEL: Record<string, string> = {
+  signal: 'announcement', commentary: 'opinion', noise: 'promotion',
+};
 
 const VERDICT_TONE: Record<string, string> = {
   signal: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -177,6 +185,10 @@ export function MarketMonitorTab() {
   const [corpusClass, setCorpusClass] = useState<'' | ArticleClass>('');
   const [allPosts, setAllPosts] = useState(false);
   const [vendorFilter, setVendorFilter] = useState<number | null>(null);
+  const [coverageOffset, setCoverageOffset] = useState(0);
+  const [coverageMore, setCoverageMore] = useState(false);
+  const [groupCoverage, setGroupCoverage] = useState(true);
+  const [openCluster, setOpenCluster] = useState<string | null>(null);
   const [inventory, setInventory] = useState<DatasetInfo[] | null>(null);
   const [openDataset, setOpenDataset] = useState<string | null>(null);
   const [datasetRows, setDatasetRows] =
@@ -293,17 +305,24 @@ export function MarketMonitorTab() {
     let live = true;
     Promise.all([
       getCorpusSummary(marketId, 30),
-      getCorpusArticles(marketId, { limit: 100,
+      getCorpusArticles(marketId, { limit: COVERAGE_PAGE, offset: coverageOffset,
                                     origin: corpusOrigin || undefined,
                                     classes: corpusClass || undefined,
-                                    allPosts,
+                                    allPosts, group: groupCoverage,
                                     vendorId: vendorFilter ?? undefined }),
     ]).then(([sum, list]) => {
       if (!live) return;
       setCorpus(sum); setCorpusArticles(list.articles);
+      setCoverageMore(list.has_more);
     }).catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
-  }, [marketId, view, corpusOrigin, corpusClass, allPosts, vendorFilter]);
+  }, [marketId, view, corpusOrigin, corpusClass, allPosts, vendorFilter,
+      coverageOffset, groupCoverage]);
+
+  // Any filter change starts the list over; staying on page 4 of a list that
+  // no longer has four pages shows an empty view that looks like a failure.
+  useEffect(() => { setCoverageOffset(0); },
+           [corpusOrigin, corpusClass, allPosts, vendorFilter, groupCoverage]);
 
   useEffect(() => {
     if (marketId === null || !drill) { setDrillRows(null); return; }
@@ -898,7 +917,7 @@ export function MarketMonitorTab() {
           {corpus?.signal_kinds && corpus.signal_kinds.length > 0 && (
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800">
-                Vendor posts that state a fact
+                What vendors announced
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2">
                 Each post read once and judged. Only these reach the feed, the
@@ -953,6 +972,11 @@ export function MarketMonitorTab() {
                      onChange={e => setAllPosts(e.target.checked)} />
               Include posts judged noise
             </label>
+            <label className="text-sm text-slate-600 inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={groupCoverage}
+                     onChange={e => setGroupCoverage(e.target.checked)} />
+              Group repeats
+            </label>
             {vendorFilter !== null && (
               <button onClick={() => setVendorFilter(null)}
                       className="text-sm px-2 py-1 rounded border bg-slate-800
@@ -974,94 +998,152 @@ export function MarketMonitorTab() {
               Settings.
             </p>
           ) : (
-            <div className="border rounded-lg bg-white divide-y">
+            <>
+            <div className="space-y-2">
               {corpusArticles.map(a => {
                 const sm = a.social_meta ?? {};
                 const engagement = (sm.likes ?? 0) + (sm.comments ?? 0)
                   + (sm.reposts ?? sm.shares ?? 0);
                 const account = sm.author_name || sm.author;
+                const isSocial = a.article_class === 'social'
+                  || a.article_class === 'discussion';
+                const clusterOpen = openCluster === a.uri;
                 return (
-                <div key={a.uri} className="p-3 flex gap-3">
-                  {sm.thumbnail && (
-                    <img src={sm.thumbnail} alt="" loading="lazy"
-                         className="w-16 h-16 object-cover rounded border shrink-0" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start gap-2">
+                <article key={a.uri}
+                         className="border rounded-lg bg-white overflow-hidden
+                                    hover:border-slate-300 transition-colors">
+                  <div className="p-3 flex items-start gap-3">
+                    {sm.thumbnail && (
+                      <img src={sm.thumbnail} alt="" loading="lazy"
+                           referrerPolicy="no-referrer"
+                           onError={e => {
+                             // A broken thumbnail leaves a torn-image icon,
+                             // which reads worse than no image at all.
+                             (e.currentTarget as HTMLImageElement).style.display = 'none';
+                           }}
+                           className="w-20 h-20 object-cover rounded border shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                        <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                          CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
+                          {CLASS_LABEL[a.article_class] ?? a.article_class}
+                        </span>
+                        <span className="text-xs px-1.5 py-0.5 rounded border
+                                         bg-white text-slate-600">
+                          {isSocial ? (sm.platform ?? a.news_source)
+                                    : (a.news_source ?? 'unknown')}
+                        </span>
+                        {account && (
+                          <span className="text-xs text-slate-600 font-medium">
+                            {sm.author && isSocial ? `@${sm.author}` : account}
+                          </span>
+                        )}
+                        {a.review_verdict && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                            VERDICT_TONE[a.review_verdict]}`}
+                                title={a.review_reason ?? undefined}>
+                            {a.review_verdict === 'signal' && a.review_kind
+                              ? a.review_kind
+                              : VERDICT_LABEL[a.review_verdict] ?? a.review_verdict}
+                          </span>
+                        )}
+                        <div className="flex-1" />
+                        <span className="text-xs text-slate-400 tabular-nums">
+                          {a.published ? a.published.slice(0, 10) : '—'}
+                        </span>
+                      </div>
+
                       <a href={a.uri} target="_blank" rel="noreferrer"
-                         className="text-sm text-slate-800 hover:underline flex-1">
+                         className="text-sm font-medium text-slate-800 hover:underline block">
                         {a.title}
                       </a>
-                      <span className="text-xs text-slate-400 tabular-nums shrink-0">
-                        {a.published ? a.published.slice(0, 10) : '—'}
-                      </span>
-                    </div>
+                      {a.summary && a.summary !== a.title && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {a.summary.slice(0, 200)}
+                          {a.summary.length > 200 ? '…' : ''}
+                        </p>
+                      )}
 
-                    {/* Who said it. A social post without its account is an
-                        anonymous quote, and most of these are social. */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                      {account && (
-                        <span className="text-xs font-medium text-slate-700">
-                          {sm.platform === 'bluesky' || sm.platform === 'twitter'
-                            ? `@${sm.author}` : account}
-                        </span>
-                      )}
-                      <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                        CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
-                        {CLASS_LABEL[a.article_class] ?? a.article_class}
-                      </span>
-                      {/* The publication, as its own badge rather than loose
-                          text — it is the thing a reader weighs the claim by. */}
-                      <span className="text-xs px-1.5 py-0.5 rounded border
-                                       bg-white text-slate-600">
-                        {sm.platform ?? a.news_source ?? 'unknown source'}
-                      </span>
-                      {a.review_verdict && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                          VERDICT_TONE[a.review_verdict]}`}
-                              title={a.review_reason ?? undefined}>
-                          {a.review_verdict === 'signal' && a.review_kind
-                            ? a.review_kind : a.review_verdict}
-                        </span>
-                      )}
-                      {engagement > 0 && (
-                        <span className="text-xs text-slate-500"
-                              title={`${sm.likes ?? 0} likes · ${sm.comments ?? 0} comments · ${sm.reposts ?? sm.shares ?? 0} reposts`}>
-                          {engagement} reactions
-                        </span>
-                      )}
-                      <span className="text-xs text-slate-400">
-                        {a.origin === 'corpus' ? 'other topic' : 'this market'}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                      {/* Vendor chips filter the list. A row that names a
-                          vendor should be a way into that vendor's coverage. */}
-                      {a.vendors.slice(0, 4).map(v => (
-                        <button key={v.brand_id}
-                                onClick={() => setVendorFilter(
-                                  vendorFilter === v.brand_id ? null : v.brand_id)}
-                                className={`text-xs px-1.5 py-0.5 rounded border ${
-                                  vendorFilter === v.brand_id
-                                    ? 'bg-slate-800 text-white border-slate-800'
-                                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>
-                          {v.vendor}
-                        </button>
-                      ))}
-                      {a.matched_terms.slice(0, 3).map(t => (
-                        <span key={t}
-                              className="text-xs px-1.5 py-0.5 rounded border
-                                         bg-white text-slate-500">
-                          {t}
-                        </span>
-                      ))}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                        {a.vendors.slice(0, 4).map(v => (
+                          <button key={v.brand_id}
+                                  onClick={() => setVendorFilter(
+                                    vendorFilter === v.brand_id ? null : v.brand_id)}
+                                  className={`text-xs px-1.5 py-0.5 rounded border ${
+                                    vendorFilter === v.brand_id
+                                      ? 'bg-slate-800 text-white border-slate-800'
+                                      : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'}`}>
+                            {v.vendor}
+                          </button>
+                        ))}
+                        {a.matched_terms.slice(0, 3).map(t => (
+                          <span key={t}
+                                className="text-xs px-1.5 py-0.5 rounded border
+                                           bg-slate-50 text-slate-500">
+                            {t}
+                          </span>
+                        ))}
+                        <div className="flex-1" />
+                        {engagement > 0 && (
+                          <span className="text-xs text-slate-500"
+                                title={`${sm.likes ?? 0} likes · ${sm.comments ?? 0} comments · ${sm.reposts ?? sm.shares ?? 0} reposts`}>
+                            {engagement} reactions
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+
+                  {a.cluster && (
+                    <div className="border-t bg-slate-50 px-3 py-2">
+                      <button onClick={() => setOpenCluster(clusterOpen ? null : a.uri)}
+                              className="text-xs text-slate-600 inline-flex items-center gap-1">
+                        {clusterOpen ? <ChevronDown className="w-3 h-3" />
+                                     : <ChevronRight className="w-3 h-3" />}
+                        {a.cluster.size - 1} more post{a.cluster.size - 1 === 1 ? '' : 's'}
+                        {' '}saying the same thing
+                      </button>
+                      {clusterOpen && (
+                        <div className="mt-1.5 space-y-1">
+                          {a.cluster.others.map(o => (
+                            <a key={o.uri} href={o.uri} target="_blank" rel="noreferrer"
+                               className="block text-xs text-slate-600 hover:underline truncate">
+                              {o.author ? `@${o.author}: ` : ''}{o.title}
+                              <span className="text-slate-400">
+                                {' '}· {o.news_source} · {(o.published ?? '').slice(0, 10)}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </article>
                 );
               })}
             </div>
+
+            {/* Pagination. A flat list of 900 cards is not a list anybody
+                reads, and scrolling is not navigation. */}
+            <div className="flex items-center gap-2 pt-1">
+              <button disabled={coverageOffset === 0 || busy}
+                onClick={() => setCoverageOffset(o => Math.max(0, o - COVERAGE_PAGE))}
+                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                           disabled:opacity-40">
+                Previous
+              </button>
+              <span className="text-sm text-slate-500">
+                {coverageOffset + 1}–{coverageOffset + corpusArticles.length}
+              </span>
+              <button disabled={!coverageMore || busy}
+                onClick={() => setCoverageOffset(o => o + COVERAGE_PAGE)}
+                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                           disabled:opacity-40">
+                Next
+              </button>
+            </div>
+            </>
           )}
         </div>
       )}

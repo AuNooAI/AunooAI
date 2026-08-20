@@ -98,13 +98,28 @@ def _pub_iso(post) -> str:
     return str(cad) if cad else ""
 
 
+def _clean_url(value: Optional[str]) -> Optional[str]:
+    """A usable URL from a provider field.
+
+    Reddit thumbnails arrive HTML-escaped — ``?width=140&amp;height=78`` — so
+    the browser requests a query string containing "amp;height" and the image
+    never loads. Both stored thumbnails had this.
+    """
+    import html as html_mod
+
+    if not value:
+        return None
+    url = html_mod.unescape(str(value)).strip()
+    return url or None
+
+
 def _clean(text: Optional[str], limit: int = 1000) -> str:
     """Collapse whitespace, including the escaped kind.
 
     The provider returns some posts with a literal backslash-n — two
-    characters, not a newline — so ``\s+`` never matched it and 39 stored
-    titles read "...INTO A FIXED BUG IN 4 MINUTES\n\nHere is the setup".
-    Turn those into real whitespace first, then collapse.
+    characters, not a newline — so the whitespace pattern never matched it and
+    39 stored titles read "...INTO A FIXED BUG IN 4 MINUTES" followed by two
+    visible escape sequences. Turn those into real whitespace, then collapse.
     """
     if not text:
         return ""
@@ -372,7 +387,8 @@ class XpozCollector(ArticleCollector):
                 "likes": getattr(p, "like_count", None),
                 "reposts": getattr(p, "retweet_count", None),
                 "comments": getattr(p, "reply_count", None),
-                "thumbnail": media[0] if isinstance(media, (list, tuple)) and media else None,
+                "thumbnail": _clean_url(
+                    media[0] if isinstance(media, (list, tuple)) and media else None),
             },
         )
 

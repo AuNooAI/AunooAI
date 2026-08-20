@@ -2,6 +2,100 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (coverage cards) — cards, clustering, pagination, and plainer words
+
+### Goal
+Reported on Coverage: no clustering, jargon labels, no card view, no pagination, images not
+rendering. Plus, on the analysis panels: top job roles, per-vendor openings expandable by
+function, top voices with no subject, share of voice confusing, and the loudest chart unreadable.
+
+### "Vendor posts that state a fact" was my jargon
+It told a reader nothing about what they were looking at. One vocabulary now, everywhere:
+**announcement**, **opinion**, **promotion**. The panel title is "What vendors announced". The
+underlying verdicts keep their internal names (`signal`/`commentary`/`noise`) because the model
+and the database use them; only what a person reads changed.
+
+### Images did not render because there were almost none, and the two were broken
+**2 of 161** social posts had a thumbnail, and both URLs were HTML-escaped —
+`?width=140&amp;height=78` — so the browser requested a query string containing `amp;height`.
+`_clean_url()` unescapes, and both stored rows were repaired.
+
+The wider reason is that only Reddit posts carry a thumbnail at all; X returns no `media_urls`
+for these, and the Bluesky change from earlier today only affects posts collected from now on.
+Cards render a thumbnail when one exists and hide the element on load failure, because a torn
+image icon reads worse than no image.
+
+### Clustering — `market_corpus.cluster()`
+Social coverage repeats: the same launch, the same Forbes piece, posted by several accounts in a
+day, shown as a flat list that reads as several findings when it is one.
+
+The first attempt fingerprinted each post by its longest words and **grouped by vendor name
+instead of subject** — every Exaforce post mentions Exaforce, so they collapsed together while
+genuinely duplicated coverage of a SentinelOne announcement stayed apart.
+
+The version that works removes vendor names from the comparison and groups on word overlap above
+0.55, requiring at least 6 distinctive words for a ratio to mean anything. On 400 articles it
+finds 8 clusters — two identical market-size press releases, two 7AI Black Hat wrap posts, two
+Bluesky accounts posting the same session link, and two outlets on the same SentinelOne story.
+Honest rather than impressive: this corpus genuinely has little duplication.
+
+Deliberately not embeddings. They would cluster better and would also mean a model call per post
+to group a list; this costs nothing and catches the repetition that actually occurs.
+
+### Cards and pagination — `MarketMonitorTab.tsx`
+Coverage is cards now: source-type badge, publication badge, the account for social posts,
+verdict, headline, an excerpt, vendor chips that filter, matched phrases, reactions, and a
+thumbnail where one exists. Clustered cards carry "N more posts saying the same thing", expanding
+to the rest.
+
+25 per page with Previous/Next, and a "Group repeats" toggle. Any filter change resets to page
+one — staying on page 4 of a list that no longer has four pages shows an empty view that looks
+like a failure. The route over-fetches 4× when grouping, because a page of 25 cards consumes more
+than 25 rows and paginating before grouping splits duplicates across the boundary.
+
+### Analysis fixes
+**Top job roles.** Titles carry a location and a tier — "Enterprise Account Executive - Boston",
+"Security Analyst - Tier 2" — so counting them raw gave 30 roles each appearing once. `_role_of()`
+reduces a title to its role, first match wins so "Sales Engineer" is tested before "Engineer".
+The market reads 7 Software Engineer, 4 Account Executive, 4 Sales Engineer, 3 Security Engineer.
+This needed the hiring query to select `title`, which it never had.
+
+**Openings expandable per vendor.** Clicking a vendor row shows its openings by function and by
+role. A count of twenty says a company is hiring; the split says whether it is building or
+selling — 7ai's twenty are 5 Software Engineer, 3 Sales Engineer, 3 Security Engineer, 3 Account
+Executive and more.
+
+**Top voices now say what about.** A ranked list of handles with no subject is a list of
+strangers. Each account carries the phrases it posts about and any vendors its posts are
+attributed to — `polsia` is 8 posts about autonomous SOC and security operations.
+
+**Share of voice, reworked.** It was confusing because earned mentions (10) and own posts (47)
+shared an axis at wildly different scales, which made a vendor's own posting look like voice.
+It is now share of *earned* coverage only, as a percentage, with own posts removed to the panel
+below where they belong.
+
+**Who shouts loudest, reworked.** A two-axis bar-and-line chart is hard to read and was. It is a
+scatter now: posts published on one axis, reactions per post on the other, one dot per vendor.
+Position carries the finding — far right and low means posting a great deal and being read by
+nobody.
+
+### Verification
+Clustering: 400 articles → 392 cards, 8 clusters, each checked by reading the grouped titles.
+
+Pagination over HTTP: offset 0 and offset 25 return 25 cards each with different leading items and
+`has_more: true`.
+
+Roles: 30 postings reduce to 12 distinct roles, top being Software Engineer 7.
+
+Thumbnail repair: both escaped URLs now resolve to a plain `&`.
+
+`npm run typecheck` clean against baseline (246 known) — after three failed structural edits to
+the JSX, all caught by the type checker before deploying. Rebuilt, restarted, active.
+
+### Propagation
+bugfixing (canonical) only. The `xpoz_collector.py` thumbnail and escaped-text fixes still need
+to reach wbm and wileytest.
+
 ## 2026-08-20 (coverage) — social posts get their author back, and who is heard as well as loud
 
 ### Goal

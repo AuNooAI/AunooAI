@@ -1733,6 +1733,8 @@ async def market_corpus_articles(
     min_score: float = Query(0.0, ge=0, le=100),
     vendor_id: Optional[int] = Query(
         None, description="Only coverage attributed to this vendor."),
+    group: bool = Query(True, description="Group coverage of the same story. "
+                                          "Off shows every post separately."),
     all_posts: bool = Query(
         False, description="Include vendor posts the review judged noise. Off "
                            "by default — a post is shown once it is known to "
@@ -1746,15 +1748,29 @@ async def market_corpus_articles(
         conn = _conn()
         try:
             _load_market(conn, market_id)
+            # Over-fetch when grouping: a page of 25 cards may consume more
+            # than 25 rows, and paginating before grouping gives pages of
+            # inconsistent size with duplicates split across the boundary.
+            fetch = min(limit * 4, 500) if group else limit
+            rows = mcorp.articles(
+                conn, market_id, limit=fetch, offset=offset, days=days,
+                origin=origin, min_score=min_score,
+                classes=[c.strip() for c in (classes or "").split(",")
+                         if c.strip()] or None,
+                require_signal_for_social=not all_posts,
+                vendor_id=vendor_id)
+            if group:
+                names = [r[0] for r in conn.execute(text("""
+                    SELECT b.display_name FROM bw_brands b
+                    JOIN bw_market_brands mb ON mb.brand_id = b.id
+                                             AND mb.market_id = :m
+                """), {"m": market_id}).fetchall()]
+                rows = mcorp.cluster(rows, names)
             return {
-                "articles": mcorp.articles(
-                    conn, market_id, limit=limit, offset=offset, days=days,
-                    origin=origin, min_score=min_score,
-                    classes=[c.strip() for c in (classes or "").split(",")
-                             if c.strip()] or None,
-                    require_signal_for_social=not all_posts,
-                    vendor_id=vendor_id),
+                "articles": rows[:limit],
                 "limit": limit, "offset": offset,
+                "grouped": group,
+                "has_more": len(rows) > limit,
             }
         finally:
             conn.close()

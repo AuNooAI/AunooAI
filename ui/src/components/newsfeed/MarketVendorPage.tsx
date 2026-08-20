@@ -40,7 +40,7 @@ function Panel({ title, hint, children }: {
 }
 
 const VERDICT_WORD: Record<string, string> = {
-  signal: 'states a fact', commentary: 'commentary', noise: 'no content',
+  signal: 'announcements', commentary: 'opinion', noise: 'promotion',
 };
 
 export function MarketVendorPage({ marketId, brandId, onBack }: {
@@ -345,7 +345,7 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
       </Panel>
 
       <Panel title="Announcements"
-             hint="Posts the review pass judged to state a fact — a launch, a raise, a customer, a hire. The rest of this vendor's posts are below.">
+             hint="Posts naming something that happened — a launch, a raise, a customer, a hire. Everything else this vendor posted is below.">
         {v.announcements.length === 0 ? (
           <p className="text-sm text-slate-500">
             {Object.keys(v.post_verdicts ?? {}).length === 0

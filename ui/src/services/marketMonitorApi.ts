@@ -765,6 +765,13 @@ export interface CorpusArticle {
   } | null;
   /** Vendors this article is attributed to. */
   vendors: { brand_id: number; vendor: string }[];
+  /** Present when other coverage says the same thing. */
+  cluster?: {
+    size: number;
+    others: { uri: string; title: string | null; news_source: string | null;
+              published: string | null; article_class: string;
+              author?: string | null }[];
+  };
   /** Set on vendor posts that were read by the review pass. */
   review_verdict: 'signal' | 'commentary' | 'noise' | null;
   review_kind: string | null;
@@ -791,8 +798,9 @@ export async function getCorpusArticles(
   marketId: number,
   opts: { limit?: number; offset?: number; days?: number;
           origin?: string; classes?: string; minScore?: number;
-          allPosts?: boolean; vendorId?: number } = {},
-): Promise<{ articles: CorpusArticle[]; limit: number; offset: number }> {
+          allPosts?: boolean; vendorId?: number; group?: boolean } = {},
+): Promise<{ articles: CorpusArticle[]; limit: number; offset: number;
+             grouped: boolean; has_more: boolean }> {
   const q = new URLSearchParams();
   if (opts.limit) q.set('limit', String(opts.limit));
   if (opts.offset) q.set('offset', String(opts.offset));
@@ -801,6 +809,7 @@ export async function getCorpusArticles(
   if (opts.classes) q.set('classes', opts.classes);
   if (opts.allPosts) q.set('all_posts', 'true');
   if (opts.vendorId) q.set('vendor_id', String(opts.vendorId));
+  if (opts.group === false) q.set('group', 'false');
   if (opts.minScore !== undefined) q.set('min_score', String(opts.minScore));
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/corpus?${q}`,
@@ -932,12 +941,15 @@ export interface HiringAnalysis {
   openings: number;
   by_function: { function: string; openings: number }[];
   by_seniority: { seniority: string; openings: number }[];
+  by_role: { role: string; openings: number }[];
   by_country: { country: string; openings: number }[];
   by_region: { region: string; openings: number }[];
   function_by_region: Record<string, number | string>[];
   by_vendor: {
     brand_id: number; vendor: string; openings: number;
     engineering: number; sales: number;
+    by_function: Record<string, number>;
+    by_role: Record<string, number>;
   }[];
   coverage: Coverage;
 }
@@ -1165,6 +1177,9 @@ export interface TopVoices {
   voices: {
     author: string; platform: string; posts: number; likes: number;
     comments: number; reposts: number; engagement: number; last_seen: string;
+    /** What this account talks about, and whom it talks about. */
+    terms: { term: string; n: number }[];
+    vendors: { vendor: string; n: number }[];
   }[];
   days: number | null;
   coverage: Coverage;

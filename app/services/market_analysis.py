@@ -15,6 +15,7 @@ Nothing here calls a model or a provider. It reads rows.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -341,6 +342,50 @@ def _region_of(country: str) -> str:
     return _REGIONS.get(country.strip().lower(), country or "not stated")
 
 
+# Job titles carry a location, a seniority and a team in one string —
+# "Enterprise Account Executive - Boston", "Sales Engineer - Chicago",
+# "Security Analyst - Tier 2". Counting them raw gives a list where every entry
+# appears once and nothing can be seen. These patterns reduce a title to the
+# role it is, in the order they should be tested: the first match wins, so
+# "Sales Engineer" must be checked before the broader "Engineer".
+_ROLE_PATTERNS = (
+    ("Account Executive", ("account executive", "account exec")),
+    ("Sales Engineer", ("sales engineer", "solutions engineer",
+                        "solution engineer", "sales development",
+                        "channel sales")),
+    ("Security Engineer", ("security engineer", "detection engineer")),
+    ("Security Analyst", ("security analyst", "soc analyst", "threat analyst")),
+    ("Security Researcher", ("security researcher", "threat researcher",
+                             "research engineer")),
+    ("AI / ML Engineer", ("ai engineer", "ml engineer", "machine learning")),
+    ("Software Engineer", ("software engineer", "backend", "frontend",
+                           "full stack", "fullstack", "platform engineer",
+                           "forward deployed")),
+    ("Product Manager", ("product manager", "product management")),
+    ("Marketing", ("marketer", "marketing", "demand generation", "content")),
+    ("Revenue / Ops", ("revenue operations", "sales operations",
+                       "business operations", "legal operations",
+                       "operations manager", "finance")),
+    ("Customer Success", ("customer success", "solutions architect",
+                          "technical account")),
+    ("Leadership", ("chief ", "vp ", "vice president", "head of", "director")),
+)
+
+
+def _role_of(title: Optional[str]) -> str:
+    """The role a job title describes, with its location and tier removed."""
+    text_value = (title or "").strip().lower()
+    if not text_value:
+        return "not stated"
+    for label, needles in _ROLE_PATTERNS:
+        if any(n in text_value for n in needles):
+            return label
+    # Nothing matched. Keep the title's own words up to the first separator,
+    # so an unrecognised role reads as itself rather than as "other".
+    head = re.split(r"[-–(,]", title.strip())[0].strip()
+    return head[:40] or "not stated"
+
+
 def hiring(conn, market_id: int) -> Dict[str, Any]:
     """What the market is hiring for, grouped and per vendor.
 
@@ -352,6 +397,7 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
     rows = [dict(r) for r in conn.execute(text("""
         SELECT DISTINCT ON (s.provider_item_id)
                b.id AS brand_id, b.display_name AS vendor,
+               s.data->>'title' AS title,
                s.data->>'function' AS function,
                s.data->>'seniority' AS seniority,
                s.data->>'employment_type' AS employment_type,
@@ -365,6 +411,7 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
     """), {"m": market_id}).mappings().all()]
 
     by_function: Dict[str, int] = {}
+    by_role: Dict[str, int] = {}
     by_seniority: Dict[str, int] = {}
     by_country: Dict[str, int] = {}
     by_region: Dict[str, int] = {}
@@ -376,6 +423,8 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
     for row in rows:
         group = _group_function(row["function"])
         by_function[group] = by_function.get(group, 0) + 1
+        role = _role_of(row.get("title"))
+        by_role[role] = by_role.get(role, 0) + 1
         level = (row["seniority"] or "not stated").strip() or "not stated"
         by_seniority[level] = by_seniority.get(level, 0) + 1
         country = _country_of(row.get("location"))
@@ -388,10 +437,15 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
         entry = per_vendor.setdefault(row["brand_id"], {
             "brand_id": row["brand_id"], "vendor": row["vendor"],
             "openings": 0, "engineering": 0, "sales": 0,
+            # Every function and role for this vendor, so a row can be expanded
+            # rather than only counted.
+            "by_function": {}, "by_role": {},
         })
         entry["openings"] += 1
         if group in ("engineering", "sales"):
             entry[group] += 1
+        entry["by_function"][group] = entry["by_function"].get(group, 0) + 1
+        entry["by_role"][role] = entry["by_role"].get(role, 0) + 1
 
     in_scope = conn.execute(text("""
         SELECT COUNT(*) FROM bw_market_brands
@@ -403,6 +457,9 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
         "by_function": [{"function": k, "openings": v}
                         for k, v in sorted(by_function.items(),
                                            key=lambda kv: -kv[1])],
+        "by_role": [{"role": k, "openings": v}
+                    for k, v in sorted(by_role.items(),
+                                       key=lambda kv: (-kv[1], kv[0]))],
         "by_seniority": [{"seniority": k, "openings": v}
                          for k, v in sorted(by_seniority.items(),
                                             key=lambda kv: -kv[1])],
@@ -690,6 +747,51 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         for key in ("likes", "comments", "reposts"):
             v[key] = int(v[key] or 0)
         v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
+
+    # What each account is actually talking about. A ranked list of handles
+    # with no subject is a list of strangers — the useful question is who is
+    # driving which conversation, and about whom.
+    if voices:
+        handles = [v["author"] for v in voices]
+        subjects: Dict[str, Dict[str, Any]] = {
+            h: {"terms": {}, "vendors": {}} for h in handles}
+
+        for author, term in conn.execute(text(f"""
+            SELECT a.social_meta->>'author' AS author, term
+            FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri,
+                 UNNEST(ma.matched_terms) AS term
+            WHERE ma.market_id = :m
+              AND a.social_meta->>'author' = ANY(:handles)
+              {window}
+        """), {**params, "handles": handles}).fetchall():
+            bucket = subjects.get(author)
+            if bucket is not None:
+                bucket["terms"][term] = bucket["terms"].get(term, 0) + 1
+
+        for author, vendor in conn.execute(text(f"""
+            SELECT a.social_meta->>'author' AS author, b.display_name
+            FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri
+            JOIN bw_brands b ON b.id = bac.brand_id
+            JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+            WHERE ma.market_id = :m
+              AND a.social_meta->>'author' = ANY(:handles)
+              {window}
+        """), {**params, "handles": handles}).fetchall():
+            bucket = subjects.get(author)
+            if bucket is not None:
+                bucket["vendors"][vendor] = bucket["vendors"].get(vendor, 0) + 1
+
+        for v in voices:
+            bucket = subjects.get(v["author"], {"terms": {}, "vendors": {}})
+            v["terms"] = [{"term": t, "n": n} for t, n in
+                          sorted(bucket["terms"].items(),
+                                 key=lambda kv: (-kv[1], kv[0]))[:4]]
+            v["vendors"] = [{"vendor": t, "n": n} for t, n in
+                            sorted(bucket["vendors"].items(),
+                                   key=lambda kv: (-kv[1], kv[0]))[:4]]
 
     total, with_author = conn.execute(text(f"""
         SELECT COUNT(*), COUNT(a.social_meta->>'author')
