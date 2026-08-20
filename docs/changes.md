@@ -2,6 +2,104 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (propagation) — the keyword fix reaches the other tenants, and xpoz is found dead
+
+### Goal
+Three follow-ups: deploy the brand-matcher fix to the other tenants, retire the scientific
+publishers topic on bugfixing, and port wbm's social collection pattern to the SOC market.
+
+### The matcher fix, deployed — wiley, wileytest, wbm
+`_match_articles_to_brand`'s substring bug is in shared code, so it was in every tenant. Copied
+the `_keyword_pattern` / `_mentions` / `_match_articles_to_brand` region only, not the whole file:
+a diff of canonical against wiley showed the fix was the sole difference, but a wholesale copy is
+how per-tenant edits get destroyed.
+
+Backed each tenant up first (`brand_watcher_routes.py.bak-kwbound-20260820`). Each compiled with
+its own venv, each region verified identical to canonical, and each behaviour-tested against its
+own brands before restarting.
+
+**Measured on wbm, 60,000 analysed articles: 1,056 false attributions removed.**
+
+| keyword | substring | word boundary | removed |
+|---|---|---|---|
+| SAGE | 2,058 | 1,267 | 791 |
+| Pearson | 1,026 | 927 | 99 |
+| SAGE Pub | 90 | 5 | 85 |
+| Wiley | 882 | 816 | 66 |
+| Elsevier | 272 | 260 | 12 |
+
+"SAGE" was matching "message", "passage" and "usage". This is a paying customer's brand coverage,
+and roughly one attribution in twenty was an English word.
+
+Restarted all three. Checked for in-flight work first: wileytest had 5 and wbm 2 `bw_tracker_runs`
+rows marked `running`, all stale — the oldest from February, the newest two weeks old, against
+services booted the previous day. All three answer HTTP 307 (the login redirect) with no errors
+in the journal.
+
+### Scientific publishers topic removed — bugfixing
+Deleted keyword group 7 and its 12 keywords, and removed the topic from `config.json` (backed up
+first; never `git checkout`ed). The 12,258 articles collected under that topic are left alone —
+they are corpus, not configuration, and exactly one of them is matched into the SOC market.
+
+Four active groups remain: AI, Geopolitical Hotspots, Trump Administration Tracker, and the two
+SOC Automation groups.
+
+### wbm's social pattern, ported — bugfixing group 17
+wbm runs two groups per brand: `<Brand> - Brand Watch` on news providers and `<Brand> - Social`
+on `["reddit","bluesky","xpoz"]`, both feeding one topic. New group **SOC Automation - Social**
+follows it with two deliberate differences:
+
+- `social_platforms` is `["twitter","reddit"]`, not all four. Instagram and TikTok carry nothing
+  for this market and would be paid noise.
+- `min_relevance_threshold` is **0.45**, where wbm's social groups run at **0**. Practitioner
+  social is noisy in a way a brand-name search is not.
+
+Eight practitioner phrases rather than the market's 14 collection terms or the 38 vendor names —
+"agentic SOC", "AI SOC analyst", "alert triage", "SOC analyst burnout" and four more.
+
+### Nothing can actually collect yet, and one of the reasons is a live outage
+The collectors build correctly — `xpoz` resolves with `platforms=['twitter','reddit']` and
+`reddit` resolves — but a live test of `"agentic SOC"` returned zero from both:
+
+```
+reddit: HTTP 429 on both www.reddit.com/r/agenticsoc/.rss and /search.rss
+xpoz:   OperationFailedError: Usage limit exceeded  (twitter and reddit)
+```
+
+**The xpoz quota is exhausted, and it has been since 2026-08-14.** wbm's last xpoz article of any
+platform is dated 14 August — six days of silence across twitter, reddit, instagram and tiktok on
+a paying customer's tenant, with nothing surfacing it. Bluesky on wbm is unaffected and collected
+380 articles in the last seven days, newest today.
+
+Bluesky cannot run on bugfixing either: `PROVIDER_BLUESKY_USERNAME` and `PROVIDER_BLUESKY_PASSWORD`
+exist in its `.env` but are **empty strings**, where wbm's hold real values. Copying wbm's
+credentials across would put two tenants on one Bluesky account, which is a decision to take
+deliberately rather than silently — the xpoz key is already shared and this is what shared keys
+look like when they run out.
+
+So the port is complete as configuration and blocked on quota and credentials. Nothing was spent.
+
+### Verification
+Matcher: eight behaviour cases pass on each of the three tenants — "SAGE" no longer matches
+"message" but does match "SAGE Publishing"; "Wiley" matches "John Wiley & Sons"; "Secure.com" and
+"7ai" still match despite their non-word edges.
+
+bugfixing: 4 topics in `config.json` (was 5), valid JSON, group 7 and its keywords gone, 5 active
+groups, service active.
+
+Social group built through `_get_group_collectors`: reddit and xpoz resolve, xpoz carries the
+right two platforms, bluesky reports missing credentials rather than failing silently.
+
+### Propagation
+The matcher fix is now on bugfixing (canonical), wiley, wileytest and wbm. Everything else in
+this entry is bugfixing-only.
+
+### Lessons
+A shared provider key fails as a quiet quota error, not as an alarm. xpoz stopped collecting for
+a paying customer on 14 August and the only reason it surfaced was an unrelated test on a
+different tenant six days later. Source health should treat "ran and found nothing" on a paid
+source as suspicious rather than normal.
+
 ## 2026-08-20 (brand monitoring) — bugfixing's brands are the market's vendors now
 
 ### Goal

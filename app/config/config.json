@@ -1,41 +1,6 @@
 {
   "topics": [
     {
-      "name": "Scientific Publishers - General Monitoring",
-      "description": "General monitoring of scientific publishing industry trends and developments",
-      "categories": [
-        "Market Trends",
-        "Mergers & Acquisitions",
-        "Business Models",
-        "Technology",
-        "Other"
-      ],
-      "future_signals": [
-        "Industry consolidation",
-        "New entrants",
-        "Business model shifts",
-        "Technology disruption"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ]
-    },
-    {
       "name": "AI and Machine Learning",
       "description": "Tracking developments in artificial intelligence and machine learning",
       "categories": [
