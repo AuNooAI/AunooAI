@@ -104,6 +104,8 @@ export interface VendorFilter {
 }
 
 export interface CollectionToggleResult {
+  field?: VendorSwitch;
+  keywords_rewritten?: number;
   dry_run: boolean;
   enabled: boolean;
   matched: number;
@@ -269,13 +271,24 @@ export async function getFacets(marketId: number): Promise<Facets> {
 }
 
 /** Defaults to a dry run on the server too — pass dryRun false deliberately. */
+/** Which switch to throw. `collection` is whether we spend on watching a
+ *  vendor; `brand_monitoring` is whether it appears in Brand Watcher as a
+ *  brand in its own right. They are independent. */
+export type VendorSwitch = 'collection' | 'brand_monitoring';
+
+/** Every vendor in scope. The API refuses an empty filter on purpose — an
+ *  empty rule must not silently mean "all" — so "all" is stated as the two
+ *  in-scope roles, which leaves anything marked excluded alone. */
+export const ALL_IN_SCOPE: VendorFilter = { roles: ['vendor', 'watch'] };
+
 export async function setVendorCollection(
   marketId: number, enabled: boolean, filter: VendorFilter, dryRun = true,
+  field: VendorSwitch = 'collection',
 ): Promise<CollectionToggleResult> {
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/vendors/collection`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled, filter, dry_run: dryRun }),
+    body: JSON.stringify({ enabled, filter, dry_run: dryRun, field }),
   }), 'Failed to change collection');
 }
 
@@ -696,7 +709,8 @@ export interface MarketOverview {
 
 /** What kind of thing an article is. A vendor's own blog post and a trade-press
  * story are not the same evidence, so the feed and the UI keep them apart. */
-export type ArticleClass = 'news' | 'vendor' | 'social' | 'research';
+export type ArticleClass = 'news' | 'vendor' | 'social' | 'discussion'
+  | 'research';
 
 export interface CorpusSummary {
   by_class: Record<ArticleClass, number>;

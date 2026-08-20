@@ -592,6 +592,21 @@ async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
                 """), {"target": payload.enabled, "ids": ids})
                 if payload.enabled:
                     keywords_fixed = _refresh_brand_keywords(conn, ids)
+                    # Glassdoor is opt-in per brand through
+                    # config.extra_sources, and nothing else sets it. A vendor
+                    # promoted to a brand without it gets a brand page with an
+                    # empty employer panel and no indication why.
+                    conn.execute(text("""
+                        UPDATE bw_brands
+                        SET config = jsonb_set(
+                                COALESCE(config, '{}'::jsonb),
+                                '{extra_sources}',
+                                COALESCE(config->'extra_sources', '[]'::jsonb)
+                                    || '["glassdoor"]'::jsonb)
+                        WHERE id = ANY(:ids)
+                          AND NOT COALESCE(config->'extra_sources', '[]'::jsonb)
+                              ? 'glassdoor'
+                    """), {"ids": ids})
             conn.commit()
             return {"dry_run": False, "enabled": payload.enabled,
                     "field": payload.field,

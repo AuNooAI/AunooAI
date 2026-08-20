@@ -20,7 +20,7 @@ import {
 } from 'recharts';
 import {
   datasetCsvUrl, datasetCsvDownloadUrl, discoverCandidates,
-  exportBundleUrl, feedUrl, getReportLink, reportUrl,
+  exportBundleUrl, feedUrl, getReportLink, reportUrl, ALL_IN_SCOPE,
   generateMarketTimeline, getBrief, getCollectionPlan, getCorpusArticles,
   getCorpusSummary, getDataInventory, getDrilldown, getMarketTable,
   getFacets,
@@ -34,7 +34,7 @@ import {
   type DiscoveryResult, type Facets,
   type Market, type MarketBrief, type MarketOverview, type ReviewTask,
   type SourceHealth, type SourceSetting, type TimelineEvent, type Vendor,
-  type VendorFilter,
+  type VendorFilter, type VendorSwitch,
 } from '../../services/marketMonitorApi';
 
 /** Top-level views. Configuration lives in a settings drawer.
@@ -53,13 +53,16 @@ type SettingsPanel = 'collection' | 'sources' | 'health';
  * misled about how well corroborated a claim is. */
 const CLASS_LABEL: Record<string, string> = {
   news: 'news', vendor: 'vendor blog', social: 'vendor post',
-  research: 'research',
+  discussion: 'practitioner', research: 'research',
 };
 
 const CLASS_TONE: Record<string, string> = {
   news: 'bg-white text-slate-600 border-slate-200',
   vendor: 'bg-amber-50 text-amber-700 border-amber-200',
   social: 'bg-amber-50 text-amber-700 border-amber-200',
+  // Blue, not amber: a practitioner talking about the market is a different
+  // kind of evidence from a vendor talking about itself.
+  discussion: 'bg-sky-50 text-sky-700 border-sky-200',
   research: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
@@ -77,6 +80,9 @@ const DRILL_LABEL: Record<string, string> = {
   posting: 'Vendors that have announced something',
   hiring: 'Vendors with open job listings',
 };
+
+const BULK_BTN = 'text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 '
+  + 'disabled:opacity-50';
 
 const VERDICT_TONE: Record<string, string> = {
   signal: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -386,15 +392,23 @@ export function MarketMonitorTab() {
   }
 
   async function applyFilterToggle(filter: VendorFilter, enabled: boolean,
-                                   dryRun: boolean) {
+                                   dryRun: boolean,
+                                   field: VendorSwitch = 'collection') {
     if (marketId === null) return;
     setBusy(true); setToggleResult(null);
     try {
-      const res = await setVendorCollection(marketId, enabled, filter, dryRun);
+      const res = await setVendorCollection(marketId, enabled, filter, dryRun,
+                                            field);
+      const what = field === 'collection' ? 'collection' : 'brand monitoring';
       setToggleResult(
         dryRun
           ? `${res.matched} vendors match; ${res.would_change ?? 0} would change.`
-          : `${res.changed ?? 0} vendors updated.`);
+          : `${res.changed ?? 0} vendors updated (${what}).` +
+            (res.keywords_rewritten
+              ? ` ${res.keywords_rewritten} keyword list${
+                  res.keywords_rewritten === 1 ? '' : 's'} rewritten to avoid ` +
+                'matching ordinary words.'
+              : ''));
       if (!dryRun) reload();
     } catch (e: any) {
       setToggleResult(`Failed: ${e.message ?? e}`);
@@ -940,7 +954,8 @@ export function MarketMonitorTab() {
             ))}
             <span className="w-3" />
             {([['', 'Any kind'], ['news', 'News'], ['vendor', 'Vendor blogs'],
-               ['social', 'Vendor posts'], ['research', 'Research']] as const)
+               ['social', 'Vendor posts'], ['discussion', 'Practitioners'],
+               ['research', 'Research']] as const)
               .map(([id, label]) => (
               <button key={id} onClick={() => setCorpusClass(id)}
                       className={`text-sm px-3 py-1 rounded-md border ${
@@ -1699,29 +1714,59 @@ export function MarketMonitorTab() {
             </div>
           </div>
 
-          <div className="border rounded-lg p-4 bg-white space-y-2">
+          <div className="border rounded-lg p-4 bg-white space-y-3">
             <div className="font-medium text-slate-800">Vendor selection</div>
-            <p className="text-sm text-slate-600">
-              Which vendors are monitored directly (website and LinkedIn).
-              Filters exclude out-of-scope vendors unless a role is specified.
-            </p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button disabled={busy}
-                onClick={() => applyFilterToggle({ funding_status: ['Disclosed'] }, true, false)}
-                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 disabled:opacity-50">
-                Watch only funded vendors
-              </button>
-              <button disabled={busy}
-                onClick={() => applyFilterToggle(
-                  { funding_status: ['Undisclosed', 'Bootstrapped'] }, false, false)}
-                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 disabled:opacity-50">
-                Stop watching unfunded
-              </button>
-              <button disabled={busy}
-                onClick={() => applyFilterToggle({ has_linkedin: false }, false, false)}
-                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 disabled:opacity-50">
-                Stop watching vendors with no LinkedIn
-              </button>
+
+            <div>
+              <div className="text-sm text-slate-700">Collection</div>
+              <p className="text-xs text-slate-500 mb-1.5">
+                Whether we spend on watching a vendor's website and LinkedIn.
+                Vendors marked out of scope are never included unless a rule
+                names their role.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, true, false)}
+                  className={BULK_BTN}>Select all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, false, false)}
+                  className={BULK_BTN}>Remove all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle({ funding_status: ['Disclosed'] }, true, false)}
+                  className={BULK_BTN}>Select funded</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(
+                    { funding_status: ['Undisclosed', 'Bootstrapped'] }, false, false)}
+                  className={BULK_BTN}>Remove unfunded</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle({ has_linkedin: false }, false, false)}
+                  className={BULK_BTN}>Remove those with no LinkedIn</button>
+              </div>
+            </div>
+
+            <div className="pt-1 border-t">
+              <div className="text-sm text-slate-700 pt-2">Brand monitoring</div>
+              <p className="text-xs text-slate-500 mb-1.5">
+                Whether a vendor also appears in Brand Watcher as a brand of its
+                own, with sentiment, alerts and its own dashboard. Separate from
+                collection, and off by default — 83 vendors would swamp a brand
+                dashboard. Switching it on rewrites keywords that are ordinary
+                words, so "Variance" is searched as "Variance security".
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, true, false,
+                                                   'brand_monitoring')}
+                  className={BULK_BTN}>Select all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle(ALL_IN_SCOPE, false, false,
+                                                   'brand_monitoring')}
+                  className={BULK_BTN}>Remove all</button>
+                <button disabled={busy}
+                  onClick={() => applyFilterToggle({ funding_status: ['Disclosed'] },
+                                                   true, false, 'brand_monitoring')}
+                  className={BULK_BTN}>Select funded</button>
+              </div>
             </div>
           </div>
         </div>

@@ -374,6 +374,55 @@ def _shares_a_word(term_words: set, name_words: set) -> bool:
     )
 
 
+def _name_is_compatible(term_words: set, name_words: set) -> bool:
+    """False when the two names disagree about which company this is.
+
+    Applied after ``_shares_a_word``, which only asks whether the names have a
+    word in common. That is far too weak on its own: "Legion Security" shares
+    "legion" with Legion Logistics, Legion Technologies and Legion Capital,
+    none of them the tracked company. Observed on this market — "Daylight
+    Security" resolved to Daylight Transport and then, after a re-query, to
+    Daylight Donuts; "Radiant Security" to Radiant Waxing and then Radiant
+    Systems. Every one of those would have put another company's employee
+    rating on a vendor's page.
+
+    Enumerating business-type words does not work, because the list is endless
+    — donuts, waxing, studios, transport. The rule that does work makes no
+    judgement about meaning: **every word of the shorter name must appear in
+    the longer one.** A candidate is either the same name possibly extended, or
+    it is a different company.
+
+      Legion Security  vs Legion Technologies  ->  security is absent, reject
+      Daylight Security vs Daylight Donuts     ->  security is absent, reject
+      Pearsons Education vs Pearson            ->  pearson is present, accept
+      Springer         vs Springer Nature      ->  springer is present, accept
+
+    Prefix matching carries the same case ``_shares_a_word`` exists for, where
+    the tracked name is "Pearsons" and Glassdoor's is "Pearson".
+    """
+    shorter, longer = ((term_words, name_words)
+                       if len(term_words) <= len(name_words)
+                       else (name_words, term_words))
+    for word in shorter:
+        if word in longer:
+            continue
+        if any(_prefix_match(word, other) for other in longer):
+            continue
+        return False
+    return True
+
+
+def _prefix_match(a: str, b: str) -> bool:
+    """Whether two words are the same allowing a plural or short suffix.
+
+    Four characters is the same floor ``_shares_a_word`` uses, and for the same
+    reason: below it, prefixes stop being evidence.
+    """
+    if len(a) < 4 or len(b) < 4:
+        return False
+    return a.startswith(b) or b.startswith(a)
+
+
 def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str) -> Optional[Dict[str, Any]]:
     """The candidate that actually IS the brand, or None.
 
@@ -414,7 +463,16 @@ def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str) -> Optional[D
             continue
         # Still require a real word in common, so a search that returns junk
         # yields nothing rather than the most-reviewed piece of junk.
-        if not _shares_a_word(term_words, set(name_norm.split())):
+        name_words = set(name_norm.split())
+        if not _shares_a_word(term_words, name_words):
+            continue
+        # One shared word is not enough when the words that differ are what
+        # distinguish the companies. "Legion Security" matched Legion Logistics
+        # (taxi services, 70 reviews), "Daylight Security" matched Daylight
+        # Transport (trucking), and "Radiant Security" matched Radiant Waxing —
+        # each sharing its distinctive first word and differing in the one that
+        # says what the company does.
+        if not _name_is_compatible(term_words, name_words):
             continue
         try:
             reviews = int(h.get("review_count") or 0)

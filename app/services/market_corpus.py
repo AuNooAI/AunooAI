@@ -180,7 +180,13 @@ def corpus_terms(conn, market_id: int) -> List[str]:
 # Vendor is decided by domain against the registry, which is exact. Nothing
 # here is inferred from the wording.
 
-ARTICLE_CLASSES = ("news", "vendor", "social", "research")
+ARTICLE_CLASSES = ("news", "vendor", "social", "discussion", "research")
+
+# Practitioner social — Bluesky, X, Reddit — as opposed to ``social``, which
+# is a tracked vendor posting about itself. The distinction is the whole point:
+# a vendor saying its product works and a practitioner saying it does not are
+# both "social posts" and are not remotely the same evidence.
+_DISCUSSION_SOURCES = ("bluesky", "bsky", "xpoz", "reddit", "mastodon")
 
 # Feeds that are papers rather than press.
 _RESEARCH_SOURCES = {"semantic_scholar", "arxiv", "pubmed", "biorxiv"}
@@ -222,11 +228,16 @@ def _host(uri: str) -> str:
 
 def classify_article(uri: str, news_source: Optional[str],
                      bias_source: Optional[str], domains: set) -> str:
-    """Which of the four kinds this article is."""
+    """Which kind of thing this article is."""
     if (bias_source or "") == "vendor:linkedin":
         return "social"
-    if (news_source or "").strip().lower() in _RESEARCH_SOURCES:
+    source = (news_source or "").strip().lower()
+    if source in _RESEARCH_SOURCES:
         return "research"
+    # Checked before the domain match: a practitioner post that happens to link
+    # a vendor's site is still a practitioner post.
+    if any(source == d or source.startswith(d + ":") for d in _DISCUSSION_SOURCES):
+        return "discussion"
     host = _host(uri)
     if host and any(host == d or host.endswith("." + d) for d in domains):
         return "vendor"
@@ -475,8 +486,10 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
         where.append("ma.origin = :origin")
         params["origin"] = origin
     if require_signal_for_social:
-        # An unreviewed post is not yet known to be worth showing, so it is
-        # left out with the ones judged noise rather than let through.
+        # An unreviewed *vendor* post is not yet known to be worth showing, so
+        # it is left out with the ones judged noise. Practitioner posts are not
+        # covered by this: nobody is marketing in them, so the relevance floor
+        # at collection is the gate that matters.
         where.append("(COALESCE(a.bias_source, '') <> 'vendor:linkedin'"
                      " OR ma.review_verdict = 'signal')")
 

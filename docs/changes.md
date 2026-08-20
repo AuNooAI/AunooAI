@@ -2,6 +2,108 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (social, glassdoor, selection) — practitioner posts surface, and Glassdoor was reading the wrong companies
+
+### Goal
+Three reported problems: social looked inactive on bugfixing, Glassdoor was not running, and
+vendor selection had no bulk controls.
+
+### Social was running and invisible — `app/services/market_corpus.py`
+103 posts had been collected across twitter (53), bluesky (42) and reddit (8), all scored, all
+under `Market Monitoring SOC Automation`. Nothing showed them: Brand Watcher's social tab filters
+to `Brand Monitoring %` topics, and the market monitor had no social surface at all.
+
+New article class **`discussion`** — practitioner social, as distinct from `social`, which is a
+tracked vendor posting about itself. The distinction is the point: a vendor saying its product
+works and a practitioner saying it does not are both "social posts" and are not remotely the same
+evidence. Matched on `news_source` against bluesky / bsky / xpoz / reddit / mastodon, checked
+*before* the vendor-domain test so a practitioner linking a vendor's site stays a practitioner.
+
+The vendor-post review gate explicitly does not apply to it. Nobody is marketing in a
+practitioner post, so the 0.45 relevance floor at collection is the gate that matters.
+
+After a rescan the market corpus reads **news 125, vendor 58, social 602, discussion 127,
+research 16**. The Coverage view gains a "Practitioners" filter, and the class badge is blue
+rather than amber, because it is a different kind of evidence.
+
+### Glassdoor was off, and switching it on produced other companies' ratings
+Glassdoor is opt-in per brand through `config.extra_sources`, and no bugfixing brand had it. wbm
+has it on four. Enabled for the 38 brand-monitored vendors, and the brand-monitoring toggle now
+sets it automatically — a vendor promoted to a brand without it gets an empty employer panel and
+no indication why.
+
+**Then the resolution failed in the worst available way.** Of six vendors tested, two "resolved":
+
+```
+Legion Security   -> Legion Logistics   (Taxi & Car Services, 70 reviews)
+Daylight Security -> Daylight Transport (Shipping & Trucking, 53 reviews)
+Radiant Security  -> Radiant Waxing
+```
+
+Clearing the cache and re-querying produced a *different* set of wrong companies — Daylight
+Donuts, Legion Technologies, Radiant Systems, Method Studios, Pre-Uni New College, Rei do Mate,
+Fig & Olive Restaurant. Ten brands ended up with another company's employee rating cached against
+them.
+
+The existing guard, `_shares_a_word`, only requires one word in common, and the shared word is
+always the distinctive one — "legion", "daylight", "radiant". The word that differs is the one
+that says what the company does.
+
+**`_name_is_compatible()` fixes it without a word list.** My first attempt enumerated business
+sectors and failed immediately: the list is endless — donuts, waxing, studios, transport. The
+rule that works makes no judgement about meaning: **every word of the shorter name must appear in
+the longer one.** A candidate is either the same name possibly extended, or a different company.
+
+```
+Legion Security    vs Legion Technologies  ->  "security" absent, reject
+Daylight Security  vs Daylight Donuts      ->  "security" absent, reject
+Pearsons Education vs Pearson              ->  "pearson" present, accept
+Springer           vs Springer Nature      ->  "springer" present, accept
+```
+
+Two caches had to be cleared, not one. `config.glassdoor_company_id` pins the resolved id, and
+`config.glassdoor_overview` caches the reading itself — and `refresh_glassdoor_overview` returns
+the cached overview when a fetch resolves nothing. So after fixing the matcher, resolution
+correctly failed and the stale wrong reading was still served. Ten poisoned entries removed.
+
+### Vendor selection — `MarketMonitorTab.tsx`
+**Select all / Remove all / Select funded** for both switches, collection and brand monitoring,
+plus the existing narrower rules. "All" is expressed as the two in-scope roles rather than an
+empty filter, because the API refuses an empty rule on purpose — an empty rule must not silently
+mean everything — and stating the roles leaves excluded vendors alone.
+
+### Verification
+Social: `corpus/summary` returns the five classes above; `corpus?classes=discussion` returns
+practitioner posts about the agentic SOC, Torq HyperSOC and similar.
+
+Glassdoor matcher: 11 cases pass, including every case documented from wbm — "Pearsons Education"
+still matches "Pearson", "SAGE Publishing" still matches "Sage", and all six observed mismatches
+are rejected. `pytest tests/test_glassdoor_company_resolution.py` → **25 passed**. Live re-run
+over eight vendors after clearing both caches: **all eight correctly return no match** rather than
+somebody else's rating.
+
+wbm and wileytest were checked for the same poisoning and are clean — Pearson, Sage, Wiley and
+Elsevier all resolve to themselves.
+
+`npm run typecheck` clean against baseline. All four tenants rebuilt where relevant, restarted,
+active.
+
+### Propagation
+`bw_official_sources.py` copied to wiley, wileytest and wbm. wileytest and wbm were byte-identical
+to canonical beforehand; **wiley was 133 lines behind** and still carried the original naive
+first-word matcher, which never received the earlier resolution work. It has no Glassdoor-enabled
+brands, so the bug was dormant there rather than active. The 10 wiley-only lines were that
+superseded implementation, not a local customisation.
+
+### Lessons
+NEVER accept a company match on one shared word. The shared word is the distinctive one and the
+differing word is what tells two companies apart, so "one word in common" selects lookalikes
+almost by construction.
+
+A resolution fix is not complete until every cache of the bad result is cleared. Here there were
+two — the pinned id and the cached reading — and clearing only the first left the wrong company's
+rating being served by a code path that had already been fixed.
+
 ## 2026-08-20 (check-now) — a manual collection run used the wrong providers
 
 ### Goal
