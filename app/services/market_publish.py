@@ -19,7 +19,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from email.utils import format_datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from xml.sax.saxutils import escape
 
 from sqlalchemy import text
@@ -151,56 +151,147 @@ def _esc(v: Any) -> str:
     return escape(str(v)) if v not in (None, "") else ""
 
 
+# Vendor LinkedIn posts are excluded by default. They are 152 of the 348
+# matched articles on the SOC Automation market, so including them turns a
+# market news feed into a vendor marketing feed. ``?classes=news,vendor,social``
+# puts them back.
+DEFAULT_FEED_CLASSES = ("news", "vendor", "research")
+
+
+def _parse_stamp(value) -> Optional[datetime]:
+    """A publication date out of a TEXT column, or None.
+
+    ``articles.publication_date`` is TEXT in this schema and holds several
+    shapes. A feed item with a wrong date sorts wrongly forever, so anything
+    unparseable returns None and the caller falls back rather than guessing.
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    text_value = (str(value) if value is not None else "").strip()
+    if not text_value:
+        return None
+    cleaned = text_value.replace("Z", "+00:00")
+    for candidate in (cleaned, cleaned[:19], cleaned[:10]):
+        try:
+            stamp = datetime.fromisoformat(candidate)
+            return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
 def build_feed(conn, market: Dict[str, Any], *, base_url: str,
-               limit: int = 50) -> bytes:
-    """The market's timeline as RSS 2.0.
+               limit: int = 50, kind: str = "all",
+               classes: Optional[Sequence[str]] = None,
+               days: Optional[int] = None) -> bytes:
+    """The market as a subscribable feed: its articles and its events.
+
+    An aggregator, not a change log. Items are the articles that matched the
+    market's phrases — linked to the original publication, not to us — merged
+    with the timeline's events and sorted by date.
+
+    Each article item carries its kind as the first ``<category>``: news,
+    vendor, social or research. A reader who cannot tell a vendor's own blog
+    post from a trade-press story is being misled by the feed, and the
+    distinction costs one element.
 
     Hand-rolled like the rest of this codebase's feed output — no third-party
-    dependency for forty lines of XML. Each item is a timeline event, so a
-    subscriber gets what changed rather than every article that mentioned the
-    category.
+    dependency for eighty lines of XML.
     """
+    from app.services import market_corpus as mcorp
+
     topic = (market.get("config") or {}).get("collection", {}).get("topic_name")
     if not topic:
         topic = f"Market Monitoring {market['name']}"
 
-    events = conn.execute(text("""
-        SELECT id, title, description, event_type, significance, event_date,
-               article_count, created_at
-        FROM timeline_events
-        WHERE scope_type = 'topic' AND scope_id = :sid AND is_stale = false
-        ORDER BY event_date DESC, id DESC LIMIT :lim
-    """), {"sid": topic, "lim": limit}).mappings().all()
-
     site = base_url.rstrip("/")
+    market_id = market["id"]
+    wanted = tuple(classes) if classes else DEFAULT_FEED_CLASSES
+    items: List[Dict[str, Any]] = []
+
+    if kind in ("all", "articles"):
+        has_corpus = conn.execute(
+            text("SELECT to_regclass('bw_market_articles')")).scalar()
+        if has_corpus:
+            for row in mcorp.articles(conn, market_id, limit=limit * 3,
+                                      days=days, classes=wanted):
+                stamp = _parse_stamp(row.get("published"))
+                items.append({
+                    "stamp": stamp or datetime.now(timezone.utc),
+                    "dated": stamp is not None,
+                    "title": row.get("title") or row["uri"],
+                    "link": row["uri"],
+                    "guid": row["uri"],
+                    "permalink": True,
+                    "description": row.get("summary") or row.get("title") or "",
+                    "source": row.get("news_source"),
+                    "categories": [row["article_class"]]
+                                  + list(row.get("matched_terms") or [])[:5],
+                })
+
+    if kind in ("all", "events"):
+        events = conn.execute(text("""
+            SELECT id, title, description, event_type, significance, event_date,
+                   article_count, created_at
+            FROM timeline_events
+            WHERE scope_type = 'topic' AND scope_id = :sid AND is_stale = false
+            ORDER BY event_date DESC, id DESC LIMIT :lim
+        """), {"sid": topic, "lim": limit}).mappings().all()
+        for e in events:
+            stamp = _parse_stamp(e["event_date"]) or _parse_stamp(e["created_at"])
+            items.append({
+                "stamp": stamp or datetime.now(timezone.utc),
+                "dated": stamp is not None,
+                "title": e["title"],
+                # An event has no source URL of its own, so it links to the
+                # market's own page rather than to somebody else's article.
+                "link": f"{site}/explore#market-event-{e['id']}",
+                "guid": f"market-event-{e['id']}",
+                "permalink": False,
+                "description": e["description"] or e["title"],
+                "source": None,
+                "categories": ["event", e["event_type"], e["significance"]],
+            })
+
+    items.sort(key=lambda i: i["stamp"], reverse=True)
+    items = items[:limit]
+
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+        ('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" '
+         'xmlns:dc="http://purl.org/dc/elements/1.1/">'),
         "<channel>",
         f"<title>{_esc(market['name'])} — Market Monitor</title>",
         f"<link>{_esc(site)}/explore</link>",
         f"<description>{_esc(market.get('question') or market['name'])}</description>",
         "<language>en</language>",
         f'<atom:link href="{_esc(site)}/api/market-monitor/markets/'
-        f'{market["id"]}/feed.xml" rel="self" type="application/rss+xml" />',
+        f'{market_id}/feed.xml" rel="self" type="application/rss+xml" />',
         f"<lastBuildDate>{format_datetime(datetime.now(timezone.utc))}</lastBuildDate>",
     ]
-    for e in events:
-        stamp = e["created_at"] or datetime.now(timezone.utc)
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=timezone.utc)
-        guid = f"{site}/explore#market-event-{e['id']}"
+    for item in items:
         parts += [
             "<item>",
-            f"<title>{_esc(e['title'])}</title>",
-            f"<link>{_esc(guid)}</link>",
-            f'<guid isPermaLink="false">market-event-{e["id"]}</guid>',
-            f"<description>{_esc(e['description'] or e['title'])}</description>",
-            f"<category>{_esc(e['event_type'])}</category>",
-            f"<category>{_esc(e['significance'])}</category>",
-            f"<pubDate>{format_datetime(stamp)}</pubDate>",
-            "</item>",
+            f"<title>{_esc(item['title'])}</title>",
+            f"<link>{_esc(item['link'])}</link>",
+            f'<guid isPermaLink="{"true" if item["permalink"] else "false"}">'
+            f"{_esc(item['guid'])}</guid>",
+            f"<description>{_esc(item['description'])}</description>",
         ]
+        for cat in item["categories"]:
+            if cat:
+                parts.append(f"<category>{_esc(str(cat))}</category>")
+        # dc:creator, not <source>. RSS 2.0's <source> requires a url
+        # attribute pointing at the originating feed, and we do not know the
+        # publication's feed URL — only its name. Putting our own URL there
+        # would claim we published it.
+        if item["source"]:
+            parts.append(f"<dc:creator>{_esc(item['source'])}</dc:creator>")
+        # An item with no usable date gets none rather than today's, which
+        # would make it look new every time the feed is rebuilt.
+        if item["dated"]:
+            parts.append(f"<pubDate>{format_datetime(item['stamp'])}</pubDate>")
+        parts.append("</item>")
     parts += ["</channel>", "</rss>"]
     return "\n".join(parts).encode("utf-8")
 

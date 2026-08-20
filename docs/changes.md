@@ -77,6 +77,34 @@ button, the phrases that matched, the sources they came from, and a filter for
 all / from-other-topics / from-this-market. Segmented control now reads
 Overview · Brief · Wire · Coverage · Vendors.
 
+### The feed is now an aggregator — `app/services/market_publish.py`
+`build_feed()` carried timeline events only, which on this market is four items. It now merges
+the matched articles with the events and sorts by date, so the feed is the market's news rather
+than a change log about it. Article items link to the original publication with
+`isPermaLink="true"`, not to us.
+
+Query parameters on `feed.xml`: `kind` (all | articles | events), `classes`, `days`, `limit`.
+
+**Article kinds — `market_corpus.classify_article()`.** Four: `news` (third-party publication),
+`vendor` (a tracked vendor's own site, decided by URL host against `bw_vendor_identifiers`
+domains, so it is exact rather than inferred), `social` (a tracked vendor's LinkedIn post, via
+`bias_source = 'vendor:linkedin'`), `research` (semantic_scholar, arXiv and similar). On the SOC
+Automation market: news 122, social 152, vendor 58, research 16.
+
+The kind is the first `<category>` on every article item, and a badge on every row in the
+Coverage view. A reader who cannot tell a vendor's own blog post from a trade-press story is
+being misled about how well corroborated a claim is, and the distinction costs one element.
+
+`social` is excluded from the feed by default (`DEFAULT_FEED_CLASSES`). At 152 of 348 it would
+turn a market news feed into a vendor marketing feed. `?classes=news,vendor,social` puts it back.
+
+Two things fixed on the way through. The kind is decided in Python, so filtering by it after the
+SQL `LIMIT` meant "give me 100 news items" returned only the news items inside the first 100 rows
+of every kind — 87 instead of 100. `articles()` now over-fetches up to 5× (capped at 2,000) when
+a kind filter is set, then truncates. And `<source url="...">` pointed at our own site: RSS 2.0
+requires that attribute to be the originating feed's URL, which we do not know, so naming
+ourselves there claims we published the article. Replaced with `<dc:creator>`.
+
 ### Verification
 Migration applied: `alembic upgrade head` → `mm_001 -> mm_002`.
 
@@ -101,6 +129,14 @@ Feed, unauthenticated, after marking the market public:
 `curl https://bugfixing.aunoo.ai/api/market-monitor/markets/2/feed.xml` → `200
 application/rss+xml`, valid RSS 2.0, 4 items. Before the fix the same request returned
 `{"detail":"Temporary Redirect"}`.
+
+Aggregator feed, unauthenticated:
+
+```
+feed.xml                                   → 50 items: 28 news, 18 vendor, 4 events
+feed.xml?kind=articles&classes=news&limit=100 → 100 items (122 news articles exist)
+feed.xml?classes=news,vendor,social,research&limit=200 → 200 items
+```
 
 UI: `npm run typecheck` → clean against baseline (246 known errors, no new ones).
 `./ui/deploy-react-ui.sh`, then `systemctl restart bugfixing.aunoo.ai.service` → active.

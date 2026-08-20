@@ -163,6 +163,76 @@ def corpus_terms(conn, market_id: int) -> List[str]:
     return seen
 
 
+# ---------------------------------------------------------------------------
+# What kind of thing an article is
+# ---------------------------------------------------------------------------
+#
+# A market aggregator that mixes a trade-press story, a vendor's own blog post
+# and a vendor's LinkedIn update into one undifferentiated list is misleading,
+# because the three carry very different weight. A vendor saying it solved a
+# problem is not evidence that the problem is solved.
+#
+#   news     — a third-party publication
+#   vendor   — published by a tracked vendor on its own site
+#   social   — a tracked vendor's LinkedIn post
+#   research — an academic paper
+#
+# Vendor is decided by domain against the registry, which is exact. Nothing
+# here is inferred from the wording.
+
+ARTICLE_CLASSES = ("news", "vendor", "social", "research")
+
+# Feeds that are papers rather than press.
+_RESEARCH_SOURCES = {"semantic_scholar", "arxiv", "pubmed", "biorxiv"}
+
+
+def vendor_domains(conn, market_id: int) -> set:
+    """Registered domains for every vendor in the market, excluded ones too.
+
+    An excluded vendor's blog is still that vendor's blog. Dropping it from
+    this set would relabel its posts as third-party news, which is the one
+    mistake this function exists to prevent.
+    """
+    rows = conn.execute(text("""
+        SELECT DISTINCT i.normalized_value
+        FROM bw_vendor_identifiers i
+        JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
+                                 AND mb.market_id = :m
+        WHERE i.kind = 'domain' AND i.valid_to IS NULL
+    """), {"m": market_id}).fetchall()
+    out = set()
+    for (value,) in rows:
+        host = (value or "").strip().lower().lstrip(".")
+        if host.startswith("www."):
+            host = host[4:]
+        if host:
+            out.add(host)
+    return out
+
+
+def _host(uri: str) -> str:
+    from urllib.parse import urlparse
+
+    try:
+        host = (urlparse(uri or "").hostname or "").lower()
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def classify_article(uri: str, news_source: Optional[str],
+                     bias_source: Optional[str], domains: set) -> str:
+    """Which of the four kinds this article is."""
+    if (bias_source or "") == "vendor:linkedin":
+        return "social"
+    if (news_source or "").strip().lower() in _RESEARCH_SOURCES:
+        return "research"
+    host = _host(uri)
+    if host and any(host == d or host.endswith("." + d) for d in domains):
+        return "vendor"
+    return "news"
+
+
 def market_topic_name(market: Dict[str, Any]) -> str:
     cfg = market.get("config") if isinstance(market.get("config"), dict) else {}
     topic = ((cfg or {}).get("collection") or {}).get("topic_name")
@@ -336,7 +406,18 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     """), {"m": market_id, "since": _iso_days_ago(max(days, 90))}
     ).mappings().all()
 
+    domains = vendor_domains(conn, market_id)
+    kinds: Dict[str, int] = {c: 0 for c in ARTICLE_CLASSES}
+    for uri, source, bias in conn.execute(text("""
+        SELECT a.uri, a.news_source, a.bias_source
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+    """), {"m": market_id}).fetchall():
+        kinds[classify_article(uri, source, bias, domains)] += 1
+
     return {
+        "by_class": kinds,
         "total": (totals or {}).get("total", 0),
         "collected": (totals or {}).get("collected", 0),
         "corpus": (totals or {}).get("corpus", 0),
@@ -351,11 +432,17 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
 
 def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
              days: Optional[int] = None, origin: Optional[str] = None,
-             min_score: float = 0.0) -> List[Dict[str, Any]]:
+             min_score: float = 0.0,
+             classes: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     """The matched corpus, newest first."""
+    # The kind of an article is decided in Python, from the URL's host against
+    # the vendor registry. So when a caller filters by kind the SQL limit has
+    # to be loosened first, or "give me 100 news items" silently returns the
+    # news items that happened to be inside the first 100 rows of every kind.
+    fetch = min(limit * 5, 2000) if classes else limit
     where = ["ma.market_id = :m", "ma.score >= :ms"]
     params: Dict[str, Any] = {"m": market_id, "ms": min_score,
-                              "lim": limit, "off": offset}
+                              "lim": fetch, "off": offset}
     if days:
         where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
         params["since"] = _iso_days_ago(days)
@@ -366,7 +453,7 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
     rows = conn.execute(text(f"""
         SELECT a.uri, a.title, a.summary, a.news_source, a.topic,
                COALESCE(a.publication_date, a.submission_date) AS published,
-               a.sentiment, a.category, a.analyzed,
+               a.sentiment, a.category, a.analyzed, a.bias_source,
                ma.score, ma.matched_terms, ma.origin, ma.title_terms
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
@@ -375,4 +462,18 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
                  ma.score DESC
         LIMIT :lim OFFSET :off
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+
+    domains = vendor_domains(conn, market_id)
+    wanted = {c for c in (classes or ()) if c in ARTICLE_CLASSES}
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        row = dict(r)
+        row["article_class"] = classify_article(
+            row["uri"], row["news_source"], row.pop("bias_source", None),
+            domains)
+        if wanted and row["article_class"] not in wanted:
+            continue
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return out

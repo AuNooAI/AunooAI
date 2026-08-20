@@ -23,7 +23,8 @@ import {
   getRuns, getSourceHealth, getSources, getVendors, saveSources, scanCorpus,
   setCollectionTerms, setVendorCollection, setupCollection, updateReviewTask,
   type CollectionPlan, type CollectionRun, type CorpusArticle,
-  type CorpusSummary, type DiscoveryResult, type Facets,
+  type ArticleClass, type CorpusSummary, type DiscoveryResult,
+  type Facets,
   type Market, type MarketBrief, type MarketOverview, type ReviewTask,
   type SourceHealth, type SourceSetting, type TimelineEvent, type Vendor,
   type VendorFilter,
@@ -38,6 +39,21 @@ type View = 'overview' | 'brief' | 'wire' | 'coverage' | 'vendors';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
 type SettingsPanel = 'collection' | 'sources' | 'health';
+
+/** A vendor's own blog post is not a trade-press story. The feed says so and
+ * so does the list, because a reader who cannot tell them apart is being
+ * misled about how well corroborated a claim is. */
+const CLASS_LABEL: Record<string, string> = {
+  news: 'news', vendor: 'vendor blog', social: 'vendor post',
+  research: 'research',
+};
+
+const CLASS_TONE: Record<string, string> = {
+  news: 'bg-white text-slate-600 border-slate-200',
+  vendor: 'bg-amber-50 text-amber-700 border-amber-200',
+  social: 'bg-amber-50 text-amber-700 border-amber-200',
+  research: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+};
 
 const SEVERITY_TONE: Record<string, string> = {
   high: 'bg-red-50 text-red-700 border-red-200',
@@ -109,6 +125,7 @@ export function MarketMonitorTab() {
   const [corpusArticles, setCorpusArticles] =
     useState<CorpusArticle[] | null>(null);
   const [corpusOrigin, setCorpusOrigin] = useState<'' | 'corpus' | 'collected'>('');
+  const [corpusClass, setCorpusClass] = useState<'' | ArticleClass>('');
   const [scanResult, setScanResult] = useState<string | null>(null);
 
   const market = useMemo(
@@ -196,13 +213,15 @@ export function MarketMonitorTab() {
     let live = true;
     Promise.all([
       getCorpusSummary(marketId, 30),
-      getCorpusArticles(marketId, { limit: 100, origin: corpusOrigin || undefined }),
+      getCorpusArticles(marketId, { limit: 100,
+                                    origin: corpusOrigin || undefined,
+                                    classes: corpusClass || undefined }),
     ]).then(([sum, list]) => {
       if (!live) return;
       setCorpus(sum); setCorpusArticles(list.articles);
     }).catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
-  }, [marketId, view, corpusOrigin]);
+  }, [marketId, view, corpusOrigin, corpusClass]);
 
   async function runCorpusScan() {
     if (marketId === null) return;
@@ -216,7 +235,8 @@ export function MarketMonitorTab() {
       const [sum, list] = await Promise.all([
         getCorpusSummary(marketId, 30),
         getCorpusArticles(marketId, { limit: 100,
-                                      origin: corpusOrigin || undefined }),
+                                      origin: corpusOrigin || undefined,
+                                      classes: corpusClass || undefined }),
       ]);
       setCorpus(sum); setCorpusArticles(list.articles);
     } catch (e: any) {
@@ -590,6 +610,10 @@ export function MarketMonitorTab() {
               does.
             </p>
             <div className="flex-1" />
+            <a href={feedUrl(marketId!)} target="_blank" rel="noreferrer"
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              RSS feed
+            </a>
             <button onClick={runCorpusScan} disabled={busy}
                     className="text-sm px-3 py-1.5 border rounded-md
                                hover:bg-slate-50 disabled:opacity-50
@@ -652,7 +676,7 @@ export function MarketMonitorTab() {
             </div>
           )}
 
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {([['', 'All'], ['corpus', 'From other topics'],
                ['collected', 'From this market']] as const).map(([id, label]) => (
               <button key={id} onClick={() => setCorpusOrigin(id)}
@@ -661,6 +685,20 @@ export function MarketMonitorTab() {
                           ? 'bg-slate-800 text-white border-slate-800'
                           : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
                 {label}
+              </button>
+            ))}
+            <span className="w-3" />
+            {([['', 'Any kind'], ['news', 'News'], ['vendor', 'Vendor blogs'],
+               ['social', 'Vendor posts'], ['research', 'Research']] as const)
+              .map(([id, label]) => (
+              <button key={id} onClick={() => setCorpusClass(id)}
+                      className={`text-sm px-3 py-1 rounded-md border ${
+                        corpusClass === id
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {label}
+                {id && corpus?.by_class
+                  ? ` (${corpus.by_class[id as ArticleClass] ?? 0})` : ''}
               </button>
             ))}
           </div>
@@ -695,6 +733,10 @@ export function MarketMonitorTab() {
                     <span className="text-xs text-slate-500">
                       {a.origin === 'corpus' ? 'other topic' : 'this market'}
                     </span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                      CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
+                      {CLASS_LABEL[a.article_class] ?? a.article_class}
+                    </span>
                     {a.matched_terms.slice(0, 4).map(t => (
                       <span key={t}
                             className="text-xs px-1.5 py-0.5 rounded border
@@ -728,6 +770,11 @@ export function MarketMonitorTab() {
               RSS feed
             </a>
           </div>
+          <p className="text-xs text-slate-500 -mt-2">
+            The feed carries matched articles and timeline events, newest first.
+            Vendor LinkedIn posts are left out unless you ask for them with
+            <code className="mx-1">?classes=news,vendor,social</code>.
+          </p>
 
           {brief.standing_summary && (
             <div className="border rounded-lg p-4 bg-white">

@@ -912,8 +912,18 @@ async def market_dataset(
 
 
 @router.get("/markets/{market_id}/feed.xml")
-async def market_feed(market_id: int, request: Request,
-                      session=Depends(verify_session_optional)):
+async def market_feed(
+    market_id: int,
+    request: Request,
+    kind: str = Query("all", pattern="^(all|articles|events)$"),
+    classes: Optional[str] = Query(
+        None, description="Comma-separated: news, vendor, social, research. "
+                          "Defaults to news,vendor,research — vendor LinkedIn "
+                          "posts are excluded unless asked for."),
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    limit: int = Query(50, ge=1, le=200),
+    session=Depends(verify_session_optional),
+):
     """The market timeline as RSS, so the wire can be subscribed to.
 
     A feed reader carries no session. Behind ``verify_session`` this route
@@ -934,7 +944,10 @@ async def market_feed(market_id: int, request: Request,
             market = _load_market(conn, market_id)
             if not market.get("is_public") and not session:
                 raise HTTPException(status_code=404, detail="Market not found")
-            return mp.build_feed(conn, market, base_url=base)
+            picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
+            return mp.build_feed(conn, market, base_url=base, kind=kind,
+                                 classes=picked or None, days=days,
+                                 limit=limit)
         finally:
             conn.close()
 
@@ -1025,6 +1038,8 @@ async def market_corpus_articles(
     offset: int = Query(0, ge=0),
     days: Optional[int] = Query(None, ge=1, le=3650),
     origin: Optional[str] = Query(None),
+    classes: Optional[str] = Query(
+        None, description="Comma-separated: news, vendor, social, research."),
     min_score: float = Query(0.0, ge=0, le=100),
     session=Depends(verify_session),
 ):
@@ -1038,7 +1053,9 @@ async def market_corpus_articles(
             return {
                 "articles": mcorp.articles(
                     conn, market_id, limit=limit, offset=offset, days=days,
-                    origin=origin, min_score=min_score),
+                    origin=origin, min_score=min_score,
+                    classes=[c.strip() for c in (classes or "").split(",")
+                             if c.strip()] or None),
                 "limit": limit, "offset": offset,
             }
         finally:

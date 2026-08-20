@@ -8,7 +8,8 @@ _2026-08-20 · Explore → Market Monitor; public RSS feed_
   week, and when each source last ran.
 - **Coverage from our own archive.** The monitor now finds articles we already collected that
   are about the category, even when they name none of the tracked vendors.
-- **An RSS feed that feed readers can actually read.**
+- **A working feed that aggregates the market's news**, with every item labelled by
+  what kind of source it came from.
 
 ## Why it matters
 
@@ -40,16 +41,30 @@ Record". "MDR" matched papers on multidrug-resistant tuberculosis. Those two ter
 produced about 240 wrong matches, so they are excluded. Precision here is deliberate: an
 overview built on noisy coverage is worse than no overview.
 
-**The feed.** The market's RSS feed required a browser login, which no feed reader has. Anyone
-who subscribed got an error message instead of a feed. It now works without a login for markets
-marked public, and SOC Automation is marked public.
+**The feed.** Two problems. It required a browser login, which no feed reader has, so anyone who
+subscribed got an error message instead of a feed. And it only carried timeline summaries — four
+items in total — rather than the market's actual coverage.
+
+It is now an aggregator. Every article the monitor finds appears in the feed, linked to the
+original publication, merged with the timeline events and sorted by date. It works without a
+login for markets marked public, and SOC Automation is marked public.
+
+Every item is labelled with the kind of source it came from: third-party news, a vendor's own
+blog, a vendor's LinkedIn post, or academic research. This matters more than it sounds. Of the
+348 articles found, 152 are vendor LinkedIn posts and 58 are vendor blog posts — so 60% of the
+market's "coverage" is the vendors talking about themselves. A feed that mixed those in
+unlabelled would read as independent corroboration of claims that have none. Vendor LinkedIn
+posts are left out of the feed by default for the same reason; they can be switched back on.
 
 ## Release notes (copy-ready)
 
 - New **Overview** screen for a tracked market: vendors watched, funding totals, largest raises,
   most active vendors, coverage by week, and the state of every collection source.
 - New **Coverage** screen showing articles from across the whole archive that are about the
-  market's subject, with the phrases that matched each one.
+  market's subject, with the phrases that matched each one and filters by source kind.
+- The market RSS feed is now an aggregator: it carries every article the monitor finds, linked
+  to the original publication, with each item labelled news, vendor blog, vendor post or
+  research.
 - Market monitors now find relevant articles that do not name any tracked vendor. On the SOC
   Automation market this added 282 articles that were already collected but previously unused.
 - The market RSS feed now works in a normal feed reader. It previously required a browser login.

@@ -690,7 +690,12 @@ export interface MarketOverview {
                    article_count: number | null }[];
 }
 
+/** What kind of thing an article is. A vendor's own blog post and a trade-press
+ * story are not the same evidence, so the feed and the UI keep them apart. */
+export type ArticleClass = 'news' | 'vendor' | 'social' | 'research';
+
 export interface CorpusSummary {
+  by_class: Record<ArticleClass, number>;
   total: number;
   /** Matched and collected under the market's own topic. */
   collected: number;
@@ -720,6 +725,7 @@ export interface CorpusArticle {
   score: number;
   matched_terms: string[];
   origin: 'collected' | 'corpus';
+  article_class: ArticleClass;
   title_terms: number;
 }
 
@@ -742,13 +748,14 @@ export async function getCorpusSummary(
 export async function getCorpusArticles(
   marketId: number,
   opts: { limit?: number; offset?: number; days?: number;
-          origin?: string; minScore?: number } = {},
+          origin?: string; classes?: string; minScore?: number } = {},
 ): Promise<{ articles: CorpusArticle[]; limit: number; offset: number }> {
   const q = new URLSearchParams();
   if (opts.limit) q.set('limit', String(opts.limit));
   if (opts.offset) q.set('offset', String(opts.offset));
   if (opts.days) q.set('days', String(opts.days));
   if (opts.origin) q.set('origin', opts.origin);
+  if (opts.classes) q.set('classes', opts.classes);
   if (opts.minScore !== undefined) q.set('min_score', String(opts.minScore));
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/corpus?${q}`,
