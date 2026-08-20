@@ -2,16 +2,19 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-20 — Market Monitor: corpus matching, an overview, and an RSS feed that works
+## 2026-08-20 (later session) — Market Monitor: matching the category, reading the vendor posts, and showing the data
 
 ### Goal
-Three things the market monitor was missing. The RSS feed answered every subscriber with a
-redirect to the login page. There was no screen that showed the state of the market, only a
-list of the week's changes. And the question "do we also search our own news?" had no mechanism
-behind it — Brand Watcher classification matches vendor names, so an article about SOC
-automation that names no vendor could never be found by it.
+The market monitor collected well and reported badly. The RSS feed answered every subscriber
+with a redirect to the login page. There was no screen showing the state of the market, only a
+list of the week's changes. "Do we also search our own news?" had no mechanism behind it, because
+Brand Watcher classification matches vendor names and an article about SOC automation that names
+no vendor could never reach it. And 562 vendor LinkedIn posts were being thrown away wholesale.
 
-### The RSS feed served a redirect, not a feed — `app/routes/market_monitor_routes.py`
+Five commits: `4316d400`, `45f9f0d3`, `ce20bb83`, `772a88cc`, `adff2693`. Everything is on
+`emergencyfix/embedding-health-latency-load`.
+
+### The RSS feed served a redirect, not a feed — `app/routes/market_monitor_routes.py` (`4316d400`)
 `GET /api/market-monitor/markets/{id}/feed.xml` was declared with `Depends(verify_session)`. A
 feed reader carries no session, so every request got a 307 to the login page and the browser
 showed `{"detail":"Temporary Redirect"}`. The session is now optional: a market with
@@ -19,7 +22,7 @@ showed `{"detail":"Temporary Redirect"}`. The session is now optional: a market 
 because the redirect is what broke it. `bw_markets.is_public` already existed for exactly this
 and had never been used. SOC Automation is now marked public.
 
-### Brand classification only ever read 11 articles — the diagnosis
+### Brand classification only ever read 11 articles — the diagnosis (no code)
 A classification run over the market's 83 vendors (`bw_tracker_runs` id 147) processed 11
 articles out of a 206,379-article corpus. The selection predicate is
 `WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.analyzed = true`, and
@@ -31,7 +34,7 @@ The more useful finding sits behind it. Brand classification matches **vendor na
 answering "who was mentioned", which is the right answer to its own question and the wrong one
 for a market monitor, and no widening of its scan would change that.
 
-### Market-term corpus matching — `app/services/market_corpus.py`, `alembic/versions/mm_002_market_corpus.py`
+### Market-term corpus matching — `app/services/market_corpus.py`, `alembic/versions/mm_002_market_corpus.py` (`4316d400`)
 New: match the existing article corpus against the market's own phrases rather than against
 company names. Migration `mm_002` adds `bw_market_articles` (market_id, article_uri,
 matched_terms, title_terms, body_terms, score, origin). The market is the subject, so these rows
@@ -55,13 +58,13 @@ Soar To Record" — and `MDR` matched multidrug-resistant tuberculosis papers. B
 accounted for 241 of the 594, essentially all wrong. Both are out. `SIEM`, `XDR` and
 `threat hunting` were spot-checked and are clean.
 
-### Corpus matching runs on a schedule — `app/tasks/market_monitor.py`
+### Corpus matching runs on a schedule — `app/tasks/market_monitor.py` (`4316d400`)
 New source `corpus_match`, daily, provider `local`. It calls nothing and is not subject to the
 monthly provider budget cap, but it opens and closes a `bw_collection_runs` row like every other
 source so it shows up in source health. The run row is committed before the scan so a failed
 scan can roll back without taking its own error record with it.
 
-### Overview — `app/services/market_publish.py`, `MarketMonitorTab.tsx`
+### Overview — `app/services/market_publish.py`, `MarketMonitorTab.tsx` (`4316d400`)
 `build_overview()` and `GET /markets/{id}/overview`. The brief answers "what changed this week";
 this answers "what is the state of this market", and asking a reader to reconstruct the second
 from the first is why the tab had nothing worth opening on. Coverage (watched / paused /
@@ -71,13 +74,13 @@ week, and the state of the last run per source. Every figure is a count of store
 `coverage.observed` is deliberately separate from `coverage.watching`: the gap between vendors
 switched on and vendors we have actually read is the honest measure of coverage.
 
-### UI — two new views
+### UI — two new views (`4316d400`)
 Overview is now the default view; Coverage is new and holds the matched corpus with a rescan
 button, the phrases that matched, the sources they came from, and a filter for
 all / from-other-topics / from-this-market. Segmented control now reads
 Overview · Brief · Wire · Coverage · Vendors.
 
-### The feed is now an aggregator — `app/services/market_publish.py`
+### The feed is now an aggregator — `app/services/market_publish.py` (`45f9f0d3`)
 `build_feed()` carried timeline events only, which on this market is four items. It now merges
 the matched articles with the events and sorts by date, so the feed is the market's news rather
 than a change log about it. Article items link to the original publication with
@@ -105,7 +108,7 @@ a kind filter is set, then truncates. And `<source url="...">` pointed at our ow
 requires that attribute to be the originating feed's URL, which we do not know, so naming
 ourselves there claims we published the article. Replaced with `<dc:creator>`.
 
-### The matched corpus now reaches the reporting surfaces — `app/services/timeline_events.py`, `app/routes/vector_routes.py`
+### The matched corpus now reaches the reporting surfaces — `app/services/timeline_events.py`, `app/routes/vector_routes.py` (`ce20bb83`)
 Corpus matching was only half wired. The feed and the Coverage view read `bw_market_articles`;
 the timeline, the brief and the observer agents all still selected on
 `a.topic = 'Market Monitoring SOC Automation'`, so the 282 recovered articles reached no
@@ -126,7 +129,7 @@ Both are guarded. `_market_corpus_available()` and `_market_corpus_topic()` chec
 any error — timeline generation and observer agents run on deployments that have never had a
 market monitor, and a missing table there would break every topic, not just a market's.
 
-### Vendor posts get read and judged — `app/services/market_post_review.py`, `alembic/versions/mm_003_post_review.py`
+### Vendor posts get read and judged — `app/services/market_post_review.py`, `alembic/versions/mm_003_post_review.py` (`adff2693`)
 Vendor LinkedIn posts were excluded wholesale from the feed, the timeline and the observers.
 That was the wrong call in one direction and unavoidable in the other: 562 posts against 122
 news articles buries everything, but vendors announce launches, raises, customer wins and senior
@@ -161,7 +164,7 @@ Verdicts are matched to posts on the index the model echoes back, not on positio
 drops one post from a batch would otherwise shift every later verdict onto the wrong article,
 silently.
 
-### Reviewed posts flow back through everything
+### Reviewed posts flow back through everything (`adff2693`)
 `market_corpus.articles()` gains `require_signal_for_social`, on by default: a vendor post is
 returned once it is known to say something, and an unreviewed post is left out with the noise
 rather than let through. The same rule is applied in the feed (`DEFAULT_FEED_CLASSES` now
@@ -169,7 +172,7 @@ includes `social`), in `timeline_events._fetch_day_articles()` and in the observ
 query. A reviewed post carries its kind as a `<category>` in the feed, which is a better label
 than a phrase match for something that was judged rather than matched.
 
-### The data inventory — `app/services/market_publish.py`, `MarketMonitorTab.tsx`
+### The data inventory — `app/services/market_publish.py`, `MarketMonitorTab.tsx` (`adff2693`)
 "Where can we see all of the data" had no answer: the monitor writes to eight tables and the UI
 showed two. `GET /markets/{id}/data` lists all nine datasets with row counts and last-updated
 times; `GET /markets/{id}/data/{dataset}` returns rows as JSON for the on-screen table or CSV for
@@ -177,12 +180,12 @@ a spreadsheet. The JSON form is capped and the CSV is not, because a download th
 stopped at 500 rows would be worse than no download. New **Data** view in the tab: click a
 dataset to expand a preview, CSV button per row.
 
-### Scheduled — `app/tasks/market_monitor.py`
+### Scheduled — `app/tasks/market_monitor.py` (`adff2693`)
 New source `post_review`, daily, provider `local`, alongside `corpus_match`. New posts arrive
 every cycle and an unreviewed post is invisible everywhere. A run where every batch failed
 closes as failed, not as a quiet success.
 
-### The firehose cybersecurity category does not exist
+### The firehose cybersecurity category does not exist (logged in `772a88cc`, no code)
 Logged because it was on the plan and should come off it. `GET /v1/categories` on the
 NewsFirehose API returns 19 categories and they are broad news sections: `top` (2.37M),
 `business` (918k), `politics` (676k), `technology` (617k), `crime` (539k), and so on. There is no
@@ -194,7 +197,7 @@ The firehose is also already the market's collector — `keyword_monitor_setting
 the content: a `/v1/search` for `SIEM` returns "SIEM isn't dead. It's reborn and finally worth
 using", "Ten modern SIEM use cases at cloud scale" and more, with `has_more: true`.
 
-### Where the market's volume actually goes
+### Where the market's volume actually goes (diagnosis, no code)
 `ingest_status` on the 324 articles collected under the market topic: 46 approved, **251
 filtered on relevance**, 27 never assessed. So 78% of what the collector fetched was rejected.
 
@@ -211,7 +214,7 @@ the classifier's output is bimodal — approved articles cluster at 0.6+, reject
 Anthropic deal to bolster GreyMatter", which is market news by any reading and is already one of
 the four events in the market's own timeline. Noted, not changed.
 
-### Re-enrichment scoped to a market — `scripts/reenrich_filtered_articles.py`
+### Re-enrichment scoped to a market — `scripts/reenrich_filtered_articles.py` (`772a88cc`)
 Two new flags. `--include-unassessed` also takes rows with a NULL `ingest_status`: those were
 collected and never scored at all, so they are not rejected articles and no score floor applies
 to them. `--in-market <id>` narrows to articles the market's own phrases matched.
@@ -255,8 +258,6 @@ jobs 30, pages 91, runs 14, open tasks 26. CSV export of `posts` produces 562 ro
 
 Scheduled sources ran on restart: `corpus_match` succeeded over 348 articles, `post_review`
 succeeded with 0 candidates because everything is already reviewed.
-
-Migration applied: `alembic upgrade head` → `mm_001 -> mm_002`.
 
 Re-enrichment run, 32 candidates, one batch, no errors: **22 recovered, 10 still filtered.**
 
@@ -302,8 +303,6 @@ is why widening it moved the observer's candidate count only from 11 to 12. Two 
 the market genuinely produces few news articles a week, and only about half of what we do match
 has been through the AI analysis step.
 
-
-
 First scan of the SOC Automation market, committed:
 
 ```
@@ -324,9 +323,10 @@ funding $1,038.29M across 38 vendors with 44 undisclosed; 62 vendors with no sig
 Feed, unauthenticated, after marking the market public:
 `curl https://bugfixing.aunoo.ai/api/market-monitor/markets/2/feed.xml` → `200
 application/rss+xml`, valid RSS 2.0, 4 items. Before the fix the same request returned
-`{"detail":"Temporary Redirect"}`.
+`{"detail":"Temporary Redirect"}`. Four items because it still carried timeline events only;
+the aggregator change below is what filled it.
 
-Aggregator feed, unauthenticated:
+Aggregator feed, unauthenticated (before vendor posts were let back in):
 
 ```
 feed.xml                                   → 50 items: 28 news, 18 vendor, 4 events
@@ -339,9 +339,26 @@ UI: `npm run typecheck` → clean against baseline (246 known errors, no new one
 New routes confirmed present in `/openapi.json`.
 
 ### Propagation
-bugfixing (canonical) only. The market monitor has never been copied to wiley, wileytest or wbm
-and these changes do not change that. The `saasmvp-app/` build of the same feature does not have
-corpus matching, the overview, or the feed fix.
+**bugfixing (canonical) only, and deliberately so.** The market monitor has never been copied to
+wiley, wileytest or wbm and none of this changes that. The `saasmvp-app/` build of the same
+feature has none of it either — no corpus matching, no post review, no overview, no data view,
+and its feed still has the session bug.
+
+Two changes touch code that is *not* market-monitor-only, so they are worth naming:
+
+- `app/services/timeline_events.py` (`ce20bb83`) — `_fetch_day_articles` is used by every topic
+  timeline. The market clause is guarded on `bw_market_articles` existing and on the topic
+  belonging to a market, and fails closed. Verified no change on `AI and Machine Learning` and
+  `Geopolitical Hotspots`.
+- `app/routes/vector_routes.py` (`ce20bb83`) — the observer candidate query is shared by every
+  observer agent. Same guard, same fail-closed behaviour.
+
+Both were restarted into: `systemctl restart bugfixing.aunoo.ai.service` → active. The UI was
+rebuilt with `./ui/deploy-react-ui.sh` after each of the three UI-touching commits.
+
+Three DB changes are state, not code, and will not travel with a git copy:
+`bw_markets.is_public = true` on market 2, `signal_instructions.config = {"days_back": 30}` on
+agent 6, and the 562 review verdicts plus 758 corpus matches in `bw_market_articles`.
 
 ### Lessons
 A bare acronym is a collision waiting to happen, and the collision is usually outside the domain
@@ -351,7 +368,21 @@ before adopting it — `SOAR` looked like the safest term on the list.
 `Depends(verify_session)` on any route a machine consumes is a bug. It fails as a redirect, which
 looks like a routing problem rather than an auth one.
 
-## 2026-08-20 — Market Monitor: a tracked vendor market on top of Brand Watcher
+ALWAYS read a screening model's first batch back one row at a time. The first review prompt
+returned 11 of 20 as `signal` and every one of them was plausible in isolation; only reading the
+titles next to the verdicts showed that an office visit, a panel appearance and two employee
+spotlights had been let through. A verdict distribution looks fine long before the verdicts are.
+
+ALWAYS bind a batched model's answers to an index it echoes back, never to list position. A
+model that silently drops one item from a batch shifts every later answer onto the wrong record,
+and nothing downstream can detect it.
+
+NEVER re-enrich an article into a topic that did not collect it. `process_articles_batch` writes
+`articles.topic`, so a cross-topic recovery takes the article away from the topic that owns it.
+That is why the market re-enrichment is restricted to articles already on the market topic, and
+why 76 matched cross-topic articles are still unanalysed.
+
+## 2026-08-20 (earlier session) — Market Monitor: a tracked vendor market on top of Brand Watcher
 
 ### Goal
 Track the AI-led SOC automation market and report on it, seeded from an 83-vendor IT-Harvest
