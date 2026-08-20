@@ -210,21 +210,53 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
               note={`${sov.earned_total} mentions by somebody else, against ${sov.own_total} posts by the vendors themselves.`} />
             <p className="text-xs text-slate-500 mb-2">
               Earned and owned are counted separately on purpose. Collapsed into
-              one number a vendor can climb the table by posting more, which is
-              the opposite of what share of voice is for.
+              one number a vendor climbs the table by posting more, which is the
+              opposite of what share of voice is for.
             </p>
-            <DataTable
-              rows={sov.vendors.filter(v => v.total > 0)} dense
-              rowKey={v => v.brand_id} initialSort="earned" initialDir="desc"
-              onRowClick={v => onVendor(v.brand_id)}
-              columns={[
-                { key: 'vendor', label: 'Vendor' },
-                { key: 'earned', label: 'Earned', align: 'right' },
-                { key: 'earned_share', label: 'Share', align: 'right',
-                  render: v => v.earned_share === null ? '—'
-                    : `${(v.earned_share * 100).toFixed(1)}%` },
-                { key: 'own_posts', label: 'Own posts', align: 'right' },
-              ]} />
+            <ResponsiveContainer width="100%"
+              height={Math.max(200, sov.vendors.filter(v => v.total > 0).length * 22)}>
+              <BarChart layout="vertical"
+                        data={sov.vendors.filter(v => v.total > 0).slice(0, 16)}
+                        margin={{ left: 10, right: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="vendor" width={130}
+                       tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="earned" fill={SIGNAL} name="Said by others"
+                     cursor="pointer"
+                     onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
+                <Bar dataKey="own_posts" fill={NOISE} name="Said by the vendor"
+                     cursor="pointer"
+                     onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Panel>
+
+          <Panel title="Who shouts loudest, and who is heard">
+            <p className="text-xs text-slate-500 mt-0.5 mb-2">
+              Posts published against reactions per post. Volume says who
+              shouts; reactions say whether anyone listened, and the two
+              disagree — the busiest account in this market is not the one
+              being read. {sov.reactions_total.toLocaleString()} reactions
+              measured across vendor posts.
+            </p>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={sov.loudest} margin={{ left: 4, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                <XAxis dataKey="vendor" tick={{ fontSize: 9 }} angle={-25}
+                       textAnchor="end" height={70} interval={0} />
+                <YAxis yAxisId="l" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar yAxisId="l" dataKey="own_posts" fill={NOISE} name="Posts"
+                     cursor="pointer"
+                     onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
+                <Line yAxisId="r" type="monotone" dataKey="reactions_per_post"
+                      stroke="#d6409f" strokeWidth={2} dot={{ r: 3 }}
+                      name="Reactions per post" connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
           </Panel>
 
           <Panel title="Top voices">

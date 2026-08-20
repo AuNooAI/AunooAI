@@ -757,6 +757,14 @@ export interface CorpusArticle {
   origin: 'collected' | 'corpus';
   article_class: ArticleClass;
   title_terms: number;
+  /** Author, platform and engagement for a social post; null otherwise. */
+  social_meta: {
+    author?: string; author_name?: string; platform?: string;
+    likes?: number; comments?: number; reposts?: number; shares?: number;
+    thumbnail?: string; hashtags?: string[]; post_type?: string;
+  } | null;
+  /** Vendors this article is attributed to. */
+  vendors: { brand_id: number; vendor: string }[];
   /** Set on vendor posts that were read by the review pass. */
   review_verdict: 'signal' | 'commentary' | 'noise' | null;
   review_kind: string | null;
@@ -783,7 +791,7 @@ export async function getCorpusArticles(
   marketId: number,
   opts: { limit?: number; offset?: number; days?: number;
           origin?: string; classes?: string; minScore?: number;
-          allPosts?: boolean } = {},
+          allPosts?: boolean; vendorId?: number } = {},
 ): Promise<{ articles: CorpusArticle[]; limit: number; offset: number }> {
   const q = new URLSearchParams();
   if (opts.limit) q.set('limit', String(opts.limit));
@@ -792,6 +800,7 @@ export async function getCorpusArticles(
   if (opts.origin) q.set('origin', opts.origin);
   if (opts.classes) q.set('classes', opts.classes);
   if (opts.allPosts) q.set('all_posts', 'true');
+  if (opts.vendorId) q.set('vendor_id', String(opts.vendorId));
   if (opts.minScore !== undefined) q.set('min_score', String(opts.minScore));
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/corpus?${q}`,
@@ -1132,11 +1141,19 @@ export async function autoCloseReviewTasks(
 // Share of voice, top voices, channel mix
 // ============================================================================
 
+export interface VoiceRow {
+  brand_id: number; vendor: string; own_posts: number; earned: number;
+  total: number; earned_share: number | null; own_share: number | null;
+  reactions: number; measured_posts: number;
+  /** Null when too few posts were measured for an average to mean anything. */
+  reactions_per_post: number | null;
+}
+
 export interface ShareOfVoice {
-  vendors: {
-    brand_id: number; vendor: string; own_posts: number; earned: number;
-    total: number; earned_share: number | null; own_share: number | null;
-  }[];
+  vendors: VoiceRow[];
+  /** Vendors posting most about themselves, loudest first. */
+  loudest: VoiceRow[];
+  reactions_total: number;
   earned_total: number;
   own_total: number;
   silent: number;

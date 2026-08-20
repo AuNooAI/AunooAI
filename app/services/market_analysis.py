@@ -592,9 +592,35 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         ORDER BY earned DESC, total DESC
     """), params).mappings().all()]
 
+    # Engagement on a vendor's own posts. Volume alone says who shouts most;
+    # reactions per post says whether anyone is listening, and the two often
+    # disagree — the loudest account in a market is frequently the least heard.
+    reach = {r[0]: r for r in conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT pb.brand_id,
+               SUM(COALESCE((a.social_meta->>'likes')::numeric, 0))
+                 + SUM(COALESCE((a.social_meta->>'comments')::numeric, 0))
+                 + SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                                (a.social_meta->>'shares')::numeric, 0))
+                   AS reactions,
+               COUNT(*) FILTER (WHERE a.social_meta IS NOT NULL) AS measured
+        FROM pb
+        JOIN articles a ON a.uri = pb.article_uri
+        WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin' {window}
+        GROUP BY 1
+    """), params).fetchall()}
+
     earned_total = sum(r["earned"] for r in rows) or 0
     own_total = sum(r["own_posts"] for r in rows) or 0
     for row in rows:
+        hit = reach.get(row["brand_id"])
+        row["reactions"] = int(hit[1] or 0) if hit else 0
+        row["measured_posts"] = int(hit[2] or 0) if hit else 0
+        # Per-post reach, only where enough posts were measured for an average
+        # to mean anything.
+        row["reactions_per_post"] = (
+            round(row["reactions"] / row["measured_posts"], 1)
+            if row["measured_posts"] >= 5 else None)
         # Share of *earned* coverage, not of everything. A vendor that posts a
         # hundred times has a hundred posts, not a hundred mentions.
         row["earned_share"] = (round(row["earned"] / earned_total, 4)
@@ -607,8 +633,13 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         WHERE market_id = :m AND role <> 'excluded'
     """), {"m": market_id}).scalar() or 0
 
+    loudest = sorted((r for r in rows if r["own_posts"]),
+                     key=lambda r: -r["own_posts"])[:10]
+
     return {
         "vendors": rows,
+        "loudest": loudest,
+        "reactions_total": sum(r["reactions"] for r in rows),
         "earned_total": earned_total,
         "own_total": own_total,
         "silent": sum(1 for r in rows if r["total"] == 0),

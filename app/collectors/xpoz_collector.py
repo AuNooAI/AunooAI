@@ -99,9 +99,18 @@ def _pub_iso(post) -> str:
 
 
 def _clean(text: Optional[str], limit: int = 1000) -> str:
+    """Collapse whitespace, including the escaped kind.
+
+    The provider returns some posts with a literal backslash-n — two
+    characters, not a newline — so ``\s+`` never matched it and 39 stored
+    titles read "...INTO A FIXED BUG IN 4 MINUTES\n\nHere is the setup".
+    Turn those into real whitespace first, then collapse.
+    """
     if not text:
         return ""
-    return re.sub(r"\s+", " ", str(text)).strip()[:limit]
+    value = str(text)
+    value = re.sub(r"\\+[nrt]", " ", value)
+    return re.sub(r"\s+", " ", value).strip()[:limit]
 
 
 def _strict_terms_enabled() -> bool:

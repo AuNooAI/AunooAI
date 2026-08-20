@@ -1731,6 +1731,8 @@ async def market_corpus_articles(
     classes: Optional[str] = Query(
         None, description="Comma-separated: news, vendor, social, research."),
     min_score: float = Query(0.0, ge=0, le=100),
+    vendor_id: Optional[int] = Query(
+        None, description="Only coverage attributed to this vendor."),
     all_posts: bool = Query(
         False, description="Include vendor posts the review judged noise. Off "
                            "by default — a post is shown once it is known to "
@@ -1750,7 +1752,8 @@ async def market_corpus_articles(
                     origin=origin, min_score=min_score,
                     classes=[c.strip() for c in (classes or "").split(",")
                              if c.strip()] or None,
-                    require_signal_for_social=not all_posts),
+                    require_signal_for_social=not all_posts,
+                    vendor_id=vendor_id),
                 "limit": limit, "offset": offset,
             }
         finally:

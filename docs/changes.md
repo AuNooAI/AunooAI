@@ -2,6 +2,83 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (coverage) — social posts get their author back, and who is heard as well as loud
+
+### Goal
+Reported: Coverage was poorly designed — social posts lacked the account that wrote them, no
+images, no metadata, no source-type or publication badges, and no way to filter by vendor. Plus
+two additions: track who shouts loudest on their own posts, and use charts where the panels had
+turned text-heavy.
+
+### Bluesky was collecting metadata into a field nothing reads — `app/collectors/bluesky_collector.py`
+Only **1 of 88 Bluesky posts** carried an author, against 64 of 64 for xpoz. The collector was
+already gathering the handle, display name, likes, reposts and images — into `raw_data`, which
+the ingest pipeline does not read. `social_meta` is what it keeps.
+
+Now emitted in the same shape xpoz uses, so both platforms read alike downstream. Images too:
+the API returns a blob reference rather than a link, which is why the collector's existing image
+list was never displayable, and `_image_url()` builds the CDN URL from the author's DID and that
+hash.
+
+### Social text carried literal backslash-n — `app/collectors/xpoz_collector.py`
+39 stored titles read `...INTO A FIXED BUG IN 4 MINUTES\n\nHere is the setup`. `_clean` collapsed
+whitespace with `\s+`, but the provider returns the *escaped* sequence — two characters, which
+`\s` never matches. Unescaped first now, and 42 stored rows were repaired.
+
+Six titles still contain backslashes and are correct: they are LaTeX in arXiv and Semantic
+Scholar titles (`$\nabla$`, `$\ne$`), which the repair deliberately scoped away from by
+restricting to social sources.
+
+### Coverage rows say who, where and about whom — `market_corpus.articles()`, `MarketMonitorTab.tsx`
+The read path now returns `social_meta` and the vendors each article is attributed to, the latter
+in one query for the page rather than one per row.
+
+Each row shows the **account** that wrote it (`@handle` for Bluesky and X), a **source-type
+badge**, a **publication badge** as its own element rather than loose text, the review verdict
+where there is one, **reactions** with the breakdown on hover, and a **thumbnail** where the post
+carries an image. Vendor names are chips that filter the list, backed by a new `vendor_id`
+parameter, with the active filter shown as a removable chip.
+
+### Who shouts loudest, and who is heard — `share_of_voice()`
+`reactions`, `measured_posts` and `reactions_per_post` per vendor, plus a `loudest` list. The
+per-post figure is only computed above five measured posts, because an average over two is not an
+average.
+
+The two measures disagree, which is the point of showing both:
+
+| vendor | own posts | reactions per post |
+|---|---|---|
+| Dropzone AI | 47 | 51.9 |
+| PRE Security | 44 | 33.3 |
+| Andesite | 45 | 21.2 |
+| Radiant Security | 45 | 13.7 |
+| Embed Security | 43 | 7.6 |
+
+Five vendors post within four of each other and reach differs sevenfold. Volume says who shouts;
+reactions say whether anyone listened.
+
+### Charts where the panels had gone text-heavy
+Share of voice is now a grouped horizontal bar — said-by-others against said-by-the-vendor — with
+bars clicking through to the vendor. The loudest-versus-heard panel is a composed chart: posts as
+bars on the left axis, reactions per post as a line on the right.
+
+### Verification
+`share_of_voice` returns 14,787 reactions measured across vendor posts, and the loudest list
+above. All five analyses still return without error.
+
+Coverage rows carry the author: a `vendor_id`-filtered query returns Dropzone AI's posts with
+`author=Dropzone AI` and the vendor attribution attached.
+
+`_clean` checked on three shapes: escaped sequences collapsed, a real newline collapsed, and None
+returning empty. Stored repair touched 42 rows and left the 6 LaTeX titles alone.
+
+`npm run typecheck` clean against baseline. Rebuilt, restarted, active, no runs in flight.
+
+### Propagation
+`bluesky_collector.py` and `xpoz_collector.py` changes are on bugfixing only so far. **Both should
+reach wbm and wileytest**: wbm collected 380 Bluesky posts last week with no author recorded, and
+the escaped-text bug affects every xpoz tenant.
+
 ## 2026-08-20 (reviews and analysis) — a queue you can answer, and four more cuts
 
 ### Goal

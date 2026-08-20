@@ -176,6 +176,7 @@ export function MarketMonitorTab() {
   const [corpusOrigin, setCorpusOrigin] = useState<'' | 'corpus' | 'collected'>('');
   const [corpusClass, setCorpusClass] = useState<'' | ArticleClass>('');
   const [allPosts, setAllPosts] = useState(false);
+  const [vendorFilter, setVendorFilter] = useState<number | null>(null);
   const [inventory, setInventory] = useState<DatasetInfo[] | null>(null);
   const [openDataset, setOpenDataset] = useState<string | null>(null);
   const [datasetRows, setDatasetRows] =
@@ -295,13 +296,14 @@ export function MarketMonitorTab() {
       getCorpusArticles(marketId, { limit: 100,
                                     origin: corpusOrigin || undefined,
                                     classes: corpusClass || undefined,
-                                    allPosts }),
+                                    allPosts,
+                                    vendorId: vendorFilter ?? undefined }),
     ]).then(([sum, list]) => {
       if (!live) return;
       setCorpus(sum); setCorpusArticles(list.articles);
     }).catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
-  }, [marketId, view, corpusOrigin, corpusClass, allPosts]);
+  }, [marketId, view, corpusOrigin, corpusClass, allPosts, vendorFilter]);
 
   useEffect(() => {
     if (marketId === null || !drill) { setDrillRows(null); return; }
@@ -349,7 +351,8 @@ export function MarketMonitorTab() {
         getCorpusArticles(marketId, { limit: 100,
                                       origin: corpusOrigin || undefined,
                                       classes: corpusClass || undefined,
-                                      allPosts }),
+                                      allPosts,
+                                      vendorId: vendorFilter ?? undefined }),
       ]);
       setCorpus(sum); setCorpusArticles(list.articles);
     } catch (e: any) {
@@ -950,6 +953,15 @@ export function MarketMonitorTab() {
                      onChange={e => setAllPosts(e.target.checked)} />
               Include posts judged noise
             </label>
+            {vendorFilter !== null && (
+              <button onClick={() => setVendorFilter(null)}
+                      className="text-sm px-2 py-1 rounded border bg-slate-800
+                                 text-white inline-flex items-center gap-1.5">
+                {vendors?.find(v => v.brand_id === vendorFilter)?.display_name
+                  ?? `vendor ${vendorFilter}`}
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           {corpusArticles === null ? (
@@ -963,47 +975,92 @@ export function MarketMonitorTab() {
             </p>
           ) : (
             <div className="border rounded-lg bg-white divide-y">
-              {corpusArticles.map(a => (
-                <div key={a.uri} className="p-3">
-                  <div className="flex items-start gap-2">
-                    <a href={a.uri} target="_blank" rel="noreferrer"
-                       className="text-sm text-slate-800 hover:underline flex-1">
-                      {a.title}
-                    </a>
-                    <span className="text-xs text-slate-400 tabular-nums shrink-0">
-                      {a.published ? a.published.slice(0, 10) : '—'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                    <span className="text-xs text-slate-500">
-                      {a.news_source || 'unknown source'}
-                    </span>
-                    <span className="text-xs text-slate-300">·</span>
-                    <span className="text-xs text-slate-500">
-                      {a.origin === 'corpus' ? 'other topic' : 'this market'}
-                    </span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                      CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
-                      {CLASS_LABEL[a.article_class] ?? a.article_class}
-                    </span>
-                    {a.review_verdict && (
+              {corpusArticles.map(a => {
+                const sm = a.social_meta ?? {};
+                const engagement = (sm.likes ?? 0) + (sm.comments ?? 0)
+                  + (sm.reposts ?? sm.shares ?? 0);
+                const account = sm.author_name || sm.author;
+                return (
+                <div key={a.uri} className="p-3 flex gap-3">
+                  {sm.thumbnail && (
+                    <img src={sm.thumbnail} alt="" loading="lazy"
+                         className="w-16 h-16 object-cover rounded border shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-2">
+                      <a href={a.uri} target="_blank" rel="noreferrer"
+                         className="text-sm text-slate-800 hover:underline flex-1">
+                        {a.title}
+                      </a>
+                      <span className="text-xs text-slate-400 tabular-nums shrink-0">
+                        {a.published ? a.published.slice(0, 10) : '—'}
+                      </span>
+                    </div>
+
+                    {/* Who said it. A social post without its account is an
+                        anonymous quote, and most of these are social. */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                      {account && (
+                        <span className="text-xs font-medium text-slate-700">
+                          {sm.platform === 'bluesky' || sm.platform === 'twitter'
+                            ? `@${sm.author}` : account}
+                        </span>
+                      )}
                       <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                        VERDICT_TONE[a.review_verdict]}`}
-                            title={a.review_reason ?? undefined}>
-                        {a.review_verdict === 'signal' && a.review_kind
-                          ? a.review_kind : a.review_verdict}
+                        CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
+                        {CLASS_LABEL[a.article_class] ?? a.article_class}
                       </span>
-                    )}
-                    {a.matched_terms.slice(0, 4).map(t => (
-                      <span key={t}
-                            className="text-xs px-1.5 py-0.5 rounded border
-                                       bg-slate-50 text-slate-600">
-                        {t}
+                      {/* The publication, as its own badge rather than loose
+                          text — it is the thing a reader weighs the claim by. */}
+                      <span className="text-xs px-1.5 py-0.5 rounded border
+                                       bg-white text-slate-600">
+                        {sm.platform ?? a.news_source ?? 'unknown source'}
                       </span>
-                    ))}
+                      {a.review_verdict && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                          VERDICT_TONE[a.review_verdict]}`}
+                              title={a.review_reason ?? undefined}>
+                          {a.review_verdict === 'signal' && a.review_kind
+                            ? a.review_kind : a.review_verdict}
+                        </span>
+                      )}
+                      {engagement > 0 && (
+                        <span className="text-xs text-slate-500"
+                              title={`${sm.likes ?? 0} likes · ${sm.comments ?? 0} comments · ${sm.reposts ?? sm.shares ?? 0} reposts`}>
+                          {engagement} reactions
+                        </span>
+                      )}
+                      <span className="text-xs text-slate-400">
+                        {a.origin === 'corpus' ? 'other topic' : 'this market'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                      {/* Vendor chips filter the list. A row that names a
+                          vendor should be a way into that vendor's coverage. */}
+                      {a.vendors.slice(0, 4).map(v => (
+                        <button key={v.brand_id}
+                                onClick={() => setVendorFilter(
+                                  vendorFilter === v.brand_id ? null : v.brand_id)}
+                                className={`text-xs px-1.5 py-0.5 rounded border ${
+                                  vendorFilter === v.brand_id
+                                    ? 'bg-slate-800 text-white border-slate-800'
+                                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>
+                          {v.vendor}
+                        </button>
+                      ))}
+                      {a.matched_terms.slice(0, 3).map(t => (
+                        <span key={t}
+                              className="text-xs px-1.5 py-0.5 rounded border
+                                         bg-white text-slate-500">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

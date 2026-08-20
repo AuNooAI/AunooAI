@@ -460,7 +460,8 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
              days: Optional[int] = None, origin: Optional[str] = None,
              min_score: float = 0.0,
              classes: Optional[Sequence[str]] = None,
-             require_signal_for_social: bool = True) -> List[Dict[str, Any]]:
+             require_signal_for_social: bool = True,
+             vendor_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """The matched corpus, newest first.
 
     ``require_signal_for_social`` is the rule that lets vendor LinkedIn posts
@@ -485,6 +486,11 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
     if origin in ("collected", "corpus"):
         where.append("ma.origin = :origin")
         params["origin"] = origin
+    if vendor_id is not None:
+        where.append("""EXISTS (SELECT 1 FROM bw_article_categories bac
+                                WHERE bac.article_uri = a.uri
+                                  AND bac.brand_id = :vendor_id)""")
+        params["vendor_id"] = vendor_id
     if require_signal_for_social:
         # An unreviewed *vendor* post is not yet known to be worth showing, so
         # it is left out with the ones judged noise. Practitioner posts are not
@@ -497,6 +503,7 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
         SELECT a.uri, a.title, a.summary, a.news_source, a.topic,
                COALESCE(a.publication_date, a.submission_date) AS published,
                a.sentiment, a.category, a.analyzed, a.bias_source,
+               a.social_meta,
                ma.score, ma.matched_terms, ma.origin, ma.title_terms,
                ma.review_verdict, ma.review_kind, ma.review_reason
         FROM bw_market_articles ma
@@ -509,12 +516,31 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
 
     domains = vendor_domains(conn, market_id)
     wanted = {c for c in (classes or ()) if c in ARTICLE_CLASSES}
+    # Which vendors each article is attributed to, so the reader can see whose
+    # coverage a row is and filter by it. One query for the page rather than
+    # one per row.
+    uris = [r["uri"] for r in rows]
+    vendors_by_uri: Dict[str, List[Dict[str, Any]]] = {}
+    if uris:
+        for uri, brand_id, name in conn.execute(text("""
+            SELECT DISTINCT bac.article_uri, b.id, b.display_name
+            FROM bw_article_categories bac
+            JOIN bw_brands b ON b.id = bac.brand_id
+            JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+            WHERE bac.article_uri = ANY(:uris)
+        """), {"m": market_id, "uris": uris}).fetchall():
+            vendors_by_uri.setdefault(uri, []).append(
+                {"brand_id": brand_id, "vendor": name})
+
     out: List[Dict[str, Any]] = []
     for r in rows:
         row = dict(r)
         row["article_class"] = classify_article(
             row["uri"], row["news_source"], row.pop("bias_source", None),
             domains)
+        row["vendors"] = vendors_by_uri.get(row["uri"], [])
+        meta = row.get("social_meta")
+        row["social_meta"] = meta if isinstance(meta, dict) else None
         if wanted and row["article_class"] not in wanted:
             continue
         out.append(row)
