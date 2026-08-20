@@ -52,7 +52,9 @@ logger = logging.getLogger("reenrich")
 
 
 def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | None,
-                     min_alignment: float | None = None) -> List[Dict[str, Any]]:
+                     min_alignment: float | None = None,
+                     include_unassessed: bool = False,
+                     in_market: int | None = None) -> List[Dict[str, Any]]:
     """Pull filtered-but-embedding-confident articles for re-enrichment.
 
     ``--min-alignment`` exists because the embedding score alone cannot tell a
@@ -63,19 +65,48 @@ def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | No
     on it means the re-enrichment pass pays for the articles worth recovering
     instead of re-rejecting the rest at LLM prices.
     """
-    sql = """
+    # ``--include-unassessed`` picks up rows with a NULL ingest_status. Those
+    # were collected and then never scored at all, so they are not "rejected" —
+    # they were dropped somewhere between collection and assessment. They carry
+    # no scores either, so the score floors cannot apply to them.
+    status_clause = ("ingest_status = 'filtered_relevance'"
+                     if not include_unassessed else
+                     "(ingest_status = 'filtered_relevance' OR ingest_status IS NULL)")
+    score_clause = "AND keyword_relevance_score >= :min_embed"
+    if include_unassessed:
+        score_clause = ("AND (ingest_status IS NULL"
+                        " OR keyword_relevance_score >= :min_embed)")
+    sql = f"""
         SELECT uri, title, summary, news_source, publication_date,
                keyword_relevance_score, topic_alignment_score
         FROM articles
-        WHERE ingest_status = 'filtered_relevance'
+        WHERE {status_clause}
           AND topic = :topic
-          AND keyword_relevance_score >= :min_embed
+          {score_clause}
     """
+    # ``--in-market`` narrows to articles the market's own phrases matched.
+    # That is a better selector here than either score floor: the embedding
+    # score cannot tell a topic-relevant article from a topic-adjacent one, and
+    # topic_alignment_score is the very verdict that rejected these rows, so
+    # filtering on it selects almost nothing. A phrase match is direct
+    # evidence that the article is about the market's subject.
+    if in_market is not None:
+        sql += """
+          AND EXISTS (SELECT 1 FROM bw_market_articles ma
+                      WHERE ma.article_uri = articles.uri
+                        AND ma.market_id = :market_id)
+        """
     params: Dict[str, Any] = {"topic": topic, "min_embed": min_embed}
+    if in_market is not None:
+        params["market_id"] = in_market
     if min_alignment is not None:
-        sql += " AND topic_alignment_score >= :min_align"
+        if include_unassessed:
+            sql += (" AND (ingest_status IS NULL"
+                    " OR topic_alignment_score >= :min_align)")
+        else:
+            sql += " AND topic_alignment_score >= :min_align"
         params["min_align"] = min_alignment
-    sql += " ORDER BY keyword_relevance_score DESC"
+    sql += " ORDER BY keyword_relevance_score DESC NULLS LAST"
     if limit:
         sql += f" LIMIT {int(limit)}"
 
@@ -102,12 +133,17 @@ def fetch_topic_keywords(db: Database, topic: str) -> List[str]:
 
 async def reenrich(topic: str, min_embed: float, limit: int | None,
                    batch_size: int, dry_run: bool,
-                   min_alignment: float | None = None) -> None:
+                   min_alignment: float | None = None,
+                   include_unassessed: bool = False,
+                   in_market: int | None = None) -> None:
     db = Database()
-    candidates = fetch_candidates(db, topic, min_embed, limit, min_alignment)
+    candidates = fetch_candidates(db, topic, min_embed, limit, min_alignment,
+                                  include_unassessed, in_market)
 
     logger.info(f"Topic '{topic}': {len(candidates)} candidates for re-enrichment "
-                f"(ingest_status='filtered_relevance', keyword_relevance_score >= {min_embed}"
+                f"(ingest_status='filtered_relevance'"
+                + (" or NULL" if include_unassessed else "")
+                + f", keyword_relevance_score >= {min_embed}"
                 + (f", topic_alignment_score >= {min_alignment}" if min_alignment is not None else "")
                 + ")")
 
@@ -118,7 +154,9 @@ async def reenrich(topic: str, min_embed: float, limit: int | None,
     if dry_run:
         logger.info("DRY RUN — sample candidates:")
         for c in candidates[:10]:
-            logger.info(f"  {c['keyword_relevance_score']:.2f}  {c['uri']}  {c['title'][:80]}")
+            score = c['keyword_relevance_score']
+            shown = f"{score:.2f}" if score is not None else "----"
+            logger.info(f"  {shown}  {(c['title'] or '')[:80]}  {c['uri']}")
         logger.info(f"(total {len(candidates)} candidates; re-run without --dry-run to process)")
         return
 
@@ -186,12 +224,20 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Cap total candidates (default: no cap)")
     parser.add_argument("--batch-size", type=int, default=50, help="Articles per LLM batch (default 50)")
     parser.add_argument("--dry-run", action="store_true", help="List candidates without processing")
+    parser.add_argument("--in-market", type=int, default=None,
+                        help="Only articles this market's phrases matched "
+                             "(bw_market_articles.market_id)")
+    parser.add_argument("--include-unassessed", action="store_true",
+                        help="Also take rows with a NULL ingest_status — collected "
+                             "but never scored, so no score floor applies to them")
     args = parser.parse_args()
 
     asyncio.run(reenrich(
         topic=args.topic,
         min_embed=args.min_embed,
         min_alignment=args.min_alignment,
+        include_unassessed=args.include_unassessed,
+        in_market=args.in_market,
         limit=args.limit,
         batch_size=args.batch_size,
         dry_run=args.dry_run,

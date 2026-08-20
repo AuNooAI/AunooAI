@@ -126,8 +126,78 @@ Both are guarded. `_market_corpus_available()` and `_market_corpus_topic()` chec
 any error — timeline generation and observer agents run on deployments that have never had a
 market monitor, and a missing table there would break every topic, not just a market's.
 
+### The firehose cybersecurity category does not exist
+Logged because it was on the plan and should come off it. `GET /v1/categories` on the
+NewsFirehose API returns 19 categories and they are broad news sections: `top` (2.37M),
+`business` (918k), `politics` (676k), `technology` (617k), `crime` (539k), and so on. There is no
+cybersecurity category and nothing security-specific. No `keyword_groups.categories` column is
+needed, because there is nothing to put in it.
+
+The firehose is also already the market's collector — `keyword_monitor_settings.providers` is
+`["newsfirehose"]` and group 16 inherits it with a NULL `providers`. And the firehose does hold
+the content: a `/v1/search` for `SIEM` returns "SIEM isn't dead. It's reborn and finally worth
+using", "Ten modern SIEM use cases at cloud scale" and more, with `has_more: true`.
+
+### Where the market's volume actually goes
+`ingest_status` on the 324 articles collected under the market topic: 46 approved, **251
+filtered on relevance**, 27 never assessed. So 78% of what the collector fetched was rejected.
+
+The rejection is not the relevance floor. Every rejected article scored 0.431–0.730 on
+`keyword_relevance_score`, far above the group's 0.25 floor. It is `topic_alignment_score`,
+which averages **0.137 on rejected articles against 0.619 on approved ones** — the embedding
+score barely separates them (0.571 vs 0.679) and the verdict does all the work.
+
+Most of those rejections are correct. The market's keyword list includes 38 vendor names, and
+the ordinary-word ones pull in "How to watch It's Always Sunny in Philadelphia season 18",
+"How to Choose a Smart Intercom System Manufacturer in China" and "Hays cuts dividend 65%". But
+the classifier's output is bimodal — approved articles cluster at 0.6+, rejected ones at exactly
+0.10 or 0.20, with nothing between — and at 0.20 it is also rejecting "ReliaQuest deepens
+Anthropic deal to bolster GreyMatter", which is market news by any reading and is already one of
+the four events in the market's own timeline. Noted, not changed.
+
+### Re-enrichment scoped to a market — `scripts/reenrich_filtered_articles.py`
+Two new flags. `--include-unassessed` also takes rows with a NULL `ingest_status`: those were
+collected and never scored at all, so they are not rejected articles and no score floor applies
+to them. `--in-market <id>` narrows to articles the market's own phrases matched.
+
+`--in-market` is the better selector here than either score floor, and the reason is the finding
+above: the embedding score cannot separate relevant from adjacent, and `topic_alignment_score`
+is the verdict that rejected these rows, so filtering on it selects almost nothing. A phrase
+match is direct evidence the article is about the market's subject. In numbers: without it the
+run had 242 candidates, most of them the vendor-name noise above. With it, 32 — and every one of
+the ten sampled was genuinely market-relevant.
+
+Only articles already owned by the market topic are eligible, because re-enrichment writes
+`articles.topic`. Pulling a cross-topic match into the market would take it away from the topic
+that collected it. That leaves 76 matched-but-unanalysed cross-topic articles untouched and
+needing a decision.
+
 ### Verification
 Migration applied: `alembic upgrade head` → `mm_001 -> mm_002`.
+
+Re-enrichment run, 32 candidates, one batch, no errors: **22 recovered, 10 still filtered.**
+
+| | before | after |
+|---|---|---|
+| market topic, approved | 46 | 68 |
+| market topic, never assessed | 27 | 9 |
+| matched non-social articles analysed | 89 | 110 |
+
+The 27 never-assessed articles flagged in an earlier session are now 9.
+
+Observer agent 6 (`SOC Automation Market Watch`): `config` was NULL, so `days_back` defaulted to
+7. Set to `{"days_back": 30}` by DB update — not a restart, which fires every overdue agent. Run
+once at the new window: **17 articles analysed, 10 alerts, report 40 generated.** It attributes
+claims to their source ("per F5 claims", "Analysis from Conifers AI") rather than stating them
+flat.
+
+**The remaining ceiling is real and is not a bug.** The market's approved corpus spans
+2024-01-15 to 2026-08-20, but only 16 of those articles were published in the last 30 days, 19
+counting the matched corpus. The market produces very little dated news, so an observer on any
+window sees a small number of articles. Widening the window from 7 days to 30 moved the
+candidate count from 13 to 19.
+
+
 
 Timeline candidate articles for the market topic, 14 days: **40 before, 80 after**.
 
