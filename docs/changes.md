@@ -2,6 +2,78 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (reviews and analysis) — a queue you can answer, and four more cuts
+
+### Goal
+Two asks. Make review tasks answerable rather than merely clearable, and expand the analyses:
+job postings by region, funding opened up, share of voice, top voices, and a breakdown by kind of
+source.
+
+### Review tasks could be cleared but not answered — `app/services/market_review.py`, `mm_006`
+The queue raised good questions and offered one button. Resolve set a status and changed nothing,
+so a task saying "headcount recorded as zero" could be resolved with the headcount still zero. A
+queue that trains an operator to empty it rather than act on it is worse than no queue.
+
+`mm_006` adds three columns. **`target_field`** is the baseline key a task is about, backfilled
+from the message text — 25 of 26 open tasks carried no field at all, so nothing could tell which
+value a task was complaining about. **`outcome`** separates three acts that used to look
+identical: fixing a wrong value, accepting a question that has no answer, and dismissing a flag
+that was mistaken. **`auto_closed_at`** marks a task closed because the data arrived rather than
+because a person acted.
+
+`apply_fix()` writes the corrected value into `bw_market_brands.baseline` and appends the
+correction to the vendor's `provenance` next to the workbook's own entries, so a hand-corrected
+value is as traceable as an imported one. **A source is required**, not optional: a corrected
+figure with no statement of where it came from is the same problem moved one step later.
+
+`auto_close()` closes tasks collection has since answered, and only where the answer is
+unambiguous — the task says a value is missing or zero and a reading has since arrived for that
+field. A task about a *doubtful* value is left alone, because a second source agreeing with a
+figure nobody trusted is not the doubt being resolved.
+
+The review list now returns `current_value`, so the correction form shows what is there rather
+than an empty box.
+
+### Four more analyses — `app/services/market_analysis.py`
+**Hiring by region.** `by_country`, `by_region` and `function_by_region`, with a cut selector on
+the chart. Locations arrive as free text and the country is the last comma-separated part — which
+broke on "Boston, MA" and "McLean, VA", producing a region called "MA" with 15 openings. US state
+codes are now recognised, and the market reads **28 North America, 1 Europe, 1 Middle East**.
+
+**Share of voice, counted twice.** Earned mentions and the vendor's own posts are separate
+columns. Collapsed into one number a vendor climbs the table by posting more, which is the
+opposite of what share of voice is for — and the market shows exactly that: PRE Security has
+**44 own posts and 1 earned mention**, while Dropzone AI has 10 earned of the market's 21.
+
+**Top voices.** Accounts posting about the market, from `social_meta.author`, ranked by posts and
+engagement. Vendor company posts are excluded because they are the owned column above, not a
+voice competing with individuals.
+
+**Channel mix.** Coverage by kind and month, stacked, so vendor posts sit beside news rather than
+summed with it.
+
+### Job postings are linkable — `job_postings()`, `GET /markets/{id}/jobs`
+Covered in the previous entry; the hiring panel's "Show the postings" toggle now also groups by
+region.
+
+### Verification
+Review flow over HTTP: accepting task 61 (a 2026 company with a year-on-year figure) recorded
+`outcome='accepted'`; fixing task 73 moved Elezar's headcount **0 → 12** with
+`outcome='fixed'`, and the provenance array carries the source alongside the workbook's entries.
+
+Auto-close: checked 7 candidates and closed **0**, correctly — those vendors have no profile
+readings because they are not in the collected set. Proved the positive path with a synthetic
+task against Radiant Security, which has a LinkedIn headcount of 53: closed 1, outcome
+`superseded`, resolution recording `observed: 53`.
+
+All five analyses return through `GET /markets/2/analysis` with no errors. Channel mix reads
+social 602, discussion 127, news 125, vendor 58, research 16 across 17 months.
+
+`npm run typecheck` clean against baseline. Rebuilt, restarted, active, no runs in flight.
+
+### Propagation
+bugfixing (canonical) only.
+
 ## 2026-08-20 (tables and charts) — sorting, grouping, and links to what was counted
 
 ### Goal

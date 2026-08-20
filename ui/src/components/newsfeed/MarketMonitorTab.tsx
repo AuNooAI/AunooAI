@@ -28,7 +28,8 @@ import {
   getMarketTimeline, getMarkets, getOverview, getReviewTasks,
   getRuns, getSourceHealth, getSources, getVendors, reviewPosts, saveSources,
   scanCorpus,
-  setCollectionTerms, setVendorCollection, setupCollection, updateReviewTask,
+  setCollectionTerms, setVendorCollection, setupCollection,
+  autoCloseReviewTasks, closeReviewTask, fixReviewTask,
   type CollectionPlan, type CollectionRun, type CorpusArticle,
   type ArticleClass, type CorpusSummary, type DatasetInfo,
   type DrilldownVendor,
@@ -185,6 +186,8 @@ export function MarketMonitorTab() {
   const [drill, setDrill] = useState<string | null>(null);
   const [drillRows, setDrillRows] = useState<DrilldownVendor[] | null>(null);
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [fixing, setFixing] = useState<
+    { id: number; value: string; source: string } | null>(null);
 
   const market = useMemo(
     () => markets?.find(m => m.id === marketId) ?? null, [markets, marketId]);
@@ -1545,35 +1548,121 @@ export function MarketMonitorTab() {
 
           {segment === 'review' && (
             <div className="space-y-2 max-w-4xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm text-slate-600 flex-1">
+                  Questions the import raised where it would not guess. Correct
+                  the value, or accept the question as unanswerable — a company
+                  founded in 2026 cannot have a year-on-year figure and no
+                  correction will make one exist.
+                </p>
+                <button disabled={busy} onClick={async () => {
+                  if (marketId === null) return;
+                  setBusy(true);
+                  try {
+                    const r = await autoCloseReviewTasks(marketId);
+                    setToggleResult(r.closed
+                      ? `${r.closed} of ${r.checked} closed — collection has since answered them.`
+                      : `Checked ${r.checked}; none has been answered by collection yet.`);
+                    reload();
+                  } finally { setBusy(false); }
+                }}
+                  className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                             disabled:opacity-50 shrink-0">
+                  Close what collection answered
+                </button>
+              </div>
+
               {!tasks?.length && (
                 <p className="text-sm text-slate-500 py-6 text-center">
                   No open review tasks.
                 </p>
               )}
               {tasks?.map(t => (
-                <div key={t.id} className="border rounded-lg p-3 bg-white flex items-start gap-3">
-                  <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
-                    SEVERITY_TONE[t.severity] ?? SEVERITY_TONE.low}`}>
-                    {t.severity}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-slate-800">{t.message}</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {t.brand_id ? (
-                        <button onClick={() => openVendorPage(t.brand_id!)}
-                          className="hover:underline">{t.vendor ?? 'vendor'}</button>
-                      ) : 'market'} · {t.kind}{t.field ? ` · ${t.field}` : ''}
+                <div key={t.id} className="border rounded-lg p-3 bg-white">
+                  <div className="flex items-start gap-3">
+                    <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
+                      SEVERITY_TONE[t.severity] ?? SEVERITY_TONE.low}`}>
+                      {t.severity}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-slate-800">{t.message}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {t.brand_id ? (
+                          <button onClick={() => openVendorPage(t.brand_id!)}
+                            className="hover:underline">{t.vendor ?? 'vendor'}</button>
+                        ) : 'market'} · {t.kind}
+                        {t.target_field ? ` · ${t.target_field}` : ''}
+                        {t.current_value !== null && t.current_value !== undefined
+                          ? ` · currently ${t.current_value}` : ''}
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      {t.target_field && (
+                        <button onClick={() => setFixing(
+                                  fixing?.id === t.id ? null
+                                    : { id: t.id, value: t.current_value ?? '',
+                                        source: '' })}
+                          className="text-xs px-2 py-1 border rounded hover:bg-slate-50">
+                          Correct it
+                        </button>
+                      )}
+                      <button disabled={busy} onClick={async () => {
+                        if (marketId === null) return;
+                        await closeReviewTask(marketId, t.id, 'accepted');
+                        reload();
+                      }}
+                        title="The question has no answer; stop asking it."
+                        className="text-xs px-2 py-1 border rounded hover:bg-slate-50">
+                        Accept
+                      </button>
+                      <button disabled={busy} onClick={async () => {
+                        if (marketId === null) return;
+                        await closeReviewTask(marketId, t.id, 'dismissed');
+                        reload();
+                      }}
+                        title="The flag was wrong."
+                        className="text-xs px-2 py-1 border rounded hover:bg-slate-50">
+                        Dismiss
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={async () => {
-                      if (marketId === null) return;
-                      await updateReviewTask(marketId, t.id, 'resolved');
-                      reload();
-                    }}
-                    className="text-xs px-2 py-1 border rounded hover:bg-slate-50 shrink-0">
-                    Resolve
-                  </button>
+
+                  {fixing?.id === t.id && (
+                    <div className="mt-3 pt-3 border-t flex flex-wrap items-end gap-2">
+                      <label className="text-xs text-slate-500">
+                        <div className="mb-0.5">New {t.target_field}</div>
+                        <input value={fixing.value}
+                          onChange={e => setFixing({ ...fixing, value: e.target.value })}
+                          className="px-2 py-1 text-sm border rounded-md w-32" />
+                      </label>
+                      <label className="text-xs text-slate-500 flex-1 min-w-[220px]">
+                        {/* Required. A corrected figure with no source is the
+                            same problem moved one step later. */}
+                        <div className="mb-0.5">Source (required)</div>
+                        <input value={fixing.source} placeholder="where this came from"
+                          onChange={e => setFixing({ ...fixing, source: e.target.value })}
+                          className="px-2 py-1 text-sm border rounded-md w-full" />
+                      </label>
+                      <button disabled={busy || !fixing.source.trim()}
+                        onClick={async () => {
+                          if (marketId === null) return;
+                          setBusy(true);
+                          try {
+                            await fixReviewTask(marketId, t.id, {
+                              value: fixing.value, source: fixing.source });
+                            setFixing(null);
+                            setToggleResult(`${t.vendor}: ${t.target_field} set to ${fixing.value}.`);
+                            reload();
+                          } catch (e: any) {
+                            setToggleResult(`Failed: ${e.message ?? e}`);
+                          } finally { setBusy(false); }
+                        }}
+                        className="text-sm px-3 py-1.5 border rounded-md
+                                   hover:bg-slate-50 disabled:opacity-50">
+                        Save
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

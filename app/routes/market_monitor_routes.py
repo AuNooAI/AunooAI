@@ -715,11 +715,29 @@ async def list_review_tasks(
         try:
             _load_market(conn, market_id)
             sql = """SELECT t.id, t.brand_id, t.kind, t.severity, t.status,
-                            t.field, t.message, t.source_ref, t.resolution,
+                            t.field, t.target_field, t.outcome,
+                            t.message, t.source_ref, t.resolution,
                             t.created_at, t.updated_at, t.resolved_at,
-                            b.display_name AS vendor
+                            t.auto_closed_at, b.display_name AS vendor,
+                            -- The value the task complains about, so the fix
+                            -- form can show what is there now rather than an
+                            -- empty box.
+                            CASE t.target_field
+                              WHEN 'employee_count' THEN
+                                mb.baseline->'metrics'->>'employee_count'
+                              WHEN 'employee_growth_ytd' THEN
+                                mb.baseline->'metrics'->>'employee_growth_ytd'
+                              WHEN 'total_funding_musd' THEN
+                                mb.baseline->'funding_baseline'->>'total_musd'
+                              WHEN 'founded_year' THEN
+                                mb.baseline->>'founded_year'
+                              WHEN 'hq_country' THEN mb.baseline->>'hq_country'
+                            END AS current_value
                      FROM bw_review_tasks t
                      LEFT JOIN bw_brands b ON b.id = t.brand_id
+                     LEFT JOIN bw_market_brands mb
+                            ON mb.brand_id = t.brand_id
+                           AND mb.market_id = t.market_id
                      WHERE t.market_id = :m"""
             params: Dict[str, Any] = {"m": market_id, "lim": limit}
             if status:
@@ -1328,6 +1346,77 @@ async def market_briefing_status(market_id: int, briefing_id: int,
     return await asyncio.to_thread(_work)
 
 
+class ReviewFix(BaseModel):
+    value: Any = None
+    source: str = Field(..., min_length=1, max_length=500)
+    note: str = ""
+
+
+class ReviewClose(BaseModel):
+    outcome: str = Field(..., pattern="^(accepted|dismissed)$")
+    note: str = ""
+
+
+@router.post("/markets/{market_id}/review-tasks/{task_id}/fix")
+async def market_review_fix(market_id: int, task_id: int, body: ReviewFix,
+                            session=Depends(verify_session)):
+    """Answer a review task by correcting the value it complains about."""
+    from app.services import market_review as mrv
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            try:
+                return mrv.apply_fix(conn, market_id, task_id, value=body.value,
+                                     source=body.source, note=body.note)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/review-tasks/{task_id}/close")
+async def market_review_close(market_id: int, task_id: int, body: ReviewClose,
+                              session=Depends(verify_session)):
+    """Accept a task as unanswerable, or dismiss it as mistaken."""
+    from app.services import market_review as mrv
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            try:
+                return mrv.close_task(conn, market_id, task_id,
+                                      outcome=body.outcome, note=body.note)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/review-tasks/auto-close")
+async def market_review_auto_close(market_id: int,
+                                   dry_run: bool = Query(False),
+                                   session=Depends(verify_session)):
+    """Close tasks that collection has since answered."""
+    from app.services import market_review as mrv
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return mrv.auto_close(conn, market_id, dry_run=dry_run)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 @router.get("/markets/{market_id}/jobs")
 async def market_jobs(market_id: int,
                       brand_id: Optional[int] = Query(None),
@@ -1366,6 +1455,43 @@ async def market_drilldown(market_id: int, name: str,
                 return man.drilldown(conn, market_id, name)
             except ValueError as exc:
                 raise HTTPException(status_code=404, detail=str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/voices")
+async def market_voices(market_id: int,
+                        days: Optional[int] = Query(None, ge=1, le=3650),
+                        limit: int = Query(25, ge=1, le=200),
+                        session=Depends(verify_session)):
+    """The accounts posting about this market, ranked."""
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return man.top_voices(conn, market_id, days=days, limit=limit)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/channel-mix")
+async def market_channel_mix(market_id: int,
+                             days: Optional[int] = Query(None, ge=1, le=3650),
+                             session=Depends(verify_session)):
+    """How coverage splits across kinds of source, and how that moved."""
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return man.channel_mix(conn, market_id, days=days)
         finally:
             conn.close()
 
@@ -2133,7 +2259,8 @@ async def vendor_detail(market_id: int, brand_id: int,
             """), {"b": brand_id}).mappings().all()]
 
             vendor["review_tasks"] = [dict(r) for r in conn.execute(text("""
-                SELECT id, kind, severity, status, field, message
+                SELECT id, kind, severity, status, field, target_field,
+                       outcome, message
                 FROM bw_review_tasks WHERE brand_id = :b AND status = 'open'
                 ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1
                                        ELSE 2 END

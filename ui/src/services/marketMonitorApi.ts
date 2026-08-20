@@ -117,6 +117,14 @@ export interface CollectionToggleResult {
 }
 
 export interface ReviewTask {
+  /** The baseline key this task is about, when it is about one. Null means the
+   *  task can be accepted or dismissed but not corrected from the queue. */
+  target_field: string | null;
+  /** fixed | accepted | dismissed | superseded — set once resolved. */
+  outcome: string | null;
+  /** What the registry currently holds for target_field. */
+  current_value: string | null;
+  auto_closed_at: string | null;
   id: number;
   brand_id: number | null;
   vendor: string | null;
@@ -915,6 +923,9 @@ export interface HiringAnalysis {
   openings: number;
   by_function: { function: string; openings: number }[];
   by_seniority: { seniority: string; openings: number }[];
+  by_country: { country: string; openings: number }[];
+  by_region: { region: string; openings: number }[];
+  function_by_region: Record<string, number | string>[];
   by_vendor: {
     brand_id: number; vendor: string; openings: number;
     engineering: number; sales: number;
@@ -923,6 +934,7 @@ export interface HiringAnalysis {
 }
 
 export interface MarketAnalyses {
+  share_of_voice?: ShareOfVoice & { error?: string };
   formation?: FormationAnalysis & { error?: string };
   signal_noise?: SignalNoiseAnalysis & { error?: string };
   funding?: FundingAnalysis & { error?: string };
@@ -1077,4 +1089,90 @@ export async function getJobPostings(
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/jobs${q}`, { credentials: 'include' }),
     'Failed to load job postings');
+}
+
+// ============================================================================
+// Review task resolution
+// ============================================================================
+
+export async function fixReviewTask(
+  marketId: number, taskId: number,
+  body: { value: unknown; source: string; note?: string },
+): Promise<{ ok: boolean; field: string; value: unknown; outcome: string }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/review-tasks/${taskId}/fix`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }), 'Could not apply the correction');
+}
+
+export async function closeReviewTask(
+  marketId: number, taskId: number, outcome: 'accepted' | 'dismissed',
+  note = '',
+): Promise<{ ok: boolean; outcome: string }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/review-tasks/${taskId}/close`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outcome, note }),
+    }), 'Could not close the task');
+}
+
+export async function autoCloseReviewTasks(
+  marketId: number, dryRun = false,
+): Promise<{ checked: number; closed: number; dry_run: boolean;
+             tasks: { id: number; vendor: string; field: string; answer: string }[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/review-tasks/auto-close?dry_run=${dryRun}`,
+      { method: 'POST', credentials: 'include' }), 'Auto-close failed');
+}
+
+// ============================================================================
+// Share of voice, top voices, channel mix
+// ============================================================================
+
+export interface ShareOfVoice {
+  vendors: {
+    brand_id: number; vendor: string; own_posts: number; earned: number;
+    total: number; earned_share: number | null; own_share: number | null;
+  }[];
+  earned_total: number;
+  own_total: number;
+  silent: number;
+  days: number | null;
+  coverage: Coverage;
+}
+
+export interface TopVoices {
+  voices: {
+    author: string; platform: string; posts: number; likes: number;
+    comments: number; reposts: number; engagement: number; last_seen: string;
+  }[];
+  days: number | null;
+  coverage: Coverage;
+}
+
+export interface ChannelMix {
+  by_class: { kind: string; articles: number }[];
+  by_month: Record<string, number | string>[];
+  total: number;
+  days: number | null;
+}
+
+export async function getTopVoices(
+  marketId: number, days?: number, limit = 25,
+): Promise<TopVoices> {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (days) q.set('days', String(days));
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices?${q}`,
+    { credentials: 'include' }), 'Failed to load voices');
+}
+
+export async function getChannelMix(
+  marketId: number, days?: number,
+): Promise<ChannelMix> {
+  const q = days ? `?days=${days}` : '';
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/channel-mix${q}`,
+    { credentials: 'include' }), 'Failed to load channel mix');
 }

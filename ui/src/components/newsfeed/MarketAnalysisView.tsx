@@ -14,8 +14,9 @@ import {
   Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts';
 import {
-  getAnalyses, getJobPostings, type Coverage, type JobPosting,
-  type MarketAnalyses,
+  getAnalyses, getChannelMix, getJobPostings, getTopVoices,
+  type ChannelMix, type Coverage, type JobPosting, type MarketAnalyses,
+  type TopVoices,
 } from '../../services/marketMonitorApi';
 import { DataTable, type Column } from './DataTable';
 
@@ -57,6 +58,9 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
   const [sortByShare, setSortByShare] = useState(false);
   const [jobs, setJobs] = useState<JobPosting[] | null>(null);
   const [showJobs, setShowJobs] = useState(false);
+  const [voices, setVoices] = useState<TopVoices | null>(null);
+  const [mix, setMix] = useState<ChannelMix | null>(null);
+  const [hiringCut, setHiringCut] = useState<'function' | 'region' | 'seniority'>('function');
 
   useEffect(() => {
     let live = true;
@@ -64,6 +68,14 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
     getAnalyses(marketId)
       .then(d => { if (live) setData(d); })
       .catch(e => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [marketId]);
+
+  useEffect(() => {
+    let live = true;
+    Promise.all([getTopVoices(marketId, undefined, 20), getChannelMix(marketId)])
+      .then(([v, m]) => { if (live) { setVoices(v); setMix(m); } })
+      .catch(() => {});
     return () => { live = false; };
   }, [marketId]);
 
@@ -89,6 +101,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
   const f = data.formation;
   const sn = data.signal_noise;
   const fu = data.funding;
+  const sov = data.share_of_voice;
   const hi = data.hiring;
 
   // Founding years and announcement months share no x-axis, so they are two
@@ -188,6 +201,81 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
         </Panel>
       )}
 
+      {/* ---- Share of voice ---- */}
+      {sov && !sov.error && sov.vendors.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel title="Share of voice">
+            <CoverageLine
+              coverage={sov.coverage}
+              note={`${sov.earned_total} mentions by somebody else, against ${sov.own_total} posts by the vendors themselves.`} />
+            <p className="text-xs text-slate-500 mb-2">
+              Earned and owned are counted separately on purpose. Collapsed into
+              one number a vendor can climb the table by posting more, which is
+              the opposite of what share of voice is for.
+            </p>
+            <DataTable
+              rows={sov.vendors.filter(v => v.total > 0)} dense
+              rowKey={v => v.brand_id} initialSort="earned" initialDir="desc"
+              onRowClick={v => onVendor(v.brand_id)}
+              columns={[
+                { key: 'vendor', label: 'Vendor' },
+                { key: 'earned', label: 'Earned', align: 'right' },
+                { key: 'earned_share', label: 'Share', align: 'right',
+                  render: v => v.earned_share === null ? '—'
+                    : `${(v.earned_share * 100).toFixed(1)}%` },
+                { key: 'own_posts', label: 'Own posts', align: 'right' },
+              ]} />
+          </Panel>
+
+          <Panel title="Top voices">
+            {voices ? (
+              <>
+                <CoverageLine
+                  coverage={voices.coverage}
+                  note="Accounts posting about the market. Vendors' own company posts are excluded — they are counted as owned above." />
+                <DataTable
+                  rows={voices.voices} dense
+                  rowKey={v => `${v.platform}:${v.author}`}
+                  initialSort="posts" initialDir="desc"
+                  columns={[
+                    { key: 'author', label: 'Account', groupable: false },
+                    { key: 'platform', label: 'Platform', groupable: true },
+                    { key: 'posts', label: 'Posts', align: 'right' },
+                    { key: 'engagement', label: 'Engagement', align: 'right' },
+                  ]} />
+              </>
+            ) : (
+              <div className="py-10 text-center text-slate-400">
+                <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+              </div>
+            )}
+          </Panel>
+
+          {mix && mix.by_month.length > 0 && (
+            <Panel title="Where the coverage comes from">
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                {mix.total} items by month and kind. Vendor posts dominate by
+                volume throughout, which is why they are shown apart from
+                everything else rather than summed with it.
+              </p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={mix.by_month}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="news" stackId="c" fill="#475569" name="News" />
+                  <Bar dataKey="vendor" stackId="c" fill="#d6409f" name="Vendor blogs" />
+                  <Bar dataKey="social" stackId="c" fill="#f5a524" name="Vendor posts" />
+                  <Bar dataKey="discussion" stackId="c" fill="#0ea5e9" name="Practitioners" />
+                  <Bar dataKey="research" stackId="c" fill="#6366f1" name="Research" />
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+          )}
+        </div>
+      )}
+
       {/* ---- Funding ---- */}
       {fu && !fu.error && (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -274,18 +362,53 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
       {hi && !hi.error && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="What the market is hiring for">
-            <CoverageLine
-              coverage={hi.coverage}
-              note={`${hi.openings} open listings. Engineering-heavy hiring says a vendor is still building; sales-heavy says it has started selling.`} />
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <CoverageLine
+                  coverage={hi.coverage}
+                  note={`${hi.openings} open listings. Engineering-heavy hiring says a vendor is still building; sales-heavy says it has started selling.`} />
+              </div>
+              <div className="flex gap-1 shrink-0">
+                {(['function', 'region', 'seniority'] as const).map(k => (
+                  <button key={k} onClick={() => setHiringCut(k)}
+                          className={`text-xs px-2 py-1 rounded border ${
+                            hiringCut === k
+                              ? 'bg-slate-800 text-white border-slate-800'
+                              : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    {k}
+                  </button>
+                ))}
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={hi.by_function}>
+              <BarChart data={
+                hiringCut === 'function' ? hi.by_function
+                : hiringCut === 'region' ? hi.by_region : hi.by_seniority}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                <XAxis dataKey="function" tick={{ fontSize: 11 }} />
+                <XAxis dataKey={hiringCut} tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
                 <Bar dataKey="openings" fill={INK} name="Openings" />
               </BarChart>
             </ResponsiveContainer>
+            {hiringCut === 'region' && hi.function_by_region.length > 0 && (
+              <>
+                <p className="text-xs text-slate-500 mt-2 mb-1">
+                  Function within each region. Engineering in one place and
+                  sales in another is a company expanding, not simply hiring.
+                </p>
+                <DataTable
+                  rows={hi.function_by_region as any[]} dense
+                  rowKey={r => String(r.region)}
+                  columns={[
+                    { key: 'region', label: 'Region' },
+                    { key: 'engineering', label: 'Eng', align: 'right' },
+                    { key: 'sales', label: 'Sales', align: 'right' },
+                    { key: 'marketing', label: 'Marketing', align: 'right' },
+                    { key: 'operations', label: 'Ops', align: 'right' },
+                  ]} />
+              </>
+            )}
           </Panel>
 
           <Panel title="Openings per vendor">

@@ -21,7 +21,8 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-ANALYSES = ("formation", "signal_noise", "funding", "hiring")
+ANALYSES = ("formation", "signal_noise", "funding", "hiring",
+            "share_of_voice")
 
 
 # ``bw_article_categories`` holds one row per (article, brand, **category**),
@@ -295,6 +296,51 @@ def _group_function(label: Optional[str]) -> str:
     return "other"
 
 
+# Job locations arrive as free text — "Tel Aviv District, Israel", "Paris,
+# Île-de-France, France", or bare "United States". The country is the last
+# comma-separated part, which holds for every shape seen so far, and anything
+# unrecognised keeps its own text rather than being bucketed into "other".
+_REGIONS = {
+    "united states": "North America", "usa": "North America",
+    "canada": "North America", "mexico": "North America",
+    "united kingdom": "Europe", "ireland": "Europe", "france": "Europe",
+    "germany": "Europe", "spain": "Europe", "netherlands": "Europe",
+    "italy": "Europe", "poland": "Europe", "sweden": "Europe",
+    "switzerland": "Europe", "portugal": "Europe", "belgium": "Europe",
+    "israel": "Middle East", "united arab emirates": "Middle East",
+    "saudi arabia": "Middle East", "qatar": "Middle East",
+    "india": "Asia Pacific", "singapore": "Asia Pacific",
+    "australia": "Asia Pacific", "japan": "Asia Pacific",
+    "remote": "Remote",
+}
+
+
+# US postings often stop at the state — "Boston, MA", "McLean, VA" — with no
+# country at all, so the last comma-separated part is a state code and taking
+# it as the country produced a region called "MA".
+_US_STATES = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+    "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
+    "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
+    "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+    "wi", "wy", "dc",
+}
+
+
+def _country_of(location: Optional[str]) -> str:
+    text_value = (location or "").strip()
+    if not text_value:
+        return "not stated"
+    tail = text_value.split(",")[-1].strip()
+    if tail.lower() in _US_STATES:
+        return "United States"
+    return tail or "not stated"
+
+
+def _region_of(country: str) -> str:
+    return _REGIONS.get(country.strip().lower(), country or "not stated")
+
+
 def hiring(conn, market_id: int) -> Dict[str, Any]:
     """What the market is hiring for, grouped and per vendor.
 
@@ -320,12 +366,25 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
 
     by_function: Dict[str, int] = {}
     by_seniority: Dict[str, int] = {}
+    by_country: Dict[str, int] = {}
+    by_region: Dict[str, int] = {}
+    # Function against region, which is the cross-cut that says something:
+    # engineering in one place and sales in another is a company expanding, not
+    # a company hiring.
+    function_by_region: Dict[str, Dict[str, int]] = {}
     per_vendor: Dict[int, Dict[str, Any]] = {}
     for row in rows:
         group = _group_function(row["function"])
         by_function[group] = by_function.get(group, 0) + 1
         level = (row["seniority"] or "not stated").strip() or "not stated"
         by_seniority[level] = by_seniority.get(level, 0) + 1
+        country = _country_of(row.get("location"))
+        region = _region_of(country)
+        by_country[country] = by_country.get(country, 0) + 1
+        by_region[region] = by_region.get(region, 0) + 1
+        function_by_region.setdefault(region, {})
+        function_by_region[region][group] = \
+            function_by_region[region].get(group, 0) + 1
         entry = per_vendor.setdefault(row["brand_id"], {
             "brand_id": row["brand_id"], "vendor": row["vendor"],
             "openings": 0, "engineering": 0, "sales": 0,
@@ -347,6 +406,16 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
         "by_seniority": [{"seniority": k, "openings": v}
                          for k, v in sorted(by_seniority.items(),
                                             key=lambda kv: -kv[1])],
+        "by_country": [{"country": k, "openings": v}
+                       for k, v in sorted(by_country.items(),
+                                          key=lambda kv: -kv[1])],
+        "by_region": [{"region": k, "openings": v}
+                      for k, v in sorted(by_region.items(),
+                                         key=lambda kv: -kv[1])],
+        "function_by_region": [
+            {"region": region, **counts}
+            for region, counts in sorted(function_by_region.items(),
+                                         key=lambda kv: -sum(kv[1].values()))],
         "by_vendor": sorted(per_vendor.values(),
                             key=lambda v: -v["openings"]),
         "coverage": _coverage(len(per_vendor), in_scope,
@@ -357,7 +426,8 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
 def run(conn, market_id: int, name: str) -> Dict[str, Any]:
     """Dispatch by name. Raises ValueError on an unknown analysis."""
     fn = {"formation": formation, "signal_noise": signal_noise,
-          "funding": funding, "hiring": hiring}.get(name)
+          "funding": funding, "hiring": hiring,
+          "share_of_voice": share_of_voice}.get(name)
     if not fn:
         raise ValueError(f"unknown analysis: {name}")
     return fn(conn, market_id)
@@ -479,3 +549,157 @@ def job_postings(conn, market_id: int,
         row["function_group"] = _group_function(row.get("function"))
     rows.sort(key=lambda r: (r["vendor"], r["title"] or ""))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# 5. Share of voice
+# ---------------------------------------------------------------------------
+#
+# Who the market is talking about, and who is doing the talking. Two different
+# questions that are easy to conflate:
+#
+#   share of voice — how much of the market's coverage mentions a vendor,
+#                    counted separately for what the vendor said about itself
+#                    and what everyone else said about it. Collapsing those
+#                    lets a vendor buy its way up the table by posting.
+#   top voice      — the accounts driving the conversation, which are mostly
+#                    not vendors at all.
+
+def share_of_voice(conn, market_id: int, days: Optional[int] = None
+                   ) -> Dict[str, Any]:
+    """Coverage per vendor, split by who produced it."""
+    window = ""
+    params: Dict[str, Any] = {"m": market_id}
+    if days:
+        window = ("AND COALESCE(a.publication_date, a.submission_date) >= :since")
+        params["since"] = _iso_days_ago(days)
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin') AS own_posts,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin') AS earned,
+               COUNT(DISTINCT a.uri) AS total
+        FROM pb
+        JOIN articles a ON a.uri = pb.article_uri
+        JOIN bw_brands b ON b.id = pb.brand_id
+        JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+                                 AND mb.role <> 'excluded'
+        WHERE TRUE {window}
+        GROUP BY 1, 2
+        ORDER BY earned DESC, total DESC
+    """), params).mappings().all()]
+
+    earned_total = sum(r["earned"] for r in rows) or 0
+    own_total = sum(r["own_posts"] for r in rows) or 0
+    for row in rows:
+        # Share of *earned* coverage, not of everything. A vendor that posts a
+        # hundred times has a hundred posts, not a hundred mentions.
+        row["earned_share"] = (round(row["earned"] / earned_total, 4)
+                               if earned_total else None)
+        row["own_share"] = (round(row["own_posts"] / own_total, 4)
+                            if own_total else None)
+
+    in_scope = conn.execute(text("""
+        SELECT COUNT(*) FROM bw_market_brands
+        WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).scalar() or 0
+
+    return {
+        "vendors": rows,
+        "earned_total": earned_total,
+        "own_total": own_total,
+        "silent": sum(1 for r in rows if r["total"] == 0),
+        "days": days,
+        "coverage": _coverage(len([r for r in rows if r["total"]]), in_scope,
+                              "vendors appear in any coverage"),
+    }
+
+
+def top_voices(conn, market_id: int, days: Optional[int] = None,
+               limit: int = 25) -> Dict[str, Any]:
+    """The accounts posting about this market, vendor and otherwise.
+
+    Read from ``articles.social_meta``, which carries the author for a
+    practitioner post. A vendor's own LinkedIn post has no author of this kind
+    — it is the company account — so those are counted separately rather than
+    ranked against individuals.
+    """
+    window = ""
+    params: Dict[str, Any] = {"m": market_id, "lim": limit}
+    if days:
+        window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
+        params["since"] = _iso_days_ago(days)
+
+    voices = [dict(r) for r in conn.execute(text(f"""
+        SELECT a.social_meta->>'author' AS author,
+               COALESCE(a.social_meta->>'platform',
+                        SPLIT_PART(a.news_source, ':', 2),
+                        a.news_source) AS platform,
+               COUNT(*) AS posts,
+               SUM(COALESCE((a.social_meta->>'likes')::numeric, 0)) AS likes,
+               SUM(COALESCE((a.social_meta->>'comments')::numeric, 0)) AS comments,
+               SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)) AS reposts,
+               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND a.social_meta IS NOT NULL
+          AND a.social_meta->>'author' IS NOT NULL
+          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          {window}
+        GROUP BY 1, 2
+        ORDER BY posts DESC, likes DESC
+        LIMIT :lim
+    """), params).mappings().all()]
+    for v in voices:
+        for key in ("likes", "comments", "reposts"):
+            v[key] = int(v[key] or 0)
+        v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
+
+    total, with_author = conn.execute(text(f"""
+        SELECT COUNT(*), COUNT(a.social_meta->>'author')
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND (a.news_source = 'bluesky' OR a.news_source LIKE 'xpoz%')
+          {window}
+    """), params).fetchone()
+
+    return {
+        "voices": voices,
+        "days": days,
+        "coverage": _coverage(with_author or 0, total or 0,
+                              "practitioner posts name an author"),
+    }
+
+
+def channel_mix(conn, market_id: int, days: Optional[int] = None
+                ) -> Dict[str, Any]:
+    """How the market's coverage splits across kinds of source, over time."""
+    from app.services import market_corpus as mcorp
+
+    rows = mcorp.articles(conn, market_id, limit=20000, days=days,
+                          require_signal_for_social=False)
+    by_class: Dict[str, int] = {}
+    by_month: Dict[str, Dict[str, int]] = {}
+    for row in rows:
+        kind = row["article_class"]
+        by_class[kind] = by_class.get(kind, 0) + 1
+        month = (row.get("published") or "")[:7]
+        if len(month) == 7:
+            by_month.setdefault(month, {})[kind] = \
+                by_month.setdefault(month, {}).get(kind, 0) + 1
+
+    series = [{"month": m, **counts} for m, counts in sorted(by_month.items())]
+    return {
+        "by_class": [{"kind": k, "articles": v}
+                     for k, v in sorted(by_class.items(), key=lambda kv: -kv[1])],
+        "by_month": series,
+        "total": len(rows),
+        "days": days,
+    }
