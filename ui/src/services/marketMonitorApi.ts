@@ -658,3 +658,113 @@ export async function getVendorDetail(
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/vendors/${brandId}`,
     { credentials: 'include' }), 'Failed to load vendor');
 }
+
+// ============================================================================
+// Overview and corpus
+// ============================================================================
+
+export interface MarketOverview {
+  market: string;
+  market_id: number;
+  question: string | null;
+  period_days: number;
+  generated_at: string;
+  coverage: {
+    registry: number; excluded: number; watching: number;
+    paused: number; observed: number;
+  };
+  funding: {
+    disclosed: number; undisclosed: number; total_musd: number | null;
+  };
+  top_funded: { vendor: string; brand_id: number; musd: number | null;
+                last_round: string | null }[];
+  most_active: { brand_id: number; vendor: string; posts: number;
+                 jobs: number; articles: number; signals: number }[];
+  quiet_vendors: number;
+  corpus: CorpusSummary | Record<string, never>;
+  last_runs: { source: string; status: string; records_received: number;
+               started_at: string | null; completed_at: string | null;
+               error: string | null }[];
+  latest_events: { id: number; title: string; event_type: string;
+                   significance: string; event_date: string;
+                   article_count: number | null }[];
+}
+
+export interface CorpusSummary {
+  total: number;
+  /** Matched and collected under the market's own topic. */
+  collected: number;
+  /** Matched from articles collected for some other topic — the ones a
+   * vendor-name classifier can never find. */
+  corpus: number;
+  last_scan: string | null;
+  recent_days: number;
+  recent: number;
+  top_terms: { term: string; n: number }[];
+  top_sources: { source: string; n: number }[];
+  by_week: { week: string; n: number }[];
+  collection_terms?: string[];
+  context_terms?: string[];
+}
+
+export interface CorpusArticle {
+  uri: string;
+  title: string;
+  summary: string | null;
+  news_source: string | null;
+  topic: string | null;
+  published: string | null;
+  sentiment: string | null;
+  category: string | null;
+  analyzed: boolean | null;
+  score: number;
+  matched_terms: string[];
+  origin: 'collected' | 'corpus';
+  title_terms: number;
+}
+
+export async function getOverview(
+  marketId: number, days = 30,
+): Promise<MarketOverview> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/overview?days=${days}`,
+      { credentials: 'include' }), 'Failed to load overview');
+}
+
+export async function getCorpusSummary(
+  marketId: number, days = 30,
+): Promise<CorpusSummary> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/corpus/summary?days=${days}`,
+      { credentials: 'include' }), 'Failed to load corpus summary');
+}
+
+export async function getCorpusArticles(
+  marketId: number,
+  opts: { limit?: number; offset?: number; days?: number;
+          origin?: string; minScore?: number } = {},
+): Promise<{ articles: CorpusArticle[]; limit: number; offset: number }> {
+  const q = new URLSearchParams();
+  if (opts.limit) q.set('limit', String(opts.limit));
+  if (opts.offset) q.set('offset', String(opts.offset));
+  if (opts.days) q.set('days', String(opts.days));
+  if (opts.origin) q.set('origin', opts.origin);
+  if (opts.minScore !== undefined) q.set('min_score', String(opts.minScore));
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/corpus?${q}`,
+      { credentials: 'include' }), 'Failed to load corpus');
+}
+
+export async function scanCorpus(
+  marketId: number,
+  body: { days?: number; limit?: number; min_score?: number;
+          dry_run?: boolean } = {},
+): Promise<{ terms: number; scanned: number; matched: number;
+             inserted: number; updated: number; below_min_score: number;
+             truncated: boolean; dry_run: boolean }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/corpus/scan`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), 'Corpus scan failed');
+}

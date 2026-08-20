@@ -18,16 +18,23 @@ import {
 } from 'recharts';
 import {
   datasetCsvUrl, discoverCandidates, feedUrl, generateMarketTimeline, getBrief,
-  getCollectionPlan, getFacets, getMarketTimeline, getMarkets, getReviewTasks,
-  getRuns, getSourceHealth, getSources, getVendors, saveSources,
+  getCollectionPlan, getCorpusArticles, getCorpusSummary, getFacets,
+  getMarketTimeline, getMarkets, getOverview, getReviewTasks,
+  getRuns, getSourceHealth, getSources, getVendors, saveSources, scanCorpus,
   setCollectionTerms, setVendorCollection, setupCollection, updateReviewTask,
-  type CollectionPlan, type CollectionRun, type DiscoveryResult, type Facets,
-  type Market, type MarketBrief, type ReviewTask, type SourceHealth,
-  type SourceSetting, type TimelineEvent, type Vendor, type VendorFilter,
+  type CollectionPlan, type CollectionRun, type CorpusArticle,
+  type CorpusSummary, type DiscoveryResult, type Facets,
+  type Market, type MarketBrief, type MarketOverview, type ReviewTask,
+  type SourceHealth, type SourceSetting, type TimelineEvent, type Vendor,
+  type VendorFilter,
 } from '../../services/marketMonitorApi';
 
-/** Three top-level views. Configuration lives in a settings drawer. */
-type View = 'brief' | 'wire' | 'vendors';
+/** Top-level views. Configuration lives in a settings drawer.
+ *
+ * Overview is the standing picture and Brief is the week's changes. They are
+ * separate because a reader should not have to reconstruct the state of a
+ * market from a list of what happened in it lately. */
+type View = 'overview' | 'brief' | 'wire' | 'coverage' | 'vendors';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
 type SettingsPanel = 'collection' | 'sources' | 'health';
@@ -47,10 +54,29 @@ function fundingLabel(v: Vendor): string {
   return `$${f.total_musd}M`;
 }
 
+/** One figure with the sentence that says what it counts.
+ *
+ * The hint is not decoration. A bare "38" invites the reader to assume it
+ * means whatever they were already thinking. */
+function Stat({ label, value, hint }: {
+  label: string; value: string; hint?: string;
+}) {
+  return (
+    <div className="border rounded-lg p-3 bg-white">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-2xl font-semibold text-slate-900 tabular-nums mt-0.5">
+        {value}
+      </div>
+      {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+
 export function MarketMonitorTab() {
   const [markets, setMarkets] = useState<Market[] | null>(null);
   const [marketId, setMarketId] = useState<number | null>(null);
-  const [view, setView] = useState<View>('brief');
+  const [view, setView] = useState<View>('overview');
   const [segment, setSegment] = useState<Segment>('all');
   const [settingsOpen, setSettingsOpen] = useState<SettingsPanel | null>(null);
   // URL-addressable: this app has no router, so a vendor is a query param that
@@ -78,6 +104,12 @@ export function MarketMonitorTab() {
   const [brief, setBrief] = useState<MarketBrief | null>(null);
   const [sources, setSources] = useState<SourceSetting[] | null>(null);
   const [minInterval, setMinInterval] = useState(6);
+  const [overview, setOverview] = useState<MarketOverview | null>(null);
+  const [corpus, setCorpus] = useState<CorpusSummary | null>(null);
+  const [corpusArticles, setCorpusArticles] =
+    useState<CorpusArticle[] | null>(null);
+  const [corpusOrigin, setCorpusOrigin] = useState<'' | 'corpus' | 'collected'>('');
+  const [scanResult, setScanResult] = useState<string | null>(null);
 
   const market = useMemo(
     () => markets?.find(m => m.id === marketId) ?? null, [markets, marketId]);
@@ -127,9 +159,10 @@ export function MarketMonitorTab() {
       getReviewTasks(marketId, { status: 'open' }),
       getSourceHealth(marketId), getRuns(marketId, 20),
       getCollectionPlan(marketId, vendorMode), getBrief(marketId, 7),
-      getSources(marketId),
-    ]).then(([v, f, t, h, r, p, b, s]) => {
+      getSources(marketId), getOverview(marketId, 30),
+    ]).then(([v, f, t, h, r, p, b, s, o]) => {
       setBrief(b); setSources(s.sources); setMinInterval(s.min_interval_hours);
+      setOverview(o);
       setVendors(v); setFacets(f); setTasks(t); setHealth(h); setRuns(r); setPlan(p);
       setTermsDraft(p.market_terms.join('\n'));
       // Timeline is fetched after the plan because it is keyed on the market's
@@ -155,6 +188,43 @@ export function MarketMonitorTab() {
       return true;
     });
   }, [vendors, search, fundingFilter]);
+
+  // The Coverage view is the only consumer of the matched corpus, so it loads
+  // on demand rather than on every market switch.
+  useEffect(() => {
+    if (marketId === null || view !== 'coverage') return;
+    let live = true;
+    Promise.all([
+      getCorpusSummary(marketId, 30),
+      getCorpusArticles(marketId, { limit: 100, origin: corpusOrigin || undefined }),
+    ]).then(([sum, list]) => {
+      if (!live) return;
+      setCorpus(sum); setCorpusArticles(list.articles);
+    }).catch(e => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [marketId, view, corpusOrigin]);
+
+  async function runCorpusScan() {
+    if (marketId === null) return;
+    setBusy(true); setScanResult(null);
+    try {
+      const r = await scanCorpus(marketId, { limit: 50000 });
+      setScanResult(
+        `${r.matched} articles matched on ${r.terms} phrases — ` +
+        `${r.inserted} new, ${r.updated} re-scored.` +
+        (r.truncated ? ' Row limit reached; run again to continue.' : ''));
+      const [sum, list] = await Promise.all([
+        getCorpusSummary(marketId, 30),
+        getCorpusArticles(marketId, { limit: 100,
+                                      origin: corpusOrigin || undefined }),
+      ]);
+      setCorpus(sum); setCorpusArticles(list.articles);
+    } catch (e: any) {
+      setScanResult(`Scan failed: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function applyFilterToggle(filter: VendorFilter, enabled: boolean,
                                    dryRun: boolean) {
@@ -349,8 +419,10 @@ export function MarketMonitorTab() {
       {/* View tabs */}
       <div className="flex gap-1 border-b">
         {([
+          ['overview', 'Overview'],
           ['brief', 'Brief'],
           ['wire', 'Wire'],
+          ['coverage', 'Coverage'],
           ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
         ] as [View, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setView(id)}
@@ -365,6 +437,276 @@ export function MarketMonitorTab() {
       {toggleResult && (
         <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700">
           {toggleResult}
+        </div>
+      )}
+
+      {/* ---- Overview ---- */}
+      {view === 'overview' && overview && (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Vendors watched"
+                  value={`${overview.coverage.watching} of ${
+                    overview.coverage.registry - overview.coverage.excluded}`}
+                  hint={`${overview.coverage.paused} paused · ${
+                    overview.coverage.observed} observed at least once`} />
+            <Stat label="Disclosed funding"
+                  value={overview.funding.total_musd === null ? '—'
+                    : `$${overview.funding.total_musd.toFixed(0)}M`}
+                  hint={`${overview.funding.disclosed} vendors disclosed, ${
+                    overview.funding.undisclosed} did not`} />
+            <Stat label="Articles about the market"
+                  value={String(overview.corpus?.total ?? 0)}
+                  hint={`${overview.corpus?.corpus ?? 0} matched from articles collected for other topics`} />
+            <Stat label="Vendors with no signal"
+                  value={String(overview.quiet_vendors)}
+                  hint="No posts, no job listings, no coverage" />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Coverage by week
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Articles matching the market&apos;s phrases, by publication week.
+              </p>
+              {!overview.corpus?.by_week?.length ? (
+                <p className="text-sm text-slate-500 py-8 text-center">
+                  Nothing matched yet. Run a scan from the Coverage view.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={overview.corpus.by_week}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="n" fill="#475569" name="Articles" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Largest disclosed raises
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Total raised, from the imported registry. Vendors that never
+                disclosed a figure are absent, not zero.
+              </p>
+              <div className="divide-y">
+                {overview.top_funded.map(v => (
+                  <button key={v.brand_id}
+                          onClick={() => openVendorPage(v.brand_id)}
+                          className="w-full flex items-center justify-between
+                                     py-1.5 text-sm hover:bg-slate-50 text-left">
+                    <span className="text-slate-700">{v.vendor}</span>
+                    <span className="text-slate-500 tabular-nums">
+                      ${v.musd?.toFixed(1)}M
+                      {v.last_round ? ` · ${v.last_round}` : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Most active vendors
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                LinkedIn posts in the last {overview.period_days} days plus open
+                job listings. Activity, not performance.
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-500 text-left">
+                    <th className="py-1 font-normal">Vendor</th>
+                    <th className="py-1 font-normal text-right">Posts</th>
+                    <th className="py-1 font-normal text-right">Jobs</th>
+                    <th className="py-1 font-normal text-right">Articles</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {overview.most_active.map(v => (
+                    <tr key={v.brand_id} className="hover:bg-slate-50">
+                      <td className="py-1.5">
+                        <button onClick={() => openVendorPage(v.brand_id)}
+                                className="text-slate-700 hover:underline">
+                          {v.vendor}
+                        </button>
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-slate-600">{v.posts}</td>
+                      <td className="py-1.5 text-right tabular-nums text-slate-600">{v.jobs}</td>
+                      <td className="py-1.5 text-right tabular-nums text-slate-600">{v.articles}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Last run per source
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                State of the most recent run, not a 30-day history.
+              </p>
+              <div className="divide-y">
+                {overview.last_runs.map(r => (
+                  <div key={r.source}
+                       className="flex items-center justify-between py-1.5 text-sm">
+                    <span className="text-slate-700">{r.source}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-slate-500 tabular-nums">
+                        {r.records_received} records
+                      </span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                        r.status === 'succeeded'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : r.status === 'partial'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-red-50 text-red-700 border-red-200'}`}>
+                        {r.status}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Coverage ---- */}
+      {view === 'coverage' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-slate-600 max-w-2xl">
+              Articles already in the database that match this market&apos;s
+              phrases. Brand classification matches vendor names, so an article
+              about the category that names no vendor never reaches it. This
+              does.
+            </p>
+            <div className="flex-1" />
+            <button onClick={runCorpusScan} disabled={busy}
+                    className="text-sm px-3 py-1.5 border rounded-md
+                               hover:bg-slate-50 disabled:opacity-50
+                               inline-flex items-center gap-1.5">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Search className="w-4 h-4" />}
+              Rescan corpus
+            </button>
+          </div>
+
+          {scanResult && (
+            <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700">
+              {scanResult}
+            </div>
+          )}
+
+          {corpus && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Stat label="Matched articles" value={String(corpus.total)}
+                    hint={`Last scan ${corpus.last_scan
+                      ? new Date(corpus.last_scan).toLocaleString() : 'never'}`} />
+              <Stat label="From other topics" value={String(corpus.corpus)}
+                    hint="Collected for something else, relevant here" />
+              <Stat label={`Published in ${corpus.recent_days} days`}
+                    value={String(corpus.recent)}
+                    hint="By publication date, not collection date" />
+            </div>
+          )}
+
+          {corpus && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="border rounded-lg p-4 bg-white">
+                <div className="text-sm font-medium text-slate-800 mb-2">
+                  Phrases that matched
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {corpus.top_terms.map(t => (
+                    <span key={t.term}
+                          className="text-xs px-2 py-0.5 rounded border
+                                     bg-slate-50 text-slate-700">
+                      {t.term} <span className="text-slate-400">{t.n}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="border rounded-lg p-4 bg-white">
+                <div className="text-sm font-medium text-slate-800 mb-2">
+                  Sources
+                </div>
+                <div className="divide-y">
+                  {corpus.top_sources.map(t => (
+                    <div key={t.source}
+                         className="flex justify-between py-1 text-sm">
+                      <span className="text-slate-700">{t.source}</span>
+                      <span className="text-slate-500 tabular-nums">{t.n}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1">
+            {([['', 'All'], ['corpus', 'From other topics'],
+               ['collected', 'From this market']] as const).map(([id, label]) => (
+              <button key={id} onClick={() => setCorpusOrigin(id)}
+                      className={`text-sm px-3 py-1 rounded-md border ${
+                        corpusOrigin === id
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {corpusArticles === null ? (
+            <div className="py-12 text-center text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+            </div>
+          ) : corpusArticles.length === 0 ? (
+            <p className="text-sm text-slate-500 py-8 text-center">
+              Nothing matched. Run a scan, or widen the market&apos;s phrases in
+              Settings.
+            </p>
+          ) : (
+            <div className="border rounded-lg bg-white divide-y">
+              {corpusArticles.map(a => (
+                <div key={a.uri} className="p-3">
+                  <div className="flex items-start gap-2">
+                    <a href={a.uri} target="_blank" rel="noreferrer"
+                       className="text-sm text-slate-800 hover:underline flex-1">
+                      {a.title}
+                    </a>
+                    <span className="text-xs text-slate-400 tabular-nums shrink-0">
+                      {a.published ? a.published.slice(0, 10) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    <span className="text-xs text-slate-500">
+                      {a.news_source || 'unknown source'}
+                    </span>
+                    <span className="text-xs text-slate-300">·</span>
+                    <span className="text-xs text-slate-500">
+                      {a.origin === 'corpus' ? 'other topic' : 'this market'}
+                    </span>
+                    {a.matched_terms.slice(0, 4).map(t => (
+                      <span key={t}
+                            className="text-xs px-1.5 py-0.5 rounded border
+                                       bg-slate-50 text-slate-600">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -296,3 +296,132 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         "coverage": dict(coverage or {}),
         "open_questions": gaps,
     }
+
+
+# ---------------------------------------------------------------------------
+# Overview
+# ---------------------------------------------------------------------------
+
+def build_overview(conn, market: Dict[str, Any], *, days: int = 30
+                   ) -> Dict[str, Any]:
+    """One screen that answers "what is the state of this market".
+
+    The brief answers "what changed in the last week". That is a different
+    question, and asking a reader to infer the standing picture from a list of
+    recent changes is why the tab had no overview worth reading. This is the
+    standing picture: how much of the market is being watched, how much money
+    is in it, who is active, what the coverage is about, and when we last
+    looked.
+
+    Every figure is a count of stored rows. Nothing here is generated, so no
+    number in it can be a model's guess.
+    """
+    market_id = market["id"]
+    since = f"(NOW() - INTERVAL '{int(days)} days')::text"
+
+    coverage = dict(conn.execute(text("""
+        SELECT COUNT(*) AS registry,
+               COUNT(*) FILTER (WHERE role = 'excluded') AS excluded,
+               COUNT(*) FILTER (WHERE collection_enabled AND role <> 'excluded')
+                   AS watching,
+               COUNT(*) FILTER (WHERE NOT collection_enabled AND role <> 'excluded')
+                   AS paused
+        FROM bw_market_brands WHERE market_id = :m
+    """), {"m": market_id}).mappings().first() or {})
+
+    # How much of the registry we have actually observed, as opposed to
+    # switched on. The gap between "watching" and "observed" is the honest
+    # measure of coverage.
+    coverage["observed"] = conn.execute(text("""
+        SELECT COUNT(DISTINCT s.brand_id) FROM bw_vendor_snapshots s
+        JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                                 AND mb.market_id = :m
+    """), {"m": market_id}).scalar() or 0
+
+    funding = dict(conn.execute(text("""
+        SELECT COUNT(*) FILTER (
+                   WHERE baseline->'funding_baseline'->>'status' = 'Disclosed')
+                   AS disclosed,
+               COUNT(*) FILTER (
+                   WHERE COALESCE(baseline->'funding_baseline'->>'status','')
+                         <> 'Disclosed') AS undisclosed,
+               SUM((baseline->'funding_baseline'->>'total_musd')::numeric)
+                   AS total_musd
+        FROM bw_market_brands
+        WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).mappings().first() or {})
+    funding["total_musd"] = (float(funding["total_musd"])
+                             if funding.get("total_musd") is not None else None)
+
+    top_funded = [dict(r) for r in conn.execute(text("""
+        SELECT b.display_name AS vendor, b.id AS brand_id,
+               (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS musd,
+               mb.baseline->'funding_baseline'->>'last_round' AS last_round
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        WHERE mb.market_id = :m AND mb.role <> 'excluded'
+          AND (mb.baseline->'funding_baseline'->>'total_musd') IS NOT NULL
+        ORDER BY musd DESC NULLS LAST LIMIT 10
+    """), {"m": market_id}).mappings().all()]
+    for row in top_funded:
+        row["musd"] = float(row["musd"]) if row["musd"] is not None else None
+
+    activity = [dict(r) for r in conn.execute(text(f"""
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               (SELECT COUNT(DISTINCT a.uri)
+                  FROM bw_article_categories bac
+                  JOIN articles a ON a.uri = bac.article_uri
+                 WHERE bac.brand_id = b.id
+                   AND a.bias_source = 'vendor:linkedin'
+                   AND COALESCE(a.publication_date, a.submission_date) >= {since}
+               ) AS posts,
+               (SELECT COUNT(*) FROM bw_vendor_snapshots s
+                 WHERE s.brand_id = b.id AND s.snapshot_type = 'job_posting'
+               ) AS jobs,
+               (SELECT COUNT(*) FROM bw_article_categories bac2
+                 WHERE bac2.brand_id = b.id) AS articles
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        WHERE mb.market_id = :m AND mb.role <> 'excluded'
+    """), {"m": market_id}).mappings().all()]
+    for row in activity:
+        row["signals"] = (row["posts"] or 0) + (row["jobs"] or 0)
+    activity.sort(key=lambda r: (r["signals"], r["articles"] or 0), reverse=True)
+    quiet = [r for r in activity if r["signals"] == 0 and not r["articles"]]
+
+    corpus: Dict[str, Any] = {}
+    if conn.execute(text("SELECT to_regclass('bw_market_articles')")).scalar():
+        from app.services import market_corpus as mcorp
+        corpus = mcorp.summary(conn, market_id, days=days)
+
+    last_runs = [dict(r) for r in conn.execute(text("""
+        SELECT DISTINCT ON (source) source, status, records_received,
+               started_at, completed_at, error
+        FROM bw_collection_runs WHERE market_id = :m
+        ORDER BY source, started_at DESC
+    """), {"m": market_id}).mappings().all()]
+
+    topic = (market.get("config") or {}).get("collection", {}).get("topic_name") \
+        or f"Market Monitoring {market['name']}"
+    latest_events = [dict(r) for r in conn.execute(text("""
+        SELECT id, title, event_type, significance, event_date, article_count
+        FROM timeline_events
+        WHERE scope_type = 'topic' AND scope_id = :sid AND is_stale = false
+        ORDER BY event_date DESC, id DESC LIMIT 8
+    """), {"sid": topic}).mappings().all()]
+
+    return {
+        "market": market["name"],
+        "market_id": market_id,
+        "question": market.get("question"),
+        "period_days": days,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "coverage": coverage,
+        "funding": funding,
+        "top_funded": top_funded,
+        "most_active": activity[:10],
+        "quiet_vendors": len(quiet),
+        "corpus": corpus,
+        "last_runs": last_runs,
+        "latest_events": latest_events,
+    }

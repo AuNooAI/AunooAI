@@ -53,6 +53,9 @@ SOURCE_DISCOVERY = "vendor_web_discovery"
 SOURCE_CANDIDATES = "funding_discovery"
 SOURCE_CRUNCHBASE = mc.CRUNCHBASE_SOURCE
 SOURCE_JOBS = mc.JOBS_SOURCE
+# Reads the article corpus we already hold. Calls no provider,
+# so it is not subject to the budget cap.
+SOURCE_CORPUS = "corpus_match"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -146,6 +149,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_CRUNCHBASE: slow * 7,  # weekly — rounds do not close daily
         SOURCE_JOBS: slow * 3,        # twice weekly — the spec's hiring signal
         SOURCE_CANDIDATES: slow,      # daily — reads what we already collected
+        SOURCE_CORPUS: slow,          # daily — also free, also local
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -332,6 +336,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     # Before spending on anything new, claim what is already paid for.
     runs += await _reconcile_open_jobs(conn, market)
     runs += _discover_candidates(conn, market, now)
+    runs += _match_corpus(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get(SOURCE_DISCOVERY))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -447,6 +452,48 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
 
 
 # ── New entrants ────────────────────────────────────────────────────────────
+
+def _match_corpus(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Match the article corpus against the market's phrases.
+
+    Runs alongside the paid sources because the result belongs in the same
+    place, not because it costs anything: it reads ``articles`` and writes
+    ``bw_market_articles``, and touches no provider. New articles arrive every
+    cycle from every other topic in the system, so yesterday's scan is always
+    slightly stale.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_CORPUS, now) is None:
+        return 0
+
+    from app.services import market_corpus as mcorp
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_CORPUS,
+                         provider="local")
+    # Committed before the scan so a failure can roll the scan back without
+    # taking the run row with it — an error with no run row is an error nobody
+    # can see in source health.
+    conn.commit()
+    try:
+        result = mcorp.scan(
+            conn, market_id,
+            topic_name=mcorp.market_topic_name(market),
+            limit=int(os.getenv("MARKET_CORPUS_SCAN_LIMIT", "50000")),
+        )
+        if result.get("error"):
+            mc.close_run(conn, run_id, status="failed", error=result["error"])
+        else:
+            mc.close_run(conn, run_id, status="succeeded",
+                         received=result["scanned"],
+                         new=result["inserted"], skipped=result["updated"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s corpus scan failed: %s", market_id, exc)
+    return 1
+
 
 def _discover_candidates(conn, market: Dict[str, Any], now: datetime) -> int:
     """Scan the market's own funding coverage for vendors we do not have.

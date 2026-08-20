@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.database import get_database_instance
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_optional
 from app.services import market_collect as mc
 from app.services import market_publish as mp
 from app.services import market_import as mi
@@ -825,7 +825,8 @@ async def get_sources(market_id: int, session=Depends(verify_session)):
                 WHERE market_id = :m AND status = 'succeeded' GROUP BY 1
             """), {"m": market_id}).fetchall()}
             out = []
-            for src in sorted(KNOWN_SOURCES | {mm.SOURCE_CANDIDATES}):
+            for src in sorted(KNOWN_SOURCES | {mm.SOURCE_CANDIDATES,
+                                              mm.SOURCE_CORPUS}):
                 entry = overrides.get(src) if isinstance(overrides.get(src), dict) else {}
                 out.append({
                     "source": src,
@@ -911,16 +912,28 @@ async def market_dataset(
 
 
 @router.get("/markets/{market_id}/feed.xml")
-async def market_feed(market_id: int, session=Depends(verify_session)):
-    """The market timeline as RSS, so the wire can be subscribed to."""
+async def market_feed(market_id: int, request: Request,
+                      session=Depends(verify_session_optional)):
+    """The market timeline as RSS, so the wire can be subscribed to.
+
+    A feed reader carries no session. Behind ``verify_session`` this route
+    answered every subscriber with a 307 to the login page, which is not a feed
+    — so the session is optional here and a market marked ``is_public`` serves
+    anonymously. A private market still needs a session, and answers 404 rather
+    than redirecting, because a redirect is what broke it.
+    """
     from fastapi.responses import Response
 
     base = (os.getenv("APP_URL") or "").rstrip("/")
+    if not base:
+        base = str(request.base_url).rstrip("/")
 
     def _work():
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
+            if not market.get("is_public") and not session:
+                raise HTTPException(status_code=404, detail="Market not found")
             return mp.build_feed(conn, market, base_url=base)
         finally:
             conn.close()
@@ -929,6 +942,132 @@ async def market_feed(market_id: int, session=Depends(verify_session)):
     return Response(content=xml,
                     media_type="application/rss+xml; charset=utf-8",
                     headers={"Cache-Control": "public, max-age=900"})
+
+
+@router.get("/markets/{market_id}/overview")
+async def market_overview(
+    market_id: int,
+    days: int = Query(30, ge=1, le=365),
+    session=Depends(verify_session),
+):
+    """The market's standing picture: coverage, money, activity, corpus.
+
+    Separate from the brief, which is a change log for one week. A reader
+    should not have to reconstruct the state of a market from a list of the
+    week's events.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return mp.build_overview(conn, market, days=days)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+# ---------------------------------------------------------------------------
+# Corpus — the market's own language matched against articles we already have
+# ---------------------------------------------------------------------------
+
+class CorpusScanRequest(BaseModel):
+    days: Optional[int] = Field(None, ge=1, le=3650)
+    limit: int = Field(5000, ge=1, le=100000)
+    min_score: float = Field(12.0, ge=0, le=100)
+    require_analyzed: bool = False
+    dry_run: bool = False
+    terms: Optional[List[str]] = None
+
+
+@router.post("/markets/{market_id}/corpus/scan")
+async def market_corpus_scan(market_id: int, body: CorpusScanRequest,
+                             session=Depends(verify_session)):
+    """Match the existing article corpus against the market's phrases.
+
+    Brand Watcher's classifier answers "which articles named this vendor". This
+    answers "which articles are about this category", which is a different
+    question and the one a market brief is written from. It reads articles that
+    were already collected and analysed, so it calls no provider and costs
+    nothing beyond the query.
+
+    ``dry_run`` writes nothing, so a proposed term list can be measured before
+    it is adopted.
+    """
+    from app.services import market_corpus as mcorp
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            result = mcorp.scan(
+                conn, market_id,
+                terms=body.terms,
+                topic_name=mcorp.market_topic_name(market),
+                days=body.days, limit=body.limit,
+                min_score=body.min_score,
+                require_analyzed=body.require_analyzed,
+                dry_run=body.dry_run,
+            )
+            if not body.dry_run:
+                conn.commit()
+            return result
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/corpus")
+async def market_corpus_articles(
+    market_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    origin: Optional[str] = Query(None),
+    min_score: float = Query(0.0, ge=0, le=100),
+    session=Depends(verify_session),
+):
+    """The matched corpus, newest first."""
+    from app.services import market_corpus as mcorp
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return {
+                "articles": mcorp.articles(
+                    conn, market_id, limit=limit, offset=offset, days=days,
+                    origin=origin, min_score=min_score),
+                "limit": limit, "offset": offset,
+            }
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/corpus/summary")
+async def market_corpus_summary(
+    market_id: int,
+    days: int = Query(30, ge=1, le=365),
+    session=Depends(verify_session),
+):
+    """Counts, top phrases and top sources for the matched corpus."""
+    from app.services import market_corpus as mcorp
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            out = mcorp.summary(conn, market_id, days=days)
+            out["collection_terms"] = mc.market_terms(conn, market_id)
+            out["context_terms"] = mcorp.context_terms(conn, market_id)
+            return out
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.get("/markets/{market_id}/brief")

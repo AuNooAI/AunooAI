@@ -2,6 +2,123 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 — Market Monitor: corpus matching, an overview, and an RSS feed that works
+
+### Goal
+Three things the market monitor was missing. The RSS feed answered every subscriber with a
+redirect to the login page. There was no screen that showed the state of the market, only a
+list of the week's changes. And the question "do we also search our own news?" had no mechanism
+behind it — Brand Watcher classification matches vendor names, so an article about SOC
+automation that names no vendor could never be found by it.
+
+### The RSS feed served a redirect, not a feed — `app/routes/market_monitor_routes.py`
+`GET /api/market-monitor/markets/{id}/feed.xml` was declared with `Depends(verify_session)`. A
+feed reader carries no session, so every request got a 307 to the login page and the browser
+showed `{"detail":"Temporary Redirect"}`. The session is now optional: a market with
+`is_public = true` serves anonymously, and a private one answers 404 rather than redirecting,
+because the redirect is what broke it. `bw_markets.is_public` already existed for exactly this
+and had never been used. SOC Automation is now marked public.
+
+### Brand classification only ever read 11 articles — the diagnosis
+A classification run over the market's 83 vendors (`bw_tracker_runs` id 147) processed 11
+articles out of a 206,379-article corpus. The selection predicate is
+`WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.analyzed = true`, and
+`analyzed = true` is the whole explanation: only 47,991 of 206,379 articles have been through
+the AI analysis step, and 11 of those fell inside the 30-day window. Nothing was broken. It was
+reading the set it was designed to read.
+
+The more useful finding sits behind it. Brand classification matches **vendor names**. It is
+answering "who was mentioned", which is the right answer to its own question and the wrong one
+for a market monitor, and no widening of its scan would change that.
+
+### Market-term corpus matching — `app/services/market_corpus.py`, `alembic/versions/mm_002_market_corpus.py`
+New: match the existing article corpus against the market's own phrases rather than against
+company names. Migration `mm_002` adds `bw_market_articles` (market_id, article_uri,
+matched_terms, title_terms, body_terms, score, origin). The market is the subject, so these rows
+do not belong in `bw_article_categories`, where every row is keyed on `brand_id` and is a claim
+about a company.
+
+Matching runs as one Postgres regex alternation over `title || summary` with `\m`/`\M` word
+boundaries, then re-scores only the rows that matched in Python to record which phrases hit.
+Score is arithmetic, not a model call: 34 points per phrase found in the title, 12 per phrase
+found only in the summary, capped at 100, floor of 12 to store. A hand-written term list over a
+large corpus needs an operator to be able to look at a match and say why it is there, and a
+number that came out of an LLM cannot be argued with.
+
+Two term lists, kept separate on purpose. `config['collection_terms']` is what we pay a provider
+to fetch. `config['context_terms']` only ever reads what is already here, so widening it is free.
+The default context list is in `market_corpus.DEFAULT_CONTEXT_TERMS` (17 phrases).
+
+**Bare acronyms were measured and rejected.** A first pass with `SOAR` and `MDR` as standalone
+terms returned 594 matches. `SOAR` matched the verb — "US Bible Sales Soar", "Japan Bond Yields
+Soar To Record" — and `MDR` matched multidrug-resistant tuberculosis papers. Between them they
+accounted for 241 of the 594, essentially all wrong. Both are out. `SIEM`, `XDR` and
+`threat hunting` were spot-checked and are clean.
+
+### Corpus matching runs on a schedule — `app/tasks/market_monitor.py`
+New source `corpus_match`, daily, provider `local`. It calls nothing and is not subject to the
+monthly provider budget cap, but it opens and closes a `bw_collection_runs` row like every other
+source so it shows up in source health. The run row is committed before the scan so a failed
+scan can roll back without taking its own error record with it.
+
+### Overview — `app/services/market_publish.py`, `MarketMonitorTab.tsx`
+`build_overview()` and `GET /markets/{id}/overview`. The brief answers "what changed this week";
+this answers "what is the state of this market", and asking a reader to reconstruct the second
+from the first is why the tab had nothing worth opening on. Coverage (watched / paused /
+observed at least once), disclosed funding, largest raises, most active vendors, articles by
+week, and the state of the last run per source. Every figure is a count of stored rows.
+
+`coverage.observed` is deliberately separate from `coverage.watching`: the gap between vendors
+switched on and vendors we have actually read is the honest measure of coverage.
+
+### UI — two new views
+Overview is now the default view; Coverage is new and holds the matched corpus with a rescan
+button, the phrases that matched, the sources they came from, and a filter for
+all / from-other-topics / from-this-market. Segmented control now reads
+Overview · Brief · Wire · Coverage · Vendors.
+
+### Verification
+Migration applied: `alembic upgrade head` → `mm_001 -> mm_002`.
+
+First scan of the SOC Automation market, committed:
+
+```
+terms=31 scanned=348 matched=348 inserted=348 updated=0 truncated=False
+total 348 · collected 66 · corpus 282 · published in last 30 days 84
+top terms: security operations 159, AI SOC 82, SIEM 36, threat hunting 34, XDR 28,
+           agentic SOC 27, security operations center 21, SOC analyst 17
+top sources: linkedin 152, Dropzone AI Blog 41, semantic_scholar 13, helpnetsecurity.com 8
+```
+
+**282 of the 348 came from articles collected for other topics** — the ones a vendor-name
+classifier cannot reach. Collection terms alone matched 56; adding the 17 context phrases took
+it to 348.
+
+`build_overview` against market 2: registry 83, watching 38, paused 44, observed 83; disclosed
+funding $1,038.29M across 38 vendors with 44 undisclosed; 62 vendors with no signal at all.
+
+Feed, unauthenticated, after marking the market public:
+`curl https://bugfixing.aunoo.ai/api/market-monitor/markets/2/feed.xml` → `200
+application/rss+xml`, valid RSS 2.0, 4 items. Before the fix the same request returned
+`{"detail":"Temporary Redirect"}`.
+
+UI: `npm run typecheck` → clean against baseline (246 known errors, no new ones).
+`./ui/deploy-react-ui.sh`, then `systemctl restart bugfixing.aunoo.ai.service` → active.
+New routes confirmed present in `/openapi.json`.
+
+### Propagation
+bugfixing (canonical) only. The market monitor has never been copied to wiley, wileytest or wbm
+and these changes do not change that. The `saasmvp-app/` build of the same feature does not have
+corpus matching, the overview, or the feed fix.
+
+### Lessons
+A bare acronym is a collision waiting to happen, and the collision is usually outside the domain
+you are thinking about. Measure a candidate term against the real corpus and read the matches
+before adopting it — `SOAR` looked like the safest term on the list.
+
+`Depends(verify_session)` on any route a machine consumes is a bug. It fails as a redirect, which
+looks like a routing problem rather than an auth one.
+
 ## 2026-08-20 — Market Monitor: a tracked vendor market on top of Brand Watcher
 
 ### Goal
