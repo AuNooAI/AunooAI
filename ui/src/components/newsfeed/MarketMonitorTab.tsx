@@ -26,10 +26,9 @@ import {
   type SourceSetting, type TimelineEvent, type Vendor, type VendorFilter,
 } from '../../services/marketMonitorApi';
 
-/** Three surfaces. Configuration lives behind a settings control rather than
- *  beside the report — it is visited rarely and by a different person. */
+/** Three top-level views. Configuration lives in a settings drawer. */
 type View = 'brief' | 'wire' | 'vendors';
-/** Curation folds into the registry: both segments are about the same 83 rows. */
+/** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
 type SettingsPanel = 'collection' | 'sources' | 'health';
 
@@ -133,7 +132,15 @@ export function MarketMonitorTab() {
       setBrief(b); setSources(s.sources); setMinInterval(s.min_interval_hours);
       setVendors(v); setFacets(f); setTasks(t); setHealth(h); setRuns(r); setPlan(p);
       setTermsDraft(p.market_terms.join('\n'));
-    }).catch(e => setError(String(e.message ?? e)));
+      // Timeline is fetched after the plan because it is keyed on the market's
+      // collection topic. Always resolve to an array: leaving `events` null
+      // renders the Wire as a spinner that never stops.
+      const topic = p.topic_name;
+      if (!topic) { setEvents([]); return; }
+      getMarketTimeline(topic)
+        .then(res => setEvents(res.events))
+        .catch(() => setEvents([]));
+    }).catch(e => { setError(String(e.message ?? e)); setEvents([]); });
   }, [marketId, vendorMode]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -303,8 +310,7 @@ export function MarketMonitorTab() {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-slate-50">
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
-          {/* Configuration is rare and belongs to a different reader than the
-              report, so it sits behind one control rather than beside it. */}
+          {/* Collection terms, source schedules, and source health. */}
           <button onClick={() => setSettingsOpen('collection')}
             title="Collection, sources and health"
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-slate-50">
@@ -333,9 +339,9 @@ export function MarketMonitorTab() {
         <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
-            <span className="font-medium">No news collection yet.</span> This
-            market has no keyword group, so nothing is being gathered about the
-            category. Set the terms under <em>Collection</em>.
+            <span className="font-medium">No collection configured.</span> This
+            market has no keyword group, so no articles are being gathered. Set
+            the search terms in Settings → Collection.
           </div>
         </div>
       )}
@@ -368,7 +374,7 @@ export function MarketMonitorTab() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-slate-600">
               Last {brief.period_days} days · {brief.coverage.watching} of{' '}
-              {brief.coverage.registry} vendors watched
+              {brief.coverage.registry} vendors monitored
             </span>
             <div className="flex-1" />
             <a href={datasetCsvUrl(marketId!)}
@@ -384,7 +390,7 @@ export function MarketMonitorTab() {
           {brief.standing_summary && (
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800 mb-1">
-                Where the market stands
+                Summary
               </div>
               <p className="text-sm text-slate-700 whitespace-pre-line">
                 {brief.standing_summary}
@@ -393,18 +399,17 @@ export function MarketMonitorTab() {
           )}
 
           <div className="grid gap-4 lg:grid-cols-2">
-            {/* Headcount movement — the workbook baseline against LinkedIn today.
-                Signed, so shrinking vendors read as clearly as growing ones. */}
+            {/* Signed delta so decreases are distinguishable from increases. */}
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800">
-                Headcount change since the registry was built
+                Headcount change
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2">
-                LinkedIn today versus the imported baseline. Only vendors with both.
+                LinkedIn count vs imported baseline. Vendors with both values only.
               </p>
               {brief.headcount_movers.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center">
-                  No vendor has both a baseline and a profile reading yet.
+                  No vendor has both values.
                 </p>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
@@ -429,14 +434,14 @@ export function MarketMonitorTab() {
 
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800">
-                Loudest on LinkedIn
+                LinkedIn post volume
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2">
-                Posts in the window. Volume is not momentum — it is who is talking.
+                Posts published in the selected window.
               </p>
               {brief.loudest_vendors.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center">
-                  No vendor posts collected in this window.
+                  No posts in this window.
                 </p>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
@@ -457,7 +462,7 @@ export function MarketMonitorTab() {
 
           <div className="border rounded-lg p-4 bg-white">
             <div className="text-sm font-medium text-slate-800 mb-2">
-              What changed
+              Events
             </div>
             {brief.events.length === 0 ? (
               <p className="text-sm text-slate-500 py-4">
@@ -488,7 +493,7 @@ export function MarketMonitorTab() {
           {brief.open_questions.length > 0 && (
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800 mb-2">
-                Still unresolved
+                Open review tasks
               </div>
               <div className="flex flex-wrap gap-2">
                 {brief.open_questions.map((q, i) => (
@@ -508,9 +513,7 @@ export function MarketMonitorTab() {
         <div className="space-y-3 max-w-4xl">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-slate-600">
-              What changed in this market, day by day — the same timeline
-              machinery the brands use, scoped to the market rather than to each
-              of its {market?.vendors ?? 0} vendors.
+              Market-level events extracted from collected articles, newest first.
             </p>
             <button disabled={busy || !plan?.topic_name} onClick={buildTimeline}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 shrink-0">
@@ -526,9 +529,7 @@ export function MarketMonitorTab() {
           )}
           {events?.length === 0 && (
             <p className="text-sm text-slate-500 py-6 text-center">
-              No events yet. Daily extraction runs for the previous full day, so
-              a market that started collecting today has nothing to read until
-              tomorrow — or press the button above.
+              No events. Extraction runs daily for the previous full day.
             </p>
           )}
           {events && events.length > 0 && (
@@ -565,8 +566,7 @@ export function MarketMonitorTab() {
       {/* ---- Vendors ---- */}
       {view === 'vendors' && (
         <div className="space-y-3">
-          {/* One table, three lenses. Review and new entrants are about these
-              same rows, so they are segments rather than separate places. */}
+          {/* Segments filter the same vendor set. */}
           <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md w-fit">
             {([
               ['all', `All (${vendors?.length ?? 0})`],
@@ -657,8 +657,8 @@ export function MarketMonitorTab() {
             </table>
           </div>
           <p className="text-xs text-slate-500">
-            Showing {shown.length} of {vendors?.length ?? 0}. Select a vendor for
-            everything we hold about it.
+            Showing {shown.length} of {vendors?.length ?? 0}. Select a row for
+            vendor detail.
           </p>
           </>
           )}
@@ -667,8 +667,7 @@ export function MarketMonitorTab() {
             <div className="space-y-2 max-w-4xl">
               {!tasks?.length && (
                 <p className="text-sm text-slate-500 py-6 text-center">
-                  Nothing open. Review tasks are raised where the registry was
-                  ambiguous rather than guessed at.
+                  No open review tasks.
                 </p>
               )}
               {tasks?.map(t => (
@@ -703,12 +702,10 @@ export function MarketMonitorTab() {
           {segment === 'entrants' && (
             <div className="space-y-3 max-w-4xl">
               <div className="border rounded-lg p-4 bg-white space-y-2">
-                <div className="font-medium text-slate-800">Vendors we do not have</div>
+                <div className="font-medium text-slate-800">New entrants</div>
                 <p className="text-sm text-slate-600">
-                  New entrants announce themselves by raising money. This reads the
-                  funding coverage already collected and proposes companies missing
-                  from the registry. Nothing is added automatically — a headline is
-                  a lead.
+                  Scans collected funding articles for companies not in the
+                  registry. Results are proposals for review, not additions.
                 </p>
                 <button disabled={busy} onClick={runDiscovery}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50">
@@ -799,10 +796,8 @@ export function MarketMonitorTab() {
             <div>
               <div className="font-medium text-slate-800">What this market collects</div>
               <p className="text-sm text-slate-600 mt-1">
-                The market's own language — what the category is called — not a
-                list of {plan.vendors} company names. A market brief is about
-                where the category is moving; the registry below is what you
-                measure that coverage against.
+                Search terms for the category. Vendor names are added separately
+                below.
               </p>
             </div>
 
@@ -865,12 +860,10 @@ export function MarketMonitorTab() {
                   ))}
               </div>
               <p className="text-xs text-slate-500 mt-1.5">
-                A disclosed raise is the best proxy for a vendor active enough
-                to generate coverage. Searching all {plan.vendors} spends quota
-                on companies nobody writes about, and a third of this registry
-                is single-word — so ambiguous names carry
+                Adds vendor names to the search. Short or ambiguous names are
+                qualified with
                 <code className="mx-1 bg-slate-100 px-1 rounded">{plan.qualifier}</code>
-                as a second required word.
+                to reduce false matches.
               </p>
             </div>
 
@@ -920,11 +913,10 @@ export function MarketMonitorTab() {
           </div>
 
           <div className="border rounded-lg p-4 bg-white space-y-2">
-            <div className="font-medium text-slate-800">Narrow the registry</div>
+            <div className="font-medium text-slate-800">Vendor selection</div>
             <p className="text-sm text-slate-600">
-              Which vendors the market spends anything watching directly —
-              their websites, and LinkedIn where it is switched on. A rule that
-              names no role never touches out-of-scope vendors.
+              Which vendors are monitored directly (website and LinkedIn).
+              Filters exclude out-of-scope vendors unless a role is specified.
             </p>
             <div className="flex flex-wrap gap-2 pt-1">
               <button disabled={busy}
@@ -976,16 +968,19 @@ export function MarketMonitorTab() {
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium text-sm text-slate-800">{s.source}</div>
                 <span className={`text-xs px-2 py-0.5 rounded border ${
-                  s.healthy ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-red-50 text-red-700 border-red-200'}`}>
-                  {s.healthy ? 'healthy' : 'failing'}
+                  s.state === 'healthy'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : s.state === 'failing'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                  {s.state === 'in_flight' ? 'running' : s.state}
                 </span>
               </div>
               <div className="text-xs text-slate-500 mt-1">
-                {s.succeeded} succeeded, {s.failed} failed
+                {s.succeeded} succeeded, {s.failed} failed over 30 days
                 {s.stale_hours !== null && ` · last success ${s.stale_hours}h ago`}
-                {/* Ran and found nothing is a different state from failed. */}
-                {s.found_nothing && ' · ran, found nothing new'}
+                {/* Zero new records is a different outcome from a failure. */}
+                {s.found_nothing && ' · no new records'}
               </div>
               {s.last_error && (
                 <div className="text-xs text-red-600 mt-1 truncate">{s.last_error}</div>
@@ -1024,9 +1019,8 @@ export function MarketMonitorTab() {
       {settingsOpen === 'sources' && sources && (
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            What runs, and how often. Paid sources bill per record, so the
-            interval is the main cost control. The floor is {minInterval} hours —
-            below that a market source spends money to learn nothing sooner.
+            Collection sources and intervals. Sources marked "per record" are
+            billed by the provider. Minimum interval is {minInterval} hours.
           </p>
           <div className="border rounded-lg bg-white overflow-x-auto">
             <table className="w-full text-sm">

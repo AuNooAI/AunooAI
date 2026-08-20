@@ -84,6 +84,22 @@ def attach_job(conn, run_id: int, job_id: str) -> None:
                  {"j": job_id, "r": run_id})
 
 
+def outcome_status(received: int, stored: int, provider_errors: int = 0) -> str:
+    """Map a delivered batch to a run status.
+
+    A batch where every record is a provider error is not a success. Recording
+    it as one turns source health green on a source producing nothing, which is
+    exactly the signal health exists to give. Observed on the LinkedIn jobs
+    dataset: 20 records received, all of them `proxy` errors, run marked
+    succeeded.
+    """
+    if received and provider_errors >= received:
+        return "failed"
+    if provider_errors:
+        return "partial"
+    return "succeeded"
+
+
 def close_run(conn, run_id: int, *, status: str, received: int = 0, new: int = 0,
               skipped: int = 0, error: Optional[str] = None,
               cost_amount: Optional[float] = None,
@@ -663,6 +679,9 @@ def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
     )
 
     stored = unchanged = unmatched = 0
+    provider_errors = sum(
+        1 for r in records
+        if isinstance(r, dict) and (r.get("error") or r.get("error_code")))
     for raw in records:
         if not isinstance(raw, dict):
             continue
@@ -683,7 +702,8 @@ def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
             stored += 1
         else:
             unchanged += 1
-    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
+    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched,
+            "provider_errors": provider_errors}
 
 
 def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:

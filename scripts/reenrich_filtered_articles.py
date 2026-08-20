@@ -51,8 +51,18 @@ logging.basicConfig(
 logger = logging.getLogger("reenrich")
 
 
-def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | None) -> List[Dict[str, Any]]:
-    """Pull filtered-but-embedding-confident articles for re-enrichment."""
+def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | None,
+                     min_alignment: float | None = None) -> List[Dict[str, Any]]:
+    """Pull filtered-but-embedding-confident articles for re-enrichment.
+
+    ``--min-alignment`` exists because the embedding score alone cannot tell a
+    topic-relevant article from a topic-adjacent one. Measured on the SOC
+    automation market: "Build vs Buy AI for the SOC" and "How to Choose a Smart
+    Intercom System Manufacturer in China" both score ~0.70 on the embedding.
+    ``topic_alignment_score`` separates them — 0.40 against 0.10 — so filtering
+    on it means the re-enrichment pass pays for the articles worth recovering
+    instead of re-rejecting the rest at LLM prices.
+    """
     sql = """
         SELECT uri, title, summary, news_source, publication_date,
                keyword_relevance_score, topic_alignment_score
@@ -60,8 +70,12 @@ def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | No
         WHERE ingest_status = 'filtered_relevance'
           AND topic = :topic
           AND keyword_relevance_score >= :min_embed
-        ORDER BY keyword_relevance_score DESC
     """
+    params: Dict[str, Any] = {"topic": topic, "min_embed": min_embed}
+    if min_alignment is not None:
+        sql += " AND topic_alignment_score >= :min_align"
+        params["min_align"] = min_alignment
+    sql += " ORDER BY keyword_relevance_score DESC"
     if limit:
         sql += f" LIMIT {int(limit)}"
 
@@ -71,7 +85,7 @@ def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | No
     ]
     with db.get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(sql, {"topic": topic, "min_embed": min_embed})
+        cursor.execute(sql, params)
         rows = cursor.fetchall()
 
     return [dict(zip(columns, r)) for r in rows]
@@ -87,12 +101,15 @@ def fetch_topic_keywords(db: Database, topic: str) -> List[str]:
 
 
 async def reenrich(topic: str, min_embed: float, limit: int | None,
-                   batch_size: int, dry_run: bool) -> None:
+                   batch_size: int, dry_run: bool,
+                   min_alignment: float | None = None) -> None:
     db = Database()
-    candidates = fetch_candidates(db, topic, min_embed, limit)
+    candidates = fetch_candidates(db, topic, min_embed, limit, min_alignment)
 
     logger.info(f"Topic '{topic}': {len(candidates)} candidates for re-enrichment "
-                f"(ingest_status='filtered_relevance', keyword_relevance_score >= {min_embed})")
+                f"(ingest_status='filtered_relevance', keyword_relevance_score >= {min_embed}"
+                + (f", topic_alignment_score >= {min_alignment}" if min_alignment is not None else "")
+                + ")")
 
     if not candidates:
         logger.info("Nothing to do.")
@@ -162,6 +179,10 @@ def main():
     parser.add_argument("--topic", required=True, help='Topic name, e.g. "Quantum Computing"')
     parser.add_argument("--min-embed", type=float, default=0.5,
                         help="Minimum keyword_relevance_score (embedding) for re-enrichment candidate (default 0.5)")
+    parser.add_argument("--min-alignment", type=float, default=None,
+                        help="Also require topic_alignment_score >= this. The "
+                             "embedding cannot separate topic-relevant from "
+                             "topic-adjacent; the alignment verdict can.")
     parser.add_argument("--limit", type=int, default=None, help="Cap total candidates (default: no cap)")
     parser.add_argument("--batch-size", type=int, default=50, help="Articles per LLM batch (default 50)")
     parser.add_argument("--dry-run", action="store_true", help="List candidates without processing")
@@ -170,6 +191,7 @@ def main():
     asyncio.run(reenrich(
         topic=args.topic,
         min_embed=args.min_embed,
+        min_alignment=args.min_alignment,
         limit=args.limit,
         batch_size=args.batch_size,
         dry_run=args.dry_run,

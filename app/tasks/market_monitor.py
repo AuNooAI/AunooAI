@@ -192,18 +192,38 @@ def _is_due(conn, market_id: int, source: str, now: datetime) -> Optional[dateti
     return last
 
 
-def _circuit_open(conn, market_id: int, source: str) -> bool:
-    """True when the last few runs of this source all failed.
+# How long an open circuit stays open before it allows one probe. Without this
+# the breaker deadlocks: it opens after N failures, a success is the only thing
+# that closes it, and it blocks the attempt that would produce one. A fixed bug
+# could then never recover without someone editing the database.
+CIRCUIT_COOLDOWN = timedelta(hours=1)
 
-    Cheap and self-healing: one success resets it.
+
+def _circuit_open(conn, market_id: int, source: str) -> bool:
+    """True when the last few runs all failed and the cooldown has not elapsed.
+
+    Half-open after ``CIRCUIT_COOLDOWN``: one attempt is allowed through, and
+    its outcome decides whether the circuit closes or reopens.
     """
-    rows = [r[0] for r in conn.execute(text("""
-        SELECT status FROM bw_collection_runs
+    rows = conn.execute(text("""
+        SELECT status, started_at FROM bw_collection_runs
         WHERE market_id = :m AND source = :s
           AND status IN ('succeeded','failed')
         ORDER BY started_at DESC LIMIT :n
-    """), {"m": market_id, "s": source, "n": CIRCUIT_THRESHOLD}).fetchall()]
-    return len(rows) == CIRCUIT_THRESHOLD and all(r == "failed" for r in rows)
+    """), {"m": market_id, "s": source, "n": CIRCUIT_THRESHOLD}).fetchall()
+    if len(rows) < CIRCUIT_THRESHOLD or any(r[0] != "failed" for r in rows):
+        return False
+
+    last_failure = rows[0][1]
+    if last_failure is None:
+        return True
+    if last_failure.tzinfo is None:
+        last_failure = last_failure.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - last_failure >= CIRCUIT_COOLDOWN:
+        logger.info("market %s: %s circuit half-open, allowing one attempt",
+                    market_id, source)
+        return False
+    return True
 
 
 def _budget_blocks(conn, market_id: int, name: str) -> bool:
@@ -407,7 +427,10 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
         try:
             result = mc.ingest_for_source(conn, run=run, records=records)
             mc.close_run(
-                conn, run_id, status="succeeded", received=len(records),
+                conn, run_id,
+                status=mc.outcome_status(len(records), result.get("stored", 0),
+                                         result.get("provider_errors", 0)),
+                received=len(records),
                 new=result.get("stored", 0),
                 skipped=(result.get("unchanged", 0) + result.get("unmatched", 0)
                          + result.get("dropped", 0)),

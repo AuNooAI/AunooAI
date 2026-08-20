@@ -1,9 +1,8 @@
 /**
- * One vendor, everything we hold about it.
+ * Vendor detail page.
  *
- * Reached from the vendor table and addressable by URL, so a vendor can be
- * sent to someone. Everything arrives in one request — the page needs it all
- * at once, and six calls would render six times.
+ * Addressable by URL (?vendor=<brand_id>) so it can be linked. All data comes
+ * from a single request; the page needs everything at once.
  */
 
 import { useEffect, useState } from 'react';
@@ -80,9 +79,8 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
   const superseded = v.identifiers.filter(i => !i.live);
   const latest = v.profile_series[v.profile_series.length - 1];
 
-  // The workbook value is provenance, not the first point of our series: it was
-  // measured elsewhere, at a different time, by someone else. It goes on the
-  // chart as a reference line and never as a plotted point.
+  // The imported baseline is a different measurement, taken at a different
+  // time, so it is a reference line rather than the first point of the series.
   const series = v.profile_series
     .filter(p => p.employee_count !== null)
     .map(p => ({
@@ -143,8 +141,7 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Headcount: LinkedIn readings only, workbook as a reference line. */}
-        <Panel title="Headcount"
-               hint="LinkedIn readings. The imported figure is shown as a reference — it was measured elsewhere, at a different time.">
+        <Panel title="Headcount" hint="LinkedIn employee count. Dashed line is the imported baseline.">
           {series.length === 0 ? (
             <p className="text-sm text-slate-500 py-6 text-center">
               No LinkedIn reading yet.
@@ -159,19 +156,17 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
               </div>
               {baselineStaff != null && (
                 <p className="text-sm text-slate-600 mt-2">
-                  The registry recorded {baselineStaff} at import
+                  Baseline {baselineStaff}
                   {Number(baselineStaff) !== series[0].staff && (
-                    <> — a difference of{' '}
-                      {series[0].staff > Number(baselineStaff) ? '+' : ''}
+                    <> · delta {series[0].staff > Number(baselineStaff) ? '+' : ''}
                       {series[0].staff - Number(baselineStaff)}</>
-                  )}.
+                  )}
                 </p>
               )}
               {/* One point is not a trend. Say when the next one lands rather
                   than drawing a flat line through it. */}
               <p className="text-xs text-slate-500 mt-2">
-                One reading so far. Profiles refresh weekly, so a line appears
-                after the next run.
+                1 reading. Collected weekly.
               </p>
             </div>
           ) : (
@@ -194,13 +189,12 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
           )}
           {latest?.followers != null && (
             <p className="text-xs text-slate-500 mt-2">
-              {Number(latest.followers).toLocaleString()} LinkedIn followers.
+              Followers: {Number(latest.followers).toLocaleString()}
             </p>
           )}
         </Panel>
 
-        <Panel title="Funding"
-               hint="Round history and backers. This source carries no amounts — an undisclosed raise stays undisclosed.">
+        <Panel title="Funding" hint="Source: Crunchbase. Round amounts not available from this dataset.">
           <dl className="text-sm space-y-1.5">
             <div className="flex justify-between gap-4">
               <dt className="text-slate-500">Registry status</dt>
@@ -249,8 +243,7 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
         </Panel>
       </div>
 
-      <Panel title="Identity"
-             hint="How we recognise this vendor across sources. A wrong one here becomes a wrong number everywhere.">
+      <Panel title="Identifiers" hint="Used to match this vendor across sources.">
         <div className="space-y-1.5">
           {live.map(i => {
             const Icon = KIND_ICON[i.kind] ?? FileText;
@@ -294,10 +287,9 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Site changes"
-               hint="Pages we watch. A pricing page gaining a tier is a market event nobody announces.">
+        <Panel title="Site changes" hint="Monitored pages and their most recent diff.">
           {v.pages.length === 0 ? (
-            <p className="text-sm text-slate-500">No pages discovered yet.</p>
+            <p className="text-sm text-slate-500">No monitored pages.</p>
           ) : (
             <div className="space-y-2">
               {v.pages.map(p => (
@@ -326,12 +318,11 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
           )}
         </Panel>
 
-        <Panel title="Hiring"
-               hint="What a vendor staffs says more about where it is investing than its marketing does.">
+        <Panel title="Job postings" hint="Open roles from LinkedIn. Collected twice weekly.">
           {v.jobs.length === 0 ? (
             <p className="text-sm text-slate-500 flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-slate-400" />
-              No postings collected yet. Job listings refresh twice weekly.
+              No postings collected.
             </p>
           ) : (
             <div className="space-y-1.5">
@@ -348,7 +339,7 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Recent posts" hint="What the vendor says about itself.">
+        <Panel title="LinkedIn posts" hint="Most recent 10.">
           {v.posts.length === 0 ? (
             <p className="text-sm text-slate-500">No posts collected.</p>
           ) : (
@@ -365,10 +356,9 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
           )}
         </Panel>
 
-        <Panel title="Coverage"
-               hint="Third-party articles attributed to this vendor, by category.">
+        <Panel title="Coverage" hint="Third-party articles attributed to this vendor.">
           {v.coverage_by_category.length === 0 ? (
-            <p className="text-sm text-slate-500">Nothing attributed yet.</p>
+            <p className="text-sm text-slate-500">No articles attributed.</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {v.coverage_by_category.map(c => (

@@ -138,9 +138,11 @@ export interface SourceHealthRow {
   records_new: number | null;
   records_received: number | null;
   cost: number | null;
+  /** Only set when the most recent run is the one that failed. */
   last_error: string | null;
   stale_hours: number | null;
-  /** Ran and found nothing is healthy; never succeeded is not. */
+  /** State of the most recent run, not a tally over the window. */
+  state: 'healthy' | 'failing' | 'in_flight' | 'unknown';
   healthy: boolean;
   found_nothing: boolean;
 }

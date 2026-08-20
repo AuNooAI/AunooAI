@@ -100,5 +100,14 @@ hand.
 observer agent has been set up against the market to produce a written brief on a schedule, but
 it is not switched on yet.
 
+**Hiring data is not available.** Job listings were part of the plan and the provider's dataset
+does not support collecting them per company in any form we could get working. Every other source
+— news, vendor websites, LinkedIn posts and profiles, funding — is running.
+
+**Some collected articles are still being discarded.** The market gathers general AI SOC and
+security-operations coverage for context, but a relevance check downstream is rejecting vendor
+blog posts that are clearly on topic. Roughly one in six collected articles currently reaches the
+point where it can be analysed.
+
 **One market so far.** The design is meant to be reusable by importing a different registry, but
 that has not been tried.

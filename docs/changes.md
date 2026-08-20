@@ -148,6 +148,85 @@ baseline. Both vendors' own websites settled it — Crogl is `/company/crogl`, S
 we collected was reassigned to System Two, since it is a real observation filed under the wrong
 company.
 
+### Fixes found by reading the source-health panel
+Three defects, all surfaced by looking at what the UI claimed rather than at the code.
+
+**Health reported history as current state.** `app/routes/market_monitor_routes.py` computed
+`healthy = failed == 0` across a 30-day window and surfaced the most recent error regardless of
+what ran after it. `linkedin_company_post` showed "failing" with a validation error from 09:14
+while runs at 09:17 and 09:27 had both succeeded with the fix in place — sending a reader to
+debug something already fixed. State now comes from the most recent run, the error is shown only
+when that run is the one that failed, and `queued`/`running` is reported as its own state rather
+than collapsing into failing.
+
+**The circuit breaker deadlocked.** `_circuit_open` opened after three consecutive failures and
+only a success closed it, but it blocked the attempt that would produce one. A corrected bug
+could never recover without a manual database edit, which is exactly what happened to
+`linkedin_jobs`. It now half-opens after `CIRCUIT_COOLDOWN` (1 hour): one attempt is allowed
+through and its outcome decides.
+
+**An all-error batch was recorded as success.** The LinkedIn jobs run returned 20 records that
+were every one a `proxy` error, and the run closed as `succeeded` because records had arrived.
+Source health would have gone green on a source producing nothing. `mc.outcome_status()` now
+maps a delivered batch to failed / partial / succeeded by provider-error count, and both the
+webhook and the reconciler use it.
+
+**`Wire` rendered a permanent spinner.** Adding the brief and sources fetches replaced the
+`.then()` block that called `getMarketTimeline`, leaving the import in place and the call gone,
+so `events` stayed `null`. It is fetched again after the plan resolves, and always resolves to an
+array — a failure now shows an empty state instead of a spinner that never stops.
+
+### LinkedIn job listings — does not work, and is switched off
+Four input shapes tried against `gd_lpfll7v5hcqtkxl6l`, none usable:
+
+| Shape | Result |
+|---|---|
+| `discover_by=company_url` | HTTP 400, mode not supported |
+| `/company/{slug}/jobs/` with `discover_by=url` | 20 records, all `proxy` errors |
+| `jobs/search?f_C=<companyId>` | 0 records |
+| `discover_by=keyword` | 3 records, from Drillbit, Arcade.dev and Office1 — not the company searched |
+
+The keyword mode is the trap: it returns results, so it looks like it works, while attributing
+other companies' postings to the vendor. Both "LinkedIn Companies Enriched by job listings"
+datasets return no metadata on this account. The source is disabled in
+`bw_markets.config['sources']` so the loop does not keep paying 20 records per guess. Hiring is
+the one signal from the requested set that has not landed.
+
+### Collection relevance floor, and re-enrichment targeting
+The market was keeping 31 of 172 collected articles: `ingest_status` showed 114
+`filtered_relevance` at average alignment 0.18 against 0.73 for the 31 approved. Reading titles
+by band showed the global 0.45 floor was discarding core material — "Build vs Buy AI for the
+SOC", "SecOps Guide: why a disconnected SOC can't keep pace", "How Dropzone AI helps you get the
+most out of your existing tools" all sat at 0.35–0.45. `keyword_groups.min_relevance_threshold`
+for group 16 is now 0.25, which keeps 57 of 145 scored articles instead of 31.
+
+**`scripts/reenrich_filtered_articles.py`** gained `--min-alignment`. The embedding score cannot
+separate topic-relevant from topic-adjacent — "Build vs Buy AI for the SOC" and "How to Choose a
+Smart Intercom System Manufacturer in China" both score ~0.70 — while `topic_alignment_score`
+separates them at 0.40 against 0.10. Filtering on it took the candidate set from 114 to 26, all
+on-topic.
+
+**The re-enrichment recovered 1 of 26 and this is unresolved.** 25 vendor blog posts from
+Dropzone, Conifers, Embed Security and PRE Security were re-rejected. The rejection is happening
+inside `AutomatedIngestService`'s own relevance check, not at the keyword-group threshold that
+was changed, and where that gate draws its line has not been established.
+
+### Observer
+`signal_instructions` id 6, "SOC Automation Market Watch", scoped to the market topic, schedule
+enabled daily at 07:00. First manual run: 2 matches from 6 articles analysed.
+
+Six of 172, because observer queries require `category IS NOT NULL AND sentiment IS NOT NULL` —
+only enriched articles — and only 31 of 172 are enriched, of which 6 fall in the 7-day window.
+The observer is also scoped to the market topic only, so it does not see the 562 vendor LinkedIn
+posts, which live under per-vendor `<vendor> - Brand Watch` topics.
+
+### UI copy
+Panel titles are nouns and hints state source and cadence. The previous text argued for the
+design in the interface — "LinkedIn readings. The imported figure is shown as a reference — it
+was measured elsewhere, at a different time" is now "LinkedIn employee count. Dashed line is the
+imported baseline." Applied across `MarketMonitorTab.tsx` and `MarketVendorPage.tsx`, and to the
+code comments, which had the same problem.
+
 ### Verification
 `pytest tests/test_market_import.py tests/test_market_collection.py` — 32 passed. The wider suite
 is unchanged at 128 failed / 31 errors, the same before and after.
@@ -165,7 +244,12 @@ UI: `npm run typecheck` clean against the 246-error baseline. Vendor endpoint ch
 vendors — Dropzone AI returns 4 identifiers, 1 profile reading, 4 funding rounds, 5 watched
 pages, 10 posts and 9 coverage categories; Crogl returns its corrected identifier as live and the
 superseded one flagged, with 0 profile readings because its correct URL has never been collected.
-Deployed bundle `MarketMonitorTab-Gkj9XZLY.js`.
+Deployed bundle `MarketMonitorTab-Gkj9XZLY.js`, rebuilt after the copy pass.
+
+Source health after the fix, measured 2026-08-20: crunchbase_company, funding_discovery,
+linkedin_company_post, linkedin_company_profile, vendor_web and vendor_web_discovery all healthy;
+linkedin_jobs failing with 0 successes and disabled. `linkedin_company_post` reads healthy while
+still reporting 2 succeeded / 1 failed over 30 days.
 
 ### Propagation
 Monolith-only, and bugfixing-only. Not copied to wiley, wileytest or wbm — the feature is new and

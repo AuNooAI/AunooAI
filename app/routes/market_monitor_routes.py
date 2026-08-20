@@ -1013,6 +1013,10 @@ async def source_health(market_id: int, session=Depends(verify_session)):
         conn = _conn()
         try:
             _load_market(conn, market_id)
+            # Health is the state of the most recent run, not a tally over 30
+            # days. A source that failed once and has succeeded twice since is
+            # working; reporting the old error as current sends someone to
+            # debug a bug that was fixed.
             rows = conn.execute(text("""
                 SELECT source, provider,
                        COUNT(*) AS runs,
@@ -1026,8 +1030,10 @@ async def source_health(market_id: int, session=Depends(verify_session)):
                        SUM(records_new) AS records_new,
                        SUM(records_received) AS records_received,
                        SUM(cost_amount) AS cost,
-                       (ARRAY_AGG(error ORDER BY started_at DESC)
-                            FILTER (WHERE error IS NOT NULL))[1] AS last_error
+                       (ARRAY_AGG(status ORDER BY started_at DESC))[1]
+                           AS latest_status,
+                       (ARRAY_AGG(error ORDER BY started_at DESC))[1]
+                           AS latest_error
                 FROM bw_collection_runs
                 WHERE market_id = :m AND started_at >= NOW() - INTERVAL '30 days'
                 GROUP BY source, provider ORDER BY source
@@ -1040,9 +1046,19 @@ async def source_health(market_id: int, session=Depends(verify_session)):
                     round((datetime.now(timezone.utc) - last).total_seconds() / 3600, 1)
                     if last else None
                 )
-                # A source that ran and found nothing is healthy. One that has
-                # never succeeded is not, however quiet it looks.
-                row["healthy"] = bool(last) and row["failed"] == 0
+                latest = row.pop("latest_status", None)
+                latest_error = row.pop("latest_error", None)
+                # In flight is neither healthy nor failing — it is pending.
+                row["state"] = (
+                    "in_flight" if latest in ("queued", "running")
+                    else "failing" if latest == "failed"
+                    else "healthy" if latest == "succeeded"
+                    else "unknown"
+                )
+                row["healthy"] = row["state"] == "healthy"
+                # Only surface the error when the most recent run is the one
+                # that failed. Historical errors stay in the run log.
+                row["last_error"] = latest_error if latest == "failed" else None
                 row["found_nothing"] = bool(last) and (row.get("records_new") or 0) == 0
                 sources.append(row)
             coverage = conn.execute(text("""
@@ -1220,7 +1236,10 @@ async def brightdata_linkedin_callback(
 
             result = mc.ingest_for_source(conn, run=run, records=records)
             mc.close_run(
-                conn, run_id, status="succeeded", received=len(records),
+                conn, run_id,
+                status=mc.outcome_status(len(records), result.get("stored", 0),
+                                         result.get("provider_errors", 0)),
+                received=len(records),
                 new=result.get("stored", 0),
                 skipped=(result.get("unchanged", 0) + result.get("unmatched", 0)
                          + result.get("dropped", 0)),
