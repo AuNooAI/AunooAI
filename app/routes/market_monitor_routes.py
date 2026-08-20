@@ -827,7 +827,8 @@ async def get_sources(market_id: int, session=Depends(verify_session)):
             out = []
             for src in sorted(KNOWN_SOURCES | {mm.SOURCE_CANDIDATES,
                                               mm.SOURCE_CORPUS,
-                                              mm.SOURCE_POST_REVIEW}):
+                                              mm.SOURCE_POST_REVIEW,
+                                              mm.SOURCE_BRIEFING}):
                 entry = overrides.get(src) if isinstance(overrides.get(src), dict) else {}
                 out.append({
                     "source": src,
@@ -1134,6 +1135,107 @@ async def market_export_bundle(market_id: int,
     return Response(content=blob, media_type="application/zip",
                     headers={"Content-Disposition":
                              f'attachment; filename="{name}"'})
+
+
+class BriefingRequest(BaseModel):
+    year: Optional[int] = Field(None, ge=2000, le=2100)
+    month: Optional[int] = Field(None, ge=1, le=12)
+    model: Optional[str] = None
+    store: bool = True
+
+
+@router.post("/markets/{market_id}/briefings")
+async def market_briefing_generate(market_id: int, body: BriefingRequest,
+                                   session=Depends(verify_session)):
+    """Write the monthly briefing: facts from stored rows, prose on top.
+
+    Defaults to the last complete month. A briefing about the month in progress
+    is one that will be wrong by the end of it.
+    """
+    from app.services import market_briefing as mbr
+
+    year, month = body.year, body.month
+    if not (year and month):
+        year, month = mbr.previous_month()
+
+    conn = _conn()
+    try:
+        market = await asyncio.to_thread(_load_market, conn, market_id)
+        result = await mbr.generate(conn, market, year=year, month=month,
+                                    model=body.model, store=body.store)
+        # The facts block is large and the caller usually wants the prose. It
+        # is stored either way and readable through the detail route.
+        result.pop("facts", None)
+        return result
+    finally:
+        conn.close()
+
+
+@router.get("/markets/{market_id}/briefings")
+async def market_briefings(market_id: int,
+                           limit: int = Query(24, ge=1, le=120),
+                           session=Depends(verify_session)):
+    """Briefings for this market, newest period first."""
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return {"briefings": mbr.listing(conn, market_id, limit)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}")
+async def market_briefing_detail(market_id: int, briefing_id: int,
+                                 session=Depends(verify_session)):
+    """One briefing, with the facts it was written from.
+
+    The facts are returned deliberately: they are how a reader checks the
+    prose. A figure in the briefing that is not in the facts is a fabrication,
+    and without them that check cannot be made.
+    """
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            row = mbr.get(conn, market_id, briefing_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return row
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class BriefingStatus(BaseModel):
+    status: str = Field(..., pattern="^(draft|approved|rejected)$")
+
+
+@router.put("/markets/{market_id}/briefings/{briefing_id}/status")
+async def market_briefing_status(market_id: int, briefing_id: int,
+                                 body: BriefingStatus,
+                                 session=Depends(verify_session)):
+    """Approve or reject a briefing. Regenerating one returns it to draft."""
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            if not mbr.set_status(conn, market_id, briefing_id, body.status):
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return {"ok": True, "id": briefing_id, "status": body.status}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.get("/markets/{market_id}/drilldown/{name}")

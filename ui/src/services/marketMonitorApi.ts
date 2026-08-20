@@ -967,3 +967,71 @@ export async function getReportLink(
     await fetch(`${BASE}/markets/${marketId}/report-link?days=${days}`,
       { credentials: 'include' }), 'Failed to create report link');
 }
+
+// ============================================================================
+// Briefings
+// ============================================================================
+
+export interface BriefingSummary {
+  id: number;
+  period_label: string;
+  period_start: string;
+  period_end: string;
+  title: string | null;
+  status: 'draft' | 'approved' | 'rejected';
+  /** "fallback" means the model returned nothing usable and the stored text is
+   *  the assembled evidence rather than written prose. */
+  generation: 'generated' | 'fallback';
+  model_used: string | null;
+  created_at: string;
+  updated_at: string;
+  sources: number | null;
+}
+
+export interface BriefingDetail extends BriefingSummary {
+  report_content: string;
+  /** The evidence the prose was written from. Returned so a reader can check
+   *  it: a figure in the briefing that is not here is a fabrication. */
+  facts: Record<string, any>;
+  article_uris: string[];
+  lint: { check: string; detail: string }[];
+}
+
+export async function getBriefings(
+  marketId: number, limit = 24,
+): Promise<{ briefings: BriefingSummary[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings?limit=${limit}`,
+      { credentials: 'include' }), 'Failed to load briefings');
+}
+
+export async function getBriefing(
+  marketId: number, briefingId: number,
+): Promise<BriefingDetail> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}`,
+      { credentials: 'include' }), 'Failed to load briefing');
+}
+
+export async function generateBriefing(
+  marketId: number,
+  body: { year?: number; month?: number; model?: string } = {},
+): Promise<{ id?: number; period_label: string; generation: string;
+             item_count: number; content: string }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/briefings`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), 'Briefing generation failed');
+}
+
+export async function setBriefingStatus(
+  marketId: number, briefingId: number, status: string,
+): Promise<{ ok: boolean; status: string }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/status`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }), 'Could not update status');
+}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { MarketVendorPage } from './MarketVendorPage';
 import { MarketAnalysisView } from './MarketAnalysisView';
+import { MarketBriefingsView } from './MarketBriefingsView';
 import {
   BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
@@ -41,8 +42,8 @@ import {
  * Overview is the standing picture and Brief is the week's changes. They are
  * separate because a reader should not have to reconstruct the state of a
  * market from a list of what happened in it lately. */
-type View = 'overview' | 'analysis' | 'brief' | 'wire' | 'coverage'
-  | 'vendors' | 'data';
+type View = 'overview' | 'analysis' | 'briefings' | 'brief' | 'wire'
+  | 'coverage' | 'vendors' | 'data';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
 type SettingsPanel = 'collection' | 'sources' | 'health';
@@ -579,6 +580,7 @@ export function MarketMonitorTab() {
         {([
           ['overview', 'Overview'],
           ['analysis', 'Analysis'],
+          ['briefings', 'Briefings'],
           ['brief', 'Brief'],
           ['wire', 'Wire'],
           ['coverage', 'Coverage'],
@@ -1013,6 +1015,11 @@ export function MarketMonitorTab() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ---- Briefings ---- */}
+      {view === 'briefings' && marketId !== null && (
+        <MarketBriefingsView marketId={marketId} />
       )}
 
       {/* ---- Analysis ---- */}

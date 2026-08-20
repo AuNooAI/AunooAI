@@ -59,6 +59,8 @@ SOURCE_CORPUS = "corpus_match"
 # Reads vendor posts we already collected and judges each one.
 # Costs a cheap model call per 20 posts, not a provider fetch.
 SOURCE_POST_REVIEW = "post_review"
+# Writes the previous month's briefing, once that month is over.
+SOURCE_BRIEFING = "monthly_briefing"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -154,6 +156,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_CANDIDATES: slow,      # daily — reads what we already collected
         SOURCE_CORPUS: slow,          # daily — also free, also local
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
+        SOURCE_BRIEFING: slow,        # daily check; writes once a month
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -342,6 +345,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += _discover_candidates(conn, market, now)
     runs += _match_corpus(conn, market, now)
     runs += await _review_posts(conn, market, now)
+    runs += await _write_briefing(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get(SOURCE_DISCOVERY))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -457,6 +461,55 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
 
 
 # ── New entrants ────────────────────────────────────────────────────────────
+
+async def _write_briefing(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Write last month's briefing, once, after the month has ended.
+
+    The cadence check is daily but the work happens once a month: the row for a
+    period is unique, so a period already written is skipped without a model
+    call. Scheduling it monthly instead would mean a missed run waits thirty
+    days for the next attempt.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_BRIEFING, now) is None:
+        return 0
+
+    from app.services import market_briefing as mbr
+
+    year, month = mbr.previous_month(now.date())
+    _, _, label = mbr.month_bounds(year, month)
+
+    existing = conn.execute(text("""
+        SELECT id FROM bw_market_briefings
+        WHERE market_id = :m AND period_label = :label
+    """), {"m": market_id, "label": label}).scalar()
+    if existing:
+        # Nothing to do, and no run row: a source that logs a run every day for
+        # doing nothing makes source health unreadable.
+        return 0
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_BRIEFING,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await mbr.generate(conn, market, year=year, month=month)
+        mc.close_run(
+            conn, run_id,
+            status="partial" if result["generation"] == "fallback" else "succeeded",
+            received=result["item_count"], new=1,
+            error=("the model returned nothing usable; stored the assembled "
+                   "facts instead")
+            if result["generation"] == "fallback" else None)
+        conn.commit()
+        logger.info("market %s briefing %s written (%s, %d items)",
+                    market_id, label, result["generation"], result["item_count"])
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s briefing failed: %s", market_id, exc)
+    return 1
+
 
 async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
     """Read vendor posts that arrived since the last pass and judge each one.

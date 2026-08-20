@@ -2,6 +2,81 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (phase 4) — Market Monitor: a monthly briefing whose numbers can be checked
+
+### Goal
+A written monthly briefing, with the property that no figure in it can be invented.
+
+### Two stages — `app/services/market_briefing.py`, `alembic/versions/mm_004_market_briefings.py`
+`build_facts()` collects the period's evidence from stored rows with no model involved:
+announcements (vendor posts the review pass judged to state a fact), third-party coverage, new
+registry entries, headcount movement, open job listings and open data-quality questions. It calls
+`build_brief()` for the standing parts rather than reassembling them.
+
+`generate()` then asks a model to write narrative **around** that block. The prompt's rule is
+flat: use only the facts, and a vendor's own post is a vendor claim rather than an established
+fact — "X said it has…", not "X has…".
+
+Migration `mm_004` adds `bw_market_briefings`, modelled on `saved_signal_reports` with two
+additions. **`facts` stores the evidence block alongside the prose**, which is what makes the
+no-invention claim checkable rather than merely asserted: any figure in the briefing that is not
+in the facts is a fabrication, and without the facts nobody can run that check. **`status`** gates
+publication — draft, approved, rejected — because a monthly job that publishes straight to a
+customer surface is a monthly opportunity to publish something wrong. Regenerating a briefing
+returns it to draft: approval was given to the text somebody read, not to the replacement.
+
+### Almost nothing here is new machinery
+`report_style.CLINICAL_STYLE` for tone, `vector_routes._report_date_directive()` for the date
+(reports were being dated from the model's training prior), `_org_persona_report_prefix()` for
+the reader's organisation, `_generate_report_with_retry()` for the empty-response guard, and
+`report_lint.lint_outbound()` before storing. All were already in use by every other prose
+surface in this codebase.
+
+### Three ways a briefing can come out
+**Written** — the normal path. **Quiet** — below `MIN_ITEMS_FOR_PROSE = 6` the briefing states
+the counts in one sentence and stops, because 800 words about a quiet month is worse than one
+sentence saying the month was quiet. **Fallback** — when every model attempt returns empty
+(Bedrock does this roughly one run in eight, already recorded in this file), the stored briefing
+is the assembled evidence, labelled as such in the database and in the UI.
+
+### Scheduled — `app/tasks/market_monitor.py`
+New source `monthly_briefing`, checked daily, writing once per month for the last **complete**
+month. Daily rather than monthly on purpose: a monthly schedule means a missed run waits thirty
+days for the next attempt. A period already written is skipped without opening a run row, because
+a source that logs a run every day for doing nothing makes source health unreadable. A fallback
+briefing closes the run as `partial`, not `succeeded`.
+
+### UI — `ui/src/components/newsfeed/MarketBriefingsView.tsx`
+New **Briefings** tab: months down the left, the briefing on the right, approve/reject, and a
+**Show the evidence** toggle that prints the stored facts. That toggle is not a debugging aid — it
+is how a reader checks a figure, and the whole design rests on that being possible.
+
+### Verification
+**July 2026, 53 items, written:** every one of the **44 distinct numbers in the prose was found
+verbatim in the stored facts block**. Zero fabrications. The attribution rule held without
+prompting — "Command Zero introduced Throughline, a 'living investigation' feature that Command
+Zero said…", "described by the vendor as", with vendor quotes kept as quotes. `lint_outbound`
+returned no findings.
+
+**January 2026, 5 items:** refused to write. "The period was quiet: 1 vendor announcement and 4
+articles. That is too little to draw a conclusion from, so this briefing records the count and
+stops." (A pluralisation bug — "1 vendor announcements" — was found and fixed here.)
+
+**Forced empty model response** on the 53-item month: fell back to 6,356 characters of assembled
+evidence, marked `generation = 'fallback'`.
+
+**Approval flow:** approve → `approved`; regenerate → back to `draft`, verified against the
+database rather than the response.
+
+**Scheduler:** on restart the market monitor skipped the briefing without opening a run row,
+because 2026-07 already existed — the intended behaviour.
+
+`npm run typecheck` clean against baseline (246 known). Rebuilt, restarted, active, no runs in
+flight. All three routes in `/openapi.json`.
+
+### Propagation
+bugfixing (canonical) only.
+
 ## 2026-08-20 (phase 3) — Market Monitor: a report you can send, and a bundle you can open
 
 ### Goal
