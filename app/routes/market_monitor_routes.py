@@ -958,6 +958,31 @@ async def market_feed(
                     headers={"Cache-Control": "public, max-age=900"})
 
 
+@router.get("/markets/{market_id}/drilldown/{name}")
+async def market_drilldown(market_id: int, name: str,
+                           session=Depends(verify_session)):
+    """The vendors behind one figure on the overview.
+
+    Every number on that page used to be a dead end. "62 vendors with no
+    signal" is the most useful figure there and there was no way to see which
+    62.
+    """
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            try:
+                return man.drilldown(conn, market_id, name)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 @router.get("/markets/{market_id}/analysis/{name}")
 async def market_analysis(market_id: int, name: str,
                           session=Depends(verify_session)):
@@ -1658,13 +1683,49 @@ async def vendor_detail(market_id: int, brand_id: int,
                 ORDER BY provider_item_id, observed_at DESC
             """), {"b": brand_id}).mappings().all()]
 
+            # DISTINCT ON the uri, not just an ORDER BY: bw_article_categories
+            # is keyed on (article, brand, category), so a post filed under
+            # three categories was taking three of these ten slots.
             vendor["posts"] = [dict(r) for r in conn.execute(text("""
-                SELECT a.uri, a.title, a.summary, a.publication_date, a.url
-                FROM bw_article_categories bac
-                JOIN articles a ON a.uri = bac.article_uri
-                WHERE bac.brand_id = :b AND a.bias_source = 'vendor:linkedin'
-                ORDER BY a.publication_date DESC NULLS LAST LIMIT 10
+                SELECT * FROM (
+                    SELECT DISTINCT ON (a.uri)
+                           a.uri, a.title, a.summary, a.publication_date,
+                           a.url, a.social_meta
+                    FROM bw_article_categories bac
+                    JOIN articles a ON a.uri = bac.article_uri
+                    WHERE bac.brand_id = :b
+                      AND a.bias_source = 'vendor:linkedin'
+                    ORDER BY a.uri, a.publication_date DESC
+                ) p
+                ORDER BY p.publication_date DESC NULLS LAST LIMIT 10
             """), {"b": brand_id}).mappings().all()]
+
+            # What this vendor actually announced, as opposed to what it
+            # posted. Without the split a product launch sits in the same list
+            # as a conference booth notice.
+            vendor["announcements"] = [dict(r) for r in conn.execute(text("""
+                SELECT * FROM (
+                    SELECT DISTINCT ON (a.uri)
+                           a.uri, a.title, a.publication_date, a.url,
+                           ma.review_kind, ma.review_reason
+                    FROM bw_article_categories bac
+                    JOIN articles a ON a.uri = bac.article_uri
+                    JOIN bw_market_articles ma ON ma.article_uri = a.uri
+                    WHERE bac.brand_id = :b
+                      AND ma.review_verdict = 'signal'
+                    ORDER BY a.uri, a.publication_date DESC
+                ) p
+                ORDER BY p.publication_date DESC NULLS LAST LIMIT 25
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["post_verdicts"] = dict(conn.execute(text("""
+                SELECT ma.review_verdict, COUNT(DISTINCT ma.article_uri)
+                FROM bw_market_articles ma
+                JOIN bw_article_categories bac
+                     ON bac.article_uri = ma.article_uri
+                WHERE bac.brand_id = :b AND ma.review_verdict IS NOT NULL
+                GROUP BY 1
+            """), {"b": brand_id}).fetchall())
 
             vendor["coverage_by_category"] = [dict(r) for r in conn.execute(text("""
                 SELECT category, COUNT(*) AS n FROM bw_article_categories

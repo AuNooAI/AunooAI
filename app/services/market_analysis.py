@@ -361,3 +361,83 @@ def run(conn, market_id: int, name: str) -> Dict[str, Any]:
     if not fn:
         raise ValueError(f"unknown analysis: {name}")
     return fn(conn, market_id)
+
+
+# ---------------------------------------------------------------------------
+# Drilldown — the vendors behind a number
+# ---------------------------------------------------------------------------
+#
+# Every figure on the overview was a dead end. "62 vendors with no signal" is
+# the most interesting number on that page and there was no way to see which
+# 62. These are the sets behind the figures, named so a link can carry one.
+
+DRILLDOWNS = ("quiet", "watched", "paused", "observed", "unobserved",
+              "disclosed", "undisclosed", "no_linkedin", "posting", "hiring")
+
+
+def drilldown(conn, market_id: int, name: str) -> Dict[str, Any]:
+    """The vendors behind one overview figure.
+
+    Returns the same shape whatever the filter, so the UI renders one table.
+    """
+    where = {
+        "quiet": """NOT EXISTS (SELECT 1 FROM bw_article_categories bac
+                                WHERE bac.brand_id = b.id)
+                    AND NOT EXISTS (SELECT 1 FROM bw_vendor_snapshots s
+                                    WHERE s.brand_id = b.id
+                                      AND s.snapshot_type = 'job_posting')""",
+        "watched": "mb.collection_enabled",
+        "paused": "NOT mb.collection_enabled",
+        "observed": """EXISTS (SELECT 1 FROM bw_vendor_snapshots s
+                               WHERE s.brand_id = b.id)""",
+        "unobserved": """NOT EXISTS (SELECT 1 FROM bw_vendor_snapshots s
+                                     WHERE s.brand_id = b.id)""",
+        "disclosed":
+            "mb.baseline->'funding_baseline'->>'status' = 'Disclosed'",
+        "undisclosed":
+            "COALESCE(mb.baseline->'funding_baseline'->>'status','') "
+            "<> 'Disclosed'",
+        "no_linkedin": """NOT EXISTS (SELECT 1 FROM bw_vendor_identifiers i
+                                      WHERE i.brand_id = b.id
+                                        AND i.kind = 'linkedin_company_url'
+                                        AND i.valid_to IS NULL)""",
+        "posting": """EXISTS (SELECT 1 FROM bw_market_articles ma
+                              JOIN bw_article_categories bac
+                                   ON bac.article_uri = ma.article_uri
+                              WHERE bac.brand_id = b.id
+                                AND ma.review_verdict = 'signal')""",
+        "hiring": """EXISTS (SELECT 1 FROM bw_vendor_snapshots s
+                             WHERE s.brand_id = b.id
+                               AND s.snapshot_type = 'job_posting')""",
+    }.get(name)
+    if not where:
+        raise ValueError(f"unknown drilldown: {name}")
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               mb.role, mb.collection_enabled,
+               mb.baseline->>'hq_country' AS country,
+               mb.baseline->>'founded_year' AS founded,
+               mb.baseline->'funding_baseline'->>'status' AS funding_status,
+               (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS musd,
+               (mb.baseline->'metrics'->>'employee_count')::numeric AS staff,
+               (SELECT COUNT(DISTINCT ma.article_uri)
+                  FROM bw_market_articles ma
+                  JOIN bw_article_categories bac
+                       ON bac.article_uri = ma.article_uri
+                 WHERE bac.brand_id = b.id
+                   AND ma.review_verdict = 'signal') AS announcements,
+               (SELECT COUNT(*) FROM bw_vendor_snapshots s
+                 WHERE s.brand_id = b.id
+                   AND s.snapshot_type = 'job_posting') AS openings
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        WHERE mb.market_id = :m AND mb.role <> 'excluded' AND ({where})
+        ORDER BY b.display_name
+    """), {"m": market_id}).mappings().all()]
+    for row in rows:
+        for key in ("musd", "staff"):
+            if row[key] is not None:
+                row[key] = float(row[key])
+
+    return {"drilldown": name, "vendors": rows, "count": len(rows)}

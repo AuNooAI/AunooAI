@@ -430,10 +430,14 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     # How much of the registry we have actually observed, as opposed to
     # switched on. The gap between "watching" and "observed" is the honest
     # measure of coverage.
+    # ``role <> 'excluded'`` to match every other figure in this block. Without
+    # it the excluded vendor was counted here and nowhere else, so the tile read
+    # "38 of 82 watched, 83 observed at least once" — more observed than exist.
     coverage["observed"] = conn.execute(text("""
         SELECT COUNT(DISTINCT s.brand_id) FROM bw_vendor_snapshots s
         JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                  AND mb.market_id = :m
+                                 AND mb.role <> 'excluded'
     """), {"m": market_id}).scalar() or 0
 
     funding = dict(conn.execute(text("""

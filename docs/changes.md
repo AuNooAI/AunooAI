@@ -2,6 +2,79 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (phase 2) — Market Monitor: drilldowns, and a second double-count
+
+### Goal
+Every figure on the Overview was a dead end. "62 vendors with no signal" is the most useful
+number on that page and there was no way to see which 62. The vendor page also showed ten recent
+posts undifferentiated, so a product launch sat next to a conference booth notice.
+
+### Drilldowns — `app/services/market_analysis.py`, `app/routes/market_monitor_routes.py`
+`drilldown(conn, market_id, name)` returns the vendors behind one figure, ten named sets:
+`quiet`, `watched`, `paused`, `observed`, `unobserved`, `disclosed`, `undisclosed`,
+`no_linkedin`, `posting`, `hiring`. Same shape whatever the filter, so the UI renders one table.
+Served at `GET /markets/{id}/drilldown/{name}`.
+
+In the UI the Overview tiles became buttons and the drilldown is **URL-addressable** —
+`?drill=quiet` alongside the existing `?vendor=`, so a drilldown is a link somebody can send.
+`DRILL_LABEL` carries the sentence the reader needs, because the URL only carries the key.
+
+### The vendor page was showing duplicate posts — `app/routes/market_monitor_routes.py`
+The same defect as phase 1, in a second place. `vendor_detail`'s posts query joined
+`bw_article_categories` with `ORDER BY publication_date DESC LIMIT 10` and no `DISTINCT`, so a
+post filed under three categories took three of the ten slots. Now `DISTINCT ON (a.uri)` in a
+subquery, ordered outside it.
+
+### New vendor panels — `ui/src/components/newsfeed/MarketVendorPage.tsx`
+**Announcements.** `vendor_detail` gained `announcements` (signal posts with kind and reason) and
+`post_verdicts` (the three counts). The panel separates what a vendor announced from what it
+posted.
+
+**Investors, founders, acquirer, recent news.** All four were collected on the first Crunchbase
+run and rendered nowhere. Dropzone AI alone had 14 investors, a named founder and 10 dated news
+items with publishers sitting unread in the snapshot.
+
+**Page changes now carry their counts.** The panel showed the first three added lines, which
+reads as a three-line change. It now leads with `diff.added_count`/`removed_count` and treats the
+lines as the sample they are. Page titles are used as the heading where present.
+
+### Two figures removed rather than rendered
+`growth_trend` and `heat_trend` are stored on every Crunchbase record and I added them to the
+vendor page assuming they were direction words. They are numbers — 19, 2, 37 — and Crunchbase
+does not document what they count. A reader cannot tell whether 19 is good, so they are left out.
+A figure nobody can read is worse than no figure.
+
+### The overview reported more vendors observed than exist — `app/services/market_publish.py`
+`coverage.observed` did not filter `role <> 'excluded'` while every other figure in the block did,
+so the tile read "38 of 82 watched · 83 observed at least once". Now 82.
+
+### Verification
+Drilldown counts cross-checked against the overview figures they sit behind:
+
+```
+                overview   drilldown
+quiet                 62          62
+watched               38          38
+paused                44          44
+disclosed             38          38
+undisclosed           44          44
+observed              83 -> 82    82
+```
+
+The observed row is the bug above: the drilldown was right and the overview was wrong, which is
+how it was found.
+
+Vendor detail on Radiant Security: verdicts `{signal: 13, commentary: 7, noise: 10}` matching the
+phase-1 analysis, 13 announcements, and 10 posts with 10 distinct URIs — before the fix that list
+repeated. On Dropzone AI the funding panel now renders 14 investors, founder Edward Wu, and 10
+recent news items with publisher and date.
+
+`npm run typecheck` clean against baseline (246 known). Rebuilt, restarted, service active, no
+collection runs in flight. Both new routes present in `/openapi.json`.
+
+### Propagation
+bugfixing (canonical) only.
+
 ## 2026-08-20 (phase 1) — Market Monitor: four analyses, and a double-count they exposed
 
 ### Goal

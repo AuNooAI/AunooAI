@@ -639,7 +639,13 @@ export interface VendorDetail {
   jobs: { title: string; location: string | null; seniority: string | null;
           function: string | null; posted_date: string | null; url: string | null }[];
   posts: { uri: string; title: string; summary: string | null;
-           publication_date: string | null; url: string | null }[];
+           publication_date: string | null; url: string | null;
+           social_meta: Record<string, any> | null }[];
+  /** Posts the review pass judged to state a fact, with what kind. */
+  announcements: { uri: string; title: string; publication_date: string | null;
+                   url: string | null; review_kind: string | null;
+                   review_reason: string | null }[];
+  post_verdicts: Record<string, number>;
   coverage_by_category: { category: string; n: number }[];
   recent_coverage: { uri: string; title: string; news_source: string | null;
                      publication_date: string | null; sentiment: string | null;
@@ -910,4 +916,30 @@ export interface MarketAnalyses {
 export async function getAnalyses(marketId: number): Promise<MarketAnalyses> {
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analysis`,
     { credentials: 'include' }), 'Failed to load analysis');
+}
+
+// ============================================================================
+// Drilldown
+// ============================================================================
+
+export interface DrilldownVendor {
+  brand_id: number;
+  vendor: string;
+  role: string;
+  collection_enabled: boolean;
+  country: string | null;
+  founded: string | null;
+  funding_status: string | null;
+  musd: number | null;
+  staff: number | null;
+  announcements: number;
+  openings: number;
+}
+
+export async function getDrilldown(
+  marketId: number, name: string,
+): Promise<{ drilldown: string; vendors: DrilldownVendor[]; count: number }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/drilldown/${name}`,
+      { credentials: 'include' }), 'Failed to load drilldown');
 }

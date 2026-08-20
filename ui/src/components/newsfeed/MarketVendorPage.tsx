@@ -39,6 +39,10 @@ function Panel({ title, hint, children }: {
   );
 }
 
+const VERDICT_WORD: Record<string, string> = {
+  signal: 'states a fact', commentary: 'commentary', noise: 'no content',
+};
+
 export function MarketVendorPage({ marketId, brandId, onBack }: {
   marketId: number; brandId: number; onBack: () => void;
 }) {
@@ -221,10 +225,28 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Crunchbase</dt>
                 <dd className="text-slate-800">
+                  {/* growth_trend and heat_trend are also stored, and are
+                      numbers rather than a direction — 19, 2, 37. Crunchbase
+                      does not document what they count, so they are left out:
+                      a figure nobody can read is worse than no figure. */}
                   {cb.growth_score != null && `growth ${cb.growth_score}`}
                   {cb.heat_score != null && ` · heat ${cb.heat_score}`}
-                  {cb.cb_rank != null && ` · rank ${cb.cb_rank}`}
+                  {cb.cb_rank != null
+                    && ` · rank ${Number(cb.cb_rank).toLocaleString()}`}
                 </dd>
+              </div>
+            )}
+            {Array.isArray(cb.founders) && cb.founders.length > 0 && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate-500">Founders</dt>
+                <dd className="text-slate-800 text-right">
+                  {cb.founders.join(', ')}</dd>
+              </div>
+            )}
+            {cb.acquired_by && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate-500">Acquired by</dt>
+                <dd className="text-slate-800">{cb.acquired_by}</dd>
               </div>
             )}
           </dl>
@@ -236,6 +258,42 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
                   <span key={i} className="text-xs bg-slate-100 border rounded px-1.5 py-0.5">
                     {i}
                   </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* The full list, distinct from the leads above. Stored since the
+              first Crunchbase run and never shown until now. */}
+          {(cb.investors?.length ?? 0) > 0 && (
+            <div className="mt-3">
+              <div className="text-xs text-slate-500 mb-1">
+                All investors ({cb.investors.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {cb.investors.map((i: string) => (
+                  <span key={i}
+                        className="text-xs bg-white border rounded px-1.5 py-0.5
+                                   text-slate-600">
+                    {i}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {Array.isArray(cb.recent_news) && cb.recent_news.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs text-slate-500 mb-1">
+                Recent news, per Crunchbase
+              </div>
+              <div className="space-y-1">
+                {cb.recent_news.slice(0, 6).map((n: any, i: number) => (
+                  <div key={i} className="text-xs">
+                    <span className="text-slate-700">{n.title}</span>
+                    <span className="text-slate-400">
+                      {n.publisher ? ` · ${n.publisher}` : ''}
+                      {n.date ? ` · ${String(n.date).slice(0, 10)}` : ''}
+                    </span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -286,6 +344,60 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
         )}
       </Panel>
 
+      <Panel title="Announcements"
+             hint="Posts the review pass judged to state a fact — a launch, a raise, a customer, a hire. The rest of this vendor's posts are below.">
+        {v.announcements.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {Object.keys(v.post_verdicts ?? {}).length === 0
+              ? 'No posts have been read yet.'
+              : 'Nothing this vendor posted stated a fact.'}
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1.5 mb-2 text-xs">
+              {(['signal', 'commentary', 'noise'] as const).map(k => (
+                v.post_verdicts?.[k] ? (
+                  <span key={k} className="px-2 py-0.5 rounded border bg-slate-50
+                                           text-slate-600">
+                    {VERDICT_WORD[k]} {v.post_verdicts[k]}
+                  </span>
+                ) : null
+              ))}
+            </div>
+            <div className="space-y-2">
+              {v.announcements.map(a => (
+                <div key={a.uri}
+                     className="text-sm border-b last:border-0 pb-2 last:pb-0">
+                  <div className="flex items-start gap-2">
+                    <a href={a.url ?? a.uri} target="_blank" rel="noreferrer"
+                       className="text-slate-800 hover:underline flex-1">
+                      {a.title}
+                    </a>
+                    <span className="text-xs text-slate-400 tabular-nums shrink-0">
+                      {a.publication_date?.slice(0, 10) ?? '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {a.review_kind && (
+                      <span className="text-xs px-1.5 py-0.5 rounded border
+                                       bg-emerald-50 text-emerald-700
+                                       border-emerald-200">
+                        {a.review_kind}
+                      </span>
+                    )}
+                    {a.review_reason && (
+                      <span className="text-xs text-slate-500">
+                        {a.review_reason}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Panel>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Site changes" hint="Monitored pages and their most recent diff.">
           {v.pages.length === 0 ? (
@@ -297,13 +409,21 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
                   <div className="flex items-center justify-between gap-2">
                     <a href={p.url} target="_blank" rel="noreferrer"
                        className="text-slate-800 hover:underline flex items-center gap-1 truncate">
-                      {p.kind ?? 'page'} <ExternalLink className="w-3 h-3 shrink-0" />
+                      {p.title || p.kind || 'page'}
+                      <ExternalLink className="w-3 h-3 shrink-0" />
                     </a>
                     <span className="text-xs text-slate-500 shrink-0">
                       {p.observed_at.slice(0, 10)}</span>
                   </div>
                   {p.diff && p.diff.material && (
                     <div className="mt-1 text-xs">
+                      {/* The counts say how much moved; the lines are a sample
+                          of it. Showing only three added lines without the
+                          count reads as a three-line change. */}
+                      <div className="text-slate-500 mb-0.5">
+                        {p.diff.added_count ?? p.diff.added.length} lines added,{' '}
+                        {p.diff.removed_count ?? p.diff.removed.length} removed
+                      </div>
                       {p.diff.added.slice(0, 3).map((l, i) => (
                         <div key={`a${i}`} className="text-emerald-700 truncate">+ {l}</div>
                       ))}

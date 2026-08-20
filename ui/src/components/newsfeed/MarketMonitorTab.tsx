@@ -20,13 +20,15 @@ import {
 import {
   datasetCsvUrl, datasetCsvDownloadUrl, discoverCandidates, feedUrl,
   generateMarketTimeline, getBrief, getCollectionPlan, getCorpusArticles,
-  getCorpusSummary, getDataInventory, getMarketTable, getFacets,
+  getCorpusSummary, getDataInventory, getDrilldown, getMarketTable,
+  getFacets,
   getMarketTimeline, getMarkets, getOverview, getReviewTasks,
   getRuns, getSourceHealth, getSources, getVendors, reviewPosts, saveSources,
   scanCorpus,
   setCollectionTerms, setVendorCollection, setupCollection, updateReviewTask,
   type CollectionPlan, type CollectionRun, type CorpusArticle,
   type ArticleClass, type CorpusSummary, type DatasetInfo,
+  type DrilldownVendor,
   type DiscoveryResult, type Facets,
   type Market, type MarketBrief, type MarketOverview, type ReviewTask,
   type SourceHealth, type SourceSetting, type TimelineEvent, type Vendor,
@@ -59,6 +61,21 @@ const CLASS_TONE: Record<string, string> = {
   research: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
+/** What each drilldown is, in words. The URL carries the key; the reader
+ *  needs the sentence. */
+const DRILL_LABEL: Record<string, string> = {
+  quiet: 'Vendors with no signal at all — no posts, no job listings, no coverage',
+  watched: 'Vendors we are collecting for',
+  paused: 'Vendors in the registry with collection switched off',
+  observed: 'Vendors we have read at least once',
+  unobserved: 'Vendors we have never read',
+  disclosed: 'Vendors that disclosed a raise',
+  undisclosed: 'Vendors that never disclosed a raise',
+  no_linkedin: 'Vendors with no LinkedIn page on file',
+  posting: 'Vendors that have announced something',
+  hiring: 'Vendors with open job listings',
+};
+
 const VERDICT_TONE: Record<string, string> = {
   signal: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   commentary: 'bg-slate-50 text-slate-600 border-slate-200',
@@ -84,17 +101,28 @@ function fundingLabel(v: Vendor): string {
  *
  * The hint is not decoration. A bare "38" invites the reader to assume it
  * means whatever they were already thinking. */
-function Stat({ label, value, hint }: {
-  label: string; value: string; hint?: string;
+function Stat({ label, value, hint, onClick }: {
+  label: string; value: string; hint?: string; onClick?: () => void;
 }) {
-  return (
-    <div className="border rounded-lg p-3 bg-white">
+  const body = (
+    <>
       <div className="text-xs text-slate-500">{label}</div>
       <div className="text-2xl font-semibold text-slate-900 tabular-nums mt-0.5">
         {value}
       </div>
       {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
-    </div>
+    </>
+  );
+  if (!onClick) {
+    return <div className="border rounded-lg p-3 bg-white">{body}</div>;
+  }
+  return (
+    <button onClick={onClick}
+            className="border rounded-lg p-3 bg-white text-left w-full
+                       hover:border-slate-400 hover:bg-slate-50 transition-colors">
+      {body}
+      <div className="text-xs text-slate-400 mt-1">Show these vendors →</div>
+    </button>
   );
 }
 
@@ -142,6 +170,10 @@ export function MarketMonitorTab() {
   const [datasetRows, setDatasetRows] =
     useState<{ total: number; rows: Record<string, any>[] } | null>(null);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  // A drilldown is URL-addressable so it can be sent to somebody, the same way
+  // ?vendor= already works.
+  const [drill, setDrill] = useState<string | null>(null);
+  const [drillRows, setDrillRows] = useState<DrilldownVendor[] | null>(null);
 
   const market = useMemo(
     () => markets?.find(m => m.id === marketId) ?? null, [markets, marketId]);
@@ -151,6 +183,8 @@ export function MarketMonitorTab() {
     const p = new URLSearchParams(window.location.search);
     const v = p.get('vendor');
     if (v && /^\d+$/.test(v)) setOpenVendor(Number(v));
+    const d = p.get('drill');
+    if (d) setDrill(d);
     const onPop = () => {
       const q = new URLSearchParams(window.location.search).get('vendor');
       setOpenVendor(q && /^\d+$/.test(q) ? Number(q) : null);
@@ -164,6 +198,20 @@ export function MarketMonitorTab() {
     url.searchParams.set('vendor', String(brandId));
     window.history.pushState({}, '', url.toString());
     setOpenVendor(brandId);
+  }
+
+  function openDrilldown(name: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('drill', name);
+    window.history.pushState({}, '', url.toString());
+    setDrill(name);
+  }
+
+  function closeDrilldown() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('drill');
+    window.history.pushState({}, '', url.toString());
+    setDrill(null);
   }
 
   function closeVendorPage() {
@@ -238,6 +286,16 @@ export function MarketMonitorTab() {
     }).catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
   }, [marketId, view, corpusOrigin, corpusClass, allPosts]);
+
+  useEffect(() => {
+    if (marketId === null || !drill) { setDrillRows(null); return; }
+    let live = true;
+    setDrillRows(null);
+    getDrilldown(marketId, drill)
+      .then(r => { if (live) setDrillRows(r.vendors); })
+      .catch(e => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [marketId, drill]);
 
   useEffect(() => {
     if (marketId === null || view !== 'data') return;
@@ -524,6 +582,77 @@ export function MarketMonitorTab() {
         </div>
       )}
 
+      {/* ---- Drilldown: the vendors behind a number ---- */}
+      {drill && (
+        <div className="border rounded-lg bg-white">
+          <div className="flex items-center gap-2 p-3 border-b">
+            <span className="text-sm font-medium text-slate-800">
+              {DRILL_LABEL[drill] ?? drill}
+            </span>
+            <span className="text-sm text-slate-500">
+              {drillRows ? `${drillRows.length} vendors` : ''}
+            </span>
+            <div className="flex-1" />
+            <button onClick={closeDrilldown}
+                    className="text-slate-400 hover:text-slate-700">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {drillRows === null ? (
+            <div className="py-10 text-center text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+            </div>
+          ) : drillRows.length === 0 ? (
+            <p className="text-sm text-slate-500 py-8 text-center">
+              No vendors match.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-xs text-slate-500 text-left">
+                    <th className="px-3 py-1.5 font-normal">Vendor</th>
+                    <th className="px-3 py-1.5 font-normal">Country</th>
+                    <th className="px-3 py-1.5 font-normal">Founded</th>
+                    <th className="px-3 py-1.5 font-normal">Funding</th>
+                    <th className="px-3 py-1.5 font-normal text-right">Staff</th>
+                    <th className="px-3 py-1.5 font-normal text-right">Announced</th>
+                    <th className="px-3 py-1.5 font-normal text-right">Open roles</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {drillRows.map(v => (
+                    <tr key={v.brand_id} className="hover:bg-slate-50">
+                      <td className="px-3 py-1.5">
+                        <button onClick={() => openVendorPage(v.brand_id)}
+                                className="text-slate-800 hover:underline">
+                          {v.vendor}
+                        </button>
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-600">{v.country ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-slate-600">{v.founded ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-slate-600">
+                        {v.musd !== null ? `$${v.musd}M`
+                          : (v.funding_status ?? '—')}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
+                        {v.staff ?? '—'}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
+                        {v.announcements}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
+                        {v.openings}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ---- Overview ---- */}
       {view === 'overview' && overview && (
         <div className="space-y-4">
@@ -532,18 +661,22 @@ export function MarketMonitorTab() {
                   value={`${overview.coverage.watching} of ${
                     overview.coverage.registry - overview.coverage.excluded}`}
                   hint={`${overview.coverage.paused} paused · ${
-                    overview.coverage.observed} observed at least once`} />
+                    overview.coverage.observed} observed at least once`}
+                  onClick={() => openDrilldown('watched')} />
             <Stat label="Disclosed funding"
                   value={overview.funding.total_musd === null ? '—'
                     : `$${overview.funding.total_musd.toFixed(0)}M`}
                   hint={`${overview.funding.disclosed} vendors disclosed, ${
-                    overview.funding.undisclosed} did not`} />
+                    overview.funding.undisclosed} did not`}
+                  onClick={() => openDrilldown('disclosed')} />
             <Stat label="Articles about the market"
                   value={String(overview.corpus?.total ?? 0)}
-                  hint={`${overview.corpus?.corpus ?? 0} matched from articles collected for other topics`} />
+                  hint={`${overview.corpus?.corpus ?? 0} matched from articles collected for other topics`}
+                  onClick={() => setView('coverage')} />
             <Stat label="Vendors with no signal"
                   value={String(overview.quiet_vendors)}
-                  hint="No posts, no job listings, no coverage" />
+                  hint="No posts, no job listings, no coverage"
+                  onClick={() => openDrilldown('quiet')} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
