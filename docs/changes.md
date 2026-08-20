@@ -2,6 +2,68 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (check-now) — a manual collection run used the wrong providers
+
+### Goal
+Fix the long-standing gotcha that a manual "check now" on a keyword group ignores that group's
+configured providers.
+
+### The bug — `app/tasks/keyword_monitor.py`
+`check_keywords()` skips collector setup when `self.collectors` is already populated, on the
+assumption that `check_single_group()` filled it in. The scheduler does exactly that. The manual
+path does not: `/check-now` calls `check_keywords(group_id=...)` directly, found `self.collectors`
+empty, and fell through to `_init_collector()` — which reads the **global** provider list and
+ignores the group entirely.
+
+The result is a button that does something other than what it says. Pressing "check now" on the
+new `SOC Automation - Social` group, configured for `["bluesky","xpoz"]`, searched newsfirehose
+and collected 19 news articles into a social group.
+
+### The fix
+When a single-group run reaches `check_keywords` with no collectors set, it now loads that
+group's own row and builds its providers through `_get_group_collectors()`. The group row was
+already being fetched a few lines above for the relevance threshold, so it is reused rather than
+read twice.
+
+**A group whose configured providers all fail to build is an error, not a fallback.** Returning
+to the global list there would hide a broken credential behind results from a provider nobody
+asked for — the operator would see articles and conclude the group works. It returns
+`{"success": False, "error": "Configured providers could not be initialized; check credentials"}`
+instead. A group with **no** configured providers still inherits the global list, which is what a
+NULL `providers` column means.
+
+### Verification
+Three paths, each exercised:
+
+```
+group 17, providers ["bluesky","xpoz"]   -> Using group 17 providers: ['bluesky', 'xpoz']
+                                            searched bluesky and xpoz only, no newsfirehose
+group 17, all providers forced to fail   -> success False, "check credentials", 0 articles
+group 9,  providers NULL                 -> Using group 9 providers: ['newsfirehose']
+                                            inherited the global list and collected
+```
+
+Before the fix the first case searched newsfirehose.
+
+### Propagation
+Copied to wiley, wileytest and wbm. All three were **byte-identical to canonical** before the
+change — verified against `git show HEAD:app/tasks/keyword_monitor.py` — so a whole-file copy was
+safe. Backed up first, compiled with each tenant's venv, restarted.
+
+Blast radius: **wbm and wileytest have 10 active groups each with explicit providers**, every one
+of which searched the wrong sources on a manual run. wiley has none, so it was unaffected in
+practice.
+
+The scheduled path was always correct and is unchanged — the new branch does not fire when
+`check_single_group` has already set collectors, which is why wbm's restart logs show no "Using
+group" line.
+
+### Unrelated errors seen during the restart
+wbm's journal carries NewsAPI "rate limit exceeded" and NewsData "exceeded your assigned API
+credits" tracebacks. Both are exhausted free-tier quotas on that tenant, predate this change, and
+are the known NewsAPI free-tier behaviour. Noted so the next person reading that log does not
+attribute them to this fix.
+
 ## 2026-08-20 (social live) — social collection running, and Bluesky posts get readable titles
 
 ### Goal

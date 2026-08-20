@@ -379,6 +379,7 @@ class KeywordMonitor:
         # sets this before calling us, but /check-now calls check_keywords
         # directly, and used to leave it unset — so a manual run silently used
         # the global threshold and rejected articles the group would have kept.
+        group_row = None
         if group_id is None:
             # An all-groups run must not inherit a per-group threshold left
             # behind by an earlier manual single-group run.
@@ -416,6 +417,42 @@ class KeywordMonitor:
             self.check_and_reset_counter()
 
             # Skip re-initializing collectors if already set by check_single_group (per-group providers)
+            if not self.collectors:
+                # A single-group run has to use that group's providers. The
+                # scheduler reaches us through check_single_group, which sets
+                # them first; /check-now calls here directly, and used to fall
+                # straight through to the global provider list. A social group
+                # configured for bluesky and xpoz then silently searched news
+                # instead, and the operator got news articles from a button
+                # labelled "check now" on a social group.
+                if group_id is not None:
+                    if group_row is None:
+                        try:
+                            group_row = self.db.facade.get_keyword_group_with_settings(group_id)
+                        except Exception as e:
+                            logger.warning(f"Could not read group {group_id} settings: {e}")
+                    if group_row:
+                        group_collectors = self._get_group_collectors(group_row)
+                        if group_collectors:
+                            self.collectors = group_collectors
+                            self.collector = list(group_collectors.values())[0]
+                            logger.info(
+                                f"Using group {group_id} providers: "
+                                f"{sorted(group_collectors)}")
+                        else:
+                            # Configured providers that all failed to build is
+                            # not the same as no configuration. Falling back to
+                            # global here would hide a broken credential behind
+                            # results from a provider nobody asked for.
+                            configured = (group_row or {}).get('providers')
+                            if configured:
+                                logger.error(
+                                    f"Group {group_id} configures providers "
+                                    f"{configured} but none could be initialized")
+                                return {"success": False,
+                                        "error": "Configured providers could not be "
+                                                 "initialized; check credentials",
+                                        "new_articles": 0}
             if not self.collectors:
                 if not self._init_collector():
                     logger.error("Failed to initialize collector, skipping check")
