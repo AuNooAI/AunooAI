@@ -2,6 +2,103 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (brand monitoring) — bugfixing's brands are the market's vendors now
+
+### Goal
+Brand monitoring on bugfixing was still configured for the scientific-publishers use case, and
+the 83 market vendors sat in `bw_brands` without any way to say which of them should be treated
+as brands. Three changes: retire the leftovers, add a per-vendor switch, and fix the keyword
+matching that made the switch unsafe to use.
+
+### The classifier matched brand names as bare substrings — `app/routes/brand_watcher_routes.py`
+`_match_articles_to_brand` tested `kw.lower() in text_content`, with no word boundaries. Measured
+against this database's 48,012 analysed articles, the keyword **"Nua" matched 920 of them** —
+"annual", "manual", "continual" — for a company that appears in none. "Mave" matched 15 through
+"maverick". For a publisher brand, "SAGE" matches "message" and "passage", so this was never
+market-specific.
+
+New `_keyword_pattern()` compiles a word-boundary regex per keyword, `lru_cache`d because
+classification calls it once per keyword per article. Boundaries are omitted where the keyword
+ends in a non-word character, because `\b` after "Secure.com" would demand a word character that
+is not there. Whitespace inside a keyword matches any run of whitespace.
+
+After the fix: "Nua" 920 → 0, "Mave" 15 → 0, "Joon" 2 → 0.
+
+### Ordinary words still needed a qualifier — `app/services/market_collect.py`
+Word boundaries cannot help with a name that is a real word standing on its own. With boundaries
+applied, "Intrinsic" still matched 15 analysed articles and "Variance" 13, none about either
+company.
+
+`brand_keywords_for_vendor()` qualifies those: "Variance" becomes "Variance security". Its
+`_WORD_NAMES` set is **deliberately narrower than the collection-side `_AMBIGUOUS_NAMES`**, which
+exists because a search provider returns junk for any short query and so lists distinctive names
+like "crogl" and "opnova" too. Classification is a different problem — measured with boundaries,
+"Crogl" matched no articles and "7ai" matched one — and qualifying those would make the classifier
+miss the mentions it exists to find.
+
+### A per-vendor brand-monitoring switch — `alembic/versions/mm_005_brand_monitoring_toggle.py`
+`bw_market_brands.brand_monitoring_enabled`, defaulting to **false**: a market import must not
+silently add 83 brands to somebody's brand dashboard. It is the third independent switch on a
+market vendor, after `collection_enabled` (do we spend on watching it) and `is_public`.
+
+The existing `PUT /markets/{id}/vendors/collection` endpoint gained a `field` parameter
+(`collection` | `brand_monitoring`) rather than being duplicated, so the filter language, the
+dry-run preview and the `role <> 'excluded'` guard all carry over unchanged.
+
+**The toggle drives `bw_brands.enabled`**, which is the gate Brand Watcher already reads in every
+one of its queries — classification, the dashboard, the alert config. So the switch works with no
+changes to that code and "enabled" keeps meaning what it says. Market collection never reads that
+column, so a vendor switched off as a brand is still collected for the market.
+
+Turning brand monitoring **on** also rewrites that vendor's keywords through
+`brand_keywords_for_vendor`, preserving any aliases an operator added by hand.
+
+### Wiley and Elsevier removed
+The only two brands not in the market, left from the scientific-publishers use case, and they
+dominated every brand surface: 148 of 988 article attributions and 582 of 716 daily-stats rows
+against a top market vendor's 40 and 10. Both are properly monitored on wbm, which has five
+publisher brands with 8–10 keyword aliases each and a working social pipeline.
+
+Backed up (`bw_brands`, `bw_article_categories`, `bw_daily_stats` data-only, 252KB) before
+deleting. The cascade removed 203 article categories, 582 daily stats, 135 stories, 34 risk rows
+and 6 narratives.
+
+The 910 articles still carrying `topic = 'Brand Monitoring Wiley'` are untouched — they are
+corpus, not brand rows, and no active keyword group collects into that topic.
+
+### Verification
+Word-boundary matcher, eight cases, all pass: "Nua" no longer matches "annual manual" but does
+match "Nua Security"; "SAGE" no longer matches "message"; "Secure.com" and "7ai" still match
+despite their non-word edges; multi-word keywords tolerate extra whitespace.
+
+Registry after removal: **83 brands, 0 not in the market**, down from 85.
+
+Toggle, dry run then applied over `funding_status = ["Disclosed"]`: 38 matched, 38 changed, 1
+keyword list rewritten (Variance). All three switches now read 38 of 83 — brand-monitored,
+`bw_brands.enabled`, and collected.
+
+Classification run 148 over 90 days: 13 articles processed, 13 categorised, and the attributions
+are **Dropzone AI 10, Mate Security 3, Radiant Security 1** by `llm_semantic`. Spot-checked the
+Dropzone rows — all of them are Dropzone's own blog posts. No "Variance" flood, which is what the
+same run would have produced before this session.
+
+Scope is still bounded by `analyzed = true`, the constraint documented earlier today; this
+changes attribution quality, not attribution volume.
+
+### Propagation
+`brand_watcher_routes.py`'s matcher fix applies to **every** brand on any tenant and should reach
+wiley, wileytest and wbm — "SAGE" matching "message" is wrong on wbm too. Not copied yet. The
+market-monitor pieces are bugfixing-only as usual.
+
+### Lessons
+NEVER match a brand keyword as a bare substring. A three-letter company name inside "annual" and
+"manual" attributes 920 articles to a company that was never mentioned, and it looks like working
+coverage rather than an error.
+
+A keyword list built for search is not a keyword list built for classification. The first is
+guarding against a provider returning junk for a short query; the second is guarding against a
+word collision in text you already hold. Sharing one list makes one of the two jobs worse.
+
 ## 2026-08-20 (phase 4) — Market Monitor: a monthly briefing whose numbers can be checked
 
 ### Goal

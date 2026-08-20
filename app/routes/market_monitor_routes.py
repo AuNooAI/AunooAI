@@ -128,6 +128,11 @@ class VendorFilter(BaseModel):
 class VendorCollectionToggle(BaseModel):
     enabled: bool
     filter: VendorFilter = Field(default_factory=VendorFilter)
+    # Which switch to throw. ``collection`` is whether we spend on watching a
+    # vendor; ``brand_monitoring`` is whether it appears in Brand Watcher as a
+    # brand in its own right. They are independent — a vendor can be collected
+    # for the market without being a brand, which is the default.
+    field: str = Field("collection", pattern="^(collection|brand_monitoring)$")
     # Preview by default: a bulk toggle over a registry should be confirmed,
     # not fired by accident.
     dry_run: bool = True
@@ -145,6 +150,42 @@ class ReviewTaskUpdate(BaseModel):
 
 class ManualRun(BaseModel):
     source: str = Field(..., min_length=1, max_length=64)
+
+
+def _refresh_brand_keywords(conn, brand_ids: List[int]) -> int:
+    """Rewrite brand keywords for vendors joining Brand Watcher.
+
+    The importer stores the workbook's names verbatim, which is right for a
+    registry and wrong for a classifier. ``brand_keywords_for_vendor`` adds a
+    qualifier to the names that are ordinary English words, so "Variance"
+    becomes "Variance security" and stops matching statistics articles.
+
+    Existing aliases are preserved by reading them back out of the row: an
+    operator may have added a former name or a ticker by hand, and this must
+    not throw that away.
+    """
+    rows = conn.execute(text("""
+        SELECT b.id, b.display_name, b.brand_keywords
+        FROM bw_brands b WHERE b.id = ANY(:ids)
+    """), {"ids": brand_ids}).fetchall()
+
+    changed = 0
+    for brand_id, display_name, existing in rows:
+        current = existing if isinstance(existing, list) else []
+        # Drop the bare form of the display name; keep everything else as an
+        # alias so hand-added entries survive.
+        base = display_name.split("(")[0].strip()
+        aliases = [k for k in current
+                   if k and k.strip().lower() != base.lower()]
+        wanted = mc.brand_keywords_for_vendor(display_name, aliases)
+        if wanted and wanted != current:
+            conn.execute(text("""
+                UPDATE bw_brands
+                SET brand_keywords = CAST(:kw AS JSONB), updated_at = NOW()
+                WHERE id = :id
+            """), {"kw": json.dumps(wanted), "id": brand_id})
+            changed += 1
+    return changed
 
 
 def _filter_sql(f: VendorFilter):
@@ -469,12 +510,18 @@ async def list_vendors(
 @router.post("/markets/{market_id}/vendors/collection")
 async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
                                 session=Depends(verify_session)):
-    """Turn collection on or off for the vendors a rule selects.
+    """Turn collection, or brand monitoring, on or off for selected vendors.
 
     The motivating case is narrowing a large registry to the vendors worth
     paying to follow — "only collect for funded vendors" is
     ``{"funding_status": ["Disclosed"]}``. Defaults to a dry run: the response
     lists exactly which vendors would change before anything does.
+
+    ``field="brand_monitoring"`` throws the other switch. Turning it on also
+    rewrites that vendor's ``brand_keywords`` through
+    ``brand_keywords_for_vendor``, because the names the importer stored are
+    raw and some of them are ordinary words — an unqualified "Variance" matched
+    13 analysed articles here, none of them about the company.
     """
     where, params = _filter_sql(payload.filter)
     if not where:
@@ -496,37 +543,59 @@ async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
             _load_market(conn, market_id)
             p = dict(params)
             p["m"] = market_id
+            column = ("collection_enabled" if payload.field == "collection"
+                      else "brand_monitoring_enabled")
             selected = [dict(r) for r in conn.execute(text(f"""
-                SELECT mb.brand_id, b.display_name, mb.collection_enabled, mb.role
+                SELECT mb.brand_id, b.display_name, mb.role,
+                       mb.{column} AS current_value
                 FROM bw_market_brands mb
                 JOIN bw_brands b ON b.id = mb.brand_id
                 WHERE mb.market_id = :m AND {where}
                 ORDER BY b.display_name
             """), p).mappings().all()]
             changing = [r for r in selected
-                        if r["collection_enabled"] != payload.enabled]
+                        if r["current_value"] != payload.enabled]
 
             if payload.dry_run:
                 return {
                     "dry_run": True, "enabled": payload.enabled,
+                    "field": payload.field,
                     "matched": len(selected), "would_change": len(changing),
                     "vendors": [{"brand_id": r["brand_id"],
                                  "name": r["display_name"],
-                                 "currently": r["collection_enabled"]}
+                                 "currently": r["current_value"]}
                                 for r in selected],
                 }
 
             ids = [r["brand_id"] for r in changing]
             if not ids:
                 return {"dry_run": False, "enabled": payload.enabled,
+                        "field": payload.field,
                         "matched": len(selected), "changed": 0}
-            conn.execute(text("""
+            conn.execute(text(f"""
                 UPDATE bw_market_brands
-                SET collection_enabled = :target, updated_at = NOW()
+                SET {column} = :target, updated_at = NOW()
                 WHERE market_id = :m AND brand_id = ANY(:ids)
             """), {"target": payload.enabled, "m": market_id, "ids": ids})
+
+            keywords_fixed = 0
+            if payload.field == "brand_monitoring":
+                # bw_brands.enabled is the gate Brand Watcher already reads
+                # everywhere — classification, the dashboard, the alert config.
+                # Driving it from here means the toggle works with no changes
+                # to that code, and "enabled" keeps meaning what it says.
+                # Market collection does not read it, so a vendor switched off
+                # as a brand is still collected for the market.
+                conn.execute(text("""
+                    UPDATE bw_brands SET enabled = :target, updated_at = NOW()
+                    WHERE id = ANY(:ids)
+                """), {"target": payload.enabled, "ids": ids})
+                if payload.enabled:
+                    keywords_fixed = _refresh_brand_keywords(conn, ids)
             conn.commit()
             return {"dry_run": False, "enabled": payload.enabled,
+                    "field": payload.field,
+                    "keywords_rewritten": keywords_fixed,
                     "matched": len(selected), "changed": len(ids),
                     "vendors": [{"brand_id": r["brand_id"],
                                  "name": r["display_name"]} for r in changing]}

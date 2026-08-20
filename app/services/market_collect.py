@@ -407,6 +407,49 @@ DEFAULT_QUALIFIER = "security"
 MIN_STANDALONE_LENGTH = 6
 
 
+# Vendor names that are also ordinary English words. Deliberately narrower
+# than ``_AMBIGUOUS_NAMES`` above, which is a *collection search* list: a
+# search provider returns junk for a short query whatever the word is, so that
+# list includes distinctive-but-short names like "crogl" and "opnova".
+#
+# Classification is a different problem. It matches against an article already
+# in hand, with word boundaries, so a short distinctive name is safe — measured
+# against 48,012 analysed articles, "Crogl" matched none and "7ai" matched one.
+# Only real words still over-match: "Intrinsic" 15 and "Variance" 13, none of
+# them about either company. Qualifying the distinctive names as well would
+# make the classifier miss the mentions it exists to find.
+_WORD_NAMES = {
+    "variance", "intrinsic", "prophet", "beacon", "method", "radiant",
+    "cantina", "mate", "sage", "spark", "summit", "vertex", "apex",
+}
+
+
+def brand_keywords_for_vendor(display_name: str, aliases=(),
+                              qualifier: str = DEFAULT_QUALIFIER) -> List[str]:
+    """Keywords safe to hand Brand Watcher's classifier for one vendor.
+
+    Different job from ``keyword_for_vendor``, which builds a *search* term for
+    a collection provider. This builds the list the classifier matches against
+    an article it already has, and the failure mode is the same one in reverse:
+    an ordinary word used as a company name attributes unrelated articles to
+    that company.
+
+    A multi-word name is specific enough on its own. A single word gets the
+    qualifier only when it is a word in its own right.
+    """
+    names = [n for n in ([display_name] + list(aliases)) if n and n.strip()]
+    out: List[str] = []
+    for raw in names:
+        name = raw.split("(")[0].strip() if "(" in raw else raw.strip()
+        if not name:
+            continue
+        needs_qualifier = " " not in name and name.lower() in _WORD_NAMES
+        term = f"{name} {qualifier}" if needs_qualifier else name
+        if term not in out:
+            out.append(term)
+    return out
+
+
 def keyword_for_vendor(display_name: str, qualifier: str = DEFAULT_QUALIFIER) -> tuple:
     """Return ``(keyword, qualified)`` for one vendor name.
 
