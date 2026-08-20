@@ -111,6 +111,43 @@ searchable but cannot be enriched. Backup in `backups/keyword_purge_20260820_085
 Brand Watcher stays enabled even though its Wiley groups were removed: its classifier is what
 attributes articles to `bw_brands`, and the market's 38 watched vendors are `bw_brands`.
 
+### UI redesign — three surfaces, and a page per vendor
+`docs/MARKET_MONITOR_UI_SPEC.md` records the reasoning; Oliver picked the three open questions
+(route, LinkedIn-only chart with a reference line, segmented control) and this implements them.
+
+The tab had grown to seven views by accretion — Brief, Timeline, Vendors, Collection, New
+entrants, Review, Source health — mixing three kinds of thing with three visit frequencies. A
+reader wanting this week's brief tabbed past keyword configuration to reach it. It is now three
+surfaces (Brief, Wire, Vendors), with Collection, Sources and Health behind a settings drawer,
+and New entrants and Review as segments over the vendor table since all three concern the same
+83 rows.
+
+**`ui/src/components/newsfeed/MarketVendorPage.tsx`** (new) is the page per vendor, reached by
+clicking a row. This app has no react-router, so "route" is a `?vendor=<id>` query param with
+`history.pushState` and a `popstate` listener — linkable, shareable, survives a refresh, and back
+works. **`app/routes/market_monitor_routes.py`** gained `GET /markets/{id}/vendors/{brand_id}`,
+which returns identity, profile series, funding, watched pages, jobs, posts, coverage, review
+tasks and feeds in one call. Six calls would have rendered six times.
+
+The headcount chart plots LinkedIn readings only, with the imported figure as a dashed reference
+line. Joining them would imply a trend between two numbers measured differently, at different
+times, by different people. With one reading it draws no line at all — it shows the number, the
+date, the difference from the registry figure, and when the next reading lands.
+
+**Sources and schedules are now editable per market**, stored in `bw_markets.config['sources']`
+and read by `cadence_for()` / `source_enabled()` in `app/tasks/market_monitor.py`. A six-hour
+floor is enforced server-side. The panel marks paid sources "per record" against "bandwidth", so
+the cost lever is visible rather than implied.
+
+### Fix — Crogl's crossed LinkedIn URL
+The high-severity review task raised at import turned out to be right, and the proof was a wrong
+number in a report: the brief showed Crogl shrinking 85%, because Crogl's identifier pointed at
+System Two Security's page and a 6-person profile was being compared to Crogl's 40-person
+baseline. Both vendors' own websites settled it — Crogl is `/company/crogl`, System Two is
+`/company/detectionsai`. The wrong identifier was superseded rather than deleted, and the profile
+we collected was reassigned to System Two, since it is a real observation filed under the wrong
+company.
+
 ### Verification
 `pytest tests/test_market_import.py tests/test_market_collection.py` — 32 passed. The wider suite
 is unchanged at 128 failed / 31 errors, the same before and after.
@@ -123,6 +160,12 @@ Live on bugfixing, market id 2, measured 2026-08-20:
 Field mapping confirmed against real records: 7ai 145 staff / 13,111 followers, exaforce 128,
 Qevlar 79. Crunchbase: exaforce 3 rounds ending series_b with AWS and Khosla as leads, growth
 score 91.
+
+UI: `npm run typecheck` clean against the 246-error baseline. Vendor endpoint checked on two
+vendors — Dropzone AI returns 4 identifiers, 1 profile reading, 4 funding rounds, 5 watched
+pages, 10 posts and 9 coverage categories; Crogl returns its corrected identifier as live and the
+superseded one flagged, with 0 profile readings because its correct URL has never been collected.
+Deployed bundle `MarketMonitorTab-Gkj9XZLY.js`.
 
 ### Propagation
 Monolith-only, and bugfixing-only. Not copied to wiley, wileytest or wbm — the feature is new and

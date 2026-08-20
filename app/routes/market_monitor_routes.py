@@ -1245,3 +1245,122 @@ async def brightdata_linkedin_callback(
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+# ---------------------------------------------------------------------------
+# One vendor, everything we hold
+# ---------------------------------------------------------------------------
+#
+# Declared after /vendors/facets so the static path wins the match. One call
+# rather than six: the page needs all of this at once, and six round trips
+# would render six times.
+
+
+@router.get("/markets/{market_id}/vendors/{brand_id}")
+async def vendor_detail(market_id: int, brand_id: int,
+                        session=Depends(verify_session)):
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            row = conn.execute(text("""
+                SELECT mb.brand_id, mb.role, mb.collection_enabled, mb.is_public,
+                       mb.review_status, mb.baseline, mb.sort_order,
+                       b.name AS slug, b.display_name, b.enabled, b.brand_keywords
+                FROM bw_market_brands mb
+                JOIN bw_brands b ON b.id = mb.brand_id
+                WHERE mb.market_id = :m AND mb.brand_id = :b
+            """), {"m": market_id, "b": brand_id}).mappings().first()
+            if not row:
+                raise HTTPException(404, "Vendor not in this market")
+            vendor = dict(row)
+
+            # Live and superseded together. A corrected identifier is part of
+            # how the registry got here — Crogl's crossed LinkedIn URL is the
+            # reason one of its numbers was wrong for a day.
+            vendor["identifiers"] = [dict(r) for r in conn.execute(text("""
+                SELECT kind, display_value, normalized_value, provenance,
+                       verified_at IS NOT NULL AS verified,
+                       valid_to IS NULL AS live, valid_to
+                FROM bw_vendor_identifiers WHERE brand_id = :b
+                ORDER BY valid_to IS NOT NULL, kind
+            """), {"b": brand_id}).mappings().all()]
+
+            # Ascending: this is the series the headcount chart plots. The
+            # workbook value is a reference line, not its first point.
+            vendor["profile_series"] = [dict(r) for r in conn.execute(text("""
+                SELECT observed_at,
+                       (data->>'employee_count')::numeric AS employee_count,
+                       (data->>'followers')::numeric AS followers
+                FROM bw_vendor_snapshots
+                WHERE brand_id = :b AND snapshot_type = 'profile'
+                ORDER BY observed_at
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["funding"] = conn.execute(text("""
+                SELECT data FROM bw_vendor_snapshots
+                WHERE brand_id = :b AND snapshot_type = 'funding'
+                ORDER BY observed_at DESC LIMIT 1
+            """), {"b": brand_id}).scalar()
+
+            # Latest state per watched page, with whatever changed last time.
+            vendor["pages"] = [dict(r) for r in conn.execute(text("""
+                SELECT DISTINCT ON (provider_item_id)
+                       provider_item_id AS url, observed_at,
+                       data->>'kind' AS kind, data->>'title' AS title,
+                       data->'diff' AS diff, data->>'http_status' AS http_status
+                FROM bw_vendor_snapshots
+                WHERE brand_id = :b AND snapshot_type = 'page_state'
+                ORDER BY provider_item_id, observed_at DESC
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["jobs"] = [dict(r) for r in conn.execute(text("""
+                SELECT DISTINCT ON (provider_item_id)
+                       data->>'title' AS title, data->>'location' AS location,
+                       data->>'seniority' AS seniority, data->>'function' AS function,
+                       data->>'posted_date' AS posted_date, data->>'url' AS url
+                FROM bw_vendor_snapshots
+                WHERE brand_id = :b AND snapshot_type = 'job_posting'
+                ORDER BY provider_item_id, observed_at DESC
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["posts"] = [dict(r) for r in conn.execute(text("""
+                SELECT a.uri, a.title, a.summary, a.publication_date, a.url
+                FROM bw_article_categories bac
+                JOIN articles a ON a.uri = bac.article_uri
+                WHERE bac.brand_id = :b AND a.bias_source = 'vendor:linkedin'
+                ORDER BY a.publication_date DESC NULLS LAST LIMIT 10
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["coverage_by_category"] = [dict(r) for r in conn.execute(text("""
+                SELECT category, COUNT(*) AS n FROM bw_article_categories
+                WHERE brand_id = :b GROUP BY 1 ORDER BY 2 DESC
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["recent_coverage"] = [dict(r) for r in conn.execute(text("""
+                SELECT DISTINCT ON (a.uri) a.uri, a.title, a.news_source,
+                       a.publication_date, a.sentiment, a.url
+                FROM bw_article_categories bac
+                JOIN articles a ON a.uri = bac.article_uri
+                WHERE bac.brand_id = :b
+                  AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+                ORDER BY a.uri, a.publication_date DESC LIMIT 10
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["review_tasks"] = [dict(r) for r in conn.execute(text("""
+                SELECT id, kind, severity, status, field, message
+                FROM bw_review_tasks WHERE brand_id = :b AND status = 'open'
+                ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1
+                                       ELSE 2 END
+            """), {"b": brand_id}).mappings().all()]
+
+            vendor["feeds"] = [dict(r) for r in conn.execute(text("""
+                SELECT name, url, is_active, last_checked_at, articles_fetched
+                FROM rss_feeds WHERE name LIKE :n
+            """), {"n": f"{vendor['display_name']}%"}).mappings().all()]
+
+            return vendor
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)

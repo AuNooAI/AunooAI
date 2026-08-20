@@ -9,8 +9,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Globe, LineChart,
-  Linkedin, Loader2, Play, RefreshCw, Search, ToggleLeft, ToggleRight,
+  Linkedin, Loader2, Play, RefreshCw, Search, Settings, ToggleLeft, ToggleRight,
+  X,
 } from 'lucide-react';
+import { MarketVendorPage } from './MarketVendorPage';
 import {
   BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
@@ -24,8 +26,12 @@ import {
   type SourceSetting, type TimelineEvent, type Vendor, type VendorFilter,
 } from '../../services/marketMonitorApi';
 
-type View = 'brief' | 'timeline' | 'vendors' | 'collection' | 'candidates'
-  | 'review' | 'health';
+/** Three surfaces. Configuration lives behind a settings control rather than
+ *  beside the report — it is visited rarely and by a different person. */
+type View = 'brief' | 'wire' | 'vendors';
+/** Curation folds into the registry: both segments are about the same 83 rows. */
+type Segment = 'all' | 'review' | 'entrants';
+type SettingsPanel = 'collection' | 'sources' | 'health';
 
 const SEVERITY_TONE: Record<string, string> = {
   high: 'bg-red-50 text-red-700 border-red-200',
@@ -46,6 +52,11 @@ export function MarketMonitorTab() {
   const [markets, setMarkets] = useState<Market[] | null>(null);
   const [marketId, setMarketId] = useState<number | null>(null);
   const [view, setView] = useState<View>('brief');
+  const [segment, setSegment] = useState<Segment>('all');
+  const [settingsOpen, setSettingsOpen] = useState<SettingsPanel | null>(null);
+  // URL-addressable: this app has no router, so a vendor is a query param that
+  // survives a refresh and can be sent to somebody.
+  const [openVendor, setOpenVendor] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
@@ -71,6 +82,33 @@ export function MarketMonitorTab() {
 
   const market = useMemo(
     () => markets?.find(m => m.id === marketId) ?? null, [markets, marketId]);
+
+  // Read the vendor out of the URL on mount, and keep the two in step after.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const v = p.get('vendor');
+    if (v && /^\d+$/.test(v)) setOpenVendor(Number(v));
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search).get('vendor');
+      setOpenVendor(q && /^\d+$/.test(q) ? Number(q) : null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  function openVendorPage(brandId: number) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('vendor', String(brandId));
+    window.history.pushState({}, '', url.toString());
+    setOpenVendor(brandId);
+  }
+
+  function closeVendorPage() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('vendor');
+    window.history.pushState({}, '', url.toString());
+    setOpenVendor(null);
+  }
 
   useEffect(() => {
     getMarkets()
@@ -232,6 +270,13 @@ export function MarketMonitorTab() {
 
   const collectionLive = Boolean(plan?.existing);
 
+  if (openVendor !== null && marketId !== null) {
+    return (
+      <MarketVendorPage marketId={marketId} brandId={openVendor}
+                        onBack={closeVendorPage} />
+    );
+  }
+
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
@@ -253,10 +298,19 @@ export function MarketMonitorTab() {
             <p className="text-sm text-slate-600 mt-1 max-w-3xl">{market.question}</p>
           )}
         </div>
-        <button onClick={reload}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-slate-50">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={reload}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-slate-50">
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
+          {/* Configuration is rare and belongs to a different reader than the
+              report, so it sits behind one control rather than beside it. */}
+          <button onClick={() => setSettingsOpen('collection')}
+            title="Collection, sources and health"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-slate-50">
+            <Settings className="w-4 h-4" /> Settings
+          </button>
+        </div>
       </div>
 
       {/* Counters */}
@@ -289,11 +343,9 @@ export function MarketMonitorTab() {
       {/* View tabs */}
       <div className="flex gap-1 border-b">
         {([
-          ['brief', 'Brief'], ['timeline', 'Timeline'], ['vendors', 'Vendors'],
-          ['collection', 'Collection'],
-          ['candidates', 'New entrants'],
-          ['review', `Review${tasks?.length ? ` (${tasks.length})` : ''}`],
-          ['health', 'Source health'],
+          ['brief', 'Brief'],
+          ['wire', 'Wire'],
+          ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
         ] as [View, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setView(id)}
             className={`px-3 py-2 text-sm border-b-2 -mb-px ${
@@ -452,7 +504,7 @@ export function MarketMonitorTab() {
       )}
 
       {/* ---- Timeline ---- */}
-      {view === 'timeline' && (
+      {view === 'wire' && (
         <div className="space-y-3 max-w-4xl">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-slate-600">
@@ -513,6 +565,25 @@ export function MarketMonitorTab() {
       {/* ---- Vendors ---- */}
       {view === 'vendors' && (
         <div className="space-y-3">
+          {/* One table, three lenses. Review and new entrants are about these
+              same rows, so they are segments rather than separate places. */}
+          <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md w-fit">
+            {([
+              ['all', `All (${vendors?.length ?? 0})`],
+              ['review', `Needs review${tasks?.length ? ` (${tasks.length})` : ''}`],
+              ['entrants', 'New entrants'],
+            ] as [Segment, string][]).map(([id, label]) => (
+              <button key={id} onClick={() => setSegment(id)}
+                className={`text-sm px-3 py-1 rounded ${
+                  segment === id ? 'bg-white shadow-sm text-slate-900'
+                                 : 'text-slate-600 hover:text-slate-800'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {segment === 'all' && (
+          <>
           <div className="flex flex-wrap gap-2 items-center">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
@@ -547,9 +618,12 @@ export function MarketMonitorTab() {
               </thead>
               <tbody>
                 {shown.map(v => (
-                  <tr key={v.brand_id} className="border-t hover:bg-slate-50">
+                  <tr key={v.brand_id}
+                      onClick={() => openVendorPage(v.brand_id)}
+                      className="border-t hover:bg-slate-50 cursor-pointer">
                     <td className="px-3 py-2">
-                      <div className="font-medium text-slate-800">{v.display_name}</div>
+                      <div className="font-medium text-slate-800 hover:underline">
+                        {v.display_name}</div>
                       {v.role === 'excluded' && (
                         <span className="text-xs text-slate-500">out of scope</span>
                       )}
@@ -583,13 +657,143 @@ export function MarketMonitorTab() {
             </table>
           </div>
           <p className="text-xs text-slate-500">
-            Showing {shown.length} of {vendors?.length ?? 0}.
+            Showing {shown.length} of {vendors?.length ?? 0}. Select a vendor for
+            everything we hold about it.
           </p>
+          </>
+          )}
+
+          {segment === 'review' && (
+            <div className="space-y-2 max-w-4xl">
+              {!tasks?.length && (
+                <p className="text-sm text-slate-500 py-6 text-center">
+                  Nothing open. Review tasks are raised where the registry was
+                  ambiguous rather than guessed at.
+                </p>
+              )}
+              {tasks?.map(t => (
+                <div key={t.id} className="border rounded-lg p-3 bg-white flex items-start gap-3">
+                  <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
+                    SEVERITY_TONE[t.severity] ?? SEVERITY_TONE.low}`}>
+                    {t.severity}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-slate-800">{t.message}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {t.brand_id ? (
+                        <button onClick={() => openVendorPage(t.brand_id!)}
+                          className="hover:underline">{t.vendor ?? 'vendor'}</button>
+                      ) : 'market'} · {t.kind}{t.field ? ` · ${t.field}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (marketId === null) return;
+                      await updateReviewTask(marketId, t.id, 'resolved');
+                      reload();
+                    }}
+                    className="text-xs px-2 py-1 border rounded hover:bg-slate-50 shrink-0">
+                    Resolve
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {segment === 'entrants' && (
+            <div className="space-y-3 max-w-4xl">
+              <div className="border rounded-lg p-4 bg-white space-y-2">
+                <div className="font-medium text-slate-800">Vendors we do not have</div>
+                <p className="text-sm text-slate-600">
+                  New entrants announce themselves by raising money. This reads the
+                  funding coverage already collected and proposes companies missing
+                  from the registry. Nothing is added automatically — a headline is
+                  a lead.
+                </p>
+                <button disabled={busy} onClick={runDiscovery}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50">
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  Scan the last 30 days
+                </button>
+                {discovery && !discovery.error && (
+                  <p className="text-xs text-slate-500">
+                    Scanned {discovery.scanned} articles
+                    {discovery.below_alignment_floor ? `, skipped ${discovery.below_alignment_floor} below the relevance floor` : ''}.
+                  </p>
+                )}
+                {discovery?.error && (
+                  <div className="text-sm border border-amber-200 bg-amber-50 rounded-md p-2.5 text-amber-800">
+                    {discovery.error}
+                  </div>
+                )}
+              </div>
+              {discovery && discovery.proposals.length > 0 && (
+                <div className="border rounded-lg bg-white overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>{['Company', 'Raised', 'Round', 'Seen in', 'Source'].map(h => (
+                        <th key={h} className="text-left font-medium px-3 py-2">{h}</th>))}</tr>
+                    </thead>
+                    <tbody>
+                      {discovery.proposals.map(c => (
+                        <tr key={c.name} className="border-t">
+                          <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {c.amount_musd !== null ? `$${c.amount_musd}M` : '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.round ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">
+                            {c.mentions} article{c.mentions === 1 ? '' : 's'}</td>
+                          <td className="px-3 py-2 text-slate-500 max-w-xs truncate"
+                              title={c.article_title ?? ''}>
+                            {c.news_source ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {discovery && !discovery.proposals.length && !discovery.error && (
+                <p className="text-sm text-slate-500 py-4">
+                  No companies found outside the registry.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ---- Collection ---- */}
-      {view === 'collection' && plan && (
+      {/* ---- Settings drawer ---- */}
+      {settingsOpen !== null && (
+        <div className="fixed inset-0 z-40 flex justify-end"
+             onClick={() => setSettingsOpen(null)}>
+          <div className="absolute inset-0 bg-slate-900/20" />
+          <div className="relative bg-slate-50 w-full max-w-3xl h-full overflow-y-auto shadow-xl"
+               onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b px-4 py-3 flex items-center gap-3">
+              <div className="font-medium text-slate-800">Market settings</div>
+              <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md">
+                {([
+                  ['collection', 'Collection'],
+                  ['sources', 'Sources & schedules'],
+                  ['health', 'Health'],
+                ] as [SettingsPanel, string][]).map(([id, label]) => (
+                  <button key={id} onClick={() => setSettingsOpen(id)}
+                    className={`text-sm px-3 py-1 rounded ${
+                      settingsOpen === id ? 'bg-white shadow-sm text-slate-900'
+                                          : 'text-slate-600 hover:text-slate-800'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex-1" />
+              <button onClick={() => setSettingsOpen(null)}
+                className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+
+      {settingsOpen === 'collection' && plan && (
         <div className="space-y-4 max-w-3xl">
           <div className="border rounded-lg p-4 bg-white space-y-3">
             <div>
@@ -744,106 +948,8 @@ export function MarketMonitorTab() {
         </div>
       )}
 
-      {/* ---- New entrants ---- */}
-      {view === 'candidates' && (
-        <div className="space-y-3 max-w-4xl">
-          <div className="border rounded-lg p-4 bg-white space-y-2">
-            <div className="font-medium text-slate-800">Vendors we do not have</div>
-            <p className="text-sm text-slate-600">
-              A registry goes stale the moment it is imported, and in this
-              category new entrants announce themselves by raising money. This
-              reads the funding coverage already collected and proposes the
-              companies that are not in the registry. Nothing is added
-              automatically — a headline is a lead.
-            </p>
-            <button disabled={busy} onClick={runDiscovery}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50">
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              Scan the last 30 days
-            </button>
-            {discovery && !discovery.error && (
-              <p className="text-xs text-slate-500">
-                Scanned {discovery.scanned} articles from the market topic.
-              </p>
-            )}
-            {discovery?.error && (
-              <div className="text-sm border border-amber-200 bg-amber-50 rounded-md p-2.5 text-amber-800">
-                {discovery.error}
-              </div>
-            )}
-          </div>
-
-          {discovery && discovery.proposals.length > 0 && (
-            <div className="border rounded-lg bg-white overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-slate-600">
-                  <tr>{['Company', 'Raised', 'Round', 'Seen in', 'Source'].map(h => (
-                    <th key={h} className="text-left font-medium px-3 py-2">{h}</th>))}</tr>
-                </thead>
-                <tbody>
-                  {discovery.proposals.map(c => (
-                    <tr key={c.name} className="border-t">
-                      <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
-                      <td className="px-3 py-2 text-slate-600">
-                        {c.amount_musd !== null ? `$${c.amount_musd}M` : '—'}</td>
-                      <td className="px-3 py-2 text-slate-600">{c.round ?? '—'}</td>
-                      <td className="px-3 py-2 text-slate-500">
-                        {c.mentions} article{c.mentions === 1 ? '' : 's'}</td>
-                      <td className="px-3 py-2 text-slate-500 max-w-xs truncate"
-                          title={c.article_title ?? ''}>
-                        {c.news_source ?? c.article_title ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {discovery && !discovery.proposals.length && !discovery.error && (
-            <p className="text-sm text-slate-500 py-4">
-              No companies found outside the registry. Either coverage is thin
-              or the registry is current.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* ---- Review ---- */}
-      {view === 'review' && (
-        <div className="space-y-2 max-w-4xl">
-          {!tasks?.length && (
-            <p className="text-sm text-slate-500 py-6 text-center">
-              Nothing open. Review tasks are raised where the registry was
-              ambiguous rather than guessed at.
-            </p>
-          )}
-          {tasks?.map(t => (
-            <div key={t.id} className="border rounded-lg p-3 bg-white flex items-start gap-3">
-              <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
-                SEVERITY_TONE[t.severity] ?? SEVERITY_TONE.low}`}>
-                {t.severity}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm text-slate-800">{t.message}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {t.vendor ?? 'market'} · {t.kind}{t.field ? ` · ${t.field}` : ''}
-                </div>
-              </div>
-              <button
-                onClick={async () => {
-                  if (marketId === null) return;
-                  await updateReviewTask(marketId, t.id, 'resolved');
-                  reload();
-                }}
-                className="text-xs px-2 py-1 border rounded hover:bg-slate-50 shrink-0">
-                Resolve
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ---- Source health ---- */}
-      {view === 'health' && health && (
+      {/* ---- Settings: health ---- */}
+      {settingsOpen === 'health' && health && (
         <div className="space-y-3 max-w-4xl">
           <div className="flex flex-wrap gap-2 text-sm">
             <span className={`px-2 py-1 rounded border ${
@@ -911,6 +1017,91 @@ export function MarketMonitorTab() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ---- Settings: sources and schedules ---- */}
+      {settingsOpen === 'sources' && sources && (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            What runs, and how often. Paid sources bill per record, so the
+            interval is the main cost control. The floor is {minInterval} hours —
+            below that a market source spends money to learn nothing sooner.
+          </p>
+          <div className="border rounded-lg bg-white overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>{['Source', 'Cost', 'On', 'Every', 'Last success'].map(h => (
+                  <th key={h} className="text-left font-medium px-3 py-2">{h}</th>))}</tr>
+              </thead>
+              <tbody>
+                {sources.map(s => (
+                  <tr key={s.source} className="border-t">
+                    <td className="px-3 py-2 text-slate-800">
+                      {s.source.replace(/_/g, ' ')}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                        s.paid ? 'bg-amber-50 text-amber-700 border-amber-200'
+                               : 'bg-slate-50 text-slate-500'}`}>
+                        {s.paid ? 'per record' : 'bandwidth'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={async () => {
+                          if (marketId === null) return;
+                          const next = Object.fromEntries(sources.map(x => [
+                            x.source,
+                            { enabled: x.source === s.source ? !x.enabled : x.enabled,
+                              interval_hours: x.interval_hours },
+                          ]));
+                          setBusy(true);
+                          try { await saveSources(marketId, next); reload(); }
+                          finally { setBusy(false); }
+                        }}
+                        disabled={busy}>
+                        {s.enabled
+                          ? <ToggleRight className="w-5 h-5 text-emerald-600" />
+                          : <ToggleLeft className="w-5 h-5 text-slate-300" />}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <input type="number" min={minInterval}
+                        defaultValue={s.effective_interval_hours}
+                        onBlur={async e => {
+                          if (marketId === null) return;
+                          const hours = Number(e.target.value);
+                          if (!hours || hours === s.effective_interval_hours) return;
+                          const next = Object.fromEntries(sources.map(x => [
+                            x.source,
+                            { enabled: x.enabled,
+                              interval_hours: x.source === s.source
+                                ? hours : x.interval_hours },
+                          ]));
+                          setBusy(true);
+                          try { await saveSources(marketId, next); reload(); }
+                          finally { setBusy(false); }
+                        }}
+                        className="w-20 border rounded px-1.5 py-0.5 text-sm" />
+                      <span className="text-xs text-slate-500 ml-1">h</span>
+                      {s.interval_hours && (
+                        <span className="text-xs text-slate-400 ml-1">
+                          (default {s.default_interval_hours}h)</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-slate-500 text-xs">
+                      {s.last_success
+                        ? new Date(s.last_success).toLocaleString()
+                        : 'never'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+            </div>
+          </div>
         </div>
       )}
     </div>

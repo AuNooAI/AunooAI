@@ -432,6 +432,10 @@ export interface CandidateVendor {
 
 export interface DiscoveryResult {
   scanned: number;
+  /** Articles in the topic but below the relevance floor. Reported so a zero
+   * result reads as "nothing relevant" rather than "nothing collected". */
+  below_alignment_floor?: number;
+  min_alignment?: number;
   candidates: number;
   written?: number;
   days: number;
@@ -582,4 +586,73 @@ export async function saveSources(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   }), 'Failed to save sources');
+}
+
+// ============================================================================
+// One vendor, everything we hold
+// ============================================================================
+
+export interface VendorIdentifier2 {
+  kind: string;
+  display_value: string | null;
+  normalized_value: string;
+  provenance: Record<string, unknown>;
+  verified: boolean;
+  /** Superseded identifiers are kept and shown on demand — a corrected
+   * identifier is part of how the registry got here. */
+  live: boolean;
+  valid_to: string | null;
+}
+
+export interface ProfileReading {
+  observed_at: string;
+  employee_count: number | null;
+  followers: number | null;
+}
+
+export interface WatchedPage {
+  url: string;
+  observed_at: string;
+  kind: string | null;
+  title: string | null;
+  http_status: string | null;
+  diff: {
+    added: string[]; removed: string[];
+    added_count: number; removed_count: number; material: boolean;
+  } | null;
+}
+
+export interface VendorDetail {
+  brand_id: number;
+  slug: string;
+  display_name: string;
+  role: string;
+  collection_enabled: boolean;
+  is_public: boolean;
+  review_status: string;
+  enabled: boolean;
+  baseline: VendorBaseline;
+  identifiers: VendorIdentifier2[];
+  profile_series: ProfileReading[];
+  funding: Record<string, any> | null;
+  pages: WatchedPage[];
+  jobs: { title: string; location: string | null; seniority: string | null;
+          function: string | null; posted_date: string | null; url: string | null }[];
+  posts: { uri: string; title: string; summary: string | null;
+           publication_date: string | null; url: string | null }[];
+  coverage_by_category: { category: string; n: number }[];
+  recent_coverage: { uri: string; title: string; news_source: string | null;
+                     publication_date: string | null; sentiment: string | null;
+                     url: string | null }[];
+  review_tasks: { id: number; kind: string; severity: string; status: string;
+                  field: string | null; message: string }[];
+  feeds: { name: string; url: string; is_active: boolean;
+           last_checked_at: string | null; articles_fetched: number }[];
+}
+
+export async function getVendorDetail(
+  marketId: number, brandId: number,
+): Promise<VendorDetail> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/vendors/${brandId}`,
+    { credentials: 'include' }), 'Failed to load vendor');
 }

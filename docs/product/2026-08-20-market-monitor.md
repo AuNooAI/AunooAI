@@ -55,15 +55,18 @@ operator who has to answer for what the platform spends.
 
 ## Demo / walkthrough
 
-Explore → **Market Monitor**.
+Explore → **Market Monitor**. Three tabs.
 
 1. **Brief** opens first: what changed, headcount movement, who is posting most, and what is
    still unresolved. "Download dataset" and "RSS feed" are top right.
-2. **Vendors** is the registry — search it, filter by funding state, see which are being watched.
-3. **Collection** shows what the market searches for and lets you edit it, and choose whether
-   vendor names are searched.
-4. **New entrants** scans the last 30 days of funding coverage for companies you do not track.
-5. **Review** is the queue of things the import would not decide on its own.
+2. **Wire** is the running timeline of market developments.
+3. **Vendors** is the registry. Three segments: all of them, the ones needing review, and new
+   entrants found in funding coverage. Click any vendor to open its own page — identity and where
+   each fact came from, funding and backers, headcount against the imported figure, the pages we
+   watch and what changed on them, its recent posts, and its coverage. The vendor page has its own
+   link, so you can send someone a company.
+4. **Settings** (top right) holds what the market searches for, which sources run and how often,
+   and whether each one is healthy.
 
 ## Positioning notes
 
@@ -77,10 +80,13 @@ someone who knows the market.
 
 ## Limits and what's next
 
-**No per-vendor dashboard yet.** You can see the registry as a table, but not drill into one
-vendor's own page. That is the next thing to build and needs designing rather than bolting on.
+**Per-vendor pages are new and thin in places.** Clicking a vendor opens everything we hold about
+it — identity, funding, headcount, the pages we watch, its posts and its coverage. Some panels are
+still empty for most vendors because the sources behind them have only run once, or not yet.
 
-**No charts beyond the brief.** Two charts exist: headcount movement and posting volume.
+**Most charts need a second reading before they mean anything.** Headcount is collected weekly, so
+a vendor has one data point until the next run. The page shows the number and the date rather than
+drawing a line through a single point, and says when the next reading is due.
 
 **Funding amounts are not filled in.** The funding source we added gives round counts, investor
 names and momentum scores but carries no dollar figures. 42 vendors still show "Undisclosed",
