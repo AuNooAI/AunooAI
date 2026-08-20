@@ -943,3 +943,27 @@ export async function getDrilldown(
     await fetch(`${BASE}/markets/${marketId}/drilldown/${name}`,
       { credentials: 'include' }), 'Failed to load drilldown');
 }
+
+// ============================================================================
+// Report and bundle
+// ============================================================================
+
+/** The whole market as one self-contained HTML file. Needs a session, or a
+ *  signed link from getReportLink(). */
+export function reportUrl(marketId: number, days = 30): string {
+  return `${BASE}/markets/${marketId}/report.html?days=${days}`;
+}
+
+/** Every dataset in one zip: nine CSVs, market.json, and a README. */
+export function exportBundleUrl(marketId: number): string {
+  return `${BASE}/markets/${marketId}/export.zip`;
+}
+
+/** A signed, expiring URL that opens the report without a login. */
+export async function getReportLink(
+  marketId: number, days = 30,
+): Promise<{ url: string; expires_at: string; ttl_days: number }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/report-link?days=${days}`,
+      { credentials: 'include' }), 'Failed to create report link');
+}

@@ -18,7 +18,8 @@ import {
   BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  datasetCsvUrl, datasetCsvDownloadUrl, discoverCandidates, feedUrl,
+  datasetCsvUrl, datasetCsvDownloadUrl, discoverCandidates,
+  exportBundleUrl, feedUrl, getReportLink, reportUrl,
   generateMarketTimeline, getBrief, getCollectionPlan, getCorpusArticles,
   getCorpusSummary, getDataInventory, getDrilldown, getMarketTable,
   getFacets,
@@ -174,6 +175,7 @@ export function MarketMonitorTab() {
   // ?vendor= already works.
   const [drill, setDrill] = useState<string | null>(null);
   const [drillRows, setDrillRows] = useState<DrilldownVendor[] | null>(null);
+  const [shareLink, setShareLink] = useState<string | null>(null);
 
   const market = useMemo(
     () => markets?.find(m => m.id === marketId) ?? null, [markets, marketId]);
@@ -338,6 +340,22 @@ export function MarketMonitorTab() {
       setCorpus(sum); setCorpusArticles(list.articles);
     } catch (e: any) {
       setScanResult(`Post review failed: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function makeShareLink() {
+    if (marketId === null) return;
+    setBusy(true);
+    try {
+      const r = await getReportLink(marketId, 30);
+      setShareLink(r.url);
+      await navigator.clipboard?.writeText(r.url).catch(() => {});
+      setToggleResult(
+        `Report link copied. It opens without a login and expires in ${r.ttl_days} days.`);
+    } catch (e: any) {
+      setToggleResult(`Could not create a link: ${e.message ?? e}`);
     } finally {
       setBusy(false);
     }
@@ -1123,7 +1141,26 @@ export function MarketMonitorTab() {
                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
               RSS feed
             </a>
+            <a href={reportUrl(marketId!)} target="_blank" rel="noreferrer"
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              Report (HTML)
+            </a>
+            <a href={exportBundleUrl(marketId!)}
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              Download everything (ZIP)
+            </a>
+            <button onClick={makeShareLink} disabled={busy}
+                    className="text-sm px-3 py-1.5 border rounded-md
+                               hover:bg-slate-50 disabled:opacity-50">
+              Share link
+            </button>
           </div>
+          {shareLink && (
+            <p className="text-xs text-slate-600 -mt-2 break-all">
+              <span className="text-slate-500">Shareable report link: </span>
+              {shareLink}
+            </p>
+          )}
           <p className="text-xs text-slate-500 -mt-2">
             The feed carries matched articles and timeline events, newest first.
             Vendor LinkedIn posts are left out unless you ask for them with

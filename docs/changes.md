@@ -2,6 +2,86 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (phase 3) — Market Monitor: a report you can send, and a bundle you can open
+
+### Goal
+Two outputs. A self-contained HTML report of the whole market, and one download containing every
+dataset it holds.
+
+### `app/services/market_report_html.py` — new, and deliberately thin
+`html_report_common` already supplies the document shell, the base stylesheet and both EU AI Act
+Article 50 markers — the machine-readable meta tag and the visible footer. Writing a second
+document wrapper here would have duplicated that and quietly shipped a report with no disclosure,
+so `build_market_report()` returns `html_document(title, body)` and adds only the CSS the shared
+sheet lacks.
+
+Sections: where the market stands, how the category formed, what the vendors are saying, funding
+and momentum, hiring, coverage in the period, the registry, and a note on how it was assembled.
+Every analysis panel carries its coverage line — amber when partial, green when complete — so a
+chart cannot appear without saying what it rests on.
+
+**Charts are hand-drawn inline SVG.** `_bar_chart`, `_stacked_chart` and `_scatter`, about
+forty lines each. The page has to render with no network access at all, which rules out a CDN
+chart library and remote images. This is the same choice `horizons_html` makes; matplotlib PNGs
+are the deck path, not this one.
+
+### Sharing reuses the existing token scheme
+`vector_routes` already implements HMAC-signed, expiring, no-session report links
+(`_report_link_secret`, `_report_token`). `_market_report_token()` uses the same secret and the
+same shape with a `market-report:` prefix. `GET /markets/{id}/report-link` mints one;
+`GET /markets/{id}/report.html` accepts a valid signature, a session, or a public market, and
+answers **404 rather than a redirect** to anything else — a redirect is what made the feed
+unusable for machines.
+
+### `GET /markets/{id}/export.zip`
+Nine CSVs, a `market.json` carrying the registry, the standing picture and all four analyses, and
+a `README.txt` naming every file with its row count and description. The README also states the
+things a spreadsheet cannot: that every figure is a count of stored records, that coverage varies
+by dataset, and that funding figures are floors covering disclosed raises only. A folder of
+numbers with no note about where they came from is a folder somebody will misread in six months.
+
+### The Data tab's counts disagreed with its own downloads
+Cross-checking the bundle against `data_inventory()` found two datasets where the count printed
+next to a download did not match the download.
+
+`articles` counted all 758 `bw_market_articles` rows while `build_table("articles")` returns the
+196 non-social ones, with the other 562 in `posts` — so the tab claimed 758 + 562 rows where 758
+exist. `tasks` counted open tasks only (26) while the export returns all of them (28).
+
+Both now match what the dataset actually contains, and both descriptions were reworded to say so.
+
+### Verification
+Report built for market 2: 60,850 bytes, 6 SVG charts, AI-Act footer present.
+
+**No external resource loads**, which is the property that makes it self-contained:
+`src=` attributes 0, `<script>` 0, `<link>` 0, `@import` 0, `url(` in CSS 0. The 40 external
+hrefs are citations to source articles, which is what they should be.
+
+Signed-link path, tested with the market temporarily set private:
+
+```
+no token                        404
+bad signature                   404
+valid signature                 200, 60,850 bytes
+correctly signed but expired    404
+```
+
+`is_public` restored to true afterwards.
+
+Bundle: 91,339 bytes, 11 files, zip integrity check passes. Every dataset reconciles against
+`data_inventory` after the count fix:
+
+```
+vendors 83  articles 196  posts 562  profiles 19  funding 19
+jobs 30  pages 91  runs 15  tasks 28      mismatches: 0
+```
+
+`npm run typecheck` clean against baseline (246 known). Rebuilt, restarted, active, no runs in
+flight. All three routes present in `/openapi.json`.
+
+### Propagation
+bugfixing (canonical) only.
+
 ## 2026-08-20 (phase 2) — Market Monitor: drilldowns, and a second double-count
 
 ### Goal

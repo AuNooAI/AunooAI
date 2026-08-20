@@ -545,14 +545,16 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
 
 DATASETS = {
     "vendors": "One row per vendor: the registry plus its latest observations.",
-    "articles": "Articles matched to this market, with why each one matched.",
+    "articles": "News, vendor blogs and research matched to this market, with "
+                "why each one matched. Vendor posts are in `posts`.",
     "posts": "Vendor LinkedIn posts with the review verdict on each.",
     "profiles": "LinkedIn company readings: headcount, followers, location.",
     "funding": "Crunchbase readings: rounds, investors, rank.",
     "jobs": "Open job listings seen at these vendors.",
     "pages": "Vendor web pages watched, and what changed on them.",
     "runs": "Every collection run: source, status, records, latency, error.",
-    "tasks": "Open data-quality questions raised during import or collection.",
+    "tasks": "Data-quality questions raised during import or collection, open "
+             "and resolved.",
 }
 
 
@@ -561,7 +563,14 @@ def data_inventory(conn, market_id: int) -> List[Dict[str, Any]]:
     counts = {
         "vendors": ("SELECT COUNT(*) FROM bw_market_brands WHERE market_id = :m",
                     "SELECT MAX(updated_at) FROM bw_market_brands WHERE market_id = :m"),
-        "articles": ("SELECT COUNT(*) FROM bw_market_articles WHERE market_id = :m",
+        # Counts must match what build_table() actually returns for the same
+        # name, because the Data tab prints this count next to that download.
+        # Social posts live in the `posts` dataset, so they are excluded here
+        # or the two together claim 758 rows where 758 exist in total.
+        "articles": ("""SELECT COUNT(*) FROM bw_market_articles ma
+                        JOIN articles a ON a.uri = ma.article_uri
+                        WHERE ma.market_id = :m
+                          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'""",
                      "SELECT MAX(matched_at) FROM bw_market_articles WHERE market_id = :m"),
         "posts": ("""SELECT COUNT(*) FROM bw_market_articles
                      WHERE market_id = :m AND review_verdict IS NOT NULL""",
@@ -573,8 +582,10 @@ def data_inventory(conn, market_id: int) -> List[Dict[str, Any]]:
         "pages": (_snapshot_count("page_state"), _snapshot_latest("page_state")),
         "runs": ("SELECT COUNT(*) FROM bw_collection_runs WHERE market_id = :m",
                  "SELECT MAX(started_at) FROM bw_collection_runs WHERE market_id = :m"),
-        "tasks": ("""SELECT COUNT(*) FROM bw_review_tasks
-                     WHERE market_id = :m AND status = 'open'""",
+        # All tasks, not only open ones: build_table exports the full history,
+        # and a resolved question is part of the record of how the registry
+        # was cleaned up.
+        "tasks": ("SELECT COUNT(*) FROM bw_review_tasks WHERE market_id = :m",
                   "SELECT MAX(created_at) FROM bw_review_tasks WHERE market_id = :m"),
     }
     out = []

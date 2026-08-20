@@ -958,6 +958,184 @@ async def market_feed(
                     headers={"Cache-Control": "public, max-age=900"})
 
 
+# Report sharing reuses the signal-report token scheme rather than inventing
+# one: same secret, same HMAC, same expiry shape. A report link that expires is
+# better than a public flag that does not, which is why this does not simply
+# ride on ``bw_markets.is_public`` the way the feed does.
+REPORT_LINK_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _market_report_token(market_id: int, exp: int) -> str:
+    import hashlib
+    import hmac
+
+    from app.routes.vector_routes import _report_link_secret
+
+    return hmac.new(_report_link_secret(),
+                    f"market-report:{market_id}:{exp}".encode(),
+                    hashlib.sha256).hexdigest()
+
+
+@router.get("/markets/{market_id}/report-link")
+async def market_report_link(
+    market_id: int,
+    days: int = Query(30, ge=1, le=365),
+    session=Depends(verify_session),
+):
+    """A signed, expiring URL for the report that needs no login to open."""
+    import time
+
+    def _work():
+        conn = _conn()
+        try:
+            return _load_market(conn, market_id)
+        finally:
+            conn.close()
+
+    await asyncio.to_thread(_work)
+    exp = int(time.time()) + REPORT_LINK_TTL_SECONDS
+    token = _market_report_token(market_id, exp)
+    base = (os.getenv("APP_URL") or "").rstrip("/")
+    return {
+        "url": (f"{base}/api/market-monitor/markets/{market_id}/report.html"
+                f"?days={days}&exp={exp}&token={token}"),
+        "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(),
+        "ttl_days": REPORT_LINK_TTL_SECONDS // 86400,
+    }
+
+
+@router.get("/markets/{market_id}/report.html")
+async def market_report(
+    market_id: int,
+    request: Request,
+    days: int = Query(30, ge=1, le=365),
+    exp: Optional[int] = Query(None),
+    token: Optional[str] = Query(None),
+    session=Depends(verify_session_optional),
+):
+    """The market as one self-contained HTML file.
+
+    Three ways in, in order: a valid signed link, a session, or a public
+    market. Anything else is a 404 rather than a redirect — a redirect is what
+    made the feed unusable for machines.
+    """
+    import hmac
+    import time
+
+    from fastapi.responses import Response
+
+    from app.services.market_report_html import build_market_report
+
+    signed = bool(
+        exp and token
+        and exp > int(time.time())
+        and hmac.compare_digest(token, _market_report_token(market_id, exp)))
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if not (signed or session or market.get("is_public")):
+                raise HTTPException(status_code=404, detail="Market not found")
+            return build_market_report(conn, market, days=days)
+        finally:
+            conn.close()
+
+    html = await asyncio.to_thread(_work)
+    return Response(content=html, media_type="text/html; charset=utf-8",
+                    headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.get("/markets/{market_id}/export.zip")
+async def market_export_bundle(market_id: int,
+                               session=Depends(verify_session)):
+    """Every dataset this market holds, as one download.
+
+    Nine CSVs, the registry and analyses as JSON, and a README saying what each
+    file is and when it was collected. A folder of numbers with no note about
+    where they came from is a folder somebody will misread in six months.
+    """
+    import io
+    import zipfile
+
+    from fastapi.responses import Response
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            from app.services import market_analysis as man
+
+            buf = io.BytesIO()
+            stamp = datetime.now(timezone.utc)
+            manifest = []
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for name in mp.DATASETS:
+                    try:
+                        rows = mp.build_table(conn, market_id, name)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("export %s failed: %s", name, exc)
+                        continue
+                    zf.writestr(f"{name}.csv", mp.table_csv(rows))
+                    manifest.append((f"{name}.csv", len(rows),
+                                     mp.DATASETS[name]))
+
+                analyses = {}
+                for name in man.ANALYSES:
+                    try:
+                        analyses[name] = man.run(conn, market_id, name)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("export analysis %s: %s", name, exc)
+                payload = {
+                    "market": {k: market[k] for k in
+                               ("id", "name", "slug", "question",
+                                "description")},
+                    "generated_at": stamp.isoformat(),
+                    "overview": mp.build_overview(conn, market, days=30),
+                    "analyses": analyses,
+                }
+                zf.writestr("market.json",
+                            json.dumps(payload, indent=1, default=str))
+
+                readme = [
+                    f'{market["name"]} — Market Monitor export',
+                    f'Generated {stamp.strftime("%Y-%m-%d %H:%M UTC")}',
+                    "",
+                    (market.get("question") or "").strip(),
+                    "",
+                    "Files:",
+                ]
+                for filename, count, description in manifest:
+                    readme.append(f"  {filename:16s} {count:>6} rows  {description}")
+                readme += [
+                    "  market.json           the registry, the standing "
+                    "picture and the four analyses",
+                    "",
+                    "Notes:",
+                    "  Every figure is a count of stored records. Nothing here "
+                    "is estimated or modelled.",
+                    "  Coverage varies by dataset: company measurements exist "
+                    "only for vendors whose",
+                    "  pages have been read, and each analysis in market.json "
+                    "carries its own coverage.",
+                    "  Vendor posts carry a review verdict saying whether the "
+                    "post states a fact.",
+                    "  Funding figures are floors — they cover disclosed "
+                    "raises only.",
+                ]
+                zf.writestr("README.txt", "\n".join(readme))
+
+            return market["slug"], buf.getvalue()
+        finally:
+            conn.close()
+
+    slug, blob = await asyncio.to_thread(_work)
+    name = f'{slug}-{datetime.now(timezone.utc).strftime("%Y-%m-%d")}.zip'
+    return Response(content=blob, media_type="application/zip",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{name}"'})
+
+
 @router.get("/markets/{market_id}/drilldown/{name}")
 async def market_drilldown(market_id: int, name: str,
                            session=Depends(verify_session)):
