@@ -2,6 +2,84 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (social live) — social collection running, and Bluesky posts get readable titles
+
+### Goal
+The xpoz quota was topped up, so finish the social port: get it collecting, check what it
+actually brings in, and retire the Trump tracker.
+
+### Social collection is live — bugfixing group 17
+With quota restored, xpoz answers. A run through the scheduler path collected **132 results
+across 8 phrases**: bluesky 10 per phrase, xpoz between 0 and 9 depending on the term.
+
+Landed: **77 bluesky, 48 xpoz:twitter, 3 xpoz:reddit**, all with `ingest_status =
+'social_evaluated'`.
+
+Bluesky credentials copied from wbm at the operator's instruction, so the two tenants now share
+one Bluesky account. `.env` is gitignored (`.gitignore:29`), verified before writing.
+
+`reddit` was dropped from the group's providers. Its direct RSS path returns HTTP 429 from this
+host on both `/r/<sub>/.rss` and `/search.rss`, and xpoz already covers Reddit as a platform, so
+the direct collector was a permanently-failing duplicate.
+
+### Relevance checked by reading, not by trusting the gate
+Twenty collected posts read one by one before letting this run unattended. Substantially all are
+about this market: Arctic Wolf's Aurora agentic SOC, an Omdia market update on autonomous
+security, the Agentic SOC Alliance in Forbes, CrowdStrike agentic SOC labs, a Cisco/Splunk
+acquisition, and practitioner argument about tiered SOC models.
+
+The 0.45 floor is doing work rather than decorating: a hackernoon MTTR piece scored 0.40 and was
+filtered before the expensive step, logged as `filtered early (score: 0.4 < 0.45) - saving costs`.
+
+### Bluesky posts were all titled "Post by @handle" — `app/collectors/bluesky_collector.py`
+Every Bluesky article, on every tenant, carried a title of `Post by @<handle>` and nothing else.
+The content was in the summary, so the posts were relevant but a list of them was unreadable —
+twenty rows of handles, each needing to be opened to find out what it said.
+
+`_post_title()` now leads with the post's own first line and keeps the handle as the attribution
+it is: `@rodtrent.com: Arctic Wolf announces Aurora SOC milestones, delivering AI-native security
+outcomes`. It cuts at a sentence end when one falls between 30 and 140 characters, otherwise at a
+word boundary with an ellipsis, and falls back to the old form for a post with no text at all.
+Applied at both sites in the collector.
+
+Deployed to wiley, wileytest and wbm — the same unreadable titles were on all of them, and wbm
+collected 380 Bluesky posts in the last week alone. Backed up, diffed for drift first (none),
+compiled and behaviour-checked with each tenant's own venv, restarted.
+
+Existing rows keep their old titles; this changes what is collected from now on.
+
+### `/check-now` ignores per-group providers — confirmed, not fixed
+Calling `check_keywords(group_id=...)` directly searched **newsfirehose**, not the group's
+`["bluesky","xpoz"]`, because per-group collectors are set by `check_single_group` before it
+delegates. The scheduler path is correct; the manual path is not. This is the known gotcha
+recorded against the ASML work and it is unchanged here — noted because a manual "check now" on a
+social group silently collects news instead, and 19 news articles arrived that way during
+testing.
+
+### Trump Administration Tracker removed
+Group 12, its keywords, and the `config.json` topic (backed up first). Three topics remain: AI and
+Machine Learning, Geopolitical Hotspots, and Market Monitoring SOC Automation.
+
+### Verification
+Group 17 through `check_single_group`: `{'success': True, 'new_articles': 132,
+'keywords_processed': 8}`, both providers searched for every phrase.
+
+128 social articles now sit under the market topic. Twenty read by hand for relevance.
+
+`_post_title` checked on four shapes: a long post cut at its sentence end, an empty post falling
+back, a short post kept whole, and a 150-character run truncated at a word boundary.
+
+All four tenants restarted, active, HTTP 307 on the root as expected.
+
+### Propagation
+The Bluesky title fix is on bugfixing (canonical), wiley, wileytest and wbm. The social group,
+the credentials and the topic removals are bugfixing-only.
+
+### Lessons
+A social collector that titles every post with its author produces rows that are individually
+relevant and collectively useless. Check what a collector's output looks like *in a list*, not
+just whether it returned something.
+
 ## 2026-08-20 (propagation) — the keyword fix reaches the other tenants, and xpoz is found dead
 
 ### Goal
