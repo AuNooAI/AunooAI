@@ -441,3 +441,41 @@ def drilldown(conn, market_id: int, name: str) -> Dict[str, Any]:
                 row[key] = float(row[key])
 
     return {"drilldown": name, "vendors": rows, "count": len(rows)}
+
+
+def job_postings(conn, market_id: int,
+                 brand_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """The job listings themselves, with their URLs.
+
+    The hiring analysis counts openings and the vendor page counts them again,
+    and neither offered a way to read one. Every posting carries a LinkedIn URL
+    and always did — the count was the only thing ever surfaced.
+    """
+    where = ["s.snapshot_type = 'job_posting'", "mb.market_id = :m"]
+    params: Dict[str, Any] = {"m": market_id}
+    if brand_id is not None:
+        where.append("s.brand_id = :b")
+        params["b"] = brand_id
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        SELECT DISTINCT ON (s.provider_item_id)
+               s.brand_id, b.display_name AS vendor,
+               s.data->>'title' AS title,
+               s.data->>'location' AS location,
+               s.data->>'seniority' AS seniority,
+               s.data->>'function' AS function,
+               s.data->>'employment_type' AS employment_type,
+               s.data->>'posted_date' AS posted_date,
+               s.data->>'url' AS url,
+               s.observed_at
+        FROM bw_vendor_snapshots s
+        JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+        JOIN bw_brands b ON b.id = s.brand_id
+        WHERE {' AND '.join(where)}
+        ORDER BY s.provider_item_id, s.observed_at DESC
+    """), params).mappings().all()]
+
+    for row in rows:
+        row["function_group"] = _group_function(row.get("function"))
+    rows.sort(key=lambda r: (r["vendor"], r["title"] or ""))
+    return rows

@@ -15,6 +15,7 @@ import {
 import { MarketVendorPage } from './MarketVendorPage';
 import { MarketAnalysisView } from './MarketAnalysisView';
 import { MarketBriefingsView } from './MarketBriefingsView';
+import { DataTable } from './DataTable';
 import {
   BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
@@ -155,6 +156,7 @@ export function MarketMonitorTab() {
 
   const [search, setSearch] = useState('');
   const [fundingFilter, setFundingFilter] = useState<string>('');
+  const [foundedFilter, setFoundedFilter] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [toggleResult, setToggleResult] = useState<string | null>(null);
   const [showKeywords, setShowKeywords] = useState(false);
@@ -274,9 +276,11 @@ export function MarketMonitorTab() {
       if (q && !v.display_name.toLowerCase().includes(q)) return false;
       if (fundingFilter &&
           v.baseline?.funding_baseline?.status !== fundingFilter) return false;
+      if (foundedFilter &&
+          String(v.baseline?.founded_year ?? '') !== foundedFilter) return false;
       return true;
     });
-  }, [vendors, search, fundingFilter]);
+  }, [vendors, search, fundingFilter, foundedFilter]);
 
   // The Coverage view is the only consumer of the matched corpus, so it loads
   // on demand rather than on every market switch.
@@ -641,47 +645,22 @@ export function MarketMonitorTab() {
               No vendors match.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr className="text-xs text-slate-500 text-left">
-                    <th className="px-3 py-1.5 font-normal">Vendor</th>
-                    <th className="px-3 py-1.5 font-normal">Country</th>
-                    <th className="px-3 py-1.5 font-normal">Founded</th>
-                    <th className="px-3 py-1.5 font-normal">Funding</th>
-                    <th className="px-3 py-1.5 font-normal text-right">Staff</th>
-                    <th className="px-3 py-1.5 font-normal text-right">Announced</th>
-                    <th className="px-3 py-1.5 font-normal text-right">Open roles</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {drillRows.map(v => (
-                    <tr key={v.brand_id} className="hover:bg-slate-50">
-                      <td className="px-3 py-1.5">
-                        <button onClick={() => openVendorPage(v.brand_id)}
-                                className="text-slate-800 hover:underline">
-                          {v.vendor}
-                        </button>
-                      </td>
-                      <td className="px-3 py-1.5 text-slate-600">{v.country ?? '—'}</td>
-                      <td className="px-3 py-1.5 text-slate-600">{v.founded ?? '—'}</td>
-                      <td className="px-3 py-1.5 text-slate-600">
-                        {v.musd !== null ? `$${v.musd}M`
-                          : (v.funding_status ?? '—')}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
-                        {v.staff ?? '—'}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
-                        {v.announcements}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
-                        {v.openings}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="p-3">
+              <DataTable
+                rows={drillRows} dense rowKey={v => v.brand_id}
+                initialSort="vendor"
+                onRowClick={v => openVendorPage(v.brand_id)}
+                columns={[
+                  { key: 'vendor', label: 'Vendor' },
+                  { key: 'country', label: 'Country', groupable: true },
+                  { key: 'founded', label: 'Founded', groupable: true },
+                  { key: 'funding_status', label: 'Funding', groupable: true,
+                    render: v => v.musd !== null ? `$${v.musd}M`
+                                                 : (v.funding_status ?? '—') },
+                  { key: 'staff', label: 'Staff', align: 'right' },
+                  { key: 'announcements', label: 'Announced', align: 'right' },
+                  { key: 'openings', label: 'Open roles', align: 'right' },
+                ]} />
             </div>
           )}
         </div>
@@ -726,15 +705,24 @@ export function MarketMonitorTab() {
                   Nothing matched yet. Run a scan from the Coverage view.
                 </p>
               ) : (
+                <>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={overview.corpus.by_week}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="week" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                     <Tooltip />
-                    <Bar dataKey="n" fill="#475569" name="Articles" />
+                    {/* Clicking a week opens the articles it counted. A bar
+                        that names a number without offering the rows behind it
+                        is a dead end. */}
+                    <Bar dataKey="n" fill="#475569" name="Articles"
+                         cursor="pointer" onClick={() => setView('coverage')} />
                   </BarChart>
                 </ResponsiveContainer>
+                <p className="text-xs text-slate-400 text-center -mt-1">
+                  Click a bar to open the articles.
+                </p>
+                </>
               )}
             </div>
 
@@ -770,31 +758,17 @@ export function MarketMonitorTab() {
                 LinkedIn posts in the last {overview.period_days} days plus open
                 job listings. Activity, not performance.
               </p>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-slate-500 text-left">
-                    <th className="py-1 font-normal">Vendor</th>
-                    <th className="py-1 font-normal text-right">Posts</th>
-                    <th className="py-1 font-normal text-right">Jobs</th>
-                    <th className="py-1 font-normal text-right">Articles</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {overview.most_active.map(v => (
-                    <tr key={v.brand_id} className="hover:bg-slate-50">
-                      <td className="py-1.5">
-                        <button onClick={() => openVendorPage(v.brand_id)}
-                                className="text-slate-700 hover:underline">
-                          {v.vendor}
-                        </button>
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums text-slate-600">{v.posts}</td>
-                      <td className="py-1.5 text-right tabular-nums text-slate-600">{v.jobs}</td>
-                      <td className="py-1.5 text-right tabular-nums text-slate-600">{v.articles}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                rows={overview.most_active} dense rowKey={v => v.brand_id}
+                initialSort="signals" initialDir="desc"
+                onRowClick={v => openVendorPage(v.brand_id)}
+                columns={[
+                  { key: 'vendor', label: 'Vendor' },
+                  { key: 'posts', label: 'Posts', align: 'right' },
+                  { key: 'jobs', label: 'Jobs', align: 'right' },
+                  { key: 'articles', label: 'Articles', align: 'right' },
+                  { key: 'signals', label: 'Signals', align: 'right' },
+                ]} />
             </div>
 
             <div className="border rounded-lg p-4 bg-white">
@@ -1039,7 +1013,15 @@ export function MarketMonitorTab() {
 
       {/* ---- Analysis ---- */}
       {view === 'analysis' && marketId !== null && (
-        <MarketAnalysisView marketId={marketId} onVendor={openVendorPage} />
+        <MarketAnalysisView marketId={marketId} onVendor={openVendorPage}
+                            onDrill={(kind, value) => {
+                              if (kind === 'founded') {
+                                setSearch('');
+                                setView('vendors');
+                                setSegment('all');
+                                setFoundedFilter(value);
+                              }
+                            }} />
       )}
 
       {/* ---- Data ---- */}
@@ -1224,7 +1206,11 @@ export function MarketMonitorTab() {
                            fontSize={11} interval={0} />
                     <Tooltip formatter={(v: number, _n, p: any) =>
                       [`${v > 0 ? '+' : ''}${v} staff (${p.payload.pct}%)`, 'change']} />
-                    <Bar dataKey="delta" radius={[0, 3, 3, 0]}>
+                    <Bar dataKey="delta" radius={[0, 3, 3, 0]} cursor="pointer"
+                         onClick={(d: any) => {
+                           const hit = vendors?.find(v => v.display_name === d?.vendor);
+                           if (hit) openVendorPage(hit.brand_id);
+                         }}>
                       {brief.headcount_movers.slice(0, 8).map((m, i) => (
                         <Cell key={i} fill={m.delta >= 0 ? '#30a46c' : '#e5484d'} />
                       ))}
@@ -1255,7 +1241,11 @@ export function MarketMonitorTab() {
                     <YAxis type="category" dataKey="vendor" width={110}
                            fontSize={11} interval={0} />
                     <Tooltip />
-                    <Bar dataKey="posts" fill="#d6409f" radius={[0, 3, 3, 0]} />
+                    <Bar dataKey="posts" fill="#d6409f" cursor="pointer"
+                         onClick={(d: any) => {
+                           const hit = vendors?.find(v => v.display_name === d?.vendor);
+                           if (hit) openVendorPage(hit.brand_id);
+                         }} radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -1400,6 +1390,16 @@ export function MarketMonitorTab() {
                 <option key={f.value} value={f.value}>{f.value} ({f.n})</option>
               ))}
             </select>
+            {/* An arrived-from-a-chart filter has to be visible and
+                removable, or the table looks wrong and nobody can tell why. */}
+            {foundedFilter && (
+              <button onClick={() => setFoundedFilter('')}
+                      className="text-sm px-2 py-1 rounded border bg-slate-800
+                                 text-white inline-flex items-center gap-1.5">
+                Founded {foundedFilter}
+                <X className="w-3 h-3" />
+              </button>
+            )}
             <div className="flex-1" />
             <span className="text-sm text-slate-500">
               {shown.length} of {vendors?.length ?? 0} shown

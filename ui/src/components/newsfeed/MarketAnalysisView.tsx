@@ -14,8 +14,10 @@ import {
   Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts';
 import {
-  getAnalyses, type Coverage, type MarketAnalyses,
+  getAnalyses, getJobPostings, type Coverage, type JobPosting,
+  type MarketAnalyses,
 } from '../../services/marketMonitorApi';
+import { DataTable, type Column } from './DataTable';
 
 const GRID = '#e2e8f0';
 const INK = '#475569';
@@ -43,13 +45,18 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-export function MarketAnalysisView({ marketId, onVendor }: {
+export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
   marketId: number;
   onVendor: (brandId: number) => void;
+  /** Open a filtered list for a chart segment. Optional so the view still
+   *  renders where no drilldown target exists. */
+  onDrill?: (kind: string, value: string) => void;
 }) {
   const [data, setData] = useState<MarketAnalyses | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sortByShare, setSortByShare] = useState(false);
+  const [jobs, setJobs] = useState<JobPosting[] | null>(null);
+  const [showJobs, setShowJobs] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -59,6 +66,15 @@ export function MarketAnalysisView({ marketId, onVendor }: {
       .catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
   }, [marketId]);
+
+  useEffect(() => {
+    if (!showJobs || jobs) return;
+    let live = true;
+    getJobPostings(marketId)
+      .then(r => { if (live) setJobs(r.postings); })
+      .catch(() => { if (live) setJobs([]); });
+    return () => { live = false; };
+  }, [showJobs, jobs, marketId]);
 
   if (error) {
     return <div className="text-sm text-red-700 p-3 border rounded-md
@@ -97,7 +113,10 @@ export function MarketAnalysisView({ marketId, onVendor }: {
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="vendors" fill={INK} name="Vendors founded" />
+                {/* Clicking a year opens the vendors founded in it. */}
+                <Bar dataKey="vendors" fill={INK} name="Vendors founded"
+                     cursor={onDrill ? 'pointer' : undefined}
+                     onClick={(d: any) => onDrill?.('founded', String(d?.year))} />
               </BarChart>
             </ResponsiveContainer>
           </Panel>
@@ -150,7 +169,9 @@ export function MarketAnalysisView({ marketId, onVendor }: {
               <YAxis type="category" dataKey="vendor" width={130}
                      tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="signal" stackId="a" fill={SIGNAL} name="States a fact" />
+              <Bar dataKey="signal" stackId="a" fill={SIGNAL} name="States a fact"
+                   cursor="pointer"
+                   onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
               <Bar dataKey="commentary" stackId="a" fill={COMMENTARY} name="Commentary" />
               <Bar dataKey="noise" stackId="a" fill={NOISE} name="Noise" />
             </BarChart>
@@ -268,32 +289,44 @@ export function MarketAnalysisView({ marketId, onVendor }: {
           </Panel>
 
           <Panel title="Openings per vendor">
-            <CoverageLine coverage={hi.coverage} />
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 text-left">
-                  <th className="py-1 font-normal">Vendor</th>
-                  <th className="py-1 font-normal text-right">Open</th>
-                  <th className="py-1 font-normal text-right">Eng</th>
-                  <th className="py-1 font-normal text-right">Sales</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {hi.by_vendor.map(v => (
-                  <tr key={v.brand_id} className="hover:bg-slate-50">
-                    <td className="py-1.5">
-                      <button onClick={() => onVendor(v.brand_id)}
-                              className="text-slate-700 hover:underline">
-                        {v.vendor}
-                      </button>
-                    </td>
-                    <td className="py-1.5 text-right tabular-nums text-slate-600">{v.openings}</td>
-                    <td className="py-1.5 text-right tabular-nums text-slate-600">{v.engineering}</td>
-                    <td className="py-1.5 text-right tabular-nums text-slate-600">{v.sales}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="flex items-start gap-2">
+              <div className="flex-1"><CoverageLine coverage={hi.coverage} /></div>
+              <button onClick={() => setShowJobs(v => !v)}
+                      className="text-xs px-2 py-1 border rounded hover:bg-slate-50 shrink-0">
+                {showJobs ? 'Show the counts' : 'Show the postings'}
+              </button>
+            </div>
+            {showJobs ? (
+              jobs === null ? (
+                <div className="py-8 text-center text-slate-400">
+                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                </div>
+              ) : (
+                <DataTable<JobPosting>
+                  rows={jobs} dense rowKey={j => j.url ?? `${j.vendor}-${j.title}`}
+                  initialSort="vendor"
+                  columns={[
+                    { key: 'vendor', label: 'Vendor', groupable: true },
+                    { key: 'title', label: 'Role', href: j => j.url,
+                      groupable: false },
+                    { key: 'function_group', label: 'Function', groupable: true },
+                    { key: 'seniority', label: 'Level', groupable: true },
+                    { key: 'location', label: 'Location', groupable: true },
+                    { key: 'posted_date', label: 'Posted' },
+                  ]} />
+              )
+            ) : (
+              <DataTable
+                rows={hi.by_vendor} dense rowKey={v => v.brand_id}
+                initialSort="openings" initialDir="desc"
+                onRowClick={v => onVendor(v.brand_id)}
+                columns={[
+                  { key: 'vendor', label: 'Vendor' },
+                  { key: 'openings', label: 'Open', align: 'right' },
+                  { key: 'engineering', label: 'Eng', align: 'right' },
+                  { key: 'sales', label: 'Sales', align: 'right' },
+                ]} />
+            )}
           </Panel>
         </div>
       )}

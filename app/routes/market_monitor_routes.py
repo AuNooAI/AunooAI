@@ -1328,6 +1328,25 @@ async def market_briefing_status(market_id: int, briefing_id: int,
     return await asyncio.to_thread(_work)
 
 
+@router.get("/markets/{market_id}/jobs")
+async def market_jobs(market_id: int,
+                      brand_id: Optional[int] = Query(None),
+                      session=Depends(verify_session)):
+    """The job listings behind the hiring counts, each with its URL."""
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            rows = man.job_postings(conn, market_id, brand_id)
+            return {"openings": len(rows), "postings": rows}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 @router.get("/markets/{market_id}/drilldown/{name}")
 async def market_drilldown(market_id: int, name: str,
                            session=Depends(verify_session)):

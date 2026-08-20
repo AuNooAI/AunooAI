@@ -1051,3 +1051,30 @@ export async function setBriefingStatus(
       body: JSON.stringify({ status }),
     }), 'Could not update status');
 }
+
+// ============================================================================
+// Job postings
+// ============================================================================
+
+export interface JobPosting {
+  brand_id: number;
+  vendor: string;
+  title: string | null;
+  location: string | null;
+  seniority: string | null;
+  function: string | null;
+  function_group: string;
+  employment_type: string | null;
+  posted_date: string | null;
+  url: string | null;
+  observed_at: string;
+}
+
+export async function getJobPostings(
+  marketId: number, brandId?: number,
+): Promise<{ openings: number; postings: JobPosting[] }> {
+  const q = brandId ? `?brand_id=${brandId}` : '';
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/jobs${q}`, { credentials: 'include' }),
+    'Failed to load job postings');
+}

@@ -2,6 +2,70 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (tables and charts) — sorting, grouping, and links to what was counted
+
+### Goal
+Reported, and correct: the market monitor's tables and charts universally lacked basic controls.
+No sorting, no grouping, no way to drill down or pivot, and job postings were counted with no way
+to open one.
+
+### `ui/src/components/newsfeed/DataTable.tsx` — new
+Every table in the feature was a static dump. A reader who wanted "the vendors hiring most" or
+"who is in Israel" had to read the whole table and do it by eye.
+
+One shared component: click a header to sort, click again to reverse, and group by any column
+marked groupable. Columns can carry an `href`, which renders the cell as a link.
+
+Two decisions worth stating. **Missing values sort last in both directions** — a vendor with no
+headcount is not the smallest vendor, it is one we have not measured, and sorting it to the top of
+an ascending list would say something false. **Groups are ordered by size, not alphabetically**,
+because with a long tail of one-row groups alphabetical ordering buries whatever the grouping was
+meant to reveal.
+
+It sorts, groups and links. It does not paginate, filter or virtualise: these tables are tens of
+rows, and adding those would be building a grid library nobody asked for.
+
+Applied to the drilldown table, the Overview's most-active vendors, and the hiring table.
+
+### Job postings are now readable — `app/services/market_analysis.py`, `market_monitor_routes.py`
+`job_postings()` and `GET /markets/{id}/jobs?brand_id=`. **Every one of the 30 postings carries a
+LinkedIn URL and always did** — the count was simply the only thing ever surfaced, in the hiring
+analysis and on the vendor page both.
+
+The hiring panel gains a "Show the postings" toggle that swaps the per-vendor counts for the
+postings themselves: role, function, level, location and date, the role linking to the listing,
+groupable by vendor, function, level or location.
+
+### Charts drill down
+- **Coverage by week** — clicking a bar opens the Coverage view. A caption says so, because a
+  chart that is clickable and does not look it is not much better than one that is not.
+- **Founding years** — clicking a year filters the vendor table to vendors founded then, with a
+  removable chip showing the filter. An arrived-from-elsewhere filter has to be visible or the
+  table looks wrong and nobody can tell why.
+- **Headcount change** and **posting volume** — clicking a bar opens that vendor's page.
+- **Signal-to-noise** — clicking a vendor's bar opens that vendor.
+- **Momentum scatter** — already click-through to the vendor from the previous change.
+
+### Verification
+`GET /markets/2/jobs` → 30 openings, **all 30 with a URL**; `?brand_id=112` → 20, correctly
+scoped.
+
+Sorting checked against the underlying data: the hiring table's default is openings descending
+(7ai 20, Crogl 6, then four vendors with 1), and the Overview's most-active defaults to signals
+descending.
+
+`npm run typecheck` clean against baseline (246 known). Rebuilt, restarted, active, no collection
+runs in flight.
+
+### Propagation
+bugfixing (canonical) only.
+
+### Limits
+The Brief's two charts and the vendor page's headcount line are still uncontrolled — they plot
+eight rows and one series respectively, where sorting adds nothing. The Data tab's preview tables
+render arbitrary dataset columns and are not converted; that one wants a different treatment
+because the columns are not known ahead of time.
+
 ## 2026-08-20 (vendor selection) — the bulk controls were real but buried
 
 ### Goal
