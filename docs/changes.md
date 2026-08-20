@@ -126,6 +126,62 @@ Both are guarded. `_market_corpus_available()` and `_market_corpus_topic()` chec
 any error — timeline generation and observer agents run on deployments that have never had a
 market monitor, and a missing table there would break every topic, not just a market's.
 
+### Vendor posts get read and judged — `app/services/market_post_review.py`, `alembic/versions/mm_003_post_review.py`
+Vendor LinkedIn posts were excluded wholesale from the feed, the timeline and the observers.
+That was the wrong call in one direction and unavoidable in the other: 562 posts against 122
+news articles buries everything, but vendors announce launches, raises, customer wins and senior
+hires on LinkedIn first and often nowhere else.
+
+No keyword rule separates them. These two posts are the same shape:
+
+```
+Dropzone AI is a 2025 IA40 winner, two years in a row.
+If you're at the Gartner Summit today, come meet the team at booth 4141.
+```
+
+So each post is read once by a model and given a verdict — `signal` (states a fact),
+`commentary` (analysis with no new fact), `noise` (booth presence, spotlights, hype) — plus a
+kind and a one-line reason. Migration `mm_003` adds those columns to `bw_market_articles` rather
+than a new table, because the question is the one that table already answers, reached a different
+way. `score` becomes nullable so a reviewed post that matched no phrase reads as "not scored"
+rather than "scored zero".
+
+Reviewed once, not per query. The judgement does not change and re-asking is paying twice.
+
+**The first prompt was too generous** — 11 of 20 came back `signal`, including a government
+official's office visit, a CEO panel appearance and two employee spotlights, and one post was
+tagged `kind: event` while being called signal. The prompt now lists the specific cases that are
+noise however senior the people in them, requires a hire to name someone, a customer to be named
+and a launch to be available, and says to pick the lower verdict on the line. The kind/verdict
+contradiction is also enforced in `_judge()`, because models agree to the rule and then break it.
+Re-run on the same 20 posts: 0 signal, 10 commentary, 10 noise — and reading them back, that
+batch genuinely contained none.
+
+Verdicts are matched to posts on the index the model echoes back, not on position. A model that
+drops one post from a batch would otherwise shift every later verdict onto the wrong article,
+silently.
+
+### Reviewed posts flow back through everything
+`market_corpus.articles()` gains `require_signal_for_social`, on by default: a vendor post is
+returned once it is known to say something, and an unreviewed post is left out with the noise
+rather than let through. The same rule is applied in the feed (`DEFAULT_FEED_CLASSES` now
+includes `social`), in `timeline_events._fetch_day_articles()` and in the observer's candidate
+query. A reviewed post carries its kind as a `<category>` in the feed, which is a better label
+than a phrase match for something that was judged rather than matched.
+
+### The data inventory — `app/services/market_publish.py`, `MarketMonitorTab.tsx`
+"Where can we see all of the data" had no answer: the monitor writes to eight tables and the UI
+showed two. `GET /markets/{id}/data` lists all nine datasets with row counts and last-updated
+times; `GET /markets/{id}/data/{dataset}` returns rows as JSON for the on-screen table or CSV for
+a spreadsheet. The JSON form is capped and the CSV is not, because a download that silently
+stopped at 500 rows would be worse than no download. New **Data** view in the tab: click a
+dataset to expand a preview, CSV button per row.
+
+### Scheduled — `app/tasks/market_monitor.py`
+New source `post_review`, daily, provider `local`, alongside `corpus_match`. New posts arrive
+every cycle and an unreviewed post is invisible everywhere. A run where every batch failed
+closes as failed, not as a quiet success.
+
 ### The firehose cybersecurity category does not exist
 Logged because it was on the plan and should come off it. `GET /v1/categories` on the
 NewsFirehose API returns 19 categories and they are broad news sections: `top` (2.37M),
@@ -173,6 +229,33 @@ that collected it. That leaves 76 matched-but-unanalysed cross-topic articles un
 needing a decision.
 
 ### Verification
+Migrations applied: `alembic upgrade head` → `mm_001 -> mm_002 -> mm_003`.
+
+**Post review, all 562 posts across 19 vendors, 28 batches, zero failures:**
+
+| verdict | posts |
+|---|---|
+| noise | 310 |
+| commentary | 145 |
+| signal | 107 |
+
+The 107 by kind: 42 launch, 16 partnership, 14 award, 11 customer, 9 hiring, 8 research,
+2 funding, 1 acquisition. Reading the results back, they are real: "Backline AI: Happy to
+announce our partnership with Wiz", "Wraithwatch: We've partnered with Anthropic", "Legion
+Security: Hear directly from Neil Robinson, CISO at Virgin Money", "Opnova: Fresh off winning
+Black Hat's Startup Spotlight Competition", "Exaforce: welcome Jarrod Mayes to the Exaforce Sales
+team". All of these were being discarded.
+
+Feed with reviewed posts included, top 80 items: 45 social, 23 news, 8 vendor, 4 timeline events.
+The social items carry their kind — 20 launch, 7 partnership, 6 award, 5 customer, 4 hiring.
+
+Data inventory against market 2: vendors 83, articles 758, posts 562, profiles 19, funding 19,
+jobs 30, pages 91, runs 14, open tasks 26. CSV export of `posts` produces 562 rows / 191KB with
+13 columns.
+
+Scheduled sources ran on restart: `corpus_match` succeeded over 348 articles, `post_review`
+succeeded with 0 candidates because everything is already reviewed.
+
 Migration applied: `alembic upgrade head` → `mm_001 -> mm_002`.
 
 Re-enrichment run, 32 candidates, one batch, no errors: **22 recovered, 10 still filtered.**

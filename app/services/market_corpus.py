@@ -416,8 +416,23 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     """), {"m": market_id}).fetchall():
         kinds[classify_article(uri, source, bias, domains)] += 1
 
+    verdicts = dict(conn.execute(text("""
+        SELECT COALESCE(review_verdict, 'unreviewed'), COUNT(*)
+        FROM bw_market_articles WHERE market_id = :m
+        GROUP BY 1
+    """), {"m": market_id}).fetchall())
+
+    signal_kinds = [dict(r) for r in conn.execute(text("""
+        SELECT review_kind AS kind, COUNT(*) AS n
+        FROM bw_market_articles
+        WHERE market_id = :m AND review_verdict = 'signal'
+        GROUP BY 1 ORDER BY n DESC, kind
+    """), {"m": market_id}).mappings().all()]
+
     return {
         "by_class": kinds,
+        "by_verdict": verdicts,
+        "signal_kinds": signal_kinds,
         "total": (totals or {}).get("total", 0),
         "collected": (totals or {}).get("collected", 0),
         "corpus": (totals or {}).get("corpus", 0),
@@ -433,8 +448,18 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
 def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
              days: Optional[int] = None, origin: Optional[str] = None,
              min_score: float = 0.0,
-             classes: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
-    """The matched corpus, newest first."""
+             classes: Optional[Sequence[str]] = None,
+             require_signal_for_social: bool = True) -> List[Dict[str, Any]]:
+    """The matched corpus, newest first.
+
+    ``require_signal_for_social`` is the rule that lets vendor LinkedIn posts
+    back in. They were excluded wholesale because 562 of them against 122 news
+    articles buries everything, but the review pass found 107 that state a real
+    fact — 42 launches, 16 partnerships, 11 named customers, 2 raises and an
+    acquisition. So a post is included when it was read and judged to carry
+    something, and left out otherwise. Set it False to see every post
+    including the ones judged noise.
+    """
     # The kind of an article is decided in Python, from the URL's host against
     # the vendor registry. So when a caller filters by kind the SQL limit has
     # to be loosened first, or "give me 100 news items" silently returns the
@@ -449,12 +474,18 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
     if origin in ("collected", "corpus"):
         where.append("ma.origin = :origin")
         params["origin"] = origin
+    if require_signal_for_social:
+        # An unreviewed post is not yet known to be worth showing, so it is
+        # left out with the ones judged noise rather than let through.
+        where.append("(COALESCE(a.bias_source, '') <> 'vendor:linkedin'"
+                     " OR ma.review_verdict = 'signal')")
 
     rows = conn.execute(text(f"""
         SELECT a.uri, a.title, a.summary, a.news_source, a.topic,
                COALESCE(a.publication_date, a.submission_date) AS published,
                a.sentiment, a.category, a.analyzed, a.bias_source,
-               ma.score, ma.matched_terms, ma.origin, ma.title_terms
+               ma.score, ma.matched_terms, ma.origin, ma.title_terms,
+               ma.review_verdict, ma.review_kind, ma.review_reason
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE {' AND '.join(where)}

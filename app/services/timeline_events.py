@@ -147,21 +147,25 @@ def _fetch_day_articles(conn, scope_type: str, scope_id: str, target: date) -> L
         # topic it was collected for, which is a different question and here
         # would be the wrong one.
         #
-        # Vendor LinkedIn posts are left out. They are 152 of the 348 matches
-        # and they arrive in bursts on the day they are collected, so including
-        # them would produce a daily timeline about vendor marketing.
+        # Vendor LinkedIn posts are in only when the review pass judged them
+        # to state a fact. Unfiltered they are 562 posts against 122 news
+        # articles and arrive in bursts, so a daily timeline built on them is
+        # a record of vendor marketing. Filtered, they are where launches,
+        # partnerships and raises show up first.
         market_clause = ""
         if _market_corpus_available(conn):
             market_clause = """
-              OR (COALESCE(a.bias_source, '') <> 'vendor:linkedin' AND EXISTS (
+              OR EXISTS (
                   SELECT 1 FROM bw_market_articles ma
                   JOIN bw_markets m ON m.id = ma.market_id
                   WHERE ma.article_uri = a.uri
-                    AND ma.score >= 12
+                    AND (ma.score >= 12 OR ma.review_verdict = 'signal')
+                    AND (COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+                         OR ma.review_verdict = 'signal')
                     AND COALESCE(
                         m.config->'collection'->>'topic_name',
                         'Market Monitoring ' || m.name) = :t
-              ))"""
+              )"""
         rows = conn.execute(text(f"""
             SELECT {_ARTICLE_COLS}
             FROM articles a

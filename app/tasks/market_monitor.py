@@ -56,6 +56,9 @@ SOURCE_JOBS = mc.JOBS_SOURCE
 # Reads the article corpus we already hold. Calls no provider,
 # so it is not subject to the budget cap.
 SOURCE_CORPUS = "corpus_match"
+# Reads vendor posts we already collected and judges each one.
+# Costs a cheap model call per 20 posts, not a provider fetch.
+SOURCE_POST_REVIEW = "post_review"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -150,6 +153,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_JOBS: slow * 3,        # twice weekly — the spec's hiring signal
         SOURCE_CANDIDATES: slow,      # daily — reads what we already collected
         SOURCE_CORPUS: slow,          # daily — also free, also local
+        SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -337,6 +341,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += await _reconcile_open_jobs(conn, market)
     runs += _discover_candidates(conn, market, now)
     runs += _match_corpus(conn, market, now)
+    runs += await _review_posts(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get(SOURCE_DISCOVERY))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -452,6 +457,50 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
 
 
 # ── New entrants ────────────────────────────────────────────────────────────
+
+async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Read vendor posts that arrived since the last pass and judge each one.
+
+    Runs on the same cadence as the corpus match and for the same reason: new
+    posts land every cycle, and an unreviewed post is invisible to the feed,
+    the timeline and the observers. It calls a model rather than a provider,
+    so it is bounded by the batch size instead of by the provider budget.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_POST_REVIEW, now) is None:
+        return 0
+
+    from app.services import market_post_review as mpr
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_POST_REVIEW,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await mpr.review(
+            conn, market_id, market["name"],
+            limit=int(os.getenv("MARKET_POST_REVIEW_LIMIT", "200")))
+        counts = result["counts"]
+        # A run where every batch failed is a failed run, not a quiet one.
+        if result["batches"] and result["failed_batches"] == result["batches"]:
+            status = "failed"
+        elif result["failed_batches"]:
+            status = "partial"
+        else:
+            status = "succeeded"
+        mc.close_run(conn, run_id, status=status,
+                     received=result["candidates"],
+                     new=counts["signal"],
+                     skipped=counts["commentary"] + counts["noise"],
+                     error=(f"{result['failed_batches']} of {result['batches']}"
+                            " batches failed") if result["failed_batches"] else None)
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s post review failed: %s", market_id, exc)
+    return 1
+
 
 def _match_corpus(conn, market: Dict[str, Any], now: datetime) -> int:
     """Match the article corpus against the market's phrases.

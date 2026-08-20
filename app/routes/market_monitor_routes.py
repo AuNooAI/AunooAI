@@ -826,7 +826,8 @@ async def get_sources(market_id: int, session=Depends(verify_session)):
             """), {"m": market_id}).fetchall()}
             out = []
             for src in sorted(KNOWN_SOURCES | {mm.SOURCE_CANDIDATES,
-                                              mm.SOURCE_CORPUS}):
+                                              mm.SOURCE_CORPUS,
+                                              mm.SOURCE_POST_REVIEW}):
                 entry = overrides.get(src) if isinstance(overrides.get(src), dict) else {}
                 out.append({
                     "source": src,
@@ -957,6 +958,100 @@ async def market_feed(
                     headers={"Cache-Control": "public, max-age=900"})
 
 
+@router.get("/markets/{market_id}/data")
+async def market_data_inventory(market_id: int,
+                                session=Depends(verify_session)):
+    """Everything this market has stored, with row counts and download links.
+
+    The monitor writes to eight tables and the UI showed two of them, so the
+    honest answer to "where can I see all of the data" was "you cannot". This
+    is the index.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return {"datasets": mp.data_inventory(conn, market_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/data/{dataset}")
+async def market_dataset(
+    market_id: int,
+    dataset: str,
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    limit: int = Query(500, ge=1, le=5000),
+    session=Depends(verify_session),
+):
+    """One dataset, as JSON for the table view or CSV for a spreadsheet."""
+    from fastapi.responses import Response
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                rows = mp.build_table(conn, market_id, dataset)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+            return market, rows
+        finally:
+            conn.close()
+
+    market, rows = await asyncio.to_thread(_work)
+
+    if fmt == "csv":
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        name = f"{market['slug']}-{dataset}-{stamp}.csv"
+        return Response(
+            content=mp.table_csv(rows), media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    # The JSON form is for the on-screen table, so it is capped. The CSV is
+    # not — a download that silently stopped at 500 rows would be worse than
+    # no download.
+    return {"dataset": dataset, "total": len(rows), "limit": limit,
+            "rows": rows[:limit]}
+
+
+class PostReviewRequest(BaseModel):
+    limit: int = Field(200, ge=1, le=2000)
+    batch: int = Field(20, ge=1, le=50)
+    days: Optional[int] = Field(None, ge=1, le=3650)
+    redo: bool = False
+    dry_run: bool = False
+
+
+@router.post("/markets/{market_id}/posts/review")
+async def market_post_review(market_id: int, body: PostReviewRequest,
+                             session=Depends(verify_session)):
+    """Read unreviewed vendor posts and record what each one is.
+
+    Vendor LinkedIn posts cannot be used wholesale — 562 against 122 news
+    articles buries everything — and cannot be discarded either, because
+    launches, raises and customer wins appear there first. No keyword rule
+    separates the two, so each post is read once and judged, and only the ones
+    judged to state a fact reach the feed, the timeline or an observer.
+
+    Reviewed once, not per query: the judgement does not change, and asking
+    again is paying twice for the same answer.
+    """
+    from app.services import market_post_review as mpr
+
+    conn = _conn()
+    try:
+        market = await asyncio.to_thread(_load_market, conn, market_id)
+        return await mpr.review(
+            conn, market_id, market["name"],
+            limit=body.limit, batch=body.batch, days=body.days,
+            redo=body.redo, dry_run=body.dry_run)
+    finally:
+        conn.close()
+
+
 @router.get("/markets/{market_id}/overview")
 async def market_overview(
     market_id: int,
@@ -1041,6 +1136,10 @@ async def market_corpus_articles(
     classes: Optional[str] = Query(
         None, description="Comma-separated: news, vendor, social, research."),
     min_score: float = Query(0.0, ge=0, le=100),
+    all_posts: bool = Query(
+        False, description="Include vendor posts the review judged noise. Off "
+                           "by default — a post is shown once it is known to "
+                           "say something."),
     session=Depends(verify_session),
 ):
     """The matched corpus, newest first."""
@@ -1055,7 +1154,8 @@ async def market_corpus_articles(
                     conn, market_id, limit=limit, offset=offset, days=days,
                     origin=origin, min_score=min_score,
                     classes=[c.strip() for c in (classes or "").split(",")
-                             if c.strip()] or None),
+                             if c.strip()] or None,
+                    require_signal_for_social=not all_posts),
                 "limit": limit, "offset": offset,
             }
         finally:

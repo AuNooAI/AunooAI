@@ -151,11 +151,13 @@ def _esc(v: Any) -> str:
     return escape(str(v)) if v not in (None, "") else ""
 
 
-# Vendor LinkedIn posts are excluded by default. They are 152 of the 348
-# matched articles on the SOC Automation market, so including them turns a
-# market news feed into a vendor marketing feed. ``?classes=news,vendor,social``
-# puts them back.
-DEFAULT_FEED_CLASSES = ("news", "vendor", "research")
+# All four kinds are in the feed. Vendor LinkedIn posts used to be excluded
+# wholesale — 562 of them against 122 news articles buries everything — but
+# every post is now read once and judged, and ``articles()`` only returns the
+# ones judged to state a fact. 107 of the 562 do, including 42 launches, 16
+# partnerships, 11 named customers, 2 raises and an acquisition, which are
+# exactly the events a market monitor exists to catch.
+DEFAULT_FEED_CLASSES = ("news", "vendor", "research", "social")
 
 
 def _parse_stamp(value) -> Optional[datetime]:
@@ -225,8 +227,13 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                     "permalink": True,
                     "description": row.get("summary") or row.get("title") or "",
                     "source": row.get("news_source"),
-                    "categories": [row["article_class"]]
-                                  + list(row.get("matched_terms") or [])[:5],
+                    # The review's kind ("launch", "partnership") is a better
+                    # category than a phrase match for a post that was judged
+                    # rather than matched.
+                    "categories": ([row["article_class"]]
+                                   + ([row["review_kind"]]
+                                      if row.get("review_kind") else [])
+                                   + list(row.get("matched_terms") or [])[:5]),
                 })
 
     if kind in ("all", "events"):
@@ -516,3 +523,173 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
         "last_runs": last_runs,
         "latest_events": latest_events,
     }
+
+
+# ---------------------------------------------------------------------------
+# Data inventory and exports
+# ---------------------------------------------------------------------------
+#
+# "Where can I see all of the data" was a fair question with no answer. The
+# monitor writes to eight tables and the UI showed two of them. Everything the
+# market has stored is listed here with a row count and a download, so nothing
+# is collected into a place nobody can look at.
+
+DATASETS = {
+    "vendors": "One row per vendor: the registry plus its latest observations.",
+    "articles": "Articles matched to this market, with why each one matched.",
+    "posts": "Vendor LinkedIn posts with the review verdict on each.",
+    "profiles": "LinkedIn company readings: headcount, followers, location.",
+    "funding": "Crunchbase readings: rounds, investors, rank.",
+    "jobs": "Open job listings seen at these vendors.",
+    "pages": "Vendor web pages watched, and what changed on them.",
+    "runs": "Every collection run: source, status, records, latency, error.",
+    "tasks": "Open data-quality questions raised during import or collection.",
+}
+
+
+def data_inventory(conn, market_id: int) -> List[Dict[str, Any]]:
+    """What this market has stored, with row counts. Counts only."""
+    counts = {
+        "vendors": ("SELECT COUNT(*) FROM bw_market_brands WHERE market_id = :m",
+                    "SELECT MAX(updated_at) FROM bw_market_brands WHERE market_id = :m"),
+        "articles": ("SELECT COUNT(*) FROM bw_market_articles WHERE market_id = :m",
+                     "SELECT MAX(matched_at) FROM bw_market_articles WHERE market_id = :m"),
+        "posts": ("""SELECT COUNT(*) FROM bw_market_articles
+                     WHERE market_id = :m AND review_verdict IS NOT NULL""",
+                  """SELECT MAX(reviewed_at) FROM bw_market_articles
+                     WHERE market_id = :m"""),
+        "profiles": (_snapshot_count("profile"), _snapshot_latest("profile")),
+        "funding": (_snapshot_count("funding"), _snapshot_latest("funding")),
+        "jobs": (_snapshot_count("job_posting"), _snapshot_latest("job_posting")),
+        "pages": (_snapshot_count("page_state"), _snapshot_latest("page_state")),
+        "runs": ("SELECT COUNT(*) FROM bw_collection_runs WHERE market_id = :m",
+                 "SELECT MAX(started_at) FROM bw_collection_runs WHERE market_id = :m"),
+        "tasks": ("""SELECT COUNT(*) FROM bw_review_tasks
+                     WHERE market_id = :m AND status = 'open'""",
+                  "SELECT MAX(created_at) FROM bw_review_tasks WHERE market_id = :m"),
+    }
+    out = []
+    for name, (count_sql, latest_sql) in counts.items():
+        try:
+            rows = conn.execute(text(count_sql), {"m": market_id}).scalar() or 0
+            latest = conn.execute(text(latest_sql), {"m": market_id}).scalar()
+        except Exception as exc:  # noqa: BLE001 — one missing table is not a broken page
+            logger.warning("inventory count failed for %s: %s", name, exc)
+            rows, latest = 0, None
+        out.append({
+            "dataset": name,
+            "description": DATASETS[name],
+            "rows": rows,
+            "last_updated": latest.isoformat() if hasattr(latest, "isoformat") else latest,
+        })
+    return out
+
+
+def _snapshot_count(kind: str) -> str:
+    return f"""SELECT COUNT(*) FROM bw_vendor_snapshots s
+               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                                        AND mb.market_id = :m
+               WHERE s.snapshot_type = '{kind}'"""
+
+
+def _snapshot_latest(kind: str) -> str:
+    return f"""SELECT MAX(s.observed_at) FROM bw_vendor_snapshots s
+               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                                        AND mb.market_id = :m
+               WHERE s.snapshot_type = '{kind}'"""
+
+
+def _snapshot_rows(conn, market_id: int, kind: str,
+                   fields: List[str]) -> List[Dict[str, Any]]:
+    """Flatten one snapshot type into rows, one JSON key per column."""
+    selected = ", ".join(f"s.data->>'{f}' AS \"{f}\"" for f in fields)
+    return [dict(r) for r in conn.execute(text(f"""
+        SELECT b.display_name AS vendor, s.observed_at, {selected}
+        FROM bw_vendor_snapshots s
+        JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                                 AND mb.market_id = :m
+        JOIN bw_brands b ON b.id = s.brand_id
+        WHERE s.snapshot_type = :k
+        ORDER BY b.display_name, s.observed_at DESC
+    """), {"m": market_id, "k": kind}).mappings().all()]
+
+
+def build_table(conn, market_id: int, dataset: str) -> List[Dict[str, Any]]:
+    """One dataset as a list of flat rows, ready for CSV or a table."""
+    if dataset == "vendors":
+        return build_dataset(conn, market_id)
+
+    if dataset in ("articles", "posts"):
+        from app.services import market_corpus as mcorp
+
+        rows = mcorp.articles(conn, market_id, limit=5000,
+                              require_signal_for_social=False)
+        if dataset == "posts":
+            rows = [r for r in rows if r["article_class"] == "social"]
+        else:
+            rows = [r for r in rows if r["article_class"] != "social"]
+        return [{
+            "vendor_or_source": r.get("news_source"),
+            "title": r.get("title"),
+            "published": r.get("published"),
+            "url": r.get("uri"),
+            "kind": r.get("article_class"),
+            "collected_for_topic": r.get("topic"),
+            "phrase_score": r.get("score"),
+            "matched_phrases": ", ".join(r.get("matched_terms") or []),
+            "review_verdict": r.get("review_verdict"),
+            "review_kind": r.get("review_kind"),
+            "review_reason": r.get("review_reason"),
+            "analysed": r.get("analyzed"),
+            "sentiment": r.get("sentiment"),
+        } for r in rows]
+
+    if dataset == "profiles":
+        return _snapshot_rows(conn, market_id, "profile", [
+            "employee_count", "followers", "headquarters", "industry",
+            "founded", "company_size", "website"])
+    if dataset == "funding":
+        return _snapshot_rows(conn, market_id, "funding", [
+            "funding_rounds", "last_round_type", "investors", "lead_investors",
+            "cb_rank", "ipo_status", "num_investors"])
+    if dataset == "jobs":
+        return _snapshot_rows(conn, market_id, "job_posting", [
+            "job_title", "job_location", "job_seniority_level",
+            "job_function", "job_posted_date", "url"])
+    if dataset == "pages":
+        return _snapshot_rows(conn, market_id, "page_state", [
+            "url", "title", "content_hash", "changed", "added_count",
+            "removed_count"])
+
+    if dataset == "runs":
+        return [dict(r) for r in conn.execute(text("""
+            SELECT source, provider, status, records_received, records_new,
+                   records_skipped, started_at, completed_at, latency_ms, error
+            FROM bw_collection_runs WHERE market_id = :m
+            ORDER BY started_at DESC
+        """), {"m": market_id}).mappings().all()]
+
+    if dataset == "tasks":
+        return [dict(r) for r in conn.execute(text("""
+            SELECT t.kind, t.severity, t.status, t.field, t.message,
+                   b.display_name AS vendor, t.created_at
+            FROM bw_review_tasks t
+            LEFT JOIN bw_brands b ON b.id = t.brand_id
+            WHERE t.market_id = :m
+            ORDER BY t.created_at DESC
+        """), {"m": market_id}).mappings().all()]
+
+    raise ValueError(f"unknown dataset: {dataset}")
+
+
+def table_csv(rows: List[Dict[str, Any]]) -> str:
+    """Rows to CSV. Columns come from the first row's keys."""
+    if not rows:
+        return ""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()),
+                            extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
+    return buf.getvalue()

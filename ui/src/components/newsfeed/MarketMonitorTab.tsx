@@ -17,14 +17,16 @@ import {
   BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  datasetCsvUrl, discoverCandidates, feedUrl, generateMarketTimeline, getBrief,
-  getCollectionPlan, getCorpusArticles, getCorpusSummary, getFacets,
+  datasetCsvUrl, datasetCsvDownloadUrl, discoverCandidates, feedUrl,
+  generateMarketTimeline, getBrief, getCollectionPlan, getCorpusArticles,
+  getCorpusSummary, getDataInventory, getMarketTable, getFacets,
   getMarketTimeline, getMarkets, getOverview, getReviewTasks,
-  getRuns, getSourceHealth, getSources, getVendors, saveSources, scanCorpus,
+  getRuns, getSourceHealth, getSources, getVendors, reviewPosts, saveSources,
+  scanCorpus,
   setCollectionTerms, setVendorCollection, setupCollection, updateReviewTask,
   type CollectionPlan, type CollectionRun, type CorpusArticle,
-  type ArticleClass, type CorpusSummary, type DiscoveryResult,
-  type Facets,
+  type ArticleClass, type CorpusSummary, type DatasetInfo,
+  type DiscoveryResult, type Facets,
   type Market, type MarketBrief, type MarketOverview, type ReviewTask,
   type SourceHealth, type SourceSetting, type TimelineEvent, type Vendor,
   type VendorFilter,
@@ -35,7 +37,7 @@ import {
  * Overview is the standing picture and Brief is the week's changes. They are
  * separate because a reader should not have to reconstruct the state of a
  * market from a list of what happened in it lately. */
-type View = 'overview' | 'brief' | 'wire' | 'coverage' | 'vendors';
+type View = 'overview' | 'brief' | 'wire' | 'coverage' | 'vendors' | 'data';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
 type SettingsPanel = 'collection' | 'sources' | 'health';
@@ -53,6 +55,12 @@ const CLASS_TONE: Record<string, string> = {
   vendor: 'bg-amber-50 text-amber-700 border-amber-200',
   social: 'bg-amber-50 text-amber-700 border-amber-200',
   research: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+};
+
+const VERDICT_TONE: Record<string, string> = {
+  signal: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  commentary: 'bg-slate-50 text-slate-600 border-slate-200',
+  noise: 'bg-slate-50 text-slate-400 border-slate-200',
 };
 
 const SEVERITY_TONE: Record<string, string> = {
@@ -126,6 +134,11 @@ export function MarketMonitorTab() {
     useState<CorpusArticle[] | null>(null);
   const [corpusOrigin, setCorpusOrigin] = useState<'' | 'corpus' | 'collected'>('');
   const [corpusClass, setCorpusClass] = useState<'' | ArticleClass>('');
+  const [allPosts, setAllPosts] = useState(false);
+  const [inventory, setInventory] = useState<DatasetInfo[] | null>(null);
+  const [openDataset, setOpenDataset] = useState<string | null>(null);
+  const [datasetRows, setDatasetRows] =
+    useState<{ total: number; rows: Record<string, any>[] } | null>(null);
   const [scanResult, setScanResult] = useState<string | null>(null);
 
   const market = useMemo(
@@ -215,13 +228,60 @@ export function MarketMonitorTab() {
       getCorpusSummary(marketId, 30),
       getCorpusArticles(marketId, { limit: 100,
                                     origin: corpusOrigin || undefined,
-                                    classes: corpusClass || undefined }),
+                                    classes: corpusClass || undefined,
+                                    allPosts }),
     ]).then(([sum, list]) => {
       if (!live) return;
       setCorpus(sum); setCorpusArticles(list.articles);
     }).catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
-  }, [marketId, view, corpusOrigin, corpusClass]);
+  }, [marketId, view, corpusOrigin, corpusClass, allPosts]);
+
+  useEffect(() => {
+    if (marketId === null || view !== 'data') return;
+    let live = true;
+    getDataInventory(marketId)
+      .then(r => { if (live) setInventory(r.datasets); })
+      .catch(e => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [marketId, view]);
+
+  useEffect(() => {
+    if (marketId === null || !openDataset) { setDatasetRows(null); return; }
+    let live = true;
+    setDatasetRows(null);
+    getMarketTable(marketId, openDataset, 200)
+      .then(r => { if (live) setDatasetRows({ total: r.total, rows: r.rows }); })
+      .catch(e => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [marketId, openDataset]);
+
+  async function runPostReview() {
+    if (marketId === null) return;
+    setBusy(true); setScanResult(null);
+    try {
+      const r = await reviewPosts(marketId, { limit: 600 });
+      setScanResult(
+        r.candidates === 0
+          ? 'Every vendor post has already been read.'
+          : `Read ${r.reviewed} posts with ${r.model}: ${r.counts.signal} state ` +
+            `a fact, ${r.counts.commentary} are commentary, ${r.counts.noise} ` +
+            `are noise.` +
+            (r.failed_batches ? ` ${r.failed_batches} batches failed.` : ''));
+      const [sum, list] = await Promise.all([
+        getCorpusSummary(marketId, 30),
+        getCorpusArticles(marketId, { limit: 100,
+                                      origin: corpusOrigin || undefined,
+                                      classes: corpusClass || undefined,
+                                      allPosts }),
+      ]);
+      setCorpus(sum); setCorpusArticles(list.articles);
+    } catch (e: any) {
+      setScanResult(`Post review failed: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function runCorpusScan() {
     if (marketId === null) return;
@@ -444,6 +504,7 @@ export function MarketMonitorTab() {
           ['wire', 'Wire'],
           ['coverage', 'Coverage'],
           ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
+          ['data', 'Data'],
         ] as [View, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setView(id)}
             className={`px-3 py-2 text-sm border-b-2 -mb-px ${
@@ -622,6 +683,14 @@ export function MarketMonitorTab() {
                     : <Search className="w-4 h-4" />}
               Rescan corpus
             </button>
+            <button onClick={runPostReview} disabled={busy}
+                    className="text-sm px-3 py-1.5 border rounded-md
+                               hover:bg-slate-50 disabled:opacity-50
+                               inline-flex items-center gap-1.5">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Play className="w-4 h-4" />}
+              Review vendor posts
+            </button>
           </div>
 
           {scanResult && (
@@ -676,6 +745,32 @@ export function MarketMonitorTab() {
             </div>
           )}
 
+          {corpus?.signal_kinds && corpus.signal_kinds.length > 0 && (
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Vendor posts that state a fact
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Each post read once and judged. Only these reach the feed, the
+                timeline and the observer agents; the rest are conference
+                notices, employee spotlights and commentary.
+                {' '}{corpus.by_verdict?.signal ?? 0} of{' '}
+                {(corpus.by_verdict?.signal ?? 0)
+                 + (corpus.by_verdict?.commentary ?? 0)
+                 + (corpus.by_verdict?.noise ?? 0)} reviewed.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {corpus.signal_kinds.map(k => (
+                  <span key={k.kind}
+                        className="text-xs px-2 py-0.5 rounded border
+                                   bg-emerald-50 text-emerald-700 border-emerald-200">
+                    {k.kind} <span className="text-emerald-500">{k.n}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-1">
             {([['', 'All'], ['corpus', 'From other topics'],
                ['collected', 'From this market']] as const).map(([id, label]) => (
@@ -701,6 +796,12 @@ export function MarketMonitorTab() {
                   ? ` (${corpus.by_class[id as ArticleClass] ?? 0})` : ''}
               </button>
             ))}
+            <span className="w-3" />
+            <label className="text-sm text-slate-600 inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={allPosts}
+                     onChange={e => setAllPosts(e.target.checked)} />
+              Include posts judged noise
+            </label>
           </div>
 
           {corpusArticles === null ? (
@@ -737,6 +838,14 @@ export function MarketMonitorTab() {
                       CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
                       {CLASS_LABEL[a.article_class] ?? a.article_class}
                     </span>
+                    {a.review_verdict && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                        VERDICT_TONE[a.review_verdict]}`}
+                            title={a.review_reason ?? undefined}>
+                        {a.review_verdict === 'signal' && a.review_kind
+                          ? a.review_kind : a.review_verdict}
+                      </span>
+                    )}
                     {a.matched_terms.slice(0, 4).map(t => (
                       <span key={t}
                             className="text-xs px-1.5 py-0.5 rounded border
@@ -745,6 +854,110 @@ export function MarketMonitorTab() {
                       </span>
                     ))}
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---- Data ---- */}
+      {view === 'data' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600 max-w-3xl">
+            Everything this market has stored. Click a dataset to see its rows;
+            the CSV is the whole table, the on-screen preview is the first 200.
+          </p>
+
+          {inventory === null ? (
+            <div className="py-12 text-center text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+            </div>
+          ) : (
+            <div className="border rounded-lg bg-white divide-y">
+              {inventory.map(d => (
+                <div key={d.dataset}>
+                  <div className="flex items-center gap-3 p-3">
+                    <button
+                      onClick={() => setOpenDataset(
+                        openDataset === d.dataset ? null : d.dataset)}
+                      className="flex items-center gap-2 text-left flex-1 min-w-0">
+                      {openDataset === d.dataset
+                        ? <ChevronDown className="w-4 h-4 shrink-0 text-slate-400" />
+                        : <ChevronRight className="w-4 h-4 shrink-0 text-slate-400" />}
+                      <span className="text-sm font-medium text-slate-800 w-24 shrink-0">
+                        {d.dataset}
+                      </span>
+                      <span className="text-sm text-slate-500 truncate">
+                        {d.description}
+                      </span>
+                    </button>
+                    <span className="text-sm tabular-nums text-slate-700 shrink-0">
+                      {d.rows.toLocaleString()}
+                    </span>
+                    <span className="text-xs text-slate-400 tabular-nums shrink-0
+                                     hidden sm:inline w-32 text-right">
+                      {d.last_updated
+                        ? new Date(d.last_updated).toLocaleString() : 'never'}
+                    </span>
+                    <a href={datasetCsvDownloadUrl(marketId!, d.dataset)}
+                       className="text-xs px-2 py-1 border rounded
+                                  hover:bg-slate-50 shrink-0">
+                      CSV
+                    </a>
+                  </div>
+
+                  {openDataset === d.dataset && (
+                    <div className="border-t bg-slate-50 p-3">
+                      {datasetRows === null ? (
+                        <div className="py-6 text-center text-slate-400">
+                          <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                        </div>
+                      ) : datasetRows.rows.length === 0 ? (
+                        <p className="text-sm text-slate-500 py-4 text-center">
+                          Nothing stored yet.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="text-xs text-slate-500 mb-2">
+                            Showing {datasetRows.rows.length} of{' '}
+                            {datasetRows.total.toLocaleString()} rows.
+                          </div>
+                          {/* Wide tables scroll inside their own box rather
+                              than pushing the page sideways. */}
+                          <div className="overflow-x-auto border rounded bg-white">
+                            <table className="text-xs min-w-full">
+                              <thead className="bg-slate-100">
+                                <tr>
+                                  {Object.keys(datasetRows.rows[0]).map(col => (
+                                    <th key={col}
+                                        className="px-2 py-1.5 text-left font-medium
+                                                   text-slate-600 whitespace-nowrap">
+                                      {col}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {datasetRows.rows.map((row, i) => (
+                                  <tr key={i} className="hover:bg-slate-50">
+                                    {Object.keys(datasetRows.rows[0]).map(col => (
+                                      <td key={col}
+                                          className="px-2 py-1 text-slate-700
+                                                     max-w-xs truncate"
+                                          title={String(row[col] ?? '')}>
+                                        {String(row[col] ?? '')}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

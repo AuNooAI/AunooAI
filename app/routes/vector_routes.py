@@ -5459,12 +5459,14 @@ async def _run_signal_instruction_internal(
                 market_params = []
                 if _market_corpus_topic(db, topic):
                     market_clause = (
-                        " OR (COALESCE(articles.bias_source, '') <> 'vendor:linkedin'"
-                        " AND EXISTS (SELECT 1 FROM bw_market_articles ma"
+                        " OR EXISTS (SELECT 1 FROM bw_market_articles ma"
                         " JOIN bw_markets m ON m.id = ma.market_id"
-                        " WHERE ma.article_uri = articles.uri AND ma.score >= 12"
+                        " WHERE ma.article_uri = articles.uri"
+                        " AND (ma.score >= 12 OR ma.review_verdict = 'signal')"
+                        " AND (COALESCE(articles.bias_source, '') <> 'vendor:linkedin'"
+                        "      OR ma.review_verdict = 'signal')"
                         " AND COALESCE(m.config->'collection'->>'topic_name',"
-                        " 'Market Monitoring ' || m.name) = ?))")
+                        " 'Market Monitoring ' || m.name) = ?)")
                     market_params = [topic]
                 query += (" AND (topic = ? OR title LIKE ? OR summary LIKE ?"
                           f"{market_clause})")

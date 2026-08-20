@@ -696,6 +696,8 @@ export type ArticleClass = 'news' | 'vendor' | 'social' | 'research';
 
 export interface CorpusSummary {
   by_class: Record<ArticleClass, number>;
+  by_verdict: Record<string, number>;
+  signal_kinds: { kind: string; n: number }[];
   total: number;
   /** Matched and collected under the market's own topic. */
   collected: number;
@@ -727,6 +729,10 @@ export interface CorpusArticle {
   origin: 'collected' | 'corpus';
   article_class: ArticleClass;
   title_terms: number;
+  /** Set on vendor posts that were read by the review pass. */
+  review_verdict: 'signal' | 'commentary' | 'noise' | null;
+  review_kind: string | null;
+  review_reason: string | null;
 }
 
 export async function getOverview(
@@ -748,7 +754,8 @@ export async function getCorpusSummary(
 export async function getCorpusArticles(
   marketId: number,
   opts: { limit?: number; offset?: number; days?: number;
-          origin?: string; classes?: string; minScore?: number } = {},
+          origin?: string; classes?: string; minScore?: number;
+          allPosts?: boolean } = {},
 ): Promise<{ articles: CorpusArticle[]; limit: number; offset: number }> {
   const q = new URLSearchParams();
   if (opts.limit) q.set('limit', String(opts.limit));
@@ -756,6 +763,7 @@ export async function getCorpusArticles(
   if (opts.days) q.set('days', String(opts.days));
   if (opts.origin) q.set('origin', opts.origin);
   if (opts.classes) q.set('classes', opts.classes);
+  if (opts.allPosts) q.set('all_posts', 'true');
   if (opts.minScore !== undefined) q.set('min_score', String(opts.minScore));
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/corpus?${q}`,
@@ -774,4 +782,61 @@ export async function scanCorpus(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }), 'Corpus scan failed');
+}
+
+// ============================================================================
+// Post review and the data inventory
+// ============================================================================
+
+export interface PostReviewResult {
+  model: string;
+  candidates: number;
+  reviewed: number;
+  batches: number;
+  failed_batches: number;
+  dry_run: boolean;
+  counts: { signal: number; commentary: number; noise: number };
+  samples: { vendor?: string; title?: string; kind?: string; reason?: string }[];
+}
+
+export async function reviewPosts(
+  marketId: number,
+  body: { limit?: number; batch?: number; days?: number;
+          redo?: boolean; dry_run?: boolean } = {},
+): Promise<PostReviewResult> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/posts/review`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), 'Post review failed');
+}
+
+export interface DatasetInfo {
+  dataset: string;
+  description: string;
+  rows: number;
+  last_updated: string | null;
+}
+
+export async function getDataInventory(
+  marketId: number,
+): Promise<{ datasets: DatasetInfo[] }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/data`,
+    { credentials: 'include' }), 'Failed to load data inventory');
+}
+
+/** One named dataset from the data inventory. Distinct from ``getDataset``,
+ *  which is the vendor table and predates this. */
+export async function getMarketTable(
+  marketId: number, dataset: string, limit = 200,
+): Promise<{ dataset: string; total: number; limit: number;
+             rows: Record<string, any>[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/data/${dataset}?limit=${limit}`,
+      { credentials: 'include' }), 'Failed to load dataset');
+}
+
+/** CSV download. Uncapped, unlike the on-screen table. */
+export function datasetCsvDownloadUrl(marketId: number, dataset: string): string {
+  return `${BASE}/markets/${marketId}/data/${dataset}?fmt=csv`;
 }
