@@ -838,3 +838,76 @@ export async function getMarketTable(
 export function datasetCsvDownloadUrl(marketId: number, dataset: string): string {
   return `${BASE}/markets/${marketId}/data/${dataset}?fmt=csv`;
 }
+
+// ============================================================================
+// Analysis
+// ============================================================================
+
+/** Every analysis states what it rests on. A figure without its denominator
+ *  invites the wrong conclusion — "one shared investor" reads as a fragmented
+ *  market when it actually means half the Crunchbase pages are unread. */
+export interface Coverage {
+  measured: number;
+  total: number;
+  unit: string;
+  complete: boolean;
+  label: string;
+}
+
+export interface FormationAnalysis {
+  founded_by_year: { year: number; vendors: number }[];
+  announcements_by_month: {
+    month: string; signal: number; commentary: number; posts: number;
+  }[];
+  founded_since_2023: number;
+  vendors_in_scope: number;
+  reviewed_posts: number;
+  coverage: Coverage;
+  announcement_coverage: Coverage;
+}
+
+export interface SignalNoiseAnalysis {
+  vendors: {
+    brand_id: number; vendor: string; signal: number; commentary: number;
+    noise: number; posts: number; signal_share: number | null;
+  }[];
+  signal_kinds: { kind: string; n: number }[];
+  min_posts_for_ratio: number;
+  totals: { signal: number; commentary: number; noise: number };
+  coverage: Coverage;
+}
+
+export interface FundingAnalysis {
+  stages: { stage: string; vendors: number }[];
+  momentum: {
+    brand_id: number; vendor: string;
+    growth_score: number | null; heat_score: number | null;
+    growth_trend: string | null; heat_trend: string | null;
+    cb_rank: number | null; rounds: number | null;
+  }[];
+  shared_investors: { investor: string; vendors: number; backing: string[] }[];
+  coverage: Coverage;
+}
+
+export interface HiringAnalysis {
+  openings: number;
+  by_function: { function: string; openings: number }[];
+  by_seniority: { seniority: string; openings: number }[];
+  by_vendor: {
+    brand_id: number; vendor: string; openings: number;
+    engineering: number; sales: number;
+  }[];
+  coverage: Coverage;
+}
+
+export interface MarketAnalyses {
+  formation?: FormationAnalysis & { error?: string };
+  signal_noise?: SignalNoiseAnalysis & { error?: string };
+  funding?: FundingAnalysis & { error?: string };
+  hiring?: HiringAnalysis & { error?: string };
+}
+
+export async function getAnalyses(marketId: number): Promise<MarketAnalyses> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analysis`,
+    { credentials: 'include' }), 'Failed to load analysis');
+}

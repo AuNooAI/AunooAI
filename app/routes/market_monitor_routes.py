@@ -958,6 +958,61 @@ async def market_feed(
                     headers={"Cache-Control": "public, max-age=900"})
 
 
+@router.get("/markets/{market_id}/analysis/{name}")
+async def market_analysis(market_id: int, name: str,
+                          session=Depends(verify_session)):
+    """One cross-sectional analysis of the market.
+
+    ``formation`` — founding years against announcement volume.
+    ``signal_noise`` — which vendors announce things and which just post.
+    ``funding`` — stage mix, momentum, investors backing more than one vendor.
+    ``hiring`` — what the market is recruiting for.
+
+    Every one returns its own ``coverage``, because most of them rest on a
+    subset of the registry and a figure without its denominator invites the
+    wrong conclusion.
+    """
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            try:
+                return man.run(conn, market_id, name)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/analysis")
+async def market_analysis_all(market_id: int,
+                              session=Depends(verify_session)):
+    """All four analyses in one call — what the Analysis view loads."""
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            out = {}
+            for name in man.ANALYSES:
+                try:
+                    out[name] = man.run(conn, market_id, name)
+                except Exception as exc:  # noqa: BLE001
+                    # One failing analysis should not blank the whole view.
+                    logger.warning("analysis %s failed: %s", name, exc)
+                    out[name] = {"error": str(exc)[:300]}
+            return out
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 @router.get("/markets/{market_id}/data")
 async def market_data_inventory(market_id: int,
                                 session=Depends(verify_session)):

@@ -2,6 +2,95 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-20 (phase 1) — Market Monitor: four analyses, and a double-count they exposed
+
+### Goal
+The market monitor had four charts, two of which plotted the same thing. This adds the four
+cross-sectional reads the data actually supports, on a new Analysis tab.
+
+### `app/services/market_analysis.py` — new
+Kept separate from `market_publish.py` on purpose: that module is about outputs, this one about
+aggregates, and the outputs consume it rather than the reverse. Four functions plus a `run()`
+dispatcher, read by `GET /markets/{id}/analysis/{name}` and `GET /markets/{id}/analysis`.
+
+**Every analysis returns its own `coverage`** — measured, total, and a rendered label. This is
+part of the return value rather than something a caller can forget to ask for, because most of
+these rest on a subset of the registry. "One shared investor" reads as a fragmented market when
+what it means is that 19 of 38 Crunchbase pages have been read.
+
+**`formation`** — founding years against announcement volume. Two series that only mean something
+together: founding years say a category appeared, announcement volume says it started competing.
+On this market the founding years cluster in 2023–2026 and announcements only pick up from early
+2026.
+
+**`signal_noise`** — the three review verdicts per vendor, plus `signal_share`. The share is only
+computed above `MIN_POSTS_FOR_RATIO = 8`, because a ratio over three posts sorts to the top of any
+league table and means nothing.
+
+**`funding`** — stage mix, a growth-against-attention scatter, and investors backing more than one
+vendor, all from the latest `funding` snapshot per vendor.
+
+**`hiring`** — function and seniority. LinkedIn's own function labels are inconsistent
+("Information Technology" and "Engineering and Information Technology" are the same thing here),
+so `_group_function()` collapses them into engineering / sales / marketing / operations. Leaving
+them apart splits an already small sample into an unreadable one.
+
+### The category join was double-counting posts
+`bw_article_categories` holds one row per (article, brand, **category**), so a post filed under
+three categories appears three times. The first version of `signal_noise` joined straight through
+it and reported 783 posts where 562 exist — 406 posts have one category row, 103 have two, 41
+have three and 12 have four, which is exactly 783.
+
+Every count that joins through that table now deduplicates on (brand, article) first, via a
+shared `_POST_BRANDS` CTE. The per-vendor ranking changed materially as a result: Radiant Security
+has 13 announcements, not the 25 the inflated query reported, and Wraithwatch moves up on ratio
+with 10 of 15 posts stating a fact.
+
+### `ui/src/components/newsfeed/MarketAnalysisView.tsx` — new
+New **Analysis** tab, second after Overview. Six panels, each printing its coverage line above the
+chart. Adds `ComposedChart`, `Scatter`, `ScatterChart` and `ZAxis` to the recharts imports.
+
+Founding years and announcement months are two charts side by side rather than one composed chart,
+because they share no x-axis and overlaying them would imply a correspondence that is not there.
+
+The momentum scatter puts Crunchbase rank in the tooltip rather than sizing the dots by it. Rank
+spans 5,925 to 4,390,703 across these 19 vendors, so a size scale would make every dot look
+identical. Dots are clickable through to the vendor page.
+
+### Verification
+Every figure cross-checked against independent SQL run separately against the same tables:
+
+```
+                       endpoint   direct SQL
+founded 2023 or later:       63           63
+vendors in scope:            82           82
+reviewed posts:             562          562
+signal posts:               107          107
+job listings:                30           30
+vendors with funding:        19           19
+```
+
+`signal_noise` totals now sum to exactly 562, matching the review run; before the deduplication
+they summed to 783.
+
+Monthly announcement series: 1, 0, 3, 2, 1, 5, 16, 8, 5, 17, 33, 16 — matching the figures the
+plan was written from.
+
+Coverage labels render as intended: "81 of 82 vendors have a founding year", "19 of 82 vendors
+post on LinkedIn", "19 of 38 vendors with a Crunchbase page have been read", "6 of 82 vendors
+have job listings we have seen".
+
+`npm run typecheck` clean against baseline (246 known). Rebuilt, restarted, service active, no
+collection runs in flight.
+
+### Propagation
+bugfixing (canonical) only, like the rest of the market monitor.
+
+### Lessons
+NEVER count through `bw_article_categories` without deduplicating on (brand, article). It is
+keyed on category, so any per-brand count through it is inflated by the number of categories each
+article carries — silently, and by a plausible-looking factor.
+
 ## 2026-08-20 (phase 0) — Market Monitor: the exports were mostly empty columns
 
 ### Goal
