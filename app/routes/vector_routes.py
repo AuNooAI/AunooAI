@@ -4116,6 +4116,40 @@ class _RunSignalRequest(BaseModel):
 _SIGNAL_CANDIDATE_CEILING = 20000
 
 
+def _market_corpus_topic(db, topic: str) -> bool:
+    """Whether this topic belongs to a market that has a matched corpus.
+
+    Two questions in one, both of which have to be answered before the market
+    clause can be added to an observer's query. The table does not exist on a
+    deployment that has never had a market monitor, and most topics are not a
+    market's. Returning False on any error keeps a broken market monitor from
+    taking every observer agent down with it.
+    """
+    if not topic:
+        return False
+    try:
+        rows = db.fetch_all(
+            "SELECT 1 FROM bw_markets m WHERE COALESCE("
+            "m.config->'collection'->>'topic_name',"
+            " 'Market Monitoring ' || m.name) = ? LIMIT 1", [topic])
+        if not rows:
+            return False
+        # fetch_all returns a row either way here, so read the value rather
+        # than testing whether a row came back. Rows come back as dicts, and
+        # the column name for a bare expression is not stable, so take the one
+        # value the row holds.
+        present = db.fetch_all(
+            "SELECT to_regclass('bw_market_articles') IS NOT NULL AS ok", [])
+        if not present:
+            return False
+        row = present[0]
+        value = row.get("ok") if isinstance(row, dict) else row[0]
+        return bool(value)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("market corpus check failed for %r: %s", topic, exc)
+        return False
+
+
 def _normalize_uri(uri: str) -> str:
     """Matching key for LLM-echoed article URIs — models drop trailing
     slashes or add/remove 'www.' when copying URIs into match JSON, which
@@ -5415,9 +5449,28 @@ async def _run_signal_instruction_internal(
                 else:
                     query += " AND topic LIKE 'Brand Monitoring %'"
             elif topic:
-                query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+                # A market monitor's topic also owns the articles its own
+                # phrases matched out of the corpus. Those were collected under
+                # other topics, so `topic = ?` misses them — 282 of 606 on the
+                # SOC Automation market. Vendor LinkedIn posts stay out: they
+                # outnumber the news 152 to 122 and would make an observer
+                # report the vendors' marketing back as market movement.
+                market_clause = ""
+                market_params = []
+                if _market_corpus_topic(db, topic):
+                    market_clause = (
+                        " OR (COALESCE(articles.bias_source, '') <> 'vendor:linkedin'"
+                        " AND EXISTS (SELECT 1 FROM bw_market_articles ma"
+                        " JOIN bw_markets m ON m.id = ma.market_id"
+                        " WHERE ma.article_uri = articles.uri AND ma.score >= 12"
+                        " AND COALESCE(m.config->'collection'->>'topic_name',"
+                        " 'Market Monitoring ' || m.name) = ?))")
+                    market_params = [topic]
+                query += (" AND (topic = ? OR title LIKE ? OR summary LIKE ?"
+                          f"{market_clause})")
                 topic_pattern = f"%{topic}%"
                 params.extend([topic, topic_pattern, topic_pattern])
+                params.extend(market_params)
 
             query += " ORDER BY publication_date DESC LIMIT ?"
             params.append(_SIGNAL_CANDIDATE_CEILING)

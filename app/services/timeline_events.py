@@ -101,6 +101,20 @@ _ARTICLE_COLS = ("a.uri, a.title, LEFT(COALESCE(NULLIF(a.summary,''), a.title, '
                  "a.news_source, a.sentiment, COALESCE(a.topic_alignment_score, 0)")
 
 
+def _market_corpus_available(conn) -> bool:
+    """Whether this deployment has the market monitor's corpus table.
+
+    Guarded rather than assumed: timeline generation runs on tenants that have
+    never had a market monitor, and a missing table there would break every
+    topic timeline, not just a market's.
+    """
+    try:
+        return bool(conn.execute(
+            text("SELECT to_regclass('bw_market_articles')")).scalar())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _fetch_day_articles(conn, scope_type: str, scope_id: str, target: date) -> List[Dict[str, Any]]:
     """Articles ingested on the target day for the scope, most relevant first."""
     p = _day_bounds(target)
@@ -122,11 +136,38 @@ def _fetch_day_articles(conn, scope_type: str, scope_id: str, target: date) -> L
             ORDER BY a.uri
         """), {**p, "bid": bid, "lane": lane_topic}).fetchall()
     else:
+        # A market monitor's topic has a second source of articles: the ones
+        # matched out of the corpus by the market's own phrases, which were
+        # collected under some other topic and so fail `a.topic = :t`. On the
+        # SOC Automation market that is 282 of 606 articles, and without this
+        # clause none of them reach the timeline, the brief or an observer.
+        #
+        # They are gated on the market's own match score, not on
+        # `topic_alignment_score` — that column measures an article against the
+        # topic it was collected for, which is a different question and here
+        # would be the wrong one.
+        #
+        # Vendor LinkedIn posts are left out. They are 152 of the 348 matches
+        # and they arrive in bursts on the day they are collected, so including
+        # them would produce a daily timeline about vendor marketing.
+        market_clause = ""
+        if _market_corpus_available(conn):
+            market_clause = """
+              OR (COALESCE(a.bias_source, '') <> 'vendor:linkedin' AND EXISTS (
+                  SELECT 1 FROM bw_market_articles ma
+                  JOIN bw_markets m ON m.id = ma.market_id
+                  WHERE ma.article_uri = a.uri
+                    AND ma.score >= 12
+                    AND COALESCE(
+                        m.config->'collection'->>'topic_name',
+                        'Market Monitoring ' || m.name) = :t
+              ))"""
         rows = conn.execute(text(f"""
             SELECT {_ARTICLE_COLS}
             FROM articles a
-            WHERE a.topic = :t AND a.submission_date >= :d0 AND a.submission_date < :d1
-              AND COALESCE(a.topic_alignment_score, 0) >= 0.4
+            WHERE a.submission_date >= :d0 AND a.submission_date < :d1
+              AND ((a.topic = :t AND COALESCE(a.topic_alignment_score, 0) >= 0.4)
+                   {market_clause})
         """), {**p, "t": scope_id}).fetchall()
     arts = [{"uri": r[0], "title": r[1] or "", "summary": r[2] or "", "source": r[3] or "",
              "sentiment": r[4] or "", "score": float(r[5] or 0)} for r in rows]

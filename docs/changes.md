@@ -105,8 +105,51 @@ a kind filter is set, then truncates. And `<source url="...">` pointed at our ow
 requires that attribute to be the originating feed's URL, which we do not know, so naming
 ourselves there claims we published the article. Replaced with `<dc:creator>`.
 
+### The matched corpus now reaches the reporting surfaces — `app/services/timeline_events.py`, `app/routes/vector_routes.py`
+Corpus matching was only half wired. The feed and the Coverage view read `bw_market_articles`;
+the timeline, the brief and the observer agents all still selected on
+`a.topic = 'Market Monitoring SOC Automation'`, so the 282 recovered articles reached no
+reporting surface at all.
+
+`_fetch_day_articles()` (topic branch) and the observer's candidate query in
+`_run_signal_instructions` now both add the market's matched corpus. Both gate on the market's
+own `ma.score`, not on `topic_alignment_score` — that column scores an article against the topic
+it was *collected* for, which is a different question and here the wrong one.
+
+Both exclude vendor LinkedIn posts. They are 152 of the 348 matches and arrive in bursts on the
+day they are collected, so including them turns a daily timeline into a record of vendor
+marketing. Without that exclusion the timeline's candidate set for 2026-08-20 was 220 articles;
+with it, 68.
+
+Both are guarded. `_market_corpus_available()` and `_market_corpus_topic()` check that
+`bw_market_articles` exists and that the topic actually belongs to a market, and return False on
+any error — timeline generation and observer agents run on deployments that have never had a
+market monitor, and a missing table there would break every topic, not just a market's.
+
 ### Verification
 Migration applied: `alembic upgrade head` → `mm_001 -> mm_002`.
+
+Timeline candidate articles for the market topic, 14 days: **40 before, 80 after**.
+
+Non-market topics are unchanged — `AI and Machine Learning` and `Geopolitical Hotspots` return
+identical counts to the old query on each of the last three days (31/19/17 and 97/100/74).
+
+**Market news volume is the binding constraint, and it is low.** Non-vendor-social matched
+articles by publication window:
+
+| window | articles | of which analysed |
+|---|---|---|
+| 7 days | 12 | 6 |
+| 14 days | 16 | 9 |
+| 30 days | 26 | 12 |
+| 90 days | 84 | 37 |
+
+So an observer on a 7-day window sees 6 usable articles however the selection is written, which
+is why widening it moved the observer's candidate count only from 11 to 12. Two separate causes:
+the market genuinely produces few news articles a week, and only about half of what we do match
+has been through the AI analysis step.
+
+
 
 First scan of the SOC Automation market, committed:
 
