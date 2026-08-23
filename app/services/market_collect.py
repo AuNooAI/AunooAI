@@ -681,6 +681,9 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
 
 CRUNCHBASE_SOURCE = "crunchbase_company"
 JOBS_SOURCE = "linkedin_jobs"
+PITCHBOOK_SOURCE = "pitchbook_company"
+ZOOMINFO_SOURCE = "zoominfo_company"
+INDEED_SOURCE = "indeed_jobs"
 
 
 def crunchbase_url_map(conn, market_id: int) -> Dict[str, int]:
@@ -700,6 +703,26 @@ def crunchbase_url_map(conn, market_id: int) -> Dict[str, int]:
         if key:
             out[key] = brand_id
     return out
+
+
+def identifier_url_map(conn, market_id: int, kind: str) -> Dict[str, int]:
+    """``{url: brand_id}`` for vendors with a manually-recorded identifier of
+    this kind.
+
+    Unlike ``crunchbase_url_map``, there is no guess here and no
+    normalisation — PitchBook and ZoomInfo profile URLs end in an opaque
+    numeric id that cannot be derived from a company name, so a vendor has
+    one only if an operator entered it. Whatever they typed is what gets
+    collected.
+    """
+    rows = conn.execute(text("""
+        SELECT i.normalized_value, i.brand_id
+        FROM bw_vendor_identifiers i
+        JOIN bw_market_brands mb ON mb.brand_id = i.brand_id AND mb.market_id = :m
+        WHERE i.kind = :k AND i.valid_to IS NULL
+          AND mb.collection_enabled AND mb.role <> 'excluded'
+    """), {"m": market_id, "k": kind}).fetchall()
+    return {value: brand_id for value, brand_id in rows if value}
 
 
 def ingest_crunchbase(conn, *, run: Dict[str, Any], records: List[dict],
@@ -794,6 +817,118 @@ def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
             "provider_errors": provider_errors}
 
 
+def ingest_pitchbook(conn, *, run: Dict[str, Any], records: List[dict],
+                     url_to_brand: Dict[str, int]) -> Dict[str, int]:
+    """Store PitchBook records as firmographic snapshots.
+
+    Same attribution shape as ``ingest_crunchbase`` — a straight collect by
+    URL, matched back to a vendor via the URL Bright Data echoes in
+    ``input``/``discovery_input``, not by name.
+    """
+    from app.services.brightdata_linkedin import map_pitchbook_company
+
+    stored = unchanged = unmatched = 0
+    for raw in records:
+        if not isinstance(raw, dict):
+            continue
+        inp = raw.get("input") or raw.get("discovery_input")
+        url = (inp or {}).get("url") if isinstance(inp, dict) else raw.get("url")
+        brand_id = url_to_brand.get(url or "")
+        mapped = map_pitchbook_company(raw)
+        if not brand_id or not mapped:
+            unmatched += 1
+            continue
+        if store_snapshot(
+            conn, market_id=run["market_id"], brand_id=brand_id,
+            source=PITCHBOOK_SOURCE, snapshot_type="firmographic",
+            provider_item_id=url or str(brand_id), data=mapped, run_id=run["id"],
+        ):
+            stored += 1
+        else:
+            unchanged += 1
+    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
+
+
+def ingest_zoominfo(conn, *, run: Dict[str, Any], records: List[dict],
+                    url_to_brand: Dict[str, int]) -> Dict[str, int]:
+    """Store ZoomInfo records as firmographic snapshots. Same shape as
+    ``ingest_pitchbook``."""
+    from app.services.brightdata_linkedin import map_zoominfo_company
+
+    stored = unchanged = unmatched = 0
+    for raw in records:
+        if not isinstance(raw, dict):
+            continue
+        inp = raw.get("input") or raw.get("discovery_input")
+        url = (inp or {}).get("url") if isinstance(inp, dict) else raw.get("url")
+        brand_id = url_to_brand.get(url or "")
+        mapped = map_zoominfo_company(raw)
+        if not brand_id or not mapped:
+            unmatched += 1
+            continue
+        if store_snapshot(
+            conn, market_id=run["market_id"], brand_id=brand_id,
+            source=ZOOMINFO_SOURCE, snapshot_type="firmographic",
+            provider_item_id=url or str(brand_id), data=mapped, run_id=run["id"],
+        ):
+            stored += 1
+        else:
+            unchanged += 1
+    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
+
+
+def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
+                       records: List[dict]) -> Dict[str, int]:
+    """Store Indeed listings as hiring observations, pooled with LinkedIn's
+    under the same ``job_posting`` snapshot type — two views of the same
+    signal, kept apart only by ``source`` and ``provider_item_id``'s separate
+    id namespace, so neither can collide with or double the other.
+
+    Attribution is by the employer name we searched for, read back from
+    ``discovery_input.posted_by`` the same way ``ingest_posts`` reads
+    ``discovery_input.url`` — the input we sent is the one fact we know is
+    right, unlike whatever field the provider chose to echo the company
+    under. Unverified against a real response: if ``discovery_input`` turns
+    out not to carry ``posted_by``, every record here becomes unmatched
+    rather than mis-attributed, which is the safe failure.
+    """
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    name_to_brand = {
+        name.split("(")[0].strip().lower(): brand_id
+        for name, brand_id in conn.execute(text("""
+            SELECT b.display_name, b.id FROM bw_brands b
+            JOIN bw_market_brands mb ON mb.brand_id = b.id
+                                     AND mb.market_id = :m
+        """), {"m": run["market_id"]}).fetchall()
+    }
+
+    stored = unchanged = unmatched = 0
+    for raw in records:
+        if not isinstance(raw, dict):
+            continue
+        mapped = map_indeed_job(raw)
+        if not mapped:
+            unmatched += 1
+            continue
+        discovery = raw.get("discovery_input")
+        posted_by = ((discovery or {}).get("posted_by")
+                    if isinstance(discovery, dict) else None) or mapped.get("company")
+        brand_id = name_to_brand.get((posted_by or "").strip().lower())
+        if not brand_id:
+            unmatched += 1
+            continue
+        if store_snapshot(
+            conn, market_id=run["market_id"], brand_id=brand_id,
+            source=INDEED_SOURCE, snapshot_type="job_posting",
+            provider_item_id=mapped["posting_id"], data=mapped, run_id=run["id"],
+        ):
+            stored += 1
+        else:
+            unchanged += 1
+    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
+
+
 def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:
     """Give each collecting vendor a guessed Crunchbase URL.
 
@@ -849,5 +984,15 @@ def ingest_for_source(conn, *, run: Dict[str, Any],
     if source == JOBS_SOURCE:
         url_map, _ = linkedin_url_map(conn, run["market_id"])
         return ingest_jobs(conn, run=run, records=records, url_to_brand=url_map)
+    if source == PITCHBOOK_SOURCE:
+        return ingest_pitchbook(
+            conn, run=run, records=records,
+            url_to_brand=identifier_url_map(conn, run["market_id"], "pitchbook_url"))
+    if source == ZOOMINFO_SOURCE:
+        return ingest_zoominfo(
+            conn, run=run, records=records,
+            url_to_brand=identifier_url_map(conn, run["market_id"], "zoominfo_url"))
+    if source == INDEED_SOURCE:
+        return ingest_indeed_jobs(conn, run=run, records=records)
     url_map, _ = linkedin_url_map(conn, run["market_id"])
     return ingest_profiles(conn, run=run, records=records, url_to_brand=url_map)

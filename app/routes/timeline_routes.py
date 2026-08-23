@@ -104,6 +104,46 @@ async def list_events(
         conn.close()
 
 
+class ArticleLookup(BaseModel):
+    uris: list[str] = Field(..., max_length=50)
+
+
+@router.post("/articles")
+async def timeline_article_lookup(body: ArticleLookup, session=Depends(verify_session)):
+    """Titles, links and vendor attribution for a batch of article URIs.
+
+    An event carries only ``article_uris`` — a count and a significance are
+    not something a reader can check without seeing what they were computed
+    from, so this is what a "show articles" expansion calls on request
+    rather than something every event list-load pays for upfront. Vendors
+    come from the same ``bw_article_categories`` classification the rest of
+    the app pivots on, so a reader can jump straight to a named vendor's
+    profile the way they already can from Coverage.
+    """
+    conn = _conn()
+    try:
+        if not body.uris:
+            return {"articles": []}
+        rows = conn.execute(text("""
+            SELECT uri, title, news_source, publication_date
+            FROM articles WHERE uri = ANY(:uris)
+        """), {"uris": body.uris}).mappings().all()
+        by_uri = {r["uri"]: {**dict(r), "vendors": []} for r in rows}
+        for uri, brand_id, name in conn.execute(text("""
+            SELECT DISTINCT bac.article_uri, b.id, b.display_name
+            FROM bw_article_categories bac
+            JOIN bw_brands b ON b.id = bac.brand_id
+            WHERE bac.article_uri = ANY(:uris)
+        """), {"uris": body.uris}).fetchall():
+            if uri in by_uri:
+                by_uri[uri]["vendors"].append(
+                    {"brand_id": brand_id, "vendor": name})
+        # The caller's order is already relevance- or recency-sorted.
+        return {"articles": [by_uri[u] for u in body.uris if u in by_uri]}
+    finally:
+        conn.close()
+
+
 @router.get("/summary")
 async def timeline_summary(
     scope_type: str = Query(..., pattern="^(topic|brand)$"),

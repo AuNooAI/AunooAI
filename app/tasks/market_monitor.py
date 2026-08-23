@@ -27,7 +27,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -53,6 +53,15 @@ SOURCE_DISCOVERY = "vendor_web_discovery"
 SOURCE_CANDIDATES = "funding_discovery"
 SOURCE_CRUNCHBASE = mc.CRUNCHBASE_SOURCE
 SOURCE_JOBS = mc.JOBS_SOURCE
+# Manual-only for now (queued only from a vendor's own "Fetch now", never on
+# the market-wide cadence below): PitchBook and ZoomInfo need a URL an
+# operator entered by hand, since neither can be guessed the way Crunchbase's
+# can, and Indeed's employer-attribution field (posted_by) is an inference
+# from the request sample's field name, not yet confirmed against a real
+# response. None of the three are in _poll_market's scheduled branches.
+SOURCE_PITCHBOOK = mc.PITCHBOOK_SOURCE
+SOURCE_ZOOMINFO = mc.ZOOMINFO_SOURCE
+SOURCE_INDEED = mc.INDEED_SOURCE
 # Reads the article corpus we already hold. Calls no provider,
 # so it is not subject to the budget cap.
 SOURCE_CORPUS = "corpus_match"
@@ -266,33 +275,38 @@ def _budget_blocks(conn, market_id: int, name: str) -> bool:
     return False
 
 
-def _claim_manual_runs(conn, market_id: int) -> Dict[str, int]:
-    """Rows the manual-run endpoint queued, one per source.
+def _claim_manual_runs(conn, market_id: int) -> Dict[Tuple[str, Optional[int]], int]:
+    """Rows the manual-run endpoint queued, one per (source, vendor).
 
     The endpoint returns 202 with a durable row rather than doing the work in
-    the request, so this is where that row is picked up.
+    the request, so this is where that row is picked up. Keyed on the vendor
+    too: a whole-market request (``brand_id`` NULL) and a single vendor's
+    "Fetch now" for the same source are different batches and must not fold
+    into each other.
     """
     rows = conn.execute(text("""
-        SELECT id, source FROM bw_collection_runs
+        SELECT id, source, brand_id FROM bw_collection_runs
         WHERE market_id = :m AND status = 'queued' AND job_id IS NULL
         ORDER BY started_at
     """), {"m": market_id}).fetchall()
-    claimed: Dict[str, int] = {}
-    for run_id, source in rows:
-        if source in claimed:
-            # A second manual request for a source already claimed this tick
-            # would duplicate the batch. Fold it into the first.
+    claimed: Dict[Tuple[str, Optional[int]], int] = {}
+    for run_id, source, brand_id in rows:
+        key = (source, brand_id)
+        if key in claimed:
+            # A second manual request for the same (source, vendor) already
+            # claimed this tick would duplicate the batch. Fold it into the
+            # first.
             conn.execute(text("""
                 UPDATE bw_collection_runs
                 SET status = 'cancelled', completed_at = NOW(),
                     error = 'superseded by run ' || :keep
                 WHERE id = :r
-            """), {"keep": str(claimed[source]), "r": run_id})
+            """), {"keep": str(claimed[key]), "r": run_id})
             continue
         conn.execute(text(
             "UPDATE bw_collection_runs SET status = 'running' WHERE id = :r"),
             {"r": run_id})
-        claimed[source] = run_id
+        claimed[key] = run_id
     conn.commit()
     return claimed
 
@@ -328,6 +342,13 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     market_id = market["id"]
     manual = _claim_manual_runs(conn, market_id)
 
+    def _vendor_claims(source: str) -> List[Tuple[int, int]]:
+        """(brand_id, run_id) pairs from a vendor's own "Fetch now" — separate
+        from the market-wide manual['source'] claim, which stays keyed by
+        ``brand_id is None``."""
+        return [(bid, rid) for (src, bid), rid in manual.items()
+                if src == source and bid is not None]
+
     vendors = [dict(r) for r in conn.execute(text("""
         SELECT mb.brand_id, b.display_name
         FROM bw_market_brands mb
@@ -347,32 +368,48 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += await _review_posts(conn, market, now)
     runs += await _write_briefing(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
-                                  forced_run_id=manual.get(SOURCE_DISCOVERY))
+                                  forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
-                              forced_run_id=manual.get(SOURCE_PAGES))
+                              forced_run_id=manual.get((SOURCE_PAGES, None)))
 
     from app.services.brightdata_linkedin import linkedin_enabled
 
     if linkedin_enabled():
         # A manual run is an operator decision; the budget cap is not
         # negotiable by it, because the point of the cap is that nothing
-        # spends past it.
+        # spends past it. That applies the same to a single vendor's "Fetch
+        # now" as to a whole-market manual run.
+        paid_sources = (SOURCE_POSTS, SOURCE_PROFILE, SOURCE_CRUNCHBASE, SOURCE_JOBS)
         if _budget_blocks(conn, market_id, market["name"]):
-            for source in (SOURCE_POSTS, SOURCE_PROFILE):
-                run_id = manual.get(source)
-                if run_id:
-                    mc.close_run(conn, run_id, status="failed",
-                                 error="monthly provider budget exhausted")
+            for source in paid_sources:
+                pending = [manual.get((source, None))] + \
+                    [rid for _, rid in _vendor_claims(source)]
+                for run_id in pending:
+                    if run_id:
+                        mc.close_run(conn, run_id, status="failed",
+                                     error="monthly provider budget exhausted")
             conn.commit()
         else:
             runs += await _poll_linkedin(conn, market, SOURCE_POSTS, now,
-                                         forced_run_id=manual.get(SOURCE_POSTS))
+                                         forced_run_id=manual.get((SOURCE_POSTS, None)))
             runs += await _poll_linkedin(conn, market, SOURCE_PROFILE, now,
-                                         forced_run_id=manual.get(SOURCE_PROFILE))
+                                         forced_run_id=manual.get((SOURCE_PROFILE, None)))
             runs += await _poll_dataset(conn, market, SOURCE_CRUNCHBASE, now,
-                                        forced_run_id=manual.get(SOURCE_CRUNCHBASE))
+                                        forced_run_id=manual.get((SOURCE_CRUNCHBASE, None)))
             runs += await _poll_dataset(conn, market, SOURCE_JOBS, now,
-                                        forced_run_id=manual.get(SOURCE_JOBS))
+                                        forced_run_id=manual.get((SOURCE_JOBS, None)))
+            # A vendor's own "Fetch now" — one extra scoped batch per source
+            # the vendor actually requested, on top of the market's own cadence.
+            for source in (SOURCE_POSTS, SOURCE_PROFILE):
+                for brand_id, run_id in _vendor_claims(source):
+                    runs += await _poll_linkedin(conn, market, source, now,
+                                                 forced_run_id=run_id,
+                                                 forced_brand_id=brand_id)
+            for source in (SOURCE_CRUNCHBASE, SOURCE_JOBS):
+                for brand_id, run_id in _vendor_claims(source):
+                    runs += await _poll_dataset(conn, market, source, now,
+                                                forced_run_id=run_id,
+                                                forced_brand_id=brand_id)
     return runs
 
 
@@ -476,8 +513,7 @@ async def _write_briefing(conn, market: Dict[str, Any], now: datetime) -> int:
 
     from app.services import market_briefing as mbr
 
-    year, month = mbr.previous_month(now.date())
-    _, _, label = mbr.month_bounds(year, month)
+    start, end, label = mbr.month_bounds(*mbr.previous_month(now.date()))
 
     existing = conn.execute(text("""
         SELECT id FROM bw_market_briefings
@@ -492,7 +528,8 @@ async def _write_briefing(conn, market: Dict[str, Any], now: datetime) -> int:
                          provider="local")
     conn.commit()
     try:
-        result = await mbr.generate(conn, market, year=year, month=month)
+        result = await mbr.generate(conn, market, start=start, end=end,
+                                    period_label=label)
         mc.close_run(
             conn, run_id,
             status="partial" if result["generation"] == "fallback" else "succeeded",
@@ -776,12 +813,14 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
 # ── Crunchbase and job listings ─────────────────────────────────────────────
 
 async def _poll_dataset(conn, market: Dict[str, Any], source: str,
-                        now: datetime, forced_run_id: Optional[int] = None) -> int:
+                        now: datetime, forced_run_id: Optional[int] = None,
+                        forced_brand_id: Optional[int] = None) -> int:
     """Queue one Bright Data batch for a non-LinkedIn-post dataset.
 
     Same shape as ``_poll_linkedin``: the run row is committed before the
     trigger, because a callback that arrives with nowhere to land is a batch
-    paid for and lost.
+    paid for and lost. ``forced_brand_id`` narrows the batch to one vendor —
+    set from that vendor's own "Fetch now", never from the market-wide cadence.
     """
     from app.routes.market_monitor_routes import callback_url
     from app.services.brightdata_linkedin import (
@@ -802,7 +841,29 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     if source == SOURCE_CRUNCHBASE:
         mc.seed_crunchbase_urls(conn, market["id"])
         conn.commit()
-        urls = list(mc.crunchbase_url_map(conn, market["id"]).keys())
+        url_map = mc.crunchbase_url_map(conn, market["id"])
+        urls = ([u for u, bid in url_map.items() if bid == forced_brand_id]
+                if forced_brand_id is not None else list(url_map.keys()))
+    elif source in (SOURCE_PITCHBOOK, SOURCE_ZOOMINFO):
+        # No seeding step, unlike Crunchbase — there is no guess to seed. A
+        # vendor has a URL here only if an operator entered one.
+        kind = "pitchbook_url" if source == SOURCE_PITCHBOOK else "zoominfo_url"
+        url_map = mc.identifier_url_map(conn, market["id"], kind)
+        urls = ([u for u, bid in url_map.items() if bid == forced_brand_id]
+                if forced_brand_id is not None else list(url_map.keys()))
+    elif source == SOURCE_INDEED:
+        rows = conn.execute(text("""
+            SELECT b.display_name FROM bw_market_brands mb
+            JOIN bw_brands b ON b.id = mb.brand_id
+            WHERE mb.market_id = :m AND mb.collection_enabled
+              AND mb.role <> 'excluded'
+              AND (:bid IS NULL OR mb.brand_id = :bid)
+            ORDER BY mb.sort_order
+        """), {"m": market["id"], "bid": forced_brand_id}).fetchall()
+        companies = [{"employer": r[0].split("(")[0].strip()} for r in rows]
+        if forced_brand_id is None:
+            companies = companies[: _max_vendors_per_run()]
+        urls = [c["employer"] for c in companies]
     elif source == SOURCE_JOBS:
         # Job discovery works on employer name, not URL. Attribution still
         # happens on the company_url the provider returns, matched against the
@@ -814,15 +875,17 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
             JOIN bw_brands b ON b.id = mb.brand_id
             WHERE mb.market_id = :m AND mb.collection_enabled
               AND mb.role <> 'excluded'
+              AND (:bid IS NULL OR mb.brand_id = :bid)
             ORDER BY mb.sort_order
-        """), {"m": market["id"]}).fetchall()
+        """), {"m": market["id"], "bid": forced_brand_id}).fetchall()
         companies = [{"name": r[0].split("(")[0].strip(),
                       "location": r[1] or "United States"} for r in rows]
-        companies = companies[: _max_vendors_per_run()]
+        if forced_brand_id is None:
+            companies = companies[: _max_vendors_per_run()]
         urls = [c["name"] for c in companies]
     else:
         urls = list(mc.linkedin_url_map(conn, market["id"])[0].keys())
-    if source != SOURCE_JOBS:
+    if source != SOURCE_JOBS and forced_brand_id is None:
         urls = urls[: _max_vendors_per_run()]
     if not urls:
         if forced_run_id:
@@ -841,6 +904,18 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
         if source == SOURCE_CRUNCHBASE:
             result = await client.trigger_crunchbase(
                 urls, webhook_url=callback_url(run_id),
+                webhook_auth=webhook_auth_value())
+        elif source == SOURCE_PITCHBOOK:
+            result = await client.trigger_pitchbook(
+                urls, webhook_url=callback_url(run_id),
+                webhook_auth=webhook_auth_value())
+        elif source == SOURCE_ZOOMINFO:
+            result = await client.trigger_zoominfo(
+                urls, webhook_url=callback_url(run_id),
+                webhook_auth=webhook_auth_value())
+        elif source == SOURCE_INDEED:
+            result = await client.trigger_indeed_discover(
+                companies, webhook_url=callback_url(run_id),
                 webhook_auth=webhook_auth_value())
         else:
             result = await client.trigger_jobs(
@@ -866,8 +941,10 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
 # ── LinkedIn ────────────────────────────────────────────────────────────────
 
 async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
-                         now: datetime, forced_run_id: Optional[int] = None) -> int:
-    """Queue one async Bright Data batch for the market's vendors."""
+                         now: datetime, forced_run_id: Optional[int] = None,
+                         forced_brand_id: Optional[int] = None) -> int:
+    """Queue one async Bright Data batch for the market's vendors, or for one
+    vendor when ``forced_brand_id`` is set from that vendor's "Fetch now"."""
     from app.routes.market_monitor_routes import callback_url
     from app.services.brightdata_linkedin import (
         BrightDataError, LinkedInDatasetClient, api_key, webhook_auth_value,
@@ -896,8 +973,11 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
                                  AND mb.market_id = :m
         WHERE i.kind = 'linkedin_company_url' AND i.valid_to IS NULL
           AND mb.collection_enabled AND mb.role <> 'excluded'
+          AND (:bid IS NULL OR mb.brand_id = :bid)
         ORDER BY mb.sort_order LIMIT :lim
-    """), {"m": market["id"], "lim": _max_vendors_per_run()}).fetchall()]
+    """), {"m": market["id"], "bid": forced_brand_id,
+           "lim": 1 if forced_brand_id is not None else _max_vendors_per_run()}
+    ).fetchall()]
     if not urls:
         if forced_run_id:
             mc.close_run(conn, forced_run_id, status="succeeded",

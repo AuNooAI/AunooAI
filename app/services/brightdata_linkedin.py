@@ -73,6 +73,23 @@ def crunchbase_dataset() -> str:
     return _env("BRIGHTDATA_CRUNCHBASE_DATASET_ID", "gd_l1vijqt9jfj7olije")
 
 
+def indeed_dataset() -> str:
+    """Indeed job listings — discovered by employer name, not URL."""
+    return _env("BRIGHTDATA_INDEED_DATASET_ID", "gd_l4dx9j9sscpvs7no2")
+
+
+def pitchbook_dataset() -> str:
+    """PitchBook companies — funding and ownership. No auto-discovery: see
+    ``trigger_pitchbook`` for why a vendor's URL has to be entered by hand."""
+    return _env("BRIGHTDATA_PITCHBOOK_DATASET_ID", "gd_m4ijiqfp2n9oe3oluj")
+
+
+def zoominfo_dataset() -> str:
+    """ZoomInfo companies — revenue, leadership, headcount. Same manual-URL
+    caveat as ``pitchbook_dataset``."""
+    return _env("BRIGHTDATA_ZOOMINFO_DATASET_ID", "gd_m0ci4a4ivx3j5l6nx")
+
+
 def webhook_secret() -> str:
     return _env("BRIGHTDATA_LINKEDIN_WEBHOOK_SECRET")
 
@@ -204,6 +221,36 @@ class LinkedInDatasetClient:
             request_hash=_request_hash(dataset_id, urls),
         )
 
+    async def discover_by_keyword(
+        self,
+        dataset_id: str,
+        inputs: list[dict[str, Any]],
+        *,
+        limit_per_input: int | None = None,
+        webhook_url: str | None = None,
+        webhook_auth: str | None = None,
+    ) -> TriggerResult:
+        """Shared transport for every ``discover_by=keyword`` dataset —
+        LinkedIn jobs, Crunchbase companies, Indeed jobs, and any dataset
+        added later that turns out to support it. Confirmed identical across
+        those three from real sample requests (2026-08-22); only the input
+        field *names* differ per dataset (``keyword``, ``keyword_search``,
+        ``company`` + ``keyword``, ...), which is the caller's job to supply
+        in ``inputs`` — this method only owns the query string and the
+        request shape, not what a record means.
+
+        Do not add a new caller here on a guessed field name. A wrong field
+        can return another company's records rather than erroring — see
+        ``trigger_jobs``'s history below for what that cost to find out.
+        """
+        params: dict[str, Any] = {"type": "discover_new", "discover_by": "keyword"}
+        if limit_per_input:
+            params["limit_per_input"] = str(limit_per_input)
+        return await self.trigger(
+            dataset_id, inputs, webhook_url=webhook_url, webhook_auth=webhook_auth,
+            extra_params=params,
+        )
+
     async def snapshot_status(self, snapshot_id: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=POLL_TIMEOUT) as client:
             resp = await client.get(
@@ -322,16 +369,9 @@ class LinkedInDatasetClient:
             }
             for c in companies if c.get("name")
         ]
-        params: dict[str, Any] = {
-            "type": "discover_new",
-            "discover_by": "keyword",
-        }
-        if limit_per_input:
-            params["limit_per_input"] = str(limit_per_input)
-        return await self.trigger(
-            jobs_dataset(), payload,
+        return await self.discover_by_keyword(
+            jobs_dataset(), payload, limit_per_input=limit_per_input,
             webhook_url=webhook_url, webhook_auth=webhook_auth,
-            extra_params=params,
         )
 
     async def trigger_crunchbase(
@@ -346,6 +386,95 @@ class LinkedInDatasetClient:
         """
         return await self.trigger(
             crunchbase_dataset(), [{"url": u} for u in urls],
+            webhook_url=webhook_url, webhook_auth=webhook_auth,
+        )
+
+    async def trigger_crunchbase_discover(
+        self, names: list[str], *, limit_per_input: int = 5,
+        webhook_url: str | None = None, webhook_auth: str | None = None,
+    ) -> TriggerResult:
+        """Discover a company's Crunchbase record by name, instead of
+        guessing its URL from a slugified name the way ``crunchbase_url_for``
+        does (roughly two hits in three).
+
+        Confirmed live via a real sample request (2026-08-22) — but the
+        *response* shape for this mode (a search-hit list vs. a full company
+        record) is not yet confirmed against real output, so this is not
+        wired into ``seed_crunchbase_urls`` or the scheduled poller yet. Do
+        not switch the working slug-guess flow over to this until a real
+        response has been read.
+        """
+        payload = [{"keyword": n} for n in names if n]
+        return await self.discover_by_keyword(
+            crunchbase_dataset(), payload, limit_per_input=limit_per_input,
+            webhook_url=webhook_url, webhook_auth=webhook_auth,
+        )
+
+    async def trigger_pitchbook(
+        self, urls: list[str], *, webhook_url: str | None = None,
+        webhook_auth: str | None = None,
+    ) -> TriggerResult:
+        """Collect company records by PitchBook URL.
+
+        Confirmed request shape (2026-08-22): straight collection, no
+        discovery, same as ``trigger_crunchbase``. Unlike Crunchbase,
+        PitchBook's URL ends in an opaque numeric id
+        (``pitchbook.com/profiles/company/10874-98``) that cannot be guessed
+        from a company name — a vendor needs one recorded as an identifier
+        (kind ``pitchbook_url``) before this has anything to collect.
+        """
+        return await self.trigger(
+            pitchbook_dataset(), [{"url": u} for u in urls],
+            webhook_url=webhook_url, webhook_auth=webhook_auth,
+        )
+
+    async def trigger_zoominfo(
+        self, urls: list[str], *, webhook_url: str | None = None,
+        webhook_auth: str | None = None,
+    ) -> TriggerResult:
+        """Collect company records by ZoomInfo URL. Same manual-identifier
+        caveat as ``trigger_pitchbook`` — ZoomInfo profile URLs
+        (``zoominfo.com/c/<slug>/<id>``) also end in an opaque numeric id."""
+        return await self.trigger(
+            zoominfo_dataset(), [{"url": u} for u in urls],
+            webhook_url=webhook_url, webhook_auth=webhook_auth,
+        )
+
+    async def trigger_indeed_discover(
+        self, searches: list[dict[str, Any]], *, limit_per_input: int = 15,
+        webhook_url: str | None = None, webhook_auth: str | None = None,
+    ) -> TriggerResult:
+        """Discover Indeed job listings by employer.
+
+        Confirmed request shape (2026-08-22): ``discover_by=keyword`` with
+        ``country``, ``domain``, ``keyword_search``, ``location``,
+        ``date_posted``, ``posted_by`` and ``location_radius``. The sample
+        request used ``keyword_search`` for the role ("analyst", "product
+        manager"), which leaves ``posted_by`` as the employer filter by
+        elimination — an inference from the field name and the pattern
+        already verified for LinkedIn jobs (a separate ``company`` field,
+        not the keyword itself), not a confirmed response. Read the first
+        live batch's employer attribution before trusting the volume, the
+        same discipline ``trigger_jobs`` already documents for its own
+        history of silently-wrong modes.
+
+        ``searches`` entries take ``employer`` (required) and optionally
+        ``role``, ``location``, ``country``, ``domain``, ``date_posted``.
+        """
+        payload = [
+            {
+                "country": s.get("country") or "US",
+                "domain": s.get("domain") or "indeed.com",
+                "keyword_search": s.get("role") or "",
+                "location": s.get("location") or "United States",
+                "date_posted": s.get("date_posted") or "",
+                "posted_by": s["employer"],
+                "location_radius": s.get("location_radius") or "",
+            }
+            for s in searches if s.get("employer")
+        ]
+        return await self.discover_by_keyword(
+            indeed_dataset(), payload, limit_per_input=limit_per_input,
             webhook_url=webhook_url, webhook_auth=webhook_auth,
         )
 
@@ -694,4 +823,92 @@ def map_job_listing(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         "posted_date": _first(raw, "job_posted_date"),
         "url": _first(raw, "url", "apply_link"),
         "observed_source": "brightdata_linkedin_jobs",
+    }
+
+
+def map_zoominfo_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """ZoomInfo record → the firmographic snapshot we store.
+
+    Field names taken verbatim from the dataset's own published output
+    dictionary (2026-08-22) — the one mapper in this file built from a
+    schema rather than a real payload, because that is what was available.
+    Read a real response before adding a field not listed there.
+    """
+    if raw.get("error") or raw.get("error_code"):
+        return None
+    name = raw.get("name")
+    if not name:
+        return None
+    ceo = raw.get("ceo") if isinstance(raw.get("ceo"), dict) else {}
+    return {
+        "url": raw.get("url"),
+        "name": name,
+        "description": raw.get("description"),
+        "revenue_usd": _as_int(raw.get("revenue")),
+        "revenue_text": raw.get("revenue_text"),
+        "employee_count": _as_int(raw.get("employees") or raw.get("total_employees")),
+        "industry": raw.get("industry"),
+        "headquarters": raw.get("headquarters"),
+        "website": raw.get("website"),
+        "stock_symbol": raw.get("stock_symbol"),
+        "total_funding_usd": _as_int(raw.get("total_funding_amount")),
+        "ceo_name": ceo.get("name"),
+        "ceo_title": ceo.get("title"),
+        "leadership": raw.get("leadership"),
+        "tech_stack": raw.get("tech_stack"),
+        "observed_source": "brightdata_zoominfo",
+    }
+
+
+def map_pitchbook_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """PitchBook record → the funding snapshot we store.
+
+    Unlike ``map_zoominfo_company``, no output sample was available for this
+    one — only the request shape. Field names below are the most likely
+    candidates, tried through ``_first`` so a near-miss still captures
+    something, but none of them are verified. Read a real response and
+    correct these before relying on the numbers.
+    """
+    if raw.get("error") or raw.get("error_code"):
+        return None
+    name = _first(raw, "name", "company_name")
+    if not name:
+        return None
+    return {
+        "url": _first(raw, "url", "input_url"),
+        "name": name,
+        "description": _first(raw, "description", "about"),
+        "industry": _first(raw, "industry", "industries", "sector"),
+        "headquarters": _first(raw, "headquarters", "hq", "location"),
+        "employee_count": _as_int(_first(raw, "employees", "employee_count")),
+        "total_funding_usd": _as_int(
+            _first(raw, "total_raised", "total_funding", "total_funding_amount")),
+        "last_round": _first(raw, "last_financing_deal_type", "last_round_type"),
+        "investors": _first(raw, "investors"),
+        "observed_source": "brightdata_pitchbook",
+    }
+
+
+def map_indeed_job(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Indeed job listing → the hiring snapshot we store.
+
+    No output sample was available for this dataset either — field names are
+    the most likely candidates, tried through ``_first``. Unverified; read a
+    real response before trusting a count built from these.
+    """
+    if raw.get("error") or raw.get("error_code"):
+        return None
+    title = _first(raw, "job_title", "title")
+    posting_id = _first(raw, "job_id", "id", "jk")
+    if not title or not posting_id:
+        return None
+    return {
+        "posting_id": str(posting_id),
+        "title": title,
+        "company": _first(raw, "company_name", "company", "employer"),
+        "location": _first(raw, "location", "job_location"),
+        "posted_date": _first(raw, "date_posted", "posted_date"),
+        "url": _first(raw, "url", "job_link"),
+        "salary": _first(raw, "salary", "salary_formatted"),
+        "observed_source": "brightdata_indeed",
     }

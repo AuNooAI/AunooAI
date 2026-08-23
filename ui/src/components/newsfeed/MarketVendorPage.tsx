@@ -12,9 +12,22 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, ArrowLeft, Briefcase, Check, ExternalLink, FileText, Globe,
-  Linkedin, Loader2, ToggleLeft, ToggleRight,
+  Linkedin, Loader2, Plus, RefreshCw, ToggleLeft, ToggleRight,
 } from 'lucide-react';
-import { getVendorDetail, type VendorDetail } from '../../services/marketMonitorApi';
+import {
+  getVendorDetail, setVendorIdentifier, startRun, type VendorDetail,
+} from '../../services/marketMonitorApi';
+
+/** Everything Bright Data can pull for one vendor on demand. A source with
+ *  no matching identifier for this vendor (no LinkedIn URL, no Crunchbase
+ *  page, no PitchBook/ZoomInfo URL on file) closes out as a quiet no-op on
+ *  the backend rather than an error, so queuing all of these is safe even
+ *  when only some apply. */
+const FETCH_NOW_SOURCES = [
+  'linkedin_company_post', 'linkedin_company_profile',
+  'linkedin_jobs', 'crunchbase_company',
+  'pitchbook_company', 'zoominfo_company', 'indeed_jobs',
+];
 
 const SEVERITY_TONE: Record<string, string> = {
   high: 'bg-red-50 text-red-700 border-red-200',
@@ -25,7 +38,15 @@ const SEVERITY_TONE: Record<string, string> = {
 const KIND_ICON: Record<string, typeof Globe> = {
   website_url: Globe, domain: Globe,
   linkedin_company_url: Linkedin, crunchbase_url: FileText,
+  pitchbook_url: FileText, zoominfo_url: FileText,
 };
+
+/** No auto-discovery exists for either — see setVendorIdentifier's comment —
+ *  so this is the only way one gets recorded. */
+const MANUAL_IDENTIFIER_KINDS: { kind: 'pitchbook_url' | 'zoominfo_url'; label: string }[] = [
+  { kind: 'pitchbook_url', label: 'PitchBook URL' },
+  { kind: 'zoominfo_url', label: 'ZoomInfo URL' },
+];
 
 function Panel({ title, hint, children }: {
   title: string; hint?: string; children: React.ReactNode;
@@ -43,12 +64,22 @@ const VERDICT_WORD: Record<string, string> = {
   signal: 'announcements', commentary: 'opinion', noise: 'promotion',
 };
 
-export function MarketVendorPage({ marketId, brandId, onBack }: {
+export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }: {
   marketId: number; brandId: number; onBack: () => void;
+  /** Whether Bright Data LinkedIn collection is configured at all. Off by
+   *  default when the caller has not checked, so the button stays disabled
+   *  rather than firing requests the backend will just reject. */
+  linkedinEnabled?: boolean;
 }) {
   const [v, setV] = useState<VendorDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSuperseded, setShowSuperseded] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [fetchNote, setFetchNote] = useState<string | null>(null);
+  const [addingKind, setAddingKind] =
+    useState<'pitchbook_url' | 'zoominfo_url' | null>(null);
+  const [addingValue, setAddingValue] = useState('');
+  const [savingIdentifier, setSavingIdentifier] = useState(false);
 
   useEffect(() => {
     setV(null); setError(null);
@@ -56,6 +87,36 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
       .then(setV)
       .catch(e => setError(String(e.message ?? e)));
   }, [marketId, brandId]);
+
+  async function fetchNow() {
+    setFetching(true); setFetchNote(null);
+    try {
+      await Promise.all(
+        FETCH_NOW_SOURCES.map(s => startRun(marketId, s, brandId)));
+      setFetchNote(
+        'Queued. Bright Data batches run asynchronously — new posts, ' +
+        'profile, job listings and funding data land here within a few ' +
+        'minutes, sooner if this vendor already has a fresh URL on file.');
+    } catch (e: any) {
+      setFetchNote(`Could not queue a fetch: ${e.message ?? e}`);
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  async function saveIdentifier() {
+    if (!addingKind || !addingValue.trim()) return;
+    setSavingIdentifier(true);
+    try {
+      await setVendorIdentifier(marketId, brandId, addingKind, addingValue.trim());
+      setAddingKind(null); setAddingValue('');
+      setV(await getVendorDetail(marketId, brandId));
+    } catch (e: any) {
+      setFetchNote(`Could not save that URL: ${e.message ?? e}`);
+    } finally {
+      setSavingIdentifier(false);
+    }
+  }
 
   if (error) {
     return (
@@ -128,8 +189,24 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
               published
             </span>
           )}
+          <button onClick={fetchNow} disabled={fetching || !linkedinEnabled}
+                  title={linkedinEnabled
+                    ? 'Queue a Bright Data pull for this vendor now, ahead of the next scheduled cycle'
+                    : 'Bright Data LinkedIn collection is not configured for this instance'}
+                  className="text-xs px-2 py-1 rounded border hover:bg-slate-50
+                             disabled:opacity-50 inline-flex items-center gap-1">
+            {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <RefreshCw className="w-3.5 h-3.5" />}
+            Fetch now
+          </button>
         </div>
       </div>
+
+      {fetchNote && (
+        <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700">
+          {fetchNote}
+        </div>
+      )}
 
       {v.review_tasks.length > 0 && (
         <div className="space-y-2">
@@ -342,6 +419,40 @@ export function MarketVendorPage({ marketId, brandId, onBack }: {
             )}
           </>
         )}
+
+        {/* PitchBook and ZoomInfo have no auto-discovery — their profile
+            URL's numeric id cannot be guessed from a company name the way
+            Crunchbase's can — so this is the only way one gets on file. */}
+        <div className="mt-3 pt-3 border-t flex flex-wrap gap-2">
+          {MANUAL_IDENTIFIER_KINDS.filter(
+            k => !live.some(i => i.kind === k.kind)).map(k => (
+            addingKind === k.kind ? (
+              <div key={k.kind} className="flex items-center gap-1.5 flex-1 min-w-[240px]">
+                <input autoFocus type="url" value={addingValue}
+                       onChange={e => setAddingValue(e.target.value)}
+                       onKeyDown={e => e.key === 'Enter' && saveIdentifier()}
+                       placeholder={`Paste the ${k.label}`}
+                       className="text-sm px-2 py-1 border rounded-md flex-1 min-w-0" />
+                <button onClick={saveIdentifier}
+                        disabled={savingIdentifier || !addingValue.trim()}
+                        className="text-xs px-2 py-1 border rounded hover:bg-slate-50
+                                   disabled:opacity-50">
+                  {savingIdentifier ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+                </button>
+                <button onClick={() => { setAddingKind(null); setAddingValue(''); }}
+                        className="text-xs text-slate-500 hover:text-slate-700">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button key={k.kind} onClick={() => setAddingKind(k.kind)}
+                      className="text-xs px-2 py-1 border rounded-md text-slate-600
+                                 hover:bg-slate-50 inline-flex items-center gap-1">
+                <Plus className="w-3 h-3" /> Add {k.label}
+              </button>
+            )
+          ))}
+        </div>
       </Panel>
 
       <Panel title="Announcements"
