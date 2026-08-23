@@ -2,6 +2,52 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-23 — PitchBook/ZoomInfo/Indeed sources, and per-vendor "Fetch now" (`7bf05d61`)
+
+### Goal
+Pre-existing work from before this session's Market Monitor rewrite (see the entry directly
+below), committed separately once verified — it had been sitting uncommitted in the working
+tree since roughly 2026-08-22, unrelated to anything discussed in this session's conversation.
+Reviewed for correctness (compiled, typechecked, checked against the live schema) before
+committing rather than committed blind.
+
+### Three new Bright Data collectors
+`brightdata_linkedin.py` / `market_collect.py` / `tasks/market_monitor.py` — PitchBook and
+ZoomInfo (firmographic snapshots, collected by a manually-entered profile URL; unlike
+Crunchbase's, neither PitchBook's nor ZoomInfo's URL can be guessed from a company name, since
+both end in an opaque numeric id) and Indeed job listings (discovered by employer name, pooled
+into the same `job_posting` snapshot type LinkedIn jobs already uses, kept apart only by
+`source` and a separate `provider_item_id` namespace so neither can double-count the other).
+
+All three are manual-only for now — queued only from a vendor's own "Fetch now", never on the
+market-wide scheduled cadence — because Indeed's employer-attribution field (`posted_by`) is an
+inference from a sample request's field name, not yet confirmed against a real response, and
+the PitchBook/ZoomInfo mappers were built from a published schema or a partial sample where a
+full response wasn't available. Each mapper's docstring says plainly which fields are confirmed
+live and which are still unverified guesses.
+
+### Per-vendor "Fetch now"
+`MarketVendorPage.tsx` — a new button queues one Bright Data batch for that vendor alone, across
+every LinkedIn/Crunchbase/jobs source, ahead of the market's next scheduled cycle.
+`_claim_manual_runs()` in the task was re-keyed from `source` alone to `(source, brand_id)`, so
+a single vendor's manual request and the market-wide scheduled batch for the same source no
+longer fold into or supersede each other. A vendor with no PitchBook/ZoomInfo URL on file can
+add one inline, right on the vendor page.
+
+### Also
+A small new endpoint, `POST /timeline/articles` (`timeline_routes.py`) — resolves a batch of
+article URIs to title/source/vendor-attribution on request, so a timeline event's article list
+can be expanded without every event paying that cost upfront on load.
+
+### Verification
+`python -m py_compile` on all four touched Python files; `npm run typecheck` clean against the
+existing 246-error baseline; confirmed `bw_collection_runs.brand_id` and the
+`pitchbook_url`/`zoominfo_url` identifier kinds already exist in the live schema, so this needed
+no migration.
+
+### Propagation
+`bugfixing.aunoo.ai` only — Market Monitor does not exist on wiley or wileytest.
+
 ## 2026-08-23 — Pulse dashboard, inline citations, and the investor report rewritten as a market-intelligence report
 
 ### Goal
