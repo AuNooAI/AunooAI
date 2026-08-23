@@ -10,8 +10,8 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import {
-  Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer,
-  Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
+  Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Line,
+  ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts';
 import {
   getAnalyses, getChannelMix, getJobPostings, getTopVoices,
@@ -19,6 +19,7 @@ import {
   type TopVoices,
 } from '../../services/marketMonitorApi';
 import { DataTable, type Column } from './DataTable';
+import { MarketThemesPanel } from './MarketThemesPanel';
 
 const GRID = '#e2e8f0';
 const INK = '#475569';
@@ -27,11 +28,17 @@ const COMMENTARY = '#8b93a1';
 const NOISE = '#d4d8de';
 
 function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string }) {
+  // coverage.label is already a full clause ("81 of 83 vendors have a
+  // founding year") — prefixing "Based on " onto it stacked two subjects in
+  // one sentence and stopped parsing as English.
+  const label = coverage.label
+    ? coverage.label[0].toUpperCase() + coverage.label.slice(1)
+    : coverage.label;
   return (
     <p className="text-xs text-slate-500 mt-0.5 mb-2">
       {note ? `${note} ` : ''}
       <span className={coverage.complete ? '' : 'text-amber-700'}>
-        Based on {coverage.label}.
+        {label}.
       </span>
     </p>
   );
@@ -287,6 +294,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
                     <Cell key={v.brand_id} cursor="pointer"
                           onClick={() => onVendor(v.brand_id)} />
                   ))}
+                  <LabelList dataKey="vendor" position="top"
+                             style={{ fontSize: 9, fill: '#64748b' }} />
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
@@ -313,26 +322,38 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
                     // A ranked list of handles with no subject is a list of
                     // strangers. What they talk about is the useful part.
                     { key: 'about', label: 'Talking about', sortable: false,
-                      render: v => (
-                        <span className="flex flex-wrap gap-1">
-                          {v.terms.length === 0 && (
-                            <span className="text-slate-400">—</span>)}
-                          {v.terms.map(t => (
-                            <span key={t.term}
-                                  className="text-xs px-1 py-0.5 rounded border
-                                             bg-slate-50 text-slate-600">
-                              {t.term}
-                            </span>
-                          ))}
-                          {v.vendors.map(x => (
-                            <span key={x.vendor}
-                                  className="text-xs px-1 py-0.5 rounded border
-                                             bg-sky-50 text-sky-700 border-sky-200">
-                              {x.vendor}
-                            </span>
-                          ))}
-                        </span>
-                      ) },
+                      // Capped, or an account naming a dozen terms and
+                      // vendors pushes its row tall enough that the table
+                      // becomes an endless scroll instead of a scan.
+                      render: v => {
+                        const terms = v.terms.slice(0, 4);
+                        const vendors = v.vendors.slice(0, 3);
+                        const extra = (v.terms.length - terms.length)
+                          + (v.vendors.length - vendors.length);
+                        return (
+                          <span className="flex flex-wrap gap-1">
+                            {terms.length === 0 && vendors.length === 0 && (
+                              <span className="text-slate-400">—</span>)}
+                            {terms.map(t => (
+                              <span key={t.term}
+                                    className="text-xs px-1 py-0.5 rounded border
+                                               bg-slate-50 text-slate-600">
+                                {t.term}
+                              </span>
+                            ))}
+                            {vendors.map(x => (
+                              <span key={x.vendor}
+                                    className="text-xs px-1 py-0.5 rounded border
+                                               bg-sky-50 text-sky-700 border-sky-200">
+                                {x.vendor}
+                              </span>
+                            ))}
+                            {extra > 0 && (
+                              <span className="text-xs text-slate-400">+{extra} more</span>
+                            )}
+                          </span>
+                        );
+                      } },
                     { key: 'posts', label: 'Posts', align: 'right' },
                     { key: 'engagement', label: 'Reactions', align: 'right' },
                   ]} />
@@ -422,9 +443,52 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
                     <Cell key={m.brand_id} cursor="pointer"
                           onClick={() => onVendor(m.brand_id)} />
                   ))}
+                  <LabelList dataKey="vendor" position="top"
+                             style={{ fontSize: 9, fill: '#64748b' }} />
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
+            {(() => {
+              // Ranked by the two scores averaged — both already share the
+              // 0-100 scale the panel's own caption points out, so this
+              // needs no separate normalization step.
+              const ranked = fu.momentum
+                .filter(m => m.growth_score !== null || m.heat_score !== null)
+                .map(m => ({
+                  ...m,
+                  combined: ((m.growth_score ?? 0) + (m.heat_score ?? 0)) / 2,
+                }))
+                .sort((a, b) => b.combined - a.combined);
+              if (ranked.length < 4) return null;
+              const top = ranked.slice(0, 5);
+              const bottom = ranked.slice(-5).reverse();
+              const Row = (m: typeof ranked[number]) => (
+                <button key={m.brand_id} onClick={() => onVendor(m.brand_id)}
+                        className="w-full flex items-center justify-between
+                                   py-1.5 text-sm hover:bg-slate-50 text-left">
+                  <span className="text-slate-700">{m.vendor}</span>
+                  <span className="text-slate-500 tabular-nums">
+                    growth {m.growth_score ?? '—'} · attention {m.heat_score ?? '—'}
+                  </span>
+                </button>
+              );
+              return (
+                <div className="grid gap-4 sm:grid-cols-2 mt-3 pt-3 border-t">
+                  <div>
+                    <div className="text-xs font-medium text-slate-600 mb-1">
+                      Highest growth and attention — outreach candidates
+                    </div>
+                    <div className="divide-y">{top.map(Row)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-slate-600 mb-1">
+                      Lowest growth and attention
+                    </div>
+                    <div className="divide-y">{bottom.map(Row)}</div>
+                  </div>
+                </div>
+              );
+            })()}
           </Panel>
 
           <Panel title="Investors backing more than one vendor">
@@ -454,12 +518,24 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
       {/* ---- Hiring ---- */}
       {hi && !hi.error && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="What the market is hiring for">
+          <Panel title="Observed hiring">
             <div className="flex items-start gap-2">
               <div className="flex-1">
-                <CoverageLine
-                  coverage={hi.coverage}
-                  note={`${hi.openings} open listings. Engineering-heavy hiring says a vendor is still building; sales-heavy says it has started selling.`} />
+                <p className="text-sm text-slate-700">
+                  {hi.openings} open roles were observed across {hi.by_vendor.length} vendors.
+                  {hi.by_vendor.length > 0 && (
+                    <> Hiring is concentrated: {hi.by_vendor[0].vendor} accounts for{' '}
+                      {hi.by_vendor[0].openings} of them{hi.by_vendor.length > 1
+                        ? `, with ${hi.by_vendor[1].vendor} accounting for another ${hi.by_vendor[1].openings}.`
+                        : '.'}</>
+                  )}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  The mix of roles can indicate where companies are investing,
+                  but is not a direct measure of product maturity or commercial
+                  traction.
+                </p>
+                <CoverageLine coverage={hi.coverage} />
               </div>
               <div className="flex gap-1 shrink-0">
                 {(['role', 'function', 'region', 'seniority'] as const).map(k => (
@@ -616,6 +692,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill }: {
           </Panel>
         </div>
       )}
+
+      <MarketThemesPanel marketId={marketId} />
     </div>
   );
 }

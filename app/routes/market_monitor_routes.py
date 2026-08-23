@@ -23,7 +23,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -48,14 +48,31 @@ KNOWN_SOURCES = {
     "linkedin_company_post", "linkedin_company_profile",
     "crunchbase_company", "linkedin_jobs",
     "vendor_web", "vendor_web_discovery",
+    "pitchbook_company", "zoominfo_company", "indeed_jobs",
 }
 
 # Sources that spend money at Bright Data. Gated on BRIGHTDATA_LINKEDIN_ENABLED
 # and billed per record, unlike the internal fetchers.
+#
+# pitchbook_company, zoominfo_company and indeed_jobs are manual-only — see
+# app/tasks/market_monitor.py's SOURCE_PITCHBOOK/SOURCE_ZOOMINFO/SOURCE_INDEED
+# comments for why they never run on the scheduled cadence: PitchBook and
+# ZoomInfo need a URL an operator entered by hand, and Indeed's employer
+# attribution field is an inference not yet confirmed against a real
+# response. They still route through the same manual-run/webhook machinery
+# as everything else here — nothing about them is a bespoke pipeline.
 PAID_SOURCES = {
     "linkedin_company_post", "linkedin_company_profile",
     "crunchbase_company", "linkedin_jobs",
+    "pitchbook_company", "zoominfo_company", "indeed_jobs",
 }
+
+# indeed_jobs matches a listing back to a vendor by employer name, a field
+# inferred from Bright Data's own sample request and not yet confirmed
+# against a real response — see trigger_indeed_discover's docstring. Until
+# that is verified, it may only run one vendor at a time, never batched
+# across the whole registry in one call.
+MANUAL_ONLY_SOURCES = {"indeed_jobs"}
 
 
 def _conn():
@@ -72,7 +89,8 @@ def _slugify(value: str) -> str:
 def _load_market(conn, market_id: int) -> Dict[str, Any]:
     row = conn.execute(text("""
         SELECT id, name, slug, question, description, ontology, config,
-               enabled, is_public, created_at, updated_at
+               enabled, is_public, created_at, updated_at,
+               market_scope_description, inclusion_criteria, exclusion_criteria
         FROM bw_markets WHERE id = :m
     """), {"m": market_id}).mappings().first()
     if not row:
@@ -100,6 +118,13 @@ class MarketUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     enabled: Optional[bool] = None
     is_public: Optional[bool] = None
+    # What the tracked vendor cohort actually covers, in the operator's own
+    # words. The report states this verbatim when set, and says plainly that
+    # scope was never defined when it isn't — never inferred from who
+    # happens to be in the registry.
+    market_scope_description: Optional[str] = None
+    inclusion_criteria: Optional[str] = None
+    exclusion_criteria: Optional[str] = None
 
 
 class VendorFilter(BaseModel):
@@ -150,6 +175,9 @@ class ReviewTaskUpdate(BaseModel):
 
 class ManualRun(BaseModel):
     source: str = Field(..., min_length=1, max_length=64)
+    # Set from a vendor's own page's "Fetch now" — the poller scopes the
+    # batch to this one vendor instead of the whole market's registry.
+    brand_id: Optional[int] = None
 
 
 def _refresh_brand_keywords(conn, brand_ids: List[int]) -> int:
@@ -340,6 +368,8 @@ async def list_markets(session=Depends(verify_session)):
             rows = conn.execute(text("""
                 SELECT m.id, m.name, m.slug, m.question, m.description,
                        m.enabled, m.is_public, m.created_at, m.updated_at,
+                       m.market_scope_description, m.inclusion_criteria,
+                       m.exclusion_criteria,
                        COUNT(mb.id) FILTER (WHERE mb.role <> 'excluded') AS vendors,
                        COUNT(mb.id) FILTER (WHERE mb.collection_enabled
                                             AND mb.role <> 'excluded') AS collecting,
@@ -420,7 +450,9 @@ async def update_market(market_id: int, payload: MarketUpdate,
             if not fields:
                 return _load_market(conn, market_id)
             sets, params = [], {"m": market_id}
-            for key in ("name", "question", "description", "enabled", "is_public"):
+            for key in ("name", "question", "description", "enabled", "is_public",
+                       "market_scope_description", "inclusion_criteria",
+                       "exclusion_criteria"):
                 if key in fields:
                     sets.append(f"{key} = :{key}")
                     params[key] = fields[key]
@@ -502,6 +534,94 @@ async def list_vendors(
                 sql += " AND mb.collection_enabled"
             sql += " ORDER BY mb.sort_order, b.display_name"
             return [dict(r) for r in conn.execute(text(sql), params).mappings().all()]
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class AddVendor(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=200)
+    website: Optional[str] = None
+
+
+@router.post("/markets/{market_id}/vendors", status_code=201)
+async def add_vendor(market_id: int, payload: AddVendor,
+                     session=Depends(verify_session)):
+    """Add one competitor to the market's registry.
+
+    A company that shows up in the market's own phrase-matched coverage
+    without being a tracked vendor is exactly the gap this closes — no
+    workbook needed for one name. Reuses an existing ``bw_brands`` row by
+    display name if one already exists (a vendor tracked in another market,
+    or a Brand Watcher brand) rather than creating a duplicate.
+    """
+    from app.services.market_collect import brand_keywords_for_vendor
+
+    name = payload.display_name.strip()
+    if not name:
+        raise HTTPException(400, "Name cannot be empty")
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            brand_id = conn.execute(text("""
+                SELECT id FROM bw_brands WHERE display_name = :n
+            """), {"n": name}).scalar()
+            created_brand = False
+            if not brand_id:
+                slug = _slugify(name)
+                brand_id = conn.execute(text("""
+                    INSERT INTO bw_brands (name, display_name, brand_keywords)
+                    VALUES (:slug, :name, CAST(:kw AS JSONB))
+                    RETURNING id
+                """), {"slug": slug, "name": name,
+                       "kw": json.dumps(brand_keywords_for_vendor(name))}).scalar()
+                created_brand = True
+
+            already = conn.execute(text("""
+                SELECT 1 FROM bw_market_brands
+                WHERE market_id = :m AND brand_id = :b
+            """), {"m": market_id, "b": brand_id}).first()
+            if already:
+                raise HTTPException(
+                    409, f"{name} is already in this market's registry.")
+
+            next_sort = conn.execute(text("""
+                SELECT COALESCE(MAX(sort_order), 0) + 1 FROM bw_market_brands
+                WHERE market_id = :m
+            """), {"m": market_id}).scalar()
+            conn.execute(text("""
+                INSERT INTO bw_market_brands
+                    (market_id, brand_id, role, sort_order, collection_enabled)
+                VALUES (:m, :b, 'vendor', :s, TRUE)
+            """), {"m": market_id, "b": brand_id, "s": next_sort})
+
+            if payload.website:
+                import re
+                domain = re.sub(r"^https?://(www\.)?", "", payload.website.strip()) \
+                    .split("/")[0]
+                if domain:
+                    conn.execute(text("""
+                        INSERT INTO bw_vendor_identifiers
+                            (brand_id, kind, normalized_value, display_value, provenance)
+                        SELECT :b, 'domain', :d, :d, CAST(:p AS JSONB)
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM bw_vendor_identifiers
+                            WHERE brand_id = :b AND kind = 'domain' AND valid_to IS NULL)
+                    """), {"b": brand_id, "d": domain,
+                           "p": json.dumps({"source": "manual"})})
+
+            conn.commit()
+            return {"brand_id": brand_id, "display_name": name,
+                    "created_brand": created_brand}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
@@ -1246,8 +1366,12 @@ async def market_export_bundle(market_id: int,
 
 
 class BriefingRequest(BaseModel):
-    year: Optional[int] = Field(None, ge=2000, le=2100)
-    month: Optional[int] = Field(None, ge=1, le=12)
+    period_kind: str = Field("month", pattern="^(day|week|month|year)$")
+    # Any date inside the desired period — "August 2026" from ref_date
+    # 2026-08-01 or 2026-08-17, either resolves the same month. Kept as a
+    # single field rather than year+month+day so one shape covers all four
+    # kinds. Omit it for the last complete period of the chosen kind.
+    ref_date: Optional[date] = None
     model: Optional[str] = None
     store: bool = True
 
@@ -1255,21 +1379,25 @@ class BriefingRequest(BaseModel):
 @router.post("/markets/{market_id}/briefings")
 async def market_briefing_generate(market_id: int, body: BriefingRequest,
                                    session=Depends(verify_session)):
-    """Write the monthly briefing: facts from stored rows, prose on top.
+    """Write the briefing for one day, week, month or year: facts from stored
+    rows, prose on top.
 
-    Defaults to the last complete month. A briefing about the month in progress
-    is one that will be wrong by the end of it.
+    Defaults to the last complete period of the chosen kind. A briefing about
+    a period still in progress is one that will be wrong by the time it ends,
+    so that is rejected outright rather than only defaulted around.
     """
     from app.services import market_briefing as mbr
 
-    year, month = body.year, body.month
-    if not (year and month):
-        year, month = mbr.previous_month()
+    ref = body.ref_date or mbr.default_ref(body.period_kind)
+    start, end, period_label = mbr.period_bounds(body.period_kind, ref)
+    if end >= datetime.now(timezone.utc).date():
+        raise HTTPException(400, "That period is not complete yet.")
 
     conn = _conn()
     try:
         market = await asyncio.to_thread(_load_market, conn, market_id)
-        result = await mbr.generate(conn, market, year=year, month=month,
+        result = await mbr.generate(conn, market, start=start, end=end,
+                                    period_label=period_label,
                                     model=body.model, store=body.store)
         # The facts block is large and the caller usually wants the prose. It
         # is stored either way and readable through the detail route.
@@ -1492,6 +1620,33 @@ async def market_channel_mix(market_id: int,
         try:
             _load_market(conn, market_id)
             return man.channel_mix(conn, market_id, days=days)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/leaderboards")
+async def market_leaderboards(market_id: int,
+                              days: Optional[int] = Query(30, ge=1, le=3650),
+                              session=Depends(verify_session)):
+    """Per-network rankings and named hires — the Coverage tab's highlights.
+
+    Kept as its own endpoint rather than folded into ``/analysis/{name}``
+    because it is the one analysis a reader wants windowed to match whatever
+    period the Coverage tab is showing; the other four are all-time by
+    design and the generic dispatch has no query params to carry a window.
+    """
+    from app.services import market_analysis as man
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return {
+                "networks": man.network_leaderboard(conn, market_id, days=days)["networks"],
+                "career_moves": man.career_moves(conn, market_id, days=days),
+            }
         finally:
             conn.close()
 
@@ -1801,6 +1956,39 @@ async def market_corpus_summary(
     return await asyncio.to_thread(_work)
 
 
+@router.get("/markets/{market_id}/themes")
+async def market_themes(
+    market_id: int,
+    scope: str = Query("all", pattern="^(all|vendor)$"),
+    days: int = Query(30, ge=1, le=365),
+    narrate: bool = Query(
+        False, description="Also ask a model to name and describe each "
+                           "cluster. Off by default — clustering alone is "
+                           "free; this is a model call."),
+    model: Optional[str] = Query(None),
+    session=Depends(verify_session),
+):
+    """Embedding clusters over the matched corpus — what it is actually about,
+    not just what matched a phrase. ``scope=vendor`` narrows to vendor-
+    originated posts: what competitors are saying about themselves."""
+    from app.services import market_themes as mthemes
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market["name"], mthemes.cluster(
+                conn, market_id, scope=scope, days=days)
+        finally:
+            conn.close()
+
+    market_name, result = await asyncio.to_thread(_work)
+    if narrate:
+        result["narrative"] = await mthemes.narrate(
+            result, market_name, scope, model=model)
+    return result
+
+
 @router.get("/markets/{market_id}/brief")
 async def market_brief(
     market_id: int,
@@ -1818,6 +2006,29 @@ async def market_brief(
         try:
             market = _load_market(conn, market_id)
             return mp.build_brief(conn, market, days=days)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/headcount-trend")
+async def market_headcount_trend(
+    market_id: int,
+    weeks: int = Query(26, ge=4, le=104),
+    session=Depends(verify_session),
+):
+    """Market-wide headcount trend, as-of each week against each vendor's baseline.
+
+    Fetched lazily by the Pulse view's chart rather than folded into
+    /overview — the as-of join is O(vendors x weeks) and shouldn't run on
+    every overview load.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return mp.headcount_trend(conn, market, weeks=weeks)
         finally:
             conn.close()
 
@@ -2006,6 +2217,11 @@ async def start_run(market_id: int, payload: ManualRun,
         raise HTTPException(
             409, "Bright Data LinkedIn collection is disabled "
                  "(BRIGHTDATA_LINKEDIN_ENABLED).")
+    if payload.source in MANUAL_ONLY_SOURCES and payload.brand_id is None:
+        raise HTTPException(
+            400, "This source needs a specific vendor. Its attribution field "
+                 "is not yet confirmed against a real response, so it does "
+                 "not run across the whole registry in one call.")
 
     provider = "brightdata" if payload.source in PAID_SOURCES else "internal"
 
@@ -2013,10 +2229,18 @@ async def start_run(market_id: int, payload: ManualRun,
         conn = _conn()
         try:
             _load_market(conn, market_id)
+            if payload.brand_id is not None:
+                in_market = conn.execute(text("""
+                    SELECT 1 FROM bw_market_brands
+                    WHERE market_id = :m AND brand_id = :b
+                """), {"m": market_id, "b": payload.brand_id}).first()
+                if not in_market:
+                    raise HTTPException(404, "Vendor is not in this market.")
             run_id = conn.execute(text("""
-                INSERT INTO bw_collection_runs (market_id, source, provider, status)
-                VALUES (:m, :s, :p, 'queued') RETURNING id
-            """), {"m": market_id, "s": payload.source, "p": provider}).scalar()
+                INSERT INTO bw_collection_runs (market_id, brand_id, source, provider, status)
+                VALUES (:m, :b, :s, :p, 'queued') RETURNING id
+            """), {"m": market_id, "b": payload.brand_id, "s": payload.source,
+                   "p": provider}).scalar()
             conn.commit()
             return {"run_id": run_id, "status": "queued", "source": payload.source}
         except Exception:
@@ -2291,6 +2515,73 @@ async def vendor_detail(market_id: int, brand_id: int,
             """), {"n": f"{vendor['display_name']}%"}).mappings().all()]
 
             return vendor
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+# Kinds an operator can hand-enter here. Not every identifier kind — most are
+# either guessed (crunchbase_url) or discovered by the crawler (domain,
+# website_url) and correcting those belongs with that machinery, not a bare
+# form. These two have no discovery path at all: see
+# app/services/brightdata_linkedin.py's trigger_pitchbook/trigger_zoominfo
+# docstrings for why their URLs cannot be guessed the way Crunchbase's can.
+MANUAL_IDENTIFIER_KINDS = {"pitchbook_url", "zoominfo_url"}
+
+
+class SetIdentifier(BaseModel):
+    kind: str
+    value: str = Field(..., min_length=1, max_length=500)
+
+
+@router.put("/markets/{market_id}/vendors/{brand_id}/identifier")
+async def set_vendor_identifier(market_id: int, brand_id: int,
+                                body: SetIdentifier,
+                                session=Depends(verify_session)):
+    """Record a hand-entered identifier for one vendor.
+
+    Supersedes rather than overwrites: the old row's ``valid_to`` is stamped
+    rather than deleted, so a wrong entry is still visible in the vendor's
+    "corrected" history instead of vanishing.
+    """
+    if body.kind not in MANUAL_IDENTIFIER_KINDS:
+        raise HTTPException(
+            400, f"Unknown identifier kind. Expected one of: "
+                 f"{', '.join(sorted(MANUAL_IDENTIFIER_KINDS))}")
+    value = body.value.strip()
+    if not value:
+        raise HTTPException(400, "Value cannot be empty")
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            in_market = conn.execute(text("""
+                SELECT 1 FROM bw_market_brands
+                WHERE market_id = :m AND brand_id = :b
+            """), {"m": market_id, "b": brand_id}).first()
+            if not in_market:
+                raise HTTPException(404, "Vendor is not in this market.")
+
+            conn.execute(text("""
+                UPDATE bw_vendor_identifiers SET valid_to = NOW()
+                WHERE brand_id = :b AND kind = :k AND valid_to IS NULL
+            """), {"b": brand_id, "k": body.kind})
+            conn.execute(text("""
+                INSERT INTO bw_vendor_identifiers
+                    (brand_id, kind, normalized_value, display_value, provenance)
+                VALUES (:b, :k, :v, :v, CAST(:p AS JSONB))
+            """), {"b": brand_id, "k": body.kind, "v": value,
+                   "p": json.dumps({"source": "manual", "verified": False})})
+            conn.commit()
+            return {"ok": True, "kind": body.kind, "value": value}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 

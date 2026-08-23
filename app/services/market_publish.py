@@ -17,6 +17,7 @@ import csv
 import io
 import json
 import logging
+import statistics
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from typing import Any, Dict, List, Optional, Sequence
@@ -352,6 +353,15 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         m["pct"] = round(m["delta"] / float(m["was"]) * 100, 1) if m["was"] else None
     movers.sort(key=lambda x: abs(x["delta"]), reverse=True)
 
+    # The mean and median read across every vendor with both a baseline and a
+    # current headcount, not just the ten biggest movers the list below is
+    # truncated to — a market-wide figure computed from the shortlist would
+    # be skewed toward whoever moved the most.
+    pct_values = [m["pct"] for m in movers if m["pct"] is not None]
+    headcount_avg_pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
+    headcount_median_pct = (
+        round(statistics.median(pct_values), 1) if pct_values else None)
+
     loudest = [dict(r) for r in conn.execute(text("""
         SELECT b.display_name AS vendor, COUNT(DISTINCT a.uri) AS posts
         FROM bw_article_categories bac
@@ -390,10 +400,94 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         "standing_summary": (state or {}).get("summary"),
         "events": events,
         "headcount_movers": movers[:10],
+        "headcount_avg_pct": headcount_avg_pct,
+        "headcount_median_pct": headcount_median_pct,
+        "headcount_n": len(pct_values),
         "loudest_vendors": loudest,
         "coverage": dict(coverage or {}),
         "open_questions": gaps,
     }
+
+
+def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[str, Any]:
+    """Market-wide headcount trend, as-of each week, normalized to each vendor's baseline.
+
+    bw_vendor_snapshots only gains a new row when a poll's payload changed
+    (market_collect.store_snapshot dedups on content hash), so a plain GROUP
+    BY week would swing on which vendors happened to get re-scraped that
+    week, not on real headcount movement. Instead, for each week this takes
+    each vendor's most recent profile snapshot as of that week
+    (last-observation-carried-forward via a LATERAL join) and averages the %
+    change against that vendor's own baseline — the same normalization
+    build_brief() uses for headcount_avg_pct, so the two surfaces agree.
+    n_vendors ships with every point so a chart can flag weeks with thin
+    as-of coverage rather than reading a coverage-driven ramp as real growth.
+    """
+    # bw_vendor_snapshots cannot predate bw_market_brands, which is created
+    # with the market. Asking for 26 weeks on a market 4 days old produced 25
+    # weeks that were never able to have data — not thin, structurally empty
+    # — reading as a single stranded dot instead of one real point on a
+    # 1-week line. Clipping the window to the market's own age fixes that.
+    market_created = market.get("created_at") or "1970-01-01"
+    rows = conn.execute(text("""
+        WITH weeks AS (
+            SELECT generate_series(
+                GREATEST(date_trunc('week', now() - (:weeks || ' weeks')::interval),
+                         date_trunc('week', CAST(:market_created AS timestamptz))),
+                date_trunc('week', now()), '7 days'::interval) AS week_start
+        ),
+        vendors AS (
+            SELECT b.id AS brand_id,
+                   (mb.baseline->'metrics'->>'employee_count')::numeric AS baseline_count
+            FROM bw_market_brands mb
+            JOIN bw_brands b ON b.id = mb.brand_id
+            WHERE mb.market_id = :m AND mb.role <> 'excluded'
+        ),
+        asof AS (
+            SELECT w.week_start, v.brand_id, v.baseline_count, s.employee_count
+            FROM weeks w
+            CROSS JOIN vendors v
+            LEFT JOIN LATERAL (
+                SELECT (data->>'employee_count')::numeric AS employee_count
+                FROM bw_vendor_snapshots
+                WHERE brand_id = v.brand_id AND snapshot_type = 'profile'
+                  AND observed_at <= w.week_start + interval '7 days'
+                ORDER BY observed_at DESC LIMIT 1
+            ) s ON TRUE
+        )
+        SELECT TO_CHAR(week_start, 'YYYY-MM-DD') AS week,
+               COUNT(*) FILTER (WHERE employee_count IS NOT NULL) AS n_vendors,
+               AVG(CASE WHEN baseline_count > 0 AND employee_count IS NOT NULL
+                        THEN (employee_count - baseline_count) / baseline_count * 100 END)
+                   AS avg_pct_vs_baseline,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY
+                   CASE WHEN baseline_count > 0 AND employee_count IS NOT NULL
+                        THEN (employee_count - baseline_count) / baseline_count * 100 END)
+                   AS median_pct_vs_baseline
+        FROM asof
+        GROUP BY week_start ORDER BY week_start
+    """), {"m": market["id"], "weeks": weeks,
+           "market_created": market_created}).mappings().all()
+
+    watching = conn.execute(text("""
+        SELECT COUNT(*) FROM bw_market_brands
+        WHERE market_id = :m AND role <> 'excluded' AND collection_enabled
+    """), {"m": market["id"]}).scalar() or 0
+
+    points = []
+    for r in rows:
+        avg_pct = (float(r["avg_pct_vs_baseline"])
+                   if r["avg_pct_vs_baseline"] is not None else None)
+        med_pct = (float(r["median_pct_vs_baseline"])
+                   if r["median_pct_vs_baseline"] is not None else None)
+        points.append({
+            "week": r["week"],
+            "n_vendors": r["n_vendors"],
+            "avg_pct_vs_baseline": round(avg_pct, 1) if avg_pct is not None else None,
+            "median_pct_vs_baseline": round(med_pct, 1) if med_pct is not None else None,
+            "thin_coverage": watching > 0 and r["n_vendors"] < 0.5 * watching,
+        })
+    return {"weeks": weeks, "watching": watching, "points": points}
 
 
 # ---------------------------------------------------------------------------

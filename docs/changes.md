@@ -2,6 +2,340 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-23 — Pulse dashboard, inline citations, and the investor report rewritten as a market-intelligence report
+
+### Goal
+A long session on Market Monitor (`bugfixing.aunoo.ai` only — this module does not exist on
+wiley or wileytest), covering an approved plan (merge Overview + Brief into one Pulse landing
+view, add inline citations to generated reports, extend the investor HTML report with new
+trend charts), a full round of live bug fixes the user found on first use, several rounds of
+targeted UX fixes (chart legibility, missing labels, confusing controls), a set of new
+Coverage-tab rankings, and — the largest piece — a full structural rewrite of the investor
+HTML report from a monitoring-dashboard layout into a findings-first market-intelligence
+report, against a detailed written specification.
+
+### Pulse: a merged landing view
+`MarketMonitorTab.tsx` — retired the separate `overview` and `brief` views into one `pulse`
+view: a header band with a status sentence, KPI tiles, a sentiment trend chart, a headcount
+trend chart, funding momentum (as-of level + a movers list), a top-movers strip, and
+events/open-questions. New backend aggregates behind the new charts: `market_corpus.
+sentiment_trend()` (net positive-minus-negative share of classified coverage, weekly, with a
+`MIN_SCORED_FOR_SENTIMENT` confidence floor), `market_publish.headcount_trend()` (a
+last-observation-carried-forward join, normalized to each vendor's own baseline — a raw sum
+would read as growth purely from vendors gaining their first reading), and
+`market_analysis.funding_momentum()` (a monthly as-of level plus a `momentum_events` list of
+consecutive Crunchbase readings that actually changed).
+
+### Inline citations for generated reports
+`market_briefing.py` — `build_facts()` tags stable IDs (`A1`, `A2`, … / `C1`, `C2`, …) onto
+announcement and coverage facts and builds a `citation_index`; the prompt instructs the model
+to cite only from that index and never invent a bracket for anything else. `resolve_citations()`
+validates real citations, strips any bracket that isn't a real ID (defense-in-depth — verified
+live that even after a stronger prompt, a real model run still produced pseudo-citations like
+`[headcount data]`, and the stripping caught all of them), and appends a References section
+built from the facts dict directly, not a second lookup. `MarketBriefingsView.tsx` links valid
+`[A3]`-style markers inline to their source URL and adds a client-side Blob download button.
+
+### Bug-fix round (from live testing)
+- **Empty-looking charts**: `dot={false}` on a Recharts `<Line>` makes a lone non-null point
+  render as nothing. Fixed to `dot={{r:3}}` on all new trend lines, plus "X of Y periods have a
+  reading" captions so sparse data reads as early, not broken.
+- **`[headcount data]`-style citation placeholders**: covered above.
+- **Citations not clickable inline**: fixed, see above.
+- **No download option for reports**: added.
+- **Pulse mixed a 7-day and a 30-day window**: widened `getPulse()` to 30 days for consistency.
+- **Top Voices table very tall rows**: capped to 4 terms + 3 vendors per row with a "+N more"
+  indicator.
+- **No top/bottom prospecting table under Growth-against-attention**: added, ranked by
+  `(growth_score + heat_score) / 2`, clickable to the vendor page.
+- **"Single dot" headcount/funding charts**: root cause was requesting 26 weeks / 12 months of
+  history for a market that had existed 4 days — `bw_vendor_snapshots` cannot predate the
+  market's own registry, so 25 of 26 weeks were structurally, not thinly, empty. Fixed by
+  clipping both windows to the market's `created_at` in `headcount_trend()` and
+  `funding_momentum()`, and replacing the empty chart shell with a plain sentence ("Only one
+  weekly reading exists so far... a trend line needs at least two") when there's genuinely one
+  point, in both the Pulse view and the investor report.
+- **Sentiment chart "gaps"**: the vendor-attributed line only clears its confidence floor 2
+  weeks out of 26 (three gates stacked — matched, vendor-attributed, and classified). Two
+  isolated dots read as broken. Fixed by hiding that series under 3 real points, with a caption
+  explaining why, in both surfaces.
+- **Crunchbase scatter with no vendor labels**: a hover-only `<title>` tooltip is useless once a
+  report is shared or screenshotted. Added direct labels (SVG `<text>` in the report, Recharts
+  `LabelList` in the two live scatter charts).
+- **"Group by nothing" read as broken UI copy**: `DataTable.tsx`'s clear-grouping button was
+  literally labelled "nothing" — relabelled "none". Grouping itself was already working
+  (confirmed twitter/reddit are real distinct platforms in this market's practitioner posts).
+
+### Sentiment and delta color coding
+Added an optional `tone` prop to the Pulse `Stat` tile (green/red/neutral dot + text, sign
+already in the number so color is never the only signal), applied to the Sentiment KPI tile,
+the headcount average/median, and every attention/growth delta in the funding-momentum list.
+Added a faint green-above-zero / red-below-zero background wash plus a zero reference line to
+the Sentiment chart, and a plain-English reading ("Coverage in the latest week leaned
+positive (+22%)") above the chart in both the Pulse view and the investor report.
+
+### Coverage tab: rankings and a new "career moves" signal
+- **Most popular / Sort by / Group by Kind**: a new "Most popular" panel (top 5 by reactions),
+  a Newest/Most-reactions sort control, and a new "Group by: Kind" mode bucketing coverage by
+  what was announced (launch/partnership/customer/funding/acquisition). Fixed a latent bug this
+  surfaced: `groupByDay()` assumed its input was already newest-first and scanned for label
+  changes — broke under the new "Most reactions" sort. Rewrote it as a real group-by.
+- **Network leaderboards + career moves**: new `market_analysis.network_leaderboard()`
+  (most-discussed vendor, most-shared vendor, and top post, per platform) and `career_moves()`
+  (named hires, read from `review_kind='hiring'` posts whose `review_reason` already names who
+  joined — not a new signal, just surfaced separately from open job listings for the first
+  time). New `GET /markets/{id}/leaderboards` route. **Finding from building this**: most-
+  discussed/most-shared are usually empty — of 180 non-vendor social posts in this market, only
+  2 carry a formal vendor tag; brand attribution barely reaches practitioner Twitter/Reddit
+  posts today. Real data gap, not a bug; the UI says so rather than showing a blank box.
+  Fixed a real latent bug found while touching this file: `market_analysis.py` called
+  `_iso_days_ago()` (defined in `market_corpus.py`) with no import — dead code today only
+  because nothing passed `days` to `share_of_voice()`/`top_voices()`.
+
+### Investor report: rewritten as a market-intelligence report
+Full restructure of `market_report_html.py` against a detailed written spec, in two rounds.
+**Round 1** (copy/terminology): killed the "Based on X of Y have" broken sentences (the
+`_coverage()` wrapper was prepending "Based on" onto an already-complete clause); "Vendors with
+no signal" → "No observed activity"; "states a fact" → "concrete claim"; Crunchbase framed as
+proprietary supporting signals, not "momentum"; hiring copy no longer equates role mix with
+maturity; funding formatted as $1.038B not $1,038M; coverage triaged into "Material
+developments" (keyword + review-kind classified) vs collapsed "Full coverage".
+
+**Round 2** (structure): reordered into Header → Market scope → What changed → Market snapshot
+→ Material vendor moves → Competitive signals → What vendors are announcing → A young vendor
+cohort → Market discussion → Vendor registry → Monitoring coverage → About this report → Raw
+coverage (collapsed). New pieces: `market_analysis.period_comparison()` (this period vs. the
+immediately preceding one, marking a metric "no comparable prior-period reading" rather than a
+fake jump-from-zero when it structurally couldn't have existed before — e.g. job-posting
+snapshots on a market too young to have a prior window); a corroboration check computed from
+already-fetched story-clustering (a vendor post whose cluster also holds a non-vendor item is
+"independently corroborated", otherwise "vendor source only" — a real check against what was
+collected, not a guess); a second, narrower dedup pass (`_merge_same_story()`) scoped to each
+material-move kind group, added after finding four separate posts about the same Cribl/Radiant
+acquisition hadn't merged — the existing corpus-wide `cluster()` requires 6+ content words
+before comparing two items, which structurally excludes short tweet-style posts.
+
+**Schema**: `mm_007_market_scope.py` — three nullable `bw_markets` columns
+(`market_scope_description`, `inclusion_criteria`, `exclusion_criteria`), wired through
+`PUT /markets/{id}` and a new "Scope" tab in the market settings drawer. A market with none set
+gets a plain "not defined" note in the report, never a fabricated scope description.
+
+**Guardrail test**: `tests/test_market_report_copy.py` renders a real report and asserts none
+of a list of banned phrases appear (grammatically-broken auto-generated sentences, unsupported
+causal claims like "still building"/"started selling", "states a fact"), plus that every
+coverage chart shows its denominator. Renders live output rather than scanning source text on
+purpose — several banned phrases legitimately appear in this file's own comments, explaining
+the bug they fixed.
+
+**Deliberately not changed**: the AI-disclosure footer (EU AI Act Art. 50 compliance string,
+shared across every tenant via `app/compliance/ai_disclosure.py` — the spec asked for neutral
+report-specific wording, but that would fork a compliance-audited string into a one-off
+variant).
+
+### Verification
+- `python -m py_compile` on every edited service/route file.
+- `npm run typecheck` after every frontend round — clean against the existing 246-error
+  baseline throughout.
+- `pytest tests/test_market_report_copy.py` — 2 passed.
+- Every backend aggregate function called directly against real data for market 2 ("SOC
+  Automation") and inspected before wiring into a route.
+- `./ui/deploy-react-ui.sh` + `sudo systemctl restart bugfixing.aunoo.ai.service` after every
+  round; `journalctl` checked clean of new errors each time.
+- Live end-to-end: `curl .../markets/2/report.html?days=30` (200, correct section order, no
+  banned patterns) and `curl .../markets/2/leaderboards?days=30` via an authenticated in-process
+  call (route-level `verify_session` returns a 307 redirect to plain unauthenticated curl, so
+  the route function was exercised directly with a stub session instead).
+- `PUT /markets/2` exercised end-to-end for the new scope fields (set, confirmed in a live
+  report render, then reverted to blank — the values used to prove the flow works were invented
+  for the test, not an authoritative scope definition for this market).
+
+### Propagation
+`bugfixing.aunoo.ai` only — Market Monitor does not exist on wiley, wileytest or any other
+tenant (checked: no `app/services/market_report_html.py` on either). Nothing to propagate.
+
+## 2026-08-22 (market monitor expansion) — grouping, periods, themes, four new data sources, and a vendor you can add yourself
+
+### Goal
+A single long session on Market Monitor (`bugfixing.aunoo.ai` only — this module does not
+exist on wiley or wileytest), working through a list of specific complaints and requests:
+Coverage was a flat list with a "Story" mode that rarely showed anything; Briefings could
+only be written for a calendar month; there was no way to see what the market or its
+vendors were actually *talking about*; an audit of Bright Data's dataset catalog turned up
+four data sources the market wasn't using; the Wire tab's logic was opaque and had no
+drill-down; and a real competitor (Intezer) turned up in coverage without being a tracked
+vendor at all.
+
+### Coverage grouping (first pass), a Data-tab fetch panel, a headcount stat, and the first "Fetch now" — `ui/src/components/newsfeed/MarketMonitorTab.tsx`, `ui/src/components/newsfeed/MarketVendorPage.tsx`, `app/services/market_publish.py`
+Earlier in the same session, before the "Story mode does little" feedback below prompted a
+second pass: Coverage first got Story/Vendor/Day/Timeline grouping (Story was the original,
+default mode at this point); the Data tab got a "Fetched by source, last 30 days" panel
+reading the source-health data the page already loaded (`records_received`/`records_new`
+per provider — previously computed but never displayed anywhere but the runs log); Analysis
+got the market-wide headcount growth stat described below; and the vendor page got its
+first "Fetch now" button, covering the four sources already live (LinkedIn posts/profile/
+jobs, Crunchbase) before the four-new-sources work extended it to seven. `market_publish.
+build_brief()` gained `headcount_avg_pct`/`headcount_median_pct`/`headcount_n` — mean and
+median computed across *every* vendor with both a baseline and a current headcount
+reading, not just the ten biggest movers the existing chart is truncated to (a market-wide
+figure from the shortlist would skew toward whoever moved the most).
+
+### Coverage: "Story" mode retired, clustering made ambient — `ui/src/components/newsfeed/MarketMonitorTab.tsx`
+"Story" clustered near-duplicate posts but was the only mode that did, so most of the time
+it looked identical to a flat list. Clustering (`market_corpus.cluster()`) now runs under
+every grouping mode — a "N sources on this story" badge shows in Vendor, Day, and Timeline
+view alike, and in Timeline a clustered point is drawn larger with a ring instead of hiding
+the story count. Grouping is now `'vendor' | 'day' | 'timeline'` (was `'story' | 'vendor' |
+'day' | 'timeline'`), default `'day'`. Pagination (25/page, Previous/Next) is replaced with
+a widening window: fetch starts at 300 rows, "Load N more" grows it to the API's own
+500-row ceiling, then a note says so instead of silently capping. The timeline swimlane's
+vendor lanes were hard-capped at the 12 busiest with no way past it — added "Show all N
+vendors" / "Show fewer". "Unattributed" was internal jargon; renamed to "Market chatter"
+in both the vendor-grouping bucket and the timeline's catch-all lane.
+
+### Briefings: any period, not just a month — `app/services/market_briefing.py`, `app/routes/market_monitor_routes.py`
+`generate()` took `year`/`month` and always resolved a calendar month via `month_bounds()`.
+Generalized to take `start`/`end`/`period_label` directly, with a new `period_bounds(kind,
+ref)` supporting `day`/`week`/`month`/`year` and a `default_ref(kind)` for "last complete
+period of this kind". The route's `BriefingRequest` now takes `period_kind` and an optional
+`ref_date` (any date inside the desired period) instead of `year`/`month`, and rejects a
+period that is not yet complete (`end >= today` → 400). The file's own "monthly, not
+weekly" rationale was about the *default*, not a hard limit — the existing
+`MIN_ITEMS_FOR_PROSE` quiet-fallback already handles a thin day or week gracefully.
+Facts fed to the model are now capped at `MAX_FACTS_PER_SECTION = 80` per section
+(announcements, coverage) — unbounded before, which would have scaled a year-long
+briefing's prompt with the market's whole history; the facts block says when it is
+showing a sample of a bigger true count. `MarketBriefingsView.tsx` got a Day/Week/Month/Year
+selector plus a matching options dropdown (last 30 days / 12 weeks / 12 months / 5 years),
+replacing the single "Write last month's" button.
+
+### Themes: what the market — and each competitor — is actually talking about (new) — `app/services/market_themes.py`, `ui/src/components/newsfeed/MarketThemesPanel.tsx`
+`market_corpus.cluster()` finds near-duplicates; this finds broader subjects via k-means
+over the stored 768-dim article embedding (`scikit-learn`, already a dependency — no new
+install). `cluster(conn, market_id, scope, days)` fetches the matched corpus via the
+existing `market_corpus.articles()`, pulls embeddings in one batch query (the pgvector
+column comes back as its text form on this connection, `"[0.1,0.2,...]"` — parsed with
+`json.loads`, the same workaround `vector_store_pgvector.py` already uses via `str()`),
+and groups with `k = max(2, min(8, n // 18))`, `random_state=0` for reproducibility.
+`scope='vendor'` restricts to vendor-originated posts (blog + social, review-pass gated) —
+"what competitors say about themselves" vs. `scope='all'`, the whole matched conversation.
+Narration (`narrate()`) is a second, explicit-only stage — a model call, not run on page
+load — that names and describes each cluster from its sample titles only. First attempt
+included the tenant's org persona (used by `market_briefing.py`'s full reports) and it
+derailed the output into an unrelated "Implications for Wiley" essay instead of naming
+the clusters; dropped for this narrower task. New route `GET /markets/{id}/themes?scope=
+&days=&narrate=` (clustering is free, `narrate=true` costs a model call). Verified live
+against market 2 (SOC Automation, `scope=all`, 30 days): 63 articles with an embedding,
+k=3, clusters read as coherent subjects (agentic-SOC autonomy debate, alert-fatigue
+tooling, vendor product announcements) both before and after the persona fix.
+
+### Four new Bright Data sources, three of them manual-only — `app/services/brightdata_linkedin.py`, `app/services/market_collect.py`, `app/tasks/market_monitor.py`, `app/routes/market_monitor_routes.py`
+Prompted by "are we using all we can?" against a pasted Bright Data marketplace listing.
+Real dataset IDs pulled from Bright Data's own `/datasets/list` catalog (not guessed):
+LinkedIn people profiles `gd_l1viktl72bvl7bjuj0`, Indeed job listings `gd_l4dx9j9sscpvs7no2`,
+ZoomInfo companies `gd_m0ci4a4ivx3j5l6nx`, PitchBook companies `gd_m4ijiqfp2n9oe3oluj`.
+Trigger *request shapes* for PitchBook and Indeed (both modes) were supplied by the user
+from their Bright Data dashboard rather than guessed or found by trial against the live
+paid API — the user explicitly ruled out paying to reverse-engineer a `discover_by` mode,
+and the existing `trigger_jobs` docstring already documents two modes that "fail quietly"
+(return the wrong company's records rather than erroring) as the reason why. New shared
+transport `LinkedInDatasetClient.discover_by_keyword()` — confirmed identical across
+LinkedIn jobs, Crunchbase, and Indeed's discovery samples — with `trigger_jobs` refactored
+onto it. Added: `trigger_pitchbook`/`trigger_zoominfo` (collect-by-URL, confirmed shape),
+`trigger_indeed_discover` (discovery, confirmed shape; the employer field `posted_by` is
+an inference from the sample, not confirmed against a real response), and
+`trigger_crunchbase_discover` (built but **not** wired in — its response shape, full
+record vs. search-hit list, is unconfirmed, so the existing slug-guess in
+`seed_crunchbase_urls` is untouched). Mappers: `map_zoominfo_company` (field names taken
+verbatim from the dataset's published output dictionary — confirmed), `map_pitchbook_company`
+and `map_indeed_job` (defensive `_first()`-based guesses, no output sample existed for
+either, flagged unverified in their docstrings). New `market_collect.identifier_url_map()`
+— no guessing, unlike Crunchbase's slug guess, because PitchBook/ZoomInfo profile URLs end
+in an opaque numeric id a company name cannot derive. `ingest_pitchbook`/`ingest_zoominfo`
+(URL-keyed) and `ingest_indeed_jobs` (name-keyed via `discovery_input.posted_by`, falling
+back to the mapped `company` field) route through the existing `ingest_for_source`
+dispatcher. **PitchBook, ZoomInfo and Indeed never run on the scheduled cadence** — only
+from a vendor's own "Fetch now" (`_poll_market`'s per-vendor `_vendor_claims` loop). The
+route also rejects `indeed_jobs` outright without a `brand_id` (`MANUAL_ONLY_SOURCES`),
+since its employer-attribution field is unconfirmed and should not fire across a whole
+registry on an inference. New `PUT /markets/{id}/vendors/{brand_id}/identifier` (kinds:
+`pitchbook_url`, `zoominfo_url` only) lets an operator paste a vendor's PitchBook/ZoomInfo
+URL by hand — the only way one gets on file, since neither can be discovered. LinkedIn
+people profiles and YouTube videos posts: dataset IDs found, nothing else — no sample
+supplied, nothing built. `MarketVendorPage.tsx`'s "Fetch now" now queues all seven
+sources (the four unmatched ones close out as a no-op, not an error); a small inline
+form under Identifiers lets an operator add a PitchBook/ZoomInfo URL.
+
+### Wire: explained, and given a drill-down — `app/routes/timeline_routes.py`, `ui/src/components/newsfeed/MarketMonitorTab.tsx`
+Wire is not market-monitor-specific code — it is the generic `timeline_events` system
+(shared with Brand Watcher) pointed at the market's topic via `getMarketTimeline`/
+`/api/timeline/*`, which is also why it looked disconnected from the rest of the module's
+own API surface. For a market, `_fetch_day_articles`'s topic branch merges two sources:
+articles collected directly under the market's topic, and articles matched into the
+market's corpus from *other* topics by the market's own phrases (`bw_market_articles`,
+score >= 12 or a reviewed vendor post) — for SOC Automation this second source is the
+majority, 282 of 606. Extraction runs daily, capped at 12 events: three statistical
+detectors (`_detect_volume_spike` — "medium" at 2x the 7-day average, "high" at 3x;
+`_detect_sentiment_shift` — needs a 25-point negative-share swing, "high" at 40; `_detect_
+source_shift` — 2+ sources unseen in 30 days) plus an LLM pass, but only for the two most
+recent days, extracting up to 4 concrete developments from the day's top 12 articles
+(`gpt-5.4-mini`). The API already returned `article_uris` per event; the UI never rendered
+them. New `POST /api/timeline/articles` (title, source, date, and vendor attribution via
+`bw_article_categories` per URI) backs a new "Show articles" toggle on each Wire event
+(`WireEventCard`), with vendor badges that pivot to the vendor page — the same pattern
+Coverage already used. Two of the three statistical event types (volume spike, sentiment
+shift) still carry no `article_uris` — they are aggregate, not tied to specific articles —
+so their drill-down correctly shows nothing to expand.
+
+### A vendor that shows up in coverage but isn't tracked, now addable in one step — `app/routes/market_monitor_routes.py`, `ui/src/components/newsfeed/MarketMonitorTab.tsx`
+Investigating why an Intezer article in Coverage carried no vendor badge found the real
+reason: Intezer was never in the registry (`bw_brands` had no row), so the phrase-matched
+article had a vendor to name and none to pivot to — not a classification bug. The only
+existing path to add a vendor was the full workbook import. New
+`POST /markets/{id}/vendors` (`AddVendor`: `display_name`, optional `website`) creates or
+reuses a `bw_brands` row, generates classifier keywords via the existing
+`brand_keywords_for_vendor()`, links it into the market (`role='vendor'`,
+`collection_enabled=TRUE`), and records the website as a `domain` identifier when given.
+`MarketMonitorTab.tsx`'s Vendors tab got a "+ Add vendor" control. Used immediately:
+Intezer added to market 2 (`bw_brands.id=173`, `bw_market_brands.id=250`), and the
+specific article that surfaced it was backfilled to point at it
+(`bw_article_categories`, `classification_method='manual_backfill'`) — no broader
+historical backfill was run; other older Intezer mentions, if any, will not show a vendor
+badge without one.
+
+### Verification
+`python -m ast.parse` and a real import (`python -c "import app.routes.market_monitor_
+routes, ..."`) on every touched backend file; `npm run typecheck` clean at 246 known
+errors (baseline, no new ones) after every batch of frontend changes. `app.services.
+market_themes.cluster()` and `.narrate()` run live against market 2 (SOC Automation, real
+DB, real Bedrock/Haiku call) — see the Themes section above for the result. Bright Data's
+`/datasets/list` catalog was queried live (a free, read-only call) to source real dataset
+IDs; `GET /status` on the same account confirmed no Web Unlocker/SERP zone exists
+(`can_make_requests: false, auth_fail_reason: "zone_not_found"`), closing off a
+free-discovery path for PitchBook/ZoomInfo before it was built speculatively. The
+add-vendor endpoint was exercised directly against the live DB for Intezer (not via a
+minted HTTP session) — same SQL the endpoint runs, both inserts and the link row
+confirmed present afterward. No automated tests were added; verification throughout was
+direct DB queries, live smoke calls, and the service restart/log check below.
+`sudo systemctl restart bugfixing.aunoo.ai.service` after every deploy, journal checked
+for tracebacks each time — none beyond a pre-existing, unrelated "NewsData.io API key not
+found" line.
+
+### Propagation
+`bugfixing.aunoo.ai` only. Market Monitor does not exist on wiley or wileytest
+(`app/routes/market_monitor_routes.py` is absent from both trees) — nothing to copy.
+Frontend rebuilt and deployed via `./ui/deploy-react-ui.sh` after each batch of changes;
+service restarted each time.
+
+### Lessons
+Never spend on a live paid API call to reverse-engineer its request shape — a wrong
+`discover_by` guess can return another company's data instead of erroring, and the cost
+is not refunded either way. Get the shape from the account's own dashboard sample or from
+a real output schema instead; three of the four new sources here were only buildable
+because the user supplied exactly that. A generic prompt addition tuned for one surface
+(the org persona, tuned for full narrative reports) is not safe to reuse on a differently-
+shaped task without checking the actual output — it silently changed what the model was
+asked to do rather than erroring.
+
 ## 2026-08-20 (coverage cards) — cards, clustering, pagination, and plainer words
 
 ### Goal

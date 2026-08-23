@@ -26,6 +26,12 @@ export interface Market {
   updated_at: string | null;
   counts?: MarketCounts;
   open_review_tasks?: number;
+  /** What the tracked vendor cohort actually covers. The investor report
+   *  states this verbatim when set, and says plainly that scope was never
+   *  defined when it isn't — never infers it from who's in the registry. */
+  market_scope_description?: string | null;
+  inclusion_criteria?: string | null;
+  exclusion_criteria?: string | null;
 }
 
 export interface MarketCounts {
@@ -262,6 +268,18 @@ export async function createMarket(body: {
   }), 'Failed to create market');
 }
 
+export async function updateMarket(id: number, body: {
+  name?: string; question?: string; description?: string;
+  market_scope_description?: string; inclusion_criteria?: string;
+  exclusion_criteria?: string; enabled?: boolean; is_public?: boolean;
+}): Promise<Market> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${id}`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), 'Failed to update market');
+}
+
 export async function getVendors(
   marketId: number,
   opts: { role?: string; collectingOnly?: boolean } = {},
@@ -290,6 +308,19 @@ export type VendorSwitch = 'collection' | 'brand_monitoring';
  *  empty rule must not silently mean "all" — so "all" is stated as the two
  *  in-scope roles, which leaves anything marked excluded alone. */
 export const ALL_IN_SCOPE: VendorFilter = { roles: ['vendor', 'watch'] };
+
+/** Add one competitor to the registry by name — a company that shows up in
+ *  the market's own coverage without being tracked, the way Intezer did,
+ *  needs this rather than a full workbook re-import. */
+export async function addVendor(
+  marketId: number, displayName: string, website?: string,
+): Promise<{ brand_id: number; display_name: string; created_brand: boolean }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/vendors`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: displayName, website: website || undefined }),
+  }), 'Failed to add vendor');
+}
 
 export async function setVendorCollection(
   marketId: number, enabled: boolean, filter: VendorFilter, dryRun = true,
@@ -345,13 +376,29 @@ export async function getRuns(marketId: number, limit = 50): Promise<CollectionR
     { credentials: 'include' }), 'Failed to load runs');
 }
 
-export async function startRun(marketId: number, source: string):
+export async function startRun(marketId: number, source: string, brandId?: number):
   Promise<{ run_id: number; status: string; source: string }> {
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/runs`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source }),
+    body: JSON.stringify({ source, brand_id: brandId ?? null }),
   }), 'Failed to queue run');
+}
+
+/** PitchBook and ZoomInfo URLs have no auto-discovery — their id is opaque
+ *  and cannot be guessed from a company name — so this is the only way one
+ *  gets on file. Supersedes any existing identifier of the same kind rather
+ *  than overwriting it. */
+export async function setVendorIdentifier(
+  marketId: number, brandId: number, kind: 'pitchbook_url' | 'zoominfo_url',
+  value: string,
+): Promise<{ ok: boolean; kind: string; value: string }> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/identifier`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, value }),
+    }), 'Failed to save identifier');
 }
 
 export async function validateImport(file: File): Promise<ImportReport> {
@@ -527,6 +574,25 @@ export async function generateMarketTimeline(
   }), 'Failed to generate timeline');
 }
 
+export interface WireArticle {
+  uri: string; title: string; news_source: string | null;
+  publication_date: string | null;
+  vendors: { brand_id: number; vendor: string }[];
+}
+
+/** Titles and links for a Wire event's ``article_uris`` — what a count and a
+ *  significance were computed from. Called on demand from an expanded
+ *  event, not on every event-list load. */
+export async function getWireArticles(uris: string[]): Promise<WireArticle[]> {
+  if (!uris.length) return [];
+  const r = await jsonOrThrow(await fetch('/api/timeline/articles', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uris }),
+  }), 'Failed to load articles') as { articles: WireArticle[] };
+  return r.articles;
+}
+
 // ============================================================================
 // Brief, dataset, sources
 // ============================================================================
@@ -548,7 +614,7 @@ export interface HeadcountMover {
   pct: number | null;
 }
 
-export interface MarketBrief {
+export interface MarketPulse {
   market: string;
   question: string | null;
   period_days: number;
@@ -556,14 +622,80 @@ export interface MarketBrief {
   standing_summary: string | null;
   events: BriefEvent[];
   headcount_movers: HeadcountMover[];
+  /** Mean and median growth across every vendor with both a baseline and a
+   *  current headcount reading — not just the movers shown above, which are
+   *  the ten biggest changes and would skew the figure. */
+  headcount_avg_pct: number | null;
+  headcount_median_pct: number | null;
+  headcount_n: number;
   loudest_vendors: { vendor: string; posts: number }[];
   coverage: { watching: number; registry: number; paused: number };
   open_questions: { severity: string; kind: string; n: number }[];
 }
 
-export async function getBrief(marketId: number, days = 7): Promise<MarketBrief> {
+export interface ThemeCluster {
+  id: number;
+  size: number;
+  sample: { uri: string; title: string; source: string | null;
+           published: string | null }[];
+  top_vendors: { vendor: string; n: number }[];
+  date_range: [string | null, string | null];
+}
+
+export interface MarketThemes {
+  scope: 'all' | 'vendor';
+  n: number;
+  k: number;
+  clusters: ThemeCluster[];
+  /** Set instead of clusters being useful when there is too little matched,
+   *  embedded coverage to group — e.g. a brand-new market. */
+  reason?: string;
+  /** Only present when the caller asked for it — a model call, not free. */
+  narrative?: string;
+}
+
+export async function getThemes(
+  marketId: number,
+  opts: { scope?: 'all' | 'vendor'; days?: number; narrate?: boolean;
+          model?: string } = {},
+): Promise<MarketThemes> {
+  const q = new URLSearchParams();
+  if (opts.scope) q.set('scope', opts.scope);
+  if (opts.days) q.set('days', String(opts.days));
+  if (opts.narrate) q.set('narrate', 'true');
+  if (opts.model) q.set('model', opts.model);
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/themes?${q}`,
+      { credentials: 'include' }), 'Failed to load themes');
+}
+
+export async function getPulse(marketId: number, days = 7): Promise<MarketPulse> {
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/brief?days=${days}`,
-    { credentials: 'include' }), 'Failed to load brief');
+    { credentials: 'include' }), 'Failed to load pulse');
+}
+
+export interface HeadcountTrendPoint {
+  week: string;
+  n_vendors: number;
+  avg_pct_vs_baseline: number | null;
+  median_pct_vs_baseline: number | null;
+  /** True when fewer than half of watched vendors have a reading as of this
+   * week — the chart should render this point as low-confidence. */
+  thin_coverage: boolean;
+}
+
+export interface MarketHeadcountTrend {
+  weeks: number;
+  watching: number;
+  points: HeadcountTrendPoint[];
+}
+
+export async function getHeadcountTrend(
+  marketId: number, weeks = 26,
+): Promise<MarketHeadcountTrend> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/headcount-trend?weeks=${weeks}`,
+      { credentials: 'include' }), 'Failed to load headcount trend');
 }
 
 export interface DatasetRow { [key: string]: unknown }
@@ -740,6 +872,13 @@ export interface CorpusSummary {
   by_week: { week: string; n: number }[];
   collection_terms?: string[];
   context_terms?: string[];
+  /** Weekly net-sentiment index (%positive minus %negative among classified
+   * coverage) — null for a week under the minimum classified-article floor,
+   * not zero. net_vendor is coverage attributed to a tracked vendor;
+   * net_broad is everything else matched. */
+  sentiment_trend: { week: string; scored_all: number;
+                     net_all: number | null; net_vendor: number | null;
+                     net_broad: number | null }[];
 }
 
 export interface CorpusArticle {
@@ -934,6 +1073,17 @@ export interface FundingAnalysis {
     cb_rank: number | null; rounds: number | null;
   }[];
   shared_investors: { investor: string; vendors: number; backing: string[] }[];
+  /** Monthly as-of level (last-observation-carried-forward) for
+   * growth_score/heat_score — a step function, not a live trend: Crunchbase
+   * is read at most weekly and only writes a new value when it changed. */
+  by_month: { month: string; n_vendors: number;
+             avg_heat_score: number | null; avg_growth_score: number | null;
+             avg_cb_rank: number | null }[];
+  /** The vendor snapshots where a score genuinely moved from the one
+   * before it — where the real signal is, since by_month mostly repeats. */
+  momentum_events: { vendor: string; observed_at: string;
+                     prev_observed_at: string; heat_delta: number | null;
+                     growth_delta: number | null }[];
   coverage: Coverage;
 }
 
@@ -1064,13 +1214,16 @@ export async function getBriefing(
 
 export async function generateBriefing(
   marketId: number,
-  body: { year?: number; month?: number; model?: string } = {},
+  body: { periodKind?: 'day' | 'week' | 'month' | 'year'; refDate?: string;
+         model?: string } = {},
 ): Promise<{ id?: number; period_label: string; generation: string;
              item_count: number; content: string }> {
+  const wireBody = { period_kind: body.periodKind, ref_date: body.refDate,
+                     model: body.model };
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/briefings`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(wireBody),
   }), 'Briefing generation failed');
 }
 
@@ -1192,6 +1345,32 @@ export interface ChannelMix {
   days: number | null;
 }
 
+export interface NetworkLeaderboard {
+  platform: string;
+  /** Earned mentions only — a vendor's own post doesn't count as others
+   *  discussing it. Often empty: brand attribution barely reaches
+   *  third-party social posts today, which is a real data gap, not a bug. */
+  most_discussed: { vendor: string; brand_id: number; mentions: number }[];
+  most_shared: { vendor: string; brand_id: number; shares: number }[];
+  /** Any post on this platform, owned or earned — the one ranking here
+   *  that doesn't depend on brand attribution, so it's the one most likely
+   *  to actually have data. */
+  top_posts: {
+    uri: string; title: string | null; author: string | null;
+    news_source: string | null; is_owned: boolean; engagement: number;
+  }[];
+}
+
+export interface CareerMove {
+  vendor: string; brand_id: number; title: string; uri: string;
+  review_reason: string | null; published: string | null;
+}
+
+export interface Leaderboards {
+  networks: NetworkLeaderboard[];
+  career_moves: { moves: CareerMove[]; days: number | null; coverage: Coverage };
+}
+
 export async function getTopVoices(
   marketId: number, days?: number, limit = 25,
 ): Promise<TopVoices> {
@@ -1207,4 +1386,12 @@ export async function getChannelMix(
   const q = days ? `?days=${days}` : '';
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/channel-mix${q}`,
     { credentials: 'include' }), 'Failed to load channel mix');
+}
+
+export async function getLeaderboards(
+  marketId: number, days = 30,
+): Promise<Leaderboards> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/leaderboards?days=${days}`,
+    { credentials: 'include' }), 'Failed to load leaderboards');
 }

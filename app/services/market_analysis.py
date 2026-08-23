@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from app.services.market_corpus import _iso_days_ago
+
 logger = logging.getLogger(__name__)
 
 ANALYSES = ("formation", "signal_noise", "funding", "hiring",
@@ -261,13 +263,111 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
                  WHERE i.kind = 'crunchbase_url' AND i.valid_to IS NULL)
     """), {"m": market_id}).fetchone()
 
+    mom = funding_momentum(conn, market_id)
+
     return {
         "stages": stages,
         "momentum": momentum,
         "shared_investors": investors,
+        "by_month": mom["by_month"],
+        "momentum_events": mom["momentum_events"],
         "coverage": _coverage(read or 0, with_url or 0,
                               "vendors with a Crunchbase page have been read"),
     }
+
+
+def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any]:
+    """Market-wide funding-score history: a monthly as-of level, and real moves.
+
+    growth_score/heat_score/cb_rank are Crunchbase's own point-in-time
+    scores, read at most weekly (app/tasks/market_monitor.py) and only
+    written as a new snapshot row when the value actually changed. by_month
+    is therefore a step function (last-observation-carried-forward, same
+    approach as market_publish.headcount_trend) — label it "as of" in the
+    UI, not "trend": most months repeat the prior reading, since PitchBook
+    and ZoomInfo (snapshot_type='firmographic') are manual-only and never
+    contribute here. momentum_events is where the real signal is: only the
+    vendor snapshots where a score genuinely moved from the one before it.
+    """
+    # bw_vendor_snapshots cannot predate bw_market_brands, which is created
+    # with the market — see market_publish.headcount_trend for the same fix
+    # and the reasoning. Without this, a young market's by_month asks for
+    # months that structurally could never have a reading.
+    market_created = conn.execute(text(
+        "SELECT created_at FROM bw_markets WHERE id = :m"),
+        {"m": market_id}).scalar() or "1970-01-01"
+    by_month = [dict(r) for r in conn.execute(text("""
+        WITH months AS (
+            SELECT generate_series(
+                GREATEST(date_trunc('month', now() - (:months || ' months')::interval),
+                         date_trunc('month', CAST(:market_created AS timestamptz))),
+                date_trunc('month', now()), '1 month'::interval) AS month_start
+        ),
+        vendors AS (
+            SELECT b.id AS brand_id
+            FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+            WHERE mb.market_id = :m AND mb.role <> 'excluded'
+        ),
+        asof AS (
+            SELECT mo.month_start, v.brand_id, s.growth_score, s.heat_score, s.cb_rank
+            FROM months mo CROSS JOIN vendors v
+            LEFT JOIN LATERAL (
+                SELECT (data->>'growth_score')::numeric AS growth_score,
+                       (data->>'heat_score')::numeric AS heat_score,
+                       (data->>'cb_rank')::numeric AS cb_rank
+                FROM bw_vendor_snapshots
+                WHERE brand_id = v.brand_id AND snapshot_type = 'funding'
+                  AND observed_at <= mo.month_start + interval '1 month'
+                ORDER BY observed_at DESC LIMIT 1
+            ) s ON TRUE
+        )
+        SELECT TO_CHAR(month_start, 'YYYY-MM-DD') AS month,
+               COUNT(*) FILTER (WHERE heat_score IS NOT NULL) AS n_vendors,
+               AVG(heat_score) AS avg_heat_score,
+               AVG(growth_score) AS avg_growth_score,
+               AVG(cb_rank) AS avg_cb_rank
+        FROM asof GROUP BY month_start ORDER BY month_start
+    """), {"m": market_id, "months": months,
+           "market_created": market_created}).mappings().all()]
+    for row in by_month:
+        for key in ("avg_heat_score", "avg_growth_score", "avg_cb_rank"):
+            row[key] = round(float(row[key]), 1) if row[key] is not None else None
+
+    momentum_events = [dict(r) for r in conn.execute(text("""
+        WITH ordered AS (
+            SELECT s.brand_id, b.display_name AS vendor, s.observed_at,
+                   (s.data->>'heat_score')::numeric AS heat_score,
+                   (s.data->>'growth_score')::numeric AS growth_score,
+                   LAG((s.data->>'heat_score')::numeric) OVER w AS prev_heat,
+                   LAG((s.data->>'growth_score')::numeric) OVER w AS prev_growth,
+                   LAG(s.observed_at) OVER w AS prev_observed_at
+            FROM bw_vendor_snapshots s
+            JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                                     AND mb.market_id = :m AND mb.role <> 'excluded'
+            JOIN bw_brands b ON b.id = s.brand_id
+            WHERE s.snapshot_type = 'funding'
+            WINDOW w AS (PARTITION BY s.brand_id ORDER BY s.observed_at)
+        )
+        SELECT vendor, observed_at, prev_observed_at,
+               heat_score - prev_heat AS heat_delta,
+               growth_score - prev_growth AS growth_delta
+        FROM ordered
+        WHERE prev_heat IS NOT NULL
+          AND (heat_score IS DISTINCT FROM prev_heat
+               OR growth_score IS DISTINCT FROM prev_growth)
+        ORDER BY observed_at DESC LIMIT 50
+    """), {"m": market_id}).mappings().all()]
+    for row in momentum_events:
+        row["observed_at"] = (row["observed_at"].isoformat()
+                               if row["observed_at"] else None)
+        row["prev_observed_at"] = (row["prev_observed_at"].isoformat()
+                                    if row["prev_observed_at"] else None)
+        row["heat_delta"] = (round(float(row["heat_delta"]), 1)
+                              if row["heat_delta"] is not None else None)
+        row["growth_delta"] = (round(float(row["growth_delta"]), 1)
+                                if row["growth_delta"] is not None else None)
+
+    return {"by_month": by_month, "momentum_events": momentum_events}
 
 
 # ---------------------------------------------------------------------------
@@ -808,6 +908,263 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         "days": days,
         "coverage": _coverage(with_author or 0, total or 0,
                               "practitioner posts name an author"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 6. Leaderboards — per-network rankings, and who joined
+# ---------------------------------------------------------------------------
+
+_PLATFORM_EXPR = ("COALESCE(a.social_meta->>'platform', "
+                  "SPLIT_PART(a.news_source, ':', 2), a.news_source)")
+
+# How many top entries a per-platform ranking keeps.
+LEADERBOARD_LIMIT = 5
+
+
+def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
+                        ) -> Dict[str, Any]:
+    """Per-platform rankings: who's discussed, whose posts spread, what's trending.
+
+    Three different questions, kept separate rather than one blended score:
+
+    - **most_discussed** — earned mentions only. A vendor's own post about
+      itself is not evidence anyone else is discussing it; same owned/earned
+      split ``share_of_voice()`` already draws, applied per platform.
+    - **most_shared** / **top_posts** — any post, owned or earned. Virality
+      does not care who posted it, and a vendor's own post going viral is
+      itself the finding.
+
+    LinkedIn is almost entirely vendor company posts in this schema (posts
+    from practitioners rarely carry ``bias_source = 'vendor:linkedin'`` set
+    to false there), so it can be strong on most_shared/top_posts and nearly
+    empty on most_discussed — that split is real, not a bug.
+    """
+    window = ""
+    params: Dict[str, Any] = {"m": market_id}
+    if days:
+        window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
+        params["since"] = _iso_days_ago(days)
+
+    discussed_rows = conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT {_PLATFORM_EXPR} AS platform, b.display_name AS vendor,
+               b.id AS brand_id, COUNT(DISTINCT a.uri) AS mentions
+        FROM pb
+        JOIN articles a ON a.uri = pb.article_uri
+        JOIN bw_brands b ON b.id = pb.brand_id
+        JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+        WHERE COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND a.social_meta IS NOT NULL
+          {window}
+        GROUP BY 1, 2, 3
+    """), params).mappings().all()
+
+    shared_rows = conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT {_PLATFORM_EXPR} AS platform, b.display_name AS vendor,
+               b.id AS brand_id,
+               SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)) AS shares
+        FROM pb
+        JOIN articles a ON a.uri = pb.article_uri
+        JOIN bw_brands b ON b.id = pb.brand_id
+        JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+        WHERE a.social_meta IS NOT NULL
+          {window}
+        GROUP BY 1, 2, 3
+        HAVING SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)) > 0
+    """), params).mappings().all()
+
+    post_rows = conn.execute(text(f"""
+        SELECT {_PLATFORM_EXPR} AS platform, a.uri, a.title,
+               COALESCE(a.social_meta->>'author_name', a.social_meta->>'author')
+                   AS author,
+               a.news_source,
+               COALESCE(a.bias_source, '') = 'vendor:linkedin' AS is_owned,
+               COALESCE((a.social_meta->>'likes')::numeric, 0)
+                 + COALESCE((a.social_meta->>'comments')::numeric, 0)
+                 + COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)
+                 AS engagement
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m AND a.social_meta IS NOT NULL {window}
+        ORDER BY engagement DESC
+        LIMIT 500
+    """), params).mappings().all()
+
+    by_platform: Dict[str, Dict[str, Any]] = {}
+
+    def _bucket(platform: Optional[str]) -> Optional[Dict[str, Any]]:
+        # An empty-string platform is a real gap in this schema — social_meta
+        # can hold "" rather than NULL — not a fourth network worth a card.
+        if not platform:
+            return None
+        return by_platform.setdefault(platform, {
+            "platform": platform, "most_discussed": [], "most_shared": [],
+            "top_posts": [], "total_mentions": 0,
+        })
+
+    discussed_by_platform: Dict[str, List[Dict[str, Any]]] = {}
+    for r in discussed_rows:
+        b = _bucket(r["platform"])
+        if b is None:
+            continue
+        discussed_by_platform.setdefault(r["platform"], []).append(dict(r))
+        b["total_mentions"] += r["mentions"]
+
+    shared_by_platform: Dict[str, List[Dict[str, Any]]] = {}
+    for r in shared_rows:
+        b = _bucket(r["platform"])
+        if b is None:
+            continue
+        shared_by_platform.setdefault(r["platform"], []).append(
+            {**dict(r), "shares": float(r["shares"])})
+
+    posts_by_platform: Dict[str, List[Dict[str, Any]]] = {}
+    for r in post_rows:
+        b = _bucket(r["platform"])
+        if b is None or r["engagement"] <= 0:
+            continue
+        posts_by_platform.setdefault(r["platform"], []).append(
+            {**dict(r), "engagement": float(r["engagement"])})
+
+    for platform, bucket in by_platform.items():
+        bucket["most_discussed"] = sorted(
+            discussed_by_platform.get(platform, []),
+            key=lambda x: -x["mentions"])[:LEADERBOARD_LIMIT]
+        bucket["most_shared"] = sorted(
+            shared_by_platform.get(platform, []),
+            key=lambda x: -x["shares"])[:LEADERBOARD_LIMIT]
+        bucket["top_posts"] = sorted(
+            posts_by_platform.get(platform, []),
+            key=lambda x: -x["engagement"])[:LEADERBOARD_LIMIT]
+
+    networks = sorted(by_platform.values(), key=lambda b: -b["total_mentions"])
+    for b in networks:
+        del b["total_mentions"]
+
+    return {"networks": networks, "days": days}
+
+
+def career_moves(conn, market_id: int, *, days: Optional[int] = None,
+                 limit: int = 25) -> Dict[str, Any]:
+    """Named hires and senior appointments, drawn from the review pass.
+
+    Not a new signal — ``review_kind = 'hiring'`` already means the reviewer
+    read a "welcome to the team" style post and named who joined in
+    ``review_reason`` ("Ryan Burke as VP Sales"). This just surfaces those
+    rows as their own list instead of leaving them folded into the general
+    announcement count, where "who joined" was invisible next to "who has an
+    open role" (a completely different signal, sourced from job listings,
+    not from posts).
+    """
+    window = ""
+    params: Dict[str, Any] = {"m": market_id, "lim": limit}
+    if days:
+        window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
+        params["since"] = _iso_days_ago(days)
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT DISTINCT ON (a.uri)
+               b.display_name AS vendor, b.id AS brand_id, a.title, a.uri,
+               ma.review_reason,
+               COALESCE(a.publication_date, a.submission_date) AS published
+        FROM pb
+        JOIN articles a ON a.uri = pb.article_uri
+        JOIN bw_brands b ON b.id = pb.brand_id
+        JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+        JOIN bw_market_articles ma ON ma.article_uri = a.uri AND ma.market_id = :m
+        WHERE ma.review_kind = 'hiring' AND ma.review_verdict = 'signal'
+          {window}
+        ORDER BY a.uri, published DESC
+    """), params).mappings().all()]
+    rows.sort(key=lambda r: r.get("published") or "", reverse=True)
+
+    in_scope = conn.execute(text("""
+        SELECT COUNT(*) FROM bw_market_brands
+        WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).scalar() or 0
+    vendors_with_moves = len({r["brand_id"] for r in rows})
+
+    return {
+        "moves": rows[:limit],
+        "days": days,
+        "coverage": _coverage(vendors_with_moves, in_scope,
+                              "vendors have a named hire this period"),
+    }
+
+
+def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
+    """This reporting period against the immediately preceding one, same length.
+
+    Deliberately narrow: only counts that are cheap and exact to bound by
+    date — announcement-kind counts, job postings observed, and matched
+    coverage volume. Headcount and Crunchbase already have their own as-of
+    windowed trend charts elsewhere (``market_publish.headcount_trend``,
+    ``funding_momentum``); re-deriving a delta for them here on a different
+    date-bounding approach would risk quietly disagreeing with those charts.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    curr_start_dt = now - timedelta(days=days)
+    prev_start_dt = now - timedelta(days=days * 2)
+    curr_start, curr_end = _iso_days_ago(days), _iso_days_ago(0)
+    prev_start, prev_end = _iso_days_ago(days * 2), curr_start
+
+    def _kinds(start: str, end: str) -> Dict[str, int]:
+        rows = conn.execute(text("""
+            SELECT COALESCE(ma.review_kind, 'other') AS kind,
+                   COUNT(DISTINCT a.uri) AS n
+            FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri
+            WHERE ma.market_id = :m AND ma.review_verdict = 'signal'
+              AND COALESCE(a.publication_date, a.submission_date) >= :start
+              AND COALESCE(a.publication_date, a.submission_date) < :end
+            GROUP BY 1
+        """), {"m": market_id, "start": start, "end": end}).fetchall()
+        return {kind: n for kind, n in rows}
+
+    def _jobs(start_dt, end_dt) -> int:
+        return conn.execute(text("""
+            SELECT COUNT(DISTINCT s.provider_item_id)
+            FROM bw_vendor_snapshots s
+            JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                                     AND mb.market_id = :m
+            WHERE s.snapshot_type = 'job_posting'
+              AND s.observed_at >= :start AND s.observed_at < :end
+        """), {"m": market_id, "start": start_dt, "end": end_dt}).scalar() or 0
+
+    def _coverage_volume(start: str, end: str) -> int:
+        return conn.execute(text("""
+            SELECT COUNT(*) FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri
+            WHERE ma.market_id = :m
+              AND COALESCE(a.publication_date, a.submission_date) >= :start
+              AND COALESCE(a.publication_date, a.submission_date) < :end
+        """), {"m": market_id, "start": start, "end": end}).scalar() or 0
+
+    current = _kinds(curr_start, curr_end)
+    previous = _kinds(prev_start, prev_end)
+    current["_jobs"] = _jobs(curr_start_dt, now)
+    previous["_jobs"] = _jobs(prev_start_dt, curr_start_dt)
+    current["_coverage"] = _coverage_volume(curr_start, curr_end)
+    previous["_coverage"] = _coverage_volume(prev_start, prev_end)
+
+    all_keys = set(current) | set(previous)
+    deltas = {k: current.get(k, 0) - previous.get(k, 0) for k in all_keys}
+
+    return {
+        "days": days,
+        "current_range": (curr_start[:10], curr_end[:10]),
+        "previous_range": (prev_start[:10], prev_end[:10]),
+        "current": current,
+        "previous": previous,
+        "deltas": deltas,
     }
 
 

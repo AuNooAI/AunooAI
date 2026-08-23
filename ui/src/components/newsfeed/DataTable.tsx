@@ -164,7 +164,7 @@ export function DataTable<T>({
                   className={`px-2 py-0.5 rounded border ${
                     groupKey === '' ? 'bg-slate-800 text-white border-slate-800'
                                     : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-            nothing
+            none
           </button>
           {groupable.map(col => (
             <button key={col.key} onClick={() => setGroupKey(col.key)}

@@ -453,7 +453,67 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         "top_terms": [dict(r) for r in top_terms],
         "top_sources": [dict(r) for r in top_sources],
         "by_week": [dict(r) for r in by_week],
+        "sentiment_trend": sentiment_trend(conn, market_id),
     }
+
+
+def sentiment_trend(conn, market_id: int, *, weeks: int = 26) -> List[Dict[str, Any]]:
+    """Weekly net-sentiment index for the market's matched corpus.
+
+    Three series per week: all matched coverage, coverage attributed to a
+    tracked vendor (via bw_article_categories), and everything else ("the
+    market broadly"). Sentiment predicates mirror escalation_tiers._POS/_NEG
+    so this agrees with what brand-level surfaces report for the same
+    articles. A week under MIN_SCORED_FOR_SENTIMENT classified articles is
+    None, not zero — there isn't enough signal to call a direction, and
+    charting None as 0 would read as "neutral" when it means "no data".
+    """
+    from app.services.escalation_tiers import _NEG, _POS, MIN_SCORED_FOR_SENTIMENT
+
+    since = _iso_days_ago(weeks * 7)
+    rows = conn.execute(text(f"""
+        WITH scoped AS (
+            SELECT ma.article_uri,
+                   COALESCE(a.publication_date, a.submission_date) AS pub,
+                   a.sentiment,
+                   EXISTS (
+                       SELECT 1 FROM bw_article_categories bac
+                       JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id
+                                                AND mb.market_id = ma.market_id
+                       WHERE bac.article_uri = ma.article_uri
+                   ) AS vendor_attributed
+            FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri
+            WHERE ma.market_id = :m
+              AND COALESCE(a.publication_date, a.submission_date) >= :since
+        )
+        SELECT TO_CHAR(DATE_TRUNC('week', pub::timestamp), 'YYYY-MM-DD') AS week,
+               COUNT(*) FILTER (WHERE COALESCE(sentiment, '') <> '')                  AS scored_all,
+               COUNT(*) FILTER (WHERE {_POS})                                         AS pos_all,
+               COUNT(*) FILTER (WHERE {_NEG})                                         AS neg_all,
+               COUNT(*) FILTER (WHERE vendor_attributed
+                                       AND COALESCE(sentiment, '') <> '')             AS scored_vendor,
+               COUNT(*) FILTER (WHERE vendor_attributed AND {_POS})                   AS pos_vendor,
+               COUNT(*) FILTER (WHERE vendor_attributed AND {_NEG})                   AS neg_vendor,
+               COUNT(*) FILTER (WHERE NOT vendor_attributed
+                                       AND COALESCE(sentiment, '') <> '')             AS scored_broad,
+               COUNT(*) FILTER (WHERE NOT vendor_attributed AND {_POS})               AS pos_broad,
+               COUNT(*) FILTER (WHERE NOT vendor_attributed AND {_NEG})               AS neg_broad
+        FROM scoped
+        GROUP BY 1 ORDER BY 1
+    """), {"m": market_id, "since": since}).mappings().all()
+
+    def _net(pos: int, neg: int, scored: int) -> Optional[int]:
+        return (round((pos - neg) / scored * 100)
+                if scored >= MIN_SCORED_FOR_SENTIMENT else None)
+
+    return [{
+        "week": r["week"],
+        "scored_all": r["scored_all"],
+        "net_all": _net(r["pos_all"], r["neg_all"], r["scored_all"]),
+        "net_vendor": _net(r["pos_vendor"], r["neg_vendor"], r["scored_vendor"]),
+        "net_broad": _net(r["pos_broad"], r["neg_broad"], r["scored_broad"]),
+    } for r in rows]
 
 
 # Social coverage repeats itself heavily: the same launch, the same Forbes

@@ -8,47 +8,56 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Globe, LineChart,
-  Linkedin, Loader2, Play, RefreshCw, Search, Settings, ToggleLeft, ToggleRight,
-  X,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Globe, Layers,
+  LineChart, Linkedin, Loader2, Play, RefreshCw, Search, Settings, ToggleLeft,
+  ToggleRight, X,
 } from 'lucide-react';
 import { MarketVendorPage } from './MarketVendorPage';
 import { MarketAnalysisView } from './MarketAnalysisView';
 import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
 import {
-  BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  BarChart, Bar, CartesianGrid, Cell, Legend, Line,
+  LineChart as RLineChart, ReferenceArea, ReferenceLine,
+  ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
+  addVendor,
   datasetCsvUrl, datasetCsvDownloadUrl, discoverCandidates,
   exportBundleUrl, feedUrl, getReportLink, reportUrl, ALL_IN_SCOPE,
-  generateMarketTimeline, getBrief, getCollectionPlan, getCorpusArticles,
-  getCorpusSummary, getDataInventory, getDrilldown, getMarketTable,
-  getFacets,
-  getMarketTimeline, getMarkets, getOverview, getReviewTasks,
+  generateMarketTimeline, getAnalyses, getPulse, getCollectionPlan,
+  getCorpusArticles,
+  getCorpusSummary, getDataInventory, getDrilldown, getHeadcountTrend,
+  getLeaderboards,
+  getMarketTable, getFacets,
+  getMarketTimeline, getMarkets, getOverview, getReviewTasks, getWireArticles,
   getRuns, getSourceHealth, getSources, getVendors, reviewPosts, saveSources,
   scanCorpus,
-  setCollectionTerms, setVendorCollection, setupCollection,
+  setCollectionTerms, setVendorCollection, setupCollection, updateMarket,
   autoCloseReviewTasks, closeReviewTask, fixReviewTask,
   type CollectionPlan, type CollectionRun, type CorpusArticle,
   type ArticleClass, type CorpusSummary, type DatasetInfo,
   type DrilldownVendor,
-  type DiscoveryResult, type Facets,
-  type Market, type MarketBrief, type MarketOverview, type ReviewTask,
+  type DiscoveryResult, type Facets, type FundingAnalysis,
+  type Leaderboards,
+  type Market, type MarketPulse, type MarketHeadcountTrend,
+  type MarketOverview, type ReviewTask,
   type SourceHealth, type SourceSetting, type TimelineEvent, type Vendor,
+  type WireArticle,
   type VendorFilter, type VendorSwitch,
 } from '../../services/marketMonitorApi';
 
 /** Top-level views. Configuration lives in a settings drawer.
  *
- * Overview is the standing picture and Brief is the week's changes. They are
- * separate because a reader should not have to reconstruct the state of a
- * market from a list of what happened in it lately. */
-type View = 'overview' | 'analysis' | 'briefings' | 'brief' | 'wire'
+ * Pulse is the one-look state of the market: the standing picture (what
+ * Overview used to show) and the week's changes (what the Brief tab used to
+ * show), merged — a reader should not have to visit two tabs to reconstruct
+ * where a market stands. */
+type View = 'pulse' | 'analysis' | 'briefings' | 'wire'
   | 'coverage' | 'vendors' | 'data';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
-type SettingsPanel = 'collection' | 'sources' | 'health';
+type SettingsPanel = 'collection' | 'sources' | 'health' | 'scope';
 
 /** A vendor's own blog post is not a trade-press story. The feed says so and
  * so does the list, because a reader who cannot tell them apart is being
@@ -71,19 +80,54 @@ const CLASS_TONE: Record<string, string> = {
 /** What each drilldown is, in words. The URL carries the key; the reader
  *  needs the sentence. */
 const DRILL_LABEL: Record<string, string> = {
-  quiet: 'Vendors with no signal at all — no posts, no job listings, no coverage',
+  quiet: 'Vendors with no observed activity — no posts, no job listings, no matched coverage',
   watched: 'Vendors we are collecting for',
   paused: 'Vendors in the registry with collection switched off',
   observed: 'Vendors we have read at least once',
   unobserved: 'Vendors we have never read',
-  disclosed: 'Vendors that disclosed a raise',
-  undisclosed: 'Vendors that never disclosed a raise',
+  disclosed: 'Vendors with a disclosed funding amount on file',
+  undisclosed: 'Vendors with no disclosed funding amount on file',
   no_linkedin: 'Vendors with no LinkedIn page on file',
   posting: 'Vendors that have announced something',
   hiring: 'Vendors with open job listings',
 };
 
-const COVERAGE_PAGE = 25;
+// Vendor, day and timeline grouping read the whole loaded batch at once —
+// there is no "page 2" of a vendor's section — so the fetch is one wide
+// window that grows on request ("Load more") rather than pages that flip.
+const COVERAGE_START = 300;
+const COVERAGE_STEP = 200;
+const COVERAGE_MAX = 500; // the API's own ceiling (limit<=500)
+// How the coverage list is organised.
+type GroupMode = 'vendor' | 'day' | 'kind' | 'timeline';
+// An article with no vendor — general coverage of the category that names
+// no vendor — lands in its own bucket under this label: the market talked
+// about something without any tracked competitor being the subject.
+const NO_VENDOR = 'Market chatter';
+// A post judged to state a fact carries a review_kind ("launch",
+// "partnership", …). Everything else — commentary, promotion, unreviewed
+// news — has no kind of its own; it lands here rather than in a fake
+// "other" bucket that would imply it was judged and found kind-less.
+const NOT_ANNOUNCED = 'Not an announcement';
+
+/** Reactions on a post, summed from whichever engagement fields it carries.
+ *  Shared by the card (to show the count) and the sort control (to rank by
+ *  it) so the two never disagree about what "popular" means. */
+function engagementOf(a: CorpusArticle): number {
+  const sm = a.social_meta;
+  if (!sm) return 0;
+  return (sm.likes ?? 0) + (sm.comments ?? 0) + (sm.reposts ?? sm.shares ?? 0);
+}
+
+/** Dot color for the timeline swimlanes. Distinct hues (not the class
+ *  badges' exact tints) because bare dots have no adjacent text label to
+ *  lean on the way a badge does — validated with the dataviz palette
+ *  checker for CVD separation. "news" stays a neutral gray on purpose: it
+ *  is the unflagged default, not a category competing for identity. */
+const CLASS_DOT: Record<string, string> = {
+  news: '#64748b', vendor: '#b45309', social: '#b45309',
+  discussion: '#0369a1', research: '#6d28d9',
+};
 
 const BULK_BTN = 'text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 '
   + 'disabled:opacity-50';
@@ -119,13 +163,32 @@ function fundingLabel(v: Vendor): string {
  *
  * The hint is not decoration. A bare "38" invites the reader to assume it
  * means whatever they were already thinking. */
-function Stat({ label, value, hint, onClick }: {
+// Color alone never carries the reading — the sign ('+'/'−') is already in
+// the text, and the dot repeats the same call, so a color-blind reader isn't
+// left guessing which way "the number" points.
+const STAT_TONE = {
+  positive: { text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  negative: { text: 'text-rose-700', dot: 'bg-rose-500' },
+  neutral: { text: 'text-slate-900', dot: 'bg-slate-300' },
+} as const;
+
+/** Text color class for a signed delta, or the neutral tone for null/zero. */
+function deltaTextClass(v: number | null | undefined): string {
+  if (v === null || v === undefined || v === 0) return STAT_TONE.neutral.text;
+  return v > 0 ? STAT_TONE.positive.text : STAT_TONE.negative.text;
+}
+
+function Stat({ label, value, hint, onClick, tone }: {
   label: string; value: string; hint?: string; onClick?: () => void;
+  tone?: keyof typeof STAT_TONE;
 }) {
+  const colors = tone ? STAT_TONE[tone] : null;
   const body = (
     <>
       <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-2xl font-semibold text-slate-900 tabular-nums mt-0.5">
+      <div className={`text-2xl font-semibold tabular-nums mt-0.5 flex items-center gap-1.5
+                       ${colors ? colors.text : 'text-slate-900'}`}>
+        {colors && <span className={`inline-block w-2 h-2 rounded-full ${colors.dot}`} />}
         {value}
       </div>
       {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
@@ -145,10 +208,522 @@ function Stat({ label, value, hint, onClick }: {
 }
 
 
+/** "Today", "Yesterday", a weekday name inside the last week, else a date —
+ *  the labels a reader would use for the same day, not a raw ISO string. */
+function dayLabel(iso: string | null): string {
+  if (!iso) return 'Undated';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Undated';
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(new Date()) - startOf(d)) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1 && diffDays < 7) return d.toLocaleDateString(undefined, { weekday: 'long' });
+  return d.toLocaleDateString(undefined,
+    { month: 'short', day: 'numeric', year: diffDays > 300 ? 'numeric' : undefined });
+}
+
+/** One matched article. Used by every grouping mode so a card looks the
+ *  same whether it is inside a story cluster, a vendor section or a day
+ *  section — only the surrounding structure changes. */
+function CoverageCard({ article: a, vendorFilter, setVendorFilter,
+                        clusterOpen, onToggleCluster }: {
+  article: CorpusArticle;
+  vendorFilter: number | null;
+  setVendorFilter: (id: number | null) => void;
+  clusterOpen: boolean;
+  onToggleCluster: () => void;
+}) {
+  const sm = a.social_meta ?? {};
+  const engagement = engagementOf(a);
+  const account = sm.author_name || sm.author;
+  const isSocial = a.article_class === 'social' || a.article_class === 'discussion';
+  return (
+    <article className="border rounded-lg bg-white overflow-hidden
+                         hover:border-slate-300 transition-colors">
+      {a.cluster && (
+        <div className="px-3 pt-2 flex items-center gap-1.5 text-xs
+                         font-medium text-violet-700">
+          <Layers className="w-3.5 h-3.5" />
+          {a.cluster.size} sources on this story
+        </div>
+      )}
+      <div className="p-3 flex items-start gap-3">
+        {sm.thumbnail && (
+          <img src={sm.thumbnail} alt="" loading="lazy"
+               referrerPolicy="no-referrer"
+               onError={e => {
+                 // A broken thumbnail leaves a torn-image icon, which reads
+                 // worse than no image at all.
+                 (e.currentTarget as HTMLImageElement).style.display = 'none';
+               }}
+               className="w-20 h-20 object-cover rounded border shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            <span className={`text-xs px-1.5 py-0.5 rounded border ${
+              CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
+              {CLASS_LABEL[a.article_class] ?? a.article_class}
+            </span>
+            <span className="text-xs px-1.5 py-0.5 rounded border
+                             bg-white text-slate-600">
+              {isSocial ? (sm.platform ?? a.news_source)
+                        : (a.news_source ?? 'unknown')}
+            </span>
+            {account && (
+              <span className="text-xs text-slate-600 font-medium">
+                {sm.author && isSocial ? `@${sm.author}` : account}
+              </span>
+            )}
+            {a.review_verdict && (
+              <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                VERDICT_TONE[a.review_verdict]}`}
+                    title={a.review_reason ?? undefined}>
+                {a.review_verdict === 'signal' && a.review_kind
+                  ? a.review_kind
+                  : VERDICT_LABEL[a.review_verdict] ?? a.review_verdict}
+              </span>
+            )}
+            <div className="flex-1" />
+            <span className="text-xs text-slate-400 tabular-nums">
+              {a.published ? a.published.slice(0, 10) : '—'}
+            </span>
+          </div>
+
+          <a href={a.uri} target="_blank" rel="noreferrer"
+             className="text-sm font-medium text-slate-800 hover:underline block">
+            {a.title}
+          </a>
+          {a.summary && a.summary !== a.title && (
+            <p className="text-xs text-slate-500 mt-1">
+              {a.summary.slice(0, 200)}
+              {a.summary.length > 200 ? '…' : ''}
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            {a.vendors.slice(0, 4).map(v => (
+              <button key={v.brand_id}
+                      onClick={() => setVendorFilter(
+                        vendorFilter === v.brand_id ? null : v.brand_id)}
+                      className={`text-xs px-1.5 py-0.5 rounded border ${
+                        vendorFilter === v.brand_id
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'}`}>
+                {v.vendor}
+              </button>
+            ))}
+            {a.matched_terms.slice(0, 3).map(t => (
+              <span key={t}
+                    className="text-xs px-1.5 py-0.5 rounded border
+                               bg-slate-50 text-slate-500">
+                {t}
+              </span>
+            ))}
+            <div className="flex-1" />
+            {engagement > 0 && (
+              <span className="text-xs text-slate-500"
+                    title={`${sm.likes ?? 0} likes · ${sm.comments ?? 0} comments · ${sm.reposts ?? sm.shares ?? 0} reposts`}>
+                {engagement} reactions
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {a.cluster && (
+        <div className="border-t bg-slate-50 px-3 py-2">
+          <button onClick={onToggleCluster}
+                  className="text-xs text-slate-600 inline-flex items-center gap-1">
+            {clusterOpen ? <ChevronDown className="w-3 h-3" />
+                         : <ChevronRight className="w-3 h-3" />}
+            See the other {a.cluster.size - 1} post{a.cluster.size - 1 === 1 ? '' : 's'}
+          </button>
+          {clusterOpen && (
+            <div className="mt-1.5 space-y-1">
+              {a.cluster.others.map(o => (
+                <a key={o.uri} href={o.uri} target="_blank" rel="noreferrer"
+                   className="block text-xs text-slate-600 hover:underline truncate">
+                  {o.author ? `@${o.author}: ` : ''}{o.title}
+                  <span className="text-slate-400">
+                    {' '}· {o.news_source} · {(o.published ?? '').slice(0, 10)}
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+/** A collapsible section of cards — one vendor's coverage, or one day's.
+ *  Capped to a handful of cards until asked for more, because a vendor with
+ *  90 posts should not push every other vendor off the screen. */
+function GroupSection({ title, count, hint, items, expanded, onToggle,
+                        vendorFilter, setVendorFilter,
+                        openCluster, setOpenCluster }: {
+  title: string; count: number; hint?: string; items: CorpusArticle[];
+  expanded: boolean; onToggle: () => void;
+  vendorFilter: number | null; setVendorFilter: (id: number | null) => void;
+  openCluster: string | null; setOpenCluster: (uri: string | null) => void;
+}) {
+  const CAP = 6;
+  const visible = expanded ? items : items.slice(0, CAP);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2 pt-1">
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+        <span className="text-xs text-slate-400 tabular-nums">{count}</span>
+        {hint && <span className="text-xs text-slate-400">· {hint}</span>}
+      </div>
+      <div className="space-y-2">
+        {visible.map(a => (
+          <CoverageCard key={a.uri} article={a} vendorFilter={vendorFilter}
+                        setVendorFilter={setVendorFilter}
+                        clusterOpen={openCluster === a.uri}
+                        onToggleCluster={() => setOpenCluster(
+                          openCluster === a.uri ? null : a.uri)} />
+        ))}
+      </div>
+      {items.length > CAP && (
+        <button onClick={onToggle}
+                className="text-xs text-slate-500 hover:text-slate-700 inline-flex
+                           items-center gap-1">
+          {expanded
+            ? <><ChevronDown className="w-3 h-3" /> Show fewer</>
+            : <><ChevronRight className="w-3 h-3" />
+                Show {items.length - CAP} more</>}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TimelinePoint(props: any) {
+  const { cx, cy, payload } = props;
+  if (cx == null || cy == null) return null;
+  // A dot standing for several near-duplicate posts is bigger and rung, so a
+  // day where five outlets covered the same announcement reads differently
+  // from a day where one did.
+  const clustered = (payload.clusterSize ?? 1) > 1;
+  return (
+    <circle cx={cx} cy={cy} r={clustered ? 7 : 5}
+            fill={CLASS_DOT[payload.cls] ?? '#64748b'}
+            stroke="#fff" strokeWidth={clustered ? 2 : 1}
+            style={{ cursor: 'pointer' }} />
+  );
+}
+
+function TimelineTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div className="bg-white border rounded-md shadow-sm px-2.5 py-1.5 text-xs
+                     max-w-xs">
+      <div className="font-medium text-slate-800 truncate">{p.title}</div>
+      <div className="text-slate-500 mt-0.5">
+        {p.vendor} · {p.source ?? 'unknown source'} ·{' '}
+        {(p.published ?? '').slice(0, 10)}
+      </div>
+      {p.clusterSize > 1 && (
+        <div className="text-violet-700 mt-0.5">
+          +{p.clusterSize - 1} more source{p.clusterSize - 1 === 1 ? '' : 's'} on this story
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One Wire event, with its article_uris fetched and shown only on request —
+ *  a count and a significance are not something a reader can check without
+ *  seeing what they were computed from. Vendor badges on each article pivot
+ *  to that vendor's page, the same as Coverage already does. */
+function WireEventCard({ event: e, onVendor }: {
+  event: TimelineEvent; onVendor: (brandId: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [articles, setArticles] = useState<WireArticle[] | null>(null);
+
+  async function toggle() {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (articles === null && e.article_uris?.length) {
+      try {
+        setArticles(await getWireArticles(e.article_uris));
+      } catch {
+        setArticles([]);
+      }
+    }
+  }
+
+  const hasArticles = (e.article_uris?.length ?? 0) > 0;
+
+  return (
+    <li className="border rounded-lg p-3 bg-white">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-slate-800">{e.title}</div>
+          {e.description && (
+            <p className="text-sm text-slate-600 mt-1">{e.description}</p>
+          )}
+          <div className="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5 flex-wrap">
+            <span>
+              {e.event_date} · {e.event_type}
+              {e.event_subtype ? ` · ${e.event_subtype}` : ''}
+              {' · '}{e.article_count} article{e.article_count === 1 ? '' : 's'}
+              {e.occurrence_count > 1 && ` · seen ${e.occurrence_count}x`}
+            </span>
+            {hasArticles && (
+              <button onClick={toggle}
+                      className="text-slate-600 hover:text-slate-800 inline-flex
+                                 items-center gap-0.5">
+                {open ? <ChevronDown className="w-3 h-3" />
+                      : <ChevronRight className="w-3 h-3" />}
+                {open ? 'Hide' : 'Show'} articles
+              </button>
+            )}
+          </div>
+          {open && (
+            <div className="mt-2 pt-2 border-t space-y-1.5">
+              {articles === null ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+              ) : articles.length === 0 ? (
+                <p className="text-xs text-slate-400">
+                  {hasArticles ? 'Could not load these articles.'
+                               : 'This event has no linked articles — it was ' +
+                                 'computed from counts, not tied to specific ones.'}
+                </p>
+              ) : articles.map(a => (
+                <div key={a.uri} className="text-xs">
+                  <a href={a.uri} target="_blank" rel="noreferrer"
+                     className="text-slate-700 hover:underline">
+                    {a.title}
+                  </a>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-slate-400">
+                      {a.news_source ?? 'unknown source'}
+                      {a.publication_date ? ` · ${a.publication_date.slice(0, 10)}` : ''}
+                    </span>
+                    {a.vendors.map(v => (
+                      <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
+                              className="text-xs px-1.5 py-0.5 rounded border
+                                         bg-sky-50 text-sky-700 border-sky-200
+                                         hover:bg-sky-100">
+                        {v.vendor}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
+          SEVERITY_TONE[e.significance === 'critical' ? 'high' : e.significance]
+            ?? SEVERITY_TONE.low}`}>
+          {e.significance}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+interface CoverageGroup {
+  key: string; label: string; hint?: string; items: CorpusArticle[];
+}
+
+/** One section per vendor, most-covered first. Articles with no attributed
+ *  vendor — general market news that names no vendor — land in one
+ *  section rather than disappearing. */
+function groupByVendor(articles: CorpusArticle[]): CoverageGroup[] {
+  const map = new Map<string, CoverageGroup>();
+  for (const a of articles) {
+    const v = a.vendors[0];
+    const key = v ? `v${v.brand_id}` : 'no-vendor';
+    const label = v ? v.vendor : NO_VENDOR;
+    if (!map.has(key)) map.set(key, { key, label, items: [] });
+    map.get(key)!.items.push(a);
+  }
+  return [...map.values()].sort((a, b) => b.items.length - a.items.length);
+}
+
+/** One section per day, most recent day first. A real group-by rather than a
+ *  scan for label changes — the input may arrive newest-first (default) or
+ *  re-sorted by reactions (the "Most reactions" sort), and a scan-based
+ *  version would fragment a single day into scattered one-item sections the
+ *  moment the input isn't already in calendar order. */
+function groupByDay(articles: CorpusArticle[]): CoverageGroup[] {
+  const map = new Map<string, CoverageGroup>();
+  for (const a of articles) {
+    const label = dayLabel(a.published);
+    if (!map.has(label)) map.set(label, { key: label, label, items: [] });
+    map.get(label)!.items.push(a);
+  }
+  return [...map.values()].sort((a, b) =>
+    (b.items[0]?.published ?? '').localeCompare(a.items[0]?.published ?? ''));
+}
+
+/** One section per kind of announcement — launches, partnerships, customer
+ *  wins, funding, acquisitions — the direct answer to "what shipped" rather
+ *  than "who posted". Everything not judged to state a fact collects in one
+ *  bucket, kept last regardless of size: it is a residue, not a category. */
+function groupByKind(articles: CorpusArticle[]): CoverageGroup[] {
+  const map = new Map<string, CoverageGroup>();
+  for (const a of articles) {
+    const kind = a.review_verdict === 'signal' && a.review_kind
+      ? a.review_kind : NOT_ANNOUNCED;
+    const key = kind;
+    if (!map.has(key)) {
+      map.set(key, { key, label: kind === NOT_ANNOUNCED ? kind
+        : kind.charAt(0).toUpperCase() + kind.slice(1), items: [] });
+    }
+    map.get(key)!.items.push(a);
+  }
+  const groups = [...map.values()];
+  groups.sort((a, b) => {
+    if (a.key === NOT_ANNOUNCED) return 1;
+    if (b.key === NOT_ANNOUNCED) return -1;
+    return b.items.length - a.items.length;
+  });
+  return groups;
+}
+
+function CoverageGrouped({ groups, expandedGroups, setExpandedGroups,
+                           vendorFilter, setVendorFilter,
+                           openCluster, setOpenCluster }: {
+  groups: CoverageGroup[];
+  expandedGroups: Set<string>; setExpandedGroups: (s: Set<string>) => void;
+  vendorFilter: number | null; setVendorFilter: (id: number | null) => void;
+  openCluster: string | null; setOpenCluster: (uri: string | null) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      {groups.map(g => (
+        <GroupSection key={g.key} title={g.label} count={g.items.length}
+                      items={g.items}
+                      expanded={expandedGroups.has(g.key)}
+                      onToggle={() => {
+                        const next = new Set(expandedGroups);
+                        if (next.has(g.key)) next.delete(g.key); else next.add(g.key);
+                        setExpandedGroups(next);
+                      }}
+                      vendorFilter={vendorFilter} setVendorFilter={setVendorFilter}
+                      openCluster={openCluster} setOpenCluster={setOpenCluster} />
+      ))}
+    </div>
+  );
+}
+
+/** A swimlane view: one row per vendor, one dot per article, positioned by
+ *  publication date. A burst of dots in one vendor's lane on one day is a
+ *  coverage spike a reader would otherwise have to notice by scrolling past
+ *  twenty identical-looking cards. */
+function CoverageTimeline({ articles }: { articles: CorpusArticle[] }) {
+  const DEFAULT_LANES = 12;
+  const [showAllLanes, setShowAllLanes] = useState(false);
+  const { lanes, points, hiddenVendors, hiddenArticles, undated } = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of articles) {
+      const v = a.vendors[0];
+      counts.set(v ? v.vendor : NO_VENDOR,
+        (counts.get(v ? v.vendor : NO_VENDOR) ?? 0) + 1);
+    }
+    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const cap = showAllLanes ? ranked.length : DEFAULT_LANES;
+    const laneNames = ranked.slice(0, cap).map(([name]) => name);
+    const laneIndex = new Map(laneNames.map((l, i) => [l, i]));
+    const overflowArticles = ranked.slice(cap)
+      .reduce((s, [, n]) => s + n, 0);
+    const pts: any[] = [];
+    let undatedCount = 0;
+    for (const a of articles) {
+      if (!a.published) { undatedCount++; continue; }
+      const d = new Date(a.published);
+      if (Number.isNaN(d.getTime())) { undatedCount++; continue; }
+      const v = a.vendors[0];
+      const lane = v ? v.vendor : NO_VENDOR;
+      const idx = laneIndex.get(lane);
+      if (idx === undefined) continue;
+      pts.push({
+        x: Math.floor(d.getTime() / 86400000), y: idx, cls: a.article_class,
+        title: a.title, source: a.news_source, vendor: lane,
+        published: a.published, uri: a.uri, clusterSize: a.cluster?.size ?? 1,
+      });
+    }
+    return { lanes: laneNames, points: pts,
+             hiddenVendors: Math.max(0, ranked.length - laneNames.length),
+             hiddenArticles: overflowArticles, undated: undatedCount };
+  }, [articles, showAllLanes]);
+
+  if (lanes.length === 0) {
+    return <p className="text-sm text-slate-500 py-8 text-center">
+      Nothing with a publication date to place on a timeline.
+    </p>;
+  }
+
+  const legendClasses: ArticleClass[] = ['news', 'vendor', 'social', 'discussion', 'research'];
+
+  return (
+    <div className="border rounded-lg bg-white p-4">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mb-3">
+        {legendClasses.map(c => (
+          <span key={c} className="inline-flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full inline-block"
+                  style={{ background: CLASS_DOT[c] }} />
+            {CLASS_LABEL[c]}
+          </span>
+        ))}
+      </div>
+      <ResponsiveContainer width="100%" height={Math.max(220, lanes.length * 34 + 40)}>
+        <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis type="number" dataKey="x" domain={['dataMin - 1', 'dataMax + 1']}
+                 tickFormatter={v => new Date(v * 86400000)
+                   .toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                 stroke="#94a3b8" tick={{ fontSize: 11 }} />
+          <YAxis type="number" dataKey="y" domain={[-0.5, lanes.length - 0.5]}
+                 ticks={lanes.map((_, i) => i)}
+                 tickFormatter={i => lanes[i] ?? ''}
+                 reversed width={140} stroke="#94a3b8" tick={{ fontSize: 11 }} />
+          <Tooltip content={<TimelineTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+          <Scatter data={points} shape={<TimelinePoint />}
+                   onClick={(p: any) =>
+                     window.open(p.uri, '_blank', 'noreferrer')} />
+        </ScatterChart>
+      </ResponsiveContainer>
+      {(hiddenVendors > 0 || undated > 0) && (
+        <p className="text-xs text-slate-400 mt-2">
+          {hiddenVendors > 0 &&
+            `${hiddenArticles} article${hiddenArticles === 1 ? '' : 's'} from ` +
+            `${hiddenVendors} vendor${hiddenVendors === 1 ? '' : 's'} outside the ` +
+            `${DEFAULT_LANES} busiest lanes not shown.`}
+          {hiddenVendors > 0 && (
+            <button onClick={() => setShowAllLanes(true)}
+                    className="text-slate-600 hover:text-slate-800 underline ml-1">
+              Show all {lanes.length + hiddenVendors} vendors
+            </button>
+          )}
+          {hiddenVendors > 0 && undated > 0 && ' · '}
+          {undated > 0 &&
+            `${undated} without a usable date excluded.`}
+        </p>
+      )}
+      {showAllLanes && hiddenVendors === 0 && lanes.length > DEFAULT_LANES && (
+        <button onClick={() => setShowAllLanes(false)}
+                className="text-xs text-slate-400 hover:text-slate-600 underline mt-2">
+          Show fewer
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function MarketMonitorTab() {
   const [markets, setMarkets] = useState<Market[] | null>(null);
   const [marketId, setMarketId] = useState<number | null>(null);
-  const [view, setView] = useState<View>('overview');
+  const [view, setView] = useState<View>('pulse');
   const [segment, setSegment] = useState<Segment>('all');
   const [settingsOpen, setSettingsOpen] = useState<SettingsPanel | null>(null);
   // URL-addressable: this app has no router, so a vendor is a query param that
@@ -166,28 +741,42 @@ export function MarketMonitorTab() {
   const [search, setSearch] = useState('');
   const [fundingFilter, setFundingFilter] = useState<string>('');
   const [foundedFilter, setFoundedFilter] = useState<string>('');
+  const [addVendorOpen, setAddVendorOpen] = useState(false);
+  const [newVendorName, setNewVendorName] = useState('');
+  const [newVendorWebsite, setNewVendorWebsite] = useState('');
+  const [addingVendor, setAddingVendor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toggleResult, setToggleResult] = useState<string | null>(null);
   const [showKeywords, setShowKeywords] = useState(false);
   const [vendorMode, setVendorMode] =
     useState<'none' | 'funded' | 'all'>('funded');
   const [termsDraft, setTermsDraft] = useState<string>('');
+  const [scopeDraft, setScopeDraft] = useState('');
+  const [inclusionDraft, setInclusionDraft] = useState('');
+  const [exclusionDraft, setExclusionDraft] = useState('');
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
-  const [brief, setBrief] = useState<MarketBrief | null>(null);
+  const [pulse, setPulse] = useState<MarketPulse | null>(null);
+  const [headcountTrend, setHeadcountTrend] =
+    useState<MarketHeadcountTrend | null>(null);
+  const [fundingMomentum, setFundingMomentum] =
+    useState<FundingAnalysis | null>(null);
   const [sources, setSources] = useState<SourceSetting[] | null>(null);
   const [minInterval, setMinInterval] = useState(6);
   const [overview, setOverview] = useState<MarketOverview | null>(null);
   const [corpus, setCorpus] = useState<CorpusSummary | null>(null);
   const [corpusArticles, setCorpusArticles] =
     useState<CorpusArticle[] | null>(null);
+  const [leaderboards, setLeaderboards] = useState<Leaderboards | null>(null);
   const [corpusOrigin, setCorpusOrigin] = useState<'' | 'corpus' | 'collected'>('');
   const [corpusClass, setCorpusClass] = useState<'' | ArticleClass>('');
   const [allPosts, setAllPosts] = useState(false);
   const [vendorFilter, setVendorFilter] = useState<number | null>(null);
-  const [coverageOffset, setCoverageOffset] = useState(0);
+  const [coverageLimit, setCoverageLimit] = useState(COVERAGE_START);
   const [coverageMore, setCoverageMore] = useState(false);
-  const [groupCoverage, setGroupCoverage] = useState(true);
+  const [groupMode, setGroupMode] = useState<GroupMode>('day');
+  const [sortMode, setSortMode] = useState<'newest' | 'popular'>('newest');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [openCluster, setOpenCluster] = useState<string | null>(null);
   const [inventory, setInventory] = useState<DatasetInfo[] | null>(null);
   const [openDataset, setOpenDataset] = useState<string | null>(null);
@@ -265,11 +854,12 @@ export function MarketMonitorTab() {
       getVendors(marketId), getFacets(marketId),
       getReviewTasks(marketId, { status: 'open' }),
       getSourceHealth(marketId), getRuns(marketId, 20),
-      getCollectionPlan(marketId, vendorMode), getBrief(marketId, 7),
+      getCollectionPlan(marketId, vendorMode), getPulse(marketId, 30),
       getSources(marketId), getOverview(marketId, 30),
-    ]).then(([v, f, t, h, r, p, b, s, o]) => {
-      setBrief(b); setSources(s.sources); setMinInterval(s.min_interval_hours);
-      setOverview(o);
+      getCorpusSummary(marketId, 30),
+    ]).then(([v, f, t, h, r, p, b, s, o, cs]) => {
+      setPulse(b); setSources(s.sources); setMinInterval(s.min_interval_hours);
+      setOverview(o); setCorpus(cs);
       setVendors(v); setFacets(f); setTasks(t); setHealth(h); setRuns(r); setPlan(p);
       setTermsDraft(p.market_terms.join('\n'));
       // Timeline is fetched after the plan because it is keyed on the market's
@@ -284,6 +874,18 @@ export function MarketMonitorTab() {
   }, [marketId, vendorMode]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // The drafts start blank; fill them from the loaded market the moment the
+  // Scope panel opens, so editing shows what's actually saved rather than
+  // an empty form that looks like nothing has ever been set.
+  useEffect(() => {
+    if (settingsOpen !== 'scope' || marketId === null || !markets) return;
+    const m = markets.find(x => x.id === marketId);
+    if (!m) return;
+    setScopeDraft(m.market_scope_description ?? '');
+    setInclusionDraft(m.inclusion_criteria ?? '');
+    setExclusionDraft(m.exclusion_criteria ?? '');
+  }, [settingsOpen, marketId, markets]);
 
   const shown = useMemo(() => {
     if (!vendors) return [];
@@ -303,13 +905,17 @@ export function MarketMonitorTab() {
   useEffect(() => {
     if (marketId === null || view !== 'coverage') return;
     let live = true;
+    // Clustering runs regardless of how the result is grouped on screen — a
+    // story badge is useful whether you're browsing by vendor, by day or on
+    // the timeline, not just in one dedicated mode.
     Promise.all([
       getCorpusSummary(marketId, 30),
-      getCorpusArticles(marketId, { limit: COVERAGE_PAGE, offset: coverageOffset,
-                                    origin: corpusOrigin || undefined,
-                                    classes: corpusClass || undefined,
-                                    allPosts, group: groupCoverage,
-                                    vendorId: vendorFilter ?? undefined }),
+      getCorpusArticles(marketId, {
+        limit: coverageLimit, offset: 0,
+        origin: corpusOrigin || undefined,
+        classes: corpusClass || undefined,
+        allPosts, group: true,
+        vendorId: vendorFilter ?? undefined }),
     ]).then(([sum, list]) => {
       if (!live) return;
       setCorpus(sum); setCorpusArticles(list.articles);
@@ -317,12 +923,24 @@ export function MarketMonitorTab() {
     }).catch(e => { if (live) setError(String(e.message ?? e)); });
     return () => { live = false; };
   }, [marketId, view, corpusOrigin, corpusClass, allPosts, vendorFilter,
-      coverageOffset, groupCoverage]);
+      coverageLimit]);
 
-  // Any filter change starts the list over; staying on page 4 of a list that
-  // no longer has four pages shows an empty view that looks like a failure.
-  useEffect(() => { setCoverageOffset(0); },
-           [corpusOrigin, corpusClass, allPosts, vendorFilter, groupCoverage]);
+  // Any filter change starts the window over; a widened window from a
+  // previous filter has no bearing on the next one.
+  useEffect(() => { setCoverageLimit(COVERAGE_START); setExpandedGroups(new Set()); },
+           [corpusOrigin, corpusClass, allPosts, vendorFilter, groupMode]);
+
+  // Independent of the corpus-list filters above: the leaderboards are a
+  // fixed 30-day window regardless of what the list below is scoped to, so
+  // a filter change down there shouldn't refetch a ranking up here.
+  useEffect(() => {
+    if (marketId === null || view !== 'coverage') return;
+    let live = true;
+    getLeaderboards(marketId, 30)
+      .then(r => { if (live) setLeaderboards(r); })
+      .catch(() => { if (live) setLeaderboards(null); });
+    return () => { live = false; };
+  }, [marketId, view]);
 
   useEffect(() => {
     if (marketId === null || !drill) { setDrillRows(null); return; }
@@ -340,6 +958,26 @@ export function MarketMonitorTab() {
     getDataInventory(marketId)
       .then(r => { if (live) setInventory(r.datasets); })
       .catch(e => { if (live) setError(String(e.message ?? e)); });
+    return () => { live = false; };
+  }, [marketId, view]);
+
+  // Headcount trend and funding momentum are their own fetches — the
+  // as-of join behind headcount-trend is O(vendors x weeks), and funding
+  // momentum piggybacks on the wider /analysis/funding call — neither
+  // belongs in the fast path every market switch already pays for. Coverage
+  // also wants funding momentum, for its "featured" funding-moves list, so
+  // it shares this fetch rather than triggering a second one.
+  useEffect(() => {
+    if (marketId === null || (view !== 'pulse' && view !== 'coverage')) return;
+    let live = true;
+    if (view === 'pulse') {
+      getHeadcountTrend(marketId, 26)
+        .then(r => { if (live) setHeadcountTrend(r); })
+        .catch(e => { if (live) setError(String(e.message ?? e)); });
+    }
+    getAnalyses(marketId)
+      .then(r => { if (live) setFundingMomentum(r.funding ?? null); })
+      .catch(() => { /* Still renders without the momentum panel. */ });
     return () => { live = false; };
   }, [marketId, view]);
 
@@ -446,6 +1084,22 @@ export function MarketMonitorTab() {
     }
   }
 
+  async function addVendorNow() {
+    if (marketId === null || !newVendorName.trim()) return;
+    setAddingVendor(true); setToggleResult(null);
+    try {
+      const r = await addVendor(marketId, newVendorName.trim(),
+                                newVendorWebsite.trim() || undefined);
+      setToggleResult(`${r.display_name} added and watched.`);
+      setNewVendorName(''); setNewVendorWebsite(''); setAddVendorOpen(false);
+      reload();
+    } catch (e: any) {
+      setToggleResult(`Could not add that vendor: ${e.message ?? e}`);
+    } finally {
+      setAddingVendor(false);
+    }
+  }
+
   async function buildTimeline() {
     if (!plan?.topic_name) return;
     setBusy(true);
@@ -492,6 +1146,24 @@ export function MarketMonitorTab() {
             res.truncated.map(x => `"${x.searched_as}"`).join(', ')
           : `${terms.length} collection terms saved.`);
       reload();
+    } catch (e: any) {
+      setToggleResult(`Failed: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveScope() {
+    if (marketId === null) return;
+    setBusy(true);
+    try {
+      await updateMarket(marketId, {
+        market_scope_description: scopeDraft,
+        inclusion_criteria: inclusionDraft,
+        exclusion_criteria: exclusionDraft,
+      });
+      setToggleResult('Market scope saved.');
+      setMarkets(await getMarkets());
     } catch (e: any) {
       setToggleResult(`Failed: ${e.message ?? e}`);
     } finally {
@@ -552,7 +1224,8 @@ export function MarketMonitorTab() {
   if (openVendor !== null && marketId !== null) {
     return (
       <MarketVendorPage marketId={marketId} brandId={openVendor}
-                        onBack={closeVendorPage} />
+                        onBack={closeVendorPage}
+                        linkedinEnabled={health?.providers.brightdata_linkedin_enabled ?? false} />
     );
   }
 
@@ -621,10 +1294,9 @@ export function MarketMonitorTab() {
       {/* View tabs */}
       <div className="flex gap-1 border-b">
         {([
-          ['overview', 'Overview'],
+          ['pulse', 'Pulse'],
           ['analysis', 'Analysis'],
-          ['briefings', 'Briefings'],
-          ['brief', 'Brief'],
+          ['briefings', 'Reports'],
           ['wire', 'Wire'],
           ['coverage', 'Coverage'],
           ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
@@ -691,30 +1363,403 @@ export function MarketMonitorTab() {
         </div>
       )}
 
-      {/* ---- Overview ---- */}
-      {view === 'overview' && overview && (
+      {/* ---- Pulse: the one-look state of the market ---- */}
+      {view === 'pulse' && overview && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-slate-600">
+              {pulse
+                ? `Last ${pulse.period_days} days · ${pulse.coverage.watching} of ${pulse.coverage.registry} vendors monitored`
+                : `${overview.coverage.watching} of ${overview.coverage.registry - overview.coverage.excluded} vendors monitored`}
+            </span>
+            <div className="flex-1" />
+            <a href={datasetCsvUrl(marketId!)}
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              Download dataset (CSV)
+            </a>
+            <a href={feedUrl(marketId!)} target="_blank" rel="noreferrer"
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              RSS feed
+            </a>
+            <a href={reportUrl(marketId!)} target="_blank" rel="noreferrer"
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              Report (HTML)
+            </a>
+            <a href={exportBundleUrl(marketId!)}
+               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+              Download everything (ZIP)
+            </a>
+            <button onClick={makeShareLink} disabled={busy}
+                    className="text-sm px-3 py-1.5 border rounded-md
+                               hover:bg-slate-50 disabled:opacity-50">
+              Share link
+            </button>
+          </div>
+          {shareLink && (
+            <p className="text-xs text-slate-600 -mt-2 break-all">
+              <span className="text-slate-500">Shareable report link: </span>
+              {shareLink}
+            </p>
+          )}
+
+          {pulse?.standing_summary && (
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800 mb-1">
+                Summary
+              </div>
+              <p className="text-sm text-slate-700 whitespace-pre-line">
+                {pulse.standing_summary}
+              </p>
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label="Vendors watched"
                   value={`${overview.coverage.watching} of ${
                     overview.coverage.registry - overview.coverage.excluded}`}
                   hint={`${overview.coverage.paused} paused · ${
                     overview.coverage.observed} observed at least once`}
                   onClick={() => openDrilldown('watched')} />
-            <Stat label="Disclosed funding"
+            <Stat label="Cumulative disclosed funding"
                   value={overview.funding.total_musd === null ? '—'
-                    : `$${overview.funding.total_musd.toFixed(0)}M`}
-                  hint={`${overview.funding.disclosed} vendors disclosed, ${
-                    overview.funding.undisclosed} did not`}
+                    : overview.funding.total_musd >= 1000
+                      ? `$${(overview.funding.total_musd / 1000).toFixed(3)}B`
+                      : `$${overview.funding.total_musd.toFixed(0)}M`}
+                  hint={`Across ${overview.funding.disclosed} of ${
+                    overview.funding.disclosed + overview.funding.undisclosed} vendors`}
                   onClick={() => openDrilldown('disclosed')} />
-            <Stat label="Articles about the market"
+            <Stat label="Coverage matched this period"
                   value={String(overview.corpus?.total ?? 0)}
-                  hint={`${overview.corpus?.corpus ?? 0} matched from articles collected for other topics`}
+                  hint={`${overview.corpus?.corpus ?? 0} of those were originally collected for other topics`}
                   onClick={() => setView('coverage')} />
-            <Stat label="Vendors with no signal"
+            <Stat label="No observed activity"
                   value={String(overview.quiet_vendors)}
-                  hint="No posts, no job listings, no coverage"
+                  hint="No vendor posts, open roles or matched coverage were
+                        observed from monitored sources during this period"
                   onClick={() => openDrilldown('quiet')} />
+            {(() => {
+              const trend = corpus?.sentiment_trend ?? [];
+              const latest = [...trend].reverse().find(w => w.net_all !== null);
+              const tone = !latest ? 'neutral'
+                : latest.net_all! > 0 ? 'positive'
+                : latest.net_all! < 0 ? 'negative' : 'neutral';
+              return (
+                <Stat label="Sentiment, latest week"
+                      value={latest ? `${latest.net_all! > 0 ? '+' : ''}${latest.net_all}%` : '—'}
+                      tone={tone}
+                      hint="Net positive minus negative share of classified
+                            coverage — not an average, and not shown for a
+                            week with too little classified coverage to call
+                            a direction."
+                      onClick={() => setView('coverage')} />
+              );
+            })()}
+          </div>
+
+          <div className="border rounded-lg p-4 bg-white">
+            <div className="text-sm font-medium text-slate-800">Sentiment</div>
+            {(() => {
+              const latestAll = [...(corpus?.sentiment_trend ?? [])]
+                .reverse().find(w => w.net_all !== null);
+              if (!latestAll) return null;
+              const net = latestAll.net_all!;
+              const tone = net > 10 ? 'positive' : net < -10 ? 'negative' : 'neutral';
+              const reading = tone === 'positive' ? 'leaned positive'
+                : tone === 'negative' ? 'leaned negative' : 'was mixed';
+              return (
+                <p className="text-sm text-slate-700 mt-0.5 flex items-center gap-1.5">
+                  <span className={`inline-block w-2 h-2 rounded-full ${STAT_TONE[tone].dot}`} />
+                  Coverage in the latest week {reading}.
+                </p>
+              );
+            })()}
+            <p className="text-xs text-slate-500 mt-0.5 mb-2">
+              Weekly net-sentiment index (positive minus negative share of
+              classified coverage). A week is left blank rather than plotted
+              at zero when too few articles were classified that week to call
+              a direction — a blank week is a low-confidence week, not a
+              neutral one.
+            </p>
+            {!corpus?.sentiment_trend?.some(w => w.net_all !== null) ? (
+              <p className="text-sm text-slate-500 py-8 text-center">
+                Not enough classified coverage yet to chart sentiment.
+              </p>
+            ) : (() => {
+              const trend = corpus.sentiment_trend;
+              // Vendor-attributed sentiment needs an article both matched to
+              // the market AND attributed to a tracked vendor AND scored —
+              // three gates stacked, so it clears the confidence floor far
+              // less often than the market-wide line. Below 3 real points a
+              // "line" is two stranded dots, which reads as broken rather
+              // than as a series that just needs more data.
+              const vendorPoints = trend.filter(w => w.net_vendor !== null).length;
+              const showVendorLine = vendorPoints >= 3;
+              return (
+                <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <RLineChart data={trend}
+                             margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} unit="%" />
+                    {/* A faint background wash, not the lines themselves —
+                        the lines already carry series identity (broad vs
+                        vendor coverage); recoloring them by value would
+                        make color do two jobs at once. This just lets a
+                        reader see "good stretch vs bad stretch" before
+                        reading a single number. */}
+                    <ReferenceArea y1={0} y2="dataMax" fill="#30a46c" fillOpacity={0.06} />
+                    <ReferenceArea y1="dataMin" y2={0} fill="#e5484d" fillOpacity={0.06} />
+                    <ReferenceLine y={0} stroke="#cbd5e1" strokeWidth={1} />
+                    <Tooltip />
+                    {showVendorLine && <Legend wrapperStyle={{ fontSize: 12 }} />}
+                    <Line type="monotone" dataKey="net_broad" name="The market broadly"
+                          stroke="#0369a1" strokeWidth={2} dot={{ r: 3 }}
+                          connectNulls={false} />
+                    {showVendorLine && (
+                      <Line type="monotone" dataKey="net_vendor"
+                            name="Tracked vendors' own coverage"
+                            stroke="#b45309" strokeWidth={2} dot={{ r: 3 }}
+                            connectNulls={false} />
+                    )}
+                  </RLineChart>
+                </ResponsiveContainer>
+                {!showVendorLine && (
+                  <p className="text-xs text-slate-400 -mt-1">
+                    Vendor-attributed sentiment isn&apos;t shown: only{' '}
+                    {vendorPoints} week{vendorPoints === 1 ? '' : 's'} of
+                    tracked-vendor coverage cleared the confidence floor, too
+                    few to read as a line.
+                  </p>
+                )}
+                </>
+              );
+            })()}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* Signed delta so decreases are distinguishable from increases. */}
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Headcount change
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                LinkedIn count vs imported baseline. Vendors with both values only.
+              </p>
+              {pulse && pulse.headcount_n > 0 && (
+                <div className="flex gap-4 text-sm mb-3">
+                  <span>
+                    <span className="text-slate-500">Average </span>
+                    <span className={`font-medium tabular-nums ${deltaTextClass(pulse.headcount_avg_pct)}`}>
+                      {pulse.headcount_avg_pct !== null
+                        ? `${pulse.headcount_avg_pct > 0 ? '+' : ''}${pulse.headcount_avg_pct}%`
+                        : '—'}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="text-slate-500">Median </span>
+                    <span className={`font-medium tabular-nums ${deltaTextClass(pulse.headcount_median_pct)}`}>
+                      {pulse.headcount_median_pct !== null
+                        ? `${pulse.headcount_median_pct > 0 ? '+' : ''}${pulse.headcount_median_pct}%`
+                        : '—'}
+                    </span>
+                  </span>
+                  <span className="text-slate-400">
+                    across {pulse.headcount_n} vendor{pulse.headcount_n === 1 ? '' : 's'}
+                  </span>
+                </div>
+              )}
+              {!pulse || pulse.headcount_movers.length === 0 ? (
+                <p className="text-sm text-slate-500 py-8 text-center">
+                  No vendor has both values.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={pulse.headcount_movers.slice(0, 8)}
+                            layout="vertical"
+                            margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" fontSize={11} />
+                    <YAxis type="category" dataKey="vendor" width={110}
+                           fontSize={11} interval={0} />
+                    <Tooltip formatter={(v: number, _n, p: any) =>
+                      [`${v > 0 ? '+' : ''}${v} staff (${p.payload.pct}%)`, 'change']} />
+                    <Bar dataKey="delta" radius={[0, 3, 3, 0]} cursor="pointer"
+                         onClick={(d: any) => {
+                           const hit = vendors?.find(v => v.display_name === d?.vendor);
+                           if (hit) openVendorPage(hit.brand_id);
+                         }}>
+                      {pulse.headcount_movers.slice(0, 8).map((m, i) => (
+                        <Cell key={i} fill={m.delta >= 0 ? '#30a46c' : '#e5484d'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Headcount, market-wide
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Average % change against each vendor&apos;s own baseline, as
+                of each week — not a sum of headcounts, which would read as
+                growth purely from more vendors gaining a first reading.
+              </p>
+              {(() => {
+                const withData = headcountTrend?.points
+                  ?.filter(p => p.avg_pct_vs_baseline !== null) ?? [];
+                if (!headcountTrend || withData.length === 0) {
+                  return (
+                    <p className="text-sm text-slate-500 py-8 text-center">
+                      Loading, or not enough headcount readings yet.
+                    </p>
+                  );
+                }
+                // The window is already clipped to how long this market has
+                // existed — bw_vendor_snapshots cannot predate it — so one
+                // point means one real reading, not 25 missing ones. A line
+                // needs two points; say so plainly instead of drawing a
+                // chart shell around a single dot.
+                if (withData.length === 1) {
+                  const only = withData[0];
+                  return (
+                    <p className="text-sm text-slate-500 py-8 text-center">
+                      Only one weekly headcount reading exists so far
+                      ({only.avg_pct_vs_baseline! > 0 ? '+' : ''}
+                      {only.avg_pct_vs_baseline}% vs baseline, week of{' '}
+                      {only.week}). A trend line needs at least two.
+                    </p>
+                  );
+                }
+                return (
+                  <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <RLineChart data={headcountTrend.points}
+                               margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} unit="%" />
+                      <Tooltip formatter={(v: number, _n, p: any) =>
+                        [`${v}% (${p.payload.n_vendors} of ${headcountTrend.watching} watched vendors read)`, 'avg vs baseline']} />
+                      <Line type="monotone" dataKey="avg_pct_vs_baseline"
+                            stroke="#475569" strokeWidth={2} dot={{ r: 3 }}
+                            connectNulls={false} />
+                    </RLineChart>
+                  </ResponsiveContainer>
+                  <p className="text-xs text-slate-400 -mt-1">
+                    {withData.length} of {headcountTrend.points.length} weeks
+                    since this market started tracking have a reading. Thin
+                    weeks (fewer than half of watched vendors read as of that
+                    week) are the least trustworthy points on it.
+                  </p>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Growth and attention, as of each month
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Crunchbase&apos;s own 0–100 scores, averaged across the
+                market. A level, not a live trend — Crunchbase is read at
+                most weekly and only writes a new value when it changed.
+              </p>
+              {(() => {
+                const withData = fundingMomentum?.by_month
+                  ?.filter(m => m.avg_heat_score !== null) ?? [];
+                if (!fundingMomentum || withData.length === 0) {
+                  return (
+                    <p className="text-sm text-slate-500 py-8 text-center">
+                      Loading, or no Crunchbase readings yet.
+                    </p>
+                  );
+                }
+                if (withData.length === 1) {
+                  const only = withData[0];
+                  return (
+                    <p className="text-sm text-slate-500 py-8 text-center">
+                      Only one month of Crunchbase readings exists so far
+                      (attention {only.avg_heat_score}, growth{' '}
+                      {only.avg_growth_score}, {only.month}). A trend line
+                      needs at least two.
+                    </p>
+                  );
+                }
+                return (
+                  <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <RLineChart data={fundingMomentum.by_month}
+                               margin={{ left: 4, right: 16, top: 4, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Line type="monotone" dataKey="avg_heat_score" name="Attention (heat)"
+                            stroke="#0369a1" strokeWidth={2} dot={{ r: 3 }}
+                            connectNulls={false} />
+                      <Line type="monotone" dataKey="avg_growth_score" name="Growth"
+                            stroke="#b45309" strokeWidth={2} dot={{ r: 3 }}
+                            connectNulls={false} />
+                    </RLineChart>
+                  </ResponsiveContainer>
+                  <p className="text-xs text-slate-400 -mt-1">
+                    {withData.length} of {fundingMomentum.by_month.length}{' '}
+                    months since this market started tracking have a
+                    Crunchbase reading.
+                  </p>
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                Score changes during the reporting period
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Consecutive Crunchbase readings that changed — the real
+                signal, since the level above mostly repeats.
+              </p>
+              {!fundingMomentum?.momentum_events?.length ? (
+                <p className="text-sm text-slate-500 py-8 text-center">
+                  No score has moved between readings yet.
+                </p>
+              ) : (
+                <div className="divide-y">
+                  {fundingMomentum.momentum_events.slice(0, 8).map((e, i) => (
+                    <button key={i} onClick={() => {
+                              const hit = vendors?.find(v => v.display_name === e.vendor);
+                              if (hit) openVendorPage(hit.brand_id);
+                            }}
+                            className="w-full flex items-center justify-between
+                                       py-1.5 text-sm hover:bg-slate-50 text-left">
+                      <span className="text-slate-700">{e.vendor}</span>
+                      <span className="tabular-nums">
+                        {e.heat_delta !== null && (
+                          <span className={deltaTextClass(e.heat_delta)}>
+                            attention {e.heat_delta > 0 ? '+' : ''}{e.heat_delta}
+                          </span>
+                        )}
+                        {e.heat_delta !== null && e.growth_delta !== null &&
+                          <span className="text-slate-400"> · </span>}
+                        {e.growth_delta !== null && (
+                          <span className={deltaTextClass(e.growth_delta)}>
+                            growth {e.growth_delta > 0 ? '+' : ''}{e.growth_delta}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -751,6 +1796,39 @@ export function MarketMonitorTab() {
               )}
             </div>
 
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="text-sm font-medium text-slate-800">
+                LinkedIn post volume
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                Posts published in the selected window.
+              </p>
+              {!pulse || pulse.loudest_vendors.length === 0 ? (
+                <p className="text-sm text-slate-500 py-8 text-center">
+                  No posts in this window.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={pulse.loudest_vendors.slice(0, 8)}
+                            layout="vertical"
+                            margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" fontSize={11} allowDecimals={false} />
+                    <YAxis type="category" dataKey="vendor" width={110}
+                           fontSize={11} interval={0} />
+                    <Tooltip />
+                    <Bar dataKey="posts" fill="#d6409f" cursor="pointer"
+                         onClick={(d: any) => {
+                           const hit = vendors?.find(v => v.display_name === d?.vendor);
+                           if (hit) openVendorPage(hit.brand_id);
+                         }} radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800">
                 Largest disclosed raises
@@ -795,6 +1873,54 @@ export function MarketMonitorTab() {
                   { key: 'signals', label: 'Signals', align: 'right' },
                 ]} />
             </div>
+          </div>
+
+          <div className="border rounded-lg p-4 bg-white">
+            <div className="text-sm font-medium text-slate-800 mb-2">
+              Events
+            </div>
+            {!pulse || pulse.events.length === 0 ? (
+              <p className="text-sm text-slate-500 py-4">
+                No events in this window.
+              </p>
+            ) : (
+              <ol className="space-y-2">
+                {pulse.events.map((e, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
+                      SEVERITY_TONE[e.significance === 'critical' ? 'high' : e.significance]
+                        ?? SEVERITY_TONE.low}`}>
+                      {e.significance}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm text-slate-800">{e.title}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {e.event_date} · {e.event_type} · {e.article_count} article
+                        {e.article_count === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {pulse && pulse.open_questions.length > 0 && (
+              <div className="border rounded-lg p-4 bg-white">
+                <div className="text-sm font-medium text-slate-800 mb-2">
+                  Open review tasks
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {pulse.open_questions.map((q, i) => (
+                    <span key={i} className={`text-xs px-2 py-1 rounded border ${
+                      SEVERITY_TONE[q.severity] ?? SEVERITY_TONE.low}`}>
+                      {q.n} {q.kind.replace(/_/g, ' ')} ({q.severity})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="border rounded-lg p-4 bg-white">
               <div className="text-sm font-medium text-slate-800">
@@ -878,6 +2004,201 @@ export function MarketMonitorTab() {
               <Stat label={`Published in ${corpus.recent_days} days`}
                     value={String(corpus.recent)}
                     hint="By publication date, not collection date" />
+            </div>
+          )}
+
+          {leaderboards && (
+            <div className="space-y-4">
+              <div className="border rounded-lg p-4 bg-white">
+                <div className="text-sm font-medium text-slate-800">
+                  Most popular, last 30 days
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                  Ranked by reactions on the post itself — likes, comments and
+                  reposts, owned or earned. Only posts a platform reports
+                  engagement for are ranked; most news and vendor-blog
+                  coverage carries none.
+                </p>
+                {(() => {
+                  const top = leaderboards.networks
+                    .flatMap(n => n.top_posts.map(p => ({ ...p, platform: n.platform })))
+                    .sort((a, b) => b.engagement - a.engagement)
+                    .slice(0, 5);
+                  if (top.length === 0) {
+                    return (
+                      <p className="text-sm text-slate-500 py-4 text-center">
+                        No engagement data on any matched post yet.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="divide-y">
+                      {top.map(p => (
+                        <a key={p.uri} href={p.uri} target="_blank" rel="noreferrer"
+                           className="flex items-center gap-2 py-1.5 text-sm
+                                      hover:bg-slate-50 -mx-1 px-1 rounded">
+                          <span className={`text-xs px-1.5 py-0.5 rounded border shrink-0 ${
+                            p.is_owned ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                       : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                            {p.platform}
+                          </span>
+                          <span className="text-slate-800 truncate flex-1">{p.title}</span>
+                          <span className="text-slate-500 tabular-nums shrink-0">
+                            {p.engagement} reactions
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="border rounded-lg p-4 bg-white">
+                  <div className="text-sm font-medium text-slate-800">
+                    Career moves
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                    Named hires and appointments, read from vendors&apos; own
+                    &quot;welcome to the team&quot; posts.
+                  </p>
+                  {leaderboards.career_moves.moves.length === 0 ? (
+                    <p className="text-sm text-slate-500 py-4 text-center">
+                      No named hire announced in this period.
+                    </p>
+                  ) : (
+                    <div className="divide-y">
+                      {leaderboards.career_moves.moves.slice(0, 8).map(m => (
+                        <a key={m.uri} href={m.uri} target="_blank" rel="noreferrer"
+                           className="block py-1.5 text-sm hover:bg-slate-50 -mx-1 px-1 rounded">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800">{m.vendor}</span>
+                            <span className="text-slate-400 text-xs tabular-nums">
+                              {(m.published ?? '').slice(0, 10)}
+                            </span>
+                          </div>
+                          <div className="text-slate-600">
+                            {m.review_reason ?? m.title}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border rounded-lg p-4 bg-white">
+                  <div className="text-sm font-medium text-slate-800">
+                    Funding moves
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                    Consecutive Crunchbase readings that changed — see
+                    Analysis for the full list.
+                  </p>
+                  {!fundingMomentum?.momentum_events?.length ? (
+                    <p className="text-sm text-slate-500 py-4 text-center">
+                      No score has moved between readings yet.
+                    </p>
+                  ) : (
+                    <div className="divide-y">
+                      {fundingMomentum.momentum_events.slice(0, 8).map((e, i) => (
+                        <div key={i} className="flex items-center justify-between py-1.5 text-sm">
+                          <span className="text-slate-800">{e.vendor}</span>
+                          <span className="tabular-nums">
+                            {e.heat_delta !== null && (
+                              <span className={deltaTextClass(e.heat_delta)}>
+                                attention {e.heat_delta > 0 ? '+' : ''}{e.heat_delta}
+                              </span>
+                            )}
+                            {e.heat_delta !== null && e.growth_delta !== null &&
+                              <span className="text-slate-400"> · </span>}
+                            {e.growth_delta !== null && (
+                              <span className={deltaTextClass(e.growth_delta)}>
+                                growth {e.growth_delta > 0 ? '+' : ''}{e.growth_delta}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-medium text-slate-800 mb-0.5">
+                  By network
+                </div>
+                <p className="text-xs text-slate-500 mb-2">
+                  &quot;Most discussed&quot; and &quot;most shared&quot; only
+                  count posts tagged to a specific vendor. That tagging barely
+                  reaches practitioner posts on Twitter, Reddit or Bluesky
+                  today — a real gap in the data, not a quiet market. Where a
+                  network shows nothing here, that is what it means.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {leaderboards.networks.map(n => (
+                    <div key={n.platform} className="border rounded-lg p-3 bg-white">
+                      <div className="text-sm font-medium text-slate-800 capitalize mb-1.5">
+                        {n.platform}
+                      </div>
+
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-0.5">
+                        Most discussed
+                      </div>
+                      {n.most_discussed.length === 0 ? (
+                        <p className="text-xs text-slate-400 mb-2">Not enough tagged posts yet.</p>
+                      ) : (
+                        <div className="mb-2">
+                          {n.most_discussed.map(v => (
+                            <button key={v.brand_id}
+                                    onClick={() => openVendorPage(v.brand_id)}
+                                    className="flex items-center justify-between w-full
+                                               text-sm hover:bg-slate-50 rounded px-1 -mx-1">
+                              <span className="text-slate-700 truncate">{v.vendor}</span>
+                              <span className="text-slate-500 tabular-nums shrink-0">
+                                {v.mentions}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-0.5">
+                        Most shared
+                      </div>
+                      {n.most_shared.length === 0 ? (
+                        <p className="text-xs text-slate-400 mb-2">Not enough tagged posts yet.</p>
+                      ) : (
+                        <div className="mb-2">
+                          {n.most_shared.map(v => (
+                            <button key={v.brand_id}
+                                    onClick={() => openVendorPage(v.brand_id)}
+                                    className="flex items-center justify-between w-full
+                                               text-sm hover:bg-slate-50 rounded px-1 -mx-1">
+                              <span className="text-slate-700 truncate">{v.vendor}</span>
+                              <span className="text-slate-500 tabular-nums shrink-0">
+                                {v.shares}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-0.5">
+                        Top post
+                      </div>
+                      {n.top_posts.length === 0 ? (
+                        <p className="text-xs text-slate-400">No engagement data.</p>
+                      ) : (
+                        <a href={n.top_posts[0].uri} target="_blank" rel="noreferrer"
+                           className="text-sm text-slate-700 hover:underline line-clamp-2">
+                          {n.top_posts[0].title}
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -972,11 +2293,6 @@ export function MarketMonitorTab() {
                      onChange={e => setAllPosts(e.target.checked)} />
               Include posts judged noise
             </label>
-            <label className="text-sm text-slate-600 inline-flex items-center gap-1.5">
-              <input type="checkbox" checked={groupCoverage}
-                     onChange={e => setGroupCoverage(e.target.checked)} />
-              Group repeats
-            </label>
             {vendorFilter !== null && (
               <button onClick={() => setVendorFilter(null)}
                       className="text-sm px-2 py-1 rounded border bg-slate-800
@@ -985,6 +2301,36 @@ export function MarketMonitorTab() {
                   ?? `vendor ${vendorFilter}`}
                 <X className="w-3 h-3" />
               </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-sm text-slate-500 mr-1">Group by</span>
+            {([['vendor', 'Vendor'], ['day', 'Day'], ['kind', 'Kind'],
+               ['timeline', 'Timeline']] as const).map(([id, label]) => (
+              <button key={id} onClick={() => setGroupMode(id)}
+                      className={`text-sm px-3 py-1 rounded-md border ${
+                        groupMode === id
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {label}
+              </button>
+            ))}
+            {groupMode !== 'timeline' && (
+              <>
+                <span className="w-3" />
+                <span className="text-sm text-slate-500 mr-1">Sort by</span>
+                {([['newest', 'Newest'], ['popular', 'Most reactions']] as const)
+                  .map(([id, label]) => (
+                  <button key={id} onClick={() => setSortMode(id)}
+                          className={`text-sm px-3 py-1 rounded-md border ${
+                            sortMode === id
+                              ? 'bg-slate-800 text-white border-slate-800'
+                              : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    {label}
+                  </button>
+                ))}
+              </>
             )}
           </div>
 
@@ -999,149 +2345,51 @@ export function MarketMonitorTab() {
             </p>
           ) : (
             <>
-            <div className="space-y-2">
-              {corpusArticles.map(a => {
-                const sm = a.social_meta ?? {};
-                const engagement = (sm.likes ?? 0) + (sm.comments ?? 0)
-                  + (sm.reposts ?? sm.shares ?? 0);
-                const account = sm.author_name || sm.author;
-                const isSocial = a.article_class === 'social'
-                  || a.article_class === 'discussion';
-                const clusterOpen = openCluster === a.uri;
-                return (
-                <article key={a.uri}
-                         className="border rounded-lg bg-white overflow-hidden
-                                    hover:border-slate-300 transition-colors">
-                  <div className="p-3 flex items-start gap-3">
-                    {sm.thumbnail && (
-                      <img src={sm.thumbnail} alt="" loading="lazy"
-                           referrerPolicy="no-referrer"
-                           onError={e => {
-                             // A broken thumbnail leaves a torn-image icon,
-                             // which reads worse than no image at all.
-                             (e.currentTarget as HTMLImageElement).style.display = 'none';
-                           }}
-                           className="w-20 h-20 object-cover rounded border shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                        <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                          CLASS_TONE[a.article_class] ?? 'bg-slate-50 text-slate-600'}`}>
-                          {CLASS_LABEL[a.article_class] ?? a.article_class}
-                        </span>
-                        <span className="text-xs px-1.5 py-0.5 rounded border
-                                         bg-white text-slate-600">
-                          {isSocial ? (sm.platform ?? a.news_source)
-                                    : (a.news_source ?? 'unknown')}
-                        </span>
-                        {account && (
-                          <span className="text-xs text-slate-600 font-medium">
-                            {sm.author && isSocial ? `@${sm.author}` : account}
-                          </span>
-                        )}
-                        {a.review_verdict && (
-                          <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                            VERDICT_TONE[a.review_verdict]}`}
-                                title={a.review_reason ?? undefined}>
-                            {a.review_verdict === 'signal' && a.review_kind
-                              ? a.review_kind
-                              : VERDICT_LABEL[a.review_verdict] ?? a.review_verdict}
-                          </span>
-                        )}
-                        <div className="flex-1" />
-                        <span className="text-xs text-slate-400 tabular-nums">
-                          {a.published ? a.published.slice(0, 10) : '—'}
-                        </span>
-                      </div>
+            {(() => {
+              // The server already returns newest-first; "popular" is a
+              // client-side re-sort of the same loaded set, not a second
+              // fetch — reactions aren't a query the corpus scan indexes on,
+              // and the loaded window (up to 500) is plenty to rank within.
+              const ordered = sortMode === 'popular'
+                ? [...corpusArticles].sort((a, b) => engagementOf(b) - engagementOf(a))
+                : corpusArticles;
+              if (groupMode === 'timeline') {
+                return <CoverageTimeline articles={corpusArticles} />;
+              }
+              const groups = groupMode === 'vendor' ? groupByVendor(ordered)
+                : groupMode === 'kind' ? groupByKind(ordered)
+                : groupByDay(ordered);
+              return (
+                <CoverageGrouped
+                  groups={groups}
+                  expandedGroups={expandedGroups} setExpandedGroups={setExpandedGroups}
+                  vendorFilter={vendorFilter} setVendorFilter={setVendorFilter}
+                  openCluster={openCluster} setOpenCluster={setOpenCluster} />
+              );
+            })()}
 
-                      <a href={a.uri} target="_blank" rel="noreferrer"
-                         className="text-sm font-medium text-slate-800 hover:underline block">
-                        {a.title}
-                      </a>
-                      {a.summary && a.summary !== a.title && (
-                        <p className="text-xs text-slate-500 mt-1">
-                          {a.summary.slice(0, 200)}
-                          {a.summary.length > 200 ? '…' : ''}
-                        </p>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                        {a.vendors.slice(0, 4).map(v => (
-                          <button key={v.brand_id}
-                                  onClick={() => setVendorFilter(
-                                    vendorFilter === v.brand_id ? null : v.brand_id)}
-                                  className={`text-xs px-1.5 py-0.5 rounded border ${
-                                    vendorFilter === v.brand_id
-                                      ? 'bg-slate-800 text-white border-slate-800'
-                                      : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'}`}>
-                            {v.vendor}
-                          </button>
-                        ))}
-                        {a.matched_terms.slice(0, 3).map(t => (
-                          <span key={t}
-                                className="text-xs px-1.5 py-0.5 rounded border
-                                           bg-slate-50 text-slate-500">
-                            {t}
-                          </span>
-                        ))}
-                        <div className="flex-1" />
-                        {engagement > 0 && (
-                          <span className="text-xs text-slate-500"
-                                title={`${sm.likes ?? 0} likes · ${sm.comments ?? 0} comments · ${sm.reposts ?? sm.shares ?? 0} reposts`}>
-                            {engagement} reactions
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {a.cluster && (
-                    <div className="border-t bg-slate-50 px-3 py-2">
-                      <button onClick={() => setOpenCluster(clusterOpen ? null : a.uri)}
-                              className="text-xs text-slate-600 inline-flex items-center gap-1">
-                        {clusterOpen ? <ChevronDown className="w-3 h-3" />
-                                     : <ChevronRight className="w-3 h-3" />}
-                        {a.cluster.size - 1} more post{a.cluster.size - 1 === 1 ? '' : 's'}
-                        {' '}saying the same thing
-                      </button>
-                      {clusterOpen && (
-                        <div className="mt-1.5 space-y-1">
-                          {a.cluster.others.map(o => (
-                            <a key={o.uri} href={o.uri} target="_blank" rel="noreferrer"
-                               className="block text-xs text-slate-600 hover:underline truncate">
-                              {o.author ? `@${o.author}: ` : ''}{o.title}
-                              <span className="text-slate-400">
-                                {' '}· {o.news_source} · {(o.published ?? '').slice(0, 10)}
-                              </span>
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </article>
-                );
-              })}
-            </div>
-
-            {/* Pagination. A flat list of 900 cards is not a list anybody
-                reads, and scrolling is not navigation. */}
+            {/* A flat fetch of 900 rows is not something anybody reads either
+                way, so this widens the window on request instead of paging
+                through it — grouped views read as one continuous browse, not
+                as pages. */}
             <div className="flex items-center gap-2 pt-1">
-              <button disabled={coverageOffset === 0 || busy}
-                onClick={() => setCoverageOffset(o => Math.max(0, o - COVERAGE_PAGE))}
-                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
-                           disabled:opacity-40">
-                Previous
-              </button>
               <span className="text-sm text-slate-500">
-                {coverageOffset + 1}–{coverageOffset + corpusArticles.length}
+                Showing {corpusArticles.length}{coverageMore ? '+' : ''} matched
               </span>
-              <button disabled={!coverageMore || busy}
-                onClick={() => setCoverageOffset(o => o + COVERAGE_PAGE)}
-                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
-                           disabled:opacity-40">
-                Next
-              </button>
+              {coverageMore && coverageLimit < COVERAGE_MAX && (
+                <button disabled={busy}
+                  onClick={() => setCoverageLimit(
+                    l => Math.min(COVERAGE_MAX, l + COVERAGE_STEP))}
+                  className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                             disabled:opacity-40">
+                  Load {Math.min(COVERAGE_STEP, COVERAGE_MAX - coverageLimit)} more
+                </button>
+              )}
+              {coverageMore && coverageLimit >= COVERAGE_MAX && (
+                <span className="text-xs text-slate-400">
+                  More than {COVERAGE_MAX} matched — narrow with a filter to see the rest.
+                </span>
+              )}
             </div>
             </>
           )}
@@ -1173,6 +2421,52 @@ export function MarketMonitorTab() {
             Everything this market has stored. Click a dataset to see its rows;
             the CSV is the whole table, the on-screen preview is the first 200.
           </p>
+
+          {health && health.sources.length > 0 && (
+            <div className="border rounded-lg bg-white overflow-hidden">
+              <div className="px-3 pt-3 pb-1 text-sm font-medium text-slate-800">
+                Fetched by source, last 30 days
+              </div>
+              <p className="px-3 text-xs text-slate-500 mb-2">
+                What each provider returned before dedup, and how much of that
+                was new. A source with a high received count and few new
+                records is mostly re-fetching what it already sent.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-600">
+                    <tr>
+                      {['Source', 'Provider', 'Received', 'New', 'Runs', 'Last success']
+                        .map(h => (
+                        <th key={h} className="text-left font-medium px-3 py-2">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {health.sources.map(s => (
+                      <tr key={`${s.source}:${s.provider}`} className="border-t">
+                        <td className="px-3 py-1.5 text-slate-800">{s.source}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{s.provider}</td>
+                        <td className="px-3 py-1.5 tabular-nums">
+                          {(s.records_received ?? 0).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5 tabular-nums">
+                          {(s.records_new ?? 0).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5 text-slate-500 tabular-nums">
+                          {s.succeeded}/{s.runs}
+                        </td>
+                        <td className="px-3 py-1.5 text-slate-500">
+                          {s.last_success
+                            ? new Date(s.last_success).toLocaleString() : 'never'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {inventory === null ? (
             <div className="py-12 text-center text-slate-400">
@@ -1270,178 +2564,6 @@ export function MarketMonitorTab() {
         </div>
       )}
 
-      {/* ---- Brief ---- */}
-      {view === 'brief' && brief && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-600">
-              Last {brief.period_days} days · {brief.coverage.watching} of{' '}
-              {brief.coverage.registry} vendors monitored
-            </span>
-            <div className="flex-1" />
-            <a href={datasetCsvUrl(marketId!)}
-               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
-              Download dataset (CSV)
-            </a>
-            <a href={feedUrl(marketId!)} target="_blank" rel="noreferrer"
-               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
-              RSS feed
-            </a>
-            <a href={reportUrl(marketId!)} target="_blank" rel="noreferrer"
-               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
-              Report (HTML)
-            </a>
-            <a href={exportBundleUrl(marketId!)}
-               className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
-              Download everything (ZIP)
-            </a>
-            <button onClick={makeShareLink} disabled={busy}
-                    className="text-sm px-3 py-1.5 border rounded-md
-                               hover:bg-slate-50 disabled:opacity-50">
-              Share link
-            </button>
-          </div>
-          {shareLink && (
-            <p className="text-xs text-slate-600 -mt-2 break-all">
-              <span className="text-slate-500">Shareable report link: </span>
-              {shareLink}
-            </p>
-          )}
-          <p className="text-xs text-slate-500 -mt-2">
-            The feed carries matched articles and timeline events, newest first.
-            Vendor LinkedIn posts are left out unless you ask for them with
-            <code className="mx-1">?classes=news,vendor,social</code>.
-          </p>
-
-          {brief.standing_summary && (
-            <div className="border rounded-lg p-4 bg-white">
-              <div className="text-sm font-medium text-slate-800 mb-1">
-                Summary
-              </div>
-              <p className="text-sm text-slate-700 whitespace-pre-line">
-                {brief.standing_summary}
-              </p>
-            </div>
-          )}
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            {/* Signed delta so decreases are distinguishable from increases. */}
-            <div className="border rounded-lg p-4 bg-white">
-              <div className="text-sm font-medium text-slate-800">
-                Headcount change
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5 mb-2">
-                LinkedIn count vs imported baseline. Vendors with both values only.
-              </p>
-              {brief.headcount_movers.length === 0 ? (
-                <p className="text-sm text-slate-500 py-8 text-center">
-                  No vendor has both values.
-                </p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={brief.headcount_movers.slice(0, 8)}
-                            layout="vertical"
-                            margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" fontSize={11} />
-                    <YAxis type="category" dataKey="vendor" width={110}
-                           fontSize={11} interval={0} />
-                    <Tooltip formatter={(v: number, _n, p: any) =>
-                      [`${v > 0 ? '+' : ''}${v} staff (${p.payload.pct}%)`, 'change']} />
-                    <Bar dataKey="delta" radius={[0, 3, 3, 0]} cursor="pointer"
-                         onClick={(d: any) => {
-                           const hit = vendors?.find(v => v.display_name === d?.vendor);
-                           if (hit) openVendorPage(hit.brand_id);
-                         }}>
-                      {brief.headcount_movers.slice(0, 8).map((m, i) => (
-                        <Cell key={i} fill={m.delta >= 0 ? '#30a46c' : '#e5484d'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-
-            <div className="border rounded-lg p-4 bg-white">
-              <div className="text-sm font-medium text-slate-800">
-                LinkedIn post volume
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5 mb-2">
-                Posts published in the selected window.
-              </p>
-              {brief.loudest_vendors.length === 0 ? (
-                <p className="text-sm text-slate-500 py-8 text-center">
-                  No posts in this window.
-                </p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={brief.loudest_vendors.slice(0, 8)}
-                            layout="vertical"
-                            margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" fontSize={11} allowDecimals={false} />
-                    <YAxis type="category" dataKey="vendor" width={110}
-                           fontSize={11} interval={0} />
-                    <Tooltip />
-                    <Bar dataKey="posts" fill="#d6409f" cursor="pointer"
-                         onClick={(d: any) => {
-                           const hit = vendors?.find(v => v.display_name === d?.vendor);
-                           if (hit) openVendorPage(hit.brand_id);
-                         }} radius={[0, 3, 3, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
-          <div className="border rounded-lg p-4 bg-white">
-            <div className="text-sm font-medium text-slate-800 mb-2">
-              Events
-            </div>
-            {brief.events.length === 0 ? (
-              <p className="text-sm text-slate-500 py-4">
-                No events in this window.
-              </p>
-            ) : (
-              <ol className="space-y-2">
-                {brief.events.map((e, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
-                      SEVERITY_TONE[e.significance === 'critical' ? 'high' : e.significance]
-                        ?? SEVERITY_TONE.low}`}>
-                      {e.significance}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-sm text-slate-800">{e.title}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {e.event_date} · {e.event_type} · {e.article_count} article
-                        {e.article_count === 1 ? '' : 's'}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-
-          {brief.open_questions.length > 0 && (
-            <div className="border rounded-lg p-4 bg-white">
-              <div className="text-sm font-medium text-slate-800 mb-2">
-                Open review tasks
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {brief.open_questions.map((q, i) => (
-                  <span key={i} className={`text-xs px-2 py-1 rounded border ${
-                    SEVERITY_TONE[q.severity] ?? SEVERITY_TONE.low}`}>
-                    {q.n} {q.kind.replace(/_/g, ' ')} ({q.severity})
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ---- Timeline ---- */}
       {view === 'wire' && (
         <div className="space-y-3 max-w-4xl">
@@ -1469,28 +2591,7 @@ export function MarketMonitorTab() {
           {events && events.length > 0 && (
             <ol className="space-y-2">
               {events.map(e => (
-                <li key={e.id} className="border rounded-lg p-3 bg-white">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-800">{e.title}</div>
-                      {e.description && (
-                        <p className="text-sm text-slate-600 mt-1">{e.description}</p>
-                      )}
-                      <div className="text-xs text-slate-500 mt-1.5">
-                        {e.event_date} · {e.event_type}
-                        {e.event_subtype ? ` · ${e.event_subtype}` : ''}
-                        {' · '}{e.article_count} article
-                        {e.article_count === 1 ? '' : 's'}
-                        {e.occurrence_count > 1 && ` · seen ${e.occurrence_count}x`}
-                      </div>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${
-                      SEVERITY_TONE[e.significance === 'critical' ? 'high' : e.significance]
-                        ?? SEVERITY_TONE.low}`}>
-                      {e.significance}
-                    </span>
-                  </div>
-                </li>
+                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} />
               ))}
             </ol>
           )}
@@ -1548,6 +2649,41 @@ export function MarketMonitorTab() {
             </span>
           </div>
 
+          {/* A company that shows up in the market's own coverage without
+              being a tracked vendor — the way Intezer did — needs one row
+              added, not a workbook re-import. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {addVendorOpen ? (
+              <>
+                <input autoFocus value={newVendorName}
+                       onChange={e => setNewVendorName(e.target.value)}
+                       onKeyDown={e => e.key === 'Enter' && addVendorNow()}
+                       placeholder="Vendor name"
+                       className="text-sm px-2 py-1.5 border rounded-md w-48" />
+                <input value={newVendorWebsite}
+                       onChange={e => setNewVendorWebsite(e.target.value)}
+                       onKeyDown={e => e.key === 'Enter' && addVendorNow()}
+                       placeholder="Website (optional)"
+                       className="text-sm px-2 py-1.5 border rounded-md w-48" />
+                <button onClick={addVendorNow}
+                        disabled={addingVendor || !newVendorName.trim()}
+                        className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                                   disabled:opacity-50 inline-flex items-center gap-1.5">
+                  {addingVendor ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Add'}
+                </button>
+                <button onClick={() => { setAddVendorOpen(false); setNewVendorName(''); }}
+                        className="text-sm text-slate-500 hover:text-slate-700">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setAddVendorOpen(true)}
+                      className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50">
+                + Add vendor
+              </button>
+            )}
+          </div>
+
           {/* Bulk selection. Two switches, stated separately, because they are
               independent and cost different things: collection spends on
               fetching a vendor, brand monitoring puts it in Brand Watcher. */}
@@ -1603,7 +2739,7 @@ export function MarketMonitorTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
-                  {['Vendor', 'Sub-category', 'Country', 'Founded', 'Staff',
+                  {['Vendor', 'Sub-category', 'Country', 'Founded', 'LinkedIn headcount',
                     'Funding', 'Links', 'Collecting', 'Brand'].map(h => (
                     <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                   ))}
@@ -1881,6 +3017,7 @@ export function MarketMonitorTab() {
                   ['collection', 'Collection'],
                   ['sources', 'Sources & schedules'],
                   ['health', 'Health'],
+                  ['scope', 'Scope'],
                 ] as [SettingsPanel, string][]).map(([id, label]) => (
                   <button key={id} onClick={() => setSettingsOpen(id)}
                     className={`text-sm px-3 py-1 rounded ${
@@ -1897,6 +3034,64 @@ export function MarketMonitorTab() {
               </button>
             </div>
             <div className="p-4">
+
+      {settingsOpen === 'scope' && (
+        <div className="space-y-4 max-w-3xl">
+          <div className="border rounded-lg p-4 bg-white space-y-3">
+            <div>
+              <div className="font-medium text-slate-800">Market scope</div>
+              <p className="text-sm text-slate-600 mt-1">
+                What the tracked vendor cohort actually covers. The investor
+                report states this verbatim when set, and says plainly that
+                scope was never defined when it isn&apos;t — it never infers
+                a boundary from who happens to be in the registry.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm text-slate-700">Scope description</label>
+              <textarea
+                value={scopeDraft}
+                onChange={e => setScopeDraft(e.target.value)}
+                rows={4}
+                placeholder="The tracked vendor cohort covers companies for which AI-led investigation, triage or response automation is a material part of the product proposition. Broader security vendors may appear in market coverage without being included in the tracked cohort."
+                className="mt-1 w-full text-sm border rounded-md px-2 py-1.5" />
+            </div>
+
+            <div>
+              <label className="text-sm text-slate-700">
+                Inclusion criteria <span className="text-slate-400">(optional)</span>
+              </label>
+              <textarea
+                value={inclusionDraft}
+                onChange={e => setInclusionDraft(e.target.value)}
+                rows={2}
+                className="mt-1 w-full text-sm border rounded-md px-2 py-1.5" />
+            </div>
+
+            <div>
+              <label className="text-sm text-slate-700">
+                Exclusion criteria <span className="text-slate-400">(optional)</span>
+              </label>
+              <textarea
+                value={exclusionDraft}
+                onChange={e => setExclusionDraft(e.target.value)}
+                rows={2}
+                className="mt-1 w-full text-sm border rounded-md px-2 py-1.5" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button disabled={busy} onClick={saveScope}
+                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 disabled:opacity-50">
+                Save scope
+              </button>
+              {toggleResult && (
+                <span className="text-xs text-slate-500">{toggleResult}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {settingsOpen === 'collection' && plan && (
         <div className="space-y-4 max-w-3xl">
