@@ -136,11 +136,121 @@ Checked against the real value and twelve edge cases: `US,IL`, `US, IL`, `us,il`
 give `United States`; `IL` gives `Israel`; `XK` and `ZZ` pass through unmapped; `''`, `'  '`,
 `None` and a non-string all give `None`; an already-expanded name like `Israel` is unchanged.
 
+### Audit: the blank-row problem was only ever those two vendors
+Checked the whole registry for the same condition rather than assuming Intezer and Prophet were
+the only cases. Across the 83 non-excluded vendors in market 2: zero missing `hq_country`, zero
+missing `metrics.employee_count`, zero with an empty `baseline`, and one missing `founded_year`.
+
+That one is SOCAI, and it is a deliberate null, not a gap. The import's own provenance entry on
+the row reads: "A service line of the AIR Institute research organisation with the University of
+Salamanca, rather than a VC-backed vendor. Founding year could not be established." SOCAI is
+also the only vendor in the market with no `linkedin_company_url`, which is consistent with a
+university research service line rather than a company — so the profile collector will never
+fill this in, and should not. Left alone; inventing a founding year for it would be worse than
+the null.
+
+No backlog of hand-added vendors waiting on a first profile read exists.
+
+### Verified the backfill function itself, not just its helper
+`_country_name()` was checked in isolation, but the function that writes to the database was
+not. Exercised `_backfill_baseline_from_profile()` against the live database inside a
+transaction that was rolled back, feeding it Intezer's real profile reading
+(`country="US,IL"`, `founded=2016`, `employee_count=90`):
+
+| case | starting baseline | result | expected |
+|---|---|---|---|
+| A | `{}` | `('United States', 2016, 90)` | fills all three, `US,IL` resolves |
+| B | curated `Israel/2015/88` | `('Israel', 2015, 88)` | curated values survive untouched |
+| C | `hq_country` only | `('Israel', 2016, 90)` | fills only the blanks |
+| D | `{}`, all-null profile | `(None, None, None)` | writes nothing, does not crash |
+| E | `{}`, `country="XK"`, `employee_count=0` | `('XK', 2020, 0)` | unmapped code kept, 0 is a real reading |
+
+Case E matters for a reason worth writing down: the headcount guard tests `is None`, not
+falsiness, so an existing `0` is treated as a real value and not overwritten. SOCAI genuinely
+has `employee_count: 0` on file, so a falsiness check there would have silently replaced a
+recorded zero with a LinkedIn number.
+
+(The first run of this test failed on a bug in the test, not the code — an inline JSON literal
+containing `"founded_year":2015` made SQLAlchemy read `:2015` as a bind parameter. Reparameterized
+and re-run.)
+
 ### Two readings that disagree, left alone
 LinkedIn says Intezer was founded in 2016 against the 2015 from web research, and reads 90
 employees against the 88 on file. Prophet Security's live reading matches its row exactly (US,
 2024, 89). Nothing arbitrates a disagreement today — the rule is only "do not overwrite what is
 already there" — so both Intezer values stand as backfilled.
+
+### Fix: PitchBook, ZoomInfo and Indeed runs were claimed and then never dispatched
+The stuck-at-`running` behaviour noted below (runs 65, 70-72, 81-83) is not a provider problem
+and not a timeout. Those three sources were **never dispatched at all**.
+
+`_claim_manual_runs` (**`app/tasks/market_monitor.py:278`**) picks up every `status='queued'` row
+for a market with no filter on `source`, and flips each to `running` before anything is
+triggered. `_poll_market` then dispatched only four sources: `paid_sources` at line 382 and the
+two per-vendor "Fetch now" loops at lines 403 and 408 all named `SOURCE_POSTS`, `SOURCE_PROFILE`,
+`SOURCE_CRUNCHBASE` and `SOURCE_JOBS`. `SOURCE_PITCHBOOK`, `SOURCE_ZOOMINFO` and `SOURCE_INDEED`
+are defined at lines 62-64 and handled inside `_poll_dataset`, but no caller ever passed them.
+So the row was marked `running`, no Bright Data job was created, no `job_id` was attached, and
+nothing could ever close it.
+
+Everything else was already wired: the trigger functions
+(`brightdata_linkedin.py:413-477`), the mappers, the ingest dispatcher and the webhook all
+exist and are the same shape as Crunchbase's. Only the call site was missing. The comment at
+`market_monitor_routes.py:57-62` asserts the opposite — "They still route through the same
+manual-run/webhook machinery as everything else here" — which is a large part of why this
+survived unnoticed.
+
+The database says it plainly. Across the whole corpus, `pitchbook_company`, `zoominfo_company`
+and `indeed_jobs` have **five `running` rows each and not one `succeeded` or `failed`, ever** —
+none with a `job_id`. `crunchbase_company` has 7 succeeded, all 7 with a `job_id`.
+
+Two things made it silent rather than noisy. `_reconcile_open_jobs` (line 424) only examines
+rows where `job_id IS NOT NULL`, so a run that never reached the provider is invisible to the
+only cleanup there is, and there is no age-based timeout anywhere. And `_circuit_open` counts
+only `succeeded`/`failed`, so these rows never tripped the breaker.
+
+They were also actively harmful, not merely untidy. `_in_flight` (line 184) returns true for any
+`queued`/`running` row, and `_is_due` returns `None` when it does — so each stranded row
+permanently blocked its own source. Fixing the dispatch alone would have changed nothing until
+the stale rows were closed.
+
+Three changes, all needed:
+- Added the three sources to the per-vendor dispatch loop, and to `paid_sources` so a budget
+  freeze fails them rather than stranding them. Deliberately **not** added to the market-wide
+  cadence calls at lines 397-400 — manual-only is the documented intent.
+- Added `_fail_undispatched()`, called at the end of every pass. Any run claimed by
+  `_claim_manual_runs` that still sits at `running` with a NULL `job_id` when the pass ends gets
+  closed as `failed` with `no collector dispatched source '<name>'`, and an ERROR log line. This
+  is the guard that stops the next source added to `KNOWN_SOURCES` but not to the dispatch tuple
+  from reproducing this exact bug in silence.
+- Closed the 15 stranded rows (31, 32, 36, 55-57, 63-65, 70-72, 81-83). Nothing was owed and no
+  money was spent on them, because no Bright Data job ever existed. Verified afterwards: zero
+  rows remain with `status IN ('queued','running') AND job_id IS NULL`, and `_in_flight` now
+  returns false for all three sources.
+
+**Follow-up, not fixed here:** `bw_vendor_identifiers` holds zero `pitchbook_url` and zero
+`zoominfo_url` rows. With dispatch working, both sources will now reach
+`market_monitor.py:890-895` and close as `succeeded` with "no vendors with a usable URL" until an
+operator enters URLs by hand. Only `indeed_jobs` will actually trigger a paid batch, since it
+works from vendor display names. Also unfixed: `start_run` does no in-flight check, which is how
+five rows per source accumulated.
+
+### Incident: a test I described as rolled back wrote to live data
+While testing `_fail_undispatched()` against runs 81-83 inside a transaction I intended to roll
+back, the function's own `conn.commit()` committed first. The outer `trans.rollback()` then did
+nothing but emit `SAWarning: transaction already deassociated from connection`, and the three
+rows were permanently marked `failed`.
+
+The outcome was harmless and in fact wanted — those rows had to be closed anyway, and the same
+UPDATE was applied to the remaining twelve a moment later on purpose. The process error is the
+point: the test was described as side-effect-free and was not, and it ran against the live
+database. Caught by re-querying the rows immediately after the run rather than trusting the
+rollback.
+
+**ALWAYS check whether the function under test commits internally before wrapping it in a
+transaction you plan to roll back.** A rolled-back harness is only a safety net for code that
+leaves transaction control to its caller. `_backfill_baseline_from_profile` does leave it to the
+caller, which is why the same harness genuinely rolled back for that one.
 
 ### Propagation
 Market Monitor runs on bugfixing only — it is not on wiley, wileytest, wbm or saasmvp. Nothing

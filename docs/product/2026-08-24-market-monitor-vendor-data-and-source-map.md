@@ -58,6 +58,8 @@ page you can look at.
   from the next LinkedIn read. Curated values are never overwritten.
 - Fixed the blank rows for Intezer and Prophet Security.
 - Companies LinkedIn lists in two countries now record their headquarters country correctly.
+- Fixed three data sources — PitchBook, ZoomInfo and Indeed — that had never worked. Requests
+  for them were marked as in progress and then silently never sent, so they hung forever.
 - New Data Map page under Collection: every source, what it collects, where it lands, and what
   each company needs on file before that source can run.
 
@@ -77,17 +79,24 @@ None. This is an internal tool with no customer surface and no competitive story
 
 ## Limits and what's next
 
-**Three collection runs are stuck.** The PitchBook, ZoomInfo and Indeed runs we queued for
-Intezer are still marked "running" with no finish time. Four runs queued at the same moment
-(posts, profile, jobs, Crunchbase) all completed normally. This is the same stuck behaviour seen
-on earlier runs and it is still undiagnosed. For Intezer specifically it changes nothing — we
-hold no PitchBook or ZoomInfo address for them, so those two had nothing to do anyway.
+**PitchBook, ZoomInfo and Indeed have now been diagnosed and fixed** — see the release notes
+above. Worth knowing what this means in practice: these three had never once worked. Every run
+of them since they were added sat marked "running" forever. Nobody noticed because a request
+that is never sent produces no error.
+
+They still will not return much yet. We hold no PitchBook or ZoomInfo web address for any
+vendor, and both need one entered by hand — there is no way to look them up automatically. Until
+somebody enters those addresses, both sources will now finish cleanly and report "no companies
+with a usable address" instead of hanging. Only Indeed will actually fetch anything, because it
+searches on the company name.
 
 **Two numbers disagree and we left them alone.** LinkedIn says Intezer was founded in 2016; our
 research said 2015. LinkedIn reads 90 employees; we have 88 on file. Prophet Security's live
 reading matches its row exactly. Nothing decides which source wins when they disagree, because
 the rule today is simply "don't overwrite what is already there".
 
-**The backfill only helps going forward.** Any other vendor added by hand and never read since
-is still blank until its next profile read. Nobody has audited the registry for how many of
-those exist.
+**The registry has now been audited, and it is clean.** Of the 83 vendors we track, none is
+missing a country or a headcount, and one is missing a founding year. That one is SOCAI, and it
+is not a gap: the original import recorded that SOCAI is a service line of a university research
+institute rather than a funded company, and that no founding year could be established. So the
+blank-row problem was confined to the two vendors we already fixed. There is no backlog.

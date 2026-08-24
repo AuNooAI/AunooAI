@@ -379,7 +379,9 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
         # negotiable by it, because the point of the cap is that nothing
         # spends past it. That applies the same to a single vendor's "Fetch
         # now" as to a whole-market manual run.
-        paid_sources = (SOURCE_POSTS, SOURCE_PROFILE, SOURCE_CRUNCHBASE, SOURCE_JOBS)
+        paid_sources = (SOURCE_POSTS, SOURCE_PROFILE, SOURCE_CRUNCHBASE,
+                        SOURCE_JOBS, SOURCE_PITCHBOOK, SOURCE_ZOOMINFO,
+                        SOURCE_INDEED)
         if _budget_blocks(conn, market_id, market["name"]):
             for source in paid_sources:
                 pending = [manual.get((source, None))] + \
@@ -405,12 +407,54 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
                     runs += await _poll_linkedin(conn, market, source, now,
                                                  forced_run_id=run_id,
                                                  forced_brand_id=brand_id)
-            for source in (SOURCE_CRUNCHBASE, SOURCE_JOBS):
+            # PitchBook, ZoomInfo and Indeed are manual-only: they are absent
+            # from the market-wide cadence calls above on purpose, but a
+            # vendor's own "Fetch now" still has to reach the provider. Until
+            # they were added here, _claim_manual_runs flipped their queued
+            # rows to 'running' and nothing ever dispatched them, so every run
+            # of these three stranded — 15 rows, none of which ever reached
+            # succeeded or failed. A stranded row is not inert: _in_flight
+            # counts 'running', so it also blocked the source forever.
+            for source in (SOURCE_CRUNCHBASE, SOURCE_JOBS, SOURCE_PITCHBOOK,
+                           SOURCE_ZOOMINFO, SOURCE_INDEED):
                 for brand_id, run_id in _vendor_claims(source):
                     runs += await _poll_dataset(conn, market, source, now,
                                                 forced_run_id=run_id,
                                                 forced_brand_id=brand_id)
+
+    # Anything claimed at the top of this pass and not handed to a poller
+    # would sit at 'running' forever, because only a poller can close a run.
+    # Fail it loudly instead: a source in KNOWN_SOURCES that nothing here
+    # dispatches is a wiring bug, and silence is how the last one survived
+    # five runs apiece across three sources.
+    _fail_undispatched(conn, market_id, manual)
     return runs
+
+
+def _fail_undispatched(conn, market_id: int,
+                       manual: Dict[Tuple[str, Optional[int]], int]) -> None:
+    """Close any run this pass claimed but never dispatched.
+
+    ``_claim_manual_runs`` marks every queued row 'running' before anything
+    has been triggered, so a source it claims but ``_poll_market`` does not
+    handle is stranded past the end of the pass. Those rows still hold no
+    ``job_id``, which puts them out of reach of ``_reconcile_open_jobs`` as
+    well — it only looks at rows that reached the provider.
+    """
+    stranded = [rid for rid in manual.values() if rid]
+    if not stranded:
+        return
+    rows = conn.execute(text("""
+        SELECT id, source FROM bw_collection_runs
+        WHERE id = ANY(:ids) AND status = 'running' AND job_id IS NULL
+    """), {"ids": stranded}).fetchall()
+    for run_id, source in rows:
+        logger.error("market %s: claimed %s run %s but nothing dispatched it",
+                     market_id, source, run_id)
+        mc.close_run(conn, run_id, status="failed",
+                     error=f"no collector dispatched source '{source}'")
+    if rows:
+        conn.commit()
 
 
 # ── Claiming jobs the callback never delivered ──────────────────────────────
