@@ -235,6 +235,21 @@ operator enters URLs by hand. Only `indeed_jobs` will actually trigger a paid ba
 works from vendor display names. Also unfixed: `start_run` does no in-flight check, which is how
 five rows per source accumulated.
 
+### Two components were imported by committed code and left untracked
+`5a4cb163` committed `MarketMonitorTab.tsx` and `MarketAnalysisView.tsx`, both of which import
+`ConfidenceGate`, and the latter also imports `MarketThemesPanel` — while both of those files
+were still untracked. A fresh checkout of that commit fails to build. The local tree built fine
+throughout, which is exactly what hid it: the files are present on disk, just not in git.
+
+Added in `748b4079`. This is the same miss as `app/services/market_themes.py`, which
+`market_monitor_routes.py` imports and which was caught before `5a4cb163` went in — the
+difference being that one was noticed and these two were not. Found afterwards by listing
+untracked source files and grepping for whether anything tracked imports them.
+
+ALWAYS check new-file dependencies before committing, not just modified ones. `git add -u`
+stages every tracked change and none of the new files those changes depend on, so a commit can
+be complete by that rule and still not build.
+
 ### Incident: a test I described as rolled back wrote to live data
 While testing `_fail_undispatched()` against runs 81-83 inside a transaction I intended to roll
 back, the function's own `conn.commit()` committed first. The outer `trans.rollback()` then did
