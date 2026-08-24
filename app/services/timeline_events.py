@@ -115,6 +115,38 @@ def _market_corpus_available(conn) -> bool:
         return False
 
 
+def _topic_scope_sql(conn) -> str:
+    """WHERE-fragment for "this article is in scope for topic :t".
+
+    Shared so a spike/shift detector's baseline counts the same population
+    that ``_fetch_day_articles`` counts for "today". Before this helper,
+    ``_detect_volume_spike``/``_detect_sentiment_shift``/``_detect_source_shift``
+    each hand-rolled a narrower ``a.topic = :t`` check for their prior-window
+    query, missing the market-corpus OR-clause below — on the SOC Automation
+    market that clause alone covers 282 of 606 articles. A day whose count
+    included those articles was compared against a 7-day average that never
+    could, which is what produced two "coverage spike" events on consecutive
+    days with an average lower than the article count that supposedly fed it
+    (see docs/changes.md 2026-08-24).
+    """
+    if not _market_corpus_available(conn):
+        return "(a.topic = :t AND COALESCE(a.topic_alignment_score, 0) >= 0.4)"
+    return """(
+        (a.topic = :t AND COALESCE(a.topic_alignment_score, 0) >= 0.4)
+        OR EXISTS (
+            SELECT 1 FROM bw_market_articles ma
+            JOIN bw_markets m ON m.id = ma.market_id
+            WHERE ma.article_uri = a.uri
+              AND (ma.score >= 12 OR ma.review_verdict = 'signal')
+              AND (COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+                   OR ma.review_verdict = 'signal')
+              AND COALESCE(
+                  m.config->'collection'->>'topic_name',
+                  'Market Monitoring ' || m.name) = :t
+        )
+    )"""
+
+
 def _fetch_day_articles(conn, scope_type: str, scope_id: str, target: date) -> List[Dict[str, Any]]:
     """Articles ingested on the target day for the scope, most relevant first."""
     p = _day_bounds(target)
@@ -137,41 +169,16 @@ def _fetch_day_articles(conn, scope_type: str, scope_id: str, target: date) -> L
         """), {**p, "bid": bid, "lane": lane_topic}).fetchall()
     else:
         # A market monitor's topic has a second source of articles: the ones
-        # matched out of the corpus by the market's own phrases, which were
-        # collected under some other topic and so fail `a.topic = :t`. On the
-        # SOC Automation market that is 282 of 606 articles, and without this
-        # clause none of them reach the timeline, the brief or an observer.
-        #
-        # They are gated on the market's own match score, not on
-        # `topic_alignment_score` — that column measures an article against the
-        # topic it was collected for, which is a different question and here
-        # would be the wrong one.
-        #
-        # Vendor LinkedIn posts are in only when the review pass judged them
-        # to state a fact. Unfiltered they are 562 posts against 122 news
-        # articles and arrive in bursts, so a daily timeline built on them is
-        # a record of vendor marketing. Filtered, they are where launches,
-        # partnerships and raises show up first.
-        market_clause = ""
-        if _market_corpus_available(conn):
-            market_clause = """
-              OR EXISTS (
-                  SELECT 1 FROM bw_market_articles ma
-                  JOIN bw_markets m ON m.id = ma.market_id
-                  WHERE ma.article_uri = a.uri
-                    AND (ma.score >= 12 OR ma.review_verdict = 'signal')
-                    AND (COALESCE(a.bias_source, '') <> 'vendor:linkedin'
-                         OR ma.review_verdict = 'signal')
-                    AND COALESCE(
-                        m.config->'collection'->>'topic_name',
-                        'Market Monitoring ' || m.name) = :t
-              )"""
+        # matched out of the corpus by the market's own phrases (see
+        # _topic_scope_sql). Vendor LinkedIn posts are in only when the review
+        # pass judged them to state a fact — unfiltered they are 562 posts
+        # against 122 news articles and arrive in bursts, so a daily timeline
+        # built on them is a record of vendor marketing, not the market.
         rows = conn.execute(text(f"""
             SELECT {_ARTICLE_COLS}
             FROM articles a
             WHERE a.submission_date >= :d0 AND a.submission_date < :d1
-              AND ((a.topic = :t AND COALESCE(a.topic_alignment_score, 0) >= 0.4)
-                   {market_clause})
+              AND {_topic_scope_sql(conn)}
         """), {**p, "t": scope_id}).fetchall()
     arts = [{"uri": r[0], "title": r[1] or "", "summary": r[2] or "", "source": r[3] or "",
              "sentiment": r[4] or "", "score": float(r[5] or 0)} for r in rows]
@@ -251,10 +258,10 @@ def _detect_volume_spike(conn, scope_type, scope_id, target, day_count) -> Optio
             WHERE a.submission_date >= :d0 AND a.submission_date < :d1
         """), {**p, "bid": int(scope_id)}).fetchone()[0] or 0
     else:
-        prior = conn.execute(text("""
+        prior = conn.execute(text(f"""
             SELECT COUNT(*) FROM articles a
-            WHERE a.topic = :t AND a.submission_date >= :d0 AND a.submission_date < :d1
-              AND COALESCE(a.topic_alignment_score, 0) >= 0.4
+            WHERE a.submission_date >= :d0 AND a.submission_date < :d1
+              AND {_topic_scope_sql(conn)}
         """), {**p, "t": scope_id}).fetchone()[0] or 0
     avg = prior / 7.0
     if day_count < 5 or avg <= 0 or day_count < avg * 2:
@@ -294,8 +301,8 @@ def _detect_sentiment_shift(conn, scope_type, scope_id, target, day_articles) ->
             SELECT COUNT(*) FILTER (WHERE {_NEG_SQL}) AS neg,
                    COUNT(*) FILTER (WHERE COALESCE(a.sentiment,'') <> '') AS scored
             FROM articles a
-            WHERE a.topic = :t AND a.submission_date >= :d0 AND a.submission_date < :d1
-              AND COALESCE(a.topic_alignment_score, 0) >= 0.4
+            WHERE a.submission_date >= :d0 AND a.submission_date < :d1
+              AND {_topic_scope_sql(conn)}
         """), {**p, "t": scope_id}).fetchone()
     neg, scored = row[0] or 0, row[1] or 0
     if scored < 10:
@@ -329,9 +336,10 @@ def _detect_source_shift(conn, scope_type, scope_id, target, day_articles) -> Op
             WHERE a.submission_date >= :d0 AND a.submission_date < :d1
         """), {**p, "bid": int(scope_id)}).fetchall()
     else:
-        rows = conn.execute(text("""
+        rows = conn.execute(text(f"""
             SELECT DISTINCT a.news_source FROM articles a
-            WHERE a.topic = :t AND a.submission_date >= :d0 AND a.submission_date < :d1
+            WHERE a.submission_date >= :d0 AND a.submission_date < :d1
+              AND {_topic_scope_sql(conn)}
         """), {**p, "t": scope_id}).fetchall()
     prior = {r[0] for r in rows if r[0]}
     new_sources = sorted(today_sources - prior)

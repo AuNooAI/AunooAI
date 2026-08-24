@@ -275,12 +275,24 @@ def refresh_state_doc(conn, scope_type: str, scope_id: str) -> Optional[dict]:
     if notes:
         parts.append("Analyst notes:\n" + "\n".join(
             f"- {n['title']}: {(n['description'] or '')[:300]}" for n in notes))
+    # Entities were already extracted and stored on each rollup row
+    # (entities_in_focus, at generation time) but were dropped here — the
+    # weekly/monthly text below is what feeds this prompt whenever a rollup
+    # exists (daily is emptied out in that case, a few lines up), so a
+    # rollup's own prose losing a name it once had meant this summary had no
+    # way to recover it and would say "not specified" about an actor its own
+    # stored data already named.
+    def _ents(row):
+        names = ", ".join((row.get("entities") or [])[:6])
+        return f" (entities: {names})" if names else ""
     if monthly:
         parts.append("Monthly rollups:\n" + "\n".join(
-            f"- {m['event_date']}: {m['title']} — {(m['description'] or '')[:400]}" for m in monthly))
+            f"- {m['event_date']}: {m['title']} — {(m['description'] or '')[:400]}{_ents(m)}"
+            for m in monthly))
     if weekly:
         parts.append("Weekly rollups:\n" + "\n".join(
-            f"- W/E {w['event_date']}: {w['title']} — {(w['description'] or '')[:250]}" for w in weekly))
+            f"- W/E {w['event_date']}: {w['title']} — {(w['description'] or '')[:250]}{_ents(w)}"
+            for w in weekly))
     if daily:
         parts.append("Recent events:\n" + _format_events_for_llm(daily))
 
@@ -302,7 +314,9 @@ def refresh_state_doc(conn, scope_type: str, scope_id: str) -> Optional[dict]:
         "\n\nWrite one plain paragraph (150-250 words) describing the current "
         "state of this scope for an analyst seeing it for the first time: "
         "dominant storyline, key actors, trajectory, open questions. Factual "
-        "statements only — no hedging filler, no generic intro."
+        "statements only — no hedging filler, no generic intro. Name the "
+        "actors listed above by name; do not write that the input does not "
+        "specify who was involved when an entity list is right there."
         + CLINICAL_STYLE + "\n"
         "Output a pure JSON object (no markdown) with fields:\n"
         "- \"summary\": the paragraph\n"

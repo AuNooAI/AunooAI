@@ -549,11 +549,12 @@ export interface TimelineEvent {
 }
 
 export async function getMarketTimeline(
-  topicName: string, limit = 50,
+  topicName: string, limit = 50, days?: number,
 ): Promise<{ total: number; events: TimelineEvent[] }> {
   const params = new URLSearchParams({
     scope_type: 'topic', scope_id: topicName, limit: String(limit),
   });
+  if (days) params.set('days', String(days));
   return jsonOrThrow(await fetch(`/api/timeline/events?${params}`,
     { credentials: 'include' }), 'Failed to load timeline');
 }
@@ -597,14 +598,9 @@ export async function getWireArticles(uris: string[]): Promise<WireArticle[]> {
 // Brief, dataset, sources
 // ============================================================================
 
-export interface BriefEvent {
-  title: string;
-  description: string | null;
-  event_type: string;
-  significance: 'low' | 'medium' | 'high' | 'critical';
-  event_date: string;
-  article_count: number;
-}
+/** Same shape as a Wire TimelineEvent — the brief reads the same table — so
+ *  WireEventCard (article_uris expand-on-click, vendor pivot) works for both. */
+export type BriefEvent = TimelineEvent;
 
 export interface HeadcountMover {
   vendor: string;
@@ -629,7 +625,11 @@ export interface MarketPulse {
   headcount_median_pct: number | null;
   headcount_n: number;
   loudest_vendors: { vendor: string; posts: number }[];
-  coverage: { watching: number; registry: number; paused: number };
+  /** Whatever matched this market's phrases in the window, ranked by
+   *  engagement then recency. Fetch titles/links via getWireArticles. */
+  top_article_uris: string[];
+  coverage: { watching: number; registry: number; excluded: number;
+              paused: number; vendors: number };
   open_questions: { severity: string; kind: string; n: number }[];
 }
 
@@ -830,7 +830,7 @@ export interface MarketOverview {
   generated_at: string;
   coverage: {
     registry: number; excluded: number; watching: number;
-    paused: number; observed: number;
+    paused: number; observed: number; vendors: number;
   };
   funding: {
     disclosed: number; undisclosed: number; total_musd: number | null;
@@ -1112,8 +1112,11 @@ export interface MarketAnalyses {
   hiring?: HiringAnalysis & { error?: string };
 }
 
-export async function getAnalyses(marketId: number): Promise<MarketAnalyses> {
-  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analysis`,
+export async function getAnalyses(
+  marketId: number, days?: number,
+): Promise<MarketAnalyses> {
+  const q = days ? `?days=${days}` : '';
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analysis${q}`,
     { credentials: 'include' }), 'Failed to load analysis');
 }
 
@@ -1318,8 +1321,17 @@ export interface ShareOfVoice {
   vendors: VoiceRow[];
   /** Vendors posting most about themselves, loudest first. */
   loudest: VoiceRow[];
+  /** Vendors with zero own LinkedIn posts in the window — the actual quiet
+   *  end of the market, not the bottom of `loudest` reversed. Capped at 10;
+   *  see `quietest_total` for the real count. */
+  quietest: { brand_id: number; vendor: string }[];
+  quietest_total: number;
   reactions_total: number;
   earned_total: number;
+  /** False when `earned_total` is too small for a percentage to mean
+   *  anything — every vendor's `earned_share` is null in that case. */
+  earned_share_reliable: boolean;
+  min_earned_for_share: number;
   own_total: number;
   silent: number;
   days: number | null;

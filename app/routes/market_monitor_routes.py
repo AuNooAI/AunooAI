@@ -1632,10 +1632,12 @@ async def market_leaderboards(market_id: int,
                               session=Depends(verify_session)):
     """Per-network rankings and named hires — the Coverage tab's highlights.
 
-    Kept as its own endpoint rather than folded into ``/analysis/{name}``
-    because it is the one analysis a reader wants windowed to match whatever
-    period the Coverage tab is showing; the other four are all-time by
-    design and the generic dispatch has no query params to carry a window.
+    Kept as its own endpoint rather than folded into ``/analysis`` because
+    these two reads only ever make sense windowed, and the market-wide
+    ``/analysis`` dispatch mixes some period-aware analyses (signal/noise,
+    hiring, share of voice) with two that describe the market's current
+    state regardless of period (formation, funding) — see
+    ``market_analysis.run``.
     """
     from app.services import market_analysis as man
 
@@ -1655,6 +1657,7 @@ async def market_leaderboards(market_id: int,
 
 @router.get("/markets/{market_id}/analysis/{name}")
 async def market_analysis(market_id: int, name: str,
+                          days: Optional[int] = Query(None, ge=1, le=365),
                           session=Depends(verify_session)):
     """One cross-sectional analysis of the market.
 
@@ -1665,7 +1668,8 @@ async def market_analysis(market_id: int, name: str,
 
     Every one returns its own ``coverage``, because most of them rest on a
     subset of the registry and a figure without its denominator invites the
-    wrong conclusion.
+    wrong conclusion. ``days`` only affects the analyses where a period has a
+    real meaning — see ``market_analysis.run`` — same as the bulk endpoint.
     """
     from app.services import market_analysis as man
 
@@ -1674,7 +1678,7 @@ async def market_analysis(market_id: int, name: str,
         try:
             _load_market(conn, market_id)
             try:
-                return man.run(conn, market_id, name)
+                return man.run(conn, market_id, name, days=days)
             except ValueError as exc:
                 raise HTTPException(status_code=404, detail=str(exc))
         finally:
@@ -1685,8 +1689,13 @@ async def market_analysis(market_id: int, name: str,
 
 @router.get("/markets/{market_id}/analysis")
 async def market_analysis_all(market_id: int,
+                              days: Optional[int] = Query(None, ge=1, le=365),
                               session=Depends(verify_session)):
-    """All four analyses in one call — what the Analysis view loads."""
+    """All four analyses in one call — what the Analysis view loads.
+
+    ``days`` only affects the analyses where a period has a real meaning
+    (signal/noise, hiring, share of voice) — see ``market_analysis.run``.
+    """
     from app.services import market_analysis as man
 
     def _work():
@@ -1696,7 +1705,7 @@ async def market_analysis_all(market_id: int,
             out = {}
             for name in man.ANALYSES:
                 try:
-                    out[name] = man.run(conn, market_id, name)
+                    out[name] = man.run(conn, market_id, name, days=days)
                 except Exception as exc:  # noqa: BLE001
                     # One failing analysis should not blank the whole view.
                     logger.warning("analysis %s failed: %s", name, exc)

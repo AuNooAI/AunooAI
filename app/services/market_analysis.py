@@ -131,7 +131,8 @@ def formation(conn, market_id: int) -> Dict[str, Any]:
 MIN_POSTS_FOR_RATIO = 8
 
 
-def signal_noise(conn, market_id: int) -> Dict[str, Any]:
+def signal_noise(conn, market_id: int, *, days: Optional[int] = None
+                 ) -> Dict[str, Any]:
     """Which vendors announce things, and which just post.
 
     Counts of the three review verdicts per vendor. ``signal_share`` is the
@@ -139,6 +140,12 @@ def signal_noise(conn, market_id: int) -> Dict[str, Any]:
     ``MIN_POSTS_FOR_RATIO`` — a ratio over three posts sorts to the top of any
     league table and means nothing.
     """
+    window = ""
+    params: Dict[str, Any] = {"m": market_id}
+    if days:
+        window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
+        params["since"] = _iso_days_ago(days)
+
     rows = [dict(r) for r in conn.execute(text(f"""
         WITH pb AS ({_POST_BRANDS})
         SELECT b.id AS brand_id, b.display_name AS vendor,
@@ -148,25 +155,29 @@ def signal_noise(conn, market_id: int) -> Dict[str, Any]:
                COUNT(*) FILTER (WHERE ma.review_verdict = 'noise') AS noise,
                COUNT(*) AS posts
         FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
         JOIN pb ON pb.article_uri = ma.article_uri
         JOIN bw_brands b ON b.id = pb.brand_id
         JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
         WHERE ma.market_id = :m AND ma.review_verdict IS NOT NULL
+              {window}
         GROUP BY 1, 2
         ORDER BY signal DESC, posts DESC
-    """), {"m": market_id}).mappings().all()]
+    """), params).mappings().all()]
 
     for row in rows:
         row["signal_share"] = (round(row["signal"] / row["posts"], 3)
                                if row["posts"] >= MIN_POSTS_FOR_RATIO else None)
 
-    kinds = [dict(r) for r in conn.execute(text("""
-        SELECT review_kind AS kind, COUNT(*) AS n
-        FROM bw_market_articles
-        WHERE market_id = :m AND review_verdict = 'signal'
-              AND review_kind IS NOT NULL
+    kinds = [dict(r) for r in conn.execute(text(f"""
+        SELECT ma.review_kind AS kind, COUNT(*) AS n
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m AND ma.review_verdict = 'signal'
+              AND ma.review_kind IS NOT NULL
+              {window}
         GROUP BY 1 ORDER BY n DESC, kind
-    """), {"m": market_id}).mappings().all()]
+    """), params).mappings().all()]
 
     in_scope = conn.execute(text("""
         SELECT COUNT(*) FROM bw_market_brands
@@ -190,6 +201,27 @@ def signal_noise(conn, market_id: int) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 3. Funding and momentum
 # ---------------------------------------------------------------------------
+
+# Crunchbase's last_funding_type values, in round-progression order, so the
+# stage-mix chart reads seed -> growth -> exit instead of by vendor count.
+_FUNDING_STAGE_ORDER = [
+    "pre_seed", "seed", "series_a", "series_b", "series_c", "series_d",
+    "series_e", "series_f", "series_g", "series_h", "series_unknown",
+    "corporate_round", "convertible_note", "debt_financing",
+    "equity_crowdfunding", "non_equity_assistance", "grant",
+    "private_equity", "secondary_market", "post_ipo_equity",
+    "post_ipo_debt", "post_ipo_secondary", "funding_round",
+    "initial_coin_offering", "undisclosed", "ipo",
+]
+
+
+def _funding_stage_sort_key(stage: str):
+    """Known stages in round order; anything unseen (incl. 'not stated') last."""
+    try:
+        return (0, _FUNDING_STAGE_ORDER.index(stage))
+    except ValueError:
+        return (1, stage)
+
 
 def funding(conn, market_id: int) -> Dict[str, Any]:
     """Stage mix, momentum, and which investors appear more than once.
@@ -215,8 +247,9 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
         SELECT COALESCE(NULLIF(data->>'last_funding_type', ''), 'not stated')
                    AS stage,
                COUNT(*) AS vendors
-        FROM latest GROUP BY 1 ORDER BY vendors DESC, stage
+        FROM latest GROUP BY 1
     """), {"m": market_id}).mappings().all()]
+    stages.sort(key=lambda r: _funding_stage_sort_key(r["stage"]))
 
     momentum = [dict(r) for r in conn.execute(text(f"""
         WITH latest AS ({latest})
@@ -486,15 +519,26 @@ def _role_of(title: Optional[str]) -> str:
     return head[:40] or "not stated"
 
 
-def hiring(conn, market_id: int) -> Dict[str, Any]:
+def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any]:
     """What the market is hiring for, grouped and per vendor.
 
     Engineering-heavy against sales-heavy hiring is the cheapest read available
     on whether a vendor is still building or has started selling. It is also
     the thinnest analysis here — job listings exist for a handful of vendors —
     so the coverage figure is the first thing a reader should see.
+
+    ``days`` filters to postings last *observed* within the window — the
+    closest this snapshot table gets to "opened in this period," since a
+    listing has no open date of its own, only repeated observations of it
+    still being live.
     """
-    rows = [dict(r) for r in conn.execute(text("""
+    window = ""
+    params: Dict[str, Any] = {"m": market_id}
+    if days:
+        window = "AND s.observed_at >= :since"
+        params["since"] = _iso_days_ago(days)
+
+    rows = [dict(r) for r in conn.execute(text(f"""
         SELECT DISTINCT ON (s.provider_item_id)
                b.id AS brand_id, b.display_name AS vendor,
                s.data->>'title' AS title,
@@ -507,8 +551,9 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
                                  AND mb.market_id = :m AND mb.role <> 'excluded'
         JOIN bw_brands b ON b.id = s.brand_id
         WHERE s.snapshot_type = 'job_posting'
+              {window}
         ORDER BY s.provider_item_id, s.observed_at DESC
-    """), {"m": market_id}).mappings().all()]
+    """), params).mappings().all()]
 
     by_function: Dict[str, int] = {}
     by_role: Dict[str, int] = {}
@@ -580,13 +625,26 @@ def hiring(conn, market_id: int) -> Dict[str, Any]:
     }
 
 
-def run(conn, market_id: int, name: str) -> Dict[str, Any]:
-    """Dispatch by name. Raises ValueError on an unknown analysis."""
+_DAYS_AWARE = {"signal_noise", "hiring", "share_of_voice"}
+
+
+def run(conn, market_id: int, name: str, *, days: Optional[int] = None
+       ) -> Dict[str, Any]:
+    """Dispatch by name. Raises ValueError on an unknown analysis.
+
+    ``days`` only reaches the analyses that have a real "in this period"
+    meaning (see ``_DAYS_AWARE``) — formation (founding years) and funding
+    (current stage mix, investor overlap) describe the market's present
+    state, not activity in a window, so a period filter would not mean
+    anything there and is silently ignored.
+    """
     fn = {"formation": formation, "signal_noise": signal_noise,
           "funding": funding, "hiring": hiring,
           "share_of_voice": share_of_voice}.get(name)
     if not fn:
         raise ValueError(f"unknown analysis: {name}")
+    if name in _DAYS_AWARE:
+        return fn(conn, market_id, days=days)
     return fn(conn, market_id)
 
 
@@ -722,6 +780,13 @@ def job_postings(conn, market_id: int,
 #   top voice      — the accounts driving the conversation, which are mostly
 #                    not vendors at all.
 
+# Below this, a vendor's percentage of earned mentions is a percentage of
+# almost nothing — 4 of 9 total reads as "44% share of voice" when it is four
+# mentions. Same reasoning as MIN_POSTS_FOR_RATIO, sized for the denominator
+# here rather than a per-vendor post count.
+MIN_EARNED_FOR_SHARE = 20
+
+
 def share_of_voice(conn, market_id: int, days: Optional[int] = None
                    ) -> Dict[str, Any]:
     """Coverage per vendor, split by who produced it."""
@@ -769,6 +834,11 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
 
     earned_total = sum(r["earned"] for r in rows) or 0
     own_total = sum(r["own_posts"] for r in rows) or 0
+    # A percentage of a handful of mentions turns noise into a ranking — a
+    # vendor with 4 of 9 total mentions reads as "44% share" when it is really
+    # "four mentions". reactions_per_post already gated on a per-row minimum;
+    # this is the market-wide equivalent for the denominator itself.
+    share_reliable = earned_total >= MIN_EARNED_FOR_SHARE
     for row in rows:
         hit = reach.get(row["brand_id"])
         row["reactions"] = int(hit[1] or 0) if hit else 0
@@ -781,7 +851,7 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         # Share of *earned* coverage, not of everything. A vendor that posts a
         # hundred times has a hundred posts, not a hundred mentions.
         row["earned_share"] = (round(row["earned"] / earned_total, 4)
-                               if earned_total else None)
+                               if share_reliable else None)
         row["own_share"] = (round(row["own_posts"] / own_total, 4)
                             if own_total else None)
 
@@ -793,11 +863,50 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
     loudest = sorted((r for r in rows if r["own_posts"]),
                      key=lambda r: -r["own_posts"])[:10]
 
+    # The actual quiet end of the market: vendors with zero own LinkedIn posts
+    # in the window. `rows` only has vendors with at least one article (own or
+    # earned) at all — a vendor with none never reaches it — so this reads the
+    # full in-scope registry instead of deriving "quietest" from `loudest`
+    # (the earlier version was `loudest[-10:]` reversed: the bottom of the top
+    # ten, not the vendors that actually say nothing).
+    quietest = [dict(r) for r in conn.execute(text(f"""
+        SELECT b.id AS brand_id, b.display_name AS vendor
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        WHERE mb.market_id = :m AND mb.role <> 'excluded'
+          AND NOT EXISTS (
+              SELECT 1 FROM bw_article_categories bac
+              JOIN articles a ON a.uri = bac.article_uri
+              WHERE bac.brand_id = b.id
+                AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                {window}
+          )
+        ORDER BY b.display_name
+        LIMIT 10
+    """), params).mappings().all()]
+    quietest_total = conn.execute(text(f"""
+        SELECT COUNT(*)
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        WHERE mb.market_id = :m AND mb.role <> 'excluded'
+          AND NOT EXISTS (
+              SELECT 1 FROM bw_article_categories bac
+              JOIN articles a ON a.uri = bac.article_uri
+              WHERE bac.brand_id = b.id
+                AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                {window}
+          )
+    """), params).scalar() or 0
+
     return {
         "vendors": rows,
         "loudest": loudest,
+        "quietest": quietest,
+        "quietest_total": quietest_total,
         "reactions_total": sum(r["reactions"] for r in rows),
         "earned_total": earned_total,
+        "earned_share_reliable": share_reliable,
+        "min_earned_for_share": MIN_EARNED_FOR_SHARE,
         "own_total": own_total,
         "silent": sum(1 for r in rows if r["total"] == 0),
         "days": days,
@@ -821,6 +930,11 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
         params["since"] = _iso_days_ago(days)
 
+    # Sorted and cut to `limit` by engagement, not post count — "top voices"
+    # naming a table ordered by volume let a 9-post, 0-reaction account rank
+    # first over a 1-post, 28-reaction one. engagement has to be computed and
+    # sorted on here, in SQL, before LIMIT — doing it in Python after the fact
+    # would only re-sort whichever `limit` accounts posts DESC happened to cut.
     voices = [dict(r) for r in conn.execute(text(f"""
         SELECT a.social_meta->>'author' AS author,
                COALESCE(a.social_meta->>'platform',
@@ -831,6 +945,11 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                SUM(COALESCE((a.social_meta->>'comments')::numeric, 0)) AS comments,
                SUM(COALESCE((a.social_meta->>'reposts')::numeric,
                             (a.social_meta->>'shares')::numeric, 0)) AS reposts,
+               SUM(COALESCE((a.social_meta->>'likes')::numeric, 0))
+                 + SUM(COALESCE((a.social_meta->>'comments')::numeric, 0))
+                 + SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                                (a.social_meta->>'shares')::numeric, 0))
+                   AS engagement,
                MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
@@ -840,7 +959,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           {window}
         GROUP BY 1, 2
-        ORDER BY posts DESC, likes DESC
+        ORDER BY engagement DESC, posts DESC
         LIMIT :lim
     """), params).mappings().all()]
     for v in voices:

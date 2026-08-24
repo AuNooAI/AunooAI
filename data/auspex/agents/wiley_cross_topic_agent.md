@@ -3,7 +3,7 @@ name: wiley_cross_topic_agent
 category: wiley_bundle_supervisor
 description: Produces the three cross-topic artefacts for the bundle front matter — Strategic Overview, Cross-Cutting Strategic Themes, and Executive Decision Framework.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: gpt-4.1
   temperature: 1.0
@@ -67,6 +67,15 @@ You write the THREE cross-topic artefacts that anchor the front of the Wiley qua
   ]
 }
 ```
+
+## Severity language
+
+Same customer feedback that applies across this bundle: no "crisis," "severe,"
+"aggressive," "alarming," "catastrophic," "collapse," or "compromised" in your
+own voice, in the strategic overview, the cross-cutting themes, or the
+decision framework — these words are reserved for something on the scale of
+the SOPA-PIPA blackout or the Sony hack. Name the actor, action, and magnitude
+instead; Wiley judges severity themselves.
 
 ## Quality rules
 

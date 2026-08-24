@@ -31,12 +31,18 @@ const PROSE_CSS = `
 .mm-prose a.mm-cite { font-size: .78em; font-weight: 600; color: #0369a1;
                       text-decoration: none; padding: 0 .1em; }
 .mm-prose a.mm-cite:hover { text-decoration: underline; }
+.dark .mm-prose h2 { color: #f3f4f6; }
+.dark .mm-prose h3 { color: #e5e7eb; }
+.dark .mm-prose h4, .dark .mm-prose h5 { color: #d1d5db; }
+.dark .mm-prose hr { border-top-color: #374151; }
+.dark .mm-prose strong { color: #f3f4f6; }
+.dark .mm-prose a.mm-cite { color: #38bdf8; }
 `;
 
 const STATUS_TONE: Record<string, string> = {
-  draft: 'bg-slate-100 text-slate-600 border-slate-200',
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  rejected: 'bg-red-50 text-red-700 border-red-200',
+  draft: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-700',
+  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800',
+  rejected: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800',
 };
 
 /** A citation's real URI/title, keyed by its [A3]/[C7] ID — the same shape
@@ -54,6 +60,14 @@ function renderMarkdown(md: string, citations?: CitationIndex): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*(?!\*)(.+?)\*(?!\*)/g, '$1<em>$2</em>')
     .replace(/_(.+?)_/g, '<em>$1</em>')
+    // A citation's reference entry ends in a bare URL — the only other link
+    // this renderer needs to produce, so full markdown-link syntax is not
+    // worth the extra rule. Must run BEFORE the citation-marker replace below:
+    // that one injects a real <a href="..."> tag, and if this regex ran after,
+    // it would re-match the URL sitting inside that href and wrap it again,
+    // producing nested/malformed tags that browsers render as literal text.
+    .replace(/(https?:\/\/\S+)/g,
+             '<a href="$1" target="_blank" rel="noreferrer">$1</a>')
     // An inline citation marker becomes a link to the article it names,
     // right where the reader is, not only in the References list below.
     .replace(/\[([AC]\d+)\]/g, (whole, id) => {
@@ -62,12 +76,7 @@ function renderMarkdown(md: string, citations?: CitationIndex): string {
         ? `<a href="${ref.uri}" target="_blank" rel="noreferrer" ` +
           `class="mm-cite" title="${esc(ref.title)}">[${id}]</a>`
         : whole;
-    })
-    // A citation's reference entry ends in a bare URL — the only other link
-    // this renderer needs to produce, so full markdown-link syntax is not
-    // worth the extra rule.
-    .replace(/(https?:\/\/\S+)/g,
-             '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
+    });
 
   const out: string[] = [];
   let inList = false;
@@ -230,7 +239,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
   }
 
   if (error) {
-    return <div className="text-sm text-red-700 p-3 border rounded-md bg-red-50">
+    return <div className="text-sm text-red-700 p-3 border rounded-md bg-red-50 dark:text-red-400 dark:bg-red-900/20">
       {error}</div>;
   }
 
@@ -238,7 +247,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
     <div className="space-y-4">
       <style>{PROSE_CSS}</style>
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-slate-600 max-w-2xl">
+        <p className="text-sm text-slate-600 max-w-2xl dark:text-gray-400">
           One report per period — day, week, month or year — written from
           that period's announcements, coverage, hiring and headcount
           readings. The figures are assembled from stored records first and
@@ -253,21 +262,21 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                     className={`text-sm px-2.5 py-1.5 ${
                       periodKind === k
                         ? 'bg-slate-800 text-white'
-                        : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                        : 'bg-white text-slate-600 hover:bg-slate-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
               {PERIOD_LABEL[k]}
             </button>
           ))}
         </div>
         <select value={refDate} onChange={e => setRefDate(e.target.value)}
                 className="text-sm px-2 py-1.5 border rounded-md bg-white
-                           text-slate-700">
+                           text-slate-700 dark:bg-gray-800 dark:text-gray-300">
           {options.map(o => (
             <option key={o.refDate} value={o.refDate}>{o.label}</option>
           ))}
         </select>
         <button onClick={writeBriefing} disabled={busy}
                 className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
-                           disabled:opacity-50 inline-flex items-center gap-1.5">
+                           disabled:opacity-50 inline-flex items-center gap-1.5 dark:hover:bg-gray-700">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" />
                 : <Play className="w-4 h-4" />}
           Generate report
@@ -275,27 +284,27 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
       </div>
 
       {note && (
-        <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700">
+        <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700 dark:bg-gray-700 dark:text-gray-300">
           {note}
         </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
-        <div className="border rounded-lg bg-white divide-y self-start">
+        <div className="border rounded-lg bg-white divide-y self-start dark:bg-gray-800">
           {list === null ? (
-            <div className="py-8 text-center text-slate-400">
+            <div className="py-8 text-center text-slate-400 dark:text-gray-500">
               <Loader2 className="w-4 h-4 animate-spin mx-auto" />
             </div>
           ) : list.length === 0 ? (
-            <p className="text-sm text-slate-500 p-4 text-center">
+            <p className="text-sm text-slate-500 p-4 text-center dark:text-gray-400">
               None yet.
             </p>
           ) : list.map(b => (
             <button key={b.id} onClick={() => openBriefing(b.id)}
-                    className={`w-full text-left p-3 hover:bg-slate-50 ${
-                      open?.id === b.id ? 'bg-slate-50' : ''}`}>
+                    className={`w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-gray-700 ${
+                      open?.id === b.id ? 'bg-slate-50 dark:bg-gray-700' : ''}`}>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-800">
+                <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
                   {b.period_label}
                 </span>
                 <span className={`text-xs px-1.5 py-0.5 rounded border ${
@@ -303,7 +312,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                   {b.status}
                 </span>
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">
+              <div className="text-xs text-slate-500 mt-0.5 dark:text-gray-400">
                 {b.sources ?? 0} sources
                 {b.generation === 'fallback' && ' · evidence only'}
               </div>
@@ -311,45 +320,45 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
           ))}
         </div>
 
-        <div className="border rounded-lg bg-white p-4 min-h-[300px]">
+        <div className="border rounded-lg bg-white p-4 min-h-[300px] dark:bg-gray-800">
           {!open ? (
-            <div className="py-16 text-center text-slate-400">
+            <div className="py-16 text-center text-slate-400 dark:text-gray-500">
               <FileText className="w-8 h-8 mx-auto mb-2" />
               <p className="text-sm">Pick a report.</p>
             </div>
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2 pb-3 border-b mb-3">
-                <span className="text-sm font-medium text-slate-800">
+                <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
                   {open.title ?? open.period_label}
                 </span>
                 <span className={`text-xs px-1.5 py-0.5 rounded border ${
                   STATUS_TONE[open.status]}`}>{open.status}</span>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-gray-400">
                   {open.model_used} · {open.article_uris.length} sources
                 </span>
                 <div className="flex-1" />
                 <button onClick={downloadReport}
                         className="text-xs px-2 py-1 border rounded hover:bg-slate-50
-                                   inline-flex items-center gap-1">
+                                   inline-flex items-center gap-1 dark:hover:bg-gray-700">
                   <Download className="w-3 h-3" /> Download
                 </button>
                 <button onClick={() => setShowFacts(v => !v)}
-                        className="text-xs px-2 py-1 border rounded hover:bg-slate-50">
+                        className="text-xs px-2 py-1 border rounded hover:bg-slate-50 dark:hover:bg-gray-700">
                   {showFacts ? 'Show the report' : 'Show the evidence'}
                 </button>
                 {open.status !== 'approved' && (
                   <button onClick={() => mark('approved')}
                           className="text-xs px-2 py-1 border rounded
                                      hover:bg-emerald-50 text-emerald-700
-                                     border-emerald-200 inline-flex items-center gap-1">
+                                     border-emerald-200 inline-flex items-center gap-1 dark:text-emerald-400 dark:border-emerald-800">
                     <CheckCircle2 className="w-3 h-3" /> Approve
                   </button>
                 )}
                 {open.status !== 'rejected' && (
                   <button onClick={() => mark('rejected')}
                           className="text-xs px-2 py-1 border rounded
-                                     hover:bg-red-50 text-red-700 border-red-200">
+                                     hover:bg-red-50 text-red-700 border-red-200 dark:text-red-400 dark:border-red-800">
                     Reject
                   </button>
                 )}
@@ -358,7 +367,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
               {open.generation === 'fallback' && (
                 <div className="flex items-start gap-2 text-sm px-3 py-2 mb-3
                                 rounded-md bg-amber-50 text-amber-800
-                                border border-amber-200">
+                                border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                   <span>
                     This is the assembled evidence, not a written report —
@@ -370,7 +379,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
 
               {open.lint?.length > 0 && (
                 <div className="text-xs px-3 py-2 mb-3 rounded-md bg-amber-50
-                                text-amber-800 border border-amber-200">
+                                text-amber-800 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800">
                   {open.lint.map((l, i) => (
                     <div key={i}>{l.check}: {l.detail}</div>
                   ))}
@@ -379,11 +388,11 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
 
               {showFacts ? (
                 <pre className="text-xs bg-slate-50 border rounded p-3
-                                overflow-x-auto whitespace-pre-wrap">
+                                overflow-x-auto whitespace-pre-wrap dark:bg-gray-700">
                   {JSON.stringify(open.facts, null, 1)}
                 </pre>
               ) : (
-                <div className="mm-prose text-sm text-slate-700"
+                <div className="mm-prose text-sm text-slate-700 dark:text-gray-300"
                      dangerouslySetInnerHTML={{
                        __html: renderMarkdown(open.report_content || '',
                                               open.facts?.citation_index),

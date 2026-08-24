@@ -28,6 +28,31 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 
+def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
+    """Registry size split by role and collection state.
+
+    The one query every "how many vendors" figure on this market should read
+    from. Before this helper, ``build_brief``'s version of this query had no
+    role filter at all (an excluded vendor counted as "watching" if its own
+    collection flag happened to be on), and ``build_overview``'s ``registry``
+    included excluded vendors while ``vendors`` (list_markets, the header/tab
+    count) did not — two vendor counts on the same screen that could
+    legitimately disagree by exactly the excluded count. ``vendors`` here is
+    the canonical figure: watching + paused, matching list_markets.
+    """
+    row = dict(conn.execute(text("""
+        SELECT COUNT(*) AS registry,
+               COUNT(*) FILTER (WHERE role = 'excluded') AS excluded,
+               COUNT(*) FILTER (WHERE collection_enabled AND role <> 'excluded')
+                   AS watching,
+               COUNT(*) FILTER (WHERE NOT collection_enabled AND role <> 'excluded')
+                   AS paused
+        FROM bw_market_brands WHERE market_id = :m
+    """), {"m": market_id}).mappings().first() or {})
+    row["vendors"] = (row.get("watching") or 0) + (row.get("paused") or 0)
+    return row
+
+
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
@@ -322,8 +347,9 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         topic = f"Market Monitoring {market['name']}"
 
     events = [dict(r) for r in conn.execute(text("""
-        SELECT title, description, event_type, significance, event_date,
-               article_count
+        SELECT id, title, description, event_type, event_subtype, significance,
+               event_date, article_count, article_uris, entities,
+               occurrence_count, granularity
         FROM timeline_events
         WHERE scope_type = 'topic' AND scope_id = :sid AND is_stale = false
           AND event_date >= CURRENT_DATE - (:d || ' days')::INTERVAL
@@ -374,12 +400,29 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         GROUP BY 1 ORDER BY 2 DESC LIMIT 10
     """), {"m": market["id"], "d": str(days)}).mappings().all()]
 
-    coverage = conn.execute(text("""
-        SELECT COUNT(*) FILTER (WHERE collection_enabled) AS watching,
-               COUNT(*) AS registry,
-               COUNT(*) FILTER (WHERE NOT collection_enabled) AS paused
-        FROM bw_market_brands WHERE market_id = :m
-    """), {"m": market["id"]}).mappings().first()
+    # Market-wide top posts/articles: whatever matched this market's phrases
+    # in the window, ranked by engagement first so a viral practitioner post
+    # outranks a quiet trade-press item, recency as the tiebreak. The reader
+    # gets titles and links via the same /timeline/articles lookup a Wire
+    # event's "Show articles" already uses.
+    top_articles = [r[0] for r in conn.execute(text("""
+        SELECT a.uri
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND COALESCE(a.publication_date, a.submission_date)
+              >= (NOW() - (:d || ' days')::INTERVAL)::text
+        ORDER BY (
+            COALESCE((a.social_meta->>'likes')::numeric, 0)
+            + COALESCE((a.social_meta->>'comments')::numeric, 0)
+            + COALESCE((a.social_meta->>'reposts')::numeric,
+                       (a.social_meta->>'shares')::numeric, 0)
+        ) DESC,
+        COALESCE(a.publication_date, a.submission_date) DESC
+        LIMIT 15
+    """), {"m": market["id"], "d": str(days)}).fetchall()]
+
+    coverage = _vendor_coverage(conn, market["id"])
 
     gaps = [dict(r) for r in conn.execute(text("""
         SELECT severity, kind, COUNT(*) AS n FROM bw_review_tasks
@@ -404,6 +447,7 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         "headcount_median_pct": headcount_median_pct,
         "headcount_n": len(pct_values),
         "loudest_vendors": loudest,
+        "top_article_uris": top_articles,
         "coverage": dict(coverage or {}),
         "open_questions": gaps,
     }
@@ -511,15 +555,7 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     market_id = market["id"]
     since = f"(NOW() - INTERVAL '{int(days)} days')::text"
 
-    coverage = dict(conn.execute(text("""
-        SELECT COUNT(*) AS registry,
-               COUNT(*) FILTER (WHERE role = 'excluded') AS excluded,
-               COUNT(*) FILTER (WHERE collection_enabled AND role <> 'excluded')
-                   AS watching,
-               COUNT(*) FILTER (WHERE NOT collection_enabled AND role <> 'excluded')
-                   AS paused
-        FROM bw_market_brands WHERE market_id = :m
-    """), {"m": market_id}).mappings().first() or {})
+    coverage = _vendor_coverage(conn, market_id)
 
     # How much of the registry we have actually observed, as opposed to
     # switched on. The gap between "watching" and "observed" is the honest
@@ -579,15 +615,30 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                (SELECT COUNT(*) FROM bw_vendor_snapshots s
                  WHERE s.brand_id = b.id AND s.snapshot_type = 'job_posting'
                ) AS jobs,
+               -- Windowed to match `posts` — this used to count every article
+               -- ever seen for the vendor regardless of period, so the sort
+               -- mixed a period figure (posts) with an all-time one (articles)
+               -- under one combined "signals" score.
                (SELECT COUNT(*) FROM bw_article_categories bac2
-                 WHERE bac2.brand_id = b.id) AS articles
+                  JOIN articles a2 ON a2.uri = bac2.article_uri
+                 WHERE bac2.brand_id = b.id
+                   AND COALESCE(a2.publication_date, a2.submission_date) >= {since}
+               ) AS articles
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
     """), {"m": market_id}).mappings().all()]
     for row in activity:
         row["signals"] = (row["posts"] or 0) + (row["jobs"] or 0)
-    activity.sort(key=lambda r: (r["signals"], r["articles"] or 0), reverse=True)
+    # Sorted by earned coverage — what other people said about a vendor —
+    # rather than by owned output (own posts + open jobs). The old
+    # `signals`-first sort ranked "who posts on LinkedIn and is hiring" under
+    # a name that implied a composite activity signal, and pre-cut the table
+    # to the top 10 by that score before the frontend's sortable table ever
+    # saw the rest — so re-sorting by "Articles" client-side only re-sorted
+    # within a set signals had already decided. `signals` still ships as its
+    # own column for a reader who wants it.
+    activity.sort(key=lambda r: (r["articles"] or 0, r["signals"]), reverse=True)
     quiet = [r for r in activity if r["signals"] == 0 and not r["articles"]]
 
     corpus: Dict[str, Any] = {}
@@ -620,7 +671,10 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
         "coverage": coverage,
         "funding": funding,
         "top_funded": top_funded,
-        "most_active": activity[:10],
+        # Full ranked list, not a pre-cut top 10 — DataTable on the frontend
+        # sorts and groups client-side, and a server-side cut by one score
+        # hides rows a different sort should have surfaced.
+        "most_active": activity,
         "quiet_vendors": len(quiet),
         "corpus": corpus,
         "last_runs": last_runs,

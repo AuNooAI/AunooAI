@@ -255,6 +255,89 @@ def linkedin_url_map(conn, market_id: int) -> Tuple[Dict[str, int], Dict[int, st
     return url_map, names
 
 
+# ISO-3166 alpha-2 -> the country-name spelling already used in the registry
+# import (``bw_market_brands.baseline->>'hq_country'``), so a LinkedIn-sourced
+# backfill lines up with the Country filter instead of adding a second spelling
+# for the same country. Covers the countries already on file for this market
+# plus common vendor HQs; an unmapped code is stored as-is rather than dropped.
+_LINKEDIN_COUNTRY_NAMES = {
+    "US": "United States", "GB": "United Kingdom", "IL": "Israel",
+    "IN": "India", "AU": "Australia", "FR": "France", "DE": "Germany",
+    "ES": "Spain", "IT": "Italy", "NL": "Netherlands", "TR": "Turkey",
+    "SA": "Saudi Arabia", "AE": "United Arab Emirates", "RO": "Romania",
+    "BH": "Bahrain", "CA": "Canada", "SG": "Singapore",
+}
+
+
+def _country_name(raw: Any) -> Optional[str]:
+    """One country name from LinkedIn's ``country`` field.
+
+    The field is not always a single code. A company with offices in more than
+    one country comes back comma-joined — Intezer reads ``"US,IL"`` — and
+    feeding that through the name map produced the literal string ``US,IL`` in
+    ``hq_country``, which matches nothing in the Vendors Country filter and is
+    not the name of any country. Take the first code: where we can check it
+    against the same record's ``headquarters`` field, the first code is the
+    headquarters country (Intezer's reads "New York, NY", and ``US`` leads).
+
+    A single code we have no name for is still stored as-is — "XK" in the
+    filter is ugly but true and selectable, where dropping it would leave a
+    blank that reads as "never collected".
+    """
+    if not isinstance(raw, str):
+        return None
+    # Some records separate with a slash rather than a comma.
+    first = re.split(r"[,/]", raw)[0].strip()
+    if not first:
+        return None
+    return _LINKEDIN_COUNTRY_NAMES.get(first.upper(), first)
+
+
+def _backfill_baseline_from_profile(conn, *, market_id: int, brand_id: int,
+                                    profile: Dict[str, Any]) -> None:
+    """Fill in registry fields a LinkedIn profile can answer, but only the
+    ones still blank.
+
+    A vendor added through "Add vendor" gets ``baseline = {}`` — nothing ever
+    filled in country, founded year or headcount for it, because those fields
+    were only ever populated once, by the CSV registry import
+    (``market_import.py``). The LinkedIn profile collector already fetches
+    exactly this data into ``bw_vendor_snapshots`` on every run; this is what
+    promotes it into the ``baseline`` fields the Vendors table and its filters
+    actually read. Never overwrites a value the import (or an earlier run)
+    already set — a live reading is a fallback for "we never had this",
+    not a correction to a curated one.
+    """
+    baseline = dict(conn.execute(text("""
+        SELECT baseline FROM bw_market_brands WHERE market_id = :m AND brand_id = :b
+    """), {"m": market_id, "b": brand_id}).scalar() or {})
+    changed = False
+
+    country = _country_name(profile.get("country"))
+    if country and not baseline.get("hq_country"):
+        baseline["hq_country"] = country
+        changed = True
+
+    founded = profile.get("founded")
+    if founded and not baseline.get("founded_year"):
+        baseline["founded_year"] = founded
+        changed = True
+
+    employees = profile.get("employee_count")
+    if employees is not None:
+        metrics = dict(baseline.get("metrics") or {})
+        if metrics.get("employee_count") is None:
+            metrics["employee_count"] = employees
+            baseline["metrics"] = metrics
+            changed = True
+
+    if changed:
+        conn.execute(text("""
+            UPDATE bw_market_brands SET baseline = CAST(:b AS JSONB), updated_at = NOW()
+            WHERE market_id = :m AND brand_id = :bid
+        """), {"b": json.dumps(baseline), "m": market_id, "bid": brand_id})
+
+
 def ingest_profiles(conn, *, run: Dict[str, Any], records: List[dict],
                     url_to_brand: Dict[str, int]) -> Dict[str, int]:
     """Map Bright Data company profiles onto snapshots.
@@ -285,6 +368,8 @@ def ingest_profiles(conn, *, run: Dict[str, Any], records: List[dict],
         )
         if created:
             stored += 1
+            _backfill_baseline_from_profile(
+                conn, market_id=run["market_id"], brand_id=brand_id, profile=mapped)
         else:
             unchanged += 1
     return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}

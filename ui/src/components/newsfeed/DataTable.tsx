@@ -104,7 +104,8 @@ export function DataTable<T>({
   const pad = dense ? 'px-2 py-1' : 'px-3 py-2';
 
   const header = (
-    <thead className="bg-slate-50 text-slate-600">
+    <thead className="bg-slate-50 text-slate-600 dark:bg-gray-700 dark:text-gray-400
+                       sticky top-0 z-10">
       <tr>
         {columns.map(col => (
           <th key={col.key}
@@ -112,7 +113,7 @@ export function DataTable<T>({
                 col.align === 'right' ? 'text-right' : 'text-left'}`}>
             {col.sortable === false ? col.label : (
               <button onClick={() => toggleSort(col.key)}
-                      className="inline-flex items-center gap-1 hover:text-slate-900">
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-gray-100">
                 {col.label}
                 {sortKey === col.key && (dir === 'asc'
                   ? <ChevronUp className="w-3 h-3" />
@@ -129,19 +130,19 @@ export function DataTable<T>({
     return (
       <tr key={rowKey(row)}
           onClick={onRowClick ? () => onRowClick(row) : undefined}
-          className={`hover:bg-slate-50 ${onRowClick ? 'cursor-pointer' : ''}`}>
+          className={`hover:bg-slate-50 dark:hover:bg-gray-700 ${onRowClick ? 'cursor-pointer' : ''}`}>
         {columns.map(col => {
           const link = col.href?.(row);
           const body = col.render ? col.render(row) : (cellValue(col, row) ?? '—');
           return (
             <td key={col.key}
-                className={`${pad} text-slate-700 ${
+                className={`${pad} text-slate-700 dark:text-gray-300 ${
                   col.align === 'right' ? 'text-right tabular-nums' : ''}`}>
               {link ? (
                 <a href={link} target="_blank" rel="noreferrer"
                    onClick={e => e.stopPropagation()}
-                   className="text-slate-800 hover:underline inline-flex items-center gap-1">
-                  {body}<ExternalLink className="w-3 h-3 shrink-0 text-slate-400" />
+                   className="text-slate-800 hover:underline inline-flex items-center gap-1 dark:text-gray-100">
+                  {body}<ExternalLink className="w-3 h-3 shrink-0 text-slate-400 dark:text-gray-500" />
                 </a>
               ) : body}
             </td>
@@ -152,18 +153,18 @@ export function DataTable<T>({
   }
 
   if (rows.length === 0) {
-    return <p className="text-sm text-slate-500 py-6 text-center">{emptyMessage}</p>;
+    return <p className="text-sm text-slate-500 py-6 text-center dark:text-gray-400">{emptyMessage}</p>;
   }
 
   return (
     <div className="space-y-2">
       {groupable.length > 0 && (
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-500">Group by</span>
+          <span className="text-slate-500 dark:text-gray-400">Group by</span>
           <button onClick={() => setGroupKey('')}
                   className={`px-2 py-0.5 rounded border ${
                     groupKey === '' ? 'bg-slate-800 text-white border-slate-800'
-                                    : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                                    : 'bg-white text-slate-600 hover:bg-slate-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
             none
           </button>
           {groupable.map(col => (
@@ -171,30 +172,30 @@ export function DataTable<T>({
                     className={`px-2 py-0.5 rounded border ${
                       groupKey === col.key
                         ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                        : 'bg-white text-slate-600 hover:bg-slate-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
               {col.label}
             </button>
           ))}
         </div>
       )}
 
-      <div className="overflow-x-auto border rounded-lg bg-white">
+      <div className="overflow-x-auto border rounded-lg bg-white dark:bg-gray-800">
         <table className="w-full text-sm">
           {header}
           {groups ? groups.map(([label, groupRows]) => {
             const open = openGroups[label] !== false;
             return (
               <tbody key={label} className="divide-y">
-                <tr className="bg-slate-100/70">
+                <tr className="bg-slate-100/70 dark:bg-gray-700/70">
                   <td colSpan={columns.length} className={`${pad}`}>
                     <button
                       onClick={() => setOpenGroups(g => ({ ...g, [label]: !open }))}
                       className="inline-flex items-center gap-1 text-sm font-medium
-                                 text-slate-700">
+                                 text-slate-700 dark:text-gray-300">
                       {open ? <ChevronDown className="w-4 h-4" />
                             : <ChevronRight className="w-4 h-4" />}
                       {label}
-                      <span className="text-slate-500 font-normal">
+                      <span className="text-slate-500 font-normal dark:text-gray-400">
                         ({groupRows.length})
                       </span>
                     </button>

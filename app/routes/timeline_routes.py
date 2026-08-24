@@ -80,6 +80,11 @@ async def list_events(
     include_superseded: bool = True,
     limit: int = Query(50, le=200),
     offset: int = 0,
+    # Optional and unfiltered by default so existing callers (Brand Watcher's
+    # own wire view) see no change — Market Monitor's Wire tab is the first
+    # caller to pass this, so it stops ignoring the same period selector that
+    # already governs Pulse, Analysis and Coverage.
+    days: Optional[int] = Query(None, ge=1, le=3650),
     session=Depends(verify_session),
 ):
     conn = _conn()
@@ -90,6 +95,9 @@ async def list_events(
             q += " AND granularity = :g"; p["g"] = granularity
         if event_type:
             q += " AND event_type = :et"; p["et"] = event_type
+        if days:
+            q += " AND event_date >= (NOW() - (:d || ' days')::INTERVAL)::date"
+            p["d"] = str(days)
         if not include_stale:
             q += " AND is_stale = false"
         if not include_superseded:

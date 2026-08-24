@@ -396,7 +396,8 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     """), {"m": market_id}).mappings().all()
 
     top_sources = conn.execute(text("""
-        SELECT COALESCE(a.news_source, 'unknown') AS source, COUNT(*) AS n
+        SELECT COALESCE(NULLIF(SPLIT_PART(a.news_source, ':', 2), ''),
+                        a.news_source, 'unknown') AS source, COUNT(*) AS n
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
@@ -453,7 +454,13 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         "top_terms": [dict(r) for r in top_terms],
         "top_sources": [dict(r) for r in top_sources],
         "by_week": [dict(r) for r in by_week],
-        "sentiment_trend": sentiment_trend(conn, market_id),
+        # Same floor as by_week just above: a shorter selection would draw a
+        # 1-2 point chart, which reads as broken rather than as "not much
+        # history yet". Before this, sentiment_trend ignored `days` entirely
+        # and always drew a fixed 26 weeks, so it never moved when the Pulse
+        # period selector changed while by_week and every other panel did.
+        "sentiment_trend": sentiment_trend(conn, market_id,
+                                           weeks=max(days, 90) // 7),
     }
 
 

@@ -109,6 +109,35 @@ class EmailStatusResponse(BaseModel):
     provider: Optional[str] = None
 
 
+def _backfill_missing_sources(articles: Optional[List["ArticleRef"]]) -> None:
+    """Fill in a missing outlet name from the articles table, by URL.
+
+    The frontend already falls back across the two metadata key spellings
+    an incident's outlet can be stored under (see HighlightsSection.tsx /
+    SavedIncidentsSection.tsx, 2026-08-11 / 2026-08-24) — but that only
+    helps when SOME key was written. An incident promoted from an article
+    whose in-memory object had no source populated at all (observed on a
+    manually-submitted article, 2026-08-24) has no key to fall back to;
+    the URL is enough to look the real outlet up directly. Best-effort:
+    logs and leaves ``source`` unset on any failure or missing row.
+    """
+    missing = [a for a in (articles or []) if not a.source and a.url]
+    if not missing:
+        return
+    try:
+        from app.database import get_database_instance
+        from sqlalchemy import text
+        conn = get_database_instance()._temp_get_connection()
+        for a in missing:
+            row = conn.execute(
+                text("SELECT news_source FROM articles WHERE uri = :u"),
+                {"u": a.url}).mappings().first()
+            if row and row.get("news_source"):
+                a.source = row["news_source"]
+    except Exception as e:
+        logger.warning(f"share: source backfill failed: {e}")
+
+
 class ArticleRef(BaseModel):
     """Article reference for incident sharing."""
     title: Optional[str] = None
@@ -306,6 +335,8 @@ async def share_incident(
             status_code=503,
             detail="Email service not configured. Set RESEND_API_KEY environment variable."
         )
+
+    _backfill_missing_sources(request.articles)
 
     # Build email content
     subject = f"[AuNoo AI] Incident: {request.incident_name}"
@@ -658,6 +689,9 @@ async def share_incidents(
 
     if not request.incidents:
         raise HTTPException(status_code=400, detail="No incidents provided")
+
+    for incident in request.incidents:
+        _backfill_missing_sources(incident.articles)
 
     count = len(request.incidents)
     topic_str = f" - {request.topic}" if request.topic else ""

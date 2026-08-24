@@ -22,6 +22,7 @@ import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
 from app.services.tool_loader import get_tool_loader
+from app.services.report_style import CLINICAL_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,7 @@ Return JSON:
             call_kwargs = {
                 **resolve_litellm_call_params(model),
                 "messages": [
-                    {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles."},
+                    {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles.") + CLINICAL_STYLE},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -343,7 +344,7 @@ Return JSON:
             call_kwargs = {
                 **resolve_litellm_call_params(model),
                 "messages": [
-                    {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports."},
+                    {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports.") + CLINICAL_STYLE},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -517,7 +518,7 @@ Present strategic considerations that inform executive judgment, not replace it.
             call_kwargs = {
                 **resolve_litellm_call_params(model),
                 "messages": [
-                    {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance."},
+                    {"role": "system", "content": (agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance.") + CLINICAL_STYLE},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},

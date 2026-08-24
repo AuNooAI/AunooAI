@@ -521,12 +521,19 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
     sn = analyses.get("signal_noise")
     funding = analyses.get("funding")
     hiring = analyses.get("hiring")
+    sov = analyses.get("share_of_voice")
 
     try:
         pc = man.period_comparison(conn, market["id"], days=days)
     except Exception as exc:  # noqa: BLE001 — the report still stands without it
         logger.warning("period comparison failed: %s", exc)
         pc = None
+
+    try:
+        voices = man.top_voices(conn, market["id"], days=days, limit=20)
+    except Exception as exc:  # noqa: BLE001 — the report still stands without it
+        logger.warning("top voices failed: %s", exc)
+        voices = None
 
     # Fetched once, up front — "What changed", "Material vendor moves",
     # "Market discussion", the registry sort and "Raw coverage" all read the
@@ -820,12 +827,13 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
         any_signal = True
         body.append("<h3>Crunchbase signals</h3>")
         body.append(_coverage(funding.get("coverage")))
+        body.append("<h4>Funding stage across the market</h4>")
+        body.append(_bar_chart(funding["stages"], label_key="stage",
+                               value_key="vendors"))
         body.append('<p class="mm-src">Growth and attention scores are '
                     "Crunchbase's own proprietary indicators, 0 to 100. "
                     "Treat them as supporting signals, not measures of "
                     "market performance.</p>")
-        body.append(_bar_chart(funding["stages"], label_key="stage",
-                               value_key="vendors"))
         if funding.get("momentum"):
             body.append("<h4>Growth vs. attention</h4>")
             body.append(_scatter(funding["momentum"], x_key="growth_score",
@@ -875,6 +883,68 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
     if not any_signal:
         body.append('<p class="mm-src">No competitive signal cleared its '
                     'reporting floor this period.</p>')
+    body.append("</section>")
+
+    # ================================================================
+    # Audience and voice — activity, share of voice, and who is talking
+    # ================================================================
+    body.append(section_open("Audience and voice"))
+    most_active = [v for v in overview.get("most_active") or [] if v.get("signals")]
+    if most_active:
+        body.append("<h3>Most active vendors</h3>")
+        body.append(f'<p class="mm-src">LinkedIn posts in the last {days} days '
+                    'plus open job listings and matched articles. Activity, '
+                    'not performance.</p>')
+        body.append(_bar_chart(most_active, label_key="vendor", value_key="signals"))
+
+    if sov and not sov.get("error") and sov.get("vendors"):
+        earned_rows = sorted(
+            [v for v in sov["vendors"] if v.get("earned")],
+            key=lambda v: v.get("earned_share") or 0, reverse=True)
+        if earned_rows:
+            body.append("<h3>Share of voice</h3>")
+            body.append(f'<p class="mm-src">Of {sov["earned_total"]} mentions by '
+                        'somebody other than the vendor. A vendor\'s own posts '
+                        'are volume, not voice, and are counted separately '
+                        'below.</p>')
+            body.append(_bar_chart(
+                [{"vendor": v["vendor"], "pct": round((v["earned_share"] or 0) * 100)}
+                 for v in earned_rows],
+                label_key="vendor", value_key="pct", colour="#30a46c"))
+
+        loud_rows = [v for v in sov.get("vendors") or []
+                    if v.get("reactions_per_post") is not None]
+        if loud_rows:
+            body.append("<h3>Who shouts loudest, and who is heard</h3>")
+            body.append('<p class="mm-src">Posts published vs. reactions per '
+                        'post — the two are not the same thing. Vendors with '
+                        'fewer than five measured posts are absent.</p>')
+            loud_rows = sorted(loud_rows, key=lambda v: v["own_posts"], reverse=True)
+            body.append('<table class="mm-table"><thead><tr><th>Vendor</th>'
+                        '<th class="mm-num">Posts</th>'
+                        '<th class="mm-num">Reactions/post</th>'
+                        '<th class="mm-num">Mentions by others</th>'
+                        "</tr></thead><tbody>" + "".join(
+                f'<tr><td>{esc(v["vendor"])}</td>'
+                f'<td class="mm-num">{v["own_posts"]}</td>'
+                f'<td class="mm-num">{v["reactions_per_post"]}</td>'
+                f'<td class="mm-num">{v["earned"]}</td></tr>'
+                for v in loud_rows[:20]) + "</tbody></table>")
+
+    if voices and voices.get("voices"):
+        body.append("<h3>Top voices</h3>")
+        body.append('<p class="mm-src">Accounts posting about the market. '
+                    "Vendors' own company posts are excluded — they are "
+                    'counted as owned above.</p>')
+        body.append('<table class="mm-table"><thead><tr><th>Account</th>'
+                    '<th>Platform</th><th class="mm-num">Posts</th>'
+                    '<th class="mm-num">Reactions</th><th>Last seen</th>'
+                    "</tr></thead><tbody>" + "".join(
+            f'<tr><td>@{esc(v["author"])}</td><td>{esc(v["platform"])}</td>'
+            f'<td class="mm-num">{v["posts"]}</td>'
+            f'<td class="mm-num">{v["engagement"]}</td>'
+            f'<td class="mm-src">{esc((v.get("last_seen") or "")[:10])}</td></tr>'
+            for v in voices["voices"][:20]) + "</tbody></table>")
     body.append("</section>")
 
     # ================================================================

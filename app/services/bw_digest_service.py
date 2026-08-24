@@ -183,16 +183,20 @@ def _compose_digest(conn, period_days: int):
                 f"- Customer-defined status: **{tier['label']}** — triggered by: "
                 + "; ".join(tier["triggered"]))
         pos, neg, scored = stats[bid]
-        net = round(((pos - neg) / scored) * 100) if scored else None
+        net = nets[bid]  # None below the scored >= 3 floor — too few articles to score
         if scored:
-            comp = [v for k, v in nets.items() if k != bid and v is not None]
-            comp_avg = round(sum(comp) / len(comp)) if comp else None
-            bench = ""
-            if net is not None and comp_avg is not None:
-                d = net - comp_avg
-                bench = f" — competitor avg {'+' if comp_avg > 0 else ''}{comp_avg} ({'+' if d > 0 else ''}{d})"
-            section.append(f"- News sentiment: **{'+' if net and net > 0 else ''}{net}** "
-                           f"({pos}+ / {neg}− of {scored} scored){bench}")
+            if net is not None:
+                comp = [v for k, v in nets.items() if k != bid and v is not None]
+                comp_avg = round(sum(comp) / len(comp)) if comp else None
+                bench = ""
+                if comp_avg is not None:
+                    d = net - comp_avg
+                    bench = f" — competitor avg {'+' if comp_avg > 0 else ''}{comp_avg} ({'+' if d > 0 else ''}{d})"
+                section.append(f"- News sentiment: **{'+' if net > 0 else ''}{net}** "
+                               f"({pos}+ / {neg}− of {scored} scored){bench}")
+            else:
+                section.append(f"- News sentiment: {pos}+ / {neg}− of {scored} scored "
+                                "(too few articles to score)")
         # Employee signal (cached Glassdoor aggregates + reviews landed this period).
         _cfg = bcfg if isinstance(bcfg, dict) else json.loads(bcfg or "{}")
         _gd = ((_cfg.get("glassdoor_overview") or {}).get("data")) or None

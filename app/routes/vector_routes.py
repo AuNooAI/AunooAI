@@ -14,7 +14,7 @@ import uuid
 import threading
 
 from app.ai_models import resolve_litellm_call_params, resolve_model_identity
-from app.services.report_style import CLINICAL_STYLE
+from app.services.report_style import CLINICAL_STYLE, find_severity_language
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -4026,30 +4026,61 @@ def _is_empty_report(content) -> bool:
 
 async def _generate_report_with_retry(ai_model, messages, *, label="report",
                                       attempts=3, base_delay=1.5):
-    """Generate a signal report, retrying on empty/placeholder output.
+    """Generate a signal report, retrying on empty/placeholder output or
+    banned severity language.
 
     The batch report is a single extra LLM call on top of per-article scoring,
     and Bedrock (Haiku 4.5 in particular) intermittently returns an empty
     completion — roughly 1 run in 8 on high-volume tenants. Because the report
     is customer-facing, retry a few times before giving up. Returns the report
-    text, or None if every attempt came back empty."""
+    text, or None if every attempt came back empty.
+
+    CLINICAL_STYLE bans "crisis"/"severe"/etc in the writer's own voice, but
+    tested against adversarial input the rule alone doesn't hold at 100% (see
+    report_style.py) — roughly 1 generation in 3 still used one. Rather than
+    resample blindly, tell the retry exactly which word(s) leaked so it can
+    fix the sentence instead of gambling on a different draft."""
     import asyncio
     from fastapi.concurrency import run_in_threadpool
+    call_messages = list(messages)
     for attempt in range(1, attempts + 1):
         try:
-            content = await run_in_threadpool(ai_model.generate_response, messages)
+            content = await run_in_threadpool(ai_model.generate_response, call_messages)
         except Exception as e:
             logger.warning(f"Report generation attempt {attempt}/{attempts} for "
                            f"'{label}' raised: {e}")
             content = None
         if not _is_empty_report(content):
-            if attempt > 1:
-                logger.info(f"Report generation for '{label}' succeeded on "
-                            f"attempt {attempt}/{attempts}")
+            hits = find_severity_language(content)
+            if not hits:
+                if attempt > 1:
+                    logger.info(f"Report generation for '{label}' succeeded on "
+                                f"attempt {attempt}/{attempts}")
+                return _strip_source_links(content)
+            logger.warning(f"Report generation attempt {attempt}/{attempts} for "
+                           f"'{label}' used banned severity language: {hits}")
+            if attempt < attempts:
+                call_messages = list(messages) + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": (
+                        "Your draft used " + ", ".join(f'\"{w}\"' for w in hits)
+                        + " in your own voice, which the tone rules ban. Rewrite the "
+                          "same report, replacing that language with the facts and "
+                          "counts it was standing in for — no severity words anywhere "
+                          "outside a direct quote.")},
+                ]
+                await asyncio.sleep(base_delay * attempt)
+                continue
+            # Out of retries. A non-empty report with one leftover word beats
+            # the fallback's bare match list with no analysis — ship it.
+            logger.warning(f"Report for '{label}' still has severity language "
+                           f"after {attempts} attempts — shipping it anyway "
+                           f"rather than falling back to a bare match list.")
             return _strip_source_links(content)
         logger.warning(f"Report generation attempt {attempt}/{attempts} for "
                        f"'{label}' returned empty/placeholder")
         if attempt < attempts:
+            call_messages = list(messages)
             await asyncio.sleep(base_delay * attempt)
     return None
 

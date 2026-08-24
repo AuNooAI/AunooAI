@@ -42,3 +42,9 @@ a stakeholder ever sees, so it has to carry that attribution too.
 - The two internal code paths that record an article's outlet still store it under
   different field names; the email and app now read both, but a future reader of that data
   must do the same until the writers are unified.
+- **Correction, 2026-08-24:** this fix was on bugfixing only for the two weeks after it
+  shipped. wiley and wileytest were still running the pre-fix code the whole time — a
+  wileytest user hit the original "Unknown" bug on 2026-08-24, which is how this was caught.
+  The original verification tested the backend's handling of a hand-built payload, not the
+  actual deployed frontend bundle, so the gap went unnoticed. Now deployed and confirmed
+  present in the live bundle on all three tenants; see `docs/changes.md`, 2026-08-24.

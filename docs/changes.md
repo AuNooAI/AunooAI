@@ -2,6 +2,752 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-24 (market monitor) — two vendors showed nothing but dashes, and nowhere said which source fills which field
+
+### Goal
+Oliver pasted a fragment of the Vendors table where TechBridge had real data but Intezer and
+Prophet Security were an unbroken row of em-dashes, and asked why those two were not complete.
+The answer turned into three pieces of work: a genuine gap in the collection pipeline, a data
+backfill for the two affected vendors, and — after "why can't we use LI and our other
+collectors?" — a new tab that writes down, per source, what it collects and what a vendor needs
+on file before it can run at all.
+
+This entry sits on top of the same uncommitted working tree as the phases 0-4 entry below. That
+entry already covers the rebuild; nothing here re-documents it.
+
+### Fix: the LinkedIn profile collector fetched registry data and then threw it away
+**`app/services/market_collect.py`** — `bw_market_brands.baseline` holds the fields the Vendors
+table shows: country, founding year, headcount, funding total, category. Until now exactly one
+thing ever wrote it — the one-time CSV registry import (`market_import.py`, `commit_import`).
+The "Add vendor" flow (`add_vendor`, `market_monitor_routes.py`) inserts the row with
+`baseline = {}` and never fills in a single registry field; it only optionally records a domain.
+Both Intezer and Prophet Security were added that way, which is the whole of why their rows
+were dashes. This was not a display bug and not a collection failure — the data was never
+written.
+
+The part that makes it a real pipeline gap rather than a missing-import story: the LinkedIn
+company-profile collector has been fetching precisely these fields on every successful run all
+along. `map_company_profile` (`app/services/brightdata_linkedin.py:609`) extracts `country`,
+`founded`, `employee_count`, `industry` and `headquarters` from every Bright Data record, and
+`ingest_profiles` stored all of it into `bw_vendor_snapshots` — a table the Vendors table does
+not read. Nothing ever promoted a snapshot reading into `baseline`.
+
+Added `_backfill_baseline_from_profile()`, called from `ingest_profiles()` on the `created`
+branch (so it fires only for a genuinely new or changed snapshot, not on every re-fetch of
+unchanged data). It fills `hq_country`, `founded_year` and `metrics.employee_count`, and **only
+where the field is currently blank** — a live reading is a fallback for "we never had this",
+never a correction to a curated import value. Also added `_LINKEDIN_COUNTRY_NAMES`, an
+ISO-3166 alpha-2 to full-name map, so a LinkedIn-sourced `US` lands as `United States` and
+matches the Country filter instead of creating a second spelling for the same country.
+
+### Data: Intezer and Prophet Security backfilled, and Intezer could never have been collected
+Both vendors' `baseline` rows were filled by hand (script in the session scratchpad,
+`backfill_baseline.py`), because the code fix above only helps on the *next* profile run and
+Oliver asked for the table fixed now.
+
+Prophet Security's country, founding year and headcount came from **its own LinkedIn snapshot**,
+already collected by run 75 — not from web research. Its funding total came from two BusinessWire
+funding announcements. Intezer had no snapshot to read, so its country/founded/headcount came
+from web research (Tracxn) and its funding total from the company's own PR Newswire release.
+Neither vendor's data came from the Competitive Intelligence Digest Oliver was sent by a friend
+who works at Prophet; that document is not a source and the `analyst_note` on Prophet's row says
+so explicitly, so nobody later mistakes it for one.
+
+Separately: **Intezer had no `linkedin_company_url` identifier on file at all.** A source can
+only run for a vendor that has the matching identifier, so no LinkedIn run had ever been
+possible for Intezer — it would have stayed a permanently blank row no matter how many times
+collection ran. Added the identifier (`provenance.source = 'web_research'`), then queued a full
+seven-source fetch (runs 77-83) to prove the path end to end.
+
+### Feature: a Data Map tab under Collection
+**`ui/src/components/newsfeed/MarketMonitorTab.tsx`** — three surfaces already answered
+questions about collection, and none answered this one. "Sources & Health" says whether a source
+is working. "Sources & schedules" says how often it runs. "Data" says how many rows each dataset
+holds. Nothing said *which source fills which field*, or that a source silently does nothing for
+a vendor missing the identifier it needs — the exact two facts the Intezer diagnosis turned on.
+
+Added a fifth Collection sub-tab, "Data Map": one row per source, with what it collects, where
+that lands, what the vendor needs on file first, and its cost and cadence. Thirteen rows, one
+for each source `GET /markets/{id}/sources` returns. Cost and cadence are read live from the
+`sources` state the page already fetches rather than hardcoded, so changing an interval in
+Settings is reflected here and the two cannot drift. The field descriptions are a static
+`SOURCE_MAP` const, because what a source extracts is fixed by the code, not by configuration.
+
+The tab states three things the other surfaces let a reader assume wrongly: Crunchbase carries
+no dollar amounts (rounds and investors only, which is why a successful Crunchbase run still
+leaves the funding column empty); PitchBook, ZoomInfo and Indeed have field mappings not yet
+confirmed against a real response; and the registry import is a one-time source that nothing
+refreshes on a schedule.
+
+No backend change was needed — the tab reuses data the page already loads.
+
+### Verification
+`.venv/bin/python -m py_compile` on the six touched Python files — clean.
+
+`npm run typecheck` — "Type check clean: 246 errors, all 246 known", i.e. no new type errors
+against the baseline.
+
+`./ui/deploy-react-ui.sh` then `sudo systemctl restart bugfixing.aunoo.ai.service` —
+`systemctl is-active` returns `active`; the protected API returns 307 (session redirect), which
+is the correct response for an unauthenticated call, not an error.
+
+The built bundle actually carries the tab: `MarketMonitorTab-CPJG-0Yf.js` contains the Data Map
+row text, and `newsfeed-8SKCjxlC.js` imports it.
+
+The Data Map's thirteen source keys were diffed both ways against the thirteen the `/sources`
+endpoint returns (`KNOWN_SOURCES` plus the four internal constants) — exact match, no row that
+would render a "—" cadence and no source missing from the table.
+
+Both vendor rows now read correctly:
+
+```
+   display_name   |    country    | founded | employees | funding_musd
+------------------+---------------+---------+-----------+--------------
+ Intezer          | Israel        | 2015    | 88        | 60.0
+ Prophet Security | United States | 2024    | 89        | 41.0
+```
+
+Intezer's queued fetch: runs 77 (25 posts, 23 new), 78 (1 profile), 79 (3 jobs) and 80
+(1 Crunchbase record) all succeeded. Runs 81, 82 and 83 — PitchBook, ZoomInfo, Indeed — are
+still `running` with no completion timestamp, which is the same stuck-at-running behaviour
+already seen on runs 65 and 70-72 and still not diagnosed. Those three would have been no-ops
+for Intezer regardless: it has no `pitchbook_url` or `zoominfo_url` identifier, and both are
+manual-entry only.
+
+### Fix: a two-country LinkedIn record wrote a string that is not a country
+Found by the documentation pass, comparing Intezer's fresh profile reading against its
+hand-backfilled row, and fixed in the same session on Oliver's instruction. LinkedIn returned
+`country` as `US,IL` — a comma-joined multi-value, not a single alpha-2 code. The first version
+of `_LINKEDIN_COUNTRY_NAMES` had no key for `US,IL`, so the lookup fell through to its
+store-as-is fallback and would have written the literal string `US,IL` into `hq_country`, which
+matches no entry in the Vendors Country filter and is not the name of any country. Intezer did
+not hit it only because its country was already filled in by hand, so the never-overwrite rule
+skipped the field — the next dual-country vendor with a blank country would have.
+
+Added `_country_name()` in **`app/services/market_collect.py`**, which splits on comma or slash
+and maps the first code. First-is-headquarters is not a documented guarantee, but it holds in
+the one record we can check it against: the same Intezer payload reads `headquarters` as
+"New York, NY", and `US` is the leading code. A single code with no name on file is still stored
+as-is — `XK` in the filter is ugly but true and selectable, where dropping it leaves a blank that
+reads as "never collected". Non-string and empty values now return `None` rather than writing
+anything.
+
+Checked against the real value and twelve edge cases: `US,IL`, `US, IL`, `us,il` and `US/IL` all
+give `United States`; `IL` gives `Israel`; `XK` and `ZZ` pass through unmapped; `''`, `'  '`,
+`None` and a non-string all give `None`; an already-expanded name like `Israel` is unchanged.
+
+### Two readings that disagree, left alone
+LinkedIn says Intezer was founded in 2016 against the 2015 from web research, and reads 90
+employees against the 88 on file. Prophet Security's live reading matches its row exactly (US,
+2024, 89). Nothing arbitrates a disagreement today — the rule is only "do not overwrite what is
+already there" — so both Intezer values stand as backfilled.
+
+### Propagation
+Market Monitor runs on bugfixing only — it is not on wiley, wileytest, wbm or saasmvp. Nothing
+to propagate for any of this work, and the copy rule does not apply.
+
+All of it is uncommitted and sits in the bugfixing working tree alongside the phases 0-4
+rebuild. The DB changes (both `baseline` rows, Intezer's identifier, runs 77-83) are live on the
+bugfixing database and are not carried by any file, so a fresh checkout reproduces the code but
+not the data.
+
+### Lessons
+A collector that successfully fetches a field is not the same as that field reaching the table
+that displays it. Prophet Security's country and headcount sat in `bw_vendor_snapshots` for the
+whole time its Vendors row showed dashes. ALWAYS check where a reading is written, not just
+whether the run succeeded, before concluding a source is not returning data.
+
+A vendor with no identifier for a source is not a failing vendor — it is an invisible one.
+Missing identifiers close out as quiet no-ops by design, so a source can look healthy across the
+market while doing nothing at all for a given vendor. Intezer had never had a LinkedIn URL and
+nothing anywhere said so.
+
+## 2026-08-24 (market monitor rebuild, phases 0-4) — dark mode, correct numbers, and four tabs instead of seven
+
+### Goal
+Oliver reviewed all seven Market Monitor sub-tabs against the live SOC Automation market and
+wrote a 22-point critique, plus a static HTML mockup (`market-monitor-rebuild.html`) of the
+intended replacement. Asked to implement the mockup and fix the findings behind it. This is a
+large rebuild, done in five phases (see the plan this session wrote). This entry covers all of
+them: dark mode/chart theming (phase 0), backend data-correctness fixes (phase 1), a shared
+"not enough data" component (phase 2), period-selector and Pulse-summary fixes (phase 3), and a
+navigation rebuild from seven tabs to four (phase 4). The one mockup idea not built is a
+citation-linked lead-finding paragraph — see phase 4's "Not done in this pass" note.
+
+### Phase 0 — dark mode and chart theming
+`MarketMonitorTab.tsx` (3471 lines) and its four sibling components had zero Tailwind `dark:`
+variants, against 159 other files in `ui/src` that have them — this file just never got
+retrofitted when dark mode was added to the rest of the app. Wrote a script
+(`dark_mode_pass.py`, in the session scratchpad) that finds light-only Tailwind class-list
+string literals and appends the matching `dark:` variant, then a second pass for the JSX-only
+case where a `className="..."` attribute wraps across lines with a literal newline (valid JSX,
+not valid as a plain JS string, so the first pass deliberately skipped it). Ran both across
+`MarketMonitorTab.tsx`, `MarketAnalysisView.tsx`, `MarketBriefingsView.tsx`,
+`MarketVendorPage.tsx`, `MarketThemesPanel.tsx` — roughly 520 class-list literals updated.
+
+The script caught its own bug during a dry run before touching any real file: an apostrophe
+inside a `/* ... */` comment ("the market's coverage") was read as a string delimiter by the
+first version's regex, which then paired it with an unrelated quote several lines later and
+would have silently mangled the code between them. Fixed by making the scanner comment-aware
+(match and skip whole `//` and `/* */` spans before ever looking for a string) before running
+it for real. Also caught: appending a `dark:` class onto a string that gets concatenated with
+another string one line later (`BULK_BTN` in `MarketMonitorTab.tsx`) produced a run-together
+class name with no separating space — a real, if narrow, bug in the mechanical pass, fixed by
+hand once found.
+
+Recharts chart colors (grid lines, axis text, series lines/bars/scatter fills, the coverage
+timeline's dots) are SVG props, which can't take a `dark:` Tailwind variant — those needed a
+`useTheme()` (`next-themes`, already used elsewhere in the app) call per component and a
+light/dark hex pair per color, picked at render time. Brand pink (`#d6409f`) is left unchanged
+in both themes on purpose — it already has enough contrast against a dark surface. The Reports
+tab's inline prose CSS (`PROSE_CSS` in `MarketBriefingsView.tsx`) got a `.dark .mm-prose ...`
+override block, since it's plain CSS text, not JSX classes.
+
+### Phase 1 — backend data correctness
+Three research passes (backend endpoints, frontend structure, panel-specific logic — run as
+parallel exploration agents) traced each of the critique's numeric findings to its actual query.
+Two of the plan's original suspects turned out, on reading the code, to be intentional design
+rather than bugs, and were **not** changed:
+- `market_analysis.funding()` is deliberately excluded from day-filtering — its own docstring
+  says stage mix and investor overlap describe the market's current state, not activity in a
+  window. Adding a `days` filter would have been "fixing" something that was never broken.
+- `list_vendors`'s default (no `role` filter, returns every role including `excluded`) is what
+  lets the Vendors tab show excluded vendors inline with an "out of scope" tag — a real,
+  working feature for un-excluding a vendor later. The Vendors tab's "All (84)" vs the header's
+  "83 Vendors" is two different, legitimately different questions (everything ever added vs.
+  what's active now), not a bug.
+
+What **was** a bug, fixed and verified against the live SOC Automation market (id 2):
+
+- **One vendor count.** `build_brief`'s coverage query had no role filter at all (an excluded
+  vendor with `collection_enabled=true` counted as "watching"), and `build_overview`'s
+  `registry` included excluded vendors while the header/tab count (`list_markets`) did not — two
+  numbers on the same screen that could legitimately disagree by exactly the excluded count.
+  Added `_vendor_coverage()` in `market_publish.py`, used by both `build_brief` and
+  `build_overview`, returning a new `vendors` field (= watching + paused) that matches
+  `list_markets`. Fixed the Pulse subline in `MarketMonitorTab.tsx`, which read
+  `pulse.coverage.registry` directly in one branch but correctly subtracted `excluded` in the
+  fallback branch — now both branches read `coverage.vendors`. Verified: `list_markets`,
+  `build_brief`, and `build_overview` all now report **83** for the same market that previously
+  showed 83/84/39-of-84 depending on which panel you looked at.
+- **Coverage-spike baseline used a narrower population than the "today" count it was compared
+  against.** `_fetch_day_articles` (the "today" count) includes a market's corpus-matched
+  articles via an `OR EXISTS (...)` clause — 282 of 606 articles on SOC Automation reach the
+  timeline only through this clause. `_detect_volume_spike`/`_detect_sentiment_shift`/
+  `_detect_source_shift`'s own prior-window queries never had this clause, so a day's count
+  (with the clause) was compared against a 7-day average (without it) — exactly the "20 Aug: 305
+  articles, 7-day avg 0.7 / 21 Aug: 33 articles, 7-day avg 9.3" contradiction in the critique.
+  Extracted the population definition into `_topic_scope_sql()` in `timeline_events.py` and used
+  it in all four places. Verified by re-running the detector for 19-22 Aug directly: 20 Aug's
+  count moved from 305 to 330 once counted consistently, and 21 Aug's moved from 33 to 94 — no
+  longer an implausible drop the day after a spike.
+- **`sentiment_trend` ignored the Pulse period selector entirely**, always drawing a fixed 26
+  weeks regardless of the `days` the caller (`market_corpus.summary`) received. Now scaled the
+  same way the coverage-by-week chart already was: `weeks = max(days, 90) // 7`. Verified: a
+  30-day selection now returns 12 weeks of trend, a 365-day selection returns 50 — before, both
+  returned the same fixed 26.
+- **"Quietest" was the bottom of "loudest," reversed, not real data.** `share_of_voice()`'s
+  `loudest` is the top 10 vendors by own-post count; the frontend built "Quietest" as
+  `loudest.slice(-10).reverse()` — the bottom of that same top-10, not genuinely low-activity
+  vendors (who never made it into the truncated list at all). Added a real `quietest` query
+  (vendors in scope with zero own LinkedIn posts in the window) plus `quietest_total`. Verified:
+  on SOC Automation, `quietest` and `loudest` now share zero vendor names, and `quietest_total`
+  is 65 of 83.
+- **Share of voice had no minimum-sample guard.** `reactions_per_post` in the same function
+  already required `measured_posts >= 5`; `earned_share` had no equivalent, so a market with 9
+  total earned mentions could show one vendor at "44% share of voice" (4 mentions). Added
+  `MIN_EARNED_FOR_SHARE = 20` and an `earned_share_reliable` flag; `earned_share` is `None` below
+  it. Verified: SOC Automation's `earned_total` is exactly 9, and `earned_share_reliable` is now
+  `false` for every vendor.
+- **Top voices sorted by post count, not the engagement the table is named after.** The SQL
+  computed `engagement` in Python after `ORDER BY posts DESC, likes DESC LIMIT :lim` had already
+  cut the result set, so re-sorting after the fact couldn't recover accounts that volume alone
+  excluded. Moved the `engagement` sum into the SQL and sort/limit by it there. Verified:
+  `@gabsmashh` (1 post, 28 reactions) is now first; before, it would have needed to out-rank
+  every higher-post-count account by likes alone as a tiebreaker, which it never could.
+- **"Most active vendors" mixed a windowed figure with an all-time one under one sort key, then
+  threw away everything the sort key excluded.** `signals = posts (windowed) + jobs (current,
+  correctly unwindowed)`, but `articles` was all-time regardless of the period selector, and the
+  whole list was truncated to the top 10 by `signals` before the frontend's already-sortable
+  table ever saw it — re-sorting by "Articles" client-side only re-sorted within that pre-cut
+  set. Windowed `articles` to match `posts`, changed the primary sort to `articles` (earned
+  coverage), and stopped truncating — the frontend `DataTable` is built to sort/group a few tens
+  of rows itself. Verified: `most_active` now returns all 83 in-scope vendors, sorted by
+  (now-windowed) articles.
+- Also gave the single-item `GET /markets/{id}/analysis/{name}` endpoint a `days` parameter,
+  matching the bulk endpoint for the same analyses — found to have no frontend caller at all
+  (dead code), so low-value but a one-line fix and worth not leaving as a trap.
+
+### Pulse lists were unboundedly long, one of them because of this session's own fix
+Feedback after deploying phases 0-1: every long list on Pulse ran the page on indefinitely
+instead of scrolling. The worst offender was self-inflicted — removing `most_active`'s
+server-side `[:10]` cut (above) took that panel from 10 rows to all 83 in-scope vendors with no
+visual containment. Wrapped the five list-shaped panels on Pulse (Most active vendors, Events,
+Top posts/articles/news, Last run per source, Largest disclosed raises) in a
+`max-h-[N] overflow-y-auto` container instead of letting them grow the page, and added a sticky
+`<thead>` to `DataTable.tsx` (`sticky top-0 z-10`) so column headers and sort controls stay
+visible while a long table scrolls internally. `DataTable.tsx` itself also had no dark-mode
+support — missed in the phase 0 pass because it's a shared component pulled in via `import`,
+not one of the five view files audited directly — fixed the same way (plus two spots the
+mechanical script's className-list scan structurally can't reach: a static prefix before `${...}`
+in a template literal, and a `bg-slate-100/70` opacity-suffixed class neither script's mapping
+table had a rule for).
+
+### Phase 2 — one shared "not enough data yet" component
+Added `ConfidenceGate.tsx` (new file): a collapsible strip that a thin panel folds into instead
+of drawing an empty or misleading chart at full size, one line per panel, naming the instrument
+and what it's waiting for — matches the mockup's `.nedata` element. Kept the three existing
+bespoke thresholds as the source of truth (headcount and momentum's own "0/1/many readings"
+logic, share of voice's new `MIN_EARNED_FOR_SHARE` from phase 1) rather than inventing new ones;
+the gate only changes how a thin result is *presented*, not what counts as thin.
+
+Wired in on Pulse: "Headcount, market-wide" and "Overall market momentum, by month" now drop out
+of the grid (their always-populated siblings — "Headcount change", "Who's getting more attention
+or momentum" — take the full row width instead of leaving an empty cell) and list themselves in
+one `<ConfidenceGate>` below both rows. Wired in on Analysis: "Share of voice" drops out when
+`earned_share_reliable` is false (its sibling, "Who shouts loudest," takes the full row), and
+"Investors backing more than one vendor" drops out when it has 1 shared investor (0 keeps its
+existing "None among the vendors read so far" message — a confirmed empty state is not the same
+claim as "too thin to trust").
+
+Also fixed, independent of gating: "Investors backing more than one vendor" now always spans the
+full row width rather than sitting in a 2-column grid alongside two other panels — that grid had
+3 children in `grid-cols-2`, so the 3rd always left an empty cell beside it regardless of how
+much data it had (critique's "300px hole", finding #19). Gave `Panel` in `MarketAnalysisView.tsx`
+a `full` prop for this rather than a one-off className.
+
+Live-checked against SOC Automation (market id 2): `earned_total=9` (below the floor of 20) and
+`shared_investors` has exactly 1 row — both now collapse into the Analysis tab's gate instead of
+drawing a 9-mention percentage bar or a "network" of one investor.
+
+### "Quietest" now reads the real backend field
+Frontend still built "Quietest" as `sov.loudest.slice(-10).reverse()` after phase 1 added a real
+`quietest` list on the backend — the frontend side of finding #02 was never actually fixed, only
+the data it should have been reading was. Fixed `MarketAnalysisView.tsx` to render `sov.quietest`
+directly (vendors with zero own LinkedIn posts, capped at 10, with a "N more of M total" line
+using the new `quietest_total`), and added the matching fields to the `ShareOfVoice` TypeScript
+type.
+
+### Phase 3 — the Pulse summary named vendors again, and Wire follows the period selector
+Root-caused finding #20 exactly (the Pulse summary saying "the input does not specify which
+vendors" while the Events list four panels down names them). `refresh_state_doc()` in
+`timeline_rollup.py` — the function that writes the Pulse "Summary" paragraph, shared with Brand
+Watcher — fetches weekly/monthly rollups and formats them into the LLM prompt, but the formatting
+line dropped the `entities` field each rollup already had stored (`entities_in_focus`, captured
+at rollup-generation time). Daily-event formatting a few lines away included entities correctly;
+the weekly/monthly formatting used right beside it didn't. Restored the field (`_ents()` helper)
+and added one sentence telling the model to use the named entities rather than calling them
+unspecified. Live-regenerated the real stored summary for SOC Automation: before, "Key actors in
+the sector are releasing new products... though the input does not specify which vendors"; after,
+"Key actors driving this activity include AWS, Anthropic, Backline AI, Command Zero, CyberRisk
+Alliance, and ANY.RUN." This function is shared with Brand Watcher — the fix is additive (restores
+dropped data, doesn't change prompt structure) and applies identically to both scope types, so it
+should only ever make a brand summary more specific, never different in kind.
+
+Also gave `GET /api/timeline/events` (shared with Brand Watcher's own event views) an optional
+`days` parameter, defaulting to unfiltered so no existing caller's behavior changes, and wired
+Market Monitor's Wire tab to pass the shared `periodDays` through it — Wire's event list was
+fetching a fixed most-recent-50 with no date bound at all, ignoring the same selector that already
+governs Pulse, Analysis and Coverage. Made the period selector visible on the Wire tab too (it was
+hidden there even though Wire's own data will now respect it).
+
+**Deliberately not changed:** the Data tab's "Fetched by source, last 30 days" panel stays on its
+own hardcoded window. It's a collection-health question (is a source still succeeding), not a
+market-activity question, and it already states its own window in its own title — exactly the
+"panels that can't be scoped say so in four words next to their title" pattern the critique itself
+recommends elsewhere. Forcing it onto the Pulse period selector would be applying a fix to
+something that wasn't broken.
+
+### Phase 4 — seven tabs down to four: Findings, Collection, Reports, Vendors
+Replaced the tab bar (`Pulse | Analysis | Reports | Wire | Coverage | Vendors | Data`) with
+`Findings | Collection | Reports | Vendors`, per the mockup's Findings/Collection split and the
+scope decisions made with the user before this phase (Reports stays its own mode; Analysis is
+absorbed into Findings and removed as a separate tab; Wire, Coverage and Data all move under
+Collection since they're pipeline/raw-corpus questions, not market findings; Vendors stays a
+peer tab, untouched; the theme-clustering panel — already rendered inside `MarketAnalysisView`
+— comes along into Findings for free).
+
+- **Findings** = the old Pulse content (lead summary, evidence grid, events, confidence gate)
+  rendered together with `<MarketAnalysisView>` in the same mode — not merged line-by-line, just
+  composed as siblings under one `view === 'findings'` condition. This was the deliberately
+  lower-risk choice: `MarketAnalysisView.tsx` already had its own phase-0-2 fixes (dark mode,
+  quietest, gating) and reusing it as-is avoids re-implementing or risking regressions in code
+  that already works, while still satisfying "Analysis absorbed, not a separate tab."
+- **Collection** = new mode with its own secondary sub-navigation (Overview / Sources & Health /
+  Coverage / Wire / Data), reusing the same pill-tab pattern the Settings drawer already used.
+  - *Overview* (new): the four KPI counters that used to sit permanently above the tab bar
+    regardless of mode (critique finding #16 — "the most prominent strip on the page holds
+    pipeline admin"), a new count-reconciliation table making the registry/excluded/watching/
+    vendors split an explicit, visible check instead of a fix nobody can see, the open-review-task
+    list, and the "Last run per source" table — both of the latter two relocated out of Findings,
+    where they were pipeline information sitting among market panels.
+  - *Sources & Health*: the read-only per-source health cards and run-history table, previously
+    only reachable inside the Settings drawer. Extracted into a shared `HealthPanel` component so
+    Collection's first-class view and the Settings drawer's own Health tab read from one
+    implementation instead of two copies that could drift.
+  - *Coverage*, *Wire*, *Data*: the same three tabs' content, unchanged internally — only their
+    gating condition changed, from a top-level `view` value to `collectionSubView` nested under
+    `view === 'collection'`.
+- Fixed every internal navigation link that pointed at an old tab value: three "click a bar to see
+  the articles" links now call a new `openCollection(sub)` helper (sets both `view` and
+  `collectionSubView` in one call) instead of `setView('coverage')`; a "see it on the Pulse tab"
+  link now points at Findings; every data-fetch `useEffect` gated on `view === 'coverage'` /
+  `'data'` / `'pulse'` now checks the compound `view === 'collection' && collectionSubView === '…'`
+  condition instead — missing one of these would have silently stopped a panel's data from ever
+  loading, so each was traced and updated individually rather than pattern-replaced.
+- Renamed the Settings drawer's "Collection" sub-tab (search-term configuration) to "Search
+  terms" — it shared a name with the new top-level Collection mode, which is a different concept
+  (viewing pipeline health and raw data, not editing what gets collected), and the two sitting a
+  few clicks apart under the same word would have read as the same feature.
+
+**Not done in this pass:** the mockup's lead-finding paragraph with inline evidence citations
+(clicking a figure in the summary to jump to its source record) — Findings' lead paragraph is the
+already-fixed (phase 3) standing summary, not a new citation-linked synthesis. Building the
+citation mechanism is a separate, larger piece of work than relocating existing panels.
+
+### Verification
+- `.venv/bin/python -m py_compile` on every edited `.py` file — clean.
+- `npm run typecheck` — 246 errors, all pre-existing/baseline (`ui/tsconfig.baseline.txt`), no
+  new ones.
+- `npx vite build` — clean, no new warnings beyond the pre-existing chunk-size notice. Re-run
+  after the Pulse-list fix, again after phase 2, phase 3, and phase 4, all clean.
+- Phase 4 was not exercised in a browser — no screenshot/browser tool was available this session.
+  Verified by `npm run typecheck` passing with zero new errors (which would catch a mismatched
+  JSX tag or an invalid `view`/`collectionSubView` comparison) and a full re-read of every changed
+  conditional's braces after the edit. This is the highest-risk unverified change of the session —
+  worth clicking through all four tabs and Collection's five sub-tabs before trusting it fully.
+- Live-called `refresh_state_doc()` for real against SOC Automation's actual stored rollups (one
+  LLM call, `gpt-5.4-mini` → bedrock claude-haiku-4-5) — the before/after summary text quoted
+  above is the genuine stored output, not a synthetic example. Confirmed the `/api/timeline/events`
+  query still returns the same brand-scope count (10, unfiltered) it did before adding the `days`
+  param, and returns a `days`-scoped topic count that matches `pulse.events`'s own count from the
+  phase 1 test.
+- A standalone script (`test_phase1_backend.py`, session scratchpad) called every changed
+  service function directly against market id 2 (SOC Automation) on the live `test` database and
+  asserted the specific numbers above. All assertions passed; output quoted in the bullets.
+- `pytest tests/test_market_report_copy.py tests/test_market_import.py
+  tests/test_market_collection.py` — 21 passed, 10 skipped, 3 failed; the 3 failures are
+  `pytest.mark.asyncio` tests that fail in this environment for lack of a pytest-asyncio plugin,
+  unrelated to anything touched here (confirmed by reading the failures — none touch market
+  code).
+- Deployed via `./ui/deploy-react-ui.sh`, restarted `bugfixing.aunoo.ai.service` twice (once
+  after Phase 0, once after Phase 1); checked `background_tasks` for in-flight work before each
+  restart (none in the prior two hours both times).
+- Not verified: the actual rendered page in a browser. No screenshot/browser tool was available
+  this session — dark mode and the chart color changes are confirmed by code review and a
+  successful build, not by looking at the page.
+
+### Propagation
+Market Monitor exists only on bugfixing.aunoo.ai — no other tenant runs this feature, so nothing
+to propagate.
+
+### Lessons
+The exploration pass's initial list of "root causes" included two items that further reading
+showed were deliberate design, not bugs (`funding()`'s day-awareness, `list_vendors`'s default
+role filter). Reading the code and its own docstrings before editing — rather than trusting a
+one-line summary of a suspected bug — avoided breaking a working feature (excluded-vendor
+visibility) and avoided adding a filter the code explicitly argues against. Worth the extra
+research time on a critique-driven pass like this, where the "finding" is a symptom described
+from the outside and the actual cause needs confirming against the code, not assumed from the
+symptom's description.
+
+## 2026-08-24 (incident share email, part 2) — a saved incident with no source captured at all
+
+### Goal
+Re-testing the fix below against the actual incident that surfaced it (Nvidia's chip-price
+story, promoted on wileytest from a manually-submitted Khaleej Times article) still showed
+"Unknown". The propagation fix was correctly deployed and live — the bundle grep confirmed it
+— but this specific saved incident had a data problem the fallback chain can't solve by itself.
+
+### What was actually wrong
+`SELECT incident_data->'article_metadata' FROM saved_incidents WHERE incident_name ILIKE
+'%nvidia%'` on wileytest returned `[{"uri": "...", "title": "..."}]` — no `source` key and no
+`news_source` key, either one. `PromoteToIncidentModal.tsx` writes `source: article.source?.name`
+at save time; for this article, `article.source` (or `.name` on it) was falsy, so
+`JSON.stringify` dropped the key entirely rather than writing a null. A fallback between two
+key names can't produce a value when neither key was ever written. Separately confirmed:
+**wbm already had the 08-11 propagation fix** — its `HighlightsSection.tsx` /
+`SavedIncidentsSection.tsx` / `narrativeExplorerApi.ts` matched bugfixing's current (fixed)
+code exactly, unlike wiley/wileytest. No wbm frontend action needed.
+
+### Fix: `app/routes/email_routes.py`
+Added `_backfill_missing_sources()`, called at the top of both `/share/incident` and
+`/share/incidents` before the email is built. For any article with no `source` and a `url`,
+it looks up `news_source` directly from the `articles` table by URI and fills it in. This
+covers the case no frontend key-fallback can: the outlet was never captured in the saved
+incident at all, but the platform's own corpus has it (this article had
+`ingest_status = 'manual'`, `news_source = 'khaleejtimes.com'`, full MBFC fields — it was
+fully analyzed, just not carried into the incident's own metadata at save time).
+
+### Verification
+`python -m py_compile` clean on all four tenants. Live test against the real row: built an
+`ArticleRef` with the actual Nvidia incident's URL and `source=None`, called
+`_backfill_missing_sources()` against wileytest's live DB — `source` came back
+`'khaleejtimes.com'`.
+
+### Propagation
+bugfixing, wiley, wileytest, wbm — confirmed byte-identical to bugfixing except for this one
+addition on all three before patching, `py_compile` clean and diff-identical to bugfixing
+after. Checked each tenant's `background_tasks` table for anything started in the last 24
+hours before restarting (wbm's table carries a long tail of stale `running` rows from
+January–June 2026 that were never reconciled — not treated as in-flight; corroborated against
+`ps`/`systemctl` process uptime, nothing anomalous). All four services restarted.
+
+### Not fixed here
+The upstream question — why `PromoteToIncidentModal.tsx`'s `article.source?.name` came back
+empty for this article when the backing DB row already had full metadata by the time the
+modal ran — is still open. Traced as far as confirming `PromoteToIncidentModal` is only
+invoked from an already-loaded article's detail panel (`ArticleDetailPanel.tsx` and two
+sibling panels), each passing a `NewsArticle`-typed object whose `.source` should be an
+`ArticleSource` object with a `.name` field — but couldn't find where that object is
+constructed from the raw API response to confirm the runtime shape actually matches the
+declared type. The backfill above makes any future case of this recoverable at share time
+regardless of the answer, which is why it wasn't chased further today.
+
+## 2026-08-24 (incident share email) — the 08-11 "Unknown outlet" fix was never actually on wiley or wileytest
+
+### Goal
+A user-submitted incident (Nvidia's 15%+ AI chip price increase, promoted from a single
+Khaleej Times article on wileytest) went out by email showing "Unknown" as the source. This
+looked like the exact bug fixed on 2026-08-11 (see that entry: `92d6e944`, "Incident share
+emails showed 'Unknown' as the outlet"). It was the same bug, on the same tenant, with the
+same root cause — it had just never actually been deployed there.
+
+### What was actually wrong
+`ui/src/components/newsfeed/HighlightsSection.tsx`, `SavedIncidentsSection.tsx`, and
+`ui/src/services/narrativeExplorerApi.ts` on **wiley and wileytest still had the pre-08-11
+code** — `source: meta.news_source` with no fallback to `meta.source`, the exact bug the
+08-11 entry describes fixing. bugfixing had the fix; wiley and wileytest did not. Diffed the
+pre-08-11 version of all three files against wiley/wileytest's current code: byte-identical,
+confirming nothing else had touched these files since — the fix simply never reached them.
+
+The 08-11 entry's own verification section says the fix was confirmed "end-to-end on
+wileytest," but reading it closely, that check hand-built the payload the fixed frontend
+*should* send and POSTed it straight to the backend endpoint — it verified the backend
+renders a populated `source` field correctly, not that the actual deployed wileytest bundle
+produces one. The frontend build was apparently never run there. A backend-only check on a
+frontend+backend fix is not a full verification, however confident it reads.
+
+### Fix
+No new code — the 08-11 fix was correct. Propagated the exact same edits (checked line-for-line
+identical to bugfixing's current version before and after) to wiley and wileytest:
+`HighlightsSection.tsx` (both share handlers plus `ArticleLink`), `SavedIncidentsSection.tsx`
+(same, plus the empty-`articles`-array fallback to `article_metadata`), and
+`narrativeExplorerApi.ts`'s `IncidentArticleMetadata` type.
+
+### Verification
+`./ui/deploy-react-ui.sh` on both tenants, then grepped the live deployed bundle wileytest is
+actually serving (`static/trend-convergence/assets/newsfeed-7-e1dxD4.js`, the file
+`templates/explore_react.html` currently references) for the fallback pattern —
+`news_source||X.source` present, confirming the fix is in the bundle a browser will load, not
+just in source. Restarted both services after confirming 0 running/pending rows in each
+tenant's `background_tasks` table.
+
+### Lessons
+When a fix spans frontend + backend, "verified" needs a check that exercises the actual
+deployed frontend artifact — a payload hand-built to match what the fix *should* produce and
+POSTed directly to the API only proves the backend, not that the fix ever shipped. This is the
+second time this session a fix's own propagation claim didn't hold up under a fresh look (see
+the "not present on wiley/wileytest" correction in the severity-language entry above) —
+next time, grep the live bundle/file the tenant is actually serving before writing "confirmed
+on X," the same way this entry's own verification section just did.
+
+## 2026-08-24 — Wiley exec-summary letter: no more "crisis," on Wiley's own feedback
+
+### Goal
+Wiley's Director of AI Strategy (Pascal Hetzscholdt) wrote in on 2026-08-12 about an earlier
+exec-summary letter that called the publishing ecosystem's AI-integrity problems a "crisis" and a
+"research credibility collapse." His point: a 100-to-200-year-old publisher treats this as
+business as usual, and words like "crisis" and "severe" should be reserved for something on the
+scale of the SOPA-PIPA blackout or the Sony hack — Wiley wants to judge severity for themselves
+from the facts, not have the letter judge it for them. The consensus-drift language this letter
+already bans (`Cooling`/`Stable`/`Strengthening`, "X% → Y%") was a different, earlier complaint;
+this one was still open.
+
+### Fix
+`wiley_exec_summary_agent.md` (the agent that writes the letter's five-paragraph "Executive
+Summary," `wiley_bundle_supervisor.py` stage 8) gets a new "Severity language" section: no
+"crisis," "severe," "aggressive," "alarming," "catastrophic," "collapse," or "compromised" in the
+model's own voice, in a header or anywhere else — only inside a verbatim attributed quote.
+Quantify instead (counts, dollar figures, dates tied to a named event), don't apply threat
+language to a positive or neutral development, and reserve strong language for events Wiley would
+independently call severe on their own terms. Version bumped 3.2.0 → 3.3.0.
+
+### Also fixed: the three upstream prompts that feed the letter
+The exec-summary letter is instructed to quote a `briefing_lede` line verbatim, so severity
+language written upstream would still reach the customer through that quote, unblocked by the
+exec-summary rule alone. Added the same "Severity language" rule to `wiley_briefing_agent.md`
+(1.0.0 → 1.1.0, writes the per-topic lede/tensions/intelligence-view the letter quotes),
+`wiley_cross_topic_agent.md` (1.0.0 → 1.1.0, strategic overview + cross-cutting themes + decision
+framework), and `wiley_expert_commentary_agent.md` (1.0.0 → 1.1.0, added as rule 6 to match its
+existing numbered-rules format).
+
+Caught by `tests/test_prompt_hygiene.py::test_no_new_figures_in_prompts` on the first pass: the
+rule's own "RIGHT" example in `wiley_exec_summary_agent.md` used a real-looking "90%" figure
+lifted from the customer's pasted example — exactly the copy-example-into-output failure this
+repo already got burned by once (docs/changes.md 2026-08-03, "1.4 million papers"). Replaced with
+a bracketed placeholder (`"[N]% of [month]'s biomedical papers..."`) before this shipped; test
+now passes.
+
+### Tested: prompt rule alone isn't enough — added a deterministic gate
+Ran the exec-summary agent against payloads built to bait "crisis" framing (paper mills,
+fraudulent-authorship rings, mass retractions). Direct results: 1 of 4 raw generations still
+said "crisis" or "compromised" despite the new instruction — a system-prompt rule reduces the
+behavior but a temperature-0.3 writer doesn't hold a wording ban at 100%.
+
+`wiley_bundle_supervisor.py` already retries the letter up to twice against a **deterministic**
+structural check (`_letter_defects` — missing section, too short) before accepting it, from the
+2026-08-04 fragment incident. Added `_severity_language_defects()` to that same check: a regex
+over the banned words, exempting anything inside a quoted span (quoting a source that used
+"crisis" is still allowed). Re-ran 6 generations through the full retry loop: the two that came
+back dirty ("compromised" once, "crisis" once) were caught and retried clean by the model itself
+on the next attempt. One of six still failed the *word-count* floor after two retries (pre-existing
+behavior, unrelated to this fix) and would raise for manual review exactly as a missing-section
+letter already does today.
+
+### Checked two more surfaces the same way: Briefing Desk and Observer agents
+Asked directly whether the two other narrative generators had the same gap. Result: split.
+
+**Observer agents** (`_run_signal_instruction_internal`, the scheduled signal-alert emails)
+already carried `CLINICAL_STYLE` at all three of its report-generation call sites — no prompt gap.
+But live-tested against the same paper-mill bait, it showed the same real leak rate as the Wiley
+letter: 1 of 3 raw generations used "compromised" despite the rule. Added the deterministic
+check here too — `_generate_report_with_retry()` (`vector_routes.py`, the shared retry helper all
+three call sites use) now checks `find_severity_language()` alongside its existing empty-output
+check, and on a hit, retries with the exact offending word(s) named so the model can fix the
+sentence instead of resampling blind. Re-ran 6 generations through it: one needed the correction
+(succeeded on attempt 3 of 3), the rest were clean. If a report survives every retry with the word
+still in it, it still ships — a report with a stray adjective beats the bare-match-list fallback
+customers were getting before generate-report existed.
+
+**Briefing Desk** (`daily_report_service.py` — the manually-curated briefing synthesizer,
+separate from Executive Briefing) had no `CLINICAL_STYLE` at all, at any of its three system
+prompts, including the main synthesis call that already forbids hype phrases ("rapidly evolving",
+"unprecedented") but never severity words. Added `CLINICAL_STYLE` to all three, matching the exact
+pattern already used in `executive_briefing_service.py`. Live-tested with the same bait: 3 of 3
+clean afterward. No deterministic retry-on-defect loop exists for this generator (its retry logic
+only covers request failures, not content quality) — left as prompt-only for now rather than
+building new retry plumbing unasked; flagged as the one surface here without a backstop.
+
+Centralized the severity-word check itself: `report_style.py` now exports
+`find_severity_language()` / `has_severity_language()`, and `wiley_bundle_supervisor.py`'s gate was
+refactored to call it instead of keeping its own copy of the regex.
+
+### Propagation
+Applied to all three tenants that carry these files — bugfixing, wiley, and **wileytest, which is
+the tenant that actually sends Wiley their reports**. Confirmed every file was byte-identical to
+bugfixing's pre-fix version on wiley/wileytest before patching (wileytest's exec-summary
+`model_config` block carries one unrelated, pre-existing Bedrock-repoint comment, and
+`vector_routes.py` carries wiley/wileytest's expected absence of Market Monitor code, 61 lines,
+nowhere near the edited region — confirmed by diffing the exact lines touched before patching) —
+and diffed everything across all three tenants afterward to confirm they match. `python -m
+py_compile` clean on all three tenants for every touched `.py` file.
+
+Restarted all three services after checking each tenant's `background_tasks` table for a
+`running`/`pending` row first (0 rows on wiley and wileytest — nothing in flight to lose):
+`bugfixing.aunoo.ai.service`, `wiley.aunoo.ai.service`, `wileytest.aunoo.ai.service` all came back
+`active`. All three are now running the fixed code.
+
+## 2026-08-23 (market monitor) — the punch-list round: dedup, one period selector, and Crunchbase jargon out of the visible copy
+
+### Goal
+Direct user feedback on the Pulse dashboard from the 08-23 rewrite above: colors/legends hard
+to read, events not clickable, no top/bottom rankings, a pie-chart option requested for share
+of voice, an internal collector prefix (`xpoz:`) leaking into the visible source list, a
+zero-delta score change rendering as a bare "0" indistinguishable from an absolute score, and —
+after a first round of fixes — a direct complaint that the copy still read like an analyst
+briefing a fellow analyst ("Crunchbase's Heat score", "the level above") rather than something
+a brand or marketing manager could read cold. Addressed in three rounds: a batch of low-risk
+display fixes, a de-duplication pass, and a full period-selector unification; then a fourth,
+separate plain-language rewrite pass after the jargon complaint.
+
+### Quick fixes
+- **`app/services/market_corpus.py`** — `top_sources` stripped the `xpoz:` collector prefix
+  from source names (`SPLIT_PART(a.news_source, ':', 2)`, falling back to the raw value when
+  there's no colon) so a brand's own dashboard never shows an internal collector name.
+- **`app/services/market_analysis.py`** — funding-stage mix was sorted `ORDER BY vendors DESC,
+  stage`, i.e. by vendor count, so the chart read out of round-progression order; added
+  `_FUNDING_STAGE_ORDER` (pre-seed → seed → … → IPO) and sorted the stage list against it in
+  Python instead.
+- **`ui/src/components/newsfeed/MarketBriefingsView.tsx`** — a citation-link regex ran before
+  the bare-URL regex in the markdown renderer, so the URL regex re-matched and re-wrapped a URL
+  already sitting inside the first regex's own `href` output, producing malformed nested `<a>`
+  tags that browsers rendered as literal attribute text in generated reports. Fixed by running
+  the bare-URL replace first.
+- **`ui/src/components/newsfeed/MarketMonitorTab.tsx`** — Pulse's events list was a plain,
+  unclickable `<li>`; reused the existing `WireEventCard` component (already built for the Wire
+  tab, with an article-count expand-on-click) instead of building a second renderer. Added a
+  `fmtScoreDelta()` helper so a delta of exactly `0` renders as "unchanged" instead of a bare
+  "0" that reads identically to an absolute score of zero. Made the "what vendors announced"
+  kind badges clickable (jump to that grouping). Added a new "Top posts, articles & news"
+  section on Pulse, backed by a new `top_article_uris` field.
+- **`app/services/market_publish.py`** — `build_brief()` gained the `top_article_uris` query
+  behind that new section: whatever matched the market's phrases in the window, ranked by
+  social engagement then recency.
+- **`ui/src/components/newsfeed/MarketVendorPage.tsx`** — the Job postings panel silently
+  capped at 10 rows with no indication there were more; hint text now says "Showing 10 of N"
+  when the vendor has more than 10.
+- **`app/services/market_report_html.py`** — added a missing "Funding stage across the market"
+  heading above the (previously unlabeled) stage-mix chart, and a new "Audience and voice"
+  section (most active vendors, share of voice, who shouts loudest, top voices) so the
+  downloadable HTML report carries the same panels the live Pulse/Analysis tabs do — it did not
+  before, despite carrying the same underlying data.
+
+### De-duplication
+Career moves and Crunchbase score changes appeared on both Pulse and the Coverage tab's
+Leaderboards block, verbatim. Removed the Coverage-tab copy; replaced it with a one-line
+pointer to the Pulse tab. Caught one leftover instance of the original zero-delta bug during
+this pass — an earlier `replace_all` edit had fixed the Pulse copy but missed the Coverage-tab
+copy due to differing indentation, so it was still showing bare "0" there until this pass
+deleted the whole panel.
+
+### One period selector instead of three windows
+Pulse, Analysis, and Coverage each silently used a different, hardcoded window (mostly 30 days,
+inconsistently) with no visible control. Added a shared `periodDays` selector (7/30/90/365)
+next to the tab bar, wired through every call that had a window baked in. Backend:
+`market_analysis.py`'s `signal_noise()` and `hiring()` gained an optional `days` parameter
+(joined to `articles`/`observed_at` respectively, which neither query had needed before); a new
+`_DAYS_AWARE` set in `run()` routes the period only to the three analyses where "in this
+period" has a real meaning (signal/noise, hiring, share of voice) — `formation` and `funding`
+describe the market's current state, not a window, and silently ignore the parameter by design.
+`app/routes/market_monitor_routes.py`'s `/analysis` route gained a `days` query param.
+Formation/Funding panels in the UI got explicit "(all time)" notes so that design choice reads
+as intentional rather than a bug.
+
+### Plain-language rewrite
+A follow-up complaint that the fixed copy was still analyst-to-analyst, not
+analyst-to-brand-manager. Rewrote the visible labels in `MarketMonitorTab.tsx` and
+`MarketAnalysisView.tsx`, moving Crunchbase-specific mechanics into hover tooltips only:
+"Score changes during the reporting period" → "Who's getting more attention or momentum";
+"Growth and attention, as of each month" → "Overall market momentum, by month"; "Growth against
+attention" → "Growth outlook vs. attention"; its top/bottom-5 sub-panels renamed "Growing fast
+and getting noticed — outreach candidates" / "Slowing down and going quiet". `fmtScoreDelta()`
+now reads "Attention up 3" / "Growth outlook down 1" instead of "+3" / "-1".
+
+### Also added (Analysis tab)
+- A pie-chart toggle for Share of voice, capped at the top 3 named vendors plus an "Other"
+  bucket — validated against the dataviz skill's colorblind-safety checker, which only clears
+  all pairwise comparisons (needed for a pie, where every slice is compared to every other) for
+  the reference palette's first 3 slots.
+- Top-10/bottom-10 "Loudest — most own posts" / "Quietest — fewest own posts" ranked lists under
+  "Who shouts loudest, and who is heard", using data the backend was already computing.
+- A "Last seen" column on the Top Voices table, and moved it out of a cramped two-column grid
+  into its own full-width panel.
+
+### Verification
+`npm run typecheck` clean against the existing 246-error baseline; `npm run build` succeeded;
+`./ui/deploy-react-ui.sh` deployed and `bugfixing.aunoo.ai.service` restarted. Confirmed live via
+direct Python invocation of `market_report_html.build_market_report()` against market ID 2 (SOC
+Automation) — no exceptions, new headings present. Verified the deployed JS bundle
+(`MarketMonitorTab-hbSHOOeg.js`, referenced by `newsfeed-Ds5-j6Vq.js`, referenced by
+`templates/explore_react.html`) contains the plain-language strings by grep, after a report that
+an earlier round "still shows the same shit" turned out to be resolved by a hard refresh, not a
+deploy failure — confirmed via bundle-content grep before concluding either way.
+
+### Propagation
+`bugfixing.aunoo.ai` only. Market Monitor does not exist on wiley, wileytest, or wbm — confirmed
+by the absence of `app/routes/market_monitor_routes.py` on those tenants.
+
 ## 2026-08-23 — PitchBook/ZoomInfo/Indeed sources, and per-vendor "Fetch now" (`7bf05d61`)
 
 ### Goal
