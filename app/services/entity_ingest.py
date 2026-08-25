@@ -204,6 +204,35 @@ def _all_brands(conn) -> List[int]:
     return [int(r[0]) for r in rows]
 
 
+def _advance_requested_policies(conn, run_id: int, status: str) -> None:
+    """Move the claimed vendors on, or back them off, by the run's outcome.
+
+    Its own savepoint: this is bookkeeping, and a fault in it must not abort
+    the transaction holding the provider rows.
+    """
+    from app.services import entity_scheduler as sch
+
+    point = conn.begin_nested()
+    try:
+        row = conn.execute(text("""
+            SELECT source, requested_brand_ids FROM bw_collection_runs
+             WHERE id = :r
+        """), {'r': run_id}).mappings().first()
+        if not row or not row['requested_brand_ids']:
+            point.rollback()
+            return
+        ids = [int(b) for b in row['requested_brand_ids']]
+        if status in ('succeeded', 'partial'):
+            sch.record_success(conn, row['source'], ids)
+        else:
+            sch.record_failure(conn, row['source'], ids,
+                               error=f'run closed {status}')
+        point.commit()
+    except Exception:                                       # noqa: BLE001
+        point.rollback()
+        logger.warning('could not advance vendor policies for run_id=%s', run_id)
+
+
 def process_pending(conn, run_id: Optional[int] = None,
                     snapshot_limit: int = 200,
                     article_limit: int = 200) -> Dict[str, Any]:
@@ -251,17 +280,33 @@ def process_pending(conn, run_id: Optional[int] = None,
             if row['brand_id']:
                 touched.add(int(row['brand_id']))
 
-    # Articles that something attributed to a company but which have no entity
-    # relationship yet. Cheap to find and it catches every collector, not only
-    # the ones that write snapshots.
+    # Articles with no entity relationship yet, from **both** places they
+    # land. Brand Watcher attributes articles into bw_article_categories;
+    # the market keyword group and the vendor RSS feeds land theirs in
+    # bw_market_articles and are never attributed to a company at all.
+    # Reading only the first meant the entire market news corpus — over a
+    # thousand articles, growing by a hundred a day — never became a content
+    # link, so a vendor's page showed firmographics and no coverage.
+    # An article we have already examined is skipped even when it matched
+    # nothing. Asking only for articles with no content link meant the ones
+    # that name no vendor — most of a news corpus — were re-scanned on every
+    # run and the backlog never drained: 2,400 examinations produced twelve
+    # links, the same few hundred articles going round.
     unlinked = conn.execute(text("""
-        SELECT DISTINCT c.article_uri
-          FROM bw_article_categories c
+        SELECT article_uri FROM (
+            SELECT DISTINCT c.article_uri FROM bw_article_categories c
+            UNION
+            SELECT DISTINCT m.article_uri FROM bw_market_articles m
+        ) candidates
          WHERE NOT EXISTS (SELECT 1 FROM bw_entity_content_links l
-                            WHERE l.article_uri = c.article_uri)
-         ORDER BY c.article_uri
+                            WHERE l.article_uri = candidates.article_uri)
+           AND NOT EXISTS (SELECT 1 FROM bw_entity_link_attempts a
+                            WHERE a.article_uri = candidates.article_uri
+                              AND a.matcher_version = :matcher)
+         ORDER BY article_uri
          LIMIT :lim
-    """), {'lim': article_limit}).fetchall()
+    """), {'lim': article_limit,
+           'matcher': entity_content.MATCHER_VERSION}).fetchall()
 
     for (article_uri,) in unlinked:
         summary['articles'] += 1
@@ -269,6 +314,17 @@ def process_pending(conn, run_id: Optional[int] = None,
                                context={'collection_run_id': run_id})
         summary['links'] += outcome['links']
         summary['mentions'] += outcome['mentions']
+        # Record the examination, matched or not. Keyed by matcher version so
+        # widening the query terms re-examines the corpus deliberately rather
+        # than the backlog being sealed forever.
+        conn.execute(text("""
+            INSERT INTO bw_entity_link_attempts
+                (article_uri, matcher_version, links_found)
+            VALUES (:u, :matcher, :found)
+            ON CONFLICT (article_uri, matcher_version) DO UPDATE
+               SET examined_at = NOW(), links_found = EXCLUDED.links_found
+        """), {'u': article_uri, 'matcher': entity_content.MATCHER_VERSION,
+               'found': outcome['links']})
 
     for brand_id in sorted(touched):
         entity_resolution.resolve_entity(conn, brand_id, trigger='ingest')
@@ -289,6 +345,13 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
     markers mean anything skipped here is retried on the next close.
     """
     from app.services import entity_flags
+
+    # Advance the vendor policies this run asked the provider for, whatever
+    # the entity layer is doing. A batch that succeeded with zero records
+    # still means those vendors were processed; leaving them due would put the
+    # same batch up again on the next pass forever. This is scheduling state,
+    # not entity state, so it is not behind the entity flag.
+    _advance_requested_policies(conn, run_id, status)
 
     if not entity_flags.enabled():
         return None

@@ -871,6 +871,19 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
         BrightDataError, LinkedInDatasetClient, api_key, webhook_auth_value,
     )
 
+    from app.services import entity_scheduler as sch
+
+    # Refuse before opening a run. A market-wide PitchBook/ZoomInfo/Indeed
+    # request used to be admitted, claimed, and then failed as undispatched —
+    # one failed run per source per scheduler cycle, which buries real
+    # failures. Paused sources are refused the same way.
+    try:
+        sch.admit_request(conn, source, forced_brand_id)
+    except ValueError as exc:
+        logger.info("market %s: %s not dispatched — %s",
+                    market["id"], source, exc)
+        return 0
+
     if forced_run_id is None:
         if _is_due(conn, market["id"], source, now) is None:
             return 0
@@ -880,6 +893,16 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     key = api_key()
     if not key:
         return 0
+
+    # Which vendors this batch is for. Claimed from the per-vendor policies so
+    # successive passes sweep the roster instead of re-reading the first
+    # twenty by sort_order, which left sixty-four vendors never collected.
+    claimed_brand_ids: list = []
+    if forced_brand_id is None and source in sch.SCHEDULED_SOURCES:
+        claimed_brand_ids = sch.claim_due(conn, source)
+        conn.commit()
+        if not claimed_brand_ids:
+            return 0
 
     companies: list = []
     if source == SOURCE_CRUNCHBASE:
@@ -929,9 +952,22 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
         urls = [c["name"] for c in companies]
     else:
         urls = list(mc.linkedin_url_map(conn, market["id"])[0].keys())
-    if source != SOURCE_JOBS and forced_brand_id is None:
+    if claimed_brand_ids:
+        # The batch is exactly the vendors this pass claimed. Slicing the
+        # first N by sort_order is what pinned collection to the same
+        # nineteen vendors while sixty-four were never collected at all.
+        claimed = set(claimed_brand_ids)
+        if source in (SOURCE_CRUNCHBASE, SOURCE_PITCHBOOK, SOURCE_ZOOMINFO):
+            urls = [u for u, bid in url_map.items() if bid in claimed]
+    elif source != SOURCE_JOBS and forced_brand_id is None:
         urls = urls[: _max_vendors_per_run()]
+
     if not urls:
+        if claimed_brand_ids:
+            # Claimed but nothing dispatchable: release rather than leaving
+            # the vendors locked until the claim times out.
+            sch.release_claims(conn, source, claimed_brand_ids)
+            conn.commit()
         if forced_run_id:
             mc.close_run(conn, forced_run_id, status="succeeded",
                          error="no vendors with a usable URL for this source")
@@ -941,6 +977,15 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     run_id = forced_run_id or mc.open_run(
         conn, market_id=market["id"], source=source,
         provider=PROVIDER_BRIGHTDATA, status="queued")
+    if claimed_brand_ids:
+        # Recorded on the run so a batch that succeeds with zero
+        # records still advances these vendors. Without it they
+        # stay permanently due and the same batch goes up again
+        # on every pass.
+        conn.execute(text("""
+            UPDATE bw_collection_runs SET requested_brand_ids = :ids
+             WHERE id = :r
+        """), {'ids': claimed_brand_ids, 'r': run_id})
     conn.commit()
 
     client = LinkedInDatasetClient(key)
@@ -967,6 +1012,8 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                 webhook_auth=webhook_auth_value())
     except BrightDataError as e:
         mc.close_run(conn, run_id, status="failed", error=str(e))
+        if claimed_brand_ids:
+            sch.record_failure(conn, source, claimed_brand_ids, error=str(e))
         conn.commit()
         logger.warning("market %s: %s trigger failed: %s", market["id"], source, e)
         return 1

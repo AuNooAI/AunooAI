@@ -307,6 +307,69 @@ Verified both by reverting them: removing the metrics savepoint turns
 `test_a_failing_metrics_write_cannot_take_the_provider_rows` red, and running the gate under an
 interpreter without pyflakes now exits 2 instead of reporting clean. Entity suite **124 passing**.
 
+### Fix: collection refreshed the same nineteen vendors and never reached the other sixty-four
+**`app/tasks/market_monitor.py`, `app/services/entity_scheduler.py`** — the collector selected
+vendors with `ORDER BY mb.sort_order` and then `[:MARKET_MAX_VENDORS_PER_RUN]`, with no cursor. The
+cap was applied to a fixed prefix, so every pass re-read the same first twenty. With 83 vendors
+that meant **19 were refreshed indefinitely and 64 had never been collected from any live source** —
+their only data was the April workbook import.
+
+Selection state now lives in `bw_entity_source_policies`, one row per `(brand_id, source)`, ordered
+due-first, then never-collected before long-ago-collected, then priority, then brand id. The cap is
+applied **after** that filtering. Claims are persisted with `FOR UPDATE SKIP LOCKED` so two
+overlapping passes cannot take the same vendor, and the state is in the database so a deploy
+mid-sweep resumes rather than restarting.
+
+Eligibility is per source rather than global, which also explains a number that looked like a bug:
+Crunchbase covered only 20 vendors because **44 of 83 have no Crunchbase URL on file**. Those are
+now marked ineligible with the reason, instead of sitting in the backlog looking permanently
+overdue.
+
+`bw_collection_runs.requested_brand_ids` records who a batch was for, so a run that succeeds with
+zero records still advances those vendors — without it they stay due forever and the same batch
+goes up on every pass. A failure backs off exponentially and deliberately leaves `last_success_at`
+alone, so staleness stays visible rather than being hidden behind a failure.
+
+### Fix: three sources failed once per scheduler cycle, and one is paused
+PitchBook, ZoomInfo and Indeed were absent from the cadence tuple but market-wide requests were
+still admitted, claimed, and then failed as undispatched — one failed run per source per cycle,
+burying real failures. They are now in `MANUAL_ONLY_SOURCES` and refused at admission, before a run
+is created. Vendor-scoped manual requests still work, and PitchBook/ZoomInfo additionally require
+the operator-supplied URL to exist first.
+
+`linkedin_jobs` is **paused**, not manual-only: the provider rejects the request with
+`HTTP 400 "Incorrect discovery collector id. Available types: keyword, url"`. The stale comments
+claiming the request shape was verified are wrong. Per the standing rule about paid datasets this
+is not being fixed by guessing another field name — it needs a dashboard sample confirming the
+discovery contract, then a single-company canary through trigger, callback, ingest and attribution
+before it goes back on the schedule.
+
+### Fix: the article backlog never drained
+**`app/services/entity_ingest.py`, `ei_004`** — the backlog asked for articles with no entity
+content link. An article that names no vendor never gets one, so it stayed in the answer set and
+was re-scanned on every run: draining it took 2,400 examinations to produce twelve links, the same
+few hundred articles going round. `bw_entity_link_attempts` records that an article was examined
+and by which matcher version, so a routine run skips it and a matcher upgrade re-examines it
+deliberately. The backlog now drains — 326 articles in three passes, then zero.
+
+The same fix widened the backlog to `bw_market_articles`. It had only read `bw_article_categories`,
+so the entire market news corpus — 1,463 articles, growing by about a hundred a day — was never
+linked to a vendor at all.
+
+### Incident: a test wrote scheduling state into the live registry
+The first version of the scheduler fixture parked every non-fixture policy 30 days into the future
+so its own vendors would sort first, and one test committed to prove state survives a lost
+connection. Together those pushed **all 498 live policies out by 30 days**, which would have
+stopped real collection silently.
+
+Caught by the deployment gate — coverage reported `due=0` for a source with 62 never-collected
+vendors, which is not a state that can occur naturally. Repaired by resetting `next_due_at` and
+re-reconciling from real snapshot history.
+
+Both causes are removed: the fixture no longer writes outside the rows it created, and the
+durability test asserts the claim is a database row rather than committing and opening a second
+connection. Verified afterwards that a full suite run leaves no test brands and no stale claims.
+
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
 748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned
