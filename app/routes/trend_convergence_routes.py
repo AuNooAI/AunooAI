@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from typing import List, Dict, Optional, Callable, Any
 import logging
 import json
@@ -527,7 +527,7 @@ def _preprocess_response(response: str) -> str:
             # If still invalid, return the original cleaned text
             return cleaned
 
-@router.get("/api/trend-convergence/models")
+@router.get("/api/trend-convergence/models", dependencies=[Depends(verify_session_api)])
 async def get_trend_convergence_models():
     """Available AI models for foresight analysis.
 
@@ -2585,7 +2585,7 @@ async def ensure_cache_table_v2(db: Database):
     except Exception as e:
         logger.error(f"Failed to ensure cache table: {e}")
 
-@router.get("/api/trend-convergence/{topic}/previous")
+@router.get("/api/trend-convergence/{topic}/previous", dependencies=[Depends(verify_session_api)])
 async def load_previous_analysis(
     topic: str,
     db: Database = Depends(get_database_instance)
@@ -2616,7 +2616,7 @@ async def trend_convergence_page(request: Request, session: dict = Depends(verif
 
 # Organizational Profile Management Endpoints
 
-@router.get("/api/organizational-profiles")
+@router.get("/api/organizational-profiles", dependencies=[Depends(verify_session_api)])
 async def get_organizational_profiles(db: Database = Depends(get_database_instance)):
     """Get all organizational profiles"""
     try:
@@ -2652,7 +2652,7 @@ async def get_organizational_profiles(db: Database = Depends(get_database_instan
         logger.error(f"Error fetching organizational profiles: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch profiles: {str(e)}")
 
-@router.post("/api/organizational-profiles") 
+@router.post("/api/organizational-profiles", dependencies=[Depends(verify_session_api)])
 async def create_organizational_profile(
     profile_data: ProfileCreateRequest,
     db: Database = Depends(get_database_instance)
@@ -2692,7 +2692,7 @@ async def create_organizational_profile(
         logger.error(f"Error creating organizational profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create profile: {str(e)}")
 
-@router.put("/api/organizational-profiles/{profile_id}")
+@router.put("/api/organizational-profiles/{profile_id}", dependencies=[Depends(verify_session_api)])
 async def update_organizational_profile(
     profile_id: int,
     profile_data: ProfileCreateRequest,
@@ -2740,7 +2740,7 @@ async def update_organizational_profile(
         logger.error(f"Error updating organizational profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update profile: {str(e)}")
 
-@router.delete("/api/organizational-profiles/{profile_id}")
+@router.delete("/api/organizational-profiles/{profile_id}", dependencies=[Depends(verify_session_api)])
 async def delete_organizational_profile(
     profile_id: int,
     db: Database = Depends(get_database_instance)
@@ -2767,7 +2767,7 @@ async def delete_organizational_profile(
         logger.error(f"Error deleting organizational profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete profile: {str(e)}")
 
-@router.get("/api/organizational-profiles/{profile_id}")
+@router.get("/api/organizational-profiles/{profile_id}", dependencies=[Depends(verify_session_api)])
 async def get_organizational_profile(
     profile_id: int,
     db: Database = Depends(get_database_instance)
@@ -3664,7 +3664,7 @@ async def get_horizons_executive_summary(
 
 # ── Interactive HTML downloads for the Future Horizons + Consensus tabs ─
 
-@router.get("/api/trend-convergence/horizons/{analysis_id}/download.html")
+@router.get("/api/trend-convergence/horizons/{analysis_id}/download.html", dependencies=[Depends(verify_session_api)])
 async def download_horizons_html(
     analysis_id: str,
     db: Database = Depends(get_database_instance),
@@ -3799,7 +3799,7 @@ async def download_horizons_html(
     )
 
 
-@router.get("/api/trend-convergence/consensus/{analysis_id}/download.html")
+@router.get("/api/trend-convergence/consensus/{analysis_id}/download.html", dependencies=[Depends(verify_session_api)])
 async def download_consensus_html(
     analysis_id: str,
     db: Database = Depends(get_database_instance),

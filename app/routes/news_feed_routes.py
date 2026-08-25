@@ -26,6 +26,7 @@ templates.env.cache = {}  # Disable template compilation cache
 
 @router.get("/available-dates")
 async def get_available_dates(
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Get dates that have articles available"""
@@ -80,6 +81,7 @@ async def generate_daily_news_feed(
     max_articles: int = Query(50, ge=10, le=200, description="Maximum articles to analyze"),
     model: str = Query("gpt-5.4-mini", description="AI model to use for generation"),
     include_bias_analysis: bool = Query(True, description="Include bias and factuality analysis"),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Generate daily news feed with overview and six articles report"""
@@ -129,6 +131,7 @@ async def get_news_articles_only(
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Get paginated article list similar to topic dashboard"""
@@ -215,6 +218,7 @@ async def get_clustered_articles(
     max_articles: int = Query(100, ge=10, le=500),
     similarity_threshold: float = Query(0.3, ge=0.1, le=0.8, description="Max cosine distance for clustering (lower = stricter)"),
     max_cluster_size: int = Query(4, ge=2, le=8, description="Max articles per cluster"),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Get articles clustered by semantic similarity.
@@ -312,6 +316,7 @@ async def get_articles_list(
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(25, ge=1, le=100, description="Items per page"),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Get articles as a flat list sorted by publication date (newest first).
@@ -566,7 +571,7 @@ async def six_articles_page(
     })
 
 
-@router.get("/markdown/overview")
+@router.get("/markdown/overview", dependencies=[Depends(verify_session_api)])
 async def get_overview_markdown(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
@@ -616,7 +621,7 @@ async def get_overview_markdown(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/markdown/six-articles")
+@router.get("/markdown/six-articles", dependencies=[Depends(verify_session_api)])
 async def get_six_articles_markdown(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
@@ -939,7 +944,7 @@ def generate_share_token() -> str:
     return ''.join(secrets.choice(alphabet) for _ in range(12))
 
 
-@router.post("/share")
+@router.post("/share", dependencies=[Depends(verify_session_api)])
 async def create_shared_feed(
     request: Request,
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
@@ -1337,7 +1342,7 @@ async def generate_category_icon(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/category-counts")
+@router.get("/category-counts", dependencies=[Depends(verify_session_api)])
 async def get_category_counts(
     date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
@@ -1433,7 +1438,7 @@ async def get_category_counts(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/category/{category}/articles")
+@router.get("/category/{category}/articles", dependencies=[Depends(verify_session_api)])
 async def get_category_articles(
     category: str,
     date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
@@ -2615,7 +2620,7 @@ async def delete_saved_narrative(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/filter-options")
+@router.get("/filter-options", dependencies=[Depends(verify_session_api)])
 async def get_filter_options(
     date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
@@ -2675,7 +2680,7 @@ async def get_filter_options(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/topic/{topic_name}/categories")
+@router.get("/topic/{topic_name}/categories", dependencies=[Depends(verify_session_api)])
 async def get_topic_categories(
     topic_name: str,
 ):

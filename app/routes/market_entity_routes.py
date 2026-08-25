@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.database import get_database_instance
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.services import (
     entity_events, entity_identity, entity_narratives, entity_observations,
     entity_projection, entity_resolution,
@@ -92,7 +92,7 @@ def _require_vendor(conn, market_id: int, brand_id: int) -> None:
 
 @router.get('/markets/{market_id}/vendors/{brand_id}/profile')
 async def canonical_profile(market_id: int, brand_id: int,
-                            session=Depends(verify_session)):
+                            session=Depends(verify_session_api)):
     """The current answer for each field, read from the canonical rows.
 
     Deriving this from a page of observations was wrong twice over: a settled
@@ -140,7 +140,7 @@ async def canonical_profile(market_id: int, brand_id: int,
 
 
 @router.get('/markets/{market_id}/geography')
-async def market_geography(market_id: int, session=Depends(verify_session)):
+async def market_geography(market_id: int, session=Depends(verify_session_api)):
     """Where the market's vendors are, and what is disclosed about funding.
 
     Two measures that must not be conflated. **Concentration** is a headcount
@@ -221,7 +221,7 @@ async def list_observations(market_id: int, brand_id: int,
                             source: Optional[str] = None,
                             limit: int = Query(50, le=MAX_PAGE),
                             cursor: Optional[int] = None,
-                            session=Depends(verify_session)):
+                            session=Depends(verify_session_api)):
     """Every reading ever recorded, newest first, with its provenance."""
     def _work():
         conn = _conn()
@@ -266,7 +266,7 @@ async def list_observations(market_id: int, brand_id: int,
 
 @router.get('/markets/{market_id}/vendors/{brand_id}/fields/{field_key}/history')
 async def field_history(market_id: int, brand_id: int, field_key: str,
-                        session=Depends(verify_session)):
+                        session=Depends(verify_session_api)):
     """One field's readings and every time the canonical answer moved.
 
     The series is split by source, because two sources measuring different
@@ -347,7 +347,7 @@ class FieldCorrection(BaseModel):
 @router.put('/markets/{market_id}/vendors/{brand_id}/fields/{field_key}')
 async def correct_field(market_id: int, brand_id: int, field_key: str,
                         payload: FieldCorrection,
-                        session=Depends(verify_session)):
+                        session=Depends(verify_session_api)):
     """Record an operator's value as an observation and lock the field.
 
     Nothing is overwritten. The correction is a ``manual`` observation that
@@ -431,7 +431,7 @@ async def correct_field(market_id: int, brand_id: int, field_key: str,
 
 @router.post('/markets/{market_id}/vendors/{brand_id}/fields/{field_key}/unlock')
 async def unlock_field(market_id: int, brand_id: int, field_key: str,
-                       session=Depends(verify_session)):
+                       session=Depends(verify_session_api)):
     """Hand the field back to automatic resolution and recompute it."""
     actor = _actor(session)
 
@@ -463,7 +463,7 @@ async def unlock_field(market_id: int, brand_id: int, field_key: str,
 
 @router.post('/markets/{market_id}/vendors/{brand_id}/resolve')
 async def replay_resolution(market_id: int, brand_id: int,
-                            session=Depends(verify_session)):
+                            session=Depends(verify_session_api)):
     """Re-run the policy over existing observations. Collects nothing."""
     actor = _actor(session)
 
@@ -494,7 +494,7 @@ async def replay_resolution(market_id: int, brand_id: int,
 @router.get('/markets/{market_id}/vendors/{brand_id}/events')
 async def vendor_events(market_id: int, brand_id: int,
                         limit: int = Query(50, le=MAX_PAGE),
-                        session=Depends(verify_session)):
+                        session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -516,7 +516,7 @@ async def vendor_mentions(market_id: int, brand_id: int,
                           sentiment: Optional[str] = None,
                           limit: int = Query(50, le=MAX_PAGE),
                           cursor: Optional[int] = None,
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     """Mentions of this company, with owned content separated from external.
 
     The summary counts unevaluated mentions separately rather than folding
@@ -584,7 +584,7 @@ async def vendor_mentions(market_id: int, brand_id: int,
 
 @router.get('/markets/{market_id}/vendors/{brand_id}/social-identities')
 async def list_identities(market_id: int, brand_id: int,
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -605,7 +605,7 @@ class IdentityProposal(BaseModel):
 
 @router.post('/markets/{market_id}/vendors/{brand_id}/social-identities')
 async def add_identity(market_id: int, brand_id: int, payload: IdentityProposal,
-                       session=Depends(verify_session)):
+                       session=Depends(verify_session_api)):
     """An operator asserting a mapping. Manual is the only method that
     verifies an executive or a previously rejected account."""
     actor = _actor(session)
@@ -638,7 +638,7 @@ class IdentityDecision(BaseModel):
 @router.put('/markets/{market_id}/vendors/{brand_id}/social-identities/{mapping_id}')
 async def decide_identity(market_id: int, brand_id: int, mapping_id: int,
                           payload: IdentityDecision,
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     actor = _actor(session)
 
     def _work():
@@ -671,7 +671,7 @@ async def decide_identity(market_id: int, brand_id: int, mapping_id: int,
 
 @router.get('/markets/{market_id}/vendors/{brand_id}/narratives')
 async def list_narratives(market_id: int, brand_id: int,
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -691,7 +691,7 @@ class NarrativeRequest(BaseModel):
 @router.post('/markets/{market_id}/vendors/{brand_id}/narratives')
 async def build_narrative(market_id: int, brand_id: int,
                           payload: NarrativeRequest,
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     """Assemble the facts pack, and only then generate.
 
     ``facts_only`` returns the pack without calling a model, which is what the
@@ -724,7 +724,7 @@ async def build_narrative(market_id: int, brand_id: int,
 # ---------------------------------------------------------------------------
 
 @router.get('/markets/{market_id}/entity-health')
-async def entity_health(market_id: int, session=Depends(verify_session)):
+async def entity_health(market_id: int, session=Depends(verify_session_api)):
     """What is stale, disputed, or waiting — so "nothing changed" is
     distinguishable from "nothing ran"."""
     def _work():

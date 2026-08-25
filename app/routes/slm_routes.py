@@ -9,10 +9,11 @@ API endpoints for testing and using the trained SLM models:
 
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
 from app.config.settings import TRAINING_DIR
+from app.security.session import verify_session_api
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def get_service():
     return _hybrid_service
 
 
-@router.get("/status", response_model=ServiceStatusResponse)
+@router.get("/status", response_model=ServiceStatusResponse, dependencies=[Depends(verify_session_api)])
 async def get_slm_status():
     """Get the status of SLM services."""
     try:
@@ -77,7 +78,7 @@ async def get_slm_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/relevance/load")
+@router.post("/relevance/load", dependencies=[Depends(verify_session_api)])
 async def load_models():
     """Load all relevance models (embedding + classifier)."""
     try:
@@ -93,7 +94,7 @@ async def load_models():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/relevance/score", response_model=RelevanceResponse)
+@router.post("/relevance/score", response_model=RelevanceResponse, dependencies=[Depends(verify_session_api)])
 async def score_relevance(request: RelevanceRequest):
     """
     Score article relevance using the hybrid approach.
@@ -128,7 +129,7 @@ async def score_relevance(request: RelevanceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/relevance/batch")
+@router.post("/relevance/batch", dependencies=[Depends(verify_session_api)])
 async def score_relevance_batch(request: BatchRelevanceRequest):
     """
     Score multiple articles for relevance.
@@ -161,7 +162,7 @@ async def score_relevance_batch(request: BatchRelevanceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/relevance/test")
+@router.get("/relevance/test", dependencies=[Depends(verify_session_api)])
 async def test_relevance(
     topic: str = Query(..., description="Topic to test"),
     title: str = Query(..., description="Article title"),
@@ -193,7 +194,7 @@ async def test_relevance(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/training-topics")
+@router.get("/training-topics", dependencies=[Depends(verify_session_api)])
 async def get_training_topics():
     """Get list of topics the classifier was trained on."""
     try:

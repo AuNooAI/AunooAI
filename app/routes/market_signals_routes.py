@@ -14,7 +14,7 @@ import uuid
 import time
 
 from app.database import get_database_instance, Database
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.services.auspex_service import get_auspex_service
 from app.services.prompt_loader import PromptLoader
 from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
@@ -261,7 +261,7 @@ async def get_available_topics(
         )
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(verify_session_api)])
 async def health_check():
     """Health check endpoint for market signals service.
 

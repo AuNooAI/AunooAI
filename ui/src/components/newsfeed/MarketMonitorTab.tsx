@@ -1604,8 +1604,13 @@ export function MarketMonitorTab() {
                     render: v => v.musd !== null ? `$${v.musd}M`
                                                  : (v.funding_status ?? '—') },
                   { key: 'staff', label: 'Staff', align: 'right' },
-                  { key: 'announcements', label: 'Announced', align: 'right' },
-                  { key: 'openings', label: 'Open roles', align: 'right' },
+                  // Both counts are all-time, unlike the pulse strip above
+                  // this table, which is scoped to period_days. Two windows on
+                  // one screen with nothing saying so read as one window.
+                  { key: 'announcements', label: 'Announced (all time)',
+                    align: 'right' },
+                  { key: 'openings', label: 'Open roles (all time)',
+                    align: 'right' },
                 ]} />
             </div>
           )}

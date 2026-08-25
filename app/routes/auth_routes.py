@@ -1,6 +1,8 @@
 """Authentication routes for login, logout, and password management."""
 
 import logging
+import os
+import secrets
 from datetime import datetime
 from typing import Optional
 
@@ -45,23 +47,30 @@ async def login(
 ):
     """Handle user login."""
     try:
-        # Check for admin/admin credentials
-        if username == "admin" and password == "admin":
-            # Get or create admin user
+        user = db.get_user(username)
+
+        # First-run bootstrap for the admin account.
+        #
+        # This used to accept the literal credential admin/admin, which meant
+        # every fresh deployment was one guess away from an admin session, and
+        # every request to it flipped the real admin account into
+        # force-password-change before any password was checked. Both of those
+        # were reachable without authenticating.
+        #
+        # Bootstrapping now requires whoever deploys the tenant to supply the
+        # password out of band, and only ever creates an account that does not
+        # already exist. With AUNOO_BOOTSTRAP_ADMIN_PASSWORD unset there is no
+        # bootstrap path at all, which is the right default for a tenant whose
+        # admin already exists.
+        bootstrap_password = os.getenv("AUNOO_BOOTSTRAP_ADMIN_PASSWORD")
+        if user is None and bootstrap_password and username == "admin" and \
+                secrets.compare_digest(password, bootstrap_password):
+            logger.warning("Bootstrapping the admin account from "
+                           "AUNOO_BOOTSTRAP_ADMIN_PASSWORD")
+            db.create_user(username, get_password_hash(password),
+                           force_password_change=True)
             user = db.get_user(username)
-            if not user:
-                # Create admin user with force_password_change flag
-                hashed_password = get_password_hash(password)
-                db.create_user(username, hashed_password, force_password_change=True)
-                user = db.get_user(username)
-            elif not user.get('force_password_change'):
-                # If admin/admin is used but force_password_change is False, force it again
-                db.set_force_password_change(username, True)
-                user = db.get_user(username)
-        else:
-            # Get user from database for non-admin login
-            user = db.get_user(username)
-            
+
         logger.debug(f"Login attempt for user: {username}")
         logger.debug(f"User found in database: {user is not None}")
         

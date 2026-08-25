@@ -45,7 +45,7 @@ from app.routes.web_routes import router as web_router
 from app.routes.topic_routes import router as topic_router
 from app.routes.api_routes import router as api_router  # Add this line for api_routes
 from starlette.middleware.sessions import SessionMiddleware
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.routes.keyword_monitor import router as keyword_monitor_router, page_router as keyword_monitor_page_router, get_alerts
 from app.routes.keyword_alerts import router as keyword_alerts_router
 from app.tasks.keyword_monitor import run_keyword_monitor
@@ -213,9 +213,10 @@ logger.info("Prompt routes included")
 # Include routers
 app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
-app.include_router(keyword_monitor_router)
-app.include_router(keyword_monitor_page_router)
-app.include_router(onboarding_router)
+# keyword_monitor_router, keyword_monitor_page_router and onboarding_router are
+# registered above (see "# Add routes"). Registering them twice was harmless
+# only by luck — FastAPI keeps the first match, so the second copy of a route
+# is dead but still shadows any later change to the first. Registered once.
 app.include_router(saved_searches_router)  # Saved searches
 app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket routes for real-time updates
 app.include_router(vector_router)  # Vector/AI analysis routes (already has /api prefix)
@@ -547,7 +548,7 @@ async def bulk_research_get(
         "selected_topic": topic or ""
     })
 
-@app.post("/api/bulk-research")
+@app.post("/api/bulk-research", dependencies=[Depends(verify_session_api)])
 async def bulk_research_post(
     data: dict,
     research: Research = Depends(get_research),
@@ -597,7 +598,7 @@ async def bulk_research_post(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/save-bulk-articles")
+@app.post("/api/save-bulk-articles", dependencies=[Depends(verify_session_api)])
 async def save_bulk_articles(
     data: dict,
     research: Research = Depends(get_research),
@@ -618,7 +619,7 @@ async def analytics_route(request: Request, session=Depends(verify_session)):
         })
     )
 
-@app.get("/api/analytics")
+@app.get("/api/analytics", dependencies=[Depends(verify_session_api)])
 def get_analytics_data(
     timeframe: str = Query(...),
     category: Optional[List[str]] = Query(None),
@@ -687,7 +688,7 @@ async def users_test_page(request: Request, session=Depends(verify_session)):
         get_template_context(request, {"session": session})
     )
 
-@app.post("/config/add_model")
+@app.post("/config/add_model", dependencies=[Depends(verify_session_api)])
 async def add_model(model_data: AddModelRequest):
     """Add a new model configuration by setting the appropriate environment variable."""
     try:
@@ -763,7 +764,7 @@ async def add_model(model_data: AddModelRequest):
         logger.error(f"Error adding model: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/remove_model")
+@app.post("/config/remove_model", dependencies=[Depends(verify_session_api)])
 async def remove_model(model_data: RemoveModelRequest):
     """Remove model configuration from .env file and environment."""
     try:
@@ -919,7 +920,7 @@ async def search_articles(
     )
     return JSONResponse(content={"articles": articles, "total_count": total_count, "page": page, "per_page": per_page})
 
-@app.post("/api/generate_report")
+@app.post("/api/generate_report", dependencies=[Depends(verify_session_api)])
 async def generate_report(
     request: Request,
     report: Report = Depends(get_report)
@@ -948,21 +949,21 @@ async def generate_report(
             content={"error": str(e)}
         )
 
-@app.post("/api/save_report")
+@app.post("/api/save_report", dependencies=[Depends(verify_session_api)])
 async def save_report(request: Request):
     data = await request.json()
     report_content = data.get('content', '')
     report_id = db.save_report(report_content)
     return JSONResponse(content={"report_id": report_id})
 
-@app.post("/api/markdown_to_html")
+@app.post("/api/markdown_to_html", dependencies=[Depends(verify_session_api)])
 async def markdown_to_html(request: Request):
     data = await request.json()
     markdown_text = data.get('markdown', '')
     html = markdown.markdown(markdown_text)
     return JSONResponse(content={"html": html})
 
-@app.post("/api/save_article")
+@app.post("/api/save_article", dependencies=[Depends(verify_session_api)])
 async def save_article(article: ArticleData):
     try:
         logger.info(f"Received article data: {article.dict()}")
@@ -993,11 +994,11 @@ async def get_future_signals(topic: Optional[str] = None, research: Research = D
 async def get_sentiments(topic: Optional[str] = None, research: Research = Depends(get_research), session=Depends(verify_session)):
     return await research.get_sentiments(topic)
 
-@app.get("/api/time_to_impact")
+@app.get("/api/time_to_impact", dependencies=[Depends(verify_session_api)])
 async def get_time_to_impact(topic: Optional[str] = None, research: Research = Depends(get_research)):
     return await research.get_time_to_impact(topic)
 
-@app.get("/api/latest_articles")
+@app.get("/api/latest_articles", dependencies=[Depends(verify_session_api)])
 async def get_latest_articles(
     topic_name: Optional[str] = None, 
     limit: Optional[int] = Query(10, ge=1),
@@ -1016,7 +1017,7 @@ async def get_latest_articles(
         logger.error(f"Error fetching latest articles: {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching latest articles")
 
-@app.get("/api/article")
+@app.get("/api/article", dependencies=[Depends(verify_session_api)])
 async def get_article(
     uri: str,
     research: Research = Depends(get_research)
@@ -1087,7 +1088,7 @@ async def get_article(
             }
         )
 
-@app.delete("/api/article")
+@app.delete("/api/article", dependencies=[Depends(verify_session_api)])
 async def delete_article(
     uri: str,
     research: Research = Depends(get_research)
@@ -1105,7 +1106,7 @@ async def delete_article(
         logger.error(f"Error deleting article: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/debug_settings")
+@app.get("/api/debug_settings", dependencies=[Depends(verify_session_api)])
 async def debug_settings():
     try:
         settings_dict = {key: value for key, value in config.items() if not key.startswith('__')}
@@ -1114,7 +1115,7 @@ async def debug_settings():
         logger.error(f"Error in debug_settings: {str(e)}", exc_info=True)
         return JSONResponse(status_code=500, content={"detail": f"Internal Server Error: {str(e)}"})
 
-@app.get("/api/debug_articles")
+@app.get("/api/debug_articles", dependencies=[Depends(verify_session_api)])
 async def debug_articles():
     try:
         db.facade.debug_articles()
@@ -1132,7 +1133,7 @@ class DatabaseActivate(BaseModel):
 class ConfigItem(BaseModel):
     content: str
 
-@app.get("/api/databases")
+@app.get("/api/databases", dependencies=[Depends(verify_session_api)])
 async def get_databases():
     try:
         databases = db.get_databases()
@@ -1141,7 +1142,7 @@ async def get_databases():
         logger.error(f"Error fetching databases: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/databases")
+@app.post("/api/databases", dependencies=[Depends(verify_session_api)])
 async def create_database(database: DatabaseCreate):
     try:
         new_database = db.create_database(database.name)
@@ -1150,7 +1151,7 @@ async def create_database(database: DatabaseCreate):
         logger.error(f"Error creating database: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/active-database")
+@app.post("/api/active-database", dependencies=[Depends(verify_session_api)])
 async def set_active_database(database: DatabaseActivate):
     try:
         result = db.set_active_database(database.name)
@@ -1160,7 +1161,7 @@ async def set_active_database(database: DatabaseActivate):
         logger.error(f"Error setting active database: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/databases/{name}")
+@app.delete("/api/databases/{name}", dependencies=[Depends(verify_session_api)])
 async def delete_database(name: str):
     try:
         # Get a fresh database instance
@@ -1181,7 +1182,7 @@ async def delete_database(name: str):
         logger.error(f"Error deleting database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/config/{item_name}")
+@app.get("/api/config/{item_name}", dependencies=[Depends(verify_session_api)])
 async def get_config_item(item_name: str):
     try:
         content = db.get_config_item(item_name)
@@ -1190,7 +1191,7 @@ async def get_config_item(item_name: str):
         logger.error(f"Error fetching config item: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/config/{item_name}")
+@app.post("/api/config/{item_name}", dependencies=[Depends(verify_session_api)])
 async def save_config_item(item_name: str, item: ConfigItem):
     try:
         db.save_config_item(item_name, item.content)
@@ -1208,7 +1209,7 @@ async def get_database_info():
         logger.error(f"Error fetching database info: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/active-database")
+@app.get("/api/active-database", dependencies=[Depends(verify_session_api)])
 async def get_active_database():
     try:
         active_db = Database.get_active_database()
@@ -1217,15 +1218,15 @@ async def get_active_database():
         logger.error(f"Error getting active database: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/fetch_article_content")
+@app.get("/api/fetch_article_content", dependencies=[Depends(verify_session_api)])
 async def fetch_article_content(uri: str, research: Research = Depends(get_research), save: bool = Query(True)):
     return await research.fetch_article_content(uri, save_with_topic=save)
 
-@app.get("/api/get_existing_article_content")
+@app.get("/api/get_existing_article_content", dependencies=[Depends(verify_session_api)])
 async def get_existing_article_content(uri: str, research: Research = Depends(get_research)):
     return research.get_existing_article_content(uri)
 
-@app.get("/api/scrape_article")
+@app.get("/api/scrape_article", dependencies=[Depends(verify_session_api)])
 async def scrape_article(
     uri: str,
     research: Research = Depends(get_research)
@@ -1265,7 +1266,7 @@ async def scrape_article(
             content={"error": "Server error", "message": f"An unexpected error occurred: {str(e)}"}
         )
 
-@app.get("/fetch_article_content")
+@app.get("/fetch_article_content", dependencies=[Depends(verify_session_api)])
 async def fetch_article_content(url: str):
     try:
         result = await research.fetch_article_content(url)
@@ -1273,14 +1274,14 @@ async def fetch_article_content(url: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/driver_types")
+@app.get("/api/driver_types", dependencies=[Depends(verify_session_api)])
 async def get_driver_types(
     topic: Optional[str] = None,
     research: Research = Depends(get_research)
 ):
     return await research.get_driver_types(topic)
 
-@app.get("/api/integrated_analysis")
+@app.get("/api/integrated_analysis", dependencies=[Depends(verify_session_api)])
 async def get_integrated_analysis(timeframe: str = Query("all"), category: str = Query(None)):
     logger.info(f"Received request for integrated analysis. Timeframe: {timeframe}, Category: {category}")
     try:
@@ -1308,11 +1309,11 @@ async def get_topics(session=Depends(verify_session)):
     #logger.debug(f"Returning topics: {topics}")
     return topics
 
-@app.get("/api/ai_models")
+@app.get("/api/ai_models", dependencies=[Depends(verify_session_api)])
 def get_ai_models():
     return get_available_models()  # Return models with configured API keys
 
-@app.get("/api/ai_models_config")
+@app.get("/api/ai_models_config", dependencies=[Depends(verify_session_api)])
 async def get_ai_models_config():
     config = load_config()
     #logger.info(f"Full configuration: {config}")
@@ -1320,11 +1321,11 @@ async def get_ai_models_config():
     #logger.info(f"AI models config: {models}")
     return {"ai_models": models}
 
-@app.get("/api/available_models")
+@app.get("/api/available_models", dependencies=[Depends(verify_session_api)])
 def get_available_models_endpoint():
     return get_available_models()  # Return models with configured API keys
 
-@app.get("/api/debug_ai_config")
+@app.get("/api/debug_ai_config", dependencies=[Depends(verify_session_api)])
 async def debug_ai_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config', 'ai_config.json')
     try:
@@ -1334,7 +1335,7 @@ async def debug_ai_config():
     except Exception as e:
         return JSONResponse(content={"error": str(e), "path": config_path}, status_code=500)
 
-@app.get("/api/categories/{topic_name}")
+@app.get("/api/categories/{topic_name}", dependencies=[Depends(verify_session_api)])
 async def get_categories_for_topic(topic_name: str):
     """Get categories for a specific topic."""
     try:
@@ -1354,7 +1355,7 @@ async def get_categories_for_topic(topic_name: str):
         logger.error(f"Unexpected error getting categories for topic {topic_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/collect_articles")
+@app.get("/api/collect_articles", dependencies=[Depends(verify_session_api)])
 async def collect_articles(
     source: str,
     query: str,
@@ -1451,7 +1452,7 @@ async def collect_articles(
         logger.error(f"Error collecting articles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/available_sources")
+@app.get("/api/available_sources", dependencies=[Depends(verify_session_api)])
 async def get_available_sources():
     """Get list of available article sources."""
     return JSONResponse(content=CollectorFactory.get_available_sources())
@@ -1463,7 +1464,7 @@ async def collect_page(request: Request, session=Depends(verify_session)):
         "session": request.session
     })
 
-@app.post("/config/newsapi")
+@app.post("/config/newsapi", dependencies=[Depends(verify_session_api)])
 async def save_newsapi_config(config: NewsAPIConfig):
     """Save NewsAPI configuration."""
     try:
@@ -1507,7 +1508,7 @@ async def save_newsapi_config(config: NewsAPIConfig):
         logger.error(f"Error saving NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/newsapi")
+@app.get("/config/newsapi", dependencies=[Depends(verify_session_api)])
 async def get_newsapi_config():
     """Get NewsAPI configuration status."""
     try:
@@ -1529,7 +1530,7 @@ async def get_newsapi_config():
         logger.error(f"Error checking NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/newsapi")
+@app.delete("/config/newsapi", dependencies=[Depends(verify_session_api)])
 async def remove_newsapi_config():
     """Remove NewsAPI configuration."""
     try:
@@ -1564,7 +1565,7 @@ async def remove_newsapi_config():
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/newsfirehose")
+@app.post("/config/newsfirehose", dependencies=[Depends(verify_session_api)])
 async def save_newsfirehose_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save NewsFirehose configuration."""
     try:
@@ -1599,7 +1600,7 @@ async def save_newsfirehose_config(config: NewsAPIConfig):  # Reusing the same m
         logger.error(f"Error saving NewsFirehose configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/newsfirehose")
+@app.get("/config/newsfirehose", dependencies=[Depends(verify_session_api)])
 async def get_newsfirehose_config():
     """Get NewsFirehose configuration status."""
     try:
@@ -1616,7 +1617,7 @@ async def get_newsfirehose_config():
         logger.error(f"Error checking NewsFirehose configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/newsfirehose")
+@app.delete("/config/newsfirehose", dependencies=[Depends(verify_session_api)])
 async def remove_newsfirehose_config():
     """Remove NewsFirehose configuration."""
     try:
@@ -1638,7 +1639,7 @@ async def remove_newsfirehose_config():
         logger.error(f"Error removing NewsFirehose configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/opoint")
+@app.post("/config/opoint", dependencies=[Depends(verify_session_api)])
 async def save_opoint_config(config: OpointConfig):
     """Save Opoint configuration."""
     try:
@@ -1681,7 +1682,7 @@ async def save_opoint_config(config: OpointConfig):
         logger.error(f"Error saving Opoint configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/opoint")
+@app.get("/config/opoint", dependencies=[Depends(verify_session_api)])
 async def get_opoint_config():
     """Get Opoint configuration status."""
     try:
@@ -1702,7 +1703,7 @@ async def get_opoint_config():
         logger.error(f"Error checking Opoint configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/opoint")
+@app.delete("/config/opoint", dependencies=[Depends(verify_session_api)])
 async def remove_opoint_config():
     """Remove Opoint configuration."""
     try:
@@ -1761,7 +1762,7 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
         "example_driver_types": example_driver_types
     })
 
-@app.post("/api/create_topic")
+@app.post("/api/create_topic", dependencies=[Depends(verify_session_api)])
 async def create_topic(topic_data: dict):
     try:
         config = load_config()
@@ -1823,7 +1824,7 @@ async def create_topic(topic_data: dict):
         logger.error(f"Error creating/updating topic: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error creating/updating topic: {str(e)}")
 
-@app.get("/api/topic/{topic_name}")
+@app.get("/api/topic/{topic_name}", dependencies=[Depends(verify_session_api)])
 async def get_topic_config(topic_name: str):
     """Get configuration for a specific topic."""
     try:
@@ -1836,13 +1837,13 @@ async def get_topic_config(topic_name: str):
         logger.error(f"Error getting topic config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/providers")
+@app.get("/api/providers", dependencies=[Depends(verify_session_api)])
 async def get_providers():
     """Get all configured providers."""
     config = load_config()
     return JSONResponse(content={"providers": config.get("providers", [])})
 
-@app.post("/api/research/bulk")
+@app.post("/api/research/bulk", dependencies=[Depends(verify_session_api)])
 async def bulk_research_endpoint(
     request: Request,
     data: dict = Body(
@@ -1878,7 +1879,7 @@ async def bulk_research_endpoint(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/templates")
+@app.get("/api/templates", dependencies=[Depends(verify_session_api)])
 async def get_templates():
     """Get all available report templates."""
     try:
@@ -1888,7 +1889,7 @@ async def get_templates():
         logger.error(f"Error getting templates: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/templates/{name}")
+@app.get("/api/templates/{name}", dependencies=[Depends(verify_session_api)])
 async def get_template(name: str):
     """Get a specific template by name."""
     try:
@@ -1900,7 +1901,7 @@ async def get_template(name: str):
         logger.error(f"Error getting template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/templates")
+@app.post("/api/templates", dependencies=[Depends(verify_session_api)])
 async def save_template(template_data: dict = Body(...)):
     """Save or update a template."""
     try:
@@ -1915,7 +1916,7 @@ async def save_template(template_data: dict = Body(...)):
         logger.error(f"Error saving template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/markdown_to_html")
+@app.post("/api/markdown_to_html", dependencies=[Depends(verify_session_api)])
 async def markdown_to_html(data: dict = Body(...)):
     """Convert markdown to HTML for preview."""
     try:
@@ -1926,7 +1927,7 @@ async def markdown_to_html(data: dict = Body(...)):
         logger.error(f"Error converting markdown to HTML: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/templates/sections/{name}")
+@app.get("/api/templates/sections/{name}", dependencies=[Depends(verify_session_api)])
 async def get_section_template(name: str):
     """Get a specific section template."""
     try:
@@ -1938,7 +1939,7 @@ async def get_section_template(name: str):
         logger.error(f"Error getting section template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/templates/save")
+@app.post("/api/templates/save", dependencies=[Depends(verify_session_api)])
 async def save_template(data: dict = Body(...)):
     """Save a new template with selected sections."""
     try:
@@ -1954,7 +1955,7 @@ async def save_template(data: dict = Body(...)):
         logger.error(f"Error saving template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/templates/{template_name}")
+@app.get("/api/templates/{template_name}", dependencies=[Depends(verify_session_api)])
 async def get_template(template_name: str):
     """Get a specific template content."""
     try:
@@ -1969,7 +1970,7 @@ async def get_template(template_name: str):
         logger.error(f"Error getting template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/topics/{topic_name}/articles")
+@app.get("/api/topics/{topic_name}/articles", dependencies=[Depends(verify_session_api)])
 async def get_topic_articles(
     topic_name: str,
     start_date: Optional[str] = None,
@@ -1987,7 +1988,7 @@ async def get_topic_articles(
         logger.error(f"Error fetching topic articles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/topics/{topic_name}/stats")
+@app.get("/api/topics/{topic_name}/stats", dependencies=[Depends(verify_session_api)])
 async def get_topic_stats(topic_name: str):
     try:
         # Get article count for topic
@@ -2004,7 +2005,7 @@ async def get_topic_stats(topic_name: str):
         logger.error(f"Error fetching topic stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/topic/{topic_id}")
+@app.delete("/api/topic/{topic_id}", dependencies=[Depends(verify_session_api)])
 async def delete_topic(topic_id: str, delete_articles: bool = Body(False)):
     try:
         db = Database()
@@ -2085,7 +2086,7 @@ async def database_editor_page(
         logger.error(f"Database editor error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/firecrawl")
+@app.get("/config/firecrawl", dependencies=[Depends(verify_session_api)])
 async def get_firecrawl_config():
     """Get Firecrawl configuration status."""
     try:
@@ -2106,7 +2107,7 @@ async def get_firecrawl_config():
         logger.error(f"Error in get_firecrawl_config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/firecrawl")
+@app.delete("/config/firecrawl", dependencies=[Depends(verify_session_api)])
 async def remove_firecrawl_config():
     """Remove Firecrawl configuration."""
     try:
@@ -2141,7 +2142,7 @@ async def remove_firecrawl_config():
         logger.error(f"Error removing Firecrawl configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/update-news-query")
+@app.post("/api/update-news-query", dependencies=[Depends(verify_session_api)])
 async def update_news_query(query: str = Body(...), topicId: str = Body(...)):
     try:
         set_news_query(query, topicId)
@@ -2150,7 +2151,7 @@ async def update_news_query(query: str = Body(...), topicId: str = Body(...)):
         logger.error(f"Error updating news query: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/update-paper-query")
+@app.post("/api/update-paper-query", dependencies=[Depends(verify_session_api)])
 async def update_paper_query(query: str = Body(...), topicId: str = Body(...)):
     try:
         config = load_news_monitoring()
@@ -2161,7 +2162,7 @@ async def update_paper_query(query: str = Body(...), topicId: str = Body(...)):
         logger.error(f"Error updating paper query: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/update-keyword")
+@app.post("/api/update-keyword", dependencies=[Depends(verify_session_api)])
 async def update_keyword(request: Request):
     data = await request.json()
     topic_id = data.get('topic_id')
@@ -2243,7 +2244,7 @@ async def change_password(
             })
         )
 
-@app.get("/api/topic-options/{topic}")
+@app.get("/api/topic-options/{topic}", dependencies=[Depends(verify_session_api)])
 async def get_topic_options(topic: str):
     """Get all options (categories, future signals, sentiments, time to impact) for a topic."""
     try:
@@ -2313,7 +2314,7 @@ async def reset_database():
         logger.error(f"Error resetting database: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/firecrawl")
+@app.post("/config/firecrawl", dependencies=[Depends(verify_session_api)])
 async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save Firecrawl configuration."""
     try:
@@ -2397,7 +2398,7 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
         logger.error(traceback.format_exc())  # Add this to get full traceback
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/thenewsapi")
+@app.get("/config/thenewsapi", dependencies=[Depends(verify_session_api)])
 async def get_thenewsapi_config():
     """Get TheNewsAPI configuration status."""
     try:
@@ -2418,7 +2419,7 @@ async def get_thenewsapi_config():
         logger.error(f"Error in get_thenewsapi_config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/newsdata")
+@app.get("/config/newsdata", dependencies=[Depends(verify_session_api)])
 async def get_newsdata_config():
     """Get NewsData.io configuration status."""
     try:
@@ -2439,7 +2440,7 @@ async def get_newsdata_config():
         logger.error(f"Error in get_newsdata_config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/thenewsapi")
+@app.post("/config/thenewsapi", dependencies=[Depends(verify_session_api)])
 async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save TheNewsAPI configuration."""
     try:
@@ -2494,7 +2495,7 @@ async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same mod
         logger.error(f"Error saving TheNewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/newsdata")
+@app.post("/config/newsdata", dependencies=[Depends(verify_session_api)])
 async def save_newsdata_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save NewsData.io configuration."""
     try:
@@ -2549,7 +2550,7 @@ async def save_newsdata_config(config: NewsAPIConfig):  # Reusing the same model
         logger.error(f"Error saving NewsData.io configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/thenewsapi")
+@app.delete("/config/thenewsapi", dependencies=[Depends(verify_session_api)])
 async def remove_thenewsapi_config():
     """Remove TheNewsAPI configuration."""
     try:
@@ -2584,7 +2585,7 @@ async def remove_thenewsapi_config():
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/newsdata")
+@app.delete("/config/newsdata", dependencies=[Depends(verify_session_api)])
 async def remove_newsdata_config():
     """Remove NewsData.io configuration."""
     try:
@@ -2646,12 +2647,12 @@ async def add_app_info(request: Request, call_next):
     
     return response
 
-@app.get("/api/app-info")
+@app.get("/api/app-info", dependencies=[Depends(verify_session_api)])
 async def api_app_info():
     """Get application information."""
     return JSONResponse(content=get_app_info())
 
-@app.post("/api/reload_environment")
+@app.post("/api/reload_environment", dependencies=[Depends(verify_session_api)])
 async def reload_environment():
     """Force reload environment variables and reinitialize components that use them."""
     try:
@@ -2725,7 +2726,7 @@ async def podcastdirector_page(request: Request, session=Depends(verify_session)
     context = get_template_context(request)
     return templates.TemplateResponse("podcastdirector.html", context)
 
-@app.get("/api/articles/search")
+@app.get("/api/articles/search", dependencies=[Depends(verify_session_api)])
 async def search_articles_for_podcast(
     q: str = Query(..., description="Search query"),
     page: int = Query(1, ge=1),
@@ -2821,7 +2822,7 @@ async def list_podcasts(db: Database = Depends(get_database_instance)):
         logger.error(f"Error listing podcasts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/podcast/create")
+@app.post("/api/podcast/create", dependencies=[Depends(verify_session_api)])
 async def create_podcast(
     data: dict = Body(...),
     db: Database = Depends(get_database_instance)
@@ -3055,7 +3056,7 @@ async def follow_flow_route(request: Request, session=Depends(verify_session)):
         get_template_context(request)
     )
 
-@app.get("/api/flow_data")
+@app.get("/api/flow_data", dependencies=[Depends(verify_session_api)])
 async def get_flow_data(
     timeframe: str = Query("all", description="Timeframe in days or 'all' for no limit"),
     topic: Optional[str] = Query(None, description="Topic name to filter by"),
@@ -3082,7 +3083,7 @@ async def get_flow_data(
     logger.info("Returning %d flow records", len(data))
     return JSONResponse(content=data)
 
-@app.post("/config/dia")
+@app.post("/config/dia", dependencies=[Depends(verify_session_api)])
 async def save_dia_config(config: DiaAPIConfig):
     """Persist Dia API key and base URL to the .env file and runtime env."""
     try:
@@ -3109,7 +3110,7 @@ async def save_dia_config(config: DiaAPIConfig):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/config/dia")
+@app.get("/config/dia", dependencies=[Depends(verify_session_api)])
 async def get_dia_config():
     """Return Dia configuration status and current URL (if set)."""
     try:
@@ -3128,7 +3129,7 @@ async def get_dia_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/config/dia")
+@app.delete("/config/dia", dependencies=[Depends(verify_session_api)])
 async def remove_dia_config():
     """Remove Dia configuration from .env and runtime environment."""
     try:
@@ -3156,7 +3157,7 @@ async def remove_dia_config():
 ELEVEN_ENV_VAR = "ELEVENLABS_API_KEY"
 
 
-@app.post("/config/elevenlabs")
+@app.post("/config/elevenlabs", dependencies=[Depends(verify_session_api)])
 async def save_elevenlabs_config(config: NewsAPIConfig):
     """Save ElevenLabs API key to .env and environment."""
     try:
@@ -3200,7 +3201,7 @@ async def save_elevenlabs_config(config: NewsAPIConfig):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/config/elevenlabs")
+@app.get("/config/elevenlabs", dependencies=[Depends(verify_session_api)])
 async def get_elevenlabs_config():
     """Return whether ElevenLabs API key is configured."""
     try:
@@ -3221,7 +3222,7 @@ async def get_elevenlabs_config():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.delete("/config/elevenlabs")
+@app.delete("/config/elevenlabs", dependencies=[Depends(verify_session_api)])
 async def remove_elevenlabs_config():
     """Remove ElevenLabs API key from .env and environment."""
     try:
@@ -3263,7 +3264,7 @@ class BlueskyConfig(BaseModel):
         alias_generator = lambda string: string.lower()
         populate_by_name = True
 
-@app.post("/config/bluesky")
+@app.post("/config/bluesky", dependencies=[Depends(verify_session_api)])
 async def save_bluesky_config(config: BlueskyConfig):
     """Save Bluesky configuration."""
     try:
@@ -3316,7 +3317,7 @@ async def save_bluesky_config(config: BlueskyConfig):
         logger.error(f"Error saving Bluesky configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/bluesky")
+@app.get("/config/bluesky", dependencies=[Depends(verify_session_api)])
 async def get_bluesky_config():
     """Get Bluesky configuration."""
     try:
@@ -3338,7 +3339,7 @@ async def get_bluesky_config():
         logger.error(f"Error getting Bluesky configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/bluesky")
+@app.delete("/config/bluesky", dependencies=[Depends(verify_session_api)])
 async def remove_bluesky_config():
     """Remove Bluesky configuration."""
     try:
@@ -3388,7 +3389,7 @@ class GooglePSEConfig(BaseModel):
     class Config:
         populate_by_name = True
 
-@app.post("/config/google_pse")
+@app.post("/config/google_pse", dependencies=[Depends(verify_session_api)])
 async def save_google_pse_config(config: GooglePSEConfig):
     """Save Google PSE configuration."""
     try:
@@ -3450,7 +3451,7 @@ async def save_google_pse_config(config: GooglePSEConfig):
         logger.error(f"Error saving Google PSE configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/google_pse")
+@app.get("/config/google_pse", dependencies=[Depends(verify_session_api)])
 async def get_google_pse_config():
     """Get Google PSE configuration status."""
     try:
@@ -3471,7 +3472,7 @@ async def get_google_pse_config():
         logger.error(f"Error getting Google PSE configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/config/google_pse")
+@app.delete("/config/google_pse", dependencies=[Depends(verify_session_api)])
 async def remove_google_pse_config():
     """Remove Google PSE configuration."""
     try:
@@ -3516,7 +3517,7 @@ async def remove_google_pse_config():
 # ---------------------------------------------------------------------------
 
 
-@app.post("/api/bulk-research-stream")
+@app.post("/api/bulk-research-stream", dependencies=[Depends(verify_session_api)])
 async def bulk_research_stream(
     request: Request,
     research: Research = Depends(get_research),
@@ -3631,7 +3632,7 @@ async def api_get_full_config():
         raise HTTPException(status_code=500, detail=str(exc))
 
 # Add a direct route for newsletter topics
-@app.get("/api/newsletter/topics")
+@app.get("/api/newsletter/topics", dependencies=[Depends(verify_session_api)])
 async def get_newsletter_topics():
     """Get available topics for newsletter compilation."""
     try:
@@ -3680,7 +3681,7 @@ async def get_newsletter_topics():
         return static_topics
 
 # Add a direct route for newsletter content types
-@app.get("/api/newsletter/content_types")
+@app.get("/api/newsletter/content_types", dependencies=[Depends(verify_session_api)])
 async def get_newsletter_content_types():
     """Get available content types for newsletter compilation."""
     logger = logging.getLogger(__name__)
@@ -3703,7 +3704,7 @@ async def get_newsletter_content_types():
     return content_types
 
 # Add a very simple debug endpoint for testing topic loading
-@app.get("/api/debug/topics")
+@app.get("/api/debug/topics", dependencies=[Depends(verify_session_api)])
 async def debug_topics():
     """Simple debug endpoint that returns a static list of topics."""
     logger = logging.getLogger(__name__)

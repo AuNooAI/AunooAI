@@ -705,14 +705,25 @@ def drilldown(conn, market_id: int, name: str) -> Dict[str, Any]:
                mb.baseline->>'founded_year' AS founded,
                mb.baseline->'funding_baseline'->>'status' AS funding_status,
                (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS musd,
-               (mb.baseline->'metrics'->>'employee_count')::numeric AS staff,
+               -- A zero here is a blank cell in the imported workbook, not
+               -- a company with no staff, so it reads as unknown. The
+               -- observation path already drops these (see
+               -- entity_observations._map_workbook_metric); this is the
+               -- legacy baseline read catching up.
+               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                   AS staff,
                (SELECT COUNT(DISTINCT ma.article_uri)
                   FROM bw_market_articles ma
                   JOIN bw_article_categories bac
                        ON bac.article_uri = ma.article_uri
                  WHERE bac.brand_id = b.id
                    AND ma.review_verdict = 'signal') AS announcements,
-               (SELECT COUNT(*) FROM bw_vendor_snapshots s
+               -- DISTINCT on the provider's own id, to match job_postings()
+               -- below. A posting seen twice is one opening; counting rows
+               -- made this number drift away from the list it drills into as
+               -- soon as a source re-observed anything.
+               (SELECT COUNT(DISTINCT s.provider_item_id)
+                  FROM bw_vendor_snapshots s
                  WHERE s.brand_id = b.id
                    AND s.snapshot_type = 'job_posting') AS openings
         FROM bw_market_brands mb

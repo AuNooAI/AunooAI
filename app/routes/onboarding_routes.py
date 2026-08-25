@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Body, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 import os
@@ -25,7 +25,7 @@ def set_templates(template_instance: Jinja2Templates):
     global templates
     templates = template_instance
 
-@router.post("/api/onboarding/validate-api-key")
+@router.post("/api/onboarding/validate-api-key", dependencies=[Depends(verify_session_api)])
 async def validate_api_key(request: Request, key_data: Dict = Body(...)):
     """Validate and store API keys."""
     try:
@@ -515,7 +515,7 @@ async def check_api_keys():
 
     return result
 
-@router.get("/api/onboarding/check-keys")
+@router.get("/api/onboarding/check-keys", dependencies=[Depends(verify_session_api)])
 async def get_api_key_status():
     """Get status of configured API keys"""
     try:
@@ -685,7 +685,7 @@ def extract_json_from_text(text):
     logger.error("Could not extract any valid JSON")
     return None
 
-@router.post("/api/onboarding/suggest-topic-attributes")
+@router.post("/api/onboarding/suggest-topic-attributes", dependencies=[Depends(verify_session_api)])
 async def suggest_topic_attributes(
     topic_data: Dict = Body(...),
     db: Database = Depends(get_database_instance)
@@ -956,7 +956,7 @@ Format your response EXACTLY as follows:
         logger.error(f"Error suggesting topic attributes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/onboarding/save-topic")
+@router.post("/api/onboarding/save-topic", dependencies=[Depends(verify_session_api)])
 async def save_topic(
     topic_data: Dict = Body(...),
     db: Database = Depends(get_database_instance)
@@ -1186,7 +1186,7 @@ async def reset_onboarding(
         logger.error(f"Error resetting onboarding: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/onboarding/available-models")
+@router.get("/api/onboarding/available-models", dependencies=[Depends(verify_session_api)])
 async def get_available_models():
     """Get list of all available AI models from litellm_config.yaml (regardless of API key configuration)."""
     try:
@@ -1229,7 +1229,7 @@ async def get_available_models():
         logger.error(f"Error getting available models from litellm config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/onboarding/configured-models")
+@router.get("/api/onboarding/configured-models", dependencies=[Depends(verify_session_api)])
 async def get_configured_models():
     """Get list of AI models that have API keys configured from litellm_config.yaml."""
     try:

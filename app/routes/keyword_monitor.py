@@ -1643,7 +1643,7 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
         logger.error(f"Error saving settings: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/available-providers")
+@router.get("/available-providers", dependencies=[Depends(verify_session_api)])
 async def get_available_providers():
     """Get list of configured providers that can be used for keyword monitoring"""
     import os

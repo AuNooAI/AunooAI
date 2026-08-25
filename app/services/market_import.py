@@ -175,6 +175,22 @@ def _as_int(value: Any) -> Optional[int]:
         return None
 
 
+def _as_headcount(value: Any) -> Optional[int]:
+    """A staff count, where zero means the cell was blank.
+
+    No vendor in a market roster has zero employees, so a 0 in this column is
+    how the source spells "we did not have this figure". Stored as 0 it became
+    a confident claim: the vendor showed 0 staff next to vendors showing a real
+    number, and the headcount-movers query read it as a baseline, so the first
+    real profile scrape made the vendor look like it had hired its entire staff
+    that month. The observation path already drops these (see
+    entity_observations._map_workbook_metric); this keeps them out of the
+    baseline in the first place.
+    """
+    n = _as_int(value)
+    return None if n == 0 else n
+
+
 def _as_float(value: Any) -> Optional[float]:
     s = _clean(value)
     if s is None:
@@ -428,7 +444,7 @@ def parse_workbook(data: bytes) -> ParsedWorkbook:
             in_scope=in_scope,
             hq_country=_clean(cell(row, "hq_country")),
             founded_year=_as_int(cell(row, "founded_year")),
-            headcount=_as_int(cell(row, "headcount")),
+            headcount=_as_headcount(cell(row, "headcount")),
             total_funding_musd=total_funding,
             funding_status=funding_status,
             funding_notes=_clean(cell(row, "funding_notes")),

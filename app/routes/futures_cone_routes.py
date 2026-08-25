@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from typing import List, Dict
 import logging
 import json
@@ -653,7 +653,7 @@ def _preprocess_response(response: str) -> str:
     
     return cleaned
 
-@router.get("/api/futures-cone/{topic}")
+@router.get("/api/futures-cone/{topic}", dependencies=[Depends(verify_session_api)])
 def generate_futures_cone(
     topic: str,
     timeframe_days: int = Query(365),

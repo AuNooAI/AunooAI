@@ -2,6 +2,228 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-25 (auth surface) — 216 routes answered anonymous requests, and admin/admin still worked
+
+### Goal
+Oliver pasted an external review of Market Monitor and asked whether it was true. Checking it
+turned up two wrong headline claims and three correct security ones, so the session split in
+two: correct the record on Market Monitor, then close the auth holes. The auth work grew once
+I enumerated routes properly — the review named five endpoints, and there were 216.
+
+### The review's headline finding was a misread of the screen
+The review reported all 58 vendors showing `Announced = 0` and `Open roles = 0` and concluded the
+collection pipeline was dead. That table is the **`quiet` drilldown**, whose header on screen
+reads "Vendors with no observed activity — no posts, no job listings, no matched coverage".
+`app/services/market_analysis.py:667` defines the set as vendors with no matched articles *and*
+no job postings, so zeros in those two columns are the query's answer.
+
+Running the review's own aggregation against `test`: 83 non-excluded vendors in market 2, the
+`quiet` set is exactly **58**, and separately **24 vendors have announcements** and **7 have open
+roles**. The corpus holds 261 articles at `review_verdict = 'signal'` and 33 job postings across
+7 brands, most collected 24 August. Nothing was broken.
+
+The review's second claim — that Market Monitor is absent from the repository — is true of the
+commit it read (`84a1fb25`, 17 August) and misleading as a conclusion. The feature is on this
+branch, 60 commits ahead of `origin/main`, fully tracked: 25 source files, 7 migrations
+(`mm_001`–`mm_007`), and 3 test files (`test_market_collection.py`, `test_market_import.py`,
+`test_market_report_copy.py`). It is unmerged, not uncommitted.
+
+### Incident: 216 live routes took anonymous requests, 87 of them state-changing
+This is the real finding and it was internet-facing. nginx for every tenant is a bare
+`location /` proxy to `127.0.0.1:<port>` with no `auth_basic`, no allowlist, and modsecurity
+commented out; ufw is inactive. So every route the app exposes, the internet reaches.
+
+The cause is architectural and already noted in this repo: there is no global auth middleware, so
+a route is unprotected unless its author declares a dependency. Over 1,010 live routes the default
+won more often than the discipline did. It never surfaced because the *pages* are login-gated — a
+browser always sends the session cookie, so a logged-in user sees identical behaviour whether or
+not the route checks, and nothing logs a request that was never refused.
+
+Enumerating from the running app rather than by grep, then filtering three ways, was necessary to
+get a real number. Nine routes guard `request.session` inline rather than by dependency
+(`/api/change-password` among them) and were never open. Six were dead duplicate registrations.
+And `/reset-password` is public on purpose — HMAC-gated with an expiry, the token bound to the
+current password hash so it is single-use.
+
+**The review's "unauthenticated destructive routes" framing does not survive that check.**
+`POST /api/databases/reset` and `/api/databases/backup` are each registered three times, and the
+*first* registration — the one FastAPI serves — is the protected copy in `app/routes/database.py`.
+The open copies in `app/main.py` are dead. Nobody could reset a database anonymously.
+
+What was genuinely open was worse than "configuration": 16 training routes including
+`POST /api/training/runs/{run_id}/deploy`, `/rollback` and `/trigger-finetune`, so anonymous model
+deploy and rollback; `POST /api/news-feed/share`, which minted a public share token for internal
+article data; `/api/auto-ingest/enable|disable|run-sync`; and `/api/newsletter/generate`,
+`/api/sampling/*`, `/api/bulk-research`, `/api/podcast/create` as unmetered LLM spend. On the read
+side `/auth/config-check` returned `client_id_preview` and `client_secret_length` per OAuth
+provider, and `/api/debug_settings` returned the whole topic and category list. The `/config/*`
+GETs return status flags, **not** raw API keys — they leaked the configured Bluesky handle and
+which providers are set up, which is reconnaissance rather than a key dump.
+
+Fixed by adding `dependencies=[Depends(verify_session_api)]` to each open route's decorator —
+87 state-changing and 129 read on this tenant. Eleven routes stay public deliberately: five
+liveness probes plus `/api/health`, `/auth/login/{provider}`, `/auth/providers`, and the two
+share-token endpoints.
+
+### Fix: the admin/admin credential, and an unauthenticated write nobody had noticed
+**`app/routes/auth_routes.py`** — the login handler opened with
+`if username == "admin" and password == "admin"`, which bootstrapped an admin account on any
+fresh deployment. It had a second problem the review did not mention: on that branch it called
+`db.set_force_password_change(username, True)` *before* verifying any password, so an anonymous
+caller could POST `admin/admin` repeatedly and hold the real admin account in forced-password-
+change. Login is now purely DB-driven, with a first-run bootstrap gated on
+`AUNOO_BOOTSTRAP_ADMIN_PASSWORD` that only ever creates an account which does not already exist
+and compares with `secrets.compare_digest`. With the variable unset there is no bootstrap path.
+Live `admin` accounts were checked and none had `admin` as its password.
+
+### Fix: two signing keys with committed fallbacks, one of them missed by the review
+**`app/security/auth.py`** — `SECRET_KEY = os.getenv('NORN_SECRET_KEY', 'nornforever')`, the key
+signing the JWTs. **`app/middleware/setup.py`** — `os.getenv("FLASK_SECRET_KEY",
+"your-fallback-secret-key")`, and this is the worse of the two because it signs the session cookie
+that gates the whole app: with the variable unset, anyone who read this file could forge a session
+for any user. The review found the first and missed the second. Both now raise at startup with a
+message giving the `secrets.token_urlsafe(32)` command. Safe to do because all five tenants
+already have both set to real 43-character values, checked before the change.
+
+### Fix: blank workbook headcounts were stored, and read, as a confident zero
+Seven vendors on the SOC Automation roster carried `employee_count = 0`, and six of the seven had a
+LinkedIn page on file. The workbook uses `0` in that column to mean "no figure"; `_as_int` returned
+it verbatim.
+
+**`app/services/market_import.py`** — new `_as_headcount()` treats zero as unknown at the import
+boundary, so it cannot re-enter `baseline`. **`app/services/market_analysis.py`**,
+**`market_publish.py`** (two sites) and **`entity_dual_read.py`** wrap the legacy baseline read in
+`NULLIF(..., 0)`. `DataTable.tsx:136` already renders null as `—`, the convention `founded`
+uses, so the vendor tables now show unknown instead of a claim.
+
+One of those read sites was doing real harm. The headcount-movers query in `market_publish.py`
+computed `delta = now − 0`, so the first real profile scrape of a blank-baseline vendor would have
+been published as that vendor hiring its entire staff in one period. No vendor is currently in
+that state — the mover count is 21 before and after — so this is preventive, not a correction of a
+wrong number already shipped.
+
+**`alembic/versions/mm_008_blank_headcount_to_null.py`** clears the seven stored zeros. It probes
+`to_regclass('public.bw_market_brands')` first so it is a no-op on tenants without Market Monitor,
+and `downgrade()` is deliberately empty: restoring the zeros restores the bug, and a cell that
+said 0 is indistinguishable from a blank one after the fact.
+
+### Fix: the open-roles count disagreed with the list it opened
+**`app/services/market_analysis.py`** — the drilldown counted `COUNT(*)` over `job_posting`
+snapshots while `job_postings()` below it dedupes with `DISTINCT ON (provider_item_id)`. A posting
+observed twice is one opening, so the number would have drifted from the list as soon as a source
+re-read anything. Now `COUNT(DISTINCT s.provider_item_id)`. Currently 33 rows and 33 distinct, so
+again preventive.
+
+### Fix: Market Monitor's API redirected XHR callers instead of refusing them
+**`app/routes/market_monitor_routes.py`** and **`market_entity_routes.py`** — 64 dependencies moved
+from `verify_session` (307 to the login page) to `verify_session_api` (401). Three endpoints stay
+on the 307 because the UI opens them as `href` targets, where a 401 shows raw JSON in a fresh tab:
+`/dataset`, `/export.zip`, `/data/{dataset}`. `feed.xml` and `report.html` were already on
+`verify_session_optional` with a signed-link path and were not touched.
+
+### Ops: three duplicate router registrations removed, 225 left
+**`app/main.py`** — `keyword_monitor_router`, `keyword_monitor_page_router` and
+`onboarding_router` were each registered twice. Removed the second run. The wider problem is
+untouched: **225 path+method pairs are still registered more than once**, 235 extra route objects.
+Mostly harmless because FastAPI keeps the first match, with one exception worth knowing —
+`GET /api/topics` has an open copy in `topic_routes` winning over a protected copy in `main.py`,
+which is exactly how a future auth fix gets silently shadowed.
+
+### UI: the drilldown counts say which window they cover
+**`ui/src/components/newsfeed/MarketMonitorTab.tsx`** — `Announced` and `Open roles` are now
+`Announced (all time)` and `Open roles (all time)`, because the pulse strip directly above them is
+scoped to `period_days`. Two windows on one screen with nothing saying so read as one window.
+Rebuilt and deployed; bundle `newsfeed-C5czsmWs.js`, template `explore_react.html`.
+
+### Verification
+`python -m py_compile` over all 33 changed `.py` files plus `mm_008`: all compile.
+
+`pytest tests/ -q` → **99 failed, 674 passed, 11 skipped, 31 errors**. The failure list is
+**byte-identical with the changes stashed and applied** (`comm -13` and `comm -23` on the sorted
+`FAILED` lines both return nothing), which is the actual evidence that 33 touched files introduced
+no new failures. Note the count moved from an earlier 98/675 reading, so one test in the
+pre-existing set is flaky; three consecutive runs then held at 99. All 99 are pre-existing and
+concentrate in `test_ai_models_error_handling.py` (17), `test_retry.py` (14),
+`test_exceptions.py` (11), `test_article_analyzer.py` (11) and
+`test_chromadb_concurrent_postgres.py` (10).
+
+`npm run typecheck` → 246 errors, all baseline-known, none new.
+
+Route audit per tenant after the change, from the running app: **11 open, 0 state-changing**,
+the same eleven on all five.
+
+| tenant | live routes | closed this session | state-changing closed |
+|---|---|---|---|
+| bugfixing | 1010 | 216 | 87 |
+| wiley | 1091 | 261 | 86 |
+| wileytest | 939 | 220 | 86 |
+| wbm | 939 | 280 | 116 |
+| abm | 939 | 280 | 116 |
+
+External checks over HTTPS on the public hostnames, all five tenants: `/api/databases`,
+`/api/debug_settings`, `/auth/config-check` and `/api/training/model-config` return **401**;
+`/login` and `/health/live` return **200**; `POST /login` with `admin/admin` returns **401**.
+On bugfixing `force_password_change` for `admin` stayed `f` across that POST, confirming the
+pre-auth write is gone.
+
+`mm_008` applied on bugfixing only (`alembic current` → `mm_008 (head)`). Market 2 now reads
+**0 zeros, 7 unknown, 78 with a real count**.
+
+Both fail-closed secrets were checked to raise when unset, and the service starts with them set.
+No errors or tracebacks in any tenant's journal since restart, and the only 401s in the nginx log
+from the newly-closed paths are my own verification curls.
+
+### Propagation
+Canonical (bugfixing) holds all of it and is **uncommitted** — pre-commit mode, nothing staged.
+
+The four other monolith tenants got the security work by **applying the same transformations to
+their own files, not by copying files**, because these trees carry local divergence that a
+wholesale sync would clobber. The sweep imports each tenant's own app, audits its own routes and
+patches its own decorators, which is why the counts differ — wbm and abm have 116 state-changing
+routes to close against wiley's 86, since they carry different features. Backed up
+`app/routes`, `app/security`, `app/middleware` and `main.py` per tenant first; each tenant done
+separately, restarted, and verified externally.
+
+wiley, wileytest, wbm and abm are prod deploy trees and were **not committed**, per the standing
+rule. The changes exist only in those working trees, so a tenant cloned from canonical will not
+have them until canonical is committed and the clone re-synced.
+
+**None of the four has Market Monitor**, so `mm_008` and the market read-path fixes did not
+propagate and there was no alembic head divergence to work around. All four already had both
+signing keys set, so fail-closed was safe.
+
+**Three tenants on this host are still open** and were left alone because they were not in scope:
+`pbm.aunoo.ai`, `ibaset.aunoo.ai` and `bwtemplate.aunoo.ai` all return 200 on
+`/api/debug_settings`. `pearson.aunoo.ai` and `interroll.aunoo.ai` return 502 because their
+services are down, and will be open when they start. The SaaS-family sites (saas, saasmvp,
+agentic, monitoring) already return 401 — different codebase, unaffected.
+
+### Lessons
+**NEVER trust a route's auth status from grep, and never from the decorator alone.** Dependencies
+attach at the decorator, the router, or `include_router`; some handlers check `request.session`
+inline; and a duplicate registration means the copy you are reading may never serve a request.
+Enumerate from the running app, dedupe by first match, and check the body for an inline guard.
+Skipping any of the three overstated the count here by 3x and mislabelled the destructive routes.
+
+**ALWAYS check which registration wins before believing a route is exposed.** The two most
+alarming endpoints in the review were already protected by an earlier registration.
+
+**When inserting an import programmatically, confine it to the header above the first decorator.**
+Three bugs in one session, all in the tooling rather than the fix: an import placed inside a
+multi-line `from x import (` block; a presence check that ran after the decorator was written and
+matched its own text, silently skipping 12 files; and worst, an import that landed at line 1421
+because I searched the whole file for the last top-level import. A decorator runs at module import
+time, so an import below it is dead. `python -m py_compile` passes all three — only importing the
+app catches them.
+
+**`background_tasks` accumulates orphaned `running` rows.** wbm showed 22, the newest started
+1 June against a 24 August boot. Compare `started_at` to the process start before believing
+anything is in flight, or the "check running jobs first" rule gives a false stop.
+
+**A silent auth hole cannot be found by using the product.** The pages were login-gated the whole
+time, so every human path sent a cookie and every response looked correct. The only thing that
+finds this class of bug is asking without a cookie.
+
 ## 2026-08-25 (entity intelligence) — the registry stopped forgetting where its numbers came from, and I truncated the vendor table
 
 ### Goal

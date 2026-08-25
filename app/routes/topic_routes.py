@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import Database
 from app.database_query_facade import DatabaseQueryFacade
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.config.config import load_config, get_news_query, get_paper_query
 import json
 import os
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api")
 class DeleteTopicRequest(BaseModel):
     delete_articles: bool = False
 
-@router.get("/topics")
+@router.get("/topics", dependencies=[Depends(verify_session_api)])
 async def get_topics_unified(
     with_articles: bool = False,
     include_config: bool = True,

@@ -9,12 +9,12 @@ import logging
 
 from app.services.auto_ingest_service import get_auto_ingest_service
 from app.ai_models import get_available_models
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auto-ingest", tags=["auto-ingest"])
 
-@router.get("/config")
+@router.get("/config", dependencies=[Depends(verify_session_api)])
 async def get_auto_ingest_config():
     """Get current auto-ingest configuration"""
     try:
@@ -29,7 +29,7 @@ async def get_auto_ingest_config():
         logger.error(f"Failed to get auto-ingest config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/config")
+@router.post("/config", dependencies=[Depends(verify_session_api)])
 async def update_auto_ingest_config(config_updates: Dict):
     """Update auto-ingest configuration"""
     try:
@@ -66,7 +66,7 @@ async def update_auto_ingest_config(config_updates: Dict):
         logger.error(f"Failed to update auto-ingest config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(verify_session_api)])
 async def get_auto_ingest_status():
     """Get current auto-ingest status"""
     try:
@@ -149,7 +149,7 @@ async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(ver
         logger.error(f"Failed to start auto-ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/run-sync")
+@router.post("/run-sync", dependencies=[Depends(verify_session_api)])
 async def run_auto_ingest_sync():
     """Run auto-ingest pipeline synchronously (for testing)"""
     try:
@@ -175,7 +175,7 @@ async def run_auto_ingest_sync():
         logger.error(f"Failed to run auto-ingest sync: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/pending")
+@router.get("/pending", dependencies=[Depends(verify_session_api)])
 async def get_pending_articles(limit: Optional[int] = 20):
     """Get articles pending auto-ingest"""
     try:
@@ -192,7 +192,7 @@ async def get_pending_articles(limit: Optional[int] = 20):
         logger.error(f"Failed to get pending articles: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/models")
+@router.get("/models", dependencies=[Depends(verify_session_api)])
 async def get_available_llm_models():
     """Get available LLM models for auto-ingest"""
     try:
@@ -207,7 +207,7 @@ async def get_available_llm_models():
         logger.error(f"Failed to get available models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/enable")
+@router.post("/enable", dependencies=[Depends(verify_session_api)])
 async def enable_auto_ingest():
     """Enable auto-ingest"""
     try:
@@ -228,7 +228,7 @@ async def enable_auto_ingest():
         logger.error(f"Failed to enable auto-ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/disable")
+@router.post("/disable", dependencies=[Depends(verify_session_api)])
 async def disable_auto_ingest():
     """Disable auto-ingest"""
     try:
@@ -249,7 +249,7 @@ async def disable_auto_ingest():
         logger.error(f"Failed to disable auto-ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(verify_session_api)])
 async def get_auto_ingest_stats():
     """Get auto-ingest statistics"""
     try:

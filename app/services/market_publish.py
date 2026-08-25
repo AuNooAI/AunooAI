@@ -375,7 +375,8 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
     # Headcount movement: the newest profile against the workbook baseline.
     movers = [dict(r) for r in conn.execute(text("""
         SELECT b.display_name AS vendor,
-               (mb.baseline->'metrics'->>'employee_count')::numeric AS was,
+               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                   AS was,
                (s.data->>'employee_count')::numeric AS now_count
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
@@ -385,7 +386,10 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
             ORDER BY observed_at DESC LIMIT 1
         ) s ON TRUE
         WHERE mb.market_id = :m
-          AND (mb.baseline->'metrics'->>'employee_count') IS NOT NULL
+          -- Zero is a blank workbook cell. Left in, every such vendor became
+          -- a mover that had apparently hired its entire staff this period.
+          AND NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+              IS NOT NULL
           AND (s.data->>'employee_count') IS NOT NULL
     """), {"m": market["id"]}).mappings().all()]
     for m in movers:
@@ -496,7 +500,8 @@ def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[st
         ),
         vendors AS (
             SELECT b.id AS brand_id,
-                   (mb.baseline->'metrics'->>'employee_count')::numeric AS baseline_count
+                   NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                       AS baseline_count
             FROM bw_market_brands mb
             JOIN bw_brands b ON b.id = mb.brand_id
             WHERE mb.market_id = :m AND mb.role <> 'excluded'

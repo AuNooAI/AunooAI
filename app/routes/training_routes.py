@@ -11,8 +11,9 @@ import threading
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
+from app.security.session import verify_session_api
 
 logger = logging.getLogger(__name__)
 
@@ -636,7 +637,7 @@ def get_hybrid_enrichment_service():
 
 # Endpoints
 
-@router.get("/sample-counts")
+@router.get("/sample-counts", dependencies=[Depends(verify_session_api)])
 async def get_sample_counts(topic: Optional[str] = Query(default=None)):
     """
     Get sample counts per topic per field.
@@ -656,7 +657,7 @@ async def get_sample_counts(topic: Optional[str] = Query(default=None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/topics-status", response_model=List[TopicTrainingStatus])
+@router.get("/topics-status", response_model=List[TopicTrainingStatus], dependencies=[Depends(verify_session_api)])
 async def get_topics_status():
     """
     Get training status for all topics.
@@ -708,7 +709,7 @@ async def get_topics_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/topic-status/{topic}", response_model=TopicTrainingStatus)
+@router.get("/topic-status/{topic}", response_model=TopicTrainingStatus, dependencies=[Depends(verify_session_api)])
 async def get_topic_status(topic: str):
     """
     Get training status for a specific topic.
@@ -729,7 +730,7 @@ async def get_topic_status(topic: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/topics/{topic}/initialize-samples")
+@router.post("/topics/{topic}/initialize-samples", dependencies=[Depends(verify_session_api)])
 async def initialize_topic_samples(
     topic: str,
     limit: int = Query(default=100, description="Max articles to bootstrap per call"),
@@ -813,7 +814,7 @@ async def initialize_topic_samples(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/topics/{topic}/initialize-relevance-feedback")
+@router.post("/topics/{topic}/initialize-relevance-feedback", dependencies=[Depends(verify_session_api)])
 async def initialize_relevance_feedback(
     topic: str,
     high_threshold: float = Query(default=0.7, description="Score >= this → more_like_this"),
@@ -918,7 +919,7 @@ async def initialize_relevance_feedback(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/field-distribution/{topic}/{field}", response_model=FieldDistribution)
+@router.get("/field-distribution/{topic}/{field}", response_model=FieldDistribution, dependencies=[Depends(verify_session_api)])
 async def get_field_distribution(topic: str, field: str):
     """
     Get value distribution for a specific field in a topic.
@@ -934,7 +935,7 @@ async def get_field_distribution(topic: str, field: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/readiness", response_model=TrainingReadiness)
+@router.get("/readiness", response_model=TrainingReadiness, dependencies=[Depends(verify_session_api)])
 async def check_readiness(
     topics: Optional[str] = Query(default=None, description="Comma-separated list of topics")
 ):
@@ -953,7 +954,7 @@ async def check_readiness(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/trigger-finetune", response_model=TriggerFinetuneResponse)
+@router.post("/trigger-finetune", response_model=TriggerFinetuneResponse, dependencies=[Depends(verify_session_api)])
 async def trigger_finetune(request: TriggerFinetuneRequest):
     """
     Trigger a finetuning run.
@@ -989,7 +990,7 @@ class TriggerRelevanceTrainingResponse(BaseModel):
     feedback_count: int
 
 
-@router.post("/trigger-relevance-training", response_model=TriggerRelevanceTrainingResponse)
+@router.post("/trigger-relevance-training", response_model=TriggerRelevanceTrainingResponse, dependencies=[Depends(verify_session_api)])
 async def trigger_relevance_training():
     """
     Trigger relevance classifier training using user feedback data.
@@ -1057,7 +1058,7 @@ async def trigger_relevance_training():
             conn.close()
 
 
-@router.get("/runs", response_model=List[TrainingRun])
+@router.get("/runs", response_model=List[TrainingRun], dependencies=[Depends(verify_session_api)])
 async def list_runs(
     status: Optional[str] = Query(default=None, description="Filter by status"),
     limit: int = Query(default=20, ge=1, le=100),
@@ -1074,7 +1075,7 @@ async def list_runs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/runs/{run_id}", response_model=TrainingRun)
+@router.get("/runs/{run_id}", response_model=TrainingRun, dependencies=[Depends(verify_session_api)])
 async def get_run_status(run_id: str):
     """
     Get status of a specific training run.
@@ -1094,7 +1095,7 @@ async def get_run_status(run_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/runs/{run_id}/deploy")
+@router.post("/runs/{run_id}/deploy", dependencies=[Depends(verify_session_api)])
 async def deploy_model(run_id: str):
     """
     Deploy (hot-swap) a trained model to production.
@@ -1118,7 +1119,7 @@ async def deploy_model(run_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/runs/{run_id}")
+@router.delete("/runs/{run_id}", dependencies=[Depends(verify_session_api)])
 async def delete_run(run_id: str):
     """
     Delete a training run record and its associated files.
@@ -1140,7 +1141,7 @@ async def delete_run(run_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/rollback")
+@router.post("/rollback", dependencies=[Depends(verify_session_api)])
 async def rollback_model():
     """
     Rollback to the previous model version.
@@ -1160,7 +1161,7 @@ async def rollback_model():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/routing/{topic}", response_model=RoutingStatus)
+@router.get("/routing/{topic}", response_model=RoutingStatus, dependencies=[Depends(verify_session_api)])
 async def get_routing_status(topic: str):
     """
     Get routing status for a topic - which model (DeBERTa/Qwen/LLM) will be used for each field.
@@ -1174,7 +1175,7 @@ async def get_routing_status(topic: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/thresholds")
+@router.get("/thresholds", dependencies=[Depends(verify_session_api)])
 async def get_thresholds():
     """
     Get the current training thresholds.
@@ -1187,7 +1188,7 @@ async def get_thresholds():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(verify_session_api)])
 async def get_status():
     """
     Get overall training system status.
@@ -1215,7 +1216,7 @@ class PipelineStatsResponse(BaseModel):
     inference_mode: str = "hybrid"  # 'local', 'hybrid', or 'external'
 
 
-@router.get("/pipeline-stats", response_model=PipelineStatsResponse)
+@router.get("/pipeline-stats", response_model=PipelineStatsResponse, dependencies=[Depends(verify_session_api)])
 async def get_pipeline_stats():
     """
     Get article processing pipeline stats for today.
@@ -1287,7 +1288,7 @@ class ConfidenceReading(BaseModel):
     confidence_scores: Dict[str, float]  # {field_name: confidence}
 
 
-@router.get("/confidence-stats")
+@router.get("/confidence-stats", dependencies=[Depends(verify_session_api)])
 async def get_confidence_stats(topic: Optional[str] = Query(default=None)):
     """
     Get DeBERTa model confidence stats for the last 24 hours.
@@ -1314,7 +1315,7 @@ async def get_confidence_stats(topic: Optional[str] = Query(default=None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/confidence-stats")
+@router.post("/confidence-stats", dependencies=[Depends(verify_session_api)])
 async def record_confidence(reading: ConfidenceReading):
     """
     Record confidence readings from the enrichment service.
@@ -1330,7 +1331,7 @@ async def record_confidence(reading: ConfidenceReading):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/confidence-stats")
+@router.delete("/confidence-stats", dependencies=[Depends(verify_session_api)])
 async def clear_confidence_stats(topic: Optional[str] = Query(default=None)):
     """
     Clear confidence stats for a topic or all topics.
@@ -1359,7 +1360,7 @@ class RelevanceReading(BaseModel):
     ce_score: Optional[float] = None
 
 
-@router.get("/relevance-confidence-stats")
+@router.get("/relevance-confidence-stats", dependencies=[Depends(verify_session_api)])
 async def get_relevance_confidence_stats(topic: Optional[str] = Query(default=None)):
     """
     Get relevance scoring confidence stats for the last 24 hours.
@@ -1389,7 +1390,7 @@ async def get_relevance_confidence_stats(topic: Optional[str] = Query(default=No
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/relevance-confidence-stats")
+@router.post("/relevance-confidence-stats", dependencies=[Depends(verify_session_api)])
 async def record_relevance_confidence(reading: RelevanceReading):
     """
     Record relevance score readings from the relevance service.
@@ -1413,7 +1414,7 @@ async def record_relevance_confidence(reading: RelevanceReading):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/relevance-confidence-stats")
+@router.delete("/relevance-confidence-stats", dependencies=[Depends(verify_session_api)])
 async def clear_relevance_confidence_stats(topic: Optional[str] = Query(default=None)):
     """
     Clear relevance confidence stats for a topic or all topics.
@@ -1460,7 +1461,7 @@ class RelevanceFeedbackStats(BaseModel):
     recent_feedback: int  # last 7 days
 
 
-@router.post("/relevance-feedback", response_model=RelevanceFeedbackResponse)
+@router.post("/relevance-feedback", response_model=RelevanceFeedbackResponse, dependencies=[Depends(verify_session_api)])
 async def record_relevance_feedback(request: RelevanceFeedbackRequest):
     """
     Record user feedback on article relevance.
@@ -1534,7 +1535,7 @@ async def record_relevance_feedback(request: RelevanceFeedbackRequest):
             conn.close()
 
 
-@router.get("/relevance-feedback")
+@router.get("/relevance-feedback", dependencies=[Depends(verify_session_api)])
 async def get_relevance_feedback(
     topic: Optional[str] = Query(default=None, description="Filter by topic"),
     feedback_type: Optional[str] = Query(default=None, description="Filter by feedback type"),
@@ -1622,7 +1623,7 @@ async def get_relevance_feedback(
             conn.close()
 
 
-@router.get("/relevance-feedback/stats")
+@router.get("/relevance-feedback/stats", dependencies=[Depends(verify_session_api)])
 async def get_relevance_feedback_stats(
     topic: Optional[str] = Query(default=None, description="Filter by topic"),
 ):
@@ -1695,7 +1696,7 @@ async def get_relevance_feedback_stats(
             conn.close()
 
 
-@router.delete("/relevance-feedback/{feedback_id}")
+@router.delete("/relevance-feedback/{feedback_id}", dependencies=[Depends(verify_session_api)])
 async def delete_relevance_feedback(feedback_id: int):
     """
     Delete a specific relevance feedback record.
@@ -1754,7 +1755,7 @@ class ModelConfigResponse(BaseModel):
     external_models: List[ModelInfo]
 
 
-@router.get("/model-config", response_model=ModelConfigResponse)
+@router.get("/model-config", response_model=ModelConfigResponse, dependencies=[Depends(verify_session_api)])
 async def get_model_config():
     """
     Get the current model configuration.
@@ -1880,7 +1881,7 @@ async def get_model_config():
     )
 
 
-@router.get("/latency-stats")
+@router.get("/latency-stats", dependencies=[Depends(verify_session_api)])
 async def get_latency_stats():
     """
     Get live latency statistics for all tracked models.
@@ -1909,7 +1910,7 @@ class CostSavingsStats(BaseModel):
     window_hours: int
 
 
-@router.get("/cost-savings")
+@router.get("/cost-savings", dependencies=[Depends(verify_session_api)])
 async def get_cost_savings(hours: int = 24):
     """
     Get cost savings statistics based on actual model usage.
@@ -2035,7 +2036,7 @@ class TrainPreclassifierRequest(BaseModel):
     batch_size: Optional[int] = None
 
 
-@router.get("/preclassifiers")
+@router.get("/preclassifiers", dependencies=[Depends(verify_session_api)])
 async def list_preclassifiers():
     """
     List all preclassifiers with sample counts, readiness, and model status.
@@ -2049,7 +2050,7 @@ async def list_preclassifiers():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/preclassifiers/{classifier_id}/status")
+@router.get("/preclassifiers/{classifier_id}/status", dependencies=[Depends(verify_session_api)])
 async def get_preclassifier_status(classifier_id: str):
     """
     Get detailed status for a specific preclassifier.
@@ -2065,7 +2066,7 @@ async def get_preclassifier_status(classifier_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/preclassifiers/{classifier_id}/train")
+@router.post("/preclassifiers/{classifier_id}/train", dependencies=[Depends(verify_session_api)])
 async def train_preclassifier(classifier_id: str, request: TrainPreclassifierRequest = None):
     """
     Export data and trigger training for a preclassifier.
@@ -2090,7 +2091,7 @@ async def train_preclassifier(classifier_id: str, request: TrainPreclassifierReq
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/preclassifiers/{classifier_id}/reload")
+@router.post("/preclassifiers/{classifier_id}/reload", dependencies=[Depends(verify_session_api)])
 async def reload_preclassifier(classifier_id: str):
     """
     Force-reload a preclassifier model after training.
@@ -2106,7 +2107,7 @@ async def reload_preclassifier(classifier_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/relevance-feedback/article/{article_uri:path}")
+@router.get("/relevance-feedback/article/{article_uri:path}", dependencies=[Depends(verify_session_api)])
 async def get_article_feedback(article_uri: str):
     """
     Get feedback for a specific article.
@@ -2160,7 +2161,7 @@ class InferenceModeRequest(BaseModel):
     mode: str = Field(..., description="Inference mode: 'local', 'hybrid', or 'external'")
 
 
-@router.get("/inference-mode")
+@router.get("/inference-mode", dependencies=[Depends(verify_session_api)])
 async def get_inference_mode():
     """
     Get the current inference mode setting.
@@ -2339,7 +2340,7 @@ def check_local_models_available() -> dict:
     }
 
 
-@router.get("/local-models-status")
+@router.get("/local-models-status", dependencies=[Depends(verify_session_api)])
 async def get_local_models_status():
     """
     Check status of all local models required for 'local' inference mode.
@@ -2349,7 +2350,7 @@ async def get_local_models_status():
     return check_local_models_available()
 
 
-@router.put("/inference-mode")
+@router.put("/inference-mode", dependencies=[Depends(verify_session_api)])
 async def set_inference_mode(request: InferenceModeRequest):
     """
     Set the inference mode for article processing.
@@ -2414,7 +2415,7 @@ async def set_inference_mode(request: InferenceModeRequest):
 # Relevance Triage - Rapid Article Classification
 # ============================================================================
 
-@router.get("/triage-articles")
+@router.get("/triage-articles", dependencies=[Depends(verify_session_api)])
 async def get_triage_articles(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     limit: int = Query(50, ge=1, le=200, description="Max articles to return"),
@@ -2506,7 +2507,7 @@ async def get_triage_articles(
             conn.close()
 
 
-@router.get("/data-quality")
+@router.get("/data-quality", dependencies=[Depends(verify_session_api)])
 async def get_data_quality_report(
     hours: int = 24,
     samples: int = 5,
@@ -2526,7 +2527,7 @@ async def get_data_quality_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/data-quality/topic/{topic}")
+@router.get("/data-quality/topic/{topic}", dependencies=[Depends(verify_session_api)])
 async def get_topic_quality(
     topic: str,
     samples: int = 10,
