@@ -120,6 +120,18 @@ def close_run(conn, run_id: int, *, status: str, received: int = 0, new: int = 0
            "err": (str(error)[:2000] if error else None), "cost": cost_amount,
            "cur": cost_currency, "r": run_id})
 
+    # Turn what this run collected into entity observations, links and
+    # mentions. Every collector path reaches this function, so wiring it here
+    # rather than at each of the twenty-seven call sites is what stops a new
+    # source silently skipping the entity layer.
+    #
+    # It never raises and it is a no-op while ENTITY_INTELLIGENCE_ENABLED is
+    # off. The provider rows are already durable above; processing them is a
+    # separate concern that must not be able to fail the run that paid for
+    # them.
+    from app.services import entity_ingest
+    entity_ingest.on_run_closed(conn, run_id, status)
+
 
 def load_run(conn, run_id: int) -> Optional[Dict[str, Any]]:
     row = conn.execute(text("""

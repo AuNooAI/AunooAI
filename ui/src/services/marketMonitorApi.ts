@@ -1625,3 +1625,49 @@ export async function getEntityHealth(marketId: number): Promise<EntityHealth> {
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/entity-health`,
                                  { credentials: 'include' }), 'entity health');
 }
+
+/** One field's current answer, read from the canonical row rather than
+ *  derived from a page of observations. `status` here is the field's state —
+ *  conflict, stale, manual_override — not the observation's. */
+export interface CanonicalProfileField {
+  field_key: string;
+  value_text: string | null;
+  value_number: number | null;
+  unit: string | null;
+  status: string;
+  confidence: number | null;
+  policy_version: string;
+  resolution_reason: string;
+  resolved_at: string;
+  stale_after: string | null;
+  locked: boolean;
+  locked_by: string | null;
+  lock_reason: string | null;
+  observation_id: number;
+  source: string;
+  observed_at: string;
+  source_url: string | null;
+}
+
+export interface CanonicalProfile {
+  fields: CanonicalProfileField[];
+  market_fields: { field_key: string; value_text: string | null;
+                   status: string; observation_id: number; source: string;
+                   observed_at: string }[];
+  conflicts: string[];
+  stale_fields: string[];
+  locked_fields: string[];
+  policy_version: string;
+}
+
+/** Returns null when the entity layer is switched off, so callers can render
+ *  nothing rather than an error the operator cannot act on. */
+export async function getCanonicalProfile(
+  marketId: number, brandId: number,
+): Promise<CanonicalProfile | null> {
+  const res = await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/profile`,
+    { credentials: 'include' });
+  if (res.status === 404) return null;
+  return jsonOrThrow(res, 'canonical profile');
+}

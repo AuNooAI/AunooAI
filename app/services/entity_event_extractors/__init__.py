@@ -52,8 +52,19 @@ def run_all(conn, *, brand_id: Optional[int] = None,
             only: Optional[List[str]] = None,
             limit: Optional[int] = None) -> Dict[str, Any]:
     """Run the enabled extractors and report what each one did."""
+    from app.services import entity_flags
+
     summary: Dict[str, Any] = {'events_created': 0, 'events_merged': 0,
                                'skipped': {}, 'by_extractor': {}}
+
+    # Extraction writes events that a vendor page renders, so it is gated
+    # rather than always-on. Off means no new events, and the ones already
+    # extracted stay exactly as they are.
+    if not entity_flags.events_enabled():
+        summary['skipped']['*'] = ('event extraction is disabled '
+                                   '(ENTITY_INTELLIGENCE_EVENTS_ENABLED)')
+        return summary
+
     for name, (fn, enabled, reason) in EXTRACTORS.items():
         if only and name not in only:
             continue

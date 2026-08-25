@@ -43,7 +43,26 @@ from app.services.entity_field_registry import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Market Monitor"])
+def require_entity_layer() -> None:
+    """Make ENTITY_INTELLIGENCE_ENABLED a real switch for this surface.
+
+    With the flag off these endpoints answer 404, which is what the Market
+    Monitor API looked like before they existed. A rollback switch that leaves
+    the new surface reachable is not a rollback, and it is worse than no switch
+    because somebody will reach for it during an incident and believe it
+    worked.
+    """
+    from app.services import entity_flags
+
+    if not entity_flags.enabled():
+        raise HTTPException(
+            status_code=404,
+            detail='entity intelligence is disabled '
+                   '(ENTITY_INTELLIGENCE_ENABLED)')
+
+
+router = APIRouter(tags=["Market Monitor"],
+                   dependencies=[Depends(require_entity_layer)])
 
 MAX_PAGE = 200
 
@@ -70,6 +89,55 @@ def _require_vendor(conn, market_id: int, brand_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Fields and provenance
 # ---------------------------------------------------------------------------
+
+@router.get('/markets/{market_id}/vendors/{brand_id}/profile')
+async def canonical_profile(market_id: int, brand_id: int,
+                            session=Depends(verify_session)):
+    """The current answer for each field, read from the canonical rows.
+
+    Deriving this from a page of observations was wrong twice over: a settled
+    or locked value eventually falls outside any recency window and vanishes
+    from the page, and an observation's own status ('active') says nothing
+    about whether the field is in conflict, stale, or held by an operator.
+    Both come from the canonical row, so both are read from it.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            _require_vendor(conn, market_id, brand_id)
+            fields = [dict(r) for r in conn.execute(text("""
+                SELECT c.field_key, c.value_text, c.value_number, c.value_date,
+                       c.unit, c.status, c.confidence, c.policy_version,
+                       c.resolution_reason, c.resolved_at, c.stale_after,
+                       c.locked, c.locked_by, c.lock_reason, c.observation_id,
+                       o.source, o.observed_at, o.source_url
+                  FROM bw_entity_canonical_fields c
+                  JOIN bw_entity_observations o ON o.id = c.observation_id
+                 WHERE c.brand_id = :b AND c.market_id IS NULL
+                 ORDER BY c.field_key
+            """), {'b': brand_id}).mappings().all()]
+
+            membership = [dict(r) for r in conn.execute(text("""
+                SELECT c.field_key, c.value_text, c.status, c.observation_id,
+                       o.source, o.observed_at
+                  FROM bw_entity_canonical_fields c
+                  JOIN bw_entity_observations o ON o.id = c.observation_id
+                 WHERE c.brand_id = :b AND c.market_id = :m
+                 ORDER BY c.field_key
+            """), {'b': brand_id, 'm': market_id}).mappings().all()]
+
+            return {'fields': fields, 'market_fields': membership,
+                    'conflicts': [f['field_key'] for f in fields
+                                  if f['status'] == 'conflict'],
+                    'stale_fields': [f['field_key'] for f in fields
+                                     if f['status'] == 'stale'],
+                    'locked_fields': [f['field_key'] for f in fields
+                                      if f['locked']],
+                    'policy_version': ENTITY_FIELD_POLICY_VERSION}
+        finally:
+            conn.close()
+    return await asyncio.to_thread(_work)
+
 
 @router.get('/markets/{market_id}/vendors/{brand_id}/observations')
 async def list_observations(market_id: int, brand_id: int,
@@ -159,13 +227,19 @@ async def field_history(market_id: int, brand_id: int, field_key: str,
                  ORDER BY created_at DESC LIMIT 50
             """), {'b': brand_id, 'f': field_key}).mappings().all()]
 
+            # Market-relative fields have one canonical row per membership,
+            # so reading the global row returned nothing for taxonomy and made
+            # the history panel look empty.
+            scope_market = market_id if field_policy.scope == 'market' else None
             current = conn.execute(text("""
                 SELECT observation_id, value_text, value_number, unit, status,
                        confidence, policy_version, resolution_reason,
                        resolved_at, stale_after, locked, locked_by, lock_reason
                   FROM bw_entity_canonical_fields
-                 WHERE brand_id = :b AND field_key = :f AND market_id IS NULL
-            """), {'b': brand_id, 'f': field_key}).mappings().first()
+                 WHERE brand_id = :b AND field_key = :f
+                   AND market_id IS NOT DISTINCT FROM :m
+            """), {'b': brand_id, 'f': field_key,
+                   'm': scope_market}).mappings().first()
 
             return {'field_key': field_key,
                     'unit': field_policy.unit,
@@ -200,15 +274,26 @@ async def correct_field(market_id: int, brand_id: int, field_key: str,
     except KeyError:
         raise HTTPException(status_code=404, detail=f'unknown field {field_key}')
 
-    scope_market = payload.market_id
+    # The market comes from the route. Accepting a different one in the body
+    # let a request addressed to one market rewrite another market's taxonomy,
+    # which no caller has any reason to do.
+    if payload.market_id is not None and payload.market_id != market_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f'market_id in the body ({payload.market_id}) does not '
+                   f'match the market in the path ({market_id})')
+
     if field_policy.scope == 'market':
         # Taxonomy belongs to a membership, so a correction without a market
         # is ambiguous rather than global.
-        scope_market = scope_market or market_id
-    elif scope_market is not None:
-        raise HTTPException(status_code=400,
-                            detail=f'{field_key} is a company fact, not a '
-                                   f'market-relative one')
+        scope_market = market_id
+    else:
+        if payload.market_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f'{field_key} is a company fact, not a market-relative '
+                       f'one; drop market_id')
+        scope_market = None
 
     actor = _actor(session)
 
@@ -270,13 +355,17 @@ async def unlock_field(market_id: int, brand_id: int, field_key: str,
         conn = _conn()
         try:
             _require_vendor(conn, market_id, brand_id)
+            # Scope the unlock. Without the market clause, unlocking one
+            # market's category released that field in every market the
+            # company belongs to.
+            scope_market = market_id if policy(field_key).scope == 'market' else None
             conn.execute(text("""
                 UPDATE bw_entity_canonical_fields
                    SET locked = FALSE, locked_by = NULL, lock_reason = NULL,
                        updated_at = NOW()
                  WHERE brand_id = :b AND field_key = :f
-            """), {'b': brand_id, 'f': field_key})
-            scope_market = market_id if policy(field_key).scope == 'market' else None
+                   AND market_id IS NOT DISTINCT FROM :m
+            """), {'b': brand_id, 'f': field_key, 'm': scope_market})
             result = entity_resolution.resolve_field(
                 conn, brand_id, field_key, market_id=scope_market,
                 trigger='manual', actor=actor)
@@ -472,6 +561,18 @@ async def decide_identity(market_id: int, brand_id: int, mapping_id: int,
         conn = _conn()
         try:
             _require_vendor(conn, market_id, brand_id)
+            # The mapping id came from the URL and nothing tied it to the
+            # vendor in the path, so one vendor's page could verify or reject
+            # another vendor's account mapping.
+            owner = conn.execute(text("""
+                SELECT brand_id FROM bw_entity_social_identities WHERE id = :i
+            """), {'i': mapping_id}).scalar()
+            if owner is None:
+                raise HTTPException(status_code=404, detail='no such mapping')
+            if int(owner) != brand_id:
+                raise HTTPException(
+                    status_code=404,
+                    detail='that mapping belongs to a different vendor')
             if payload.action == 'verify':
                 entity_identity.verify_identity(conn, mapping_id, actor=actor)
             else:

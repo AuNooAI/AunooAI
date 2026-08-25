@@ -201,8 +201,39 @@ def resolve_field(conn, brand_id: int, field_key: str, *,
     held = _hold_against_regression(conn, p, current, winner, brand_id,
                                     field_key, candidates)
     if held is not None:
+        # The previous value stands, but the field is in dispute and the row
+        # has to say so. Reporting 'conflict' in the return value while the
+        # database still read 'current' meant the vendor page showed a settled
+        # figure and the health endpoint counted zero conflicts.
+        conn.execute(text("""
+            UPDATE bw_entity_canonical_fields
+               SET status = 'conflict', resolution_reason = :reason,
+                   policy_version = :policy_version, resolved_at = NOW(),
+                   updated_at = NOW()
+             WHERE brand_id = :b AND field_key = :f
+               AND market_id IS NOT DISTINCT FROM :m
+        """), {'reason': held['reason'], 'b': brand_id, 'f': field_key,
+               'm': market_id,
+               'policy_version': ENTITY_FIELD_POLICY_VERSION})
         outcome.update(held)
         outcome['status'] = 'conflict'
+        return outcome
+
+    # A lock stops *automatic* sources overriding a person. It must not stop a
+    # person correcting themselves: without this, a second manual correction
+    # was stored as an observation and then discarded, so the operator saw
+    # their own new value ignored with no explanation.
+    if (current and current['locked'] and winner['source'] == 'manual'
+            and int(winner['id']) != int(current['observation_id'])):
+        changed = _write_canonical(
+            conn, brand_id, field_key, market_id,
+            observation_id=int(winner['id']), status='manual_override',
+            reason='replaced by a later manual correction', policy=p,
+            trigger=trigger, actor=actor,
+            current={**current, 'locked': False}, winner=winner)
+        outcome.update(changed=changed, status='manual_override',
+                       observation_id=int(winner['id']),
+                       reason='replaced by a later manual correction')
         return outcome
 
     if current and current['locked']:

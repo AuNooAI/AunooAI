@@ -22,12 +22,13 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
 
 import {
-  getVendorEvents, getVendorMentions, getVendorObservations,
-  type EntityEvent, type EntityObservation, type MentionSummaryRow,
+  getCanonicalProfile, getVendorEvents, getVendorMentions,
+  type CanonicalProfile, type CanonicalProfileField, type EntityEvent,
+  type MentionSummaryRow,
 } from '../../services/marketMonitorApi';
 import {
   baselineDiffers, corroborationNote, eventDateLabel, provenanceLabel,
-  splitMentions,
+  splitMentions, statusNote, type FieldStatus,
 } from './entityProvenance';
 
 function Panel({ title, hint, children }: {
@@ -82,20 +83,21 @@ function baselineValue(baseline: Record<string, any> | null | undefined,
   }
 }
 
-function displayValue(observation: EntityObservation): string {
-  if (observation.value_number != null) {
-    const n = Number(observation.value_number);
+function displayValue(field: CanonicalProfileField): string {
+  if (field.value_number != null) {
+    const n = Number(field.value_number);
     const formatted = Number.isInteger(n) ? n.toLocaleString() : String(n);
-    return observation.unit === 'musd' ? `$${formatted}m` : formatted;
+    return field.unit === 'musd' ? `$${formatted}m` : formatted;
   }
-  return observation.value_text ?? '—';
+  return field.value_text ?? '—';
 }
 
 export function MarketVendorProvenance({ marketId, brandId, baseline }: {
   marketId: number; brandId: number;
   baseline?: Record<string, any> | null;
 }) {
-  const [canonical, setCanonical] = useState<EntityObservation[]>([]);
+  const [profile, setProfile] = useState<CanonicalProfile | null>(null);
+  const [disabled, setDisabled] = useState(false);
   const [events, setEvents] = useState<EntityEvent[]>([]);
   const [mentions, setMentions] = useState<MentionSummaryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,15 +107,24 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([
-      getVendorObservations(marketId, brandId, { limit: 200 }),
-      getVendorEvents(marketId, brandId, 25),
-      getVendorMentions(marketId, brandId, { limit: 1 }),
-    ]).then(([obs, ev, mn]) => {
-      if (cancelled) return;
-      setCanonical(obs.observations.filter(o => o.is_canonical));
-      setEvents(ev.events);
-      setMentions(mn.summary);
+    // The canonical rows are read directly. Filtering a page of observations
+    // for the winning one meant a settled or locked value dropped off the
+    // page as soon as newer readings pushed it out of the window.
+    getCanonicalProfile(marketId, brandId).then((p) => {
+      if (cancelled) return null;
+      if (p === null) {           // entity layer switched off
+        setDisabled(true);
+        return null;
+      }
+      setProfile(p);
+      return Promise.all([
+        getVendorEvents(marketId, brandId, 25),
+        getVendorMentions(marketId, brandId, { limit: 1 }),
+      ]).then(([ev, mn]) => {
+        if (cancelled) return;
+        setEvents(ev.events);
+        setMentions(mn.summary);
+      });
     }).catch((e: unknown) => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e));
     }).finally(() => { if (!cancelled) setLoading(false); });
@@ -128,6 +139,10 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
     );
   }
 
+  // Switched off: render nothing at all, so turning the flag off restores the
+  // page as it was rather than leaving an error panel behind.
+  if (disabled) return null;
+
   if (error) {
     return (
       <Panel title="Current profile">
@@ -138,7 +153,8 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
     );
   }
 
-  const byField = new Map(canonical.map(o => [o.field_key, o]));
+  const byField = new Map(
+    (profile?.fields ?? []).map(f => [f.field_key, f]));
   const ordered = FIELD_ORDER.filter(f => byField.has(f));
   const missing = FIELD_ORDER.filter(f => !byField.has(f));
   const split = splitMentions(mentions.map(m => ({
@@ -176,6 +192,14 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
                     </td>
                     <td className="py-2 text-xs text-slate-500 dark:text-gray-400">
                       {provenanceLabel(observation.source, observation.observed_at)}
+                      {observation.status !== 'current' && (
+                        <span className={`ml-2 ${TONE_CLASS[
+                          statusNote(observation.status as FieldStatus,
+                                     observation.stale_after).tone]}`}>
+                          {statusNote(observation.status as FieldStatus,
+                                      observation.stale_after).text}
+                        </span>
+                      )}
                       {differs && (
                         <span className="ml-2 text-amber-600 dark:text-amber-400">
                           import said {String(previous)}

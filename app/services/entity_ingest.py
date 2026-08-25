@@ -75,6 +75,17 @@ def link_content(conn, article_uri: str,
     if candidates is None:
         candidates = _discover_candidates(conn, article, channel)
 
+    # Social lanes are gated separately from the rest of the layer, because
+    # they are the expensive half: term matching over public posts feeds a
+    # model-scored evaluation queue. Off means public posts are not turned
+    # into mentions at all; owned and earned content is unaffected.
+    from app.services import entity_flags
+
+    if (channel in ('public_social', 'community')
+            and not entity_flags.social_enabled()):
+        result['status'] = 'skipped: social lanes disabled'
+        return result
+
     owned = channel in _OWNED_CHANNELS
     for candidate in candidates:
         brand_id = int(candidate['brand_id'])
@@ -189,6 +200,99 @@ def _all_brands(conn) -> List[int]:
         SELECT DISTINCT brand_id FROM bw_market_brands WHERE role <> 'excluded'
     """)).fetchall()
     return [int(r[0]) for r in rows]
+
+
+def process_pending(conn, run_id: Optional[int] = None,
+                    snapshot_limit: int = 200,
+                    article_limit: int = 200) -> Dict[str, Any]:
+    """Process whatever collection has left waiting, and nothing else.
+
+    This is the hook every collector reaches through ``close_run``. It works
+    off durable backlog markers rather than off what a particular run happened
+    to write, which is what makes it self-healing: a snapshot stranded by a
+    crash, a deploy, or a normalizer bug is still ``pending`` afterwards and
+    the next run of any source picks it up. Keying the work to one run id
+    would strand exactly the rows that most need retrying.
+
+    Both halves are bounded. Closing a collection run must stay a fast ledger
+    write, so a large backlog drains over several runs instead of turning one
+    run's completion into an unbounded job.
+    """
+    summary = {'run_id': run_id, 'snapshots': 0, 'normalized': 0,
+               'observations': 0, 'failed': 0, 'articles': 0, 'links': 0,
+               'mentions': 0, 'resolved_brands': 0}
+    touched: set = set()
+
+    pending = conn.execute(text("""
+        SELECT id, brand_id FROM bw_vendor_snapshots
+         WHERE normalization_status = 'pending'
+         ORDER BY id
+         LIMIT :lim
+    """), {'lim': snapshot_limit}).mappings().all()
+
+    for row in pending:
+        summary['snapshots'] += 1
+        outcome = normalize_snapshot(conn, int(row['id']))
+        if outcome['status'] == 'failed':
+            summary['failed'] += 1
+            continue
+        if outcome['status'] in ('normalized', 'partial'):
+            summary['normalized'] += 1
+            summary['observations'] += outcome.get('written', 0)
+            if row['brand_id']:
+                touched.add(int(row['brand_id']))
+
+    # Articles that something attributed to a company but which have no entity
+    # relationship yet. Cheap to find and it catches every collector, not only
+    # the ones that write snapshots.
+    unlinked = conn.execute(text("""
+        SELECT DISTINCT c.article_uri
+          FROM bw_article_categories c
+         WHERE NOT EXISTS (SELECT 1 FROM bw_entity_content_links l
+                            WHERE l.article_uri = c.article_uri)
+         ORDER BY c.article_uri
+         LIMIT :lim
+    """), {'lim': article_limit}).fetchall()
+
+    for (article_uri,) in unlinked:
+        summary['articles'] += 1
+        outcome = link_content(conn, article_uri,
+                               context={'collection_run_id': run_id})
+        summary['links'] += outcome['links']
+        summary['mentions'] += outcome['mentions']
+
+    for brand_id in sorted(touched):
+        entity_resolution.resolve_entity(conn, brand_id, trigger='ingest')
+        entity_projection.project_entity(conn, brand_id)
+        entity_projection.project_all_memberships(conn, brand_id)
+        summary['resolved_brands'] += 1
+    return summary
+
+
+def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
+    """Called by ``market_collect.close_run`` once the ledger row is written.
+
+    Returns None when the entity layer is switched off, so the master flag
+    genuinely stops new processing rather than only changing what is read.
+
+    Never raises. The provider data is already durable at this point and a
+    fault in processing must not fail the run that collected it — the backlog
+    markers mean anything skipped here is retried on the next close.
+    """
+    from app.services import entity_flags
+
+    if not entity_flags.enabled():
+        return None
+    if status not in ('succeeded', 'partial'):
+        # A failed run wrote nothing worth processing. Its snapshots, if any,
+        # stay pending and are picked up by the next successful close.
+        return None
+    try:
+        return process_pending(conn, run_id=run_id)
+    except Exception:                                       # noqa: BLE001
+        logger.exception('entity post-ingest failed run_id=%s; provider data '
+                         'is unaffected and stays queued', run_id)
+        return None
 
 
 def process_ingest_batch(conn, run_id: Optional[int] = None,

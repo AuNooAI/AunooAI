@@ -1,10 +1,10 @@
 # Every vendor fact now says where it came from
 _2026-08-25 · Market Monitor vendor pages, vendor lists and filters, Brand Watcher social feed_
 
-**Status: built, not switched on.** The code is committed to the canonical tree but nothing is
-deployed, and every new read path sits behind a flag that is currently off. Customers see no
-change today. This document describes what turning it on does, so the decision to turn it on can
-be made with the trade-offs visible.
+**Status: live on bugfixing since 2026-08-25.** Deployed, and the canonical and mention read
+paths are switched on. Two other switches stay off deliberately: automatic event extraction and
+the social listening lane. Rolling any of it back is a flag change and a restart — no data moves
+either way.
 
 ## What shipped
 
@@ -90,18 +90,27 @@ funded company because a spreadsheet cell was blank.
 
 ## Limits and what's next
 
-**Nothing is live.** The flags are off and the code is not deployed. Enabling it is a deliberate
-step, and it changes visible results — filter counts move, and one vendor's country changes.
+**A review found eight correctness gaps after this was written, now fixed.** Two of them would
+have been visible to a customer: facts could disappear from the vendor page once a value had been
+settled for a while, and a disputed figure was displayed as if it were settled. The rest were
+internal — most importantly, new collections were not feeding the new layer at all, so the data
+would have been correct today and increasingly out of date from the next collection onward.
 
-**Twine Security moves from Israel to the United States** when this is turned on, because a
-LinkedIn reading outranks the workbook. That is the intended mechanism, and it is a real
-assertion about a company that should be checked by someone who knows before it is shown to
-customers.
+**Twine Security now shows the United States rather than Israel**, because a LinkedIn reading
+outranks the imported workbook. That is the intended mechanism working, but it is a real
+assertion about a company and nobody has checked which is right. Worth a look from someone who
+knows the vendor.
 
-**Two vendors are missing their funding totals.** Intezer and Prophet Security lost hand-entered
-figures during this work (a database mistake, documented in the engineering log). The sources are
-known and recorded in a review task; restoring them needs an analyst to decide the total, because
-the sources cite individual rounds rather than a total.
+**Two filters return different counts** than they did last week, both correctly: "fewer than ten
+staff" went from 24 vendors to 17 as the blank-cell zeroes stopped matching.
+
+**Two funding totals were restored by hand.** Intezer ($33m) and Prophet Security ($41m) lost
+their figures to a database mistake during this work, documented in the engineering log. Both
+were re-entered from the companies' own funding announcements and are recorded as operator
+corrections, so they carry that provenance rather than appearing as collected data.
+
+**Only bugfixing has this.** The other customer sites do not run Market Monitor at all, so
+there is nothing to roll it out to there.
 
 **Sentiment coverage is thin.** Only a handful of external mentions have been assessed so far, so
 sentiment figures will show as unavailable for most vendors rather than wrong. Widening that

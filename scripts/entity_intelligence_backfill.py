@@ -209,12 +209,14 @@ def cmd_baseline(conn, args) -> Dict[str, Any]:
             _save_cursor(conn, 'baseline', str(cursor), written, skipped)
             conn.commit()
             written = skipped = 0
-        else:
-            conn.rollback()
-            break
 
-    return _state(conn, 'baseline', dry_run=args.dry_run,
-                  written=written, skipped=skipped)
+    if args.dry_run:
+        # Nothing is kept, but every batch was walked, so the counts describe
+        # the whole set rather than the first page of it.
+        conn.rollback()
+        return {'subcommand': 'baseline', 'dry_run': True,
+                'written': written, 'skipped': skipped}
+    return _state(conn, 'baseline', written=written, skipped=skipped)
 
 
 # ---------------------------------------------------------------------------
@@ -248,12 +250,13 @@ def cmd_snapshots(conn, args) -> Dict[str, Any]:
                          detail={'shapes': by_shape, 'failed': failed})
             conn.commit()
             written = skipped = 0
-        else:
-            conn.rollback()
-            break
 
-    return _state(conn, 'snapshots', dry_run=args.dry_run, shapes=by_shape,
-                  failed=failed)
+    if args.dry_run:
+        conn.rollback()
+        return {'subcommand': 'snapshots', 'dry_run': True,
+                'written': written, 'skipped': skipped, 'shapes': by_shape,
+                'failed': failed}
+    return _state(conn, 'snapshots', shapes=by_shape, failed=failed)
 
 
 # ---------------------------------------------------------------------------

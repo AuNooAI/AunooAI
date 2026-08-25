@@ -140,6 +140,75 @@ task naming the URLs. **`web_pages`/`web_feeds`/`web_discovered_at` on 20 member
 and self-heal: `_discover_feeds` re-runs on its own cadence and the domain identifiers survived.
 Every rebuilt row carries a `reconstruction` key saying what happened.
 
+### Fix: a review found eight correctness gaps the tests could not have caught
+An external review of `4335096b` found eight defects, all confirmed against the source. The
+common thread is that every test in the original suite called the services **directly**, so a
+service nobody calls still passes, and a flag nobody reads still reports whatever it was given.
+The backfill made the live data correct, which is exactly what hid the missing wiring.
+
+**`app/services/market_collect.py` + `entity_ingest.py` — continuous ingestion was never
+connected.** `process_ingest_batch()` existed and had zero callers, so §7.3 of the spec ("after a
+successful ingest batch: normalize, resolve, link, extract") was simply not implemented. The
+backfilled data was right and would have drifted from the next collection run onward, silently.
+Added `on_run_closed()` and called it from `close_run()` — the single chokepoint all 27 call
+sites already pass through, so a new collector cannot skip the entity layer by forgetting a call.
+It works off durable backlog markers (`normalization_status='pending'`, and attributed articles
+with no content link) rather than off one run's rows, so a snapshot stranded by a crash or a
+deploy is retried by the next run of any source. Bounded at 200 each; never raises, because the
+provider rows are already durable and paid for by the time it runs.
+
+**Flags: three of six had no callers.** `ENTITY_INTELLIGENCE_ENABLED`, `EVENTS_ENABLED` and
+`SOCIAL_ENABLED` were documentation pretending to be controls — the entity routes and the
+provenance panel were exposed unconditionally, so turning the master switch off did not restore
+the previous API or UI. `enabled()` now gates post-ingest processing and 404s the entity router
+via a router-level dependency; `events_enabled()` gates extraction; `social_enabled()` gates the
+public-social lane. The panel renders nothing on a 404 rather than an error box.
+
+**`market_entity_routes.py` — market-scoped corrections were unsafe in three ways.** The payload
+could name a different `market_id` from the route (now a 400), field history always read the
+global canonical row so taxonomy history came back empty (now scoped), and unlocking one market's
+category released that field in **every** market the company belongs to (now scoped).
+
+**`entity_resolution.py` — a second manual correction to a locked field was discarded.** The new
+observation was stored and then ignored, so an operator saw their own corrected value silently
+revert. The lock exists to stop automatic sources overriding a person; it must not stop the
+person changing their mind. A later `manual` observation now supersedes a locked one and the row
+moves to `manual_override`.
+
+**`MarketVendorProvenance.tsx` — the panel derived canonical values from the newest 200
+observations.** A settled or locked value fell out of that window as newer readings arrived and
+vanished from the page, and the endpoint returned the *observation's* status (`active`) rather
+than the field's (`conflict`/`stale`/`manual_override`). Added
+`GET .../vendors/{brand_id}/profile`, which reads the canonical rows directly; the panel no
+longer computes canonical state client-side at all.
+
+**`entity_resolution.py` — a held decrease reported a conflict the database never recorded.** The
+function returned `status='conflict'` and opened a review task while the row still read
+`current`, so the vendor page showed a settled figure and `entity-health` counted zero conflicts.
+
+**`entity_intelligence_backfill.py` — dry runs stopped after the first 200-row batch**, so a
+preview of a 269-snapshot set described the first 200. Now walks every batch and rolls back once
+at the end.
+
+**`market_entity_routes.py` — identity decisions did not check ownership**, so one vendor's page
+could verify or reject another vendor's account mapping. Now 404s unless the mapping belongs to
+the brand in the route.
+
+### Fix verification: the tests now fail without the fixes
+`tests/test_entity_wiring.py` — 13 tests asserting the *connections* rather than the components:
+that closing a run processes what it collected, that a failed run leaves its snapshots queued,
+that the master switch stops processing, that processing faults cannot fail a run, that every
+flag has a caller, that the routes 404 when disabled, that a second manual correction wins, that
+a body/path market mismatch is refused, that unlocking one market leaves the others locked, that
+a held decrease persists `conflict`, and that one vendor cannot decide another's mapping.
+
+Checked these are real regression tests rather than tests written to pass: reverting the
+`close_run` wiring turns `test_closing_a_run_processes_what_it_collected` red, and restoring it
+turns it green again. The dry-run fix was proven separately by running `cmd_baseline` with
+`BATCH=10` — 429 rows across 9 batches, where it previously stopped at the first.
+
+Backend suite is now **133 passing** (was 120), no test residue.
+
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
 748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned
