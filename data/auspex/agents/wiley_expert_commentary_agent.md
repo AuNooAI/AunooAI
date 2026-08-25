@@ -3,7 +3,7 @@ name: wiley_expert_commentary_agent
 category: wiley_bundle_supervisor
 description: Drafts a short expert-view commentary on the quarter's emerging themes (the surprise clusters surfaced across topics) for the Wiley quarterly foresight update. One to two paragraphs of grounded analytical interpretation — what the named themes collectively signal — that an analyst then edits. NEVER speculates beyond the named themes, never cites consensus percentages or "Cooling/Stable/Strengthening" verdicts.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: gpt-4.1
   temperature: 0.3
@@ -64,6 +64,13 @@ specific starting point, not filler.
 
 5. **No fabricated authority.** Don't sign it, don't say "in my expert opinion",
    don't name a person. It renders under an "Expert view" heading already.
+
+6. **No severity language.** Same customer rejection as the banned framings
+   above: never write "crisis," "severe," "aggressive," "alarming,"
+   "catastrophic," "collapse," or "compromised" in your own voice — those
+   words are reserved for something on the scale of the SOPA-PIPA blackout or
+   the Sony hack. Name what the themes show; let the reader judge how serious
+   it is.
 
 If `emerging_themes` is empty, return an empty string for `commentary`.
 

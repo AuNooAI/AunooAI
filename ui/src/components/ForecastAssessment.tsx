@@ -160,6 +160,10 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
   const [progress, setProgress] = useState<{ pct: number; msg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [topicFallback, setTopicFallback] = useState<boolean>(false);
+  // An older run's assessment, shown for context while this run is unassessed.
+  // Never a mutation target — see readOnly below.
+  const [historicalAssessment, setHistoricalAssessment] = useState<ForecastAssessment | null>(null);
+  const [historicalRunId, setHistoricalRunId] = useState<string | null>(null);
   const [mode, setMode] = useState<'live' | 'placebo' | 'paired'>('live');
   const [windowWeeks, setWindowWeeks] = useState<number>(8);
   // Surprise cluster currently being promoted to a scenario. When set, the
@@ -175,8 +179,12 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
       const r = await fetch(`/api/forecast/${runId}/assessment`);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       const data: ForecastAssessmentResponse = await r.json();
+      // `assessment` is guaranteed to belong to this run. Anything from another
+      // run arrives separately and is display-only.
       setAssessment(data.assessment);
-      setTopicFallback(!!data.topic_fallback);
+      setHistoricalAssessment(data.historical_assessment ?? null);
+      setHistoricalRunId(data.historical_assessment_run_id ?? null);
+      setTopicFallback(!!(data.historical_read_only ?? data.topic_fallback));
     } catch (e: any) {
       setError(e?.message || 'Failed to load assessment');
     } finally {
@@ -192,19 +200,40 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
     if (!runId) return;
     try {
       const r = await fetch(`/api/forecast/${runId}/scenarios`);
-      if (!r.ok) return;
+      if (!r.ok) {
+        // Don't leave the previous run's addendums on screen against this run.
+        setAddendumScenarios([]);
+        setScenarioStatuses({ originals: {}, addendums: {} });
+        return;
+      }
       const data = await r.json();
       setAddendumScenarios(data.addendum_scenarios || []);
       setScenarioStatuses(data.scenario_statuses || { originals: {}, addendums: {} });
     } catch (e) {
       console.warn('Failed to load addendum scenarios', e);
+      setAddendumScenarios([]);
+      setScenarioStatuses({ originals: {}, addendums: {} });
     }
   }, [runId]);
 
-  useEffect(() => { fetchAddendumScenarios(); }, [fetchAddendumScenarios]);
+  /**
+   * Assessment, promoted scenarios and their statuses describe one run and are
+   * rendered together, so they are refreshed together. Fetching them from
+   * separate effects left a window where the verdicts were from the new run and
+   * the addendums still from the old one.
+   */
+  const refreshRunState = useCallback(async () => {
+    await Promise.all([fetchAssessment(), fetchAddendumScenarios()]);
+  }, [fetchAssessment, fetchAddendumScenarios]);
 
   const updateScenarioStatus = useCallback(async (
-    payload: { scenario_idx?: number; user_scenario_id?: string; status: 'active' | 'done'; note?: string }
+    payload: {
+      scenario_idx?: number;
+      scenario_key?: string;
+      user_scenario_id?: string;
+      status: 'active' | 'done';
+      note?: string;
+    }
   ) => {
     if (!runId) return;
     const r = await fetch(`/api/forecast/${runId}/scenarios/status`, {
@@ -217,18 +246,78 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
   }, [runId, fetchAddendumScenarios]);
 
   useEffect(() => {
-    fetchAssessment();
-  }, [fetchAssessment]);
+    refreshRunState();
+  }, [refreshRunState]);
 
-  // cleanup poller on unmount or run change
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-    };
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
   }, []);
 
+  // Stop polling on unmount AND on run change. Keyed on [] before, so switching
+  // topic mid-assessment left an interval polling the old run's job and letting
+  // its completion overwrite the new run's state.
+  //
+  // Clearing the interval is not enough on a run change: pollJob is the only
+  // thing that resets `running` and `progress`, so the new run would inherit the
+  // old one's progress bar, keep "Run assessment" disabled, and suppress its own
+  // empty state until a page reload.
+  useEffect(() => {
+    return () => {
+      stopPolling();
+      setRunning(false);
+      setProgress(null);
+    };
+  }, [runId, stopPolling]);
+
+  /**
+   * Watch one background job to completion, then refresh everything the job
+   * could have changed. Used by both "run assessment" and scenario promotion,
+   * so promotion no longer shows a spinner nothing ever clears.
+   */
+  const pollJob = useCallback((statusUrl: string, startMsg: string) => {
+    stopPolling();          // never leave a second interval running
+    setRunning(true);
+    setProgress({ pct: 0, msg: startMsg });
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const sr = await fetch(statusUrl);
+        if (!sr.ok) {
+          // A missing job never resolves; surface it instead of spinning.
+          if (sr.status === 404) {
+            stopPolling();
+            setRunning(false);
+            setProgress(null);
+            setError('The assessment job is no longer available. Reload to see current state.');
+          }
+          return;
+        }
+        const status = await sr.json();
+        setProgress({
+          pct: Math.round(status.progress || 0),
+          msg: status.current_item || status.status,
+        });
+        if (status.status === 'completed') {
+          stopPolling();
+          setRunning(false);
+          setProgress(null);
+          await refreshRunState();
+        } else if (status.status === 'failed' || status.status === 'error') {
+          stopPolling();
+          setRunning(false);
+          setProgress(null);
+          setError(status.error || 'Assessment failed');
+        }
+      } catch (pollErr) {
+        console.warn('poll failed', pollErr);
+      }
+    }, 4000);
+  }, [stopPolling, refreshRunState]);
+
   const runAssessment = useCallback(async () => {
-    if (!runId) return;
+    if (!runId || running) return;
     setRunning(true);
     setError(null);
     setProgress({ pct: 0, msg: 'Starting…' });
@@ -242,37 +331,16 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
         const body = await r.text();
         throw new Error(`${r.status} ${body || r.statusText}`);
       }
-      const { task_id, status_url } = await r.json();
-      // Poll
-      pollRef.current = window.setInterval(async () => {
-        try {
-          const sr = await fetch(status_url);
-          if (!sr.ok) return;
-          const status = await sr.json();
-          setProgress({ pct: Math.round(status.progress || 0), msg: status.current_item || status.status });
-          if (status.status === 'completed') {
-            window.clearInterval(pollRef.current!);
-            pollRef.current = null;
-            setRunning(false);
-            setProgress(null);
-            await fetchAssessment();
-          } else if (status.status === 'failed') {
-            window.clearInterval(pollRef.current!);
-            pollRef.current = null;
-            setRunning(false);
-            setProgress(null);
-            setError(status.error || 'Assessment failed');
-          }
-        } catch (pollErr) {
-          console.warn('poll failed', pollErr);
-        }
-      }, 4000);
+      const { status_url } = await r.json();
+      pollJob(status_url, 'Starting…');
     } catch (e: any) {
       setRunning(false);
       setProgress(null);
       setError(e?.message || 'Failed to start assessment');
     }
-  }, [runId, mode, fetchAssessment]);
+    // windowWeeks was missing here, so changing the window from 8 to 12 left the
+    // callback closed over the old value and submitted the previous window.
+  }, [runId, running, mode, windowWeeks, pollJob]);
 
   if (!runId) {
     return (
@@ -318,17 +386,35 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
         </div>
       )}
 
-      {topicFallback && assessment && (
+      {historicalAssessment && (
         <div className="p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded text-amber-800 dark:text-amber-200 text-sm">
-          Showing the latest assessment for this topic, tied to a different horizons run
-          (assessment_id <code className="font-mono text-xs">{assessment.id}</code> · run_id
-          <code className="font-mono text-xs"> {assessment.run_id}</code>). Run a new
-          assessment to score the current page's forecast instead.
+          This forecast run has not been assessed yet. Showing the most recent assessment
+          of an <strong>earlier run</strong> of the same topic, for reference only —
+          scenario numbering differs between runs, so it cannot be edited here.
+          <div className="mt-1">
+            Viewing run <code className="font-mono text-xs">{runId}</code> · assessment
+            <code className="font-mono text-xs"> {historicalAssessment.id}</code> belongs to run
+            <code className="font-mono text-xs"> {historicalRunId ?? historicalAssessment.run_id}</code>.
+          </div>
+          <div className="mt-1">Run an assessment above to score this run's forecast.</div>
         </div>
       )}
 
-      {assessment && (
+      {(assessment || historicalAssessment) && (
         <SnapshotHistoryPanel topic={topic} />
+      )}
+
+      {!assessment && historicalAssessment && (
+        <>
+          <VerdictDistribution assessment={historicalAssessment} />
+          {/* No onMarkDone and no addendum mapping: these verdicts are numbered
+              against the other run, so every mutation control stays off. */}
+          <ScenarioGrid
+            verdicts={historicalAssessment.scenario_verdicts || []}
+            baseline={historicalAssessment.summary?.baseline_correction}
+            addendumByIdx={{}}
+          />
+        </>
       )}
 
       {assessment ? (
@@ -339,16 +425,26 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
             baseline={assessment.summary?.baseline_correction}
             addendumByIdx={mapAddendumScenariosByIdx(assessment.scenario_verdicts || [], addendumScenarios)}
             onMarkDone={async (verdict) => {
-              const idx = verdict.scenario_idx;
-              const addendum = mapAddendumScenariosByIdx(assessment.scenario_verdicts || [], addendumScenarios)[idx];
-              if (addendum) {
-                await updateScenarioStatus({ user_scenario_id: addendum.id, status: 'done' });
+              // Identify by the scenario's own key/id. Sending scenario_idx
+              // would name a position, which points at a different scenario
+              // once a promoted one is added or skipped.
+              if (verdict.user_scenario_id) {
+                await updateScenarioStatus({ user_scenario_id: verdict.user_scenario_id, status: 'done' });
+              } else if (verdict.scenario_key) {
+                await updateScenarioStatus({ scenario_key: verdict.scenario_key, status: 'done' });
               } else {
-                await updateScenarioStatus({ scenario_idx: idx, status: 'done' });
+                // Verdict predates fa_012 and carries no key; the server
+                // resolves the index to this run's key before writing.
+                await updateScenarioStatus({ scenario_idx: verdict.scenario_idx, status: 'done' });
               }
             }}
           />
-          <AddedScenariosPanel scenarios={addendumScenarios.filter(s => scenarioStatuses.addendums[s.id]?.status !== 'done')} />
+          <AddedScenariosPanel
+            scenarios={addendumScenarios.filter(s => scenarioStatuses.addendums[s.id]?.status !== 'done')}
+            pendingIds={new Set(
+              pendingAddendums(assessment.scenario_verdicts || [], addendumScenarios).map(a => a.id),
+            )}
+          />
           <ResolvedScenariosPanel
             verdicts={assessment.scenario_verdicts || []}
             addendums={addendumScenarios}
@@ -364,7 +460,7 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
           <TopicCadenceInline topic={topic} />
           <WileyDeliverablesPanel />
         </>
-      ) : !running && (
+      ) : !running && !historicalAssessment && (
         <EmptyHint
           title="No assessment has been run yet for this forecast"
           body="Click 'Run assessment' above to score each scenario against articles that have arrived since the forecast was generated. This typically takes 5–15 minutes."
@@ -379,13 +475,16 @@ export function ForecastAssessmentTab({ runId: propRunId, topic, forecastGenerat
           surpriseIndex={promotingCluster.index}
           windowWeeks={windowWeeks}
           onClose={() => setPromotingCluster(null)}
-          onScenarioCreated={async () => {
+          onScenarioCreated={async (job) => {
             setPromotingCluster(null);
             await fetchAddendumScenarios();
-            // Surface that the new paired assessment is running so the user
-            // doesn't think nothing happened.
-            setRunning(true);
-            setProgress({ pct: 0, msg: 'Reassessing with new scenario…' });
+            // Promotion kicks off a paired reassessment and hands back a job to
+            // watch. Previously the spinner was switched on with nothing polling
+            // it, so it ran forever and the new verdict never appeared without a
+            // manual reload.
+            if (job?.status_url) {
+              pollJob(job.status_url, 'Reassessing with new scenario…');
+            }
           }}
         />
       )}
@@ -556,7 +655,9 @@ function ScenarioGrid({ verdicts, baseline, addendumByIdx, onMarkDone }: {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {active.map((v) => (
           <ScenarioCard
-            key={v.scenario_idx}
+            // Keyed by scenario identity, not position, so React reuses the
+            // right card when the scenario list shifts between assessments.
+            key={v.user_scenario_id || v.scenario_key || `idx-${v.scenario_idx}`}
             verdict={v}
             baseline={baseline?.per_scenario?.[String(v.scenario_idx)]}
             addendum={addendumByIdx?.[v.scenario_idx]}
@@ -568,23 +669,46 @@ function ScenarioGrid({ verdicts, baseline, addendumByIdx, onMarkDone }: {
   );
 }
 
+/**
+ * Map scenario_idx -> the promoted scenario that verdict is for.
+ *
+ * Joins on `verdict.user_scenario_id`, which the assessment records when it
+ * scores a promoted scenario. This used to be inferred positionally — the i-th
+ * addendum was assumed to be the (N-K+i)-th verdict — which silently mis-paired
+ * every addendum after any promoted scenario that was added since the last
+ * assessment or skipped because it was marked done. A mis-pairing showed one
+ * scenario's verdict under another's title, and "mark done" wrote to the wrong
+ * scenario.
+ *
+ * Verdicts written before fa_012 have no user_scenario_id and simply do not
+ * match, which renders them as ordinary scenarios rather than mis-attributing
+ * them.
+ */
 function mapAddendumScenariosByIdx(
   verdicts: ScenarioVerdict[],
   addendums: AddendumScenario[],
 ): Record<number, AddendumScenario> {
-  // Addendum scenarios are appended after the originals, so they occupy the
-  // tail of the scenario_verdicts list. We match them by ordering — the
-  // i-th addendum corresponds to the (N-K+i)-th verdict where K = addendums.length
-  // and N = total verdicts. This mirrors the order assess_run produces.
   const out: Record<number, AddendumScenario> = {};
   if (!addendums.length || !verdicts.length) return out;
-  const start = verdicts.length - addendums.length;
-  if (start < 0) return out;
-  for (let i = 0; i < addendums.length; i++) {
-    const v = verdicts[start + i];
-    if (v) out[v.scenario_idx] = addendums[i];
+  const byId = new Map(addendums.map(a => [a.id, a]));
+  for (const v of verdicts) {
+    const id = v.user_scenario_id;
+    if (!id) continue;
+    const addendum = byId.get(id);
+    if (addendum) out[v.scenario_idx] = addendum;
   }
   return out;
+}
+
+/** Promoted scenarios with no verdict yet — the reassessment has not finished. */
+function pendingAddendums(
+  verdicts: ScenarioVerdict[],
+  addendums: AddendumScenario[],
+): AddendumScenario[] {
+  const assessed = new Set(
+    verdicts.map(v => v.user_scenario_id).filter(Boolean) as string[],
+  );
+  return addendums.filter(a => !assessed.has(a.id));
 }
 
 function ScenarioCard({ verdict, baseline, addendum, onMarkDone }: {
@@ -771,7 +895,11 @@ function SurprisesPanel({
   );
 }
 
-function AddedScenariosPanel({ scenarios }: { scenarios: AddendumScenario[] }) {
+function AddedScenariosPanel({ scenarios, pendingIds }: {
+  scenarios: AddendumScenario[];
+  /** Promoted scenarios with no verdict yet, badged "assessment pending". */
+  pendingIds?: Set<string>;
+}) {
   if (!scenarios?.length) return null;
   return (
     <div className="space-y-3">
@@ -791,6 +919,11 @@ function AddedScenariosPanel({ scenarios }: { scenarios: AddendumScenario[] }) {
                   {s.timeframe && <span className="ml-2 text-gray-500 dark:text-gray-400">{s.timeframe}</span>}
                 </div>
                 <div className="font-medium text-gray-900 dark:text-gray-100 leading-snug">{s.title}</div>
+                {pendingIds?.has(s.id) && (
+                  <div className="mt-1 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200">
+                    Assessment pending
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0">
                 {new Date(s.created_at).toLocaleDateString()}
@@ -815,7 +948,9 @@ function ResolvedScenariosPanel({
   verdicts: ScenarioVerdict[];
   addendums: AddendumScenario[];
   statuses: ScenarioStatusesResponse;
-  onUnmark: (key: { scenario_idx?: number; user_scenario_id?: string }) => Promise<void>;
+  onUnmark: (key: {
+    scenario_idx?: number; scenario_key?: string; user_scenario_id?: string;
+  }) => Promise<void>;
 }) {
   const addendumByIdx = mapAddendumScenariosByIdx(verdicts, addendums);
   const done = verdicts.filter(v => v.verdict_label === 'Done');
@@ -833,9 +968,15 @@ function ResolvedScenariosPanel({
           const addendum = addendumByIdx[v.scenario_idx];
           const statusRow = addendum
             ? statuses.addendums[addendum.id]
-            : statuses.originals[String(v.scenario_idx)];
+            // Key first; the index-keyed row is only for statuses written
+            // before fa_012.
+            : (v.scenario_key ? statuses.by_key?.[v.scenario_key] : undefined)
+              ?? statuses.originals[String(v.scenario_idx)];
           return (
-            <div key={v.scenario_idx} className="p-3 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded">
+            <div
+              key={v.user_scenario_id || v.scenario_key || `idx-${v.scenario_idx}`}
+              className="p-3 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -849,9 +990,10 @@ function ResolvedScenariosPanel({
                 <button
                   type="button"
                   onClick={async () => {
-                    await onUnmark(addendum
-                      ? { user_scenario_id: addendum.id }
-                      : { scenario_idx: v.scenario_idx });
+                    await onUnmark(
+                      addendum ? { user_scenario_id: addendum.id }
+                        : v.scenario_key ? { scenario_key: v.scenario_key }
+                          : { scenario_idx: v.scenario_idx });
                   }}
                   className="text-[11px] px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700"
                   title="Restore to active tracking"
@@ -972,7 +1114,9 @@ function PromoteScenarioModal({
   surpriseIndex: number;
   windowWeeks: number;
   onClose: () => void;
-  onScenarioCreated: () => void;
+  /** Receives the reassessment job the create endpoint returns, so the parent
+   *  can poll it to completion. */
+  onScenarioCreated: (job?: { task_id?: string; status_url?: string }) => void;
 }) {
   const [drafting, setDrafting] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -1002,7 +1146,10 @@ function PromoteScenarioModal({
   }, [runId, assessmentId, surpriseIndex]);
 
   const handleSave = async () => {
-    if (!draft) return;
+    // `saving` also guards against a second submit while the first is in flight:
+    // each promotion persists a scenario and starts a reassessment, so a double
+    // click would create a duplicate scenario and a competing job.
+    if (!draft || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -1024,7 +1171,15 @@ function PromoteScenarioModal({
         const body = await r.text();
         throw new Error(`${r.status} ${body || r.statusText}`);
       }
-      onScenarioCreated();
+      // The endpoint returns {scenario_id, task_id, status_url} for the paired
+      // reassessment it just started. Hand it up so the parent can poll it.
+      let job: { task_id?: string; status_url?: string } | undefined;
+      try {
+        job = await r.json();
+      } catch {
+        job = undefined;   // scenario is saved either way; just no progress to show
+      }
+      onScenarioCreated(job);
     } catch (e: any) {
       setError(e?.message || 'Save failed');
       setSaving(false);

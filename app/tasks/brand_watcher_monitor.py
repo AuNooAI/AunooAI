@@ -938,6 +938,21 @@ def evaluate_adverse_alerts(db) -> int:
                         o = old_data if isinstance(old_data, dict) else _json.loads(old_data or "{}")
                         n2 = new_data if isinstance(new_data, dict) else _json.loads(new_data or "{}")
                         drops = []
+                        # Only compare like with like. If the two snapshots are of
+                        # different Glassdoor companies, the "drop" is a resolution
+                        # change, not a change in employer sentiment. On 2026-08-19
+                        # this rule mailed the customer that Wiley's rating had gone
+                        # 3.7 → 3 and its outlook 44% → 0%, because that morning's
+                        # lookup had landed on "Wiley (Australia)" — a different
+                        # employer with three reviews.
+                        cid_old = str(o.get("company_id") or "").strip()
+                        cid_new = str(n2.get("company_id") or "").strip()
+                        if cid_old and cid_new and cid_old != cid_new:
+                            logger.warning(
+                                "glassdoor_deterioration: brand %s snapshots span two "
+                                "companies (%s → %s) — not comparable, skipping",
+                                bid, cid_old, cid_new)
+                            o = n2 = {}
                         try:
                             r_old, r_new = o.get("rating"), n2.get("rating")
                             if r_old is not None and r_new is not None and (r_old - r_new) >= rc["rating_drop"]:

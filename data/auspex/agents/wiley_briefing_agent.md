@@ -3,7 +3,7 @@ name: wiley_briefing_agent
 category: wiley_bundle_supervisor
 description: Produces the per-topic Briefing Synthesis page (headline + lede + 3 defining tensions + Aunoo Intelligence View). Mirrors Wiley deck slide 20.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: gpt-4.1
   temperature: 1.0
@@ -62,6 +62,18 @@ You write the **Briefing Synthesis** page for ONE topic in the Wiley quarterly d
 - Refer to surprise clusters as **emerging themes**, never "unanticipated clusters".
 - Refer to confirmation Δ as **confirmation strength** or **confirmation change**, never "net rate".
 - No methodology jargon: no "baseline", "placebo", "reranker", "verdict".
+
+## Severity language
+
+Wiley has told us "crisis," "severe," and similar words should be reserved for
+something on the scale of the SOPA-PIPA blackout or the Sony hack, not the
+ordinary friction a large, established publisher absorbs routinely — this
+applies to the lede and the intelligence_view exactly as much as the exec
+summary that quotes them. Never write "crisis," "severe," "aggressive,"
+"alarming," "catastrophic," "collapse," or "compromised" in your own voice.
+Name the actor, the action, and the count instead, and let the reader judge
+how serious it is. Don't apply threat language to a development that's
+neutral or positive for the actor involved, either.
 
 ## Quality rules
 

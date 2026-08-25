@@ -859,6 +859,29 @@ class DatabaseQueryFacade:
         if settings and settings['min_relevance_threshold'] is not None:
             return float(settings['min_relevance_threshold'])
 
+    def get_group_relevance_threshold(self, topic):
+        """Per-group relevance floor for a topic, or None if the group sets none.
+
+        A keyword group may carry its own floor; ``keyword_monitor_settings``
+        holds the platform default. Returns None rather than 0.0 when unset, so
+        callers can fall back instead of reading "no override" as "let
+        everything through".
+        """
+        if not topic:
+            return None
+        statement = select(
+            keyword_groups.c.min_relevance_threshold
+        ).where(
+            keyword_groups.c.topic == topic,
+            keyword_groups.c.is_active.is_(True),
+            keyword_groups.c.min_relevance_threshold.isnot(None),
+        ).order_by(keyword_groups.c.id).limit(1)
+        row = self._execute_with_rollback(statement).mappings().fetchone()
+        if row and row['min_relevance_threshold'] is not None:
+            return float(row['min_relevance_threshold'])
+        return None
+
+
     def get_auto_ingest_settings(self):
         statement = select(
             keyword_article_matches.c.auto_ingest_enabled,
@@ -1163,6 +1186,79 @@ class DatabaseQueryFacade:
                 articles.c.topic_alignment_score > min_alignment,
             )
         ).order_by(
+            desc(articles.c.topic_alignment_score),
+            desc(articles.c.publication_date),
+        ).limit(limit)
+
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
+    def get_briefing_candidate_articles(
+        self, topic: str, *, days_back: int = 7,
+        min_alignment: float = 0.4, limit: int = 60,
+        exclude_social: bool = True,
+    ):
+        """Briefing Desk candidate articles for one topic, with ranking signals.
+
+        Separate from ``get_relevant_articles_for_topic`` because the briefing
+        composer needs more than the five columns that method projects: it ranks
+        candidates on keyword relevance, analysis confidence and source
+        credibility as well as topic alignment, and it cannot do that if the
+        query never returns them.
+
+        ``min_alignment`` is inclusive (``>= min_alignment``) — the composer's
+        request model advertises a floor and a candidate sitting exactly on it
+        should pass. Note this differs from ``get_relevant_articles_for_topic``,
+        which is exclusive; that method's callers depend on its current
+        behaviour, so the two are not unified here.
+
+        ``exclude_social`` drops Reddit/Bluesky/X/Instagram/TikTok posts. They
+        share the ``articles`` table with news, are collected continuously and
+        so are always the freshest rows, and their titles ('Post by @handle')
+        give a curator nothing to judge. They belong to the brand-monitoring
+        surfaces, not to a daily news briefing.
+
+        Ordered by alignment then recency so a caller that truncates keeps the
+        most on-topic material.
+        """
+        from datetime import datetime, timedelta
+        from app.services.social_sources import SOCIAL_SOURCES
+
+        cutoff_str = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%dT%H:%M:%S')
+        conditions = [
+            articles.c.topic == topic,
+            articles.c.analyzed == True,
+            articles.c.publication_date >= cutoff_str,
+            articles.c.topic_alignment_score != None,
+            articles.c.topic_alignment_score >= min_alignment,
+            articles.c.uri != None,
+            articles.c.title != None,
+            articles.c.title != '',
+        ]
+        if exclude_social:
+            for key in SOCIAL_SOURCES:
+                conditions.append(
+                    or_(articles.c.news_source == None,
+                        not_(func.lower(articles.c.news_source).like(f"%{key}%")))
+                )
+
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.publication_date,
+            articles.c.news_source,
+            articles.c.topic,
+            articles.c.topic_alignment_score,
+            articles.c.keyword_relevance_score,
+            articles.c.quality_score,
+            articles.c.confidence_score,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.overall_match_explanation,
+            articles.c.extracted_article_topics,
+            articles.c.extracted_article_keywords,
+            articles.c.user_preference,
+        ).where(and_(*conditions)).order_by(
             desc(articles.c.topic_alignment_score),
             desc(articles.c.publication_date),
         ).limit(limit)
@@ -7976,11 +8072,28 @@ class DatabaseQueryFacade:
         total_articles_analyzed: int,
         analysis_duration_seconds: float
     ) -> bool:
-        """Save a future horizons analysis run to the database."""
+        """Save a future horizons analysis run to the database.
+
+        Stamps a stable ``scenario_key`` onto each scenario on the way in. This
+        is the single choke point where a run first becomes durable, so keying
+        here means every new run has explicit identities and only runs stored
+        before fa_012 need keys derived on read. Historical ``raw_output`` is
+        never rewritten.
+        """
         try:
             from app.database_models import t_future_horizons_runs
+            from app.services.scenario_identity import ensure_scenario_keys
             from sqlalchemy import insert
             import json
+
+            try:
+                if isinstance(raw_output, dict) and isinstance(raw_output.get("scenarios"), list):
+                    ensure_scenario_keys(analysis_id, raw_output["scenarios"])
+            except Exception as e:  # keying must never block persisting the run
+                self.logger.warning(
+                    "Could not stamp scenario keys on run %s: %s — keys will be "
+                    "derived on read instead", analysis_id, e,
+                )
 
             stmt = insert(t_future_horizons_runs).values(
                 id=analysis_id,
@@ -8143,6 +8256,12 @@ class DatabaseQueryFacade:
                     "synthesis": (
                         json.dumps(r["synthesis"]) if r.get("synthesis") else None
                     ),
+                    # Which scenario this verdict is for. Exactly one is set:
+                    # user_scenario_id for promoted scenarios, scenario_key for
+                    # originals. Lets callers join on identity instead of
+                    # guessing from list position.
+                    "user_scenario_id": r.get("user_scenario_id"),
+                    "scenario_key": r.get("scenario_key"),
                 })
             self._execute_with_rollback(insert(t_forecast_scenario_verdicts), payload)
             return True
@@ -8577,16 +8696,28 @@ class DatabaseQueryFacade:
         *,
         scenario_idx: int = None,
         user_scenario_id: str = None,
+        scenario_key: str = None,
         status: str = "done",
         note: str = None,
     ) -> dict:
         """Upsert a scenario status row.
 
-        Exactly one of ``scenario_idx`` (originals) or ``user_scenario_id``
-        (addendums) must be supplied. Returns the persisted row.
+        A row names exactly one scenario: an original by ``scenario_key``, or a
+        promoted one by ``user_scenario_id``. ``scenario_idx`` is accepted and
+        stored alongside a key as display ordering, and on its own only for
+        legacy callers — new writes should always pass ``scenario_key`` for
+        originals, because an index moves between assessments.
         """
-        if (scenario_idx is None) == (user_scenario_id is None):
-            raise ValueError("Exactly one of scenario_idx or user_scenario_id required")
+        if user_scenario_id is not None and (scenario_key is not None or scenario_idx is not None):
+            raise ValueError(
+                "user_scenario_id identifies a promoted scenario; do not also pass "
+                "scenario_key or scenario_idx"
+            )
+        if user_scenario_id is None and scenario_key is None and scenario_idx is None:
+            raise ValueError(
+                "one of scenario_key (originals), user_scenario_id (promoted) or "
+                "scenario_idx (legacy originals) is required"
+            )
         try:
             from app.database_models import t_forecast_scenario_status
             from sqlalchemy import select, insert, update
@@ -8594,31 +8725,62 @@ class DatabaseQueryFacade:
 
             marked_at = datetime.now(timezone.utc) if status == "done" else None
 
-            # Postgres treats NULL as DISTINCT in unique constraints, so
-            # ``ON CONFLICT (run_id, scenario_idx, user_scenario_id)`` with one
-            # of the columns NULL won't fire. We do an explicit existence
-            # check + UPDATE/INSERT instead.
+            # Locate the row this write owns. Partial unique indexes (fa_012)
+            # now back each of these, so a concurrent duplicate insert fails at
+            # the database instead of silently creating a second row.
             sel = (
                 select(t_forecast_scenario_status)
                 .where(t_forecast_scenario_status.c.run_id == run_id)
             )
-            if scenario_idx is not None:
+            if user_scenario_id is not None:
                 sel = sel.where(
-                    t_forecast_scenario_status.c.scenario_idx == scenario_idx,
-                    t_forecast_scenario_status.c.user_scenario_id.is_(None),
+                    t_forecast_scenario_status.c.user_scenario_id == user_scenario_id,
+                )
+            elif scenario_key is not None:
+                sel = sel.where(
+                    t_forecast_scenario_status.c.scenario_key == scenario_key,
                 )
             else:
                 sel = sel.where(
-                    t_forecast_scenario_status.c.user_scenario_id == user_scenario_id,
-                    t_forecast_scenario_status.c.scenario_idx.is_(None),
+                    t_forecast_scenario_status.c.scenario_idx == scenario_idx,
+                    t_forecast_scenario_status.c.scenario_key.is_(None),
+                    t_forecast_scenario_status.c.user_scenario_id.is_(None),
                 )
             existing = self._execute_with_rollback(sel).fetchone()
+
+            # Dual read: an original may still have a pre-fa_012 row keyed only
+            # by index. Adopt it rather than inserting a second row for the same
+            # scenario, which would leave two rows disagreeing about status.
+            if existing is None and scenario_key is not None and scenario_idx is not None:
+                legacy_sel = (
+                    select(t_forecast_scenario_status)
+                    .where(
+                        t_forecast_scenario_status.c.run_id == run_id,
+                        t_forecast_scenario_status.c.scenario_idx == scenario_idx,
+                        t_forecast_scenario_status.c.scenario_key.is_(None),
+                        t_forecast_scenario_status.c.user_scenario_id.is_(None),
+                    )
+                )
+                legacy = self._execute_with_rollback(legacy_sel).fetchone()
+                if legacy is not None:
+                    lr = dict(legacy._mapping) if hasattr(legacy, "_mapping") else dict(legacy)
+                    self._execute_with_rollback(
+                        update(t_forecast_scenario_status)
+                        .where(t_forecast_scenario_status.c.id == lr["id"])
+                        .values(scenario_key=scenario_key)
+                    )
+                    self.logger.info(
+                        "Upgraded legacy scenario status row %s (run %s, idx %s) to key %s",
+                        lr["id"], run_id, scenario_idx, scenario_key,
+                    )
+                    existing = self._execute_with_rollback(sel).fetchone()
 
             if existing is None:
                 stmt = insert(t_forecast_scenario_status).values(
                     run_id=run_id,
                     scenario_idx=scenario_idx,
                     user_scenario_id=user_scenario_id,
+                    scenario_key=scenario_key,
                     status=status,
                     marked_done_at=marked_at,
                     note=note,
@@ -8653,9 +8815,15 @@ class DatabaseQueryFacade:
         """Return active status overlays for a run.
 
         Returns ``{"originals": {scenario_idx: status_dict},
+                    "by_key": {scenario_key: status_dict},
                     "addendums": {user_scenario_id: status_dict}}``.
+
+        ``by_key`` is the authoritative view for original scenarios.
+        ``originals`` is kept keyed by index so existing callers and the shipped
+        UI bundle keep working during the compatibility window; a row that has
+        a key appears in both.
         """
-        out = {"originals": {}, "addendums": {}}
+        out = {"originals": {}, "by_key": {}, "addendums": {}}
         try:
             from app.database_models import t_forecast_scenario_status
             from sqlalchemy import select
@@ -8664,15 +8832,28 @@ class DatabaseQueryFacade:
                 select(t_forecast_scenario_status)
                 .where(t_forecast_scenario_status.c.run_id == run_id)
             )
+            legacy_rows = 0
             for r in self._execute_with_rollback(stmt).fetchall():
                 rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
                 ma = rd.get("marked_done_at")
                 if hasattr(ma, "isoformat"):
                     rd["marked_done_at"] = ma.isoformat()
+                if rd.get("user_scenario_id"):
+                    out["addendums"][rd["user_scenario_id"]] = rd
+                    continue
+                if rd.get("scenario_key"):
+                    out["by_key"][rd["scenario_key"]] = rd
+                elif rd.get("scenario_idx") is not None:
+                    legacy_rows += 1
                 if rd.get("scenario_idx") is not None:
                     out["originals"][rd["scenario_idx"]] = rd
-                elif rd.get("user_scenario_id"):
-                    out["addendums"][rd["user_scenario_id"]] = rd
+            if legacy_rows:
+                # Counter for the compatibility window: when this reaches zero
+                # across production, index-keyed reads can be removed.
+                self.logger.info(
+                    "forecast scenario status: run %s served %d legacy index-keyed row(s)",
+                    run_id, legacy_rows,
+                )
             return out
         except Exception as e:
             self.logger.error(f"Error getting forecast scenario statuses for run {run_id}: {e}")
@@ -9276,6 +9457,57 @@ class DatabaseQueryFacade:
                 pass
         except Exception as e:
             self.logger.error(f"Error saving bundle synthesis ({cadence}/{period_label}): {e}")
+
+    def delete_forecast_bundle_state(self, cadence: str, period_label: str) -> dict:
+        """Drop the synthesis and review rows for one report period.
+
+        Regenerating a report has to clear everything derived from the old
+        state, not just the cached deck. ``ensure_bundle_synthesis`` returns
+        early when a payload already exists, so leaving the synthesis row behind
+        meant the Markdown and executive-DOCX exports kept serving the previous
+        executive letter against a freshly generated deck, indefinitely.
+
+        Both deletes run in one transaction: a half-cleared period would leave a
+        review verdict attached to synthesis that no longer exists. Returns what
+        was actually removed so the caller can report it.
+        """
+        from app.database_models import (
+            t_forecast_bundle_review, t_forecast_bundle_synthesis,
+        )
+        from sqlalchemy import delete
+
+        removed = {"synthesis": 0, "review": 0}
+        try:
+            # _execute_with_rollback commits on success and rolls back on error.
+            # This facade has no `self.session`; the `self.session.commit()`
+            # calls elsewhere in this file are dead code that only survives
+            # because they sit inside `except Exception: pass`.
+            syn = self._execute_with_rollback(
+                delete(t_forecast_bundle_synthesis).where(
+                    (t_forecast_bundle_synthesis.c.cadence == cadence)
+                    & (t_forecast_bundle_synthesis.c.period_label == period_label)
+                )
+            )
+            rev = self._execute_with_rollback(
+                delete(t_forecast_bundle_review).where(
+                    (t_forecast_bundle_review.c.cadence == cadence)
+                    & (t_forecast_bundle_review.c.period_label == period_label)
+                )
+            )
+            removed["synthesis"] = getattr(syn, "rowcount", 0) or 0
+            removed["review"] = getattr(rev, "rowcount", 0) or 0
+            self.logger.info(
+                "Cleared bundle state for %s/%s: %s synthesis, %s review row(s)",
+                cadence, period_label, removed["synthesis"], removed["review"],
+            )
+            return removed
+        except Exception as e:
+            # Never report a period as cleared when it was not: the caller would
+            # then generate a new deck on top of the old executive letter.
+            self.logger.error(
+                "Failed clearing bundle state for %s/%s: %s", cadence, period_label, e
+            )
+            raise
 
     # Bundle review gate (forecast_bundle_review) — backs the human-in-the-loop
     # review step in the WileyBundleSupervisor pipeline.
@@ -10253,6 +10485,45 @@ class DatabaseQueryFacade:
             'metadata': metadata
         })
         self.connection.commit()
+
+    def close_interrupted_background_tasks(self, keep_task_ids=None) -> int:
+        """Fail every task still marked ``running`` that no live worker owns.
+
+        A worker only exists inside the process that started it, so after a
+        restart or crash these rows have nobody advancing them: a caller polling
+        the task waits forever on something that will never finish and never
+        fail. One UPDATE, so a task that starts while this runs is either
+        already excluded or not yet visible as running.
+
+        ``keep_task_ids`` protects tasks live in the calling process. Returns
+        how many rows were closed.
+        """
+        from sqlalchemy import text as sa_text
+
+        keep = [t for t in (keep_task_ids or []) if t]
+        # 'pending' as well as 'running'. A task waiting on the concurrency
+        # semaphore is persisted as pending, so anything queued behind it at
+        # shutdown would otherwise stay pending forever with no worker — the
+        # same forever-polling failure this method exists to close, arriving
+        # from the queue side instead of the running side.
+        sql = (
+            "UPDATE background_tasks "
+            "SET status = 'failed', completed_at = NOW(), "
+            "    error = COALESCE(error, 'Interrupted: the process running this task "
+            "stopped before it finished.') "
+            "WHERE status IN ('running', 'pending')"
+        )
+        params = {}
+        if keep:
+            sql += " AND id <> ALL(:keep)"
+            params["keep"] = keep
+        try:
+            # _execute_with_rollback commits on success and rolls back on error.
+            result = self._execute_with_rollback(sa_text(sql), params)
+            return getattr(result, "rowcount", 0) or 0
+        except Exception as e:
+            self.logger.error(f"Error closing interrupted background tasks: {e}")
+            return 0
 
     def get_background_task(self, task_id: str):
         """Retrieve a background task from the database"""

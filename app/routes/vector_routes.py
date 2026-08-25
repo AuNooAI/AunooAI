@@ -14,7 +14,7 @@ import uuid
 import threading
 
 from app.ai_models import resolve_litellm_call_params, resolve_model_identity
-from app.services.report_style import CLINICAL_STYLE
+from app.services.report_style import CLINICAL_STYLE, find_severity_language
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
@@ -4026,30 +4026,61 @@ def _is_empty_report(content) -> bool:
 
 async def _generate_report_with_retry(ai_model, messages, *, label="report",
                                       attempts=3, base_delay=1.5):
-    """Generate a signal report, retrying on empty/placeholder output.
+    """Generate a signal report, retrying on empty/placeholder output or
+    banned severity language.
 
     The batch report is a single extra LLM call on top of per-article scoring,
     and Bedrock (Haiku 4.5 in particular) intermittently returns an empty
     completion — roughly 1 run in 8 on high-volume tenants. Because the report
     is customer-facing, retry a few times before giving up. Returns the report
-    text, or None if every attempt came back empty."""
+    text, or None if every attempt came back empty.
+
+    CLINICAL_STYLE bans "crisis"/"severe"/etc in the writer's own voice, but
+    tested against adversarial input the rule alone doesn't hold at 100% (see
+    report_style.py) — roughly 1 generation in 3 still used one. Rather than
+    resample blindly, tell the retry exactly which word(s) leaked so it can
+    fix the sentence instead of gambling on a different draft."""
     import asyncio
     from fastapi.concurrency import run_in_threadpool
+    call_messages = list(messages)
     for attempt in range(1, attempts + 1):
         try:
-            content = await run_in_threadpool(ai_model.generate_response, messages)
+            content = await run_in_threadpool(ai_model.generate_response, call_messages)
         except Exception as e:
             logger.warning(f"Report generation attempt {attempt}/{attempts} for "
                            f"'{label}' raised: {e}")
             content = None
         if not _is_empty_report(content):
-            if attempt > 1:
-                logger.info(f"Report generation for '{label}' succeeded on "
-                            f"attempt {attempt}/{attempts}")
+            hits = find_severity_language(content)
+            if not hits:
+                if attempt > 1:
+                    logger.info(f"Report generation for '{label}' succeeded on "
+                                f"attempt {attempt}/{attempts}")
+                return _strip_source_links(content)
+            logger.warning(f"Report generation attempt {attempt}/{attempts} for "
+                           f"'{label}' used banned severity language: {hits}")
+            if attempt < attempts:
+                call_messages = list(messages) + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": (
+                        "Your draft used " + ", ".join(f'\"{w}\"' for w in hits)
+                        + " in your own voice, which the tone rules ban. Rewrite the "
+                          "same report, replacing that language with the facts and "
+                          "counts it was standing in for — no severity words anywhere "
+                          "outside a direct quote.")},
+                ]
+                await asyncio.sleep(base_delay * attempt)
+                continue
+            # Out of retries. A non-empty report with one leftover word beats
+            # the fallback's bare match list with no analysis — ship it.
+            logger.warning(f"Report for '{label}' still has severity language "
+                           f"after {attempts} attempts — shipping it anyway "
+                           f"rather than falling back to a bare match list.")
             return _strip_source_links(content)
         logger.warning(f"Report generation attempt {attempt}/{attempts} for "
                        f"'{label}' returned empty/placeholder")
         if attempt < attempts:
+            call_messages = list(messages)
             await asyncio.sleep(base_delay * attempt)
     return None
 
@@ -4114,6 +4145,40 @@ class _RunSignalRequest(BaseModel):
 # max_articles — a 1000-row cap was silently hiding most of the window on
 # high-volume tenants.
 _SIGNAL_CANDIDATE_CEILING = 20000
+
+
+def _market_corpus_topic(db, topic: str) -> bool:
+    """Whether this topic belongs to a market that has a matched corpus.
+
+    Two questions in one, both of which have to be answered before the market
+    clause can be added to an observer's query. The table does not exist on a
+    deployment that has never had a market monitor, and most topics are not a
+    market's. Returning False on any error keeps a broken market monitor from
+    taking every observer agent down with it.
+    """
+    if not topic:
+        return False
+    try:
+        rows = db.fetch_all(
+            "SELECT 1 FROM bw_markets m WHERE COALESCE("
+            "m.config->'collection'->>'topic_name',"
+            " 'Market Monitoring ' || m.name) = ? LIMIT 1", [topic])
+        if not rows:
+            return False
+        # fetch_all returns a row either way here, so read the value rather
+        # than testing whether a row came back. Rows come back as dicts, and
+        # the column name for a bare expression is not stable, so take the one
+        # value the row holds.
+        present = db.fetch_all(
+            "SELECT to_regclass('bw_market_articles') IS NOT NULL AS ok", [])
+        if not present:
+            return False
+        row = present[0]
+        value = row.get("ok") if isinstance(row, dict) else row[0]
+        return bool(value)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("market corpus check failed for %r: %s", topic, exc)
+        return False
 
 
 def _normalize_uri(uri: str) -> str:
@@ -5415,9 +5480,30 @@ async def _run_signal_instruction_internal(
                 else:
                     query += " AND topic LIKE 'Brand Monitoring %'"
             elif topic:
-                query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+                # A market monitor's topic also owns the articles its own
+                # phrases matched out of the corpus. Those were collected under
+                # other topics, so `topic = ?` misses them — 282 of 606 on the
+                # SOC Automation market. Vendor LinkedIn posts stay out: they
+                # outnumber the news 152 to 122 and would make an observer
+                # report the vendors' marketing back as market movement.
+                market_clause = ""
+                market_params = []
+                if _market_corpus_topic(db, topic):
+                    market_clause = (
+                        " OR EXISTS (SELECT 1 FROM bw_market_articles ma"
+                        " JOIN bw_markets m ON m.id = ma.market_id"
+                        " WHERE ma.article_uri = articles.uri"
+                        " AND (ma.score >= 12 OR ma.review_verdict = 'signal')"
+                        " AND (COALESCE(articles.bias_source, '') <> 'vendor:linkedin'"
+                        "      OR ma.review_verdict = 'signal')"
+                        " AND COALESCE(m.config->'collection'->>'topic_name',"
+                        " 'Market Monitoring ' || m.name) = ?)")
+                    market_params = [topic]
+                query += (" AND (topic = ? OR title LIKE ? OR summary LIKE ?"
+                          f"{market_clause})")
                 topic_pattern = f"%{topic}%"
                 params.extend([topic, topic_pattern, topic_pattern])
+                params.extend(market_params)
 
             query += " ORDER BY publication_date DESC LIMIT ?"
             params.append(_SIGNAL_CANDIDATE_CEILING)

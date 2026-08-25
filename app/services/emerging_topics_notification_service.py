@@ -267,7 +267,10 @@ class EmergingTopicsNotificationService:
             "topic_label": "Test Emerging Topic",
             "topic_description": "This is a test notification to verify your notification settings are working correctly.",
             "article_count": 5,
-            "detection_type": "accelerating",
+            # A v2 detection type with an accelerating velocity, so the sample
+            # looks like something the pipeline could actually produce.
+            "detection_type": "llm_proposed",
+            "velocity": "accelerating",
             "confidence_score": 0.85,
             "trend_score": {"composite": 75}
         }]

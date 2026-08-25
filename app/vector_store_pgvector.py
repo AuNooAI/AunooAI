@@ -44,15 +44,20 @@ DEBERTA_ENCODER_URL = os.getenv("DEBERTA_ENCODER_URL", "http://localhost:8001")
 EMBEDDING_DIM = 768
 
 
-def _encode_one(text_value: str) -> List[float]:
-    """Encode a single text via the local DeBERTa encoder. Raises on failure."""
+def _encode_fields(title: str, content: str) -> List[float]:
+    """Encode one title/content pair via the local DeBERTa encoder.
+
+    Raises on an unreachable encoder, a non-2xx response, a malformed payload,
+    or any dimension other than 768. There is deliberately no fallback: a wrong
+    vector written to articles.embedding corrupts every later search silently,
+    whereas a raised error stops the run where it can be seen.
+    """
     import httpx
 
-    # Split into title + body on the first newline (DeBERTa expects structured
-    # input); callers pass a single blob (raw | summary | title).
-    parts = text_value.split("\n", 1)
-    title = parts[0].strip()
-    content = parts[1].strip() if len(parts) > 1 else ""
+    title = (title or "").strip()
+    content = (content or "").strip()
+    if not title and not content:
+        raise RuntimeError("Refusing to embed empty text")
 
     try:
         with httpx.Client(timeout=30.0) as client:
@@ -61,7 +66,7 @@ def _encode_one(text_value: str) -> List[float]:
                 json={"title": title, "description": "", "content": content},
             )
             resp.raise_for_status()
-            embedding = resp.json()["embedding"]
+            payload = resp.json()
     except Exception as e:
         logger.error("DeBERTa encoder unreachable at %s: %s", DEBERTA_ENCODER_URL, e)
         raise RuntimeError(
@@ -70,11 +75,75 @@ def _encode_one(text_value: str) -> List[float]:
             "Restart the encoder service and retry."
         ) from e
 
+    if not isinstance(payload, dict) or "embedding" not in payload:
+        raise RuntimeError(
+            f"DeBERTa encoder returned an unexpected payload: {str(payload)[:200]}"
+        )
+    embedding = payload["embedding"]
+    if not isinstance(embedding, list):
+        raise RuntimeError("DeBERTa encoder returned a non-list embedding")
+
     if len(embedding) != EMBEDDING_DIM:
         raise RuntimeError(
             f"DeBERTa encoder returned {len(embedding)}d, expected {EMBEDDING_DIM}d"
         )
     return embedding
+
+
+def _encode_one(text_value: str) -> List[float]:
+    """Encode a single free-text blob (queries, and legacy callers).
+
+    The first line is treated as the title and the rest as content. That split
+    is right for a search query and for text that was assembled title-first;
+    article indexing uses :func:`build_article_encoder_input` instead, which
+    passes the real title through explicitly.
+    """
+    parts = str(text_value).split("\n", 1)
+    return _encode_fields(parts[0], parts[1] if len(parts) > 1 else "")
+
+
+def build_article_encoder_input(article: Dict[str, Any]) -> tuple:
+    """Build the encoder's (title, content) input for an article.
+
+    Title is the article's real title, never the first line of its body. Tags
+    lead the content because they carry the collection-time keyword matches —
+    for a niche brand, often the only occurrence of the name outside the body —
+    and putting them first keeps the 8000-token truncation from dropping them.
+
+    Returns ("", "") when the article has nothing worth embedding.
+    """
+    title = str(article.get("title") or "").strip()
+
+    body = article.get("raw") or article.get("summary") or ""
+    body = str(body).strip()
+
+    tags = article.get("tags")
+    if isinstance(tags, (list, tuple)):
+        tags = ", ".join(str(t) for t in tags if t)
+    tags = str(tags).strip() if tags else ""
+
+    content_parts = []
+    if tags:
+        content_parts.append(f"Tags: {tags}")
+    if body:
+        content_parts.append(body)
+    content = "\n".join(content_parts)
+
+    if not title and not content:
+        return ("", "")
+
+    # Keep the existing token ceiling for the body side of the payload.
+    if content:
+        content = _truncate_text_for_embedding(content)
+    return (title, content)
+
+
+def embed_query(query_text: str) -> List[float]:
+    """Embed a search query. Raises on any encoder problem."""
+    cleaned = str(query_text or "").strip()
+    if not cleaned:
+        raise RuntimeError("Refusing to embed an empty query")
+    return _encode_one(_truncate_text_for_embedding(cleaned))
 
 
 def _with_tags(doc_text: str, article: Dict[str, Any]) -> str:
@@ -189,21 +258,13 @@ def upsert_article(article: Dict[str, Any]) -> None:
     """
     conn = None
     try:
-        # Get document text for embedding
-        doc_text = (
-            article.get("raw")
-            or article.get("summary")
-            or article.get("title")
-            or ""
-        )
-        if not doc_text:
+        title, content = build_article_encoder_input(article)
+        if not title and not content:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
-        doc_text = _with_tags(doc_text, article)
 
         # Generate embedding
-        embeddings = _embed_texts([doc_text])
-        embedding = embeddings[0]
+        embedding = _encode_fields(title, content)
 
         # Update database with embedding
         db = get_database_instance()
@@ -248,21 +309,13 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
         return
 
     try:
-        # Get document text for embedding
-        doc_text = (
-            article.get("raw")
-            or article.get("summary")
-            or article.get("title")
-            or ""
-        )
-        if not doc_text:
+        title, content = build_article_encoder_input(article)
+        if not title and not content:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
-        doc_text = _with_tags(doc_text, article)
 
-        # Generate embedding (sync call, but relatively fast)
-        embeddings = _embed_texts([doc_text])
-        embedding = embeddings[0]
+        # The encoder call is blocking HTTP; keep it off the event loop.
+        embedding = await asyncio.to_thread(_encode_fields, title, content)
 
         # Convert embedding to PostgreSQL array format
         embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
@@ -490,9 +543,9 @@ async def search_articles_async(
         return await loop.run_in_executor(None, search_articles, query, top_k, metadata_filter)
 
     try:
-        # Generate query embedding (this is still blocking, but relatively fast)
-        embeddings = _embed_texts([query])
-        query_embedding = embeddings[0]
+        # The encoder call is blocking HTTP over the network; run it in a
+        # worker thread so a slow encoder cannot stall the event loop.
+        query_embedding = await asyncio.to_thread(embed_query, query)
 
         # Build WHERE clause for filters (asyncpg uses positional params $1, $2, etc.)
         where_clauses = ["embedding IS NOT NULL"]

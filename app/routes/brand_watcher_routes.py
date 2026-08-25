@@ -16,6 +16,7 @@ from sqlalchemy import text
 import logging
 import json
 import re
+from functools import lru_cache
 import os
 
 from app.security.session import verify_session
@@ -39,6 +40,8 @@ router = APIRouter(prefix="/api/brand-watcher", tags=["Brand Watcher"])
 # _BW_CACHE_FRESH are served directly; older-but-usable entries are served
 # stale while one background task recomputes them.
 import asyncio as _bw_asyncio
+
+from app.services import entity_flags
 import functools as _bw_functools
 import time as _bw_time
 
@@ -662,10 +665,39 @@ def _categorize_article_keywords(title: str, summary: str, brand: dict) -> List[
     return matched
 
 
+@lru_cache(maxsize=4096)
+def _keyword_pattern(keyword: str):
+    """A word-boundary matcher for one brand keyword.
+
+    This used to be a bare ``kw.lower() in text`` substring test, which matched
+    inside other words. Measured against this database's 48,012 analysed
+    articles, the keyword "Nua" matched 920 of them — "annual", "manual",
+    "continual" — against a company that appears in none. "Mave" and "Joon" did
+    the same thing on a smaller scale, and for a publisher brand "SAGE" matches
+    "message" and "passage".
+
+    Cached because classification calls this once per keyword per article, and
+    the keyword set is small and fixed for the length of a run.
+    """
+    escaped = r"\s+".join(re.escape(part) for part in keyword.split())
+    # \b is wrong for a keyword ending in a non-word character ("Secure.com",
+    # "7ai"), where it would demand a word character that is not there.
+    lead = r"\b" if keyword[:1].isalnum() else ""
+    trail = r"\b" if keyword[-1:].isalnum() else ""
+    return re.compile(lead + escaped + trail, re.IGNORECASE)
+
+
+def _mentions(text_content: str, keyword: str) -> bool:
+    keyword = (keyword or "").strip()
+    if not keyword:
+        return False
+    return bool(_keyword_pattern(keyword).search(text_content))
+
+
 def _match_articles_to_brand(brand: dict, title: str, summary: str) -> bool:
     """Check if an article mentions a brand (via brand_keywords, product_keywords, people_keywords).
     Falls back to display_name if no explicit keywords are configured."""
-    text_content = f"{title} {summary}".lower()
+    text_content = f"{title} {summary}"
 
     has_any_keywords = False
     for kw_field in ['brand_keywords', 'product_keywords', 'people_keywords']:
@@ -678,16 +710,16 @@ def _match_articles_to_brand(brand: dict, title: str, summary: str) -> bool:
         if keywords:
             has_any_keywords = True
         for kw in keywords:
-            if kw.lower() in text_content:
+            if _mentions(text_content, kw):
                 return True
 
     # If no keywords configured at all, match on display_name and name
     if not has_any_keywords:
-        display_name = (brand.get("display_name") or "").lower().strip()
-        name = (brand.get("name") or "").lower().strip()
-        if display_name and display_name in text_content:
+        display_name = (brand.get("display_name") or "").strip()
+        name = (brand.get("name") or "").strip()
+        if display_name and _mentions(text_content, display_name):
             return True
-        if name and name != display_name and name in text_content:
+        if name and name != display_name and _mentions(text_content, name):
             return True
 
     return False
@@ -1374,19 +1406,44 @@ async def get_social_posts(
     end_date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD); overrides days_back window end (inclusive)"),
     include_unevaluated: bool = Query(True, description="When no min_relevance, include posts the social eval hasn't scored yet"),
     include_flagged: bool = Query(False, description="Include posts flagged as false positives (hidden by default)"),
+    brand_id: Optional[int] = Query(None, description="Read this company's mentions directly, instead of resolving a topic string"),
+    include_owned: bool = Query(False, description="Include the company's own posts. They are shown as claims and never counted in sentiment."),
     limit: int = Query(100, ge=1, le=20000),
     session=Depends(verify_session),
 ):
     """Social (Reddit/Bluesky) brand mentions with basic relevance + sentiment.
 
-    Reads social posts directly from `articles` by topic + news_source — does NOT
-    require classification into bw_article_categories. relevance =
-    topic_alignment_score (set by the lightweight social eval); sentiment as stored.
+    Two read paths. The legacy one selects by topic + news_source and reports
+    the relevance and sentiment stored on the article row, which is wrong the
+    moment a post names two companies: whichever was scored last owns the
+    verdict for both.
+
+    With ENTITY_INTELLIGENCE_MENTION_READ on, the same request is answered from
+    bw_entity_mentions, where the score belongs to the pair of (post, company).
+    The topic parameters still work — they are resolved to companies — so the
+    tab keeps functioning without changing on the day the flag flips. Rolling
+    back is unsetting the flag.
     """
     from app.services.social_eval_service import SOCIAL_SOURCES
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
+        if entity_flags.mention_read():
+            from app.services import entity_social_read as esr
+            resolved = ([brand_id] if brand_id
+                        else esr.brands_for_topics(conn, topics))
+            if resolved:
+                return await _bw_asyncio.to_thread(
+                    esr.social_feed, conn, brand_ids=resolved,
+                    days_back=days_back, min_relevance=min_relevance,
+                    source=source, keyword=keyword, start_date=start_date,
+                    end_date=end_date, include_unevaluated=include_unevaluated,
+                    include_owned=include_owned,
+                    include_flagged=include_flagged, limit=limit)
+            # Nothing resolved: fall through rather than answering an empty
+            # feed, so an unmapped topic behaves as it did before.
+            logger.info('bw/social: no entity resolved for topics=%r; '
+                        'using the legacy read path', topics)
         # Explicit start/end (from the export modal date range) override days_back.
         # end is made inclusive of the whole day; publication_date is ISO text so
         # 'T23:59:59' sorts as the day's max under lexicographic comparison.

@@ -45,6 +45,49 @@ _status = {
     "last_delivery_results": [],  # list of {cadence, period_label, topics, ok, at}
 }
 
+# run_id -> task_id of the scheduled assessment currently running for it.
+# Repeated monitor ticks must not stack jobs on the same run: the paired job
+# takes ~15 minutes, and a hung or slow one would otherwise be relaunched on
+# every tick. Cleared in the job's finally block, so a failure cannot wedge a
+# run out of scheduling permanently.
+_ACTIVE_RUN_JOBS: dict = {}
+# run_id -> the asyncio task handle, so a job that was cancelled or died before
+# its body ran (and therefore never reached the finally that clears the marker)
+# can still be detected as finished.
+_ACTIVE_TASK_HANDLES: dict = {}
+
+
+def _is_job_active(task_manager, run_id: str) -> bool:
+    """True while this run's scheduled assessment is still going.
+
+    The in-memory marker is authoritative for this process. It is cross-checked
+    against the task manager so a task that died without unwinding (process
+    restart, cancelled task) does not block the run forever.
+    """
+    task_id = _ACTIVE_RUN_JOBS.get(run_id)
+    if not task_id:
+        return False
+    try:
+        status = (task_manager.get_task_status(task_id) or {}).get("status")
+    except Exception:
+        status = None
+    if status in ("completed", "failed", "cancelled", "error", None):
+        _ACTIVE_RUN_JOBS.pop(run_id, None)
+        return False
+    if status == "pending":
+        # A queued task is legitimately pending while it waits for a slot, but
+        # a task cancelled before its body ran also stays pending forever and
+        # never clears the marker — which would wedge this run out of
+        # scheduling for the life of the process. Trust the asyncio task, not
+        # the persisted status.
+        handle = _ACTIVE_TASK_HANDLES.get(run_id)
+        if handle is None or handle.done():
+            _ACTIVE_RUN_JOBS.pop(run_id, None)
+            _ACTIVE_TASK_HANDLES.pop(run_id, None)
+            return False
+    return True
+
+
 # Override day-of-month + month checks for testing (e.g.
 # FORECAST_DELIVERY_FORCE_DAY=22 to make today behave as the 1st of the month).
 _FORCE_DAY = int(os.getenv("FORECAST_DELIVERY_FORCE_DAY", "0") or 0)
@@ -155,9 +198,17 @@ def _period_due(configs: list, cadence: str, now: datetime) -> bool:
 
 
 async def _check_and_kick_off():
-    """Find stale topics and start paired assessments for them."""
+    """Start paired assessments for forecast runs that need one.
+
+    Freshness is a property of a RUN, not of a topic. This used to compare the
+    newest assessment for the *topic* against the threshold, so generating a new
+    forecast for a topic assessed last week left that new run unassessed until
+    the topic's 30-day clock expired — the tracker showed a fresh forecast with
+    no evidence against it, and the report pipeline pinned a run nothing had
+    scored. Each run now carries its own clock, and a run that has never been
+    assessed is due immediately.
+    """
     from app.database import get_database_instance
-    from app.services.forecast_assessment_service import assess_run, apply_baseline_correction
     from app.services.background_task_manager import get_task_manager
 
     db = get_database_instance()
@@ -181,17 +232,20 @@ async def _check_and_kick_off():
             {"topics": list(topics_with_overlays)},
         ).fetchall()
 
-        # And the most-recent assessment per topic.
+        # Freshness per RUN, not per topic, and only COMPLETED live assessments
+        # count. A failed or partial row must not look like evidence that the
+        # run has been scored, or a run that keeps failing would never retry.
+        run_ids = [r._mapping["id"] for r in most_recent_runs]
         last_assessments = conn.execute(
             text(
-                "SELECT topic, MAX(assessed_at) AS last "
+                "SELECT run_id, MAX(assessed_at) AS last "
                 "FROM forecast_assessments "
-                "WHERE topic = ANY(:topics) AND mode='live' "
-                "GROUP BY topic"
+                "WHERE run_id = ANY(:run_ids) AND mode='live' AND status='completed' "
+                "GROUP BY run_id"
             ),
-            {"topics": list(topics_with_overlays)},
-        ).fetchall()
-        last_by_topic = {r._mapping["topic"]: r._mapping["last"] for r in last_assessments}
+            {"run_ids": run_ids},
+        ).fetchall() if run_ids else []
+        last_by_run = {r._mapping["run_id"]: r._mapping["last"] for r in last_assessments}
     finally:
         try:
             conn.close()
@@ -204,8 +258,22 @@ async def _check_and_kick_off():
     for r in most_recent_runs:
         topic = r._mapping["topic"]
         run_id = r._mapping["id"]
-        last = last_by_topic.get(topic)
-        if last and _ensure_aware(last) > staleness_threshold:
+        last = last_by_run.get(run_id)
+        if last:
+            aware = _ensure_aware(last)
+            # An unparseable timestamp must not decide scheduling either way;
+            # treat it as unknown and let the run be assessed.
+            if aware is not None and aware > staleness_threshold:
+                continue
+
+        # Repeated ticks must not stack jobs on the same run. The paired job
+        # takes ~15 minutes and the loop wakes every 6 hours, but a hung or
+        # slow run would otherwise be launched again on every tick, unbounded.
+        if _is_job_active(tm, run_id):
+            logger.info(
+                "Scheduled assessment already active for run %s (topic %r) — skipping",
+                run_id, topic,
+            )
             continue
 
         logger.info(
@@ -222,7 +290,10 @@ async def _check_and_kick_off():
                       "window_weeks": WINDOW_WEEKS},
         )
 
-        asyncio.create_task(tm.run_task(task_id, _build_paired_job(run_id, topic)))
+        _ACTIVE_RUN_JOBS[run_id] = task_id
+        _ACTIVE_TASK_HANDLES[run_id] = asyncio.create_task(
+            tm.run_task(task_id, _build_paired_job(run_id, topic))
+        )
         _status["last_kicked_off"] = (
             [{"topic": topic, "run_id": run_id, "at": datetime.now(timezone.utc).isoformat()}]
             + _status["last_kicked_off"][:9]
@@ -231,10 +302,21 @@ async def _check_and_kick_off():
 
 def _build_paired_job(run_id: str, topic: str):
     """Closure binding the run_id so the same monitor loop can fan out
-    multiple jobs at once without race conditions."""
+    multiple jobs at once without race conditions.
+
+    Clears this run's in-progress marker on the way out, however the job ends,
+    so a failure cannot wedge the run out of scheduling forever.
+    """
     from app.services.forecast_assessment_service import assess_run, apply_baseline_correction
 
     async def _job(progress_callback=None):
+        try:
+            return await _run_paired(progress_callback)
+        finally:
+            _ACTIVE_RUN_JOBS.pop(run_id, None)
+            _ACTIVE_TASK_HANDLES.pop(run_id, None)
+
+    async def _run_paired(progress_callback=None):
         def _cb_for(start, end):
             def _emit(pct, msg):
                 if progress_callback:

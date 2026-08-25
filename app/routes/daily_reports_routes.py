@@ -47,7 +47,12 @@ class AutoComposeRequest(BaseModel):
         description="Topics to compose from. Falls back to the stored daily_briefing_topics setting when omitted.",
     )
     min_confidence: float = Field(0.6, ge=0.0, le=1.0, description="Emerging-topic confidence floor")
-    min_alignment: float = Field(0.7, ge=0.0, le=1.0, description="Article topic_alignment_score floor")
+    # 0.4, not 0.7: across 852 articles in finalized briefings the median
+    # alignment is 0.80 but the distribution is bimodal, and a 0.7 gate drops
+    # about 30% of what analysts have historically picked. Alignment carries
+    # half the ranking weight, so a low floor removes the noise without
+    # deciding the ordering by itself.
+    min_alignment: float = Field(0.4, ge=0.0, le=1.0, description="Article topic_alignment_score floor (inclusive)")
     days_back: int = Field(7, ge=1, le=30, description="Look-back window in days")
     run_detection: bool = Field(False, description="Re-run Emerging Topics detection inline (slow; default reads recently-detected topics)")
     model: str = Field("gpt-5.4", description="Model for detection")
@@ -292,6 +297,23 @@ def _get_stored_daily_briefing_topics(db) -> List[str]:
         conn.close()
 
 
+def _compose_kwargs(request: "AutoComposeRequest") -> dict:
+    """The one compose configuration, so both endpoints cannot drift apart.
+
+    They did drift: the streaming route silently dropped ``min_alignment`` and
+    ``min_confidence``, and the non-streaming route passed two arguments the
+    service did not accept, which made every call to it a 500.
+    """
+    return {
+        "days_back": request.days_back,
+        "min_alignment": request.min_alignment,
+        "min_confidence": request.min_confidence,
+        "run_detection": request.run_detection,
+        "model": request.model,
+        "history_days": request.history_days,
+    }
+
+
 @router.post("/auto-compose")
 async def auto_compose_briefing(
     request: AutoComposeRequest,
@@ -325,16 +347,12 @@ async def auto_compose_briefing(
             db,
             username,
             topics,
-            min_confidence=request.min_confidence,
-            min_alignment=request.min_alignment,
-            days_back=request.days_back,
-            run_detection=request.run_detection,
-            model=request.model,
+            **_compose_kwargs(request),
         )
         return summary
     except Exception as e:
         logger.error(f"Auto-compose failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Failed to compose briefing: {str(e)}")
+        raise HTTPException(500, "Failed to compose briefing. Check the server log for details.")
 
 
 @router.post("/auto-compose/stream")
@@ -363,11 +381,7 @@ async def auto_compose_briefing_stream(
     async def stream():
         import asyncio
         agen = compose_daily_briefing_stream(
-            db, username, topics,
-            days_back=request.days_back,
-            run_detection=request.run_detection,
-            model=request.model,
-            history_days=request.history_days,
+            db, username, topics, **_compose_kwargs(request),
         ).__aiter__()
         try:
             nxt = asyncio.ensure_future(agen.__anext__())
@@ -388,7 +402,11 @@ async def auto_compose_briefing_stream(
                 nxt = asyncio.ensure_future(agen.__anext__())
         except Exception as e:
             logger.error(f"Auto-compose stream error: {e}", exc_info=True)
-            yield f"data: {json.dumps({'stage': 'error', 'status': 'failed', 'error': str(e)})}\n\n"
+            # Same wording the non-streaming path returns; the exception stays
+            # in the log rather than going to the browser.
+            _err = {'stage': 'error', 'status': 'failed',
+                    'error': 'Failed to compose briefing. Check the server log for details.'}
+            yield f"data: {json.dumps(_err)}\n\n"
         finally:
             await agen.aclose()
         yield "data: [DONE]\n\n"

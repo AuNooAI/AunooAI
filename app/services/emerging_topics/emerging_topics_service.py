@@ -11,6 +11,7 @@ Uses multi-step LLM-driven pipeline:
 6. Calculate trend scores
 """
 
+import asyncio
 import logging
 import json as json_module
 import os
@@ -27,6 +28,15 @@ from .theme_validator import ThemeValidator
 from .deep_analyzer import DeepAnalyzer, DeepAnalysis
 from .trend_scorer import TrendScorer, TrendScore
 from .article_validator import ArticleValidator
+from .date_utils import publication_ts_sql, utcnow
+from .run_lock import (
+    DetectionAlreadyRunning,
+    DetectionRunLock,
+    normalize_topic_filter,
+)
+from . import historical_backend
+from . import historical_cutoff
+from . import sentinels
 
 # Keep old imports for backwards compatibility
 from .cluster_detector import ClusterDetector, ClusterConfig, ClusterResult, ArticleCluster
@@ -34,6 +44,27 @@ from .temporal_tracker import TemporalTracker, TemporalConfig, ClusterChange
 from .topic_summarizer import TopicSummarizer, TopicSummary
 
 logger = logging.getLogger(__name__)
+
+
+class DetectionFailed(RuntimeError):
+    """A detection run failed. Carries a machine-readable code for the API."""
+
+    def __init__(self, message: str, code: str = "detection_failed"):
+        super().__init__(message)
+        self.code = code
+
+
+def _sanitize_error(exc: BaseException) -> str:
+    """A short, safe error string for the run record and the error event.
+
+    Keeps the exception type and message but caps the length, so a database
+    error carrying a full statement (and its parameters) does not end up in an
+    API response or a run row.
+    """
+    message = str(exc).strip().splitlines()[0] if str(exc).strip() else exc.__class__.__name__
+    if len(message) > 300:
+        message = message[:297] + "..."
+    return f"{exc.__class__.__name__}: {message}"
 
 
 @dataclass
@@ -71,6 +102,14 @@ class EmergingTopic:
     cluster_id: str = ""
     article_count: int = 0
     article_uris: List[str] = field(default_factory=list)
+    # The scope this topic belongs to. Part of its identity: the same label
+    # under two filters is two topics.
+    topic_filter: Optional[str] = None
+    # Whether older coverage was found: 'ongoing', 'not_found' or 'unknown'.
+    # 'unknown' is the normal answer until a validated E5 index exists.
+    historical_coverage_status: str = "unknown"
+    # What the shadow classifier would have said, when one ran.
+    historical_shadow: Optional[Dict[str, Any]] = None
 
     # V2: Key entities from proposal
     key_entities: List[str] = field(default_factory=list)
@@ -124,6 +163,8 @@ class EmergingTopic:
             "detection_type": self.detection_type,
             "cluster_id": self.cluster_id,
             "article_count": self.article_count,
+            "topic_filter": self.topic_filter,
+            "historical_coverage_status": self.historical_coverage_status,
             # V2 fields
             "key_entities": self.key_entities,
             "why_emerging": self.why_emerging,
@@ -256,11 +297,16 @@ class EmergingTopicsService:
             if conn:
                 conn.close()
 
-    async def _fetch_articles_for_validation(
+    def _fetch_articles_for_validation(
         self,
         article_uris: List[str]
     ) -> List[Dict[str, Any]]:
-        """Fetch article details for validation."""
+        """Fetch article details for validation, in the order asked for.
+
+        Blocking; async callers route it through a worker thread. Raises on a
+        database error rather than returning an empty list, which would be
+        indistinguishable from "these articles do not exist".
+        """
         if not article_uris:
             return []
 
@@ -278,15 +324,16 @@ class EmergingTopicsService:
             """)
 
             result = conn.execute(stmt, params)
-            articles = []
-            for row in result.mappings():
-                articles.append(dict(row))
-
-            return articles
+            by_uri = {row["uri"]: dict(row) for row in result.mappings()}
+            # Preserve the caller's ranking; the validator's cost cap applies to
+            # the first N articles by rank, not by whatever order the DB returns.
+            return [by_uri[uri] for uri in article_uris if uri in by_uri]
 
         except Exception as e:
             logger.error(f"Error fetching articles for validation: {e}")
-            return []
+            raise RuntimeError(
+                f"Could not read articles for relevance validation: {e}"
+            ) from e
         finally:
             if conn:
                 conn.close()
@@ -294,337 +341,744 @@ class EmergingTopicsService:
     async def run_detection_streaming(
         self,
         topic_filter: Optional[str] = None,
-        days_back: Optional[int] = None
+        days_back: Optional[int] = None,
+        run_lock: Optional[DetectionRunLock] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Run v2 LLM-driven detection with streaming progress updates.
+        """Run v2 LLM-driven detection, yielding progress events.
+
+        Every event carries an ``event`` key of ``progress``, ``complete``, or
+        ``error``; the transport turns that into the SSE event name.
+
+        Every run that creates a ``detection_runs`` row leaves it in exactly one
+        terminal state. A run that samples articles but finds nothing is
+        ``completed`` with zero topics. An encoder outage, a database error, an
+        LLM failure, or a persistence failure is ``failed`` — none of them may
+        look like a successful empty run.
+
+        Args:
+            run_lock: an already-held scope lock (the API takes it before the
+                stream starts so it can answer 409 with a status code). When
+                omitted the service takes and releases its own.
         """
         days = days_back or self.config.days_back
+        topic_filter = normalize_topic_filter(topic_filter)
         detection_date = date.today()
         start_time = time.time()
 
-        # Create detection run record
-        run_config = {
-            "days_back": days,
-            "max_sample_articles": self.config.max_sample_articles,
-            "distance_threshold": self.config.theme_distance_threshold,
-            "min_articles_for_theme": self.config.min_articles_for_theme,
-            "max_articles_per_theme": self.config.max_articles_per_theme,
-        }
-        model_name = getattr(self.theme_proposer, 'default_model', 'gpt-5.4') if self.theme_proposer else 'gpt-5.4'
-        run_id = self._create_detection_run(topic_filter, run_config, model_name)
+        owns_lock = run_lock is None
+        lock = run_lock or DetectionRunLock(topic_filter)
+        if owns_lock:
+            # Raises DetectionAlreadyRunning; no run row is created.
+            await asyncio.to_thread(lock.acquire)
 
-        yield {
-            "step": 1,
-            "progress": 5,
-            "message": "Starting emerging topic detection...",
-            "detection_date": str(detection_date),
-            "run_id": run_id,
-        }
+        run_id: Optional[int] = None
+        terminal = False
+        articles_sampled = 0
 
-        # Step 1: LLM proposes themes from article sample
-        yield {
-            "step": 2,
-            "progress": 10,
-            "message": "Analyzing articles to identify emerging themes...",
-        }
+        try:
+            run_config = {
+                "days_back": days,
+                "max_sample_articles": self.config.max_sample_articles,
+                "distance_threshold": self.config.theme_distance_threshold,
+                "min_articles_for_theme": self.config.min_articles_for_theme,
+                "max_articles_per_theme": self.config.max_articles_per_theme,
+            }
+            model_name = getattr(self.theme_proposer, 'default_model', 'gpt-5.4') if self.theme_proposer else 'gpt-5.4'
+            run_id = await asyncio.to_thread(
+                self._create_detection_run, topic_filter, run_config, model_name
+            )
+            if run_id is None:
+                raise DetectionFailed(
+                    "Could not record the detection run — refusing to run "
+                    "detection that cannot be accounted for.",
+                    code="run_record_failed",
+                )
 
-        proposed_themes = await self.theme_proposer.propose_themes(
-            topic_filter=topic_filter,
-            days_back=days,
-            max_sample=self.config.max_sample_articles
-        )
-
-        if not proposed_themes:
             yield {
+                "event": "progress",
+                "step": 1,
+                "progress": 5,
+                "message": "Starting emerging topic detection...",
+                "detection_date": str(detection_date),
+                "run_id": run_id,
+                "topic_filter": topic_filter,
+            }
+
+            # Step 1: LLM proposes themes from an article sample
+            yield {
+                "event": "progress",
                 "step": 2,
-                "progress": 100,
-                "message": "No emerging themes identified",
-                "emerging_topics": [],
-                "total_emerging_topics": 0,
-            }
-            return
-
-        yield {
-            "step": 2,
-            "progress": 25,
-            "message": f"LLM proposed {len(proposed_themes)} potential themes",
-            "proposed_count": len(proposed_themes),
-        }
-
-        # Step 2: Assign articles to themes via semantic search
-        yield {
-            "step": 3,
-            "progress": 30,
-            "message": "Assigning articles to themes via semantic search...",
-        }
-
-        themes_with_articles = await self.theme_proposer.assign_articles_to_themes(
-            themes=proposed_themes,
-            topic_filter=topic_filter,
-            days_back=days,
-            max_per_theme=self.config.max_articles_per_theme,
-            distance_threshold=self.config.theme_distance_threshold
-        )
-
-        yield {
-            "step": 3,
-            "progress": 45,
-            "message": "Articles assigned to themes",
-        }
-
-        # Step 3.5: AI validation sweep to filter false positives
-        yield {
-            "step": 3,
-            "progress": 47,
-            "message": "Validating article relevance with AI sweep...",
-        }
-
-        for theme in themes_with_articles:
-            if theme.article_uris and len(theme.article_uris) > 0:
-                # Fetch article details for validation
-                articles = await self._fetch_articles_for_validation(theme.article_uris[:15])
-
-                if articles:
-                    validated_uris = await self.article_validator.validate_theme_articles(
-                        theme_label=theme.theme_label,
-                        theme_description=theme.theme_description,
-                        key_entities=theme.key_entities or [],
-                        articles=articles,
-                        min_confidence=0.7
-                    )
-
-                    # Keep original order but filter to validated URIs
-                    original_uris = theme.article_uris
-                    theme.article_uris = [uri for uri in original_uris if uri in validated_uris]
-
-                    # Also filter distances if we have them
-                    if hasattr(theme, 'article_distances') and theme.article_distances:
-                        uri_to_dist = dict(zip(original_uris, theme.article_distances))
-                        theme.article_distances = [uri_to_dist.get(uri, 0) for uri in theme.article_uris]
-
-                    logger.info(
-                        f"AI validation: {len(theme.article_uris)}/{len(original_uris)} "
-                        f"articles passed for '{theme.theme_label}'"
-                    )
-
-        yield {
-            "step": 3,
-            "progress": 49,
-            "message": "Article relevance validation complete",
-        }
-
-        # Step 4: Validate and merge overlapping themes
-        yield {
-            "step": 4,
-            "progress": 50,
-            "message": "Validating theme coherence and merging duplicates...",
-        }
-
-        validated_themes = await self.theme_validator.validate(themes_with_articles)
-
-        if not validated_themes:
-            yield {
-                "step": 4,
-                "progress": 100,
-                "message": "No themes passed validation",
-                "emerging_topics": [],
-                "total_emerging_topics": 0,
-            }
-            return
-
-        yield {
-            "step": 4,
-            "progress": 55,
-            "message": f"{len(validated_themes)} themes validated",
-            "validated_count": len(validated_themes),
-        }
-
-        # Step 4: Deep analysis for each theme
-        yield {
-            "step": 5,
-            "progress": 60,
-            "message": "Running deep analysis on validated themes...",
-        }
-
-        # Fetch organizational profile for context-aware analysis
-        org_profile = self._get_default_org_profile()
-        if org_profile:
-            logger.info(f"Using org profile '{org_profile.get('name')}' for deep analysis")
-
-        emerging_topics = []
-        total_themes = len(validated_themes)
-
-        for i, theme in enumerate(validated_themes):
-            progress = 60 + (i / total_themes) * 25
-            yield {
-                "step": 5,
-                "progress": progress,
-                "message": f"Analyzing: {theme.theme_label}",
+                "progress": 10,
+                "message": "Analyzing articles to identify emerging themes...",
+                "run_id": run_id,
             }
 
-            # Deep analysis with organizational context
-            analysis = await self.deep_analyzer.analyze(
-                theme_label=theme.theme_label,
-                theme_description=theme.theme_description,
-                article_uris=theme.article_uris,
-                max_articles=self.config.max_articles_for_analysis,
-                org_profile=org_profile
-            )
-
-            # Trend scoring
-            trend = self.trend_scorer.calculate(
-                article_uris=theme.article_uris,
-                days_back=days
-            )
-
-            # Check if this is actually an ongoing topic with historical coverage
-            is_ongoing = await self._check_historical_coverage(
-                theme=theme,
+            proposal = await self.theme_proposer.propose_themes(
+                topic_filter=topic_filter,
                 days_back=days,
-                history_window_days=60,  # Look back 60 days for historical articles
-                min_historical_articles=3
+                max_sample=self.config.max_sample_articles
+            )
+            proposed_themes = proposal.themes
+            articles_sampled = proposal.articles_sampled
+
+            if not proposed_themes:
+                await self._finish_run(
+                    run_id=run_id,
+                    topics=[],
+                    topic_filter=topic_filter,
+                    articles_sampled=articles_sampled,
+                    duration=time.time() - start_time,
+                )
+                terminal = True
+                auto_retired = await asyncio.to_thread(
+                    self._check_auto_retirement, [], topic_filter
+                )
+                yield self._completion_event(
+                    run_id=run_id,
+                    topics=[],
+                    topic_filter=topic_filter,
+                    articles_sampled=articles_sampled,
+                    auto_retired=auto_retired,
+                    duration=time.time() - start_time,
+                    message="No emerging themes identified",
+                )
+                return
+
+            yield {
+                "event": "progress",
+                "step": 2,
+                "progress": 25,
+                "message": f"LLM proposed {len(proposed_themes)} potential themes",
+                "proposed_count": len(proposed_themes),
+                "articles_sampled": articles_sampled,
+                "run_id": run_id,
+            }
+
+            # Step 2: Assign articles to themes via semantic search
+            yield {
+                "event": "progress",
+                "step": 3,
+                "progress": 30,
+                "message": "Assigning articles to themes via semantic search...",
+                "run_id": run_id,
+            }
+
+            themes_with_articles = await self.theme_proposer.assign_articles_to_themes(
+                themes=proposed_themes,
+                topic_filter=topic_filter,
+                days_back=days,
+                max_per_theme=self.config.max_articles_per_theme,
+                distance_threshold=self.config.theme_distance_threshold
             )
 
-            # Create EmergingTopic
-            topic = self._create_topic_from_theme(
-                theme=theme,
-                analysis=analysis,
-                trend=trend,
-                detection_date=detection_date,
-                is_ongoing=is_ongoing
+            yield {
+                "event": "progress",
+                "step": 3,
+                "progress": 45,
+                "message": "Articles assigned to themes",
+                "run_id": run_id,
+            }
+
+            # Step 3.5: AI relevance sweep over the assigned articles
+            yield {
+                "event": "progress",
+                "step": 3,
+                "progress": 47,
+                "message": "Validating article relevance with AI sweep...",
+                "run_id": run_id,
+            }
+
+            for theme in themes_with_articles:
+                await self._validate_theme_articles(theme)
+
+            yield {
+                "event": "progress",
+                "step": 3,
+                "progress": 49,
+                "message": "Article relevance validation complete",
+                "run_id": run_id,
+            }
+
+            # Step 4: Validate and merge overlapping themes
+            yield {
+                "event": "progress",
+                "step": 4,
+                "progress": 50,
+                "message": "Validating theme coherence and merging duplicates...",
+                "run_id": run_id,
+            }
+
+            validated_themes = await self.theme_validator.validate(themes_with_articles)
+
+            if not validated_themes:
+                await self._finish_run(
+                    run_id=run_id,
+                    topics=[],
+                    topic_filter=topic_filter,
+                    articles_sampled=articles_sampled,
+                    duration=time.time() - start_time,
+                )
+                terminal = True
+                auto_retired = await asyncio.to_thread(
+                    self._check_auto_retirement, [], topic_filter
+                )
+                yield self._completion_event(
+                    run_id=run_id,
+                    topics=[],
+                    topic_filter=topic_filter,
+                    articles_sampled=articles_sampled,
+                    auto_retired=auto_retired,
+                    duration=time.time() - start_time,
+                    message="No themes passed validation",
+                )
+                return
+
+            yield {
+                "event": "progress",
+                "step": 4,
+                "progress": 55,
+                "message": f"{len(validated_themes)} themes validated",
+                "validated_count": len(validated_themes),
+                "run_id": run_id,
+            }
+
+            # Step 5: Deep analysis per theme
+            yield {
+                "event": "progress",
+                "step": 5,
+                "progress": 60,
+                "message": "Running deep analysis on validated themes...",
+                "run_id": run_id,
+            }
+
+            org_profile = await asyncio.to_thread(self._get_default_org_profile)
+            if org_profile:
+                logger.info(f"Using org profile '{org_profile.get('name')}' for deep analysis")
+
+            emerging_topics = []
+            total_themes = len(validated_themes)
+
+            for i, theme in enumerate(validated_themes):
+                progress = 60 + (i / total_themes) * 25
+                yield {
+                    "event": "progress",
+                    "step": 5,
+                    "progress": progress,
+                    "message": f"Analyzing: {theme.theme_label}",
+                    "run_id": run_id,
+                }
+
+                analysis = await self.deep_analyzer.analyze(
+                    theme_label=theme.theme_label,
+                    theme_description=theme.theme_description,
+                    article_uris=theme.article_uris,
+                    max_articles=self.config.max_articles_for_analysis,
+                    org_profile=org_profile
+                )
+
+                trend = await asyncio.to_thread(
+                    self.trend_scorer.calculate, theme.article_uris, days
+                )
+
+                # Has this been covered before? Usually "unknown" — see
+                # historical_backend.py.
+                historical_status, historical_shadow = await self._check_historical_coverage(
+                    theme=theme,
+                    days_back=days,
+                    topic_filter=topic_filter,
+                    history_window_days=60,
+                    min_historical_articles=3
+                )
+
+                emerging_topics.append(self._create_topic_from_theme(
+                    theme=theme,
+                    analysis=analysis,
+                    trend=trend,
+                    detection_date=detection_date,
+                    topic_filter=topic_filter,
+                    historical_status=historical_status,
+                    historical_shadow=historical_shadow,
+                ))
+
+            yield {
+                "event": "progress",
+                "step": 5,
+                "progress": 85,
+                "message": "Deep analysis complete",
+                "run_id": run_id,
+            }
+
+            # Step 6: Score confidence and persist
+            yield {
+                "event": "progress",
+                "step": 6,
+                "progress": 90,
+                "message": "Saving emerging topics...",
+                "run_id": run_id,
+            }
+
+            for topic in emerging_topics:
+                topic.confidence_score = self._calculate_confidence_v2(topic)
+
+            await self._finish_run(
+                run_id=run_id,
+                topics=emerging_topics,
+                topic_filter=topic_filter,
+                articles_sampled=articles_sampled,
+                duration=time.time() - start_time,
+            )
+            terminal = True
+
+            yield {
+                "event": "progress",
+                "step": 6,
+                "progress": 95,
+                "message": "Topics saved to database",
+                "run_id": run_id,
+            }
+
+            # Retirement is post-run cleanup; it cannot undo a completed run.
+            auto_retired = await asyncio.to_thread(
+                self._check_auto_retirement,
+                [t.id for t in emerging_topics if t.id is not None],
+                topic_filter,
             )
 
-            emerging_topics.append(topic)
+            yield self._completion_event(
+                run_id=run_id,
+                topics=emerging_topics,
+                topic_filter=topic_filter,
+                articles_sampled=articles_sampled,
+                auto_retired=auto_retired,
+                duration=time.time() - start_time,
+            )
 
-        yield {
-            "step": 5,
-            "progress": 85,
-            "message": "Deep analysis complete",
-        }
+        except (GeneratorExit, asyncio.CancelledError):
+            # The client went away mid-stream. Close the run record out — we
+            # cannot yield anything at this point.
+            if run_id is not None and not terminal:
+                try:
+                    self._fail_detection_run(
+                        run_id,
+                        "Detection cancelled before completion (client disconnected)",
+                        time.time() - start_time,
+                    )
+                except Exception:
+                    logger.exception("Could not mark cancelled run %s failed", run_id)
+            raise
 
-        # Step 5: Calculate confidence and save
-        yield {
-            "step": 6,
-            "progress": 90,
-            "message": "Saving emerging topics...",
-        }
+        except Exception as exc:
+            logger.exception("Emerging topics detection failed")
+            code = getattr(exc, "code", "detection_failed")
+            message = _sanitize_error(exc)
+            if run_id is not None and not terminal:
+                try:
+                    await asyncio.to_thread(
+                        self._fail_detection_run,
+                        run_id,
+                        message,
+                        time.time() - start_time,
+                    )
+                    terminal = True
+                except Exception:
+                    logger.exception("Could not mark run %s failed", run_id)
+            yield {
+                "event": "error",
+                "step": 0,
+                "progress": 100,
+                "status": "failed",
+                "code": code,
+                "message": message,
+                "run_id": run_id,
+                "topic_filter": topic_filter,
+            }
 
-        articles_sampled = self.config.max_sample_articles
-        for topic in emerging_topics:
-            topic.confidence_score = self._calculate_confidence_v2(topic)
-            topic.id = self._save_emerging_topic(topic, topic_filter)
+        finally:
+            # Released synchronously on purpose. When a client disconnects the
+            # generator is closed with GeneratorExit, and an async generator
+            # that awaits while handling GeneratorExit raises "async generator
+            # ignored GeneratorExit" — which would leave the scope locked for
+            # exactly the case the lock has to survive. One pg_advisory_unlock
+            # round trip on the loop is the cheaper trade.
+            if owns_lock:
+                lock.release()
 
-            # Save history snapshot for this topic in this run
-            if topic.id and run_id:
-                self._save_topic_history(topic.id, run_id, topic)
-
-        yield {
-            "step": 6,
-            "progress": 95,
-            "message": "Topics saved to database",
-        }
-
-        # Complete the detection run
-        duration = time.time() - start_time
-        if run_id:
-            self._complete_detection_run(run_id, len(emerging_topics), articles_sampled, duration)
-
-        # Check for auto-retirement of themes not detected in this run
-        # Uses conservative thresholds: 7 days inactive + 7 missed runs
-        detected_ids = [t.id for t in emerging_topics if t.id is not None]
-        auto_retired = self._check_auto_retirement(detected_ids, topic_filter)
-
-        # Final result
+    def _completion_event(
+        self,
+        run_id: Optional[int],
+        topics: List[EmergingTopic],
+        topic_filter: Optional[str],
+        articles_sampled: int,
+        auto_retired: int,
+        duration: float,
+        message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build the single success event, emitted only after persistence."""
         retired_msg = f", {auto_retired} auto-retired" if auto_retired > 0 else ""
-        yield {
+        return {
+            "event": "complete",
             "step": 7,
             "progress": 100,
-            "message": f"Detection complete: {len(emerging_topics)} emerging topics found{retired_msg}",
-            "total_emerging_topics": len(emerging_topics),
-            "emerging_topics": [t.to_dict() for t in emerging_topics],
+            "status": "completed",
+            "message": message or (
+                f"Detection complete: {len(topics)} emerging topics found{retired_msg}"
+            ),
+            "total_emerging_topics": len(topics),
+            "emerging_topics": [t.to_dict() for t in topics],
             "auto_retired": auto_retired,
             "run_id": run_id,
+            "topic_filter": topic_filter,
+            "articles_sampled": articles_sampled,
+            "articles_analyzed": articles_sampled,
             "duration_seconds": round(duration, 2),
         }
+
+    async def _validate_theme_articles(self, theme: ProposedTheme) -> None:
+        """Drop articles the relevance sweep rejects, keeping order and distances.
+
+        The sweep judges the first N articles for cost; the rest of the theme's
+        ranked list passes through untouched.
+        """
+        if not theme.article_uris:
+            return
+
+        cap = self.article_validator.MAX_VALIDATED
+        articles = await asyncio.to_thread(
+            self._fetch_articles_for_validation, theme.article_uris[:cap]
+        )
+        if not articles:
+            return
+
+        original_uris = list(theme.article_uris)
+        original_distances = list(getattr(theme, 'article_distances', None) or [])
+
+        kept = await self.article_validator.validate_theme_articles(
+            theme_label=theme.theme_label,
+            theme_description=theme.theme_description,
+            key_entities=theme.key_entities or [],
+            articles=articles,
+            min_confidence=0.7,
+            ordered_uris=original_uris,
+        )
+
+        theme.article_uris = kept
+        if original_distances:
+            uri_to_dist = dict(zip(original_uris, original_distances))
+            theme.article_distances = [uri_to_dist.get(uri, 0.0) for uri in kept]
+
+        logger.info(
+            f"AI validation: {len(kept)}/{len(original_uris)} "
+            f"articles passed for '{theme.theme_label}'"
+        )
+
+    async def _finish_run(
+        self,
+        run_id: int,
+        topics: List[EmergingTopic],
+        topic_filter: Optional[str],
+        articles_sampled: int,
+        duration: float,
+    ) -> None:
+        """Persist a completed run's results as one atomic unit.
+
+        Topic rows, their history snapshots, the missed-run counters for topics
+        this run did not see, and the run's own completion all commit together.
+        If any part fails, nothing is written and the caller marks the run
+        failed — there is no state where some topics saved and the run still
+        claims success.
+        """
+        await asyncio.to_thread(
+            self._persist_run_results,
+            run_id,
+            topics,
+            topic_filter,
+            articles_sampled,
+            duration,
+        )
+
+    def _persist_run_results(
+        self,
+        run_id: int,
+        topics: List[EmergingTopic],
+        topic_filter: Optional[str],
+        articles_sampled: int,
+        duration: float,
+    ) -> None:
+        """Blocking half of :meth:`_finish_run`. One connection, one transaction."""
+        conn = None
+        try:
+            conn = self._get_connection()
+            for topic in topics:
+                topic.topic_filter = topic_filter
+                topic.id = self._save_emerging_topic(conn, topic, topic_filter)
+                self._save_topic_history(conn, topic.id, run_id, topic)
+
+            detected_ids = [t.id for t in topics if t.id is not None]
+            self._apply_missed_runs(conn, detected_ids, topic_filter)
+            self._complete_detection_run(
+                conn, run_id, len(topics), articles_sampled, duration
+            )
+            conn.commit()
+        except Exception:
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:
+                    logger.exception("Rollback failed while persisting run %s", run_id)
+            raise
+        finally:
+            if conn is not None:
+                conn.close()
 
     async def _check_historical_coverage(
         self,
         theme: ProposedTheme,
         days_back: int,
+        topic_filter: Optional[str] = None,
         history_window_days: int = 60,
         min_historical_articles: int = 3
-    ) -> bool:
+    ) -> tuple:
+        """Has this theme already been covered before the analysis window?
+
+        Returns ``(status, shadow)`` where status is one of ``ongoing``,
+        ``not_found`` or ``unknown``, and shadow is the decision detail to
+        record when running in shadow mode (None otherwise).
+
+        ``unknown`` is the honest answer almost everywhere today. This check
+        used to compare DeBERTa distances against a fixed 0.85, which matched
+        100% of the corpus and so labelled every theme — including invented
+        ones — as ongoing. That decision is gone rather than retuned: the
+        signal is missing from the store, not the threshold. See
+        historical_backend.py.
+
+        Never raises for a classification problem. An unavailable index, a
+        missing vector, or a failed query all mean "we could not tell", and the
+        caller keeps ``llm_proposed``. Suppressing a genuinely new topic is the
+        worse failure, because nobody sees a notification that never fires.
         """
-        Check if this theme has historical coverage from before the analysis window.
+        mode = historical_backend.resolve_mode()
+        if mode == historical_backend.MODE_OFF:
+            return (historical_backend.UNKNOWN, None)
 
-        If articles exist about this topic from before the analysis window,
-        the topic is not truly "emerging" but rather an ongoing topic.
-
-        Args:
-            theme: The proposed theme to check
-            days_back: The analysis window (e.g., 3 days)
-            history_window_days: How far back to look for historical articles
-            min_historical_articles: Minimum articles to consider it historical
-
-        Returns:
-            True if historical coverage exists (topic is ongoing, not new)
-        """
         try:
-            from app.vector_store import search_articles
+            return await asyncio.to_thread(
+                self._classify_historical_coverage,
+                theme,
+                days_back,
+                topic_filter,
+                history_window_days,
+                min_historical_articles,
+                mode,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Historical coverage check failed for '%s' (%s); recording unknown",
+                theme.theme_label, exc,
+            )
+            return (historical_backend.UNKNOWN, None)
 
-            # Search for articles older than the analysis window
-            # Using the theme's search query or label as the search term
-            search_text = theme.search_query or theme.theme_label
+    def _classify_historical_coverage(
+        self,
+        theme: ProposedTheme,
+        days_back: int,
+        topic_filter: Optional[str],
+        history_window_days: int,
+        min_historical_articles: int,
+        mode: str,
+    ) -> tuple:
+        """Blocking half of :meth:`_check_historical_coverage`, E5 only.
 
-            # Search for matching articles with date filter for historical period
-            # Articles from (history_window_days ago) to (days_back ago)
+        Anchors on the E5 vectors of the theme's own articles rather than
+        embedding its label. Those vectors already exist in the store, so this
+        costs one query instead of loading a 2GB sentence-transformer into the
+        detection process — and comparing a theme's actual articles against
+        older articles is a better question than comparing a short label string
+        against them.
+        """
+        conn = None
+        try:
             conn = self._get_connection()
-            try:
-                # Get article URIs from the historical window
-                stmt = text("""
-                    SELECT uri FROM articles
-                    WHERE publication_date >= CURRENT_DATE - :history_days
-                    AND publication_date < CURRENT_DATE - :analysis_days
-                """)
-                result = conn.execute(stmt, {
-                    "history_days": history_window_days,
-                    "analysis_days": days_back
-                })
-                historical_uris = {row[0] for row in result.fetchall()}
-            finally:
-                conn.close()
 
-            if not historical_uris:
-                # No articles in historical window at all
-                return False
+            readiness = historical_backend.e5_readiness(conn)
+            needs_enforce = mode == historical_backend.MODE_ENFORCE
+            if not (readiness.enforce_ready if needs_enforce else readiness.shadow_ready):
+                logger.info(
+                    "Theme '%s': E5 not usable for mode=%s — %s",
+                    theme.theme_label, mode, readiness.describe(),
+                )
+                return (historical_backend.UNKNOWN, None)
 
-            # Do a semantic search with the theme
-            search_results = search_articles(
-                query=search_text,
-                top_k=50,
+            # article_embeddings_ml has no ANN index yet, so these are sequential
+            # scans. Bound them: a slow shadow query must not drag out a
+            # customer-facing run, and aborting yields unknown, which is safe.
+            conn.execute(text("SET LOCAL statement_timeout = :ms"),
+                         {"ms": str(self.HISTORICAL_QUERY_TIMEOUT_MS)})
+
+            uris = list(theme.article_uris or [])[:30]
+            if len(uris) < historical_cutoff.MIN_CENTROID_VECTORS:
+                return (historical_backend.UNKNOWN, None)
+
+            placeholders = ", ".join(f":u{i}" for i in range(len(uris)))
+            params = {f"u{i}": u for i, u in enumerate(uris)}
+
+            # The theme's own vectors, averaged into a centroid. Anchoring on
+            # the members is what removes the need for a query encoder.
+            member_rows = conn.execute(text(f"""
+                SELECT embedding::text
+                FROM {historical_backend.E5_TABLE}
+                WHERE article_uri IN ({placeholders})
+            """), params).fetchall()
+
+            vectors = []
+            for row in member_rows:
+                try:
+                    vectors.append([float(v) for v in row[0].strip("[]").split(",")])
+                except (AttributeError, ValueError):
+                    continue
+            if len(vectors) < historical_cutoff.MIN_CENTROID_VECTORS:
+                logger.info(
+                    "Theme '%s': only %s of %s articles have E5 vectors, need %s; "
+                    "unknown", theme.theme_label, len(vectors), len(uris),
+                    historical_cutoff.MIN_CENTROID_VECTORS,
+                )
+                return (historical_backend.UNKNOWN, None)
+
+            # Normalize each vector before averaging, then normalize the mean.
+            # Without the first step a single long article with a larger norm
+            # drags the centroid towards itself, and the "centroid" stops
+            # representing the theme.
+            dim = len(vectors[0])
+            unit_vectors = []
+            for v in vectors:
+                if len(v) != dim:
+                    continue
+                n = sum(x * x for x in v) ** 0.5
+                if n <= 0:
+                    continue
+                unit_vectors.append([x / n for x in v])
+            if len(unit_vectors) < historical_cutoff.MIN_CENTROID_VECTORS:
+                return (historical_backend.UNKNOWN, None)
+
+            centroid = [
+                sum(v[i] for v in unit_vectors) / len(unit_vectors) for i in range(dim)
+            ]
+            norm = sum(c * c for c in centroid) ** 0.5
+            if norm <= 0:
+                # Vectors cancelled out: the theme has no coherent direction.
+                return (historical_backend.UNKNOWN, None)
+            centroid = [c / norm for c in centroid]
+            centroid_literal = "[" + ",".join(str(c) for c in centroid) + "]"
+
+            now = utcnow()
+            published_ts = publication_ts_sql("a.publication_date")
+            scope = {
+                "centroid": centroid_literal,
+                "history_start": now - timedelta(days=history_window_days),
+                "history_end": now - timedelta(days=days_back),
+                "limit": max(min_historical_articles * 10, self.HISTORICAL_CANDIDATE_LIMIT),
+                "background": self.BACKGROUND_SAMPLE_SIZE,
+            }
+            topic_clause = ""
+            if topic_filter:
+                topic_clause = "AND a.topic = :topic"
+                scope["topic"] = topic_filter
+
+            # How close the theme's own members are to their centroid, which is
+            # the "about as close as this theme's own articles" calibration term.
+            theme_distances = [
+                float(r[0]) for r in conn.execute(text(f"""
+                    SELECT embedding <=> CAST(:centroid AS vector)
+                    FROM {historical_backend.E5_TABLE}
+                    WHERE article_uri IN ({placeholders})
+                """), {**params, "centroid": centroid_literal}).fetchall()
+            ]
+
+            candidates = [
+                {
+                    "distance": float(r["distance"]),
+                    "news_source": r["news_source"],
+                    "publication_day": r["publication_day"],
+                }
+                for r in conn.execute(text(f"""
+                    SELECT a.news_source,
+                           ({published_ts})::date AS publication_day,
+                           m.embedding <=> CAST(:centroid AS vector) AS distance
+                    FROM {historical_backend.E5_TABLE} m
+                    JOIN articles a ON a.uri = m.article_uri
+                    WHERE {published_ts} >= :history_start
+                      AND {published_ts} < :history_end
+                      {topic_clause}
+                    ORDER BY distance, a.uri
+                    LIMIT :limit
+                """), scope).mappings()
+            ]
+
+            background = [
+                float(r[0]) for r in conn.execute(text(f"""
+                    SELECT m.embedding <=> CAST(:centroid AS vector)
+                    FROM {historical_backend.E5_TABLE} m
+                    JOIN articles a ON a.uri = m.article_uri
+                    WHERE {published_ts} >= :history_start
+                      AND {published_ts} < :history_end
+                      AND left(md5(m.article_uri), 1) IN ('0', '1')
+                      {topic_clause}
+                    LIMIT :background
+                """), scope).fetchall()
+            ]
+
+            decision = historical_cutoff.decide(
+                theme_distances=theme_distances,
+                background_distances=background,
+                candidates=candidates,
+                backend=historical_backend.E5,
+                min_articles=min_historical_articles,
             )
 
-            # Count how many results are from the historical window
-            historical_matches = 0
-            for result in search_results:
-                uri = result.get('id') if isinstance(result, dict) else None
-                if uri and uri in historical_uris:
-                    historical_matches += 1
+            shadow = {
+                "backend": historical_backend.E5,
+                "mode": mode,
+                "algorithm_version": historical_cutoff.ALGORITHM_VERSION,
+                "model_revision": (
+                    readiness.model_revisions[0] if readiness.model_revisions else None
+                ),
+                "vector_dimension": readiness.dimension,
+                "coverage_ratio": round(readiness.coverage_ratio, 4),
+                "centroid_vectors": len(unit_vectors),
+                "decided_at": utcnow().isoformat(),
+                "would_be": (
+                    historical_backend.ONGOING if decision.is_ongoing
+                    else historical_backend.NOT_FOUND
+                ),
+                "cutoff": round(decision.cutoff, 4),
+                "provisional": decision.provisional,
+                "qualifying_articles": decision.qualifying_articles,
+                "qualifying_sources": decision.qualifying_sources,
+                "qualifying_dates": decision.qualifying_dates,
+                "candidates_examined": decision.candidates_examined,
+            }
 
-            if historical_matches >= min_historical_articles:
+            if mode == historical_backend.MODE_SHADOW:
+                # Logged with a stable prefix so the labelled-set validation can
+                # grep for it, and recorded on the topic so it can be queried.
                 logger.info(
-                    f"Theme '{theme.theme_label}' has {historical_matches} historical articles "
-                    f"(before {days_back} days ago) - marking as ongoing topic"
+                    "HISTORICAL_SHADOW theme=%r %s",
+                    theme.theme_label, decision.describe(),
                 )
-                return True
+                return (historical_backend.UNKNOWN, shadow)
 
-            return False
+            status = (
+                historical_backend.ONGOING if decision.is_ongoing
+                else historical_backend.NOT_FOUND
+            )
+            logger.info(
+                "Theme '%s' historical check (%s): %s",
+                theme.theme_label, historical_backend.E5, decision.describe(),
+            )
+            return (status, shadow)
 
-        except Exception as e:
-            logger.warning(f"Error checking historical coverage for '{theme.theme_label}': {e}")
-            # On error, assume it's new to avoid false negatives
-            return False
+        finally:
+            if conn:
+                conn.close()
 
     def _create_topic_from_theme(
         self,
@@ -632,10 +1086,47 @@ class EmergingTopicsService:
         analysis: DeepAnalysis,
         trend: TrendScore,
         detection_date: date,
-        is_ongoing: bool = False
+        topic_filter: Optional[str] = None,
+        historical_status: str = historical_backend.UNKNOWN,
+        historical_shadow: Optional[Dict[str, Any]] = None,
     ) -> EmergingTopic:
-        """Create EmergingTopic from theme, analysis, and trend data."""
-        topic_detection_type = "ongoing_topic" if is_ongoing else "llm_proposed"
+        """Create an EmergingTopic from theme, analysis, and trend data.
+
+        The LLM's "Not mentioned" placeholders are cleaned out here, before
+        anything is scored or stored, so an empty finding is stored as empty.
+        """
+        # Only a positive, enforced finding makes a topic "ongoing". Unknown
+        # and not_found both stay llm_proposed: a topic wrongly marked ongoing
+        # is suppressed from new-topic alerts and nobody sees the absence.
+        topic_detection_type = (
+            "ongoing_topic"
+            if historical_status == historical_backend.ONGOING
+            else "llm_proposed"
+        )
+
+        actors = sentinels.clean_list_dict(
+            analysis.actors.to_dict() if analysis.actors else {}
+        )
+        events = sentinels.clean_events(
+            analysis.events.to_dict() if analysis.events else {}
+        )
+        implications = sentinels.clean_str_dict(
+            analysis.implications.to_dict() if analysis.implications else {}
+        )
+        org_implications = sentinels.clean_str_dict(
+            analysis.organization_implications.to_dict()
+            if analysis.organization_implications else {}
+        )
+        signals = sentinels.clean_list_dict(
+            analysis.signals.to_dict() if analysis.signals else {}
+        )
+        synthesis = sentinels.clean_synthesis(
+            analysis.synthesis.to_dict() if analysis.synthesis else {}
+        )
+        synthesis["model_used"] = analysis.model_used
+
+        key_entities = sentinels.clean_list(theme.key_entities)
+
         return EmergingTopic(
             topic_label=theme.theme_label,
             topic_description=theme.theme_description,
@@ -644,17 +1135,20 @@ class EmergingTopicsService:
             cluster_id=f"theme_{detection_date.isoformat()}_{theme.theme_label[:20].replace(' ', '_')}",
             article_count=len(theme.article_uris),
             article_uris=theme.article_uris,
+            topic_filter=normalize_topic_filter(topic_filter),
+            historical_coverage_status=historical_status,
+            historical_shadow=historical_shadow,
             # From theme proposal
-            key_entities=theme.key_entities,
+            key_entities=key_entities,
             why_emerging=theme.why_emerging,
             search_query=theme.search_query,
             # From deep analysis
-            actors=analysis.actors.to_dict() if analysis.actors else {},
-            events=analysis.events.to_dict() if analysis.events else {},
-            implications=analysis.implications.to_dict() if analysis.implications else {},
-            organization_implications=analysis.organization_implications.to_dict() if analysis.organization_implications else {},
-            signals=analysis.signals.to_dict() if analysis.signals else {},
-            synthesis={**(analysis.synthesis.to_dict() if analysis.synthesis else {}), "model_used": analysis.model_used},
+            actors=actors,
+            events=events,
+            implications=implications,
+            organization_implications=org_implications,
+            signals=signals,
+            synthesis=synthesis,
             # From trend scoring
             volume_score=trend.volume_score,
             velocity_score=trend.velocity_score,
@@ -664,14 +1158,20 @@ class EmergingTopicsService:
             velocity=trend.velocity_label,
             source_count=trend.source_count,
             # Legacy compatibility
-            key_themes=theme.key_entities[:4],
+            key_themes=key_entities[:4],
             representative_keywords=[],
             emergence_rationale=theme.why_emerging,
             status="active",
         )
 
     def _calculate_confidence_v2(self, topic: EmergingTopic) -> float:
-        """Calculate confidence score for v2 topics."""
+        """Confidence for a v2 topic, capped at 1.0.
+
+        The deep-analysis increments require actual findings. Before, a topic
+        whose actor lists all read "Not mentioned" collected the same points as
+        one with named companies, because a list holding a placeholder string
+        is still truthy.
+        """
         confidence = 0.5  # Base
 
         # Higher composite trend score = higher confidence
@@ -688,35 +1188,50 @@ class EmergingTopicsService:
         elif topic.article_count >= 5:
             confidence += 0.10
 
-        # Has deep analysis = higher confidence
-        if topic.actors and any(topic.actors.values()):
+        # Substantive deep analysis = higher confidence
+        if sentinels.has_substance(topic.actors):
             confidence += 0.05
-        if topic.events and topic.events.get("trigger_event"):
+        if topic.events and sentinels.has_substance(topic.events.get("trigger_event")):
             confidence += 0.05
 
         return min(1.0, confidence)
 
     def _save_emerging_topic(
         self,
+        conn,
         topic: EmergingTopic,
         topic_filter: Optional[str]
     ) -> int:
-        """Save emerging topic to the database, updating if duplicate exists."""
-        conn = None
+        """Insert or update one emerging topic on the caller's connection.
+
+        The caller owns the transaction, so a failure part-way through a run
+        rolls the whole run back rather than leaving half the topics saved.
+
+        Identity is (label, scope). Every lookup below is scoped by
+        ``topic_filter``, using ``IS NOT DISTINCT FROM`` so the global NULL
+        scope matches only itself: "AI Chip Export Controls" under the
+        `semiconductors` filter and the same label under the global scope are
+        two separate topics with separate counters.
+
+        Raises on failure. It used to swallow the error and return None, which
+        turned a failed save into a topic that reported success with no id.
+        """
+        topic_filter = normalize_topic_filter(topic_filter)
+
+        # Exact label match within the same scope, last 7 days
+        check_stmt = text("""
+            SELECT id, topic_label FROM emerging_topics
+            WHERE topic_label = :label
+            AND topic_filter IS NOT DISTINCT FROM :topic_filter
+            AND detection_date >= CURRENT_DATE - INTERVAL '7 days'
+            ORDER BY detection_date DESC
+            LIMIT 1
+        """)
+        existing = conn.execute(
+            check_stmt, {"label": topic.topic_label, "topic_filter": topic_filter}
+        ).fetchone()
+
         try:
-            conn = self._get_connection()
-
-            # Check for existing topic with same or similar label (within last 7 days)
-            # First try exact match
-            check_stmt = text("""
-                SELECT id, topic_label FROM emerging_topics
-                WHERE topic_label = :label
-                AND detection_date >= CURRENT_DATE - INTERVAL '7 days'
-                ORDER BY detection_date DESC
-                LIMIT 1
-            """)
-            existing = conn.execute(check_stmt, {"label": topic.topic_label}).fetchone()
-
             # If no exact match, check for similar labels (fuzzy match)
             if not existing:
                 # Extract significant words from the new topic label (3+ chars, lowercase)
@@ -725,13 +1240,16 @@ class EmergingTopicsService:
                 label_words -= {'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were'}
 
                 if label_words:
-                    # Find topics with overlapping significant words
+                    # Candidates come from the same scope only.
                     similar_stmt = text("""
                         SELECT id, topic_label FROM emerging_topics
-                        WHERE detection_date >= CURRENT_DATE - INTERVAL '7 days'
+                        WHERE topic_filter IS NOT DISTINCT FROM :topic_filter
+                        AND detection_date >= CURRENT_DATE - INTERVAL '7 days'
                         ORDER BY detection_date DESC
                     """)
-                    candidates = conn.execute(similar_stmt).fetchall()
+                    candidates = conn.execute(
+                        similar_stmt, {"topic_filter": topic_filter}
+                    ).fetchall()
 
                     for candidate in candidates:
                         candidate_words = set(w.lower() for w in candidate[1].split() if len(w) >= 3)
@@ -785,12 +1303,23 @@ class EmergingTopicsService:
                         composite_score = :composite_score,
                         last_detection_date = :date,
                         detection_count = COALESCE(detection_count, 0) + 1,
-                        consecutive_detections = COALESCE(consecutive_detections, 0) + 1
+                        consecutive_detections = COALESCE(consecutive_detections, 0) + 1,
+                        missed_runs = 0,
+                        historical_coverage_status = :historical_status,
+                        historical_shadow = CAST(:historical_shadow AS jsonb),
+                        status = CASE WHEN status = 'retired' THEN status ELSE 'active' END
                     WHERE id = :id
+                    AND topic_filter IS NOT DISTINCT FROM :topic_filter
                 """)
 
                 conn.execute(update_stmt, {
                     "id": existing_id,
+                    "topic_filter": topic_filter,
+                    "historical_status": topic.historical_coverage_status,
+                    "historical_shadow": (
+                        json_module.dumps(topic.historical_shadow)
+                        if topic.historical_shadow else None
+                    ),
                     "description": topic.topic_description,
                     "date": topic.detection_date,
                     "count": topic.article_count,
@@ -814,7 +1343,6 @@ class EmergingTopicsService:
                     "novelty_score": topic.novelty_score,
                     "composite_score": topic.composite_score,
                 })
-                conn.commit()
                 return existing_id
 
             # Insert new topic
@@ -827,7 +1355,9 @@ class EmergingTopicsService:
                     topic_filter, status,
                     actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
-                    first_detection_date, last_detection_date, detection_count, consecutive_detections
+                    first_detection_date, last_detection_date, detection_count,
+                    consecutive_detections, missed_runs,
+                    historical_coverage_status, historical_shadow
                 ) VALUES (
                     :label, :description, :date, :type,
                     :cluster_id, :count, :growth_rate, :velocity,
@@ -838,7 +1368,8 @@ class EmergingTopicsService:
                     CAST(:implications AS jsonb), CAST(:org_implications AS jsonb),
                     CAST(:signals AS jsonb), CAST(:synthesis AS jsonb),
                     :volume_score, :velocity_score, :diversity_score, :novelty_score, :composite_score,
-                    :date, :date, 1, 1
+                    :date, :date, 1, 1, 0,
+                    :historical_status, CAST(:historical_shadow AS jsonb)
                 )
                 RETURNING id
             """)
@@ -860,6 +1391,11 @@ class EmergingTopicsService:
                 "sample_uris": topic.article_uris[:5],
                 "filter": topic_filter,
                 "status": topic.status,
+                "historical_status": topic.historical_coverage_status,
+                "historical_shadow": (
+                    json_module.dumps(topic.historical_shadow)
+                    if topic.historical_shadow else None
+                ),
                 "actors": actors_json,
                 "events": events_json,
                 "implications": implications_json,
@@ -873,18 +1409,49 @@ class EmergingTopicsService:
                 "composite_score": topic.composite_score,
             })
 
-            conn.commit()
             row = result.fetchone()
-            return row[0] if row else None
+            if not row:
+                raise DetectionFailed(
+                    f"Insert of emerging topic '{topic.topic_label}' returned no id",
+                    code="topic_persist_failed",
+                )
+            return row[0]
 
+        except DetectionFailed:
+            raise
         except Exception as exc:
-            logger.error(f"Error saving emerging topic: {exc}")
-            if conn:
-                conn.rollback()
-            return None
-        finally:
-            if conn:
-                conn.close()
+            logger.error(f"Error saving emerging topic '{topic.topic_label}': {exc}")
+            raise DetectionFailed(
+                f"Could not save emerging topic '{topic.topic_label}': {exc}",
+                code="topic_persist_failed",
+            ) from exc
+
+    def _apply_missed_runs(
+        self,
+        conn,
+        detected_topic_ids: List[int],
+        topic_filter: Optional[str],
+    ) -> int:
+        """Count this completed run as a miss for topics it did not detect.
+
+        Scoped to the run's own filter: a run over `climate` says nothing about
+        a topic that belongs to `semiconductors` or to the global scope. Only
+        completed runs reach this — a failed run must not move any counter.
+        """
+        topic_filter = normalize_topic_filter(topic_filter)
+        stmt = text("""
+            UPDATE emerging_topics
+            SET missed_runs = COALESCE(missed_runs, 0) + 1,
+                consecutive_detections = 0
+            WHERE (status = 'active' OR status IS NULL)
+              AND topic_filter IS NOT DISTINCT FROM :topic_filter
+              AND NOT (id = ANY(:detected_ids))
+        """)
+        result = conn.execute(stmt, {
+            "topic_filter": topic_filter,
+            "detected_ids": list(detected_topic_ids or []),
+        })
+        return result.rowcount or 0
 
     def _create_detection_run(
         self,
@@ -918,46 +1485,121 @@ class EmergingTopicsService:
 
     def _complete_detection_run(
         self,
+        conn,
         run_id: int,
         topics_detected: int,
         articles_sampled: int,
         duration_seconds: float
     ) -> None:
-        """Mark a detection run as complete with stats."""
+        """Mark a run completed on the caller's connection and transaction.
+
+        Deliberately not swallowing errors: if the run record cannot be closed
+        out, the whole run rolls back and is marked failed. A "successful" run
+        nobody recorded is worse than a recorded failure.
+        """
+        stmt = text(f"""
+            UPDATE detection_runs SET
+                topics_detected = :topics,
+                articles_sampled = :articles,
+                duration_seconds = :duration,
+                status = 'completed'
+                {self._run_outcome_set_clause(completed=True)}
+            WHERE id = :run_id
+        """)
+        conn.execute(stmt, {
+            "run_id": run_id,
+            "topics": topics_detected,
+            "articles": articles_sampled,
+            "duration": duration_seconds,
+        })
+
+    def _run_outcome_set_clause(self, completed: bool) -> str:
+        """Extra SET columns for the run outcome, when the tenant has them.
+
+        ``error_message`` and ``completed_at`` arrive with migration et_007. A
+        tenant that has not run it yet still gets a correct terminal status.
+        """
+        if not self._has_run_outcome_columns():
+            return ""
+        if completed:
+            return ", completed_at = NOW(), error_message = NULL"
+        return ", completed_at = NOW(), error_message = :error"
+
+    _run_outcome_columns: Optional[bool] = None
+
+    def _has_run_outcome_columns(self) -> bool:
+        """Probe once for the et_007 outcome columns."""
+        if EmergingTopicsService._run_outcome_columns is not None:
+            return EmergingTopicsService._run_outcome_columns
         conn = None
         try:
             conn = self._get_connection()
-            stmt = text("""
+            present = conn.execute(text("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'detection_runs'
+                AND column_name IN ('error_message', 'completed_at')
+            """)).scalar()
+            EmergingTopicsService._run_outcome_columns = (present == 2)
+        except Exception as exc:
+            logger.warning("Could not probe detection_runs columns: %s", exc)
+            EmergingTopicsService._run_outcome_columns = False
+        finally:
+            if conn:
+                conn.close()
+        return EmergingTopicsService._run_outcome_columns
+
+    def _fail_detection_run(
+        self,
+        run_id: int,
+        error_message: str,
+        duration_seconds: float,
+    ) -> None:
+        """Mark a run failed, on its own connection.
+
+        Runs on the error path, so it must not depend on the transaction that
+        just blew up. Errors here are logged, not raised — the caller is already
+        reporting a failure.
+        """
+        conn = None
+        try:
+            conn = self._get_connection()
+            stmt = text(f"""
                 UPDATE detection_runs SET
-                    topics_detected = :topics,
-                    articles_sampled = :articles,
-                    duration_seconds = :duration,
-                    status = 'completed'
+                    status = 'failed',
+                    duration_seconds = :duration
+                    {self._run_outcome_set_clause(completed=False)}
                 WHERE id = :run_id
             """)
-            conn.execute(stmt, {
-                "run_id": run_id,
-                "topics": topics_detected,
-                "articles": articles_sampled,
-                "duration": duration_seconds,
-            })
+            params = {"run_id": run_id, "duration": duration_seconds}
+            if self._has_run_outcome_columns():
+                params["error"] = error_message[:1000]
+            conn.execute(stmt, params)
             conn.commit()
+            logger.error("Detection run %s marked failed: %s", run_id, error_message)
         except Exception as exc:
-            logger.error(f"Error completing detection run: {exc}")
+            logger.error(f"Error marking detection run {run_id} failed: {exc}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
         finally:
             if conn:
                 conn.close()
 
     def _save_topic_history(
         self,
+        conn,
         topic_id: int,
         run_id: int,
         topic: EmergingTopic
     ) -> None:
-        """Save a history snapshot for this topic in this run."""
-        conn = None
+        """Save a history snapshot for this topic in this run.
+
+        Uses the caller's transaction, and raises rather than swallowing: a
+        missing snapshot silently breaks the trajectory charts.
+        """
         try:
-            conn = self._get_connection()
             stmt = text("""
                 INSERT INTO topic_history (
                     topic_id, detection_run_id,
@@ -1002,12 +1644,12 @@ class EmergingTopicsService:
                 "events": json_module.dumps(topic.events) if topic.events else "{}",
                 "synthesis": json_module.dumps(topic.synthesis) if topic.synthesis else "{}",
             })
-            conn.commit()
         except Exception as exc:
-            logger.error(f"Error saving topic history: {exc}")
-        finally:
-            if conn:
-                conn.close()
+            logger.error(f"Error saving topic history for topic {topic_id}: {exc}")
+            raise DetectionFailed(
+                f"Could not save the history snapshot for topic {topic_id}: {exc}",
+                code="topic_history_persist_failed",
+            ) from exc
 
     def _check_auto_retirement(
         self,
@@ -1031,34 +1673,31 @@ class EmergingTopicsService:
         Returns:
             Number of topics auto-retired
         """
+        topic_filter = normalize_topic_filter(topic_filter)
         conn = None
         retired_count = 0
         try:
             conn = self._get_connection()
 
-            # Build filter clause
-            filter_clause = "WHERE (status = 'active' OR status IS NULL)"
-            params = {"threshold": consecutive_miss_threshold, "min_days": min_inactive_days}
-
-            if topic_filter:
-                filter_clause += " AND topic_filter = :topic_filter"
-                params["topic_filter"] = topic_filter
-
-            # Exclude topics detected in this run
-            if detected_topic_ids:
-                filter_clause += " AND id NOT IN :detected_ids"
-                # SQLAlchemy needs tuple for IN clause
-                params["detected_ids"] = tuple(detected_topic_ids) if detected_topic_ids else (0,)
-
-            # Find active themes NOT detected in this run that have been inactive for min_inactive_days
-            check_stmt = text(f"""
+            # Candidates: active topics in THIS scope that this run did not
+            # detect and that have been quiet for at least min_inactive_days.
+            # The interval is a bound parameter, not string-substituted into the
+            # SQL, and the scope test is null-safe so a global run cannot retire
+            # a named-scope topic.
+            check_stmt = text("""
                 SELECT id, topic_label, last_detection_date, consecutive_detections
                 FROM emerging_topics
-                {filter_clause}
-                AND last_detection_date < CURRENT_DATE - INTERVAL ':min_days days'
-            """.replace(":min_days", str(min_inactive_days)))
+                WHERE (status = 'active' OR status IS NULL)
+                  AND topic_filter IS NOT DISTINCT FROM :topic_filter
+                  AND NOT (id = ANY(:detected_ids))
+                  AND last_detection_date < CURRENT_DATE - (:min_days * INTERVAL '1 day')
+            """)
 
-            result = conn.execute(check_stmt, params)
+            result = conn.execute(check_stmt, {
+                "topic_filter": topic_filter,
+                "detected_ids": list(detected_topic_ids or []),
+                "min_days": min_inactive_days,
+            })
             candidates = result.fetchall()
 
             for row in candidates:
@@ -1066,12 +1705,13 @@ class EmergingTopicsService:
                 topic_label = row[1]
                 last_detection = row[2]
 
-                # Count how many runs have occurred since this topic was last detected
+                # How many completed runs in this scope have passed since the
+                # topic was last seen. Failed runs do not count against it.
                 runs_since_stmt = text("""
                     SELECT COUNT(*) FROM detection_runs
                     WHERE run_date > :last_detection
                     AND status = 'completed'
-                    AND (:topic_filter IS NULL OR topic_filter = :topic_filter)
+                    AND topic_filter IS NOT DISTINCT FROM :topic_filter
                 """)
                 runs_result = conn.execute(runs_since_stmt, {
                     "last_detection": last_detection,
@@ -1111,22 +1751,50 @@ class EmergingTopicsService:
     async def run_detection(
         self,
         topic_filter: Optional[str] = None,
-        days_back: Optional[int] = None
+        days_back: Optional[int] = None,
+        run_lock: Optional[DetectionRunLock] = None,
     ) -> Dict[str, Any]:
-        """
-        Run full detection (non-streaming version).
+        """Run full detection without streaming.
+
+        Raises :class:`DetectionFailed` when the run fails. It used to return an
+        empty-but-successful result, so a caller could not tell "nothing is
+        emerging" from "the encoder is down".
         """
         result = {
             "detection_date": str(date.today()),
-            "topic_filter": topic_filter,
+            "topic_filter": normalize_topic_filter(topic_filter),
             "emerging_topics": [],
             "total_emerging_topics": 0,
+            "articles_sampled": 0,
+            "articles_analyzed": 0,
+            "run_id": None,
+            "status": "failed",
         }
 
-        async for update in self.run_detection_streaming(topic_filter, days_back):
-            if "emerging_topics" in update:
-                result["emerging_topics"] = update["emerging_topics"]
+        completed = False
+        async for update in self.run_detection_streaming(
+            topic_filter, days_back, run_lock=run_lock
+        ):
+            if update.get("event") == "error":
+                raise DetectionFailed(
+                    update.get("message", "Detection failed"),
+                    code=update.get("code", "detection_failed"),
+                )
+            if update.get("event") == "complete":
+                completed = True
+                result["emerging_topics"] = update.get("emerging_topics", [])
                 result["total_emerging_topics"] = update.get("total_emerging_topics", 0)
+                result["articles_sampled"] = update.get("articles_sampled", 0)
+                result["articles_analyzed"] = update.get("articles_analyzed", 0)
+                result["run_id"] = update.get("run_id")
+                result["auto_retired"] = update.get("auto_retired", 0)
+                result["status"] = "completed"
+
+        if not completed:
+            raise DetectionFailed(
+                "Detection ended without a completion event",
+                code="detection_incomplete",
+            )
 
         return result
 
@@ -1151,8 +1819,11 @@ class EmergingTopicsService:
             if not include_retired:
                 filter_clause += " AND (status IS NULL OR status != 'retired')"
 
+            # An explicit filter selects that scope only. No filter means every
+            # scope, which is what the "all topics" view asks for.
+            topic_filter = normalize_topic_filter(topic_filter)
             if topic_filter:
-                filter_clause += " AND topic_filter = :topic"
+                filter_clause += " AND topic_filter IS NOT DISTINCT FROM :topic"
                 params["topic"] = topic_filter
 
             if detection_type:
@@ -1166,7 +1837,8 @@ class EmergingTopicsService:
                     id, topic_label, topic_description, detection_date,
                     detection_type, cluster_id, article_count, growth_rate,
                     velocity, confidence_score, key_themes, representative_keywords,
-                    emergence_rationale, article_uris, status,
+                    emergence_rationale, article_uris, status, topic_filter,
+                    historical_coverage_status,
                     actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
                     first_detection_date, last_detection_date, detection_count, consecutive_detections,
@@ -1190,6 +1862,9 @@ class EmergingTopicsService:
                     cluster_id=row["cluster_id"],
                     article_count=row["article_count"],
                     article_uris=row["article_uris"] or [],
+                    topic_filter=row.get("topic_filter"),
+                    historical_coverage_status=(
+                        row.get("historical_coverage_status") or "unknown"),
                     growth_rate=row["growth_rate"] or 0.0,
                     velocity=row["velocity"] or "stable",
                     confidence_score=row["confidence_score"] or 0.0,
@@ -1257,8 +1932,9 @@ class EmergingTopicsService:
             filter_clause = "WHERE status = 'retired'"
             params = {"limit": limit}
 
+            topic_filter = normalize_topic_filter(topic_filter)
             if topic_filter:
-                filter_clause += " AND topic_filter = :topic"
+                filter_clause += " AND topic_filter IS NOT DISTINCT FROM :topic"
                 params["topic"] = topic_filter
 
             stmt = text(f"""
@@ -1266,7 +1942,8 @@ class EmergingTopicsService:
                     id, topic_label, topic_description, detection_date,
                     detection_type, cluster_id, article_count, growth_rate,
                     velocity, confidence_score, key_themes, representative_keywords,
-                    emergence_rationale, article_uris, status,
+                    emergence_rationale, article_uris, status, topic_filter,
+                    historical_coverage_status,
                     actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
                     first_detection_date, last_detection_date, detection_count, consecutive_detections,
@@ -1290,6 +1967,9 @@ class EmergingTopicsService:
                     cluster_id=row["cluster_id"],
                     article_count=row["article_count"],
                     article_uris=row["article_uris"] or [],
+                    topic_filter=row.get("topic_filter"),
+                    historical_coverage_status=(
+                        row.get("historical_coverage_status") or "unknown"),
                     growth_rate=row["growth_rate"] or 0.0,
                     velocity=row["velocity"] or "stable",
                     confidence_score=row["confidence_score"] or 0.0,

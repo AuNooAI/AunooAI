@@ -537,22 +537,28 @@ class NoveltyScorer:
                 filter_clause += " AND a.topic = :topic"
                 params["topic"] = topic_filter
 
+            # DISTINCT ON keeps one row per article — its latest scoring run.
+            # A plain join listed an article once per calculation_date, so a
+            # frequently re-scored article filled the list with itself.
             stmt = text(f"""
-                SELECT
-                    ns.article_uri,
-                    a.title,
-                    ns.composite_novelty_score,
-                    ns.knn_distance_score,
-                    ns.density_score,
-                    ns.centroid_distance_score,
-                    ns.is_outlier,
-                    ns.calculation_date,
-                    a.publication_date,
-                    a.topic
-                FROM article_novelty_scores ns
-                JOIN articles a ON a.uri = ns.article_uri
-                {filter_clause}
-                ORDER BY ns.composite_novelty_score DESC
+                SELECT * FROM (
+                    SELECT DISTINCT ON (ns.article_uri)
+                        ns.article_uri,
+                        a.title,
+                        ns.composite_novelty_score,
+                        ns.knn_distance_score,
+                        ns.density_score,
+                        ns.centroid_distance_score,
+                        ns.is_outlier,
+                        ns.calculation_date,
+                        a.publication_date,
+                        a.topic
+                    FROM article_novelty_scores ns
+                    JOIN articles a ON a.uri = ns.article_uri
+                    {filter_clause}
+                    ORDER BY ns.article_uri, ns.calculation_date DESC, ns.id DESC
+                ) latest
+                ORDER BY composite_novelty_score DESC, article_uri
                 LIMIT :limit
             """)
 

@@ -945,7 +945,7 @@ class AutomatedIngestService:
                 relevance_threshold = (
                     relevance_threshold_override
                     if relevance_threshold_override is not None
-                    else self.get_relevance_threshold()
+                    else self.get_relevance_threshold(topic)
                 )
 
                 self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
@@ -1099,14 +1099,15 @@ class AutomatedIngestService:
 
             # Step 5: Check final relevance threshold (double-check after full analysis)
             relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
-            # Brand Watch groups only: honor the group's own threshold here too.
-            # The quick check above already honors it, so without this a brand group
-            # tuned to keep marginal mentions (a small competitor with little
-            # coverage) collects and analyses them, then files them below the
-            # global threshold where nothing can see them. Scoped to Brand
-            # Monitoring topics so ordinary topics keep the global threshold and
-            # their collection volume is unchanged.
-            relevance_threshold = self.get_relevance_threshold()
+            # Honour the topic's own group threshold here too. Without it a group
+            # tuned to keep marginal material — a small competitor with little
+            # coverage, or a market that wants general category context —
+            # collects and analyses it, then files it below the global threshold
+            # where nothing can see it. Groups that set no floor of their own
+            # fall back to the global one, so their collection volume is
+            # unchanged. The override below remains for callers that pass an
+            # explicit threshold for a Brand Monitoring topic.
+            relevance_threshold = self.get_relevance_threshold(topic)
             if (relevance_threshold_override is not None
                     and (topic or "").startswith("Brand Monitoring ")):
                 relevance_threshold = relevance_threshold_override
@@ -1536,14 +1537,25 @@ class AutomatedIngestService:
         
         return results
     
-    def get_relevance_threshold(self) -> float:
-        """
-        Get the minimum relevance threshold from database settings
-        
+    def get_relevance_threshold(self, topic: Optional[str] = None) -> float:
+        """Minimum relevance threshold, preferring the topic's keyword group.
+
+        A keyword group can set its own floor, and until now nothing here read
+        it: every ingest path used the platform-wide
+        ``keyword_monitor_settings`` value, so lowering a single market's floor
+        had no effect and its articles kept landing as ``filtered_relevance``.
+
+        Passing no topic keeps the previous behaviour exactly, so callers that
+        do not know which group an article came from are unaffected.
+
         Returns:
             Relevance threshold value (0.0-1.0)
         """
         try:
+            if topic:
+                group_threshold = self.db.facade.get_group_relevance_threshold(topic)
+                if group_threshold is not None:
+                    return group_threshold
             return self.db.facade.get_min_relevance_threshold()
         except Exception as e:
             self.logger.warning(f"Could not get relevance threshold from database: {e}")

@@ -294,6 +294,113 @@ class SocialEvalService:
         return {"evaluated": len(scored), "candidates": len(posts), "model": self.model_name}
 
 
+async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
+                                      brand_id: Optional[int] = None,
+                                      limit: int = 200) -> Dict:
+    """Score pending mentions one company at a time, not one post at a time.
+
+    ``evaluate_and_store`` above scores a post against a topic and writes the
+    answer onto the article row. That is right when a post concerns exactly one
+    company and wrong the moment it names two: the second company inherits
+    whatever was decided about the first, and a post reused in two monitoring
+    topics carries one score for both.
+
+    This scores each ``(post, company)`` pair on its own and writes the result
+    to that pair's mention. The article columns are only touched when the post
+    maps to exactly one entity — where they cannot be ambiguous — and only
+    while dual-write is on, so the legacy readers keep working during rollout.
+
+    Nothing is scored implicitly. A mention stays ``pending`` until this runs,
+    because an unevaluated mention counted as neutral is an opinion the system
+    invented.
+    """
+    from sqlalchemy import text
+
+    from app.services import entity_content, entity_flags
+
+    service = get_social_eval_service()
+    if not service._get_model():
+        return {"evaluated": 0, "skipped_model_unavailable": True}
+
+    where = ["m.status = 'pending'", "m.evaluated_at IS NULL",
+             "m.channel IN ('public_social', 'community')"]
+    params: Dict = {"lim": limit}
+    if brand_id is not None:
+        where.append("m.brand_id = :brand_id")
+        params["brand_id"] = brand_id
+    if group_id is not None:
+        where.append("EXISTS (SELECT 1 FROM keyword_article_matches kam "
+                     "WHERE kam.article_uri = m.article_uri "
+                     "AND kam.group_id = :group_id)")
+        params["group_id"] = group_id
+
+    rows = db.facade._execute_with_rollback(text(f"""
+        SELECT m.id, m.brand_id, m.article_uri, b.display_name,
+               a.title, a.summary,
+               (SELECT count(*) FROM bw_entity_mentions o
+                 WHERE o.article_uri = m.article_uri) AS entities_on_article
+          FROM bw_entity_mentions m
+          JOIN bw_brands b ON b.id = m.brand_id
+          JOIN articles a ON a.uri = m.article_uri
+         WHERE {' AND '.join(where)}
+         ORDER BY m.created_at
+         LIMIT :lim
+    """), params).fetchall()
+    if not rows:
+        return {"evaluated": 0, "candidates": 0}
+
+    conn = db.facade.connection
+    evaluated = 0
+    for (mention_id, mention_brand, uri, display_name, title, summary,
+         entities_on_article) in rows:
+        # One post, one company, one verdict — the brand name is the subject
+        # of the question rather than the topic the post was collected under.
+        scored = await service.evaluate_posts(
+            [{"uri": uri, "title": title, "summary": summary, "author": ""}],
+            display_name)
+        if not scored:
+            continue
+        verdict = scored[0]
+        sentiment = (verdict.get("sentiment") or "").lower()
+        entity_content.score_mention(
+            conn, mention_id, relevance=verdict.get("relevance"),
+            sentiment=sentiment.capitalize() or None,
+            stance=_STANCE_BY_SENTIMENT.get(sentiment),
+            method='llm', model=service.model_name,
+            version=entity_content.MATCHER_VERSION,
+            status='accepted')
+        evaluated += 1
+
+        # Only unambiguous posts may write the shared article columns.
+        if entity_flags.dual_write() and int(entities_on_article) == 1:
+            db.facade._execute_with_rollback(text("""
+                UPDATE articles
+                   SET topic_alignment_score = :rel,
+                       keyword_relevance_score = :rel,
+                       sentiment = :sent, ingest_status = 'social_evaluated',
+                       analyzed = true
+                 WHERE uri = :uri
+            """), {"rel": verdict.get("relevance"),
+                   "sent": sentiment.capitalize(), "uri": uri})
+
+    conn.commit()
+    logger.info("SocialEval: scored %d/%d pending mentions via %s",
+                evaluated, len(rows), service.model_name)
+    return {"evaluated": evaluated, "candidates": len(rows),
+            "model": service.model_name}
+
+
+# A company being the actor in a story is not the same as the story being
+# negative about it, so stance is derived conservatively and left unset where
+# the sentiment does not carry one.
+_STANCE_BY_SENTIMENT = {
+    "positive": "supportive",
+    "negative": "critical",
+    "neutral": "neutral",
+    "mixed": "mixed",
+}
+
+
 _singleton: Optional[SocialEvalService] = None
 
 

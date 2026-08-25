@@ -5,7 +5,34 @@ what was published and how much of it there was. Append CLINICAL_STYLE to any
 prompt that writes narrative a customer will read (timeline rollups and state
 docs, signal/observer reports, digest leads). CLINICAL_STYLE_SHORT is the
 same policy compressed for small prompts where token budget matters.
+
+The prompt rule alone doesn't hold at 100%: tested against adversarial input
+across the exec-summary, signal-report, and briefing-desk generators
+(2026-08-24), a temperature-0.3 writer still reached for a banned word on
+roughly 1 generation in 3-4 despite carrying CLINICAL_STYLE. Callers with a
+retry loop already in place (e.g. a report that's rejected and regenerated on
+structural defects) should also check ``has_severity_language`` and retry on
+a hit, the same way they already retry on an empty or too-short draft.
 """
+
+import re
+
+_SEVERITY_WORDS = re.compile(
+    r"\b(crisis|crises|severe|severely|aggressive|aggressively|alarming|"
+    r"alarmingly|catastrophic|catastrophically|collapse|collapsing|"
+    r"compromised)\b", re.IGNORECASE)
+
+
+def find_severity_language(text: str) -> list:
+    """Banned severity/threat words used in the writer's own voice, lowercased
+    and deduplicated. A double-quoted span is exempt — the rule allows these
+    words inside an attributed quote ('articles called it a "crisis"')."""
+    unquoted = re.sub(r'"[^"]*"', "", text or "")
+    return sorted({m.group(0).lower() for m in _SEVERITY_WORDS.finditer(unquoted)})
+
+
+def has_severity_language(text: str) -> bool:
+    return bool(find_severity_language(text))
 
 CLINICAL_STYLE = (
     "\n\nTONE RULES (mandatory):\n"

@@ -20,12 +20,16 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, JSONResponse
+
+from app.security.session import require_admin, verify_session_api
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Every endpoint on this router is private. Authentication is enforced once here
+# rather than per-endpoint so a new route cannot be added unprotected by accident.
+router = APIRouter(dependencies=[Depends(verify_session_api)])
 
 
 @router.post("/api/forecast/{run_id}/assess")
@@ -241,25 +245,44 @@ async def get_latest_run_for_topic(topic: str):
 
 @router.get("/api/forecast/{run_id}/assessment")
 async def get_latest_assessment(run_id: str):
-    """Return the most recent assessment for the run (with scenario verdicts).
+    """Return the most recent assessment **for this run**, with scenario verdicts.
 
-    If the supplied run has no assessments stored, falls back to the latest
-    assessment for the run's topic across any horizons run. This keeps the
-    Forecast Tracker tab useful when the trend-convergence page has
-    freshly-generated a new horizons run while the saved assessments are
-    against an older run for the same topic.
+    ``assessment`` only ever holds an assessment whose ``run_id`` matches the
+    URL. When the run has not been assessed yet it is ``null`` and the caller
+    gets this run's own scenarios, so the UI can render a real empty state.
+
+    An assessment of an *older* run for the same topic used to be served in
+    ``assessment`` as if it belonged to this run. Scenarios came from the
+    requested run while verdicts came from the other one, so ``scenario_idx``
+    values did not line up and the two could describe different scenarios. Any
+    such assessment is now returned separately in ``historical_assessment``,
+    carries its own ``run_id``, and is flagged read-only: it is for display
+    while the new run is still being assessed, never a mutation target.
     """
     from app.database import get_database_instance
     db = get_database_instance()
     record = db.facade.get_latest_forecast_assessment(run_id)
 
-    # Always resolve the run's topic so we can fallback by topic.
+    # An assessment row that is not for this run must never land in `assessment`.
+    if record and record.get("run_id") and record.get("run_id") != run_id:
+        logger.error(
+            "get_latest_forecast_assessment(%s) returned an assessment for run %s; "
+            "dropping it rather than serving cross-run state",
+            run_id, record.get("run_id"),
+        )
+        record = None
+
     run = db.facade.get_future_horizons_analysis(run_id)
     topic = (run or {}).get("topic")
-    fallback_used = False
+
+    historical = None
     if not record and topic:
-        record = db.facade.get_latest_forecast_assessment_by_topic(topic)
-        fallback_used = bool(record)
+        candidate = db.facade.get_latest_forecast_assessment_by_topic(topic)
+        # Only historical if it really is another run — never re-label this run's own.
+        if candidate and candidate.get("run_id") and candidate.get("run_id") != run_id:
+            historical = candidate
+        elif candidate and candidate.get("run_id") == run_id:
+            record = candidate
 
     raw = run.get("raw_output") if run else None
     if isinstance(raw, str):
@@ -275,8 +298,41 @@ async def get_latest_assessment(run_id: str):
         "assessment": record or None,
         "scenarios": scenarios,
         "forecast_generated_at": run.get("created_at") if run else None,
-        "topic_fallback": fallback_used,
+        # Read-only view of an older run's assessment for the same topic. The
+        # UI must not offer scenario status or promotion against this.
+        "historical_assessment": historical,
+        "historical_assessment_run_id": (historical or {}).get("run_id"),
+        "historical_read_only": bool(historical),
+        # Retained for older UI builds that branch on this flag.
+        "topic_fallback": bool(historical),
     }
+
+
+def _require_assessment_in_run(db, run_id: str, assessment_id: str) -> dict:
+    """Load an assessment and refuse it if it belongs to a different run.
+
+    Run-scoped URLs carry both ids. Serving an assessment from another run
+    under this URL is what let the Forecast Tracker mix a run's scenarios with
+    another run's verdicts, so a mismatch is an error rather than something to
+    paper over with the latest row.
+    """
+    from app.services.forecast_assessment_service import _hydrate_assessment_by_id
+
+    record = _hydrate_assessment_by_id(db, assessment_id)
+    if not record:
+        raise HTTPException(
+            status_code=404, detail=f"Assessment {assessment_id} not found",
+        )
+    owner = record.get("run_id")
+    if owner and owner != run_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Assessment {assessment_id} belongs to run {owner}, not {run_id}. "
+                "Reload the Forecast Tracker for this run."
+            ),
+        )
+    return record
 
 
 @router.get("/api/forecast/snapshots/by-topic")
@@ -313,9 +369,11 @@ async def export_assessment_pptx(
     """Render the assessment as a slide-per-scenario PowerPoint deck mirroring
     the Wiley Horizons brief layout (slides 64-68 of the Feb 2026 deck).
 
-    Pulls the latest assessment for the run (we treat the explicit
-    ``assessment_id`` as a sanity-check parameter so a stale URL doesn't
-    silently render a newer assessment).
+    Renders exactly the ``assessment_id`` in the URL, and only if it belongs
+    to ``run_id``. It used to render whatever the latest assessment for the run
+    was — including, via a topic fallback, one belonging to a different run —
+    which meant a stale link could silently produce a deck of someone else's
+    analysis under this run's heading.
 
     On the first export for an assessment that has no cached narratives,
     LLM synthesis fires and persists the prose to ``summary_md`` /
@@ -331,20 +389,7 @@ async def export_assessment_pptx(
     from app.services.forecast_narrative import ensure_narratives_for_assessment
 
     db = get_database_instance()
-    record = db.facade.get_latest_forecast_assessment(run_id)
-    if not record:
-        # Fallback: assessment may be for a sibling run of the same topic.
-        run = db.facade.get_future_horizons_analysis(run_id)
-        topic = (run or {}).get("topic")
-        if topic:
-            record = db.facade.get_latest_forecast_assessment_by_topic(topic)
-    if not record:
-        raise HTTPException(status_code=404, detail="No assessment found")
-    if record.get("id") != assessment_id:
-        logger.info(
-            "PPTX export requested assessment %s but latest is %s; rendering latest",
-            assessment_id, record.get("id"),
-        )
+    record = _require_assessment_in_run(db, run_id, assessment_id)
 
     # Lazily synthesize any missing narratives + persist them so the next
     # export is fast. This can add 5-15s on first export per assessment.
@@ -406,13 +451,11 @@ async def draft_scenario_from_surprise(run_id: str, payload: _DraftScenarioReque
 
     db = get_database_instance()
 
-    # Load the assessment to fetch the topic and the requested surprise cluster.
-    # We use the by-id path rather than by-run because the assessment may live
-    # on a sibling run for the same topic.
-    from app.services.forecast_assessment_service import _hydrate_assessment_by_id
-    assessment = _hydrate_assessment_by_id(db, payload.assessment_id)
-    if not assessment:
-        raise HTTPException(status_code=404, detail="Assessment not found")
+    # The drafted scenario becomes an addendum to THIS run, so the surprise it
+    # is drafted from must come from this run's own assessment. Promoting a
+    # surprise found in a sibling run's assessment would attach evidence from
+    # one forecast to another.
+    assessment = _require_assessment_in_run(db, run_id, payload.assessment_id)
 
     surprises = assessment.get("surprises") or []
     if payload.surprise_index < 0 or payload.surprise_index >= len(surprises):
@@ -559,6 +602,9 @@ async def list_user_scenarios(run_id: str):
 class _ScenarioStatusRequest(__import__("pydantic").BaseModel):  # noqa: N801
     scenario_idx: int | None = None
     user_scenario_id: str | None = None
+    # Preferred identifier for an original scenario. scenario_idx is accepted
+    # for older clients and resolved to a key server-side.
+    scenario_key: str | None = None
     status: str  # 'active' | 'done'
     note: str | None = None
 
@@ -567,30 +613,96 @@ class _ScenarioStatusRequest(__import__("pydantic").BaseModel):  # noqa: N801
 async def patch_scenario_status(run_id: str, payload: _ScenarioStatusRequest):
     """Mark a scenario as done (or revert to active).
 
-    Exactly one of ``scenario_idx`` (originals) or ``user_scenario_id``
-    (addendums) must be supplied. Done scenarios are skipped from
-    reranker/LLM on the next assessment run and rendered in the
-    "Resolved scenarios" section in the UI.
+    Identify the scenario with ``scenario_key`` (originals) or
+    ``user_scenario_id`` (promoted). ``scenario_idx`` is still accepted from
+    older clients and resolved to the run's key here, because an index is only
+    a position and moves between assessments. Done scenarios are skipped from
+    reranker/LLM on the next assessment run and rendered in the "Resolved
+    scenarios" section in the UI.
     """
     from app.database import get_database_instance
 
-    if (payload.scenario_idx is None) == (payload.user_scenario_id is None):
+    identifiers = [
+        payload.scenario_key is not None,
+        payload.user_scenario_id is not None,
+        payload.scenario_idx is not None,
+    ]
+    if sum(identifiers) != 1:
         raise HTTPException(
             status_code=422,
-            detail="Exactly one of scenario_idx or user_scenario_id must be set",
+            detail=(
+                "Exactly one of scenario_key (originals), user_scenario_id "
+                "(promoted) or scenario_idx (legacy originals) must be set"
+            ),
         )
     status = (payload.status or "active").lower()
     if status not in ("active", "done"):
         raise HTTPException(status_code=422, detail="status must be 'active' or 'done'")
 
     db = get_database_instance()
-    if not db.facade.get_future_horizons_analysis(run_id):
+    run = db.facade.get_future_horizons_analysis(run_id)
+    if not run:
         raise HTTPException(status_code=404, detail=f"Forecast run {run_id} not found")
+
+    if payload.user_scenario_id is not None:
+        owned = {s.get("id") for s in (db.facade.get_forecast_user_scenarios(run_id) or [])}
+        if payload.user_scenario_id not in owned:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Promoted scenario {payload.user_scenario_id} does not belong to run "
+                    f"{run_id}. Promoted scenarios stay with the run they were added to."
+                ),
+            )
+        row = db.facade.save_forecast_scenario_status(
+            run_id=run_id,
+            user_scenario_id=payload.user_scenario_id,
+            status=status,
+            note=(payload.note or None),
+        )
+        return {"status_row": row}
+
+    # Original scenario. Resolve against the SAME scenario list the assessment
+    # builds — deck-level when the topic has an overlay, raw otherwise. Deriving
+    # keys from the raw list here while assess_run stamped them from the deck
+    # list gave the two sides zero keys in common, so every mark-as-done on an
+    # overlay topic returned 409.
+    from app.services.forecast_assessment_service import load_original_scenarios_for_run
+
+    originals, level = load_original_scenarios_for_run(db, run_id)
+
+    resolved_idx = None
+    resolved_key = None
+    if payload.scenario_idx is not None:
+        if payload.scenario_idx < 0 or payload.scenario_idx >= len(originals):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"scenario_idx {payload.scenario_idx} is not an original scenario of "
+                    f"run {run_id} (it has {len(originals)} at {level} granularity). "
+                    "Promoted scenarios are identified by user_scenario_id."
+                ),
+            )
+        resolved_idx = payload.scenario_idx
+        resolved_key = originals[resolved_idx].get("scenario_key")
+    else:
+        for i, sc in enumerate(originals):
+            if isinstance(sc, dict) and sc.get("scenario_key") == payload.scenario_key:
+                resolved_idx, resolved_key = i, payload.scenario_key
+                break
+        if resolved_key is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"scenario_key {payload.scenario_key} is not a scenario of run {run_id}. "
+                    "Reload the Forecast Tracker for this run."
+                ),
+            )
 
     row = db.facade.save_forecast_scenario_status(
         run_id=run_id,
-        scenario_idx=payload.scenario_idx,
-        user_scenario_id=payload.user_scenario_id,
+        scenario_key=resolved_key,
+        scenario_idx=resolved_idx,   # stored as display ordering, not identity
         status=status,
         note=(payload.note or None),
     )
@@ -613,9 +725,11 @@ class _TopicDeliveryRequest(__import__("pydantic").BaseModel):  # noqa: N801
     recipient_email: str | None = None
 
 
-@router.patch("/api/forecast/topics/{topic}/delivery")
+@router.patch("/api/forecast/topics/{topic}/delivery",
+              dependencies=[Depends(require_admin)])
 async def patch_topic_delivery_config(topic: str, payload: _TopicDeliveryRequest):
-    """Upsert the delivery cadence + recipient for a topic."""
+    """Upsert the delivery cadence + recipient for a topic. Admin only: this
+    decides who receives generated reports by email."""
     from app.database import get_database_instance
     db = get_database_instance()
     cadence = (payload.cadence or "none").lower()
@@ -646,6 +760,11 @@ class _TopicMetadataPatch(__import__("pydantic").BaseModel):  # noqa: N801
     owner: str | None = None
     status: str | None = None  # 'draft' | 'active' | 'archived'
     tags: list[str] | None = None
+    # Which corpus topics back this tracked topic. PATCH is the update path for
+    # an existing topic, so it has to be able to change this — without it an
+    # analyst could set source topics only at creation, and a wrong choice was
+    # uncorrectable through the API.
+    source_topics: list[str] | None = None
 
 
 @router.get("/api/forecast/topics")
@@ -734,7 +853,16 @@ async def suggest_source_topics(
 @router.post("/api/forecast/topics")
 async def create_topic_metadata(payload: _TopicMetadataCreate):
     """Register a new topic — wizard step 1. Creates a metadata row in
-    'draft' status. Idempotent: if a row already exists, returns it."""
+    'draft' status.
+
+    Re-posting an existing **draft** updates the metadata supplied with it.
+    This used to return the stored row untouched and report ``created: false``,
+    so an analyst who went back in the wizard and corrected the display name,
+    description, owner, tags or source topics had those edits silently
+    discarded while the UI reported success. An **active or archived** topic is
+    not editable this way and returns 409, because overwriting a live topic's
+    metadata from a create call is not something the caller asked for.
+    """
     from app.database import get_database_instance
     topic = (payload.topic or "").strip()
     if not topic:
@@ -742,7 +870,30 @@ async def create_topic_metadata(payload: _TopicMetadataCreate):
     db = get_database_instance()
     existing = db.facade.get_forecast_topic_metadata(topic)
     if existing:
-        return {"topic": existing, "created": False}
+        status = (existing.get("status") or "draft").lower()
+        if status != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Topic {topic!r} already exists with status {status!r}. "
+                    f"Use PATCH /api/forecast/topics/{topic}/metadata to change it."
+                ),
+            )
+        supplied = {
+            k: v for k, v in {
+                "display_name": payload.display_name,
+                "description": payload.description,
+                "owner": payload.owner,
+                "tags": payload.tags,
+                "source_topics": payload.source_topics,
+            }.items() if v is not None
+        }
+        if not supplied:
+            return {"topic": existing, "created": False, "updated": False}
+        row = db.facade.upsert_forecast_topic_metadata(topic, **supplied)
+        logger.info("Topic %r already existed as a draft; updated %s",
+                    topic, sorted(supplied))
+        return {"topic": row, "created": False, "updated": True}
     row = db.facade.upsert_forecast_topic_metadata(
         topic,
         display_name=payload.display_name,
@@ -758,7 +909,8 @@ async def create_topic_metadata(payload: _TopicMetadataCreate):
 
 @router.patch("/api/forecast/topics/{topic}/metadata")
 async def patch_topic_metadata(topic: str, payload: _TopicMetadataPatch):
-    """Edit description / owner / tags / status. Only supplied fields update."""
+    """Edit display name / description / owner / tags / source topics / status.
+    Only supplied fields update."""
     from app.database import get_database_instance
     if payload.status is not None and payload.status not in ("draft", "active", "archived"):
         raise HTTPException(status_code=422, detail="status must be draft|active|archived")
@@ -770,6 +922,7 @@ async def patch_topic_metadata(topic: str, payload: _TopicMetadataPatch):
         owner=payload.owner,
         status=payload.status,
         tags=payload.tags,
+        source_topics=payload.source_topics,
     )}
 
 
@@ -784,6 +937,80 @@ def _overlay_slug(topic: str) -> str:
 def _overlay_dir():
     from pathlib import Path
     return Path(__file__).resolve().parents[2] / "data" / "wiley_horizons"
+
+
+# Horizons the deck builder knows how to render. An overlay naming anything
+# else produces slides with no horizon styling and no label.
+_OVERLAY_HORIZONS = {"h1", "h2", "h3"}
+
+
+def _is_valid_overlay_horizon(horizon: str) -> bool:
+    """h1/h2/h3, or a span across them such as ``h1_h3``.
+
+    Spans are deliberate: three of the shipped overlays use them, and the deck
+    builder treats a combined horizon as display-only, taking the real horizon
+    from the member scenarios (see forecast_assessment_service, "the overlay's
+    horizon is for display only").
+    """
+    parts = (horizon or "").strip().lower().split("_")
+    return bool(parts) and all(p in _OVERLAY_HORIZONS for p in parts)
+
+
+def _validate_overlay(overlay: dict, topic: str) -> list:
+    """Structural checks on a deck overlay before it replaces the live file.
+
+    Returns a list of human-readable problems; empty means usable. Deliberately
+    structural only — this does not judge the prose, only that the deck builder
+    can consume the file. The shape is the one the five shipped overlays use:
+    ``deck_scenarios`` keyed by slug, each with a display name and a horizon,
+    plus ``scenario_title_to_deck_key`` mapping stored scenario titles onto
+    those keys. Every rule here was checked against those files first — an
+    earlier version of this validator was written from a guessed schema and
+    would have rejected all five.
+    """
+    problems = []
+
+    if not isinstance(overlay, dict):
+        return ["overlay must be a JSON object"]
+    if (overlay.get("topic") or "").strip() != (topic or "").strip():
+        problems.append(f"'topic' must be {topic!r}")
+
+    deck_scenarios = overlay.get("deck_scenarios")
+    if not isinstance(deck_scenarios, dict) or not deck_scenarios:
+        problems.append("'deck_scenarios' must be a non-empty object keyed by deck key")
+        return problems
+
+    for key, sc in deck_scenarios.items():
+        where = f"deck_scenarios[{key!r}]"
+        if not isinstance(sc, dict):
+            problems.append(f"{where}: must be an object")
+            continue
+        if not (sc.get("deck_scenario_name") or "").strip():
+            problems.append(f"{where}: needs a deck_scenario_name")
+        horizon = (sc.get("horizon") or "").strip().lower()
+        if not horizon:
+            problems.append(f"{where}: needs a horizon")
+        elif not _is_valid_overlay_horizon(horizon):
+            problems.append(
+                f"{where}: horizon {horizon!r} must be h1, h2, h3 or a span of them "
+                f"such as h1_h3"
+            )
+
+    # The title map is what joins a run's stored scenarios onto the deck. An
+    # entry pointing at a key that does not exist renders nothing, silently.
+    title_map = overlay.get("scenario_title_to_deck_key")
+    if title_map is not None:
+        if not isinstance(title_map, dict):
+            problems.append("'scenario_title_to_deck_key' must be an object")
+        else:
+            for title, key in title_map.items():
+                if key not in deck_scenarios:
+                    problems.append(
+                        f"scenario_title_to_deck_key[{title!r}] points at {key!r}, "
+                        f"which is not in deck_scenarios"
+                    )
+
+    return problems
 
 
 class _WizardBuildRequest(__import__("pydantic").BaseModel):  # noqa: N801
@@ -910,10 +1137,12 @@ class _OverlayApprove(__import__("pydantic").BaseModel):  # noqa: N801
     overlay: dict
 
 
-@router.post("/api/forecast/topics/{topic}/overlay/approve")
+@router.post("/api/forecast/topics/{topic}/overlay/approve",
+             dependencies=[Depends(require_admin)])
 async def approve_topic_overlay(topic: str, payload: _OverlayApprove):
     """Persist the (possibly human-edited) overlay JSON as the production
-    file. Marks overlay_status='human_reviewed', metadata.status='active'."""
+    file. Marks overlay_status='human_reviewed', metadata.status='active'.
+    Admin only: this replaces a production file."""
     import json
     from app.database import get_database_instance
 
@@ -926,9 +1155,39 @@ async def approve_topic_overlay(topic: str, payload: _OverlayApprove):
             detail=f"Overlay's 'topic' field '{overlay.get('topic')}' must match URL topic '{topic}'",
         )
 
+    # Validate BEFORE writing. This file is read by the deck builder and the
+    # scheduler's topic enumeration, so a structurally broken overlay written to
+    # the production path degrades those silently rather than failing here.
+    problems = _validate_overlay(overlay, topic)
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail="Overlay is not usable: " + "; ".join(problems),
+        )
+
     slug = _overlay_slug(topic)
     final_path = _overlay_dir() / f"{slug}.json"
-    final_path.write_text(json.dumps(overlay, indent=2, ensure_ascii=False))
+    # Write to a temporary sibling and replace, so a crash or a concurrent
+    # reader never sees a half-written overlay. os.replace is atomic within a
+    # filesystem, and the sibling guarantees the same one.
+    import os as _os
+    import tempfile as _tempfile
+    body = json.dumps(overlay, indent=2, ensure_ascii=False)
+    fd, tmp_path = _tempfile.mkstemp(
+        dir=str(_overlay_dir()), prefix=f".{slug}.", suffix=".tmp",
+    )
+    try:
+        with _os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+            fh.flush()
+            _os.fsync(fh.fileno())
+        _os.replace(tmp_path, final_path)
+    except Exception:
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+        raise
     # Best-effort clean up the .proposed sibling
     proposed_path = _overlay_dir() / f"{slug}.json.proposed"
     if proposed_path.exists():
@@ -1183,7 +1442,8 @@ async def export_bundle_docx(
     )
 
 
-@router.post("/api/forecast/deliverables/send")
+@router.post("/api/forecast/deliverables/send",
+             dependencies=[Depends(require_admin)])
 async def send_bundle(
     cadence: str = Query(..., pattern="^(monthly|quarterly|all)$"),
     updates_only: bool = Query(True),
@@ -1297,9 +1557,11 @@ class _BundleReviewApproveRequest(__import__("pydantic").BaseModel):  # noqa: N8
     approved_by: str | None = None
 
 
-@router.post("/api/forecast/deliverables/review/approve")
+@router.post("/api/forecast/deliverables/review/approve",
+             dependencies=[Depends(require_admin)])
 async def approve_bundle_review(payload: _BundleReviewApproveRequest):
-    """Override the reviewer gate and approve the bundle for delivery."""
+    """Override the reviewer gate and approve the bundle for delivery.
+    Admin only: this releases content to customers."""
     from app.database import get_database_instance
     from datetime import datetime, timezone
 
@@ -1371,9 +1633,15 @@ async def get_assessment_articles(
     scenario_idx: Optional[int] = Query(None),
     limit: int = Query(200, ge=1, le=2000),
 ):
-    """Paginated per-article verdicts. If scenario_idx supplied, scopes to one scenario."""
+    """Paginated per-article verdicts. If scenario_idx supplied, scopes to one scenario.
+
+    Rejects an ``assessment_id`` from a different run with 409 — the URL is
+    run-scoped, so returning another run's article verdicts here would attribute
+    evidence to the wrong forecast.
+    """
     from app.database import get_database_instance
     db = get_database_instance()
+    _require_assessment_in_run(db, run_id, assessment_id)
     rows = db.facade.get_forecast_article_verdicts(assessment_id, scenario_idx=scenario_idx)
     if not rows:
         return {"assessment_id": assessment_id, "articles": []}

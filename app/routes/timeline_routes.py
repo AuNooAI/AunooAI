@@ -80,6 +80,11 @@ async def list_events(
     include_superseded: bool = True,
     limit: int = Query(50, le=200),
     offset: int = 0,
+    # Optional and unfiltered by default so existing callers (Brand Watcher's
+    # own wire view) see no change — Market Monitor's Wire tab is the first
+    # caller to pass this, so it stops ignoring the same period selector that
+    # already governs Pulse, Analysis and Coverage.
+    days: Optional[int] = Query(None, ge=1, le=3650),
     session=Depends(verify_session),
 ):
     conn = _conn()
@@ -90,6 +95,9 @@ async def list_events(
             q += " AND granularity = :g"; p["g"] = granularity
         if event_type:
             q += " AND event_type = :et"; p["et"] = event_type
+        if days:
+            q += " AND event_date >= (NOW() - (:d || ' days')::INTERVAL)::date"
+            p["d"] = str(days)
         if not include_stale:
             q += " AND is_stale = false"
         if not include_superseded:
@@ -100,6 +108,46 @@ async def list_events(
               f"LIMIT {int(limit)} OFFSET {int(offset)}")
         rows = conn.execute(text(q), p).fetchall()
         return {"total": total, "events": [_serialize_event(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+class ArticleLookup(BaseModel):
+    uris: list[str] = Field(..., max_length=50)
+
+
+@router.post("/articles")
+async def timeline_article_lookup(body: ArticleLookup, session=Depends(verify_session)):
+    """Titles, links and vendor attribution for a batch of article URIs.
+
+    An event carries only ``article_uris`` — a count and a significance are
+    not something a reader can check without seeing what they were computed
+    from, so this is what a "show articles" expansion calls on request
+    rather than something every event list-load pays for upfront. Vendors
+    come from the same ``bw_article_categories`` classification the rest of
+    the app pivots on, so a reader can jump straight to a named vendor's
+    profile the way they already can from Coverage.
+    """
+    conn = _conn()
+    try:
+        if not body.uris:
+            return {"articles": []}
+        rows = conn.execute(text("""
+            SELECT uri, title, news_source, publication_date
+            FROM articles WHERE uri = ANY(:uris)
+        """), {"uris": body.uris}).mappings().all()
+        by_uri = {r["uri"]: {**dict(r), "vendors": []} for r in rows}
+        for uri, brand_id, name in conn.execute(text("""
+            SELECT DISTINCT bac.article_uri, b.id, b.display_name
+            FROM bw_article_categories bac
+            JOIN bw_brands b ON b.id = bac.brand_id
+            WHERE bac.article_uri = ANY(:uris)
+        """), {"uris": body.uris}).fetchall():
+            if uri in by_uri:
+                by_uri[uri]["vendors"].append(
+                    {"brand_id": brand_id, "vendor": name})
+        # The caller's order is already relevance- or recency-sorted.
+        return {"articles": [by_uri[u] for u in body.uris if u in by_uri]}
     finally:
         conn.close()
 

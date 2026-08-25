@@ -21,7 +21,7 @@ import logging
 from sqlalchemy import text
 
 from app.database import get_database_instance
-from app.vector_store_pgvector import _encode_one, _truncate_text_for_embedding
+from app.vector_store_pgvector import _encode_fields, _truncate_text_for_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,18 @@ def get_task_status() -> dict:
     return dict(_status)
 
 
-def _doc_text(title: str, summary: str) -> str:
-    """Build the encoder input: title on line 1, summary as body (matches the
-    title/body split in _encode_one)."""
+def _doc_text(title: str, summary: str) -> tuple:
+    """Build the encoder input as an explicit (title, body) pair.
+
+    The title goes in the encoder's title field rather than being recovered
+    from the first line of a blob, so a summary that starts with its own
+    heading cannot displace it.
+    """
     title = (title or "").strip()
     summary = (summary or "").strip()
-    return f"{title}\n{summary}" if summary else title
+    if summary:
+        summary = _truncate_text_for_embedding(summary)
+    return (title, summary)
 
 
 def _process_batch() -> int:
@@ -64,11 +70,11 @@ def _process_batch() -> int:
 
         embedded = 0
         for uri, title, summary in rows:
-            doc = _truncate_text_for_embedding(_doc_text(title, summary))
-            if not doc.strip():
+            doc_title, doc_body = _doc_text(title, summary)
+            if not doc_title and not doc_body:
                 continue
             try:
-                vec = _encode_one(doc)
+                vec = _encode_fields(doc_title, doc_body)
             except Exception as e:
                 # Skip-and-retry: leave NULL, pick up next pass.
                 _status["last_error"] = str(e)

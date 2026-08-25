@@ -65,6 +65,18 @@ export interface ScenarioVerdict {
     /** Deck-overlay enrichment (deck-granularity assessments only). */
     deck_info?: DeckInfo;
   };
+  /**
+   * Set when this verdict scores a PROMOTED scenario, naming which one. Null or
+   * absent for a run's original scenarios and for verdicts stored before the
+   * fa_012 migration. Join on this rather than inferring from list position.
+   */
+  user_scenario_id?: string | null;
+  /**
+   * Stable key of the ORIGINAL scenario this verdict scored. Use this to key
+   * React rows and status mutations; `scenario_idx` is presentation order and a
+   * legacy compatibility field, not identity.
+   */
+  scenario_key?: string | null;
 }
 
 export interface SurpriseCluster {
@@ -142,7 +154,17 @@ export interface ForecastAssessmentResponse {
     sentiment?: string;
   }>;
   forecast_generated_at?: string | null;
-  /** True if the assessment is tied to a different horizons run for the same topic. */
+  /**
+   * An assessment of a DIFFERENT horizons run for the same topic, shown while
+   * this run is still unassessed. Read-only: its scenario_idx values belong to
+   * the other run, so nothing here may be a mutation target.
+   */
+  historical_assessment?: ForecastAssessment | null;
+  /** The run the historical assessment actually belongs to. */
+  historical_assessment_run_id?: string | null;
+  /** True when historical_assessment is populated; disables all mutations. */
+  historical_read_only?: boolean;
+  /** @deprecated Use historical_read_only. Kept so older builds keep working. */
   topic_fallback?: boolean;
 }
 
@@ -206,6 +228,13 @@ export interface ScenarioStatusRow {
 }
 
 export interface ScenarioStatusesResponse {
+  /** Original scenarios by scenario_key — the authoritative view. */
+  by_key?: Record<string, ScenarioStatusRow>;
+  /**
+   * Original scenarios by scenario_idx. Kept for rows written before the
+   * fa_012 migration; read only when `by_key` has no entry, since an index
+   * moves between assessments.
+   */
   originals: Record<string, ScenarioStatusRow>;
   addendums: Record<string, ScenarioStatusRow>;
 }

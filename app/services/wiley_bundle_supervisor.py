@@ -35,6 +35,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from app.ai_models import AIModelFactory
 from app.services.tool_loader import get_tool_loader
+from app.services.report_style import find_severity_language
 
 logger = logging.getLogger(__name__)
 
@@ -963,9 +964,23 @@ _LETTER_SECTIONS = ("The bottom line", "What happened this quarter",
                     "Next quarter")
 _LETTER_MIN_WORDS = 400
 
+# Wiley told us directly (2026-08-12) that "crisis" / "severe" and similar
+# words belong on SOPA-PIPA-scale events, not business as usual — see the
+# "Severity language" section in wiley_exec_summary_agent.md. The prompt rule
+# alone doesn't hold at 100%: tested against adversarial input, the writer
+# still reached for "crisis" in roughly 1 of 4 generations. This is the same
+# deterministic-gate-plus-retry pattern _LETTER_SECTIONS already uses for
+# structural completeness, applied to the customer's own wording ban.
+def _severity_language_defects(letter: str) -> list:
+    """Flag banned severity words used in the writer's own voice (see
+    report_style.find_severity_language — a quoted span is exempt)."""
+    return [f'severity language in own voice: "{w}"'
+            for w in find_severity_language(letter)]
+
 
 def _letter_defects(letter: str) -> list:
-    """Missing sections / too short — empty list means structurally complete."""
+    """Missing sections / too short / banned severity words — empty list
+    means structurally and lexically complete."""
     out = []
     text = letter or ""
     for sec in _LETTER_SECTIONS:
@@ -973,6 +988,7 @@ def _letter_defects(letter: str) -> list:
             out.append(f"missing section: {sec}")
     if len(text.split()) < _LETTER_MIN_WORDS:
         out.append(f"only {len(text.split())} words (minimum {_LETTER_MIN_WORDS})")
+    out.extend(_severity_language_defects(text))
     return out
 
 

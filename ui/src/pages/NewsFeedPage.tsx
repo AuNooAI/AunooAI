@@ -29,6 +29,7 @@ import {
   Shield,
   BarChart3,
   CalendarDays,
+  LineChart,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -61,6 +62,8 @@ const BrandWatcherTab = React.lazy(() =>
   import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
 const ThreatIntelligenceTab = React.lazy(() =>
   import('../components/newsfeed/ThreatIntelligenceTab').then(m => ({ default: m.ThreatIntelligenceTab })));
+const MarketMonitorTab = React.lazy(() =>
+  import('../components/newsfeed/MarketMonitorTab').then(m => ({ default: m.MarketMonitorTab })));
 const TimelineTab = React.lazy(() =>
   import('../components/newsfeed/TimelineTab').then(m => ({ default: m.TimelineTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
@@ -210,7 +213,7 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
-  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'threat_intel' | 'timeline';
+  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';
   const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
@@ -926,6 +929,15 @@ export function NewsFeedPage() {
             Brand Watcher
           </button>
           )}
+          {isModuleEnabled('market_monitor') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'market_monitor' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('market_monitor')}
+          >
+            <LineChart className="w-4 h-4" />
+            Market Monitor
+          </button>
+          )}
           {isModuleEnabled('threat_intel') && (
           <button
             className={`explore-tab-btn ${currentTab === 'threat_intel' ? 'active' : ''}`}
@@ -1300,6 +1312,13 @@ export function NewsFeedPage() {
                 <BrandWatcherTab
                   onArticleClick={handleArticleClick}
                 />
+              </Suspense>
+            )}
+
+            {/* Market Monitor Tab Content */}
+            {currentTab === 'market_monitor' && isModuleEnabled('market_monitor') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-slate-500" /></div>}>
+                <MarketMonitorTab />
               </Suspense>
             )}
 

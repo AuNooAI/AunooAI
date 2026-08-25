@@ -51,113 +51,6 @@ def _topics_period_label(period: str, topics: list[str]) -> str:
     return f"{safe}__{h}"
 
 
-def _synthesize_verdicts_from_forecast(forecast_run: dict) -> list:
-    """When the assessment ran with 0 evidence (e.g. the forecast is too
-    fresh for any post-forecast articles), the verdicts table is empty —
-    but the forecast itself has scenarios we still want to render in the
-    deck as a forward-looking view.
-
-    Pulls scenarios from ``raw_output.scenarios`` (parsing the double-
-    encoded JSON the supervisor sometimes stores) and emits placeholder
-    verdicts with ``verdict_label='Pending evidence'`` so the deck's
-    per-scenario builder fires and produces H1/H2/H3 slides.
-    """
-    import json as _json
-    raw = forecast_run.get("raw_output") or {}
-    if isinstance(raw, str):
-        try:
-            raw = _json.loads(raw)
-        except Exception:
-            raw = {}
-    if isinstance(raw, str):  # doubly-encoded
-        try:
-            raw = _json.loads(raw)
-        except Exception:
-            raw = {}
-    scenarios = (raw or {}).get("scenarios") or []
-    out: list = []
-    for idx, s in enumerate(scenarios):
-        if not isinstance(s, dict):
-            continue
-        h = (s.get("type") or "h1").lower()
-        out.append({
-            "scenario_idx": idx,
-            "scenario_title": s.get("title") or s.get("name") or f"Scenario {idx+1}",
-            "scenario_description": s.get("description") or "",
-            # Deck builder reads ``horizon_type`` (see forecast_pptx_export.py
-            # _add_scenario_slide line ~862) — keeping both fields for safety.
-            "horizon_type": h,
-            "horizon": h,
-            "timeframe": s.get("timeframe") or "",
-            "sentiment": s.get("sentiment") or "",
-            "verdict_label": "Pending evidence",
-            "confirming_articles": [],
-            "countering_articles": [],
-            "top_articles": {},
-        })
-    return out
-
-
-def _resolve_items_for_topics(topics: list[str]) -> list:
-    """Resolve ``(assessment, forecast_run, prior_assessment)`` triples for
-    an explicit topic list.
-
-    If a topic has a forecast run but the latest assessment has no scenario
-    verdicts (because the assessment found 0 evidence — common when the
-    forecast was just generated and no post-forecast articles exist yet),
-    synthesize placeholder verdicts from ``forecast_run.raw_output`` so the
-    deck still surfaces the forward-looking scenarios.
-    """
-    from app.database import get_database_instance
-    from app.services.wiley_delivery_service import _apply_overlay_display_names
-
-    db = get_database_instance()
-    items: list = []
-    for topic in topics:
-        topic = (topic or "").strip()
-        if not topic:
-            continue
-        assessment = db.facade.get_latest_forecast_assessment_by_topic(topic)
-        forecast_run = None
-        if assessment:
-            forecast_run = db.facade.get_future_horizons_analysis(assessment.get("run_id"))
-        else:
-            # No assessment at all — try to find the latest forecast run for
-            # this topic so we can still produce a forward-looking deck.
-            from sqlalchemy import text as sa_text
-            row = db.facade._execute_with_rollback(sa_text("""
-                SELECT id FROM future_horizons_runs
-                WHERE topic = :topic ORDER BY created_at DESC LIMIT 1
-            """), {"topic": topic}).fetchone()
-            if not row:
-                logger.info("Topic report: skipping %s — no forecast or assessment", topic)
-                continue
-            run_id = (row._mapping["id"] if hasattr(row, "_mapping") else row[0])
-            forecast_run = db.facade.get_future_horizons_analysis(run_id)
-            # Stub assessment so the per-topic loop has something to read
-            assessment = {
-                "topic": topic, "run_id": run_id, "scenario_verdicts": [],
-                "summary": {}, "surprises": [], "evidence_count": 0,
-            }
-
-        # If the assessment has no verdicts, synthesize them from the
-        # forecast's raw_output so the H1/H2/H3 slides render anyway.
-        verdicts = assessment.get("scenario_verdicts") or []
-        if not verdicts and forecast_run:
-            synth = _synthesize_verdicts_from_forecast(forecast_run)
-            if synth:
-                # Shallow copy + inject so we don't pollute the cached
-                # assessment dict in the facade.
-                a = dict(assessment)
-                a["scenario_verdicts"] = synth
-                assessment = a
-                logger.info("Topic report: synthesized %d verdicts for %s from forecast raw_output",
-                            len(synth), topic)
-
-        items.append((assessment, forecast_run or {}, None))
-    return _apply_overlay_display_names(items)
-
-
 def _render_cache_dir() -> str:
     """Per-tenant render-cache dir.
 
@@ -188,6 +81,70 @@ def invalidate_render_cache(period_label: str) -> None:
             os.remove(path)
     except Exception as e:
         logger.warning("render-cache invalidate failed (%s): %s", path, e)
+
+
+def invalidate_report_state(period_label: str) -> dict:
+    """Clear everything derived from a topic report's previous generation.
+
+    Regenerate used to drop only the cached PPTX. Everything else survived, and
+    because ``ensure_bundle_synthesis`` returns early when a payload already
+    exists, the Markdown and executive-DOCX exports went on serving the previous
+    executive letter against a freshly generated deck — indefinitely. The stale
+    sidecar also kept the OLD pinned run ids, so the next build's HTML and full
+    DOCX could resolve to runs the new deck had not used.
+
+    Order matters: the database rows go first and are allowed to fail loudly. If
+    they cannot be cleared we must not delete the artifacts, because that would
+    leave a period with no deck and an old letter still being served.
+
+    Returns a summary of what was cleared, for the API response and the log.
+    """
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    # Raises on failure — the caller turns that into an error rather than
+    # reporting a regeneration that did not happen.
+    removed = db.facade.delete_forecast_bundle_state("topic_report", period_label)
+
+    cleared = {
+        "synthesis_rows": removed.get("synthesis", 0),
+        "review_rows": removed.get("review", 0),
+        "pptx": False,
+        "pinned_runs": False,
+    }
+
+    pptx_path = os.path.join(_render_cache_dir(), _render_cache_key(period_label))
+    try:
+        if os.path.exists(pptx_path):
+            os.remove(pptx_path)
+            cleared["pptx"] = True
+    except Exception as e:
+        logger.warning("report-state invalidate failed (%s): %s", pptx_path, e)
+
+    # Strip the DERIVED parts of the sidecar but keep `topics` and `period`.
+    #
+    # Deleting the sidecar outright loses the report's identity: `period_label`
+    # is a hash of the topic names (see _topics_period_label), so nothing
+    # server-side can reconstruct which topics the report covered. Every export
+    # would then fail with "No state sidecar" until someone re-issued /start
+    # with the original list from memory. The stale pins are what has to go —
+    # they point at the runs the OLD deck used — not the topic set.
+    state = _read_state_sidecar(period_label)
+    if state:
+        try:
+            had_pins = bool(state.get("run_ids"))
+            _write_state_sidecar(
+                period_label,
+                state.get("topics") or [],
+                state.get("period") or "",
+                run_ids={},          # re-pinned by the next build
+            )
+            cleared["pinned_runs"] = had_pins
+        except Exception as e:
+            logger.warning("report-state sidecar reset failed (%s): %s", period_label, e)
+
+    logger.info("topic report %s: invalidated %s", period_label, cleared)
+    return cleared
 
 
 def _read_render_cache(period_label: str) -> Optional[bytes]:
@@ -617,28 +574,62 @@ async def _rerun_future_horizons_for_topic(
     sample_size = calculate_optimal_sample_size(model, sample_size_mode="auto")
     logger.info("rerun horizons: %s seeding with up to %d articles", model, sample_size)
 
+    # A tracked topic's deck name is decoupled from the article `topic` tag: the
+    # Add-Topic wizard lets an analyst name "Quantum Advantage" while the seed
+    # articles stay tagged "Quantum Computing". Querying the deck name alone
+    # returned zero rows and failed the rerun outright. The forecast assessment
+    # path already honours source_topics; this one did not.
+    eval_topics = [topic]
+    try:
+        meta = db.facade.get_forecast_topic_metadata(topic) or {}
+        src = meta.get("source_topics")
+        if isinstance(src, list) and [t for t in src if (t or "").strip()]:
+            eval_topics = [t.strip() for t in src if (t or "").strip()]
+    except Exception as e:
+        logger.warning(
+            "rerun horizons: could not read source_topics for %r (%s) — "
+            "falling back to the tracked topic name", topic, e,
+        )
+    if eval_topics != [topic]:
+        logger.info(
+            "rerun horizons: tracked topic %r is backed by source topics %s",
+            topic, eval_topics,
+        )
+
     from sqlalchemy import text as sa_text
     article_rows: list = []
     try:
+        # Ordering is fully deterministic — alignment, then date, then uri as
+        # the tie-break. Articles from different source topics interleave, so
+        # without the final key the numbered citations could differ between two
+        # runs over identical data.
         sql = sa_text(f"""
             SELECT uri, title, summary, publication_date, sentiment, category,
                    future_signal, driver_type, time_to_impact, quality_score,
-                   news_source, topic_alignment_score
+                   news_source, topic_alignment_score, topic
             FROM articles
-            WHERE topic = :topic
+            WHERE topic = ANY(:topics)
               AND analyzed = TRUE
               AND topic_alignment_score IS NOT NULL
               AND topic_alignment_score > 0.7
-            ORDER BY topic_alignment_score DESC, publication_date DESC
+            ORDER BY topic_alignment_score DESC, publication_date DESC, uri ASC
             LIMIT {int(sample_size)}
         """)
-        rows = db.facade._execute_with_rollback(sql, {"topic": topic}).fetchall()
+        rows = db.facade._execute_with_rollback(sql, {"topics": eval_topics}).fetchall()
+        seen_uris = set()
         for r in rows:
-            article_rows.append(
-                dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
-            )
+            rd = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            # The same article can be tagged under two source topics; keep the
+            # first occurrence so numbering stays stable.
+            if rd.get("uri") in seen_uris:
+                continue
+            seen_uris.add(rd.get("uri"))
+            article_rows.append(rd)
     except Exception as e:
-        logger.warning("rerun horizons: article fetch failed for %s: %s", topic, e)
+        logger.warning(
+            "rerun horizons: article fetch failed for %r (source topics %s): %s",
+            topic, eval_topics, e,
+        )
     # Corpus hygiene BEFORE numbering — the numbered list the model sees is
     # the list we persist and the list every export cites, so it has to
     # happen here, not at render time. Three steps:
@@ -653,9 +644,13 @@ async def _rerun_future_horizons_for_topic(
     article_rows = await screen_corpus_relevance(article_rows, topic)
     if not article_rows:
         raise RuntimeError(
-            f"No on-topic articles for '{topic}' — can't run Three Horizons."
+            f"No on-topic articles for '{topic}' (searched source topics "
+            f"{eval_topics}) — can't run Three Horizons."
         )
-    logger.info("rerun horizons: pulled %d articles for %s", len(article_rows), topic)
+    logger.info(
+        "rerun horizons: pulled %d articles for %r from source topics %s",
+        len(article_rows), topic, eval_topics,
+    )
 
     formatted_prompt = _build_topic_report_prompt(topic, article_rows)
 
@@ -745,6 +740,13 @@ async def _rerun_future_horizons_for_topic(
             "model_used": model,
             "generated_at": _dt.now().astimezone().isoformat(),
             "analysis_type": "topic_report_rerun",
+            # Provenance: which corpus topics this run was actually built from.
+            # The run's own `topic` stays the tracked/deck name, so without this
+            # there is no record that "Quantum Advantage" was sourced from
+            # "Quantum Computing".
+            "source_topics": list(eval_topics),
+            "evidence_alignment_min": 0.7,
+            "evidence_sample_size": int(sample_size),
         },
         "articles_analyzed":      len(article_rows),
         "total_articles_found":   len(article_rows),
@@ -1058,9 +1060,16 @@ def _load_cached_state(period_label: str):
     The MD / HTML / DOCX exports are *views* of the cached synthesis — they
     never re-run the multi-agent pipeline. The PPTX path is the canonical
     generator.
+
+    Items come from the shared run-pinned ``resolve_items``, the same resolver
+    the PPTX, HTML and full-DOCX exports use. This function used to call
+    ``get_latest_forecast_assessment_by_topic`` per topic instead, which
+    resolved to whatever run was assessed most recently — so Markdown and the
+    executive DOCX could describe a different forecast run than the deck they
+    were supposed to be views of, under the same report label.
     """
     from app.database import get_database_instance
-    from app.services.wiley_delivery_service import _apply_overlay_display_names
+    from app.services.topic_report_pptx import resolve_items
 
     db = get_database_instance()
     synth = db.facade.get_forecast_bundle_synthesis("topic_report", period_label) or {}
@@ -1075,29 +1084,53 @@ def _load_cached_state(period_label: str):
     # synthesis row's ``topics`` were captured after
     # ``_apply_overlay_display_names`` ran, so a topic with a deck overlay is
     # stored there under its display name and cannot be looked up.
-    sidecar_topics = (_read_state_sidecar(period_label) or {}).get("topics") or []
+    state = _read_state_sidecar(period_label) or {}
+    sidecar_topics = state.get("topics") or []
     topic_names = sidecar_topics or [
         (e.get("topic") if isinstance(e, dict) else e) for e in (synth.get("topics") or [])
     ]
+    topic_names = [t for t in topic_names if t]
 
+    # Sidecars and synthesis rows written before 2026-08-03 hold DISPLAY names,
+    # which cannot be looked up in future_horizons_runs. Map those back to their
+    # source topic first; the resolver would otherwise find no run and drop the
+    # topic from the export with only an info log.
     from app.services.forecast_assessment_service import source_topic_for_display_name
 
-    items: list = []
-    for topic in topic_names:
-        if not topic:
-            continue
-        a = db.facade.get_latest_forecast_assessment_by_topic(topic)
-        if not a:
-            # Rows and sidecars written before 2026-08-03 hold display names.
-            source = source_topic_for_display_name(topic)
-            if source:
-                a = db.facade.get_latest_forecast_assessment_by_topic(source)
-        if a:
-            items.append((a, None, None))
+    resolved_names = []
+    for name in topic_names:
+        source = None
+        try:
+            source = source_topic_for_display_name(name)
+        except Exception as e:
+            logger.warning("display-name lookup failed for %r: %s", name, e)
+        if source and source != name:
+            logger.info(
+                "topic report %s: %r is a display name, resolving to source topic %r",
+                period_label, name, source,
+            )
+            resolved_names.append(source)
         else:
-            logger.info("topic report %s: no assessment for %r — omitted from the export",
-                        period_label, topic)
-    items = _apply_overlay_display_names(items)
+            resolved_names.append(name)
+
+    # The sidecar's run_ids are authoritative for an existing report. Resolving
+    # through the shared resolver applies overlay display names itself, after
+    # stamping _source_topic and _source_run_id, so provenance survives the
+    # rename.
+    run_ids = dict(state.get("run_ids") or {})
+    for original, source in zip(topic_names, resolved_names):
+        if source != original and original in run_ids and source not in run_ids:
+            run_ids[source] = run_ids[original]
+    topic_names = resolved_names
+    items = resolve_items(topic_names, run_ids=run_ids)
+    if len(items) < len(topic_names):
+        rendered = {a.get("_source_topic") for (a, _r, _p) in items}
+        for t in topic_names:
+            if t not in rendered:
+                logger.info(
+                    "topic report %s: no forecast run for %r — omitted from the export",
+                    period_label, t,
+                )
 
     # Same saved_eos source the deck uses (see ensure_bundle_synthesis) —
     # the assessment summary is empty on the topic-report path.

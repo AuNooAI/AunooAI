@@ -11,6 +11,51 @@ from atproto.exceptions import AtProtocolError
 logger = logging.getLogger(__name__)
 
 
+def _image_url(did: str, image) -> Optional[str]:
+    """A usable CDN URL for an embedded Bluesky image.
+
+    The API gives a blob reference, not a link. Stored as-is it is a content
+    hash nothing can render, which is why the collector's existing image list
+    has never been displayable. The CDN builds a URL from the author's DID and
+    that hash.
+    """
+    try:
+        ref = getattr(getattr(image, "image", None), "ref", None)
+        cid = getattr(ref, "link", None) or (str(ref) if ref else None)
+    except Exception:  # noqa: BLE001 — a missing thumbnail is not an error
+        return None
+    if not cid or not did:
+        return None
+    return (f"https://cdn.bsky.app/img/feed_thumbnail/plain/{did}/{cid}@jpeg")
+
+
+def _post_title(handle: str, text: str) -> str:
+    """A title that says what the post is about, not just who wrote it.
+
+    Every Bluesky post used to be titled "Post by @handle", which makes a list
+    of them unreadable — the reader sees twenty rows of handles and has to open
+    each one. The post's own first line is the headline it would have had if
+    anyone had written one, so lead with that and keep the handle as the
+    attribution it is.
+    """
+    body = " ".join((text or "").split())
+    if not body:
+        return f"Post by @{handle}"
+    # Cut at a sentence end when there is one early enough to be a headline,
+    # otherwise at a word boundary.
+    cut = body[:150]
+    for stop in (". ", "! ", "? "):
+        idx = cut.find(stop)
+        if 30 <= idx <= 140:
+            cut = cut[:idx]
+            break
+    else:
+        if len(body) > 150:
+            space = cut.rfind(" ")
+            cut = (cut[:space] if space > 60 else cut) + "…"
+    return f"@{handle}: {cut}".strip()
+
+
 def serialize_bluesky_data(obj: Any) -> Any:
     """
     Custom serializer to handle Bluesky specific data types like IpldLink.
@@ -150,7 +195,10 @@ class BlueskyCollector(ArticleCollector):
                     # Now work with the serialized post data
                     # Parse Bluesky post into our standard format
                     article = {
-                        'title': f"Post by @{post.author.handle}",
+                        'title': _post_title(
+                            post.author.handle,
+                            post.record.text
+                            if hasattr(post.record, 'text') else ""),
                         'summary': (
                             post.record.text 
                             if hasattr(post.record, 'text') else ""
@@ -165,6 +213,21 @@ class BlueskyCollector(ArticleCollector):
                         ),
                         'source': 'bluesky',
                         'topic': topic,
+                        # social_meta is what the ingest pipeline actually
+                        # keeps; raw_data is not read by anything downstream.
+                        # All of this was already being collected and put
+                        # somewhere nothing looked at, so every Bluesky post in
+                        # the database showed no author and no engagement.
+                        'social_meta': {
+                            'platform': 'bluesky',
+                            'external_id': str(post.uri),
+                            'author': post.author.handle,
+                            'author_name': post.author.display_name or None,
+                            'author_did': post.author.did,
+                            'likes': getattr(post, 'like_count', 0),
+                            'reposts': getattr(post, 'repost_count', 0),
+                            'comments': getattr(post, 'reply_count', 0),
+                        },
                         'raw_data': {
                             'uri': str(post.uri),
                             'cid': str(post.cid),
@@ -186,6 +249,10 @@ class BlueskyCollector(ArticleCollector):
                             }
                             for img in post.record.embed.images
                         ]
+                        thumb = _image_url(post.author.did,
+                                           post.record.embed.images[0])
+                        if thumb:
+                            article['social_meta']['thumbnail'] = thumb
                     
                     articles.append(article)
                 except Exception as e:
@@ -255,7 +322,9 @@ class BlueskyCollector(ArticleCollector):
             serialized_thread = serialize_bluesky_data(thread)
             
             return {
-                'title': f"Post by @{post.author.handle}",
+                'title': _post_title(
+                    post.author.handle,
+                    post.record.text if hasattr(post.record, 'text') else ""),
                 'content': (
                     post.record.text 
                     if hasattr(post.record, 'text') else ""

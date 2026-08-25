@@ -72,6 +72,11 @@ from pptx.enum.text import PP_ALIGN
 
 logger = logging.getLogger(__name__)
 
+# Defined in a dependency-free module so route modules can catch it without
+# importing this one, which needs python-pptx. Re-exported here because
+# resolve_items raises it and callers reasonably look for it alongside.
+from app.services.topic_report_errors import MissingPinnedRun  # noqa: E402,F401
+
 INTRO_TEMPLATE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "static_assets", "topic_report_intro.pptx",
@@ -1683,8 +1688,14 @@ def resolve_items(topics: list[str], run_ids: Optional[dict] = None) -> list:
     ``run_ids`` (source topic → future_horizons_runs id) pins each topic to
     a specific run — pass the mapping the PPTX build recorded so every
     export renders the SAME analysis instead of whatever the latest run is
-    at export time. A pinned id that no longer resolves falls back to the
-    latest run with a warning rather than dropping the topic.
+    at export time.
+
+    A pin is authoritative. If a requested pin no longer resolves this raises
+    ``MissingPinnedRun`` rather than quietly rendering the latest run: silently
+    switching the analysis under an existing report label is precisely the drift
+    the pin exists to prevent, and it produced decks whose formats disagreed
+    with each other. Only a topic with no pin at all falls back to latest, which
+    is the first-generation path where the pin is being established.
 
     The ``assessment_view`` carries the FULL per-topic context that the
     deck builder walks: forecast raw_output (always), the latest
@@ -1710,12 +1721,14 @@ def resolve_items(topics: list[str], run_ids: Optional[dict] = None) -> list:
             hit = db.facade._execute_with_rollback(sa_text("""
                 SELECT id FROM future_horizons_runs WHERE id = :rid
             """), {"rid": pinned}).fetchone()
-            if hit:
-                run_id = pinned
-            else:
-                logger.warning("Topic report: pinned run %s for %s no longer "
-                               "exists — falling back to latest", pinned, topic)
-        if run_id is None:
+            if not hit:
+                raise MissingPinnedRun(
+                    f"Topic report is pinned to forecast run {pinned} for topic "
+                    f"{topic!r}, which no longer exists. Regenerate the report "
+                    f"rather than rendering a different run under the same label."
+                )
+            run_id = pinned
+        else:
             row = db.facade._execute_with_rollback(sa_text("""
                 SELECT id FROM future_horizons_runs
                 WHERE topic = :topic ORDER BY created_at DESC LIMIT 1
@@ -1732,18 +1745,32 @@ def resolve_items(topics: list[str], run_ids: Optional[dict] = None) -> list:
         # recommendations / next steps, which the per-topic slide
         # builders read from. The forecast itself only populates these
         # for some topics; the assessment may have them for more.
+        # Load the assessment OF THIS RUN. Looking it up by topic returned
+        # whichever run was assessed most recently, so a report pinned to run A
+        # could merge run B's summary and surprises into A's scenarios — the
+        # formats then disagreed with each other about what the analysis said.
         stored_assessment = None
         try:
-            stored_assessment = db.facade.get_latest_forecast_assessment_by_topic(topic)
+            candidate = db.facade.get_latest_forecast_assessment(run_id)
+            if candidate and candidate.get("run_id") == run_id:
+                stored_assessment = candidate
+            elif candidate:
+                logger.error(
+                    "Topic report %r: assessment %s claims run %s but was loaded for "
+                    "run %s — ignoring rather than mixing runs",
+                    topic, candidate.get("id"), candidate.get("run_id"), run_id,
+                )
         except Exception as e:
-            logger.debug("get_latest_forecast_assessment_by_topic(%s) failed: %s",
-                         topic, e)
+            logger.debug("get_latest_forecast_assessment(%s) failed: %s", run_id, e)
 
         assessment = _assessment_view(topic, run_id, raw)
-        # The SOURCE topic name, before the overlay display rename below —
-        # callers key the sidecar's run_ids mapping on this, since the
-        # display name cannot be looked up in future_horizons_runs.
+        # The SOURCE topic name and run, before the overlay display rename
+        # below — callers key the sidecar's run_ids mapping on the topic, since
+        # the display name cannot be looked up in future_horizons_runs, and
+        # every renderer prints the run id as provenance.
         assessment["_source_topic"] = topic
+        assessment["_source_run_id"] = run_id
+        assessment["_assessment_id"] = (stored_assessment or {}).get("id")
         # Fresh-forecast values WIN over the stored supervisor summary.
         # The supervisor's stored summary fills gaps only — that way a
         # re-run via gpt-5.4 actually replaces stale text on the briefing /

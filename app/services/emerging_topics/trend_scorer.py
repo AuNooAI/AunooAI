@@ -18,6 +18,7 @@ from collections import Counter
 from sqlalchemy import text
 
 from app.database import get_database_instance
+from .date_utils import parse_publication_timestamp, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +90,20 @@ class TrendScorer:
             placeholders = ", ".join([f":uri_{i}" for i in range(len(article_uris))])
             params = {f"uri_{i}": uri for i, uri in enumerate(article_uris)}
 
+            # LATERAL, not a plain join: an article can carry several novelty
+            # rows (one per calculation_date), and a plain join multiplied the
+            # article into the volume, diversity, and velocity counts.
             stmt = text(f"""
                 SELECT a.uri, a.news_source, a.publication_date,
                        COALESCE(n.composite_novelty_score, 50) as novelty_score
                 FROM articles a
-                LEFT JOIN article_novelty_scores n ON a.uri = n.article_uri
+                LEFT JOIN LATERAL (
+                    SELECT ns.composite_novelty_score
+                    FROM article_novelty_scores ns
+                    WHERE ns.article_uri = a.uri
+                    ORDER BY ns.calculation_date DESC, ns.id DESC
+                    LIMIT 1
+                ) n ON TRUE
                 WHERE a.uri IN ({placeholders})
             """)
 
@@ -102,31 +112,23 @@ class TrendScorer:
 
         except Exception as exc:
             logger.error(f"Error fetching article metadata: {exc}")
-            return []
+            raise RuntimeError(
+                f"Could not read article metadata for trend scoring: {exc}"
+            ) from exc
         finally:
             if conn:
                 conn.close()
 
     def _parse_date(self, date_val: Any) -> Optional[datetime]:
-        """Parse date from various formats."""
-        if date_val is None:
-            return None
+        """Parse a publication date into a timezone-aware UTC datetime.
 
-        if isinstance(date_val, datetime):
-            return date_val
-
-        try:
-            date_str = str(date_val)
-            # Try common formats
-            for fmt in ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"]:
-                try:
-                    return datetime.strptime(date_str[:len(fmt.replace("%", "").replace("-", "").replace(":", "").replace("T", "").replace(" ", "")) + 4], fmt)
-                except ValueError:
-                    continue
-            # Fallback: try parsing just the date part
-            return datetime.strptime(date_str[:10], "%Y-%m-%d")
-        except Exception:
-            return None
+        Delegates to the shared parser. The old implementation computed a slice
+        length from the format string, which cut ISO timestamps at the wrong
+        offset and threw away the time of day — so every article in a one-day
+        window landed at midnight and the first-half/second-half split that
+        drives the velocity score was meaningless.
+        """
+        return parse_publication_timestamp(date_val)
 
     def calculate_volume_score(self, article_count: int) -> float:
         """
@@ -166,8 +168,8 @@ class TrendScorer:
         if not dated_articles:
             return (50.0, "stable", 0, 0)
 
-        # Define time window
-        now = datetime.now()
+        # Define time window (UTC throughout, matching the parsed timestamps)
+        now = utcnow()
         window_start = now - timedelta(days=days_back)
         midpoint = window_start + timedelta(days=days_back / 2)
 

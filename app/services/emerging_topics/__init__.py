@@ -19,7 +19,7 @@ Legacy Components (kept for fallback):
 """
 
 # V2 services
-from .theme_proposer import ThemeProposer, ProposedTheme
+from .theme_proposer import ThemeProposer, ProposedTheme, ProposalResult
 from .theme_validator import ThemeValidator, ValidationResult
 from .deep_analyzer import DeepAnalyzer, DeepAnalysis, Actors, Events, Implications, Signals
 from .trend_scorer import TrendScorer, TrendScore
@@ -31,8 +31,26 @@ from .cluster_detector import ClusterDetector, ClusterConfig, ClusterResult, Art
 from .temporal_tracker import TemporalTracker, TemporalConfig, ClusterChange
 from .topic_summarizer import TopicSummarizer, TopicSummary
 
+# Run scoping, lifecycle, and notification vocabulary
+from .run_lock import (
+    DetectionAlreadyRunning,
+    DetectionRunLock,
+    normalize_topic_filter,
+)
+from .notification_filters import (
+    ALLOWED_FILTERS,
+    DEFAULT_FILTERS,
+    DETECTION_TYPES,
+    VELOCITY_STATES,
+    normalize_filters,
+    select_topics_for_notification,
+    topic_matches_filters,
+    validate_filters,
+)
+
 # Main service
 from .emerging_topics_service import (
+    DetectionFailed,
     EmergingTopicsService,
     EmergingTopicsConfig,
     EmergingTopic,
@@ -43,6 +61,7 @@ __all__ = [
     # V2 services
     'ThemeProposer',
     'ProposedTheme',
+    'ProposalResult',
     'ThemeValidator',
     'ValidationResult',
     'DeepAnalyzer',
@@ -68,6 +87,20 @@ __all__ = [
     'ClusterChange',
     'TopicSummarizer',
     'TopicSummary',
+    # Run scoping and lifecycle
+    'DetectionAlreadyRunning',
+    'DetectionRunLock',
+    'DetectionFailed',
+    'normalize_topic_filter',
+    # Notification vocabulary
+    'ALLOWED_FILTERS',
+    'DEFAULT_FILTERS',
+    'DETECTION_TYPES',
+    'VELOCITY_STATES',
+    'normalize_filters',
+    'select_topics_for_notification',
+    'topic_matches_filters',
+    'validate_filters',
     # Main service
     'EmergingTopicsService',
     'EmergingTopicsConfig',
