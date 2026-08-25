@@ -415,3 +415,215 @@ def test_one_vendor_cannot_decide_another_vendors_mapping(conn, brand):
             payload=IdentityDecision(action='verify'),
             session={'username': 'pytest'}))
     assert raised.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Release gates added after the second review
+# ---------------------------------------------------------------------------
+
+def test_closing_a_run_updates_the_projection_not_only_the_canonical_row(
+        conn, brand, flags):
+    """bw_entity_profiles is what vendor lists and filters read. The first
+    version of this test asserted only the canonical row, which is why a
+    swallowed NameError on the projection call survived review and a deploy."""
+    from app.services import market_collect as mc
+
+    flags(enabled=True)
+    market_id = conn.execute(text("""
+        INSERT INTO bw_markets (name, slug) VALUES ('P', 'pytest-proj-m')
+        RETURNING id
+    """)).scalar()
+    conn.execute(text("""
+        INSERT INTO bw_market_brands (market_id, brand_id, baseline)
+        VALUES (:m, :b, '{}'::jsonb)
+    """), {'m': market_id, 'b': brand})
+
+    run_id = mc.open_run(conn, market_id=market_id,
+                         source='linkedin_company_profile', provider='pytest')
+    mc.store_snapshot(
+        conn, market_id=market_id, brand_id=brand,
+        source='linkedin_company_profile', snapshot_type='profile',
+        provider_item_id='pytest-proj-1',
+        data={'employee_count': 321, 'country': 'US', 'founded': 2020},
+        run_id=run_id)
+    mc.close_run(conn, run_id, status='succeeded', received=1, new=1)
+
+    profile = conn.execute(text("""
+        SELECT employee_count, employee_count_source, hq_country
+          FROM bw_entity_profiles WHERE brand_id = :b
+    """), {'b': brand}).mappings().first()
+    assert profile is not None, 'no profile row: the projection never ran'
+    assert int(profile['employee_count']) == 321
+    assert profile['employee_count_source'] == 'linkedin_company_profile'
+
+
+def test_a_database_fault_in_the_hook_leaves_provider_rows_intact(
+        conn, brand, flags, monkeypatch):
+    """A *database* error aborts the transaction. Catching the Python
+    exception does not un-abort it, so the caller's commit then fails and
+    PostgreSQL discards the provider rows that were supposed to be durable.
+    The earlier version of this test raised a plain exception, which does not
+    poison a PostgreSQL transaction and so proved nothing."""
+    from app.services import entity_ingest, market_collect as mc
+
+    flags(enabled=True)
+    market_id = conn.execute(text("""
+        INSERT INTO bw_markets (name, slug) VALUES ('T', 'pytest-txn-m')
+        RETURNING id
+    """)).scalar()
+    run_id = mc.open_run(conn, market_id=market_id, source='crunchbase_company',
+                         provider='pytest')
+    mc.store_snapshot(
+        conn, market_id=market_id, brand_id=brand, source='crunchbase_company',
+        snapshot_type='funding', provider_item_id='pytest-txn-1',
+        data={'operating_status': 'active'}, run_id=run_id)
+
+    def _real_database_error(c, **kwargs):
+        c.execute(text('SELECT * FROM a_table_that_does_not_exist'))
+
+    monkeypatch.setattr(entity_ingest, 'process_pending', _real_database_error)
+    mc.close_run(conn, run_id, status='succeeded', received=1, new=1)
+
+    # The transaction must still be usable, and the snapshot still there.
+    survived = conn.execute(text("""
+        SELECT count(*) FROM bw_vendor_snapshots
+         WHERE provider_item_id = 'pytest-txn-1'
+    """)).scalar()
+    assert survived == 1
+
+
+def test_a_failed_snapshot_is_retried_and_visible(conn, brand, flags):
+    """The normalizer marks an unmappable payload 'failed'. Selecting only
+    'pending' meant it was never looked at again, while the comment and the
+    changes log both claimed it was retried."""
+    from app.services import entity_ingest, market_collect as mc
+
+    flags(enabled=True)
+    market_id = conn.execute(text("""
+        INSERT INTO bw_markets (name, slug) VALUES ('F', 'pytest-fail-m')
+        RETURNING id
+    """)).scalar()
+    conn.execute(text("""
+        INSERT INTO bw_market_brands (market_id, brand_id, baseline)
+        VALUES (:m, :b, '{}'::jsonb)
+    """), {'m': market_id, 'b': brand})
+
+    run_id = mc.open_run(conn, market_id=market_id,
+                         source='linkedin_company_profile', provider='pytest')
+    mc.store_snapshot(
+        conn, market_id=market_id, brand_id=brand,
+        source='linkedin_company_profile', snapshot_type='profile',
+        provider_item_id='pytest-fail-1', data={'employee_count': 40},
+        run_id=run_id)
+    conn.execute(text("""
+        UPDATE bw_vendor_snapshots SET normalization_status = 'failed',
+               normalization_error = 'earlier fault'
+         WHERE provider_item_id = 'pytest-fail-1'
+    """))
+
+    summary = entity_ingest.process_pending(conn, run_id=run_id)
+    assert summary['retried'] >= 1
+
+    assert conn.execute(text("""
+        SELECT normalization_status FROM bw_vendor_snapshots
+         WHERE provider_item_id = 'pytest-fail-1'
+    """)).scalar() == 'normalized'
+
+
+def test_a_run_that_could_not_normalise_is_not_a_clean_success(conn, brand,
+                                                               flags):
+    """The hook's summary was computed and thrown away, so a run where every
+    payload was unmappable still closed 'succeeded'."""
+    from app.services import entity_ingest, market_collect as mc
+
+    flags(enabled=True)
+    market_id = conn.execute(text("""
+        INSERT INTO bw_markets (name, slug) VALUES ('S', 'pytest-status-m')
+        RETURNING id
+    """)).scalar()
+    run_id = mc.open_run(conn, market_id=market_id, source='vendor_web',
+                         provider='pytest')
+    # A shape with a mapper that raises: 'workbook/metric' with a non-dict
+    # metrics value blows up inside the mapper rather than being skipped.
+    mc.store_snapshot(
+        conn, market_id=market_id, brand_id=brand, source='workbook',
+        snapshot_type='metric', provider_item_id='pytest-status-1',
+        data={'metrics': 'not-a-dict', 'row': 1}, run_id=run_id)
+    mc.close_run(conn, run_id, status='succeeded', received=1, new=1)
+
+    row = conn.execute(text("""
+        SELECT status, metrics FROM bw_collection_runs WHERE id = :r
+    """), {'r': run_id}).mappings().first()
+    assert 'entity' in (row['metrics'] or {}), 'the hook summary was discarded'
+    if row['metrics']['entity'].get('failed'):
+        assert row['status'] == 'partial'
+
+
+def test_field_history_does_not_mix_two_markets(conn, brand, monkeypatch):
+    """A vendor in two markets showed both markets' category history in
+    either one, because only the canonical query was scoped."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from app.routes import market_entity_routes as routes
+    from app.services.entity_observations import record_observation
+    from app.services.entity_resolution import resolve_field
+
+    # The route opens its own connection, which cannot see this test's
+    # uncommitted transaction. Point it at ours rather than committing
+    # fixtures into the tenant database.
+    monkeypatch.setattr(routes, '_conn', lambda: conn)
+    field_history = routes.field_history
+
+    now = datetime.now(timezone.utc)
+    markets = {}
+    for slug, value in (('pytest-hist-a', 'AI Security'),
+                        ('pytest-hist-b', 'Operations')):
+        market_id = conn.execute(text("""
+            INSERT INTO bw_markets (name, slug) VALUES (:s, :s) RETURNING id
+        """), {'s': slug}).scalar()
+        conn.execute(text("""
+            INSERT INTO bw_market_brands (market_id, brand_id, baseline)
+            VALUES (:m, :b, '{}'::jsonb)
+        """), {'m': market_id, 'b': brand})
+        record_observation(
+            conn, brand_id=brand, field_key='market_category', value=value,
+            source='manual', market_id=market_id,
+            source_record_id=f'manual:{slug}', observed_at=now, confidence=1.0)
+        resolve_field(conn, brand, 'market_category', market_id=market_id,
+                      trigger='manual')
+        markets[value] = market_id
+
+    history = asyncio.run(field_history(
+        market_id=markets['AI Security'], brand_id=brand,
+        field_key='market_category', session={'username': 'pytest'}))
+
+    values = {r['value_text'] for rows in
+              history['series_by_measurement'].values() for r in rows}
+    assert values == {'AI Security'}, f'leaked another market: {values}'
+
+
+def test_the_master_switch_also_stops_the_read_paths(flags):
+    """ENABLED off with the read flags left on used to be a half-rollback:
+    the routes disappeared and processing stopped, while vendor lists and
+    /social carried on serving entity data nothing was maintaining."""
+    from app.services import entity_flags
+
+    flags(enabled=False, canonical_read=True, mention_read=True)
+    assert entity_flags.canonical_read() is False
+    assert entity_flags.mention_read() is False
+
+    flags(enabled=True, canonical_read=True, mention_read=True)
+    assert entity_flags.canonical_read() is True
+    assert entity_flags.mention_read() is True
+
+
+def test_the_guarded_paths_have_no_undefined_names():
+    """The gate that would have caught the projection import in one second."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, 'scripts/lint_undefined_names.py'],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout

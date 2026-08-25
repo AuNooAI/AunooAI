@@ -239,6 +239,51 @@ Mounted above the vendor list on the Vendors view of `MarketMonitorTab.tsx`. Reu
 setup and the Tailwind tile fix from the existing hotspot map, with `minZoom` matching `zoom` to
 avoid the grey band that appears when the world does not fill the container.
 
+### Fix: a second review found five more, two of them on the live ingest path
+**`app/services/entity_ingest.py` — an undefined name broke every snapshot ingest.**
+`entity_projection` was used twice and never imported, so `process_pending()` raised `NameError`
+after resolving the canonical rows and before updating `bw_entity_profiles` — the table vendor
+lists and filters actually read. The broad `except` in `on_run_closed` swallowed it, so it looked
+like a clean run. It survived review, 133 tests and a production deploy because the test asserted
+the canonical row and stopped there.
+
+Nothing was lost live: no collection run has closed since the deploy, so the fault never fired and
+profiles still match canonical on every row. It would have bitten on the first run.
+
+**`entity_ingest.py` — the hook was not isolated from the provider's transaction.** Most callers
+ingest records, call `close_run()`, then commit. A *database* error inside the hook aborts that
+transaction, and catching the Python exception does not un-abort it — the caller's commit then
+fails and PostgreSQL rolls back the provider rows that were supposed to be durable. The earlier
+test raised a plain `RuntimeError`, which does not poison a PostgreSQL transaction and so proved
+nothing. The hook now runs inside a `SAVEPOINT`, so a fault discards only its own work.
+
+**`entity_ingest.py` — failed normalizations were never retried.** The normalizer marks an
+unmappable payload `failed`; the hook selected only `pending`. The comment and the previous
+changes entry both claimed failures were retried, and they were not. Now selects both, counts
+retries, and writes the summary onto `bw_collection_runs.metrics` — the summary was previously
+computed and discarded, so a run where every payload was unmappable still closed `succeeded`.
+
+**`market_entity_routes.py` — field history still mixed markets.** The canonical row was scoped by
+the earlier fix but the observation and resolution-log queries were not, so a vendor in two
+markets showed both markets' category history in either one.
+
+**`entity_flags.py` — the master switch was not a complete rollback.** With `ENABLED=false` and
+the read flags left on, the routes disappeared and processing stopped while vendor lists and
+`/social` carried on serving entity data nothing was maintaining. `canonical_read()` and
+`mention_read()` are now subordinate to `enabled()`.
+
+### Release gates added
+**`scripts/lint_undefined_names.py`** — pyflakes over the entity paths, which must be clean, with
+a baseline of 30 pre-existing warnings elsewhere in `app/` that must not grow. Verified against
+the real defect: re-removing the `entity_projection` import makes it exit 1 naming both lines.
+
+Six tests added to `tests/test_entity_wiring.py`, each pinning a gate the reviewer named: that
+closing a run updates `bw_entity_profiles` and not only the canonical row; that a **real**
+PostgreSQL error in the hook leaves the provider rows intact; that a `failed` snapshot is retried
+and surfaced on the run; that a run which could not normalise anything is not a clean success;
+that a vendor in two markets sees only its own market's history; and that `ENABLED=false`
+disables the read paths too. Entity suite is now **121 passing**.
+
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
 748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned

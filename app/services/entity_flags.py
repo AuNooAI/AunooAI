@@ -64,13 +64,23 @@ def dual_write() -> bool:
 
 
 def canonical_read() -> bool:
-    """Serve canonical field values instead of the import baseline."""
-    return flag("ENTITY_INTELLIGENCE_CANONICAL_READ")
+    """Serve canonical field values instead of the import baseline.
+
+    Subordinate to the master switch. With ENABLED off but this left on, the
+    entity routes disappeared and processing stopped while vendor lists and
+    filters carried on reading entity data that was no longer being
+    maintained — a half-rollback that is worse than either state, because the
+    figures keep moving and nothing is updating them.
+    """
+    return enabled() and flag("ENTITY_INTELLIGENCE_CANONICAL_READ")
 
 
 def mention_read() -> bool:
-    """Serve per-entity mention scores instead of article-level columns."""
-    return flag("ENTITY_INTELLIGENCE_MENTION_READ")
+    """Serve per-entity mention scores instead of article-level columns.
+
+    Subordinate to the master switch, for the same reason as canonical_read.
+    """
+    return enabled() and flag("ENTITY_INTELLIGENCE_MENTION_READ")
 
 
 def events_enabled() -> bool:

@@ -281,13 +281,20 @@ async def field_history(market_id: int, brand_id: int, field_key: str,
         conn = _conn()
         try:
             _require_vendor(conn, market_id, brand_id)
+            # Scope first: a market-relative field has one series per
+            # membership, and an unscoped read showed a vendor that sits in
+            # two markets both markets' category history in either one.
+            scope_market = market_id if field_policy.scope == 'market' else None
+
             readings = [dict(r) for r in conn.execute(text("""
                 SELECT id, source, value_text, value_number, unit, observed_at,
                        confidence, authority, status, metadata
                   FROM bw_entity_observations
                  WHERE brand_id = :b AND field_key = :f
+                   AND market_id IS NOT DISTINCT FROM :m
                  ORDER BY observed_at, id
-            """), {'b': brand_id, 'f': field_key}).mappings().all()]
+            """), {'b': brand_id, 'f': field_key,
+                   'm': scope_market}).mappings().all()]
 
             series: Dict[str, List[Dict[str, Any]]] = {}
             for reading in readings:
@@ -300,13 +307,14 @@ async def field_history(market_id: int, brand_id: int, field_key: str,
                        created_at
                   FROM bw_entity_resolution_log
                  WHERE brand_id = :b AND field_key = :f
+                   AND market_id IS NOT DISTINCT FROM :m
                  ORDER BY created_at DESC LIMIT 50
-            """), {'b': brand_id, 'f': field_key}).mappings().all()]
+            """), {'b': brand_id, 'f': field_key,
+                   'm': scope_market}).mappings().all()]
 
             # Market-relative fields have one canonical row per membership,
             # so reading the global row returned nothing for taxonomy and made
             # the history panel look empty.
-            scope_market = market_id if field_policy.scope == 'market' else None
             current = conn.execute(text("""
                 SELECT observation_id, value_text, value_number, unit, status,
                        confidence, policy_version, resolution_reason,

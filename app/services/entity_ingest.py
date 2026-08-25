@@ -22,7 +22,9 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import text
 
-from app.services import entity_content, entity_identity, entity_resolution
+from app.services import (
+    entity_content, entity_identity, entity_projection, entity_resolution,
+)
 from app.services.entity_observations import (
     NormalizationError, normalize_snapshot as _normalize_snapshot,
 )
@@ -219,19 +221,26 @@ def process_pending(conn, run_id: Optional[int] = None,
     run's completion into an unbounded job.
     """
     summary = {'run_id': run_id, 'snapshots': 0, 'normalized': 0,
-               'observations': 0, 'failed': 0, 'articles': 0, 'links': 0,
-               'mentions': 0, 'resolved_brands': 0}
+               'observations': 0, 'failed': 0, 'retried': 0, 'articles': 0,
+               'links': 0, 'mentions': 0, 'resolved_brands': 0}
     touched: set = set()
 
+    # 'failed' as well as 'pending'. The normalizer marks a payload it could
+    # not map as failed, and selecting only pending meant those rows were
+    # never looked at again — the comment claimed they were retried and they
+    # were not. A malformed snapshot usually stays malformed, so the count is
+    # reported on the run rather than being retried silently forever.
     pending = conn.execute(text("""
-        SELECT id, brand_id FROM bw_vendor_snapshots
-         WHERE normalization_status = 'pending'
-         ORDER BY id
+        SELECT id, brand_id, normalization_status FROM bw_vendor_snapshots
+         WHERE normalization_status IN ('pending', 'failed')
+         ORDER BY (normalization_status = 'failed'), id
          LIMIT :lim
     """), {'lim': snapshot_limit}).mappings().all()
 
     for row in pending:
         summary['snapshots'] += 1
+        if row['normalization_status'] == 'failed':
+            summary['retried'] += 1
         outcome = normalize_snapshot(conn, int(row['id']))
         if outcome['status'] == 'failed':
             summary['failed'] += 1
@@ -287,12 +296,39 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
         # A failed run wrote nothing worth processing. Its snapshots, if any,
         # stay pending and are picked up by the next successful close.
         return None
+    # A SAVEPOINT, not just a try/except. Most callers ingest records, call
+    # close_run(), and commit afterwards. A *database* error inside this hook
+    # aborts the whole transaction, and catching the Python exception does not
+    # un-abort it — the caller's commit then fails and PostgreSQL rolls back
+    # the provider rows that were supposed to be durable. Rolling back to the
+    # savepoint discards only this hook's work and leaves the transaction
+    # usable, which is the difference between losing a processing pass and
+    # losing the collection that paid for it.
+    savepoint = conn.begin_nested()
     try:
-        return process_pending(conn, run_id=run_id)
+        result = process_pending(conn, run_id=run_id)
+        savepoint.commit()
     except Exception:                                       # noqa: BLE001
-        logger.exception('entity post-ingest failed run_id=%s; provider data '
-                         'is unaffected and stays queued', run_id)
+        savepoint.rollback()
+        logger.exception('entity post-ingest failed run_id=%s; the provider '
+                         'rows are intact and the work stays queued', run_id)
         return None
+
+    # Say so on the run. A run that normalized nothing because every payload
+    # was malformed is not a clean success, and the ledger is where an
+    # operator looks.
+    try:
+        status_now = 'partial' if result.get('failed') else None
+        conn.execute(text("""
+            UPDATE bw_collection_runs
+               SET metrics = metrics || CAST(:metrics AS JSONB),
+                   status = COALESCE(:status, status)
+             WHERE id = :id
+        """), {'metrics': _json({'entity': result}), 'status': status_now,
+               'id': run_id})
+    except Exception:                                       # noqa: BLE001
+        logger.warning('could not record entity metrics on run_id=%s', run_id)
+    return result
 
 
 def process_ingest_batch(conn, run_id: Optional[int] = None,
@@ -305,8 +341,8 @@ def process_ingest_batch(conn, run_id: Optional[int] = None,
     operator can tell "nothing changed" from "nothing ran".
     """
     summary = {'run_id': run_id, 'snapshots': 0, 'normalized': 0,
-               'observations': 0, 'failed': 0, 'articles': 0, 'links': 0,
-               'mentions': 0, 'resolved_brands': 0}
+               'observations': 0, 'failed': 0, 'retried': 0, 'articles': 0,
+               'links': 0, 'mentions': 0, 'resolved_brands': 0}
     touched: set = set()
 
     for snapshot_id in (snapshot_ids or []):
