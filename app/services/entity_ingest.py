@@ -317,6 +317,14 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
     # Say so on the run. A run that normalized nothing because every payload
     # was malformed is not a clean success, and the ledger is where an
     # operator looks.
+    #
+    # Its own savepoint, for the same reason the processing has one. This is a
+    # database statement like any other: if it fails, the transaction aborts,
+    # and catching the Python exception without rolling back to a savepoint
+    # leaves the caller's commit to fail and take the provider rows with it.
+    # Protecting the expensive work and then leaving the cheap bookkeeping
+    # unprotected would have reintroduced the same defect one statement later.
+    metrics_point = conn.begin_nested()
     try:
         status_now = 'partial' if result.get('failed') else None
         conn.execute(text("""
@@ -326,8 +334,11 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
              WHERE id = :id
         """), {'metrics': _json({'entity': result}), 'status': status_now,
                'id': run_id})
+        metrics_point.commit()
     except Exception:                                       # noqa: BLE001
-        logger.warning('could not record entity metrics on run_id=%s', run_id)
+        metrics_point.rollback()
+        logger.warning('could not record entity metrics on run_id=%s; the '
+                       'processing itself stands', run_id)
     return result
 
 

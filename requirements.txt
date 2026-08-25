@@ -76,3 +76,7 @@ safetensors>=0.3.0
 # Threat intelligence IOC extraction
 iocextract>=1.16.1
 json_repair
+
+# Undefined-name gate for the entity paths (scripts/lint_undefined_names.py).
+# A name that does not exist is a runtime error, not a style warning.
+pyflakes==3.2.0

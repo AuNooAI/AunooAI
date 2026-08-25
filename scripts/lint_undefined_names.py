@@ -54,14 +54,34 @@ GUARDED = [
 BASELINE = 30
 
 
+class CheckerUnavailable(RuntimeError):
+    """pyflakes did not run. Never treated as 'nothing to report'."""
+
+
 def undefined_names(targets: list) -> list:
-    """pyflakes output lines reporting an undefined name."""
+    """pyflakes output lines reporting an undefined name.
+
+    Raises rather than returning an empty list when the checker itself did not
+    run. The first version of this gate inspected only stdout: without
+    pyflakes installed the subprocess wrote "No module named pyflakes" to
+    stderr, stdout was empty, and the gate reported "clean" and exited 0. A
+    gate that passes when it cannot check anything is worse than no gate,
+    because it is trusted.
+    """
     existing = [str(ROOT / t) for t in targets if (ROOT / t).exists()]
     if not existing:
         return []
     result = subprocess.run(
         [sys.executable, '-m', 'pyflakes', *existing],
         capture_output=True, text=True, cwd=ROOT)
+
+    # pyflakes exits 0 with no findings and 1 with findings. Anything else,
+    # or any output on stderr, means it did not do its job.
+    if result.returncode not in (0, 1) or result.stderr.strip():
+        raise CheckerUnavailable(
+            (result.stderr.strip() or f'exit {result.returncode}')
+            + '\n\nInstall it with:  .venv/bin/python -m pip install pyflakes'
+            + '\n(it is in requirements.txt)')
     return [line for line in result.stdout.splitlines()
             if 'undefined name' in line]
 
@@ -69,7 +89,12 @@ def undefined_names(targets: list) -> list:
 def main() -> int:
     report = '--report' in sys.argv
 
-    guarded = undefined_names(GUARDED)
+    try:
+        guarded = undefined_names(GUARDED)
+    except CheckerUnavailable as exc:
+        print(f'Cannot run the undefined-name check:\n\n  {exc}\n')
+        return 2
+
     if guarded:
         print('Undefined names in guarded paths:\n')
         for line in guarded:
@@ -78,9 +103,21 @@ def main() -> int:
               f'runtime, not warnings.')
         return 1
 
-    everything = undefined_names(['app'])
+    try:
+        everything = undefined_names(['app'])
+    except CheckerUnavailable as exc:
+        print(f'Cannot run the undefined-name check:\n\n  {exc}\n')
+        return 2
+
     print(f'Guarded paths clean. Rest of app/: {len(everything)} known '
           f'(baseline {BASELINE}).')
+    # A sharp drop is not good news, it is the checker not reaching the files.
+    # Lower BASELINE deliberately when warnings are genuinely fixed.
+    if len(everything) < BASELINE // 2:
+        print(f'\nThat is far below the baseline of {BASELINE}. Either a lot '
+              f'was fixed — in which case lower BASELINE in this file — or '
+              f'the checker did not reach the code it was pointed at.')
+        return 1
     if report:
         for line in everything:
             print(f'  {line}')

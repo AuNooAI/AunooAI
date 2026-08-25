@@ -284,6 +284,29 @@ and surfaced on the run; that a run which could not normalise anything is not a 
 that a vendor in two markets sees only its own market's history; and that `ENABLED=false`
 disables the read paths too. Entity suite is now **121 passing**.
 
+### Fix: a third review found the durability fix stopped one statement short
+**`app/services/entity_ingest.py`** — the processing was wrapped in a `SAVEPOINT`; the run-ledger
+update that follows it was not. So the defect the savepoint was added to fix still existed, one
+statement later: if that `UPDATE` fails, the transaction aborts, the broad catch does not un-abort
+it, and the caller's commit still rolls back the provider rows. The metrics write now has its own
+savepoint, so a failure there loses the bookkeeping and nothing else.
+
+**`scripts/lint_undefined_names.py` — the gate failed open, and the test passed anyway.** It read
+only stdout. Without pyflakes installed the subprocess wrote "No module named pyflakes" to stderr,
+stdout was empty, and the gate printed "Guarded paths clean" and exited 0 — while reporting 0
+undefined names in the rest of `app/` against a baseline of 30, which it also did not object to.
+pyflakes was in neither requirements file, so the gate was decorative in any fresh checkout.
+
+Now: a non-zero exit or anything on stderr raises rather than returning an empty list, and the
+script exits 2 telling you how to install it. A count that has collapsed far below the baseline
+also fails, because a sharp drop is the checker not reaching the files rather than good news.
+`pyflakes==3.2.0` added to `requirements.txt`, and a test asserts it is declared there so a fresh
+checkout can actually run the gate.
+
+Verified both by reverting them: removing the metrics savepoint turns
+`test_a_failing_metrics_write_cannot_take_the_provider_rows` red, and running the gate under an
+interpreter without pyflakes now exits 2 instead of reporting clean. Entity suite **124 passing**.
+
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
 748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned
