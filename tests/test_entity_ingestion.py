@@ -1,0 +1,385 @@
+"""Linking entities to content, and the mistakes that would corrupt a feed.
+
+The failures pinned here are the ones that make a vendor page lie rather than
+merely look empty: a company's own announcement counted as somebody praising
+it, two vendors in one post sharing a single score, a name matched inside
+another company's URL, and an account claimed by whoever guessed first.
+
+The pure tests need nothing. The rest run inside a transaction that is always
+rolled back, so they exercise the real constraints without leaving rows.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+from sqlalchemy import text
+
+from app.services import entity_content
+from app.services.social_sources import (
+    classify_source, is_social_row, is_social_source,
+)
+
+pytestmark = pytest.mark.skipif(
+    os.getenv('DB_TYPE', 'postgresql').lower() != 'postgresql',
+    reason='entity ingestion is exercised against PostgreSQL')
+
+
+# ---------------------------------------------------------------------------
+# Channel classification — pure
+# ---------------------------------------------------------------------------
+
+def test_a_vendors_own_post_is_owned_not_earned():
+    """The distinction the whole reputation figure depends on."""
+    assert classify_source('linkedin', 'vendor:linkedin') == ('linkedin',
+                                                              'owned_social')
+
+
+def test_platforms_are_named_rather_than_guessed():
+    assert classify_source('xpoz:twitter') == ('twitter', 'public_social')
+    assert classify_source('xpoz:tiktok') == ('tiktok', 'public_social')
+    assert classify_source('bluesky') == ('bluesky', 'public_social')
+
+
+def test_reddit_is_community_not_broadcast():
+    """A subreddit is a room, not a megaphone, and its sentiment reads
+    differently from a public post."""
+    assert classify_source('xpoz:reddit') == ('reddit', 'community')
+    assert classify_source('reddit.com') == ('reddit', 'community')
+
+
+def test_news_is_earned_and_has_no_platform():
+    assert classify_source('techmeme.com') == (None, 'earned_news')
+    assert classify_source(None) == (None, 'earned_news')
+
+
+def test_a_domain_containing_a_platform_name_is_not_social():
+    """clsbluesky.law.columbia.edu is a law-school blog. The old substring
+    helper calls it social; classification does not, and both answers are kept
+    so the seventeen existing callers of the old helper do not change."""
+    assert is_social_row('clsbluesky.law.columbia.edu') is False
+    assert is_social_source('clsbluesky.law.columbia.edu') is True
+
+
+# ---------------------------------------------------------------------------
+# Term matching — pure
+# ---------------------------------------------------------------------------
+
+def test_a_name_inside_someone_elses_url_is_not_a_mention():
+    """A post about 7AI linking to whois-secure.com matched the vendor
+    Secure.com, because a hyphen reads as a word boundary."""
+    terms = [{'id': 1, 'brand_id': 10, 'term': 'Secure.com',
+              'normalized_term': 'secure.com', 'term_kind': 'name'}]
+    blob = ('Exciting news! 7AI has launched AI-driven tools '
+            'https://whois-secure.com/blog/7ai-ai-threat-detection')
+    assert entity_content.candidates_from_terms(blob, terms) == []
+
+
+def test_a_name_in_the_prose_is_a_mention():
+    terms = [{'id': 1, 'brand_id': 10, 'term': 'Radiant Security',
+              'normalized_term': 'radiant security', 'term_kind': 'name'}]
+    blob = 'Cribl has acquired AI technology assets from Radiant Security.'
+    found = entity_content.candidates_from_terms(blob, terms)
+    assert [c['brand_id'] for c in found] == [10]
+    assert 'Radiant Security' in found[0]['excerpt']
+
+
+def test_matching_stops_at_word_boundaries():
+    terms = [{'id': 1, 'brand_id': 10, 'term': '7ai',
+              'normalized_term': '7ai', 'term_kind': 'name'}]
+    assert entity_content.candidates_from_terms('the 7aints played', terms) == []
+    assert entity_content.candidates_from_terms('7ai launched', terms)
+
+
+def test_one_post_can_name_two_vendors():
+    terms = [
+        {'id': 1, 'brand_id': 10, 'term': 'Crogl',
+         'normalized_term': 'crogl', 'term_kind': 'name'},
+        {'id': 2, 'brand_id': 11, 'term': 'Prophet Security',
+         'normalized_term': 'prophet security', 'term_kind': 'name'},
+    ]
+    blob = ('AI SOC roundup: Crogl offers a free air-gap-capable agent, '
+            'Prophet Security an AI-driven detection engineer.')
+    assert sorted(c['brand_id'] for c in
+                  entity_content.candidates_from_terms(blob, terms)) == [10, 11]
+
+
+def test_ordinary_words_need_qualification_and_coined_names_do_not():
+    """The test is the word, not the vendor. Nobody else writes "Qevlar";
+    everybody writes "Radiant"."""
+    assert entity_content.is_safe_standalone('qevlar') is True
+    assert entity_content.is_safe_standalone('intezer') is True
+    assert entity_content.is_safe_standalone('radiant') is False
+    assert entity_content.is_safe_standalone('cantina') is False
+    assert entity_content.is_safe_standalone('7ai') is False
+    assert entity_content.is_safe_standalone('radiant security') is True
+
+
+def test_mention_identity_ignores_time():
+    """The same post found again by the same term is the same mention,
+    whenever the collector happened to see it."""
+    first = entity_content.dedupe_hash_for(
+        mention_type='explicit_name', matched_term='Crogl',
+        channel='public_social')
+    second = entity_content.dedupe_hash_for(
+        mention_type='explicit_name', matched_term='crogl ',
+        channel='public_social')
+    assert first == second
+
+
+# ---------------------------------------------------------------------------
+# Against the real schema
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def conn():
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    connection = db._temp_get_connection()
+    if connection.execute(
+            text("SELECT to_regclass('bw_entity_content_links')")).scalar() is None:
+        connection.close()
+        pytest.skip('ei_002 has not been applied to this database')
+    try:
+        yield connection
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+@pytest.fixture()
+def brands(conn):
+    ids = []
+    for slug in ('pytest-ingest-a', 'pytest-ingest-b'):
+        ids.append(conn.execute(text("""
+            INSERT INTO bw_brands (name, display_name, brand_keywords, enabled)
+            VALUES (:n, :d, '[]'::jsonb, FALSE) RETURNING id
+        """), {'n': slug, 'd': slug.title()}).scalar())
+    return ids
+
+
+@pytest.fixture()
+def article(conn):
+    uri = 'pytest://entity-ingestion/post-1'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url)
+        VALUES (:u, 'Crogl and Prophet Security both shipped triage agents',
+                'A roundup post.', 'xpoz:twitter', 'https://example.invalid/1')
+    """), {'u': uri})
+    return uri
+
+
+def test_one_article_links_to_two_entities_without_being_copied(
+        conn, brands, article):
+    """One row in articles, two relationships. The body is never duplicated."""
+    for brand_id in brands:
+        entity_content.link_content(
+            conn, brand_id=brand_id, article_uri=article,
+            relationship='mentions', channel='public_social',
+            platform='twitter', attribution_method='query_term')
+
+    links = conn.execute(text("""
+        SELECT count(*) FROM bw_entity_content_links WHERE article_uri = :u
+    """), {'u': article}).scalar()
+    articles = conn.execute(text("""
+        SELECT count(*) FROM articles WHERE uri = :u
+    """), {'u': article}).scalar()
+    assert links == 2
+    assert articles == 1
+
+
+def test_each_vendor_gets_its_own_verdict_on_the_same_post(
+        conn, brands, article):
+    """The defect this table exists to fix: one post, one score, inherited by
+    whichever company was evaluated second."""
+    first, second = brands
+    a = entity_content.record_mention(
+        conn, brand_id=first, article_uri=article, mention_type='explicit_name',
+        channel='public_social', platform='twitter', matched_term='Crogl')
+    b = entity_content.record_mention(
+        conn, brand_id=second, article_uri=article, mention_type='explicit_name',
+        channel='public_social', platform='twitter',
+        matched_term='Prophet Security')
+
+    entity_content.score_mention(conn, a, relevance=0.9, sentiment='positive',
+                                 stance='supportive', method='llm')
+    entity_content.score_mention(conn, b, relevance=0.4, sentiment='negative',
+                                 stance='critical', method='llm')
+
+    rows = dict(conn.execute(text("""
+        SELECT brand_id, sentiment FROM bw_entity_mentions WHERE article_uri = :u
+    """), {'u': article}).fetchall())
+    assert rows[first] == 'positive'
+    assert rows[second] == 'negative'
+
+
+def test_relinking_the_same_relationship_does_not_multiply(conn, brands, article):
+    """A brand with three category rows on one article is one relationship."""
+    brand_id = brands[0]
+    for _ in range(3):
+        entity_content.link_content(
+            conn, brand_id=brand_id, article_uri=article,
+            relationship='mentions', channel='public_social',
+            attribution_method='classifier')
+    count = conn.execute(text("""
+        SELECT count(*) FROM bw_entity_content_links
+         WHERE brand_id = :b AND article_uri = :u
+    """), {'b': brand_id, 'u': article}).scalar()
+    assert count == 1
+
+
+def test_an_owned_post_is_a_claim_and_carries_no_sentiment(conn, brands, article):
+    """A company praising itself is not evidence anyone else did, so it never
+    enters external sentiment however glowing it is."""
+    brand_id = brands[0]
+    entity_content.record_mention(
+        conn, brand_id=brand_id, article_uri=article,
+        mention_type='owned_attribution', channel='owned_social',
+        platform='linkedin', relevance=1.0, sentiment=None,
+        stance='owned_claim', status='accepted',
+        evaluation_method='attribution')
+    row = conn.execute(text("""
+        SELECT stance, sentiment, relevance FROM bw_entity_mentions
+         WHERE brand_id = :b AND article_uri = :u
+    """), {'b': brand_id, 'u': article}).mappings().first()
+    assert row['stance'] == 'owned_claim'
+    assert row['sentiment'] is None
+    assert float(row['relevance']) == 1.0
+
+
+def test_a_found_mention_is_not_a_judged_one(conn, brands, article):
+    """Pending means nobody has decided yet. Counting it as neutral would put
+    an opinion in the figures that nothing ever formed."""
+    mention_id = entity_content.record_mention(
+        conn, brand_id=brands[0], article_uri=article,
+        mention_type='explicit_name', channel='public_social',
+        matched_term='Crogl')
+    row = conn.execute(text("""
+        SELECT status, sentiment, evaluated_at FROM bw_entity_mentions
+         WHERE id = :i
+    """), {'i': mention_id}).mappings().first()
+    assert row['status'] == 'pending'
+    assert row['sentiment'] is None
+    assert row['evaluated_at'] is None
+
+
+# ---------------------------------------------------------------------------
+# Social identity
+# ---------------------------------------------------------------------------
+
+def test_a_renamed_account_stays_one_identity(conn):
+    """Same platform id, new handle: one account, with the old handle kept.
+    Otherwise the mapped account goes quiet and an unmapped one appears."""
+    from app.services import entity_identity
+
+    first = entity_identity.upsert_account(
+        conn, platform='bluesky', handle='oldname.bsky.social',
+        platform_user_id='did:plc:example123')
+    second = entity_identity.upsert_account(
+        conn, platform='bluesky', handle='newname.bsky.social',
+        platform_user_id='did:plc:example123')
+
+    assert first['account_id'] == second['account_id']
+    assert second['renamed'] is True
+
+    row = conn.execute(text("""
+        SELECT handle, metadata FROM social_accounts WHERE id = :i
+    """), {'i': first['account_id']}).mappings().first()
+    assert row['handle'] == 'newname.bsky.social'
+    history = [h['handle'] for h in row['metadata']['handle_history']]
+    assert 'oldname.bsky.social' in history
+
+
+def test_a_name_lookalike_is_proposed_and_never_verified(conn, brands):
+    """Handles collide and companies get impersonated, so resemblance can
+    nominate but must not confirm."""
+    from app.services import entity_identity
+
+    account = entity_identity.upsert_account(
+        conn, platform='twitter', handle='crogl')
+    outcome = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='owned_company', verification_method='content_inference',
+        provenance={'evidence': 'handle resembles the display name'})
+    assert outcome['status'] == 'proposed'
+
+
+def test_direct_provider_evidence_verifies(conn, brands):
+    """The collector asked for this company's page by its verified URL, so the
+    mapping is not a guess."""
+    from app.services import entity_identity
+
+    account = entity_identity.upsert_account(
+        conn, platform='linkedin', handle='company/example',
+        platform_user_id='company/example')
+    outcome = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='owned_company', verification_method='provider')
+    assert outcome['status'] == 'verified'
+
+
+def test_two_companies_claiming_one_account_is_a_review_task(conn, brands):
+    """Whichever way it is settled, somebody's brand monitoring has been
+    reading the wrong feed, so nothing is settled automatically."""
+    from app.services import entity_identity
+
+    account = entity_identity.upsert_account(
+        conn, platform='twitter', handle='contested', platform_user_id='42')
+    first = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='owned_company', verification_method='provider')
+    second = entity_identity.propose_identity(
+        conn, brand_id=brands[1], social_account_id=account['account_id'],
+        relationship='owned_company', verification_method='provider')
+
+    assert first['status'] == 'verified'
+    assert second['status'] == 'disputed'
+    assert second['identity_id'] is None
+
+    tasks = conn.execute(text("""
+        SELECT severity FROM bw_review_tasks
+         WHERE kind = 'identity_conflict' AND brand_id = :b AND status = 'open'
+    """), {'b': brands[1]}).fetchall()
+    assert [t[0] for t in tasks] == ['high']
+
+
+def test_an_executive_account_needs_a_person_to_confirm_it(conn, brands):
+    """A claim about an individual is not something a name match can support."""
+    from app.services import entity_identity
+
+    account = entity_identity.upsert_account(
+        conn, platform='twitter', handle='some-ceo')
+    outcome = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='executive', verification_method='content_inference')
+    assert outcome['identity_id'] is None
+    assert 'manual confirmation' in outcome['reason']
+
+
+def test_a_rejected_mapping_is_not_proposed_again(conn, brands):
+    """Rejections are kept so the same wrong guess is not re-made on the next
+    pass, which is how a review queue becomes noise people stop reading."""
+    from app.services import entity_identity
+
+    account = entity_identity.upsert_account(
+        conn, platform='twitter', handle='not-us')
+    first = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='unofficial', verification_method='content_inference')
+    entity_identity.reject_identity(conn, first['identity_id'],
+                                    actor='pytest', reason='different company')
+
+    again = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='unofficial', verification_method='content_inference')
+    assert again['identity_id'] is None
+    assert 'previously rejected' in again['reason']
+
+    # A person may still overrule it.
+    manual = entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='unofficial', verification_method='manual',
+        actor='pytest')
+    assert manual['status'] == 'verified'

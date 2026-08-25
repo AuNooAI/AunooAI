@@ -18,6 +18,7 @@ import {
 import {
   getVendorDetail, setVendorIdentifier, startRun, type VendorDetail,
 } from '../../services/marketMonitorApi';
+import { MarketVendorProvenance } from './MarketVendorProvenance';
 
 /** Everything Bright Data can pull for one vendor on demand. A source with
  *  no matching identifier for this vendor (no LinkedIn URL, no Crunchbase
@@ -224,6 +225,15 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
           ))}
         </div>
       )}
+
+      {/* What we currently believe about this company, and which reading says
+          so. Sits above the per-source panels below, which show the readings
+          themselves rather than the resolved answer. */}
+      <MarketVendorProvenance
+        marketId={marketId}
+        brandId={brandId}
+        baseline={v.baseline as unknown as Record<string, any>}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Headcount: LinkedIn readings only, workbook as a reference line. */}

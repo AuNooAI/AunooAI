@@ -301,6 +301,20 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
         f'<atom:link href="{_esc(site)}/api/market-monitor/markets/'
         f'{market_id}/feed.xml" rel="self" type="application/rss+xml" />',
         f"<lastBuildDate>{format_datetime(datetime.now(timezone.utc))}</lastBuildDate>",
+        # The current Aunoo mark, as used by saas.aunoo.ai — not the older
+        # static/aunoo_logo.png the monolith carries elsewhere. RSS 2.0 caps
+        # the channel image at 144px wide, and readers want a raster, so this
+        # is the brand SVG rendered to PNG at exactly that width. The mark's
+        # letterforms are near-white, so the brand's dark ground is baked in
+        # rather than left transparent, which would make it vanish against a
+        # light feed reader.
+        "<image>",
+        f"<url>{_esc(site)}/static/aunoo-feed-logo.png</url>",
+        f"<title>{_esc(market['name'])} — Market Monitor</title>",
+        f"<link>{_esc(site)}/explore</link>",
+        "<width>144</width>",
+        "<height>83</height>",
+        "</image>",
     ]
     for item in items:
         parts += [

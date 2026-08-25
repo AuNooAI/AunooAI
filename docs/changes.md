@@ -2,6 +2,198 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-25 (entity intelligence) — the registry stopped forgetting where its numbers came from, and I truncated the vendor table
+
+### Goal
+Oliver dropped `newspec.md` and asked for an audit of it first, then for it to be built. The
+spec's problem statement is the one the 2026-08-24 entry below runs into from the other side:
+`bw_market_brands.baseline` holds one value per field with no record of where it came from, so a
+LinkedIn reading collected in August cannot displace a workbook value written in April however
+much better it is. Yesterday's fix promoted LinkedIn readings into `baseline` only where the
+field was blank. This replaces the shape rather than patching around it.
+
+Built in four phases across three migrations, committed as `4c602f6c` (41 files, 9,658 lines).
+Every read path is behind a flag and every flag is off, so the running service is unchanged.
+
+### Audit first: seven corrections to the spec
+Before writing code I checked every claim in `newspec.md` §2 against the tree at `fc29550a`.
+All twelve "current behaviour" claims held. Four assumptions about the *target* schema did not,
+and Oliver folded the corrections back into the spec:
+
+`bw_review_tasks.market_id` is `NOT NULL`, and the spec routes entity-global conflicts there
+with no market. Making it nullable is not enough — its dedup index keys on `market_id`, and
+PostgreSQL treats null indexed values as distinct, so every entity-global task would re-insert
+on each resolver pass. Confirmed by inserting the same row twice on 16.15 rather than by reading
+the DDL.
+
+`bw_market_events` and `bw_event_vendors` hold **zero rows and have no writer** — created in
+`mm_001`, never used. The spec treated them as a live surface needing compatibility protection.
+They needed none, which made `event_date` cheap to make nullable.
+
+`keyword_article_matches.keyword_ids` is a comma-separated TEXT column, not a join table
+(19,187 of 75,746 rows hold more than one id), so the spec's "keyword_article_matches ->
+monitored_keywords" join needs `unnest(string_to_array(...))`.
+
+And the SOC Automation acceptance numbers were half right: 83 workbook rows is correct, but
+**two** rows are excluded (Kenzo Security row 21, Edge Delta row 38), and the market holds 85
+memberships because Intezer and Prophet Security were added by hand afterwards.
+
+### Feature: observations, a canonical resolver, and a profile projection (`ei_001`)
+**`alembic/versions/ei_001_entity_observations.py`** — eight new tables. `bw_entity_observations`
+is append-only: one field assertion from one source at one time, so the workbook's 180 and
+LinkedIn's 296 are both kept and neither erases the other. `bw_entity_canonical_fields` points at
+whichever observation currently wins and records the policy version and a one-sentence reason,
+so resolution is a pointer move rather than an overwrite. `bw_entity_profiles` denormalises the
+winners for lists and filters and is explicitly a cache.
+
+**`app/services/entity_field_registry.py`** — twelve fields, each with its own allowed sources,
+freshness window, conflict tolerance and strategy. The ordering is deliberately *not* one global
+source list: LinkedIn is the best available source for a follower count and a poor one for a
+funding total, and Crunchbase's mapped dataset carries no dollar amount at all, so for
+`funding_total_musd` it is not a weak source but not a source. `coerce()` rejects zero for every
+field whose policy does not permit it, which is what stops a blank workbook cell being displayed
+as a headcount of zero.
+
+**`app/services/entity_resolution.py`** — three refusals are built in and each has a test. A null
+never displaces a known value. A funding total that fell is held and a review task filed, because
+totals accumulate and a smaller figure is a correction or a mistake. A headcount drop past 40%
+needs a second source before it moves the canonical value.
+
+### Feature: per-entity mentions and social identity (`ei_002`)
+**`alembic/versions/ei_002_entity_content_social.py`**, **`app/services/entity_content.py`**,
+**`app/services/entity_identity.py`** — a post naming two companies had one relevance and one
+sentiment between them, written onto the article row, so whichever company was scored last owned
+the verdict for both. The evaluation now belongs to the pair of (post, company).
+
+Owned content is separated by channel, which is what keeps a vendor's own LinkedIn announcement
+out of its reputation sentiment. Account mapping refuses to guess: only a stable platform id or a
+link from a verified company domain auto-verifies, an executive account needs a person to confirm
+it, and two companies claiming one account files a high-severity review task rather than picking
+a winner. A rejected mapping stays in history so the same wrong guess is not re-proposed.
+
+**`app/services/social_sources.py`** gains `classify_source()` returning `(platform, channel)`.
+The old `is_social_source()` substring test is left exactly as it is — seventeen call sites
+depend on its current answers — and its one known false positive is now written down in a test:
+`clsbluesky.law.columbia.edu` is a law-school blog that the substring test calls social.
+
+### Feature: events with evidence, and narratives that can be checked (`ei_003`)
+**`app/services/entity_events.py`** plus five extractors under
+**`app/services/entity_event_extractors/`** — corroboration counts **distinct sources**, never
+evidence rows, so ten syndicated copies of one wire story stay `single_source`. A company's own
+announcement starts at `vendor_claim` and rises only when something unconnected says the same
+thing; the original post stays attached rather than being replaced. An event whose date no source
+stated gets a null date and `date_precision = 'unknown'`, and `bw_market_events.event_date` loses
+its `NOT NULL` so a projection cannot invent one.
+
+Two extractors are **registered and switched off with their reasons attached**: `coverage` needs
+model-scored relevance, and `social` needs a conversation baseline that fourteen evaluated
+mentions cannot provide.
+
+**`app/services/entity_narratives.py`** — generated prose is written from a deterministic facts
+pack, and lint pulls every number out of the finished text and reports any that is not in the
+pack. That is where these summaries actually fail: not invented sentences, which are rare, but
+invented precision. Model-backed generation returns 501 by design; only the facts pack is
+exposed so far.
+
+### Feature: both read paths behind flags, with a shadow comparison first
+**`app/services/entity_dual_read.py`** defines the legacy and canonical readings of each filter
+field **once**, as paired SQL expressions. `_filter_sql` picks a side by flag and the shadow
+comparison runs both; defining them separately would let the comparison certify a cutover that
+differs from what the filter does.
+
+**`app/services/entity_social_read.py`** does the same for Brand Watcher `/social`. Topic strings
+still resolve to companies, so the existing tab keeps working, and an unmapped topic falls
+through to the legacy path rather than answering an empty feed.
+
+### Fix: the market RSS feed carried no logo at all
+**`app/services/market_publish.py`** — `build_feed` had no `<image>` element, so there was nothing
+old to replace. Worth recording for next time: the PNG in the SaaS app
+(`saasmvp-app/static/app/assets/logo_aunoo.png`) is **byte-identical** to the monolith's
+`static/aunoo_logo.png` — same md5 `9f050148…` — so copying "the logo from saas.aunoo.ai" as a
+PNG brings the old one across. The current mark only existed as a raster inside the SaaS
+favicon. Rendered `logo-mark.svg` to `static/aunoo-feed-logo.png` at 144px, the RSS 2.0 cap, with
+the brand's dark ground baked in because the letterforms are near-white and would vanish on a
+light feed reader. Needed `cairosvg`, installed into the venv; it is build-time only and is not a
+new runtime dependency.
+
+### Incident: `TRUNCATE ... CASCADE` emptied `bw_market_brands` — all 85 memberships
+Mid-session I ran `TRUNCATE bw_entity_observations CASCADE` in psql to re-run a backfill cleanly.
+`ei_001` had just added `bw_market_brands.category_observation_id` as a foreign key to that table,
+and `TRUNCATE ... CASCADE` follows foreign keys **inbound**, so it truncated the vendor registry
+too. The `test` database has no dump and `archive_mode` is off, so there was no restore path.
+
+Nothing else was lost: `bw_brands` (85), `bw_markets`, `bw_vendor_snapshots` (269),
+`bw_vendor_identifiers` (296), `bw_review_tasks` and `bw_market_articles` were all intact.
+
+Rebuilt by joining the 83 surviving `workbook/metric` snapshots — which carry `brand_id`,
+`market_id`, `data->>'row'` and `batch_id` — to the `Corrected Data` sheet of
+`SOC_Automation_Vendors_corrected_1.xlsx` on the row number, so the original import batch id and
+row positions are preserved rather than reissued. Roles for the two excluded rows were restored
+from state captured earlier in the session; Edge Delta follows from `In scope: No`, but Kenzo
+Security's exclusion was an operator decision the workbook does not record.
+
+Two things did not come back. **Intezer and Prophet Security lost the funding totals hand-filled
+yesterday** (see the 2026-08-24 entry below, which documents the sources: Prophet's $30M Series A
+plus $11M seed from BusinessWire, Intezer's $33M from PR Newswire). Summing cited rounds into an
+analyst's total is a judgement, so both are left null with a high-severity `data_recovery` review
+task naming the URLs. **`web_pages`/`web_feeds`/`web_discovered_at` on 20 memberships** were lost
+and self-heal: `_discover_feeds` re-runs on its own cadence and the domain identifiers survived.
+Every rebuilt row carries a `reconstruction` key saying what happened.
+
+### Verification
+Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
+748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned
+LinkedIn identities, 174 events with 188 pieces of evidence, and 173 market events of which 3
+carry a null date.
+
+Idempotency proven by running every stage twice: 748/652/652 before and after for
+observations/canonical/log, and 1,245/1,245/25/205/174 for links/mentions/identities/accounts/terms.
+
+`scripts/entity_intelligence_backfill.py verify` — 9 of 9 checks pass, including "category rows
+did not multiply into links" (1,714 category rows collapse to 1,231 links), "owned posts carry no
+external sentiment", and "unjudged mentions carry no scores".
+
+`scripts/entity_intelligence_backfill.py shadow` — 85 vendors, **0 values lost**, 7 placeholder
+zeroes dropped, 15 changed. The filter differences follow: `headcount <= 10` returns 17 vendors
+instead of 24 once blank cells stop being served as a headcount of zero, and `country = Israel`
+returns 6 instead of 7 because a LinkedIn reading moves Twine Security to the United States.
+
+Tests: **120 backend passing**, 34 UI passing, `npm run typecheck` clean at the known 246-error
+baseline, `npm run build` succeeds. Three pre-existing failures in `tests/test_market_collection.py`
+are unrelated — `pytest-asyncio` is not installed and they are the three `@pytest.mark.asyncio`
+tests. No test residue: all DB-touching tests run inside a transaction that is always rolled back.
+
+Running the extractors against real rows caught six bugs that reading the code did not: the wrong
+identifier kind (`linkedin_url` vs `linkedin_company_url`, which left owned identities at 0), a
+vendor name matching inside a third party's URL (`whois-secure.com` matched Secure.com on a post
+about 7AI), an ambiguity list built from vendor names instead of ordinary words, non-idempotent
+mention creation, every *first* page capture reading as a change, and a vendor's own press page
+scoring `primary_document`.
+
+### Propagation
+**bugfixing only.** Committed to canonical as `4c602f6c` on
+`emergencyfix/embedding-health-latency-load`. Not copied to wiley, wileytest or wbm. Not deployed:
+the UI built to `ui/build/` but `deploy-react-ui.sh` has not run, and the RSS `<image>` change
+needs a service restart before subscribers see it. No collection runs were queued or running when
+checked, so a restart is safe.
+
+All six flags are at their defaults — `ENTITY_INTELLIGENCE_DUAL_WRITE=true`, everything else
+false — so the running service behaves exactly as before. Rollback from either read path is
+unsetting one flag.
+
+### Lessons
+**NEVER `TRUNCATE ... CASCADE` on a table other tables reference.** It follows foreign keys
+inbound. To reset the entity tables, delete in dependency order without CASCADE: canonical fields,
+resolution log, profiles, then null out `bw_market_brands.category_observation_id` and
+`sub_category_observation_id`, then delete observations.
+
+**A nullable column inside a unique index disables dedup for exactly the rows that need it.**
+PostgreSQL treats null indexed values as distinct. Split into two partial indexes and test it by
+inserting the same row twice, not by reading the DDL.
+
+**Check whether the asset you are told to copy is actually the new one.** The SaaS app's
+`logo_aunoo.png` is byte-identical to the monolith's older logo.
+
 ## 2026-08-24 (market monitor) — two vendors showed nothing but dashes, and nowhere said which source fills which field
 
 ### Goal

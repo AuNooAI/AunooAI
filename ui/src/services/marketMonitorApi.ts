@@ -1407,3 +1407,221 @@ export async function getLeaderboards(
     `${BASE}/markets/${marketId}/leaderboards?days=${days}`,
     { credentials: 'include' }), 'Failed to load leaderboards');
 }
+
+// ---------------------------------------------------------------------------
+// Entity intelligence: canonical values with their provenance
+// ---------------------------------------------------------------------------
+//
+// These sit beside the existing vendor reads rather than replacing them. The
+// vendor detail response still carries `baseline` — the imported workbook
+// values — and these endpoints carry what we currently believe and why. A page
+// showing a number without saying who counted it and when is the thing this
+// whole layer exists to stop, so every field read carries its winning
+// observation, source, date and the policy that chose it.
+
+/** One field's current answer, and the reading behind it. */
+export interface CanonicalField {
+  field_key: string;
+  value_text: string | null;
+  value_number: number | null;
+  unit: string | null;
+  /** current | stale | conflict | manual_override */
+  status: string;
+  confidence: number | null;
+  policy_version: string;
+  resolution_reason: string;
+  resolved_at: string;
+  stale_after: string | null;
+  locked: boolean;
+  locked_by: string | null;
+  lock_reason: string | null;
+  observation_id: number;
+}
+
+export interface EntityObservation {
+  id: number;
+  field_key: string;
+  value_text: string | null;
+  value_number: number | null;
+  unit: string | null;
+  source: string;
+  source_url: string | null;
+  observed_at: string;
+  confidence: number | null;
+  authority: number;
+  status: string;
+  snapshot_id: number | null;
+  article_uri: string | null;
+  market_id: number | null;
+  /** Whether this reading is the one currently selected. */
+  is_canonical: boolean;
+}
+
+export interface FieldHistory {
+  field_key: string;
+  unit: string | null;
+  strategy: string;
+  canonical: CanonicalField | null;
+  /** One entry per compatible measurement. LinkedIn's employee count and a
+   *  total workforce estimate are different things and are never merged into
+   *  one line, however tempting a single trend looks. */
+  series_by_measurement: Record<string, EntityObservation[]>;
+  transitions: {
+    old_observation_id: number | null; new_observation_id: number | null;
+    old_status: string | null; new_status: string | null;
+    policy_version: string; reason: string; trigger: string;
+    actor: string | null; created_at: string;
+  }[];
+}
+
+export interface EntityEvent {
+  id: number;
+  event_type: string;
+  event_subtype: string | null;
+  title: string;
+  description: string;
+  /** Null when no source stated when it happened. Not the date we found it. */
+  occurred_at: string | null;
+  date_precision: string;
+  /** vendor_claim | single_source | corroborated | primary_document */
+  corroboration: string;
+  status: string;
+  relation: string;
+  /** Distinct sources, not evidence rows: ten syndicated copies count once. */
+  sources: number;
+  evidence?: {
+    evidence_type: string; relationship: string; independence_key: string;
+    excerpt: string | null; article_uri: string | null;
+    article_title: string | null; news_source: string | null; url: string | null;
+  }[];
+}
+
+export interface EntityMention {
+  id: number;
+  article_uri: string;
+  mention_type: string;
+  channel: string;
+  platform: string | null;
+  excerpt: string | null;
+  relevance: number | null;
+  sentiment: string | null;
+  /** owned_claim marks the company's own words, which never enter sentiment. */
+  stance: string | null;
+  status: string;
+  evaluated_at: string | null;
+  title: string;
+  url: string | null;
+  news_source: string | null;
+  publication_date: string | null;
+  author_handle: string | null;
+  author_relationship: string | null;
+  author_identity_status: string | null;
+}
+
+export interface MentionSummaryRow {
+  channel: string;
+  platform: string | null;
+  total: number;
+  /** Counted apart from sentiment rather than folded into neutral. */
+  unevaluated: number;
+  positive: number;
+  negative: number;
+  owned_claims: number;
+}
+
+export interface EntityHealth {
+  market_id: number;
+  stale_fields: number;
+  conflicts: number;
+  locked_fields: number;
+  pending_normalization: number;
+  failed_normalization: number;
+  pending_mention_evaluation: number;
+  identity_conflicts: number;
+  entity_global_tasks: number;
+  events: number;
+  vendor_claims: number;
+  oldest_pending_mention: string | null;
+  policy_version: string;
+  known_fields: string[];
+}
+
+export async function getVendorObservations(
+  marketId: number, brandId: number,
+  opts: { field?: string; source?: string; limit?: number; cursor?: number } = {},
+): Promise<{ observations: EntityObservation[]; next_cursor: number | null;
+             policy_version: string }> {
+  const q = new URLSearchParams();
+  if (opts.field) q.set('field', opts.field);
+  if (opts.source) q.set('source', opts.source);
+  if (opts.limit) q.set('limit', String(opts.limit));
+  if (opts.cursor) q.set('cursor', String(opts.cursor));
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/observations?${q}`,
+    { credentials: 'include' }), 'observations');
+}
+
+export async function getFieldHistory(
+  marketId: number, brandId: number, fieldKey: string,
+): Promise<FieldHistory> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/fields/${fieldKey}/history`,
+    { credentials: 'include' }), 'field history');
+}
+
+/** Record an operator's value. Writes an observation and locks the field; it
+ *  does not edit anything in place and does not delete what sources said. */
+export async function correctField(
+  marketId: number, brandId: number, fieldKey: string,
+  body: { value: unknown; reason: string; lock?: boolean; market_id?: number },
+) {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/fields/${fieldKey}`,
+    { method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) }), 'correct field');
+}
+
+export async function unlockField(marketId: number, brandId: number,
+                                  fieldKey: string) {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/fields/${fieldKey}/unlock`,
+    { method: 'POST', credentials: 'include' }), 'unlock field');
+}
+
+/** Re-run the policy over existing readings. Collects nothing and spends
+ *  nothing; used after a policy change or a manual unlock. */
+export async function replayResolution(marketId: number, brandId: number) {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/resolve`,
+    { method: 'POST', credentials: 'include' }), 'resolve');
+}
+
+export async function getVendorEvents(marketId: number, brandId: number,
+                                      limit = 50): Promise<{ events: EntityEvent[] }> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/events?limit=${limit}`,
+    { credentials: 'include' }), 'vendor events');
+}
+
+export async function getVendorMentions(
+  marketId: number, brandId: number,
+  opts: { channel?: string; platform?: string; sentiment?: string;
+          limit?: number; cursor?: number } = {},
+): Promise<{ mentions: EntityMention[]; summary: MentionSummaryRow[];
+             next_cursor: number | null }> {
+  const q = new URLSearchParams();
+  if (opts.channel) q.set('channel', opts.channel);
+  if (opts.platform) q.set('platform', opts.platform);
+  if (opts.sentiment) q.set('sentiment', opts.sentiment);
+  if (opts.limit) q.set('limit', String(opts.limit));
+  if (opts.cursor) q.set('cursor', String(opts.cursor));
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/mentions?${q}`,
+    { credentials: 'include' }), 'vendor mentions');
+}
+
+export async function getEntityHealth(marketId: number): Promise<EntityHealth> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/entity-health`,
+                                 { credentials: 'include' }), 'entity health');
+}

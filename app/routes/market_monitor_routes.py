@@ -35,6 +35,7 @@ from app.security.session import verify_session, verify_session_optional
 from app.services import market_collect as mc
 from app.services import market_publish as mp
 from app.services import market_import as mi
+from app.services import entity_dual_read as _dr
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,13 @@ def _filter_sql(f: VendorFilter):
 
     Returns ``("", {})`` when nothing was specified, which callers treat as
     "matches nothing" rather than "matches everything".
+
+    Which store the value comes from is decided per field by
+    ``entity_dual_read``, gated on ENTITY_INTELLIGENCE_CANONICAL_READ. With the
+    flag off these are the same baseline JSON paths they have always been; with
+    it on they read the resolved canonical value instead. Callers must include
+    ``entity_dual_read.PROFILE_JOIN`` so the canonical side resolves — it is a
+    LEFT JOIN, so it is inert when the flag is off.
     """
     clauses: List[str] = []
     params: Dict[str, Any] = {}
@@ -232,34 +240,34 @@ def _filter_sql(f: VendorFilter):
         clauses.append("mb.role = ANY(:f_roles)")
         params["f_roles"] = f.roles
     if f.funding_status:
-        clauses.append("mb.baseline->'funding_baseline'->>'status' = ANY(:f_fund)")
+        clauses.append(f"{_dr.expression('funding_status')} = ANY(:f_fund)")
         params["f_fund"] = f.funding_status
     if f.countries:
-        clauses.append("mb.baseline->>'hq_country' = ANY(:f_country)")
+        clauses.append(f"{_dr.expression('hq_country')} = ANY(:f_country)")
         params["f_country"] = f.countries
     if f.categories:
-        clauses.append("mb.baseline->'taxonomy'->>'category' = ANY(:f_cat)")
+        clauses.append(f"{_dr.expression('category')} = ANY(:f_cat)")
         params["f_cat"] = f.categories
     if f.sub_categories:
-        clauses.append("mb.baseline->'taxonomy'->>'sub_category' = ANY(:f_sub)")
+        clauses.append(f"{_dr.expression('sub_category')} = ANY(:f_sub)")
         params["f_sub"] = f.sub_categories
     # A NULL stays NULL and drops out of the comparison, which is what we want:
     # "headcount at least 50" must not sweep in vendors whose headcount we
     # never learned.
     if f.min_headcount is not None:
-        clauses.append("(mb.baseline->'metrics'->>'employee_count')::numeric >= :f_hc_min")
+        clauses.append(f"{_dr.expression('employee_count')} >= :f_hc_min")
         params["f_hc_min"] = f.min_headcount
     if f.max_headcount is not None:
-        clauses.append("(mb.baseline->'metrics'->>'employee_count')::numeric <= :f_hc_max")
+        clauses.append(f"{_dr.expression('employee_count')} <= :f_hc_max")
         params["f_hc_max"] = f.max_headcount
     if f.min_founded_year is not None:
-        clauses.append("(mb.baseline->>'founded_year')::numeric >= :f_fy_min")
+        clauses.append(f"{_dr.expression('founded_year')} >= :f_fy_min")
         params["f_fy_min"] = f.min_founded_year
     if f.max_founded_year is not None:
-        clauses.append("(mb.baseline->>'founded_year')::numeric <= :f_fy_max")
+        clauses.append(f"{_dr.expression('founded_year')} <= :f_fy_max")
         params["f_fy_max"] = f.max_founded_year
     if f.min_funding_musd is not None:
-        clauses.append("(mb.baseline->'funding_baseline'->>'total_musd')::numeric >= :f_amt")
+        clauses.append(f"{_dr.expression('funding_total_musd')} >= :f_amt")
         params["f_amt"] = f.min_funding_musd
     if f.has_linkedin is not None:
         exists = ("EXISTS (SELECT 1 FROM bw_vendor_identifiers i "
@@ -676,6 +684,7 @@ async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
                        mb.{column} AS current_value
                 FROM bw_market_brands mb
                 JOIN bw_brands b ON b.id = mb.brand_id
+                {_dr.PROFILE_JOIN}
                 WHERE mb.market_id = :m AND {where}
                 ORDER BY b.display_name
             """), p).mappings().all()]
@@ -2595,3 +2604,12 @@ async def set_vendor_identifier(market_id: int, brand_id: int,
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+# Entity reads, corrections, events and narratives. Included here rather than
+# registered on its own so the Market Monitor module gate still governs them —
+# a separately mounted router would stay reachable with the module switched
+# off.
+from app.routes.market_entity_routes import router as _entity_router  # noqa: E402
+
+router.include_router(_entity_router, prefix="")
