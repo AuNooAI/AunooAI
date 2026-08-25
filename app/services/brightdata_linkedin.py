@@ -635,6 +635,20 @@ def map_company_profile(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_repost(raw: dict[str, Any]) -> bool:
+    """Whether this record is a reshare rather than the company's own post.
+
+    The provider returns a ``repost`` object on every record and fills it only
+    when the post is a reshare, so its presence proves nothing — the fields
+    inside it do.
+    """
+    repost = raw.get("repost")
+    if not isinstance(repost, dict):
+        return False
+    return any(repost.get(k) for k in
+               ("repost_id", "repost_url", "repost_text", "repost_user_id"))
+
+
 def map_company_post(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Provider record → a raw article dict, mapped against real payloads.
 
@@ -706,6 +720,13 @@ def map_company_post(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         "company_url": company_url,
         "hashtags": _first(raw, "hashtags"),
         "post_type": _first(raw, "post_type"),
+        # Both decide whether this is the company speaking. A repost is the
+        # company amplifying somebody else, and a person's post is not the
+        # company's at all — treating either as an owned claim would put words
+        # in a vendor's mouth and give them relevance 1.0 while doing it.
+        # Present in the dataset sample and previously discarded.
+        "account_type": _first(raw, "account_type"),
+        "is_repost": _is_repost(raw),
     }
 
 
@@ -810,12 +831,19 @@ def map_job_listing(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         discovery = raw.get("discovery_input")
         if isinstance(discovery, dict):
             company_url = discovery.get("url")
+    # The dataset dictionary documents company_id but not company_url, so a
+    # record can arrive attributable by id and not by URL. A posting we cannot
+    # tie back to a vendor is a paid record we throw away, and matching on
+    # company_name instead is too loose — two vendors share a name often
+    # enough that it would attribute a job to the wrong company.
+    company_id = _first(raw, "company_id")
 
     return {
         "posting_id": str(posting_id),
         "title": title,
         "company": _first(raw, "company_name"),
         "company_url": company_url,
+        "company_id": str(company_id) if company_id else None,
         "location": _first(raw, "job_location"),
         "seniority": _first(raw, "job_seniority_level"),
         "function": _first(raw, "job_function"),

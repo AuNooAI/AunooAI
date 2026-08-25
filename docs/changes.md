@@ -370,6 +370,42 @@ Both causes are removed: the fixture no longer writes outside the rows it create
 durability test asserts the claim is a database row rather than committing and opening a second
 connection. Verified afterwards that a full suite run leaves no test brands and no stale claims.
 
+### Fix: a reshare was being recorded as the vendor's own claim
+**`app/services/brightdata_linkedin.py`, `market_collect.py`, `entity_ingest.py`** — the Bright
+Data dashboard sample for the posts dataset showed two fields the mapper was discarding:
+`account_type` (`Organization` vs `Person`) and a `repost` object.
+
+Both decide whether a post is the company speaking. A vendor resharing an analyst's take was being
+stored as `stance='owned_claim'` at relevance 1.0 — words put in a vendor's mouth — and so was a
+person's post that discovery happened to return. Both are now retained through `social_meta` and
+checked before the owned-claim stance is applied. The post stays linked and visible either way; it
+is simply not a claim.
+
+Records collected before these fields were kept carry neither, and are still treated as the
+company speaking. Doing otherwise would silently reclassify the 1,209 owned posts already stored.
+
+The same sample confirmed the rest of the posts contract maps correctly, including that
+`normalize_linkedin_key` survives a country subdomain and a tracking query — the sample's
+`use_url` is `https://au.linkedin.com/company/ausbiz-capital?trk=...`, which normalises to the
+same key as the stored identifier.
+
+### LinkedIn jobs: output contract confirmed, request contract still unknown
+The jobs dataset dictionary confirms the **output** schema, and the existing mapper already matches
+it — `job_posting_id`, `job_title`, `company_name`, `job_location`, `job_seniority_level`,
+`job_function`, `job_employment_type`. No drift.
+
+One gap it revealed: the dictionary documents `company_id` and not `company_url`, so a posting can
+arrive attributable by numeric id alone. That is now retained. We already held every profile's
+`company_id` in snapshot data and had never promoted it to an identifier, so 21 vendors gained a
+`linkedin_company_id` — a stronger key than the URL, because a numeric id survives a page rename.
+
+The source **stays paused**. The HTTP 400 is about the discovery *request*, and the sample shows
+output only. Re-enabling needs the dashboard's sample request: whether discovery `type` is
+`keyword` or `url`, the exact JSON input fields, the dataset id, and where `limit_per_input`
+belongs. Guessing another field name at a paid dataset is what the standing rule forbids, so the
+canary waits. Five fixture tests now cover what the sample does establish, including one asserting
+the source remains paused.
+
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
 748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned

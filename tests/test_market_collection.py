@@ -321,3 +321,87 @@ def test_a_funding_rule_does_not_reach_excluded_vendors():
     named, params = _filter_sql(VendorFilter(roles=["excluded"]))
     assert "mb.role = ANY(:f_roles)" in named
     assert params["f_roles"] == ["excluded"]
+
+
+# ---------------------------------------------------------------------------
+# LinkedIn jobs: the output contract, from the dataset dictionary
+# ---------------------------------------------------------------------------
+#
+# The source is paused. The provider rejects our discovery request with
+# HTTP 400 "Incorrect discovery collector id. Available types: keyword, url",
+# and the dashboard sample confirms only the *output* schema — it does not show
+# the request shape, the dataset id, or where limit_per_input belongs. So these
+# fixture-test what the sample does establish, and the paid canary stays
+# blocked until the request configuration is confirmed.
+
+def test_the_documented_jobs_output_maps_completely():
+    """Every field the dataset dictionary documents survives the mapper."""
+    from app.services.brightdata_linkedin import map_job_listing
+
+    documented = {
+        'url': 'https://www.linkedin.com/jobs/view/4443580965',
+        'job_posting_id': '4443580965',
+        'job_title': 'Sr. Product Manager',
+        'company_name': 'Intezer',
+        'company_id': '10656303',
+        'job_location': 'Tel Aviv District, Israel',
+        'job_summary': 'Own the roadmap.',
+        'job_seniority_level': 'Mid-Senior level',
+        'job_function': 'Product Management',
+        'job_employment_type': 'Full-time',
+    }
+    mapped = map_job_listing(documented)
+
+    assert mapped is not None
+    assert mapped['posting_id'] == '4443580965'
+    assert mapped['title'] == 'Sr. Product Manager'
+    assert mapped['company'] == 'Intezer'
+    assert mapped['company_id'] == '10656303'
+    assert mapped['location'] == 'Tel Aviv District, Israel'
+    assert mapped['seniority'] == 'Mid-Senior level'
+    assert mapped['function'] == 'Product Management'
+    assert mapped['employment_type'] == 'Full-time'
+
+
+def test_a_posting_attributable_only_by_company_id_keeps_it():
+    """The dictionary documents company_id and not company_url, so a record
+    can arrive attributable by id alone. Dropping it would throw away a paid
+    record; matching on company_name instead is too loose, because two vendors
+    sharing a name would attribute each other's jobs."""
+    from app.services.brightdata_linkedin import map_job_listing
+
+    mapped = map_job_listing({
+        'job_posting_id': '1', 'job_title': 'Engineer',
+        'company_name': 'Intezer', 'company_id': '10656303',
+    })
+    assert mapped['company_url'] is None
+    assert mapped['company_id'] == '10656303'
+
+
+def test_the_company_url_is_still_preferred_when_supplied():
+    from app.services.brightdata_linkedin import map_job_listing
+
+    mapped = map_job_listing({
+        'job_posting_id': '2', 'job_title': 'Engineer',
+        'company_name': 'Intezer', 'company_id': '10656303',
+        'company_url': 'https://www.linkedin.com/company/intezer-labs',
+    })
+    assert mapped['company_url'] == 'https://www.linkedin.com/company/intezer-labs'
+    assert mapped['company_id'] == '10656303'
+
+
+def test_a_record_with_no_stable_id_is_dropped():
+    """A posting we cannot dedup lands once per collection run."""
+    from app.services.brightdata_linkedin import map_job_listing
+
+    assert map_job_listing({'job_title': 'Engineer'}) is None
+    assert map_job_listing({'job_posting_id': '3'}) is None
+
+
+def test_linkedin_jobs_stays_paused_until_the_request_shape_is_confirmed():
+    """The output contract being known is not permission to dispatch. The
+    HTTP 400 is about the discovery request, which the sample does not show."""
+    from app.services import entity_scheduler as sch
+
+    assert 'linkedin_jobs' in sch.PAUSED_SOURCES
+    assert 'discovery' in sch.PAUSED_SOURCES['linkedin_jobs'].lower()

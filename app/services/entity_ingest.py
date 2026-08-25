@@ -107,6 +107,24 @@ def link_content(conn, article_uri: str,
         # An owned post proves the company said something. It is a claim, it is
         # fully relevant to them, and it is not somebody else's opinion of
         # them, so it is scored here rather than queued for a model.
+        #
+        # Unless it is not the company speaking. A reshare is the company
+        # amplifying somebody else, and a person's post is not the company's
+        # at all — calling either an owned claim puts words in a vendor's
+        # mouth, at relevance 1.0. Both stay linked and visible; they are
+        # simply not claims.
+        if owned and not _is_company_speaking(article):
+            entity_content.record_mention(
+                conn, brand_id=brand_id, article_uri=article_uri,
+                mention_type='explicit_name', channel=channel,
+                platform=platform, content_link_id=link_id,
+                matched_term=candidate.get('term'),
+                relevance=1.0, sentiment=None, stance='not_applicable',
+                status='accepted', evaluation_method='attribution',
+                metadata={'reason': 'reshare or non-company account'})
+            result['mentions'] += 1
+            continue
+
         if owned:
             mention_id = entity_content.record_mention(
                 conn, brand_id=brand_id, article_uri=article_uri,
@@ -128,6 +146,26 @@ def link_content(conn, article_uri: str,
         if mention_id:
             result['mentions'] += 1
     return result
+
+
+def _is_company_speaking(article) -> bool:
+    """Whether an owned-channel post is really the company's own words.
+
+    ``social_meta`` carries ``account_type`` and ``is_repost`` from the
+    provider. A record with neither — everything collected before those fields
+    were retained — is treated as the company speaking, which is what it was
+    treated as before and keeps the historical corpus stable.
+    """
+    meta = article['social_meta'] if 'social_meta' in article.keys() else None
+    if not isinstance(meta, dict):
+        return True
+    if meta.get('is_repost'):
+        return False
+    account_type = meta.get('account_type')
+    if account_type and str(account_type).lower() not in ('organization',
+                                                          'company'):
+        return False
+    return True
 
 
 def _account_for(conn, article, platform: Optional[str]) -> Optional[int]:

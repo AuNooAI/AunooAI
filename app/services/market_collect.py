@@ -400,6 +400,12 @@ def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "platform": "linkedin",
         "author": mapped.get("author"),
         "post_type": mapped.get("post_type"),
+        # Carried so the entity layer can tell the company speaking from the
+        # company resharing somebody else, and from a person's post that the
+        # discovery happened to return. Both were being recorded as the
+        # vendor's own claim.
+        "account_type": mapped.get("account_type"),
+        "is_repost": mapped.get("is_repost"),
         "hashtags": (mapped.get("hashtags") or [])[:20],
         "likes": engagement.get("likes"),
         "comments": engagement.get("comments"),
