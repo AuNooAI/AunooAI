@@ -209,6 +209,36 @@ turns it green again. The dry-run fix was proven separately by running `cmd_base
 
 Backend suite is now **133 passing** (was 120), no test residue.
 
+### Feature: a vendor map, with funding as a second overlay
+**`app/routes/market_entity_routes.py`**, **`ui/src/components/newsfeed/map/`** — Oliver asked for
+a map of where vendors are concentrated with a second overlay for funding size. Both measures come
+from the canonical profile, so this only became possible once `hq_country` and
+`funding_total_musd` were resolved fields.
+
+The two measures are not equally complete, and the map is built around that difference.
+**Concentration is complete**: all 83 in-scope vendors have a resolved country, so a count of five
+is five. **Funding is not**: only 39 vendors have a disclosed amount. Every one of India's five is
+`Undisclosed`, as are 22 of the 53 in the United States.
+
+Plotting `sum(funding_total_musd)` per country would therefore have drawn India as a $0 bubble —
+the least-funded place on the map — when the truth is that nobody published a figure. That is the
+same zero-versus-unknown defect the registry work exists to fix, arriving through a different door.
+So `GET /markets/{id}/geography` returns `total_musd: null`, never `0`, for a country with nothing
+disclosed, and carries each country's own denominator: how many vendors the total covers, how many
+declined to disclose, how many have no status at all. The response also reports
+`vendors_without_country`, because a map that quietly drops rows is a map that lies.
+
+The UI reflects it: undisclosed countries are drawn in their own grey with a dashed outline and
+labelled "not disclosed" rather than being given a small circle, and the legend names them. Circle
+**area** rather than radius is proportional to the value — by radius, 53 vendors against 5 reads as
+roughly 120x by area instead of 11x. Placement is at country centroids because `hq_country` is a
+country; anything finer would be invented precision. Countries with no centroid on file are listed
+under the map rather than silently omitted.
+
+Mounted above the vendor list on the Vendors view of `MarketMonitorTab.tsx`. Reuses the Leaflet
+setup and the Tailwind tile fix from the existing hotspot map, with `minZoom` matching `zoom` to
+avoid the grey band that appears when the world does not fill the container.
+
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
 748 observations, 652 canonical fields, 1,245 content links, 1,245 mentions, 25 verified owned

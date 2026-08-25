@@ -1671,3 +1671,35 @@ export async function getCanonicalProfile(
   if (res.status === 404) return null;
   return jsonOrThrow(res, 'canonical profile');
 }
+
+/** Per-country vendor counts and what is disclosed about funding.
+ *  `total_musd` is null — never 0 — where no vendor has published an amount. */
+export interface MarketGeographyCountry {
+  country: string;
+  vendors: number;
+  vendors_with_amount: number;
+  not_disclosed: number;
+  status_unknown: number;
+  total_musd: number | null;
+  largest_musd: number | null;
+  funding_coverage: number;
+  staff: number | null;
+}
+
+export interface MarketGeography {
+  countries: MarketGeographyCountry[];
+  vendors_placed: number;
+  vendors_total: number;
+  /** Vendors with no resolved country. A map that drops rows quietly lies. */
+  vendors_without_country: number;
+  countries_with_no_disclosed_funding: string[];
+}
+
+export async function getMarketGeography(
+  marketId: number,
+): Promise<MarketGeography | null> {
+  const res = await fetch(`${BASE}/markets/${marketId}/geography`,
+                          { credentials: 'include' });
+  if (res.status === 404) return null;   // entity layer switched off
+  return jsonOrThrow(res, 'market geography');
+}

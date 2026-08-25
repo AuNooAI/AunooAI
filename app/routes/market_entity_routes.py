@@ -139,6 +139,82 @@ async def canonical_profile(market_id: int, brand_id: int,
     return await asyncio.to_thread(_work)
 
 
+@router.get('/markets/{market_id}/geography')
+async def market_geography(market_id: int, session=Depends(verify_session)):
+    """Where the market's vendors are, and what is disclosed about funding.
+
+    Two measures that must not be conflated. **Concentration** is a headcount
+    of companies per country and is complete: every vendor has a resolved
+    country, so a count of five means five.
+
+    **Funding is not complete and cannot be drawn as though it is.** Most
+    vendors here never published an amount — India's five are all
+    'Undisclosed', and 22 of the 53 US vendors are too. Summing what we have
+    and plotting it per country would render those places as low-funded when
+    the truth is that nobody said. So each country carries its own
+    denominator: how many vendors the total covers, how many chose not to
+    disclose, and how many we simply have no status for. A country with
+    nothing disclosed returns ``total_musd: null``, never zero.
+
+    Country granularity is all the data supports. ``hq_country`` is a country
+    name; there is no city, so nothing here should be drawn at city precision.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            rows = [dict(r) for r in conn.execute(text("""
+                SELECT p.hq_country AS country,
+                       count(*) AS vendors,
+                       count(p.funding_total_musd) AS vendors_with_amount,
+                       count(*) FILTER (WHERE p.funding_status IN
+                             ('Undisclosed', 'Bootstrapped')) AS not_disclosed,
+                       count(*) FILTER (WHERE p.funding_status IS NULL)
+                             AS status_unknown,
+                       sum(p.funding_total_musd) AS total_musd,
+                       max(p.funding_total_musd) AS largest_musd,
+                       sum(p.employee_count) AS staff
+                  FROM bw_entity_profiles p
+                  JOIN bw_market_brands mb ON mb.brand_id = p.brand_id
+                 WHERE mb.market_id = :m AND mb.role <> 'excluded'
+                   AND p.hq_country IS NOT NULL
+                 GROUP BY 1
+                 ORDER BY 2 DESC, 1
+            """), {'m': market_id}).mappings().all()]
+
+            for row in rows:
+                covered = int(row['vendors_with_amount'])
+                # No disclosed amount anywhere in this country: the honest
+                # answer is "unknown", and zero would read as "unfunded".
+                row['total_musd'] = (float(row['total_musd'])
+                                     if covered and row['total_musd'] is not None
+                                     else None)
+                row['largest_musd'] = (float(row['largest_musd'])
+                                       if row['largest_musd'] is not None else None)
+                row['funding_coverage'] = (covered / int(row['vendors'])
+                                           if row['vendors'] else 0.0)
+                row['staff'] = int(row['staff']) if row['staff'] else None
+
+            placed = sum(int(r['vendors']) for r in rows)
+            total = conn.execute(text("""
+                SELECT count(*) FROM bw_market_brands
+                 WHERE market_id = :m AND role <> 'excluded'
+            """), {'m': market_id}).scalar()
+
+            return {
+                'countries': rows,
+                'vendors_placed': placed,
+                'vendors_total': int(total or 0),
+                # Anyone whose country we never resolved is absent from the
+                # map, and a map that quietly drops rows is a map that lies.
+                'vendors_without_country': int(total or 0) - placed,
+                'countries_with_no_disclosed_funding':
+                    [r['country'] for r in rows if r['total_musd'] is None],
+            }
+        finally:
+            conn.close()
+    return await asyncio.to_thread(_work)
+
+
 @router.get('/markets/{market_id}/vendors/{brand_id}/observations')
 async def list_observations(market_id: int, brand_id: int,
                             field: Optional[str] = None,

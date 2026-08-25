@@ -14,6 +14,7 @@ import {
   ToggleRight, X,
 } from 'lucide-react';
 import { MarketVendorPage } from './MarketVendorPage';
+import { MarketGeographyMap } from './map/MarketGeographyMap';
 import { MarketAnalysisView } from './MarketAnalysisView';
 import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
@@ -2963,6 +2964,10 @@ export function MarketMonitorTab() {
       {/* ---- Vendors ---- */}
       {view === 'vendors' && (
         <div className="space-y-3">
+          {/* Where the vendors are, before the list of who they are. Country
+              level only — the registry records a country, not a city. */}
+          {marketId != null && <MarketGeographyMap marketId={marketId} />}
+
           {/* Segments filter the same vendor set. */}
           <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md w-fit dark:bg-gray-700">
             {([
