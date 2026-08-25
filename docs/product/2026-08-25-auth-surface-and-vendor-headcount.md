@@ -60,7 +60,7 @@ Customer-safe. Market Monitor only:
 - The "Announced" and "Open roles" columns are now labelled "all time", to distinguish them from
   the period-based figures above them.
 
-**Internal only, do not send:** login checks added to 1,257 web addresses across five customer
+**Internal only, do not send:** login checks added to 2,712 web addresses across ten customer
 sites; hardcoded default administrator password removed; two signing keys no longer fall back to a
 value published in the code.
 
@@ -84,9 +84,11 @@ demonstration of that. It is a supporting detail in a demo, not a headline.
 
 ## Limits and what's next
 
-**Three more customer sites still need this.** pbm, ibaset and bwtemplate still answer without a
-login. pearson and interroll are currently switched off and will do the same when they start. The
-same procedure takes a few minutes each and Oliver has been asked which to do.
+**All ten sites are now done, but two of them are unverified.** pbm, ibaset and bwtemplate were
+live and are confirmed fixed. pearson and interroll are switched off with their settings encrypted,
+so they were not exposed and could not be tested — they have the code fix, but nobody has run them
+with it. Whoever switches them back on should watch that they start cleanly; if a signing key is
+missing from their settings file the site will refuse to start and say which one.
 
 **A disclosure question needs deciding, and this document does not decide it.** On five sites,
 internal configuration and topic lists were readable from the open internet without signing in,

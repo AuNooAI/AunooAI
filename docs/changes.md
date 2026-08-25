@@ -82,8 +82,9 @@ signing the JWTs. **`app/middleware/setup.py`** — `os.getenv("FLASK_SECRET_KEY
 "your-fallback-secret-key")`, and this is the worse of the two because it signs the session cookie
 that gates the whole app: with the variable unset, anyone who read this file could forge a session
 for any user. The review found the first and missed the second. Both now raise at startup with a
-message giving the `secrets.token_urlsafe(32)` command. Safe to do because all five tenants
-already have both set to real 43-character values, checked before the change.
+message giving the `secrets.token_urlsafe(32)` command. Safe to do because all eight live
+tenants already have both set to real 43-character values, checked before the change. The two
+dormant tenants could not be checked — see Propagation.
 
 ### Fix: blank workbook headcounts were stored, and read, as a confident zero
 Seven vendors on the SOC Automation roster carried `employee_count = 0`, and six of the seven had a
@@ -150,7 +151,7 @@ concentrate in `test_ai_models_error_handling.py` (17), `test_retry.py` (14),
 `npm run typecheck` → 246 errors, all baseline-known, none new.
 
 Route audit per tenant after the change, from the running app: **11 open, 0 state-changing**,
-the same eleven on all five.
+the same eleven on all ten.
 
 | tenant | live routes | closed this session | state-changing closed |
 |---|---|---|---|
@@ -159,8 +160,15 @@ the same eleven on all five.
 | wileytest | 939 | 220 | 86 |
 | wbm | 939 | 280 | 116 |
 | abm | 939 | 280 | 116 |
+| pbm | 934 | 279 | 116 |
+| ibaset | 939 | 280 | 116 |
+| bwtemplate | 939 | 280 | 116 |
+| pearson (dormant, static check only) | 993 | 295 | 114 |
+| interroll (dormant, static check only) | 1091 | 321 | 116 |
 
-External checks over HTTPS on the public hostnames, all five tenants: `/api/databases`,
+2,712 decorators closed across ten tenants.
+
+External checks over HTTPS on the public hostnames, all eight live tenants: `/api/databases`,
 `/api/debug_settings`, `/auth/config-check` and `/api/training/model-config` return **401**;
 `/login` and `/health/live` return **200**; `POST /login` with `admin/admin` returns **401**.
 On bugfixing `force_password_change` for `admin` stayed `f` across that POST, confirming the
@@ -192,11 +200,30 @@ have them until canonical is committed and the clone re-synced.
 propagate and there was no alembic head divergence to work around. All four already had both
 signing keys set, so fail-closed was safe.
 
-**Three tenants on this host are still open** and were left alone because they were not in scope:
-`pbm.aunoo.ai`, `ibaset.aunoo.ai` and `bwtemplate.aunoo.ai` all return 200 on
-`/api/debug_settings`. `pearson.aunoo.ai` and `interroll.aunoo.ai` return 502 because their
-services are down, and will be open when they start. The SaaS-family sites (saas, saasmvp,
-agentic, monitoring) already return 401 — different codebase, unaffected.
+Then Oliver asked for the rest, so **all ten monolith tenants** now have it. `pbm` (279 routes),
+`ibaset` (280) and `bwtemplate` (280) were live and got the full treatment — patched, restarted,
+verified externally. The SaaS-family sites (saas, saasmvp, agentic, monitoring) already returned
+401 and are a different codebase, so they were untouched.
+
+`pearson` and `interroll` are mothballed: their plaintext `.env` was deleted and encrypted to
+`.env.encrypted` (pearson 11 August, interroll 25 August 12:45, per its journal), which is why
+they return 502 rather than serving anything. They are **not** currently exposed. Both got the
+code fixes — pearson 295 routes, interroll 321 — but they cannot be started, so the verification
+is static only: the route audit run against the imported app reports 11 open and 0 state-changing,
+same as everywhere else, and every `.py` file parses. There is no external check for these two and
+no service restart.
+
+The route sweep needs the app to import, and the app now refuses to import without both signing
+keys, so those two runs supplied `FLASK_SECRET_KEY=analysis-only NORN_SECRET_KEY=analysis-only` in
+the environment. That is static analysis of the route table only — it does not touch
+`.env.encrypted` and starts nothing.
+
+**Whoever revives pearson or interroll must confirm both signing keys are in the decrypted
+`.env`**, or the service will refuse to start and say which key is missing. I could not verify the
+encrypted files, but the plaintext backups still on disk
+(`pearson.aunoo.ai/.env.backup.20251122-103215`, `interroll.aunoo.ai/.env.backup`) both carry
+`FLASK_SECRET_KEY` and `NORN_SECRET_KEY`, so the revival will very likely be fine. That is a proxy
+check, not proof.
 
 ### Lessons
 **NEVER trust a route's auth status from grep, and never from the decorator alone.** Dependencies
