@@ -218,7 +218,8 @@ def _parse_stamp(value) -> Optional[datetime]:
 def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                limit: int = 50, kind: str = "all",
                classes: Optional[Sequence[str]] = None,
-               days: Optional[int] = None) -> bytes:
+               days: Optional[int] = None,
+               allowed_brand_ids: Optional[List[int]] = None) -> bytes:
     """The market as a subscribable feed: its articles and its events.
 
     An aggregator, not a change log. Items are the articles that matched the
@@ -296,6 +297,33 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
     items.sort(key=lambda i: i["stamp"], reverse=True)
     items = items[:limit]
 
+    # A shared subscriber sees only items about vendors it is entitled to.
+    #
+    # Dropped at the item level rather than by refusing the feed: this route is
+    # deliberately anonymous so a feed reader can subscribe, and failing closed
+    # on the whole document would leave every public market with a permanently
+    # broken feed. An item is dropped when its own text names a withheld vendor,
+    # which also covers the case the row filter cannot — an article about two
+    # companies, attributed to one.
+    if allowed_brand_ids is not None:
+        from app.services import market_entitlements as ent
+        withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
+        if withheld:
+            import re as _re
+            pattern = _re.compile(
+                "|".join(rf"(?<!\w){_re.escape(n)}(?!\w)" for n in withheld),
+                _re.IGNORECASE)
+            # Every field, not just the prose. A vendor's name reaches the
+            # feed through its own domain in `link` and `guid` as readily as
+            # through a headline — exaforce survived a title-and-summary filter
+            # on the strength of exaforce.com appearing in the item URL, and
+            # the specification names URLs explicitly.
+            def _mentions(item: Dict[str, Any]) -> bool:
+                blob = " ".join(str(v) for v in item.values() if v is not None)
+                return bool(pattern.search(blob))
+
+            items = [it for it in items if not _mentions(it)]
+
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         ('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" '
@@ -347,7 +375,21 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
             parts.append(f"<pubDate>{format_datetime(item['stamp'])}</pubDate>")
         parts.append("</item>")
     parts += ["</channel>", "</rss>"]
-    return "\n".join(parts).encode("utf-8")
+    rendered = "\n".join(parts)
+
+    # Same rule as the report: a shared feed must not name a vendor the
+    # subscriber is not entitled to. This feed disclosed 20 of the market's 84
+    # vendors anonymously, through article titles rather than any roster.
+    #
+    # Fails closed rather than filtering items, because an item can name a
+    # vendor in its title while being attributed to another.
+    if allowed_brand_ids is not None:
+        from app.services import market_entitlements as ent
+        ent.assert_no_withheld(
+            rendered, ent.withheld_names(conn, market["id"], allowed_brand_ids),
+            context=f'market {market["id"]} feed')
+
+    return rendered.encode("utf-8")
 
 
 # ---------------------------------------------------------------------------

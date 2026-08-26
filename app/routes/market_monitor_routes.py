@@ -1188,9 +1188,20 @@ async def market_feed(
             if not market.get("is_public") and not session:
                 raise HTTPException(status_code=404, detail="Market not found")
             picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
+            # An anonymous subscriber is a shared viewer, so it sees the same
+            # vendor set a shared report does. This feed named 20 of the
+            # market's 84 vendors to anyone who asked.
+            from app.services import market_entitlements as ent
+            entitlement = ent.resolve(
+                session=session, signed_link=False,
+                market_is_public=bool(market.get("is_public")))
+            allowed = ent.authorized_brand_ids(
+                conn, market_id, entitlement.vendor_limit)
+            ent.log_access(market_id=market_id, entitlement=entitlement,
+                           surface="feed.xml")
             return mp.build_feed(conn, market, base_url=base, kind=kind,
                                  classes=picked or None, days=days,
-                                 limit=limit)
+                                 limit=limit, allowed_brand_ids=allowed)
         finally:
             conn.close()
 
@@ -1273,13 +1284,29 @@ async def market_report(
         and exp > int(time.time())
         and hmac.compare_digest(token, _market_report_token(market_id, exp)))
 
+    from app.services import market_entitlements as ent
+
     def _work():
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
             if not (signed or session or market.get("is_public")):
                 raise HTTPException(status_code=404, detail="Market not found")
-            return build_market_report(conn, market, days=days)
+            # A signed link and a public market are both shared views. Neither
+            # is the account holder, so neither gets the whole roster: this
+            # report used to name all 84 vendors to anybody with the URL, and
+            # because is_public was true it needed no token at all.
+            entitlement = ent.resolve(
+                session=session, signed_link=signed,
+                market_is_public=bool(market.get("is_public")))
+            allowed = ent.authorized_brand_ids(
+                conn, market_id, entitlement.vendor_limit)
+            ent.log_access(market_id=market_id, entitlement=entitlement,
+                           surface="report.html",
+                           viewer=(session or {}).get("user")
+                           if isinstance(session, dict) else None)
+            return build_market_report(conn, market, days=days,
+                                       allowed_brand_ids=allowed)
         finally:
             conn.close()
 

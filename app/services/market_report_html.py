@@ -495,7 +495,8 @@ def _scatter(rows: List[Dict[str, Any]], *, x_key: str, y_key: str,
 # The document
 # ---------------------------------------------------------------------------
 
-def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
+def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
+                        allowed_brand_ids: Optional[List[int]] = None
                         ) -> bytes:
     """One market, one file, no external requests.
 
@@ -510,6 +511,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
     from app.services import market_metrics as mmet
     from app.services import market_publish as mp
 
+    from app.services import market_entitlements as ent
+
     overview = mp.build_overview(conn, market, days=days)
     analyses = {}
     for name in man.ANALYSES:
@@ -517,6 +520,20 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
             analyses[name] = man.run(conn, market["id"], name)
         except Exception as exc:  # noqa: BLE001 — a missing panel is not a
             logger.warning("report analysis %s failed: %s", name, exc)
+
+    # A restricted viewer gets a report assembled from only the vendors it may
+    # see. Filtered here, at the top, rather than section by section further
+    # down: thirteen sections name a vendor, and remembering all thirteen is
+    # the kind of thing that holds until somebody adds a fourteenth.
+    #
+    # The rendered bytes are checked again at the end, because a name also
+    # reaches the page through an event headline or an article title, which no
+    # row filter can catch.
+    allowed_names = None
+    withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
+    if allowed_brand_ids is not None:
+        allowed_names = set(
+            ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
 
     formation = analyses.get("formation")
     sn = analyses.get("signal_noise")
@@ -540,8 +557,33 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
     # "Market discussion", the registry sort and "Raw coverage" all read the
     # same deduplicated, classified list rather than re-querying per section.
     dataset = mp.build_dataset(conn, market["id"])
-    vendor_names = [d["vendor"] for d in dataset]
     articles = mcorp.articles(conn, market["id"], limit=60, days=days)
+
+    # ── The entitlement gate ────────────────────────────────────────────
+    #
+    # Applied here, after every fetch and before anything is rendered, so
+    # there is one place to look rather than thirteen. Filtering only the
+    # overview and the analyses left 74 of 84 vendors named, because the
+    # registry, the voices, the period comparison and the article corpus are
+    # separate payloads.
+    #
+    # Articles are filtered by *text*, not only by attribution: a story about
+    # two companies is attributed to one of them, and dropping it on
+    # attribution alone would still print the other's name in the headline.
+    if allowed_brand_ids is not None:
+        overview = ent.filter_rows(overview, allowed_brand_ids, allowed_names)
+        analyses = ent.filter_rows(analyses, allowed_brand_ids, allowed_names)
+        formation = analyses.get("formation")
+        sn = analyses.get("signal_noise")
+        funding = analyses.get("funding")
+        hiring = analyses.get("hiring")
+        sov = analyses.get("share_of_voice")
+        pc = ent.filter_rows(pc, allowed_brand_ids, allowed_names)
+        voices = ent.filter_rows(voices, allowed_brand_ids, allowed_names)
+        dataset = ent.filter_rows(dataset, allowed_brand_ids, allowed_names)
+        articles = ent.drop_text_mentioning(articles, withheld)
+
+    vendor_names = [d["vendor"] for d in dataset]
     clustered = mcorp.cluster(articles, vendor_names) if articles else []
     classified = [(a, _material_kind(a)) for a in clustered]
     material_rows = [(a, k) for a, k in classified if k]
@@ -1208,8 +1250,30 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
         "is not a judgement about the post.</p>")
     body.append("</section>")
 
-    return html_document(f'{market["name"]} — Market Monitor',
-                         "".join(body)).encode("utf-8")
+    # What this view covers, said on the page rather than left to be inferred
+    # from a short table.
+    if allowed_brand_ids is not None:
+        from sqlalchemy import text as _sql
+
+        total = conn.execute(_sql("""
+            SELECT COUNT(*) FROM bw_market_brands
+             WHERE market_id = :m AND role <> 'excluded'
+        """), {"m": market["id"]}).scalar() or 0
+        body.append(
+            '<p class="mm-src">This is a shared view. It names '
+            f'{len(allowed_brand_ids)} of {total} monitored vendors, ranked by '
+            'observed activity; the rest are not included. Figures that cover '
+            'the whole market are labelled as such.</p>')
+
+    rendered = html_document(f'{market["name"]} — Market Monitor',
+                             "".join(body))
+
+    # Fail closed. Serving a page that names a vendor the viewer is not
+    # entitled to see cannot be undone, and a refusal can.
+    ent.assert_no_withheld(rendered, withheld,
+                           context=f'market {market["id"]} report')
+
+    return rendered.encode("utf-8")
 
 
 def _metric_blocks(overview: Dict[str, Any], analyses: Dict[str, Any],

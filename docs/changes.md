@@ -2,6 +2,119 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Market Monitor entitlements) — a shared market report was naming every vendor
+
+### Goal
+P1 #8. The spec calls Top-X an access-control rule rather than a visual truncation, so the first
+job was finding the actual anonymous surface rather than building a UI cap.
+
+### What was wrong
+`/report.html` opens three ways — signed link, session, or `market.is_public` — and all three
+rendered the same file. Measured before changing anything: **all 84 vendor names disclosed, and
+`market.is_public` being true meant no token was needed at all.** `/feed.xml` is anonymous by
+design for feed readers and disclosed 20 of 84 through article titles.
+
+`bw_market_brands.is_public` existed for exactly this and **no read path consulted it** — the only
+grep hit outside the setter was a comment. Zero of 84 vendors were marked public, so the one
+control an operator had was both unset and ignored.
+
+`export.zip` and every API route already require a session; those were fine.
+
+### `app/services/market_entitlements.py` — new
+`resolve(session, signed_link, market_is_public)` returns an `Entitlement`. A session is the
+account holder and gets everything. A signed link and a public market both get
+`MARKET_PUBLIC_VENDOR_LIMIT`, default 10 — a signed link is harder to guess, not more entitled,
+and its recipient is equally outside the account. No credential returns a limit of 1 rather than
+`FULL`, so a missed check upstream cannot become full access.
+
+`authorized_brand_ids` ranks by **cumulative** earned coverage, then owned posts, then listings,
+then canonical name. Cumulative on purpose: a 30-day count changes daily and a set that churns
+daily leaks a different ten every day. Operator-marked `is_public` vendors sort first, so that flag
+finally does something.
+
+**The set is derived from (market, limit) alone** — not the period, not a sort, not the time.
+That is what stops enumeration, and it is deliberately *not* seeded per link: two links seeded
+differently would expose two different tens and their union.
+
+### Three layers, because one is not enough
+Filtering the payloads was not sufficient and the first attempt proved it: gating `overview` and
+`analyses` left **74 of 84 vendors still named**, because the registry (`build_dataset`), the
+voices, the period comparison and the article corpus are separate payloads fetched later in
+`build_market_report`.
+
+1. **Row filter** — `filter_rows` drops rows by `brand_id`, falling back to name, recursing into
+   nested payloads. A row identifying no vendor is kept: those are the market-wide figures a
+   shared viewer is entitled to.
+2. **Text filter** — `drop_text_mentioning` drops an item whose own words name a withheld vendor.
+   Attribution alone is not enough: a story about two companies is attributed to one and would
+   still print the other's name in the headline.
+3. **Fail-closed backstop** — `assert_no_withheld` scans the finished bytes and raises rather than
+   serving. A name reaches the page through an event headline or a chart label as readily as
+   through a roster row, and this is the only check that does not depend on having remembered
+   every section. It raises rather than redacting, because redacting means shipping a page
+   assembled from data the viewer should never have had.
+
+The gate now sits in one place in `build_market_report`, after every fetch and before anything
+renders.
+
+### The feed is filtered, not refused
+Failing closed on `feed.xml` would leave every public market with a permanently broken feed, since
+article titles legitimately name vendors. Items whose text names a withheld vendor are dropped
+instead, and the document is still valid RSS.
+
+### Two bugs the tests caught, both of which made the guarantee weaker than it read
+**Case-sensitive matching.** The registry stores `exaforce`; the feed said `Exaforce`. The filter
+and the backstop both used `re.escape` with no `IGNORECASE`, so the name passed straight through
+while the assertion reported success. Found by `test_mm20_the_feed_names_only_authorized_vendors`,
+which failed on exactly that one vendor.
+
+**Identity in a URL.** `exaforce` also survived a title-and-description filter because
+`exaforce.com` appears in the item's `link` and `guid`. The spec names URLs explicitly. The feed
+filter now reads every field of an item, not just its prose.
+
+### Verification
+- `pytest tests/test_market_entitlements.py` — **20 passed**, covering MM-19 and MM-20.
+- Market suites together: **98 passed, 10 skipped**.
+- Live, measured case-insensitively against the 84-name roster:
+
+  | surface | identities | bytes |
+  |---|---|---|
+  | anonymous `report.html`, no token | **10** of 84 | 74,760 |
+  | anonymous `feed.xml` | **3** of 84 | 18,649 |
+  | signed link | **10** of 84 | — |
+  | operator with a session | 84 of 84 | 103,017 |
+
+- MM-19 live: `days` varied over 7/30/90/180/365 returns the **identical** ten identities each
+  time; union across all five is 10.
+- The page states its own scope: "It names 10 of 84 monitored vendors."
+- `export.zip` still 307s for an anonymous caller.
+- Access logging works: `market 2 restricted access via report.html (public market)`,
+  `… (shared report link)`, `market 2 full access via report.html (authenticated session)`.
+- Checked for in-flight collection runs before each restart; zero every time.
+
+### Propagation
+Canonical only (`bugfixing`). Market Monitor exists on no other tenant.
+
+### Lessons
+- **Measure the disclosure before designing the fix.** "Top 10 in the UI" would have been the
+  obvious reading of this spec item and would have changed nothing: the leak was a server-rendered
+  HTML file reachable without a login, and the browser was never involved.
+- **A control nobody reads is not a control.** `is_public` had a column, a route and a UI, and no
+  consumer. Worth grepping for the read path before trusting any flag.
+- **Case sensitivity is a security property here.** A backstop that reports success while the name
+  is in the output is worse than no backstop, because it is believed.
+- Filtering N sections by hand does not converge. Two of my three layers exist because the first
+  one missed 74 of 84.
+
+### Still open on this item
+- **Top 25 tier is not wired to anything.** `authorized_brand_ids` takes any limit and the tests
+  cover 1/5/10/25, but nothing yet grants an authenticated viewer an intermediate tier — there is
+  no per-viewer entitlement store, only session-or-not.
+- **The live UI is unchanged.** Every UI route requires a session, so the operator's screens are
+  correctly unrestricted; a restricted *interactive* view does not exist yet and the drill-down
+  APIs would each need the same gate if one were added.
+
+
 ## 2026-08-26 (ATS job collector) — hiring read from the system each company actually uses
 
 ### Goal
