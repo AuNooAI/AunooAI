@@ -26,6 +26,124 @@ logger = logging.getLogger(__name__)
 
 # The report's own styles, appended to BASE_CSS. Only what the shared sheet
 # does not already carry.
+# The shared-link treatment: a market news page rather than a report.
+#
+# Every rule is scoped under `.mm-news`, because `html_document` and `BASE_CSS`
+# are shared with the consensus and horizons reports and an unscoped rule here
+# would restyle all three.
+#
+# Self-contained by necessity — this file is emailed, saved and opened offline,
+# so there are no icon fonts, no CDN scripts and no web fonts. The sparklines
+# are inline SVG built from the same series the page quotes.
+NEWS_CSS = """
+.mm-news { --n-bg:#f4f6f8; --n-shell:#fff; --n-panel:#fff; --n-text:#111827;
+           --n-muted:#596674; --n-line:#d9e0e5; --n-accent:#096b74;
+           --n-accent-soft:#dff3f2; --n-blue:#2259a8; --n-green:#21734a;
+           --n-orange:#9a5315; --n-purple:#6c48a1;
+           margin:0 0 1.6rem; border:1px solid var(--n-line); border-radius:14px;
+           overflow:hidden; background:var(--n-bg); color:var(--n-text); }
+.mm-news * { box-sizing:border-box; }
+.mm-news .n-top { display:flex; align-items:center; gap:20px; padding:14px 18px;
+                  background:var(--n-shell); border-bottom:1px solid var(--n-line); }
+.mm-news .n-brand { display:flex; align-items:center; gap:9px; font-weight:500;
+                    white-space:nowrap; }
+.mm-news .n-logo { width:22px; height:22px; border-radius:6px;
+                   background:var(--n-accent); color:#fff; display:grid;
+                   place-items:center; font-size:11px; }
+.mm-news .n-jump { display:flex; gap:4px; flex:1; flex-wrap:wrap; }
+.mm-news .n-jump a { border-radius:7px; padding:6px 10px; color:var(--n-muted);
+                     text-decoration:none; font-size:.82rem; }
+.mm-news .n-jump a:hover { background:var(--n-accent-soft); color:var(--n-accent); }
+.mm-news .n-market { color:var(--n-muted); white-space:nowrap; font-size:.85rem; }
+.mm-news .n-main { padding:24px; }
+.mm-news .n-head { display:flex; align-items:flex-end; justify-content:space-between;
+                   gap:20px; margin-bottom:18px; flex-wrap:wrap; }
+.mm-news .n-kicker { color:var(--n-accent); font-size:.72rem; text-transform:uppercase;
+                     letter-spacing:.08em; margin-bottom:5px; }
+.mm-news h1 { font-size:clamp(23px,3vw,34px); font-weight:500;
+              letter-spacing:-.025em; margin:0; }
+.mm-news .n-sub { color:var(--n-muted); margin:7px 0 0; max-width:680px; }
+.mm-news .n-period { color:var(--n-muted); font-size:.82rem; white-space:nowrap; }
+.mm-news .n-summary { padding:18px 20px; background:var(--n-panel);
+                      border:1px solid var(--n-line); border-radius:10px;
+                      margin-bottom:14px; }
+.mm-news .n-summary h2 { font-size:17px; font-weight:500; margin:0; }
+.mm-news .n-summary p { margin:8px 0 0; color:var(--n-muted); max-width:940px; }
+.mm-news .n-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
+                      gap:10px; margin-bottom:22px; }
+.mm-news .n-metric { min-width:0; padding:15px; background:var(--n-panel);
+                     border:1px solid var(--n-line); border-radius:9px; }
+.mm-news .n-metric-top { display:flex; justify-content:space-between; gap:8px;
+                         color:var(--n-muted); font-size:12px; }
+.mm-news .n-metric-value { margin-top:8px; font-size:24px; font-weight:500;
+                           letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.mm-news .n-delta { color:var(--n-muted); font-size:12px; margin-top:4px; }
+.mm-news .n-spark { width:100%; height:28px; margin-top:9px; display:block; }
+.mm-news .n-spark path { fill:none; stroke:var(--n-accent); stroke-width:2; }
+.mm-news .n-spark .base { stroke:var(--n-line); stroke-width:1; }
+.mm-news .n-nospark { margin-top:9px; font-size:11px; color:var(--n-muted);
+                      min-height:28px; display:flex; align-items:center; }
+.mm-news .n-grid { display:grid; grid-template-columns:minmax(0,1.75fr) minmax(240px,.72fr);
+                   gap:22px; align-items:start; }
+.mm-news .n-sec-head { display:flex; align-items:center; justify-content:space-between;
+                       gap:12px; padding-bottom:10px; border-bottom:2px solid var(--n-text); }
+.mm-news .n-sec-head h2 { font-size:17px; font-weight:500; margin:0; }
+.mm-news .n-updated { color:var(--n-muted); font-size:12px; }
+.mm-news .n-filters { display:flex; flex-wrap:wrap; gap:4px; padding:10px 0 5px; }
+.mm-news .n-filter { font-size:12px; padding:5px 8px; border:0; border-radius:7px;
+                     background:transparent; color:var(--n-muted); cursor:pointer;
+                     font-family:inherit; }
+.mm-news .n-filter[aria-pressed="true"] { background:var(--n-accent-soft);
+                                          color:var(--n-accent); }
+.mm-news .n-story { padding:16px 0; border-bottom:1px solid var(--n-line); }
+.mm-news .n-story:last-child { border-bottom:0; }
+.mm-news .n-story-tag { color:var(--story,var(--n-accent)); font-size:11px;
+                        text-transform:uppercase; letter-spacing:.07em;
+                        margin-bottom:5px; }
+.mm-news .n-story h3 { font-size:18px; line-height:1.28; font-weight:500; margin:0; }
+.mm-news .n-story-sum { color:var(--n-muted); margin:6px 0 0; line-height:1.45; }
+.mm-news .n-byline { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;
+                     color:var(--n-muted); font-size:12px; }
+.mm-news .n-support { margin-top:9px; color:var(--n-muted); font-size:12px;
+                      line-height:1.55; }
+.mm-news .n-support strong { color:var(--n-text); font-weight:500; }
+.mm-news .n-support a { color:var(--n-muted); }
+.mm-news .n-support a:hover { color:var(--n-accent); }
+.mm-news .n-aside { display:grid; gap:18px; }
+.mm-news .n-card { background:var(--n-panel); border:1px solid var(--n-line);
+                   border-radius:9px; padding:15px; }
+.mm-news .n-card-title { display:flex; align-items:center; justify-content:space-between;
+                         border-bottom:1px solid var(--n-line); padding-bottom:9px;
+                         margin-bottom:5px; }
+.mm-news .n-card-title h2 { font-size:15px; font-weight:500; margin:0; }
+.mm-news .n-row { display:grid; grid-template-columns:24px minmax(0,1fr) auto;
+                  gap:8px; align-items:center; padding:10px 0;
+                  border-bottom:1px solid var(--n-line); }
+.mm-news .n-row:last-child { border-bottom:0; }
+.mm-news .n-rank { color:var(--n-muted); font-variant-numeric:tabular-nums; }
+.mm-news .n-row-val { font-weight:500; white-space:nowrap;
+                      font-variant-numeric:tabular-nums; }
+.mm-news .n-row-label { font-size:12px; color:var(--n-muted); margin-top:2px; }
+.mm-news .n-note { color:var(--n-muted); font-size:11px; margin-top:16px; }
+.mm-news .n-empty { color:var(--n-muted); font-size:13px; padding:14px 0; }
+@media (max-width:850px) {
+  .mm-news .n-jump { display:none; }
+  .mm-news .n-market { margin-left:auto; }
+  .mm-news .n-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mm-news .n-grid { grid-template-columns:1fr; }
+}
+@media (max-width:560px) {
+  .mm-news .n-main { padding:16px; }
+  .mm-news .n-metrics { grid-template-columns:1fr; }
+  .mm-news .n-story h3 { font-size:16px; }
+}
+@media print {
+  .mm-news .n-filters, .mm-news .n-jump { display:none; }
+  .mm-news { border-color:#ccc; }
+}
+"""
+
+
 EXTRA_CSS = """
 .mm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: .7rem; margin: .8rem 0 1rem; }
@@ -285,6 +403,29 @@ def _coverage_row(a: Dict[str, Any], *, kind: Optional[str] = None) -> str:
 # Charts, hand-drawn as SVG
 # ---------------------------------------------------------------------------
 
+# How many vendors the report names in its activity table. Ten by default, the
+# same number the shared-link entitlement allows, so a full report and a shared
+# one show a list of the same shape.
+ACTIVITY_TOP_N = 10
+
+
+def _activity_row(vendor: Dict[str, Any]) -> str:
+    """One vendor's row in the activity table.
+
+    A withheld index prints an em dash, never a zero. The three raw counts sit
+    beside it because the index is a rank and the counts are the measurements
+    it was computed from; a reader cannot check the first without the others.
+    """
+    index = vendor.get("activity_index")
+    shown = str(index) if index is not None else "&mdash;"
+    return ('<tr><td>' + esc(vendor.get("vendor") or "") + '</td>'
+            '<td class="mm-num">' + shown + '</td>'
+            '<td class="mm-num">' + str(vendor.get("posts") or 0) + '</td>'
+            '<td class="mm-num">' + str(vendor.get("jobs") or 0) + '</td>'
+            '<td class="mm-num">' + str(vendor.get("articles") or 0)
+            + '</td></tr>')
+
+
 def _bar_chart(rows: List[Dict[str, Any]], *, label_key: str, value_key: str,
                height: int = 180, colour: str = "#475569") -> str:
     """A plain vertical bar chart.
@@ -495,6 +636,267 @@ def _scatter(rows: List[Dict[str, Any]], *, x_key: str, y_key: str,
 # The document
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# The shared-link news page
+# ---------------------------------------------------------------------------
+
+#: Theme colours for a finding's tag, keyed on the six themes in
+#: ``market_findings.THEMES``. A theme with no colour falls back to the accent
+#: rather than being dropped.
+_THEME_COLOUR = {
+    "Funding and ownership": "var(--n-purple)",
+    "Product and launches": "var(--n-blue)",
+    "Customers and partnerships": "var(--n-orange)",
+    "Hiring and headcount": "var(--n-green)",
+    "Leadership and strategy": "var(--n-accent)",
+    "Attention and narrative": "var(--n-muted)",
+}
+
+
+def _norm_words(text_value: str) -> str:
+    """Text reduced to comparable words, for spotting a repeated sentence."""
+    return re.sub(r"[^a-z0-9 ]", " ",
+                  re.sub(r"\s+", " ", (text_value or "").lower())).strip()
+
+
+def _spark(values: List[float], *, label: str) -> str:
+    """A sparkline, or nothing.
+
+    Refuses to draw fewer than four points. Two readings joined by a line is a
+    picture of a trend built from no trend, and this report spent a lot of
+    effort today not doing that elsewhere — the headcount series currently has
+    two weekly points and its own ``thin_coverage`` flag.
+    """
+    pts = [v for v in values if isinstance(v, (int, float))]
+    if len(pts) < 4:
+        return ""
+    lo, hi = min(pts), max(pts)
+    span = (hi - lo) or 1
+    step = 180 / (len(pts) - 1)
+    coords = " ".join(
+        f"{'M' if i == 0 else 'L'}{i * step:.0f} {24 - (v - lo) / span * 20:.0f}"
+        for i, v in enumerate(pts))
+    return (f'<svg class="n-spark" viewBox="0 0 180 28" role="img" '
+            f'aria-label="{esc(label)}">'
+            f'<path class="base" d="M0 24H180"/><path d="{coords}"/></svg>')
+
+
+def _metric_card(label: str, hint: str, value: str, note: str,
+                 spark: str = "", nospark: str = "") -> str:
+    body = spark or (f'<div class="n-nospark">{esc(nospark)}</div>'
+                     if nospark else "")
+    return (
+        '<article class="n-metric">'
+        f'<div class="n-metric-top"><span>{esc(label)}</span>'
+        f'<span>{esc(hint)}</span></div>'
+        f'<div class="n-metric-value">{esc(value)}</div>'
+        f'<div class="n-delta">{esc(note)}</div>{body}</article>')
+
+
+def _news_metrics(*, headcount: Optional[Dict[str, Any]],
+                  jobs_total: int, jobs_new: int, jobs_state: str,
+                  funding: Optional[Dict[str, Any]],
+                  earned: int, earned_note: str,
+                  weekly: List[Dict[str, Any]]) -> str:
+    """The four figures at the top, each with its own denominator.
+
+    Every one carries how much of the market it covers, because the number
+    alone is the thing this product spent the day learning not to print.
+    """
+    cards: List[str] = []
+
+    if headcount:
+        cohort = headcount.get("cohort") or 0
+        total = headcount.get("registry_total") or 0
+        cards.append(_metric_card(
+            "Observed headcount", f"{cohort} of {total} measured",
+            f"{headcount.get('observed_market_headcount', 0):,}",
+            "Sum of current exact readings. Size bands are never counted.",
+            # The weekly headcount series has two points and its own
+            # thin-coverage flag, so there is nothing honest to draw.
+            nospark="No weekly series yet — most vendors have one reading."))
+
+    cards.append(_metric_card(
+        "Observed open roles",
+        "LinkedIn and vendor boards",
+        f"{jobs_total:,}" if jobs_state != "unmeasured" else "—",
+        (f"{jobs_new} newly observed since the previous run"
+         if jobs_new else "No change reportable yet — most vendors have one run"),
+        nospark="Roles standing open now, not a 30-day flow."))
+
+    if funding:
+        cov = funding.get("coverage") or {}
+        disclosed = sum(int(r.get("vendors") or 0)
+                        for r in (funding.get("stages") or [])
+                        if (r.get("stage") or "") != "not stated")
+        cards.append(_metric_card(
+            "Vendors with a funding stage", cov.get("label", ""),
+            f"{disclosed:,}",
+            "Stage and investors from Crunchbase. Totals come from the "
+            "imported registry and are labelled separately.",
+            nospark="No round-level amounts or dates, so no 'largest raise'."))
+
+    cards.append(_metric_card(
+        "Earned mentions", "third parties only",
+        f"{earned:,}", earned_note,
+        _spark([w.get("n") or 0 for w in weekly],
+               label="Matched items observed per week")
+        or "",
+        nospark="" if weekly else "No weekly series."))
+
+    return f'<section class="n-metrics">{"".join(cards)}</section>'
+
+
+def _news_stories(findings: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
+    """Findings as stories: a tag, what changed, and what backs it.
+
+    The byline carries the evidence state rather than a source name, because
+    that is the fact a reader of a shared report most needs and least has. A
+    vendor's own announcement says so in the line under the headline.
+    """
+    if not findings:
+        return ""
+    rows = (findings.get("executive") or []) + [
+        f for f in (findings.get("data") or [])
+        if f not in (findings.get("executive") or [])]
+    rows = rows[:limit]
+    if not rows:
+        state = ((findings.get("meta") or {}).get("synthesis") or {})
+        detail = state.get("detail") or "Nothing met the bar for a finding."
+        return f'<p class="n-empty">{esc(detail)}</p>'
+
+    themes = sorted({f.get("theme") for f in rows if f.get("theme")})
+    out = ['<div class="n-filters" role="group" aria-label="Filter by theme">',
+           '<button type="button" class="n-filter" data-theme="all" '
+           'aria-pressed="true">All</button>']
+    for theme in themes:
+        out.append(f'<button type="button" class="n-filter" '
+                   f'data-theme="{esc(theme)}" aria-pressed="false">'
+                   f'{esc(theme)}</button>')
+    out.append("</div>")
+
+    for f in rows:
+        theme = f.get("theme") or ""
+        colour = _THEME_COLOUR.get(theme, "var(--n-accent)")
+        # The event date where one was established, and never the observation
+        # date dressed up as one.
+        when = f.get("occurred_at")
+        when_txt = (str(when)[:10] if when else "date not established")
+        sources = f.get("non_vendor_source_count") or 0
+        evidence = ("the vendor announced it; no independent source"
+                    if not sources
+                    else f"{sources} independent source"
+                    + ("s" if sources != 1 else ""))
+        out.append(f'<article class="n-story" data-theme="{esc(theme)}" '
+                   f'style="--story:{colour}">')
+        headline = (f.get("headline") or "Untitled").strip()
+        out.append(f'<div class="n-story-tag">{esc(theme)}</div>')
+        out.append(f'<h3>{esc(headline)}</h3>')
+        # A summary that repeats the headline is not a summary. These events
+        # are extracted from a post whose first sentence became the title, so
+        # the two are frequently the same words.
+        summary = (f.get("why_it_matters") or f.get("summary") or "").strip()
+        # Compared after dropping the "Vendor: " prefix the extractor puts on a
+        # headline, since the summary never carries it — without that the two
+        # never look alike and the same sentence prints twice.
+        head_key = _norm_words(re.sub(r"^[^:]{1,40}:\s*", "", headline))
+        sum_key = _norm_words(summary)
+        duplicate = bool(head_key) and (
+            sum_key.startswith(head_key[:60]) or head_key.startswith(sum_key[:60]))
+        if summary and not duplicate:
+            out.append(f'<p class="n-story-sum">{esc(summary[:320])}</p>')
+        vendors = ", ".join(v.get("vendor", "") for v in (f.get("vendors") or []))
+        bits = [b for b in (vendors, when_txt, evidence,
+                            f'{f.get("materiality", "")} materiality') if b]
+        out.append('<div class="n-byline">'
+                   + " · ".join(esc(b) for b in bits) + "</div>")
+        strongest = f.get("strongest_evidence") or {}
+        uri = strongest.get("uri")
+        if uri:
+            out.append('<div class="n-support"><strong>Evidence:</strong> '
+                       f'<a href="{esc(uri)}">the record behind this</a></div>')
+        elif f.get("evidence_count"):
+            out.append(f'<div class="n-support"><strong>Evidence:</strong> '
+                       f'{int(f["evidence_count"])} record(s) held, no public '
+                       'link</div>')
+        out.append("</article>")
+    return "".join(out)
+
+
+def _news_aside(*, movers: List[Dict[str, Any]], voices: Optional[Dict[str, Any]],
+                notes: List[str]) -> str:
+    """Movers and voices, with an explicit empty state for each.
+
+    Both are frequently empty in a young market, and an empty panel that says
+    nothing reads as a broken page rather than a quiet one.
+    """
+    out = ['<aside class="n-aside">']
+
+    out.append('<section class="n-card"><div class="n-card-title">'
+               '<h2>Headcount movers</h2><span class="n-updated">two readings'
+               '</span></div>')
+    if movers:
+        for i, m in enumerate(movers[:5], 1):
+            pct = m.get("pct")
+            val = (f'{pct:+.1f}%' if isinstance(pct, (int, float))
+                   else f'{m.get("delta", 0):+.0f}')
+            out.append(f'<div class="n-row"><span class="n-rank">{i}</span>'
+                       f'<div><strong>{esc(m.get("vendor", ""))}</strong>'
+                       f'<div class="n-row-label">'
+                       f'{int(m.get("previous", 0))} → {int(m.get("latest", 0))}'
+                       f' staff</div></div>'
+                       f'<span class="n-row-val">{esc(val)}</span></div>')
+    else:
+        out.append('<p class="n-empty">No vendor has two readings yet, so no '
+                   'movement can be reported. This fills as the next profile '
+                   'sweep lands.</p>')
+    out.append("</section>")
+
+    consistent = (voices or {}).get("consistent") or []
+    breakout = (voices or {}).get("breakout") or []
+    out.append('<section class="n-card"><div class="n-card-title">'
+               '<h2>Who is talking</h2><span class="n-updated">earned</span>'
+               '</div>')
+    if consistent or breakout:
+        for v in (consistent or breakout)[:4]:
+            posts = int(v.get("posts") or 0)
+            label = ("posts regularly" if v in consistent
+                     else "one post that travelled")
+            out.append(f'<div class="n-row"><span class="n-rank">·</span>'
+                       f'<div><strong>@{esc(v.get("author", ""))}</strong>'
+                       f'<div class="n-row-label">{esc(v.get("platform", ""))}'
+                       f' · {esc(label)}</div></div>'
+                       f'<span class="n-row-val">{posts}</span></div>')
+    else:
+        out.append('<p class="n-empty">No third-party account posted about '
+                   'this market in the period.</p>')
+    out.append("</section>")
+
+    if notes:
+        out.append('<section class="n-card"><div class="n-card-title">'
+                   '<h2>Read this first</h2></div>')
+        for n in notes[:3]:
+            out.append(f'<p class="n-empty">{esc(n)}</p>')
+        out.append("</section>")
+
+    out.append("</aside>")
+    return "".join(out)
+
+
+#: Client-side theme filter. Inline because the report is opened from a saved
+#: file as often as from a URL, and anything fetched would not survive that.
+_NEWS_JS = """
+(function(){var r=document.querySelector('.mm-news');if(!r)return;
+var f=[].slice.call(r.querySelectorAll('[data-theme].n-filter'));
+var s=[].slice.call(r.querySelectorAll('article.n-story'));
+f.forEach(function(b){b.addEventListener('click',function(){
+var t=b.getAttribute('data-theme');
+f.forEach(function(o){o.setAttribute('aria-pressed',String(o===b));});
+s.forEach(function(a){a.hidden=(t!=='all'&&a.getAttribute('data-theme')!==t);});
+});});})();
+"""
+
+
 def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                         allowed_brand_ids: Optional[List[int]] = None
                         ) -> bytes:
@@ -559,6 +961,29 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     dataset = mp.build_dataset(conn, market["id"])
     articles = mcorp.articles(conn, market["id"], limit=60, days=days)
 
+    # The shared-link lead: findings rather than a feed, and the job figures
+    # the metric strip quotes.
+    try:
+        from app.services import market_findings as mfind
+        findings = mfind.findings(conn, market["id"], days=days, page_size=20)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("report findings failed: %s", exc)
+        findings = None
+    try:
+        from app.services import market_lists as mlists
+        joblist = mlists.jobs(conn, market["id"], page_size=1)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("report jobs failed: %s", exc)
+        joblist = None
+    # Fetched with the rest rather than beside the methodology appendix that
+    # used to be its only reader: the news strip and the appendix must quote
+    # the same object or they will disagree about the market's headcount.
+    try:
+        headcount = mp.headcount_market(conn, market)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("report headcount failed: %s", exc)
+        headcount = None
+
     # ── The entitlement gate ────────────────────────────────────────────
     #
     # Applied here, after every fetch and before anything is rendered, so
@@ -582,6 +1007,17 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         voices = ent.filter_rows(voices, allowed_brand_ids, allowed_names)
         dataset = ent.filter_rows(dataset, allowed_brand_ids, allowed_names)
         articles = ent.drop_text_mentioning(articles, withheld)
+        # Findings name vendors in their headline as well as in their vendor
+        # list, so both filters apply: the row filter for attribution, the text
+        # filter for a partner named in the headline of somebody else's news.
+        if findings:
+            for key in ("data", "executive", "watch_items"):
+                rows = ent.filter_rows(findings.get(key) or [],
+                                       allowed_brand_ids, allowed_names)
+                findings[key] = ent.drop_text_mentioning(rows, withheld)
+        if joblist:
+            joblist["data"] = ent.filter_rows(joblist.get("data") or [],
+                                              allowed_brand_ids, allowed_names)
 
     vendor_names = [d["vendor"] for d in dataset]
     clustered = mcorp.cluster(articles, vendor_names) if articles else []
@@ -618,24 +1054,88 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                         f'of the {total_open} observed openings.')
 
     generated = datetime.now(timezone.utc)
-    body: List[str] = [f"<style>{EXTRA_CSS}</style>"]
+    body: List[str] = [f"<style>{EXTRA_CSS}{NEWS_CSS}</style>"]
 
     # ================================================================
-    # Header
+    # The lead: a market news page
     # ================================================================
+    #
+    # What a shared link opens on. The detailed sections below are unchanged
+    # and still carry the methodology appendix the specification requires —
+    # this is the scannable front, not a replacement for the evidence.
     period_range = _fmt_range(*pc["current_range"]) if pc else None
-    body.append('<header class="report-header">')
-    body.append(f'<h1>{esc(market["name"])} — {days}-Day Market Monitor</h1>')
-    body.append('<p class="lede">Material changes across products, customers, '
-               'partnerships, hiring, funding, acquisitions and market '
-               'positioning.</p>')
-    if period_range:
-        body.append(f'<p class="mm-src">{esc(period_range)} · generated '
-                    f'{generated.strftime("%d %B %Y")}</p>')
-    else:
-        body.append(f'<p class="mm-src">Covering the last {days} days · '
-                    f'generated {generated.strftime("%d %B %Y")}</p>')
-    body.append("</header>")
+    period_txt = (period_range or f"last {days} days")
+
+    # Fetched with the period, because the strip is labelled with one.
+    # `analyses` is built by `man.run(...)` without `days`, so its share of
+    # voice is all-time — correct for the sections below, which do not claim a
+    # window, and wrong under a heading that says "last 30 days".
+    try:
+        sov_block = man.share_of_voice(conn, market["id"], days=days) or {}
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("report windowed share of voice failed: %s", exc)
+        sov_block = analyses.get("share_of_voice") or {}
+    if allowed_brand_ids is not None:
+        sov_block = ent.filter_rows(sov_block, allowed_brand_ids, allowed_names)
+    earned = int(sov_block.get("earned_total") or 0)
+    own_posts = int(sov_block.get("own_total") or 0)
+    earned_note = (
+        f"Against {own_posts:,} the vendors published themselves"
+        if own_posts else "Third-party items only")
+
+    jobs_total = int(((joblist or {}).get("meta") or {})
+                     .get("pagination", {}).get("total") or 0)
+    jobs_meta = ((joblist or {}).get("meta") or {}).get("metric") or {}
+    jobs_new = 0
+    jobs_notes = ((joblist or {}).get("meta") or {}).get("notes") or []
+
+    body.append('<div class="mm-news">')
+    body.append('<div class="n-top">'
+                '<span class="n-brand"><span class="n-logo">A</span>'
+                '<span>Aunoo AI</span></span>'
+                '<nav class="n-jump" aria-label="Jump to section">'
+                '<a href="#mm-changed">What changed</a>'
+                '<a href="#mm-registry">Vendors</a>'
+                '<a href="#mm-method">How to read this</a></nav>'
+                f'<span class="n-market">{esc(market["name"])}</span></div>')
+
+    body.append('<main class="n-main">')
+    body.append('<div class="n-head"><div>'
+                f'<div class="n-kicker">Market monitor · {esc(period_txt)}</div>'
+                f'<h1>{esc(market["name"])} briefing</h1>'
+                '<p class="n-sub">The hires, releases, announcements and '
+                'funding we observed, each with what backs it.</p></div>'
+                f'<span class="n-period">Generated '
+                f'{generated.strftime("%d %B %Y")}</span></div>')
+
+    # The market's own question, where one is set. Deliberately not a generated
+    # paragraph of market commentary: everything else on this page is traceable
+    # to a record, and a synthesised summary would be the one thing that is not.
+    question = (market.get("question") or "").strip()
+    if question:
+        body.append('<section class="n-summary"><h2>The question this market '
+                    f'answers</h2><p>{esc(question[:700])}</p></section>')
+
+    body.append(_news_metrics(
+        headcount=headcount, jobs_total=jobs_total, jobs_new=jobs_new,
+        jobs_state=(jobs_meta.get("data_state") or "healthy"),
+        funding=funding, earned=earned, earned_note=earned_note,
+        weekly=((overview.get("corpus") or {}).get("by_week") or [])))
+
+    body.append('<div class="n-grid"><section>')
+    body.append('<div class="n-sec-head"><h2>What we observed</h2>'
+                f'<span class="n-updated">{esc(period_txt)}</span></div>')
+    body.append(_news_stories(findings))
+    body.append("</section>")
+
+    notes = list(jobs_notes)
+    if findings:
+        notes = ((findings.get("meta") or {}).get("notes") or []) + notes
+    body.append(_news_aside(
+        movers=(headcount or {}).get("movers") or [],
+        voices=voices, notes=notes))
+    body.append("</div></main></div>")
+    body.append(f"<script>{_NEWS_JS}</script>")
 
     # ---- Market scope
     body.append(section_open("Market scope"))
@@ -683,6 +1183,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             'Recent coverage also includes at least one acquisition in the '
             'category.')
     if changed_points:
+        body.append('<span id="mm-changed"></span>')
         body.append(section_open("What changed"))
         body.append("<p>" + " ".join(changed_points) + "</p>")
 
@@ -932,13 +1433,50 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # Audience and voice — activity, share of voice, and who is talking
     # ================================================================
     body.append(section_open("Audience and voice"))
-    most_active = [v for v in overview.get("most_active") or [] if v.get("signals")]
-    if most_active:
+    # Filtered on `activity_index`, not on the old `signals` key. That key was
+    # removed from the overview payload when the posts+jobs sum was dropped, and
+    # this filter kept reading it — so the list was empty on every report and
+    # the section silently stopped rendering. The live page still showed the
+    # table, which is exactly the export/UI divergence spec 6 forbids.
+    active = overview.get("most_active") or []
+    scored = [v for v in active if v.get("activity_index") is not None]
+    top = (scored or active)[:ACTIVITY_TOP_N]
+    if top:
         body.append("<h3>Most active vendors</h3>")
-        body.append(f'<p class="mm-src">LinkedIn posts in the last {days} days '
-                    'plus open job listings and matched articles. Activity, '
-                    'not performance.</p>')
-        body.append(_bar_chart(most_active, label_key="vendor", value_key="signals"))
+        body.append(
+            f'<p class="mm-src">Top {len(top)} by Activity Index. Each of the '
+            'three channels — LinkedIn posts published in the last '
+            f'{days} days, job listings currently observed, and articles '
+            f'matched to the vendor in the last {days} days — is converted to '
+            'a percentile against the vendors measured on all three, and the '
+            'three percentiles are averaged with equal weight. It measures '
+            'visibility and activity, not performance, quality or commercial '
+            'success. A vendor is scored only where all three channels were '
+            'measured for it.</p>')
+        if scored:
+            body.append(_bar_chart(top, label_key="vendor",
+                                   value_key="activity_index"))
+        body.append(
+            '<table class="mm-table"><thead><tr><th>Vendor</th>'
+            '<th class="mm-num">Activity Index</th>'
+            '<th class="mm-num">Owned posts</th>'
+            '<th class="mm-num">Observed jobs</th>'
+            '<th class="mm-num">Matched articles</th></tr></thead><tbody>'
+            + "".join(_activity_row(v) for v in top)
+            + "</tbody></table>")
+        # Named for what it counts. As `withheld` it shadowed the list of
+        # vendor names the entitlement backstop checks the finished page
+        # against — so by the time that check ran it held an integer, and its
+        # "nothing to check" guard fired on a count of 0. The last line of
+        # defence against naming a withheld vendor was silently disabled on
+        # every shared report where this table rendered.
+        unscored = sum(1 for v in active if v.get("activity_index") is None)
+        if unscored:
+            body.append(
+                f'<p class="mm-src">{unscored} vendor(s) have no index: at '
+                'least one of their three channels was not measured. Scoring '
+                'them would have ranked a vendor we did not read below one we '
+                'read and found quiet.</p>')
 
     if sov and not sov.get("error") and sov.get("vendors"):
         earned_rows = sorted(
@@ -1060,6 +1598,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     registry_rows = [r for r in dataset if r.get("role") != "excluded"]
     registry_rows.sort(key=lambda r: last_material.get(r["vendor"], ""), reverse=True)
+    body.append('<span id="mm-registry"></span>')
     body.append(section_open("Vendor registry"))
     body.append('<p class="mm-src">Sorted by most recent material signal '
                'this period, then by name.</p>')
@@ -1163,6 +1702,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # it was that the file carried none of the definitions, none of the source
     # labels and none of the collection state, so a reader who opened it a month
     # later had no way to tell what any of it had been measured against.
+    body.append('<span id="mm-method"></span>')
     body.append(section_open("How to read this report"))
 
     body.append("<h3>Where coverage comes from</h3>")
@@ -1212,13 +1752,6 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # Definitions are pulled from the metric blocks the aggregates already
     # carry, so the report cannot define a metric differently from the API.
     seen_metrics = set()
-    # The headcount metric lives on its own payload rather than on the
-    # overview, so it is fetched here instead of being missed.
-    try:
-        headcount = mp.headcount_market(conn, market)
-    except Exception as exc:                                      # noqa: BLE001
-        logger.warning("report headcount failed: %s", exc)
-        headcount = None
     for meta in _metric_blocks(overview, analyses, headcount):
         if not meta or meta.get("metric_id") in seen_metrics:
             continue

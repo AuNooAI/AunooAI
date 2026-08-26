@@ -33,8 +33,10 @@ as stale six days out of seven.
 from __future__ import annotations
 
 import logging
+import os
+from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -325,6 +327,222 @@ def resolve(collection: Dict[str, Any], value: Optional[float]) -> str:
     if value is None:
         return "never_collected"
     return "observed_zero" if not value else "healthy"
+
+
+# ---------------------------------------------------------------------------
+# Activity Index (spec 4.0)
+# ---------------------------------------------------------------------------
+
+# The three channels the index averages, and the collector policies that decide
+# whether each one was actually measured for a given vendor. Jobs has two
+# sources because a vendor is covered when *either* its own board or LinkedIn
+# was read successfully; the others have one each.
+ACTIVITY_CHANNELS: Dict[str, Tuple[str, ...]] = {
+    "posts": ("linkedin_company_post",),
+    "jobs": ("ats_jobs", "linkedin_jobs"),
+}
+
+# Earned mentions are not collected per vendor. The news and social collectors
+# sweep the market on its keywords and attribution happens afterwards, so there
+# is no per-vendor policy row to read and the channel is healthy or not for the
+# whole market at once.
+MENTION_CHANNEL = "mentions"
+
+
+def mentions_channel_state(conn, market_id: int) -> str:
+    """Whether earned mentions were measured for this market at all.
+
+    Read from the ``corpus_match`` run, which is the pass that decides which
+    collected articles belong to this market. It is market-wide by design — the
+    news and social collectors sweep on the market's keywords and attribution
+    to a vendor happens afterwards — so unlike the owned channels there is no
+    per-vendor policy row and the answer is the same for every vendor.
+
+    Its cadence is the slow poll, so two missed intervals is 48 hours by
+    default, matching :func:`collection_state` rather than inventing a second
+    staleness rule.
+    """
+    latest = conn.execute(text("""
+        SELECT status, started_at
+          FROM bw_collection_runs
+         WHERE market_id = :m AND source = 'corpus_match'
+         ORDER BY started_at DESC LIMIT 1
+    """), {"m": market_id}).mappings().first()
+    if not latest:
+        return "never_collected"
+    if latest["status"] in ("queued", "running"):
+        return "collecting"
+
+    last_success = conn.execute(text("""
+        SELECT MAX(started_at) FROM bw_collection_runs
+         WHERE market_id = :m AND source = 'corpus_match'
+           AND status = 'succeeded'
+    """), {"m": market_id}).scalar()
+    if not last_success:
+        return "never_collected" if latest["status"] != "failed" else "failed"
+    if latest["status"] == "failed":
+        return "failed"
+
+    hours = _env_int("MARKET_SLOW_POLL_INTERVAL_HOURS", 24)
+    if last_success + timedelta(hours=hours * 2) < _now():
+        return "stale"
+    return "healthy"
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def vendor_channel_health(conn, market_id: int,
+                          mentions_state: Optional[str] = None
+                          ) -> Dict[int, Dict[str, str]]:
+    """Per vendor, whether each Activity Index channel was measured.
+
+    Returns ``{brand_id: {channel: state}}`` using the same state vocabulary as
+    the rest of the module, so a caller can test membership of :data:`UNMEASURED`
+    rather than re-deriving the rule.
+
+    The distinction that matters here is between a vendor we read and found
+    nothing for, and one we never read. Both produce a raw count of zero, and
+    averaging the second into a market percentile would rank a vendor we know
+    nothing about above one we measured and found quiet.
+    """
+    sources = sorted({s for group in ACTIVITY_CHANNELS.values() for s in group})
+    rows = [dict(r) for r in conn.execute(text("""
+        SELECT p.brand_id, p.source, p.enabled, p.eligible,
+               p.cadence_seconds, p.last_success_at, p.consecutive_failures,
+               p.claimed_at
+          FROM bw_entity_source_policies p
+          JOIN bw_market_brands mb ON mb.brand_id = p.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND p.source = ANY(:sources)
+    """), {"m": market_id, "sources": sources}).mappings().all()]
+
+    by_vendor: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    for row in rows:
+        by_vendor.setdefault(int(row["brand_id"]), {})[row["source"]] = row
+
+    brand_ids = [int(r[0]) for r in conn.execute(text("""
+        SELECT brand_id FROM bw_market_brands
+         WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).all()]
+
+    mention_state = mentions_state or mentions_channel_state(conn, market_id)
+    out: Dict[int, Dict[str, str]] = {}
+    for brand_id in brand_ids:
+        policies = by_vendor.get(brand_id, {})
+        states = {MENTION_CHANNEL: mention_state}
+        for channel, channel_sources in ACTIVITY_CHANNELS.items():
+            states[channel] = _channel_state(
+                [policies.get(s) for s in channel_sources])
+        out[brand_id] = states
+    return out
+
+
+def _channel_state(policies: List[Optional[Dict[str, Any]]]) -> str:
+    """The best state across the sources that can answer for one channel.
+
+    Best, not worst: a vendor whose ATS was read successfully is measured for
+    jobs whether or not LinkedIn also ran. Taking the worst would mark every
+    such vendor unmeasured on the strength of a source that was never going to
+    add anything for it.
+    """
+    ranked = []
+    for policy in policies:
+        if not policy:
+            ranked.append("not_configured")
+            continue
+        if not policy["enabled"] or not policy["eligible"]:
+            ranked.append("not_configured")
+            continue
+        if policy["claimed_at"] and not policy["last_success_at"]:
+            ranked.append("collecting")
+            continue
+        if not policy["last_success_at"]:
+            ranked.append("never_collected")
+            continue
+        if (policy["consecutive_failures"] or 0) > 0:
+            ranked.append("failed")
+            continue
+        cadence = int(policy["cadence_seconds"] or 86400)
+        if policy["last_success_at"] + timedelta(seconds=cadence * 2) < _now():
+            ranked.append("stale")
+            continue
+        ranked.append("healthy")
+    order = ["healthy", "stale", "failed", "collecting", "never_collected",
+             "not_configured"]
+    return min(ranked, key=order.index) if ranked else "not_configured"
+
+
+# A channel that is stale is not a measurement of this period either, so it
+# joins the states that withhold the index. UNMEASURED alone would let a
+# six-week-old profile reading rank a vendor as though it were current.
+INDEX_BLOCKING = UNMEASURED | {"stale"}
+
+
+def activity_index(rows: List[Dict[str, Any]],
+                   health: Dict[int, Dict[str, str]]) -> None:
+    """Add ``activity_index`` and its components to each vendor row, in place.
+
+    The index converts each channel to a percentile before averaging, which is
+    the whole reason it exists: job listings run to dozens per vendor and owned
+    posts to single figures, so a raw sum is a jobs ranking wearing a broader
+    name. A percentile makes "busier than 80% of the market on this channel"
+    mean the same thing on all three.
+
+    A vendor is scored only when all three channels were measured for it. The
+    alternative — treating an unmeasured channel as zero — publishes a low rank
+    for a vendor we never read, which is the failure this module exists to
+    prevent.
+    """
+    measured = [r for r in rows
+                if not (set(health.get(int(r["brand_id"]), {}).values())
+                        & INDEX_BLOCKING)]
+    cohort = {
+        "posts": sorted(r["posts"] or 0 for r in measured),
+        "jobs": sorted(r["jobs"] or 0 for r in measured),
+        MENTION_CHANNEL: sorted(r["articles"] or 0 for r in measured),
+    }
+    column = {"posts": "posts", "jobs": "jobs", MENTION_CHANNEL: "articles"}
+    measured_ids = {int(r["brand_id"]) for r in measured}
+
+    for row in rows:
+        states = health.get(int(row["brand_id"]), {})
+        blocked = sorted(c for c, s in states.items() if s in INDEX_BLOCKING)
+        row["channel_states"] = states
+        if blocked or int(row["brand_id"]) not in measured_ids:
+            row["activity_index"] = None
+            row["activity_percentiles"] = None
+            row["index_unavailable_because"] = (
+                "Partial activity — index unavailable: "
+                + ", ".join(f"{c} {STATE_LABELS.get(states[c], states[c])}"
+                            for c in blocked)
+                if blocked else
+                "Partial activity — index unavailable")
+            continue
+        percentiles = {c: _percentile(cohort[c], row[column[c]] or 0)
+                       for c in cohort}
+        row["activity_percentiles"] = {c: round(p * 100, 1)
+                                       for c, p in percentiles.items()}
+        row["activity_index"] = round(
+            100 * sum(percentiles.values()) / len(percentiles))
+        row["index_unavailable_because"] = None
+
+
+def _percentile(sorted_values: List[float], value: float) -> float:
+    """Fraction of the cohort at or below ``value``.
+
+    Ties share a percentile, so twenty vendors with no posts all rank equally
+    on that channel rather than being ordered by whatever the sort happened to
+    do. An empty cohort gives 0.0 — with nobody to compare against there is no
+    rank, and the caller has already withheld the index in that case.
+    """
+    if not sorted_values:
+        return 0.0
+    return bisect_right(sorted_values, value) / len(sorted_values)
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:

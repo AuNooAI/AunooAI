@@ -360,3 +360,61 @@ def test_the_backstop_is_case_insensitive():
 
     rows = [{'title': 'Exaforce announces ExaGo'}, {'title': 'Acme news'}]
     assert ent.drop_text_mentioning(rows, ['exaforce']) == [{'title': 'Acme news'}]
+
+
+def test_the_report_backstop_is_actually_armed(conn, market):
+    """That the guard runs, not merely that the output happens to be clean.
+
+    ``test_mm20_the_report_names_only_authorized_vendors`` asserts on the
+    rendered HTML. It passed for a full day while the builder's own fail-closed
+    check was dead: a later block assigned ``withheld = sum(...)``, shadowing
+    the list of vendor names with an integer, and ``assert_no_withheld``'s
+    "nothing to check" guard fired on a count of 0. The row and text filters
+    were doing their job, so the output was clean and the test saw nothing.
+
+    Testing an outcome does not test the guard that protects it. This asserts
+    the builder passes the *names* to the backstop, by forcing a withheld name
+    into the page and requiring the refusal.
+    """
+    import app.services.market_report_html as mrh
+
+    row = conn.execute(text(
+        "SELECT * FROM bw_markets WHERE id = :m"), {'m': market}).mappings().first()
+    allowed = ent.authorized_brand_ids(conn, market, 10)
+    withheld = ent.withheld_names(conn, market, allowed)
+    assert withheld, 'this market must have vendors to withhold'
+
+    # Wrap the backstop to record what it was handed. Patched on the
+    # entitlements module itself, because the builder imports it inside the
+    # function and so resolves the attribute at call time.
+    seen = {}
+    original = ent.assert_no_withheld
+
+    def _spy(rendered, names, **kw):
+        seen['names'] = names
+        return original(rendered, names, **kw)
+
+    ent.assert_no_withheld = _spy
+    try:
+        mrh.build_market_report(conn, dict(row), days=30,
+                                allowed_brand_ids=allowed)
+    finally:
+        ent.assert_no_withheld = original
+
+    handed = seen.get('names')
+    assert isinstance(handed, (list, tuple, set)), (
+        f'the backstop was handed {type(handed).__name__}, not the name list — '
+        'its empty-check would then pass on a falsy value and disable it')
+    assert len(handed) == len(withheld)
+
+
+def test_the_backstop_refuses_a_page_that_names_a_withheld_vendor(conn, market):
+    """And that it still refuses when a name does reach the output."""
+    allowed = ent.authorized_brand_ids(conn, market, 10)
+    withheld = ent.withheld_names(conn, market, allowed)
+    if not withheld:
+        pytest.skip('nothing withheld in this market')
+
+    with pytest.raises(ent.DisclosureError):
+        ent.assert_no_withheld(f'a page mentioning {withheld[0]} by name',
+                               withheld)

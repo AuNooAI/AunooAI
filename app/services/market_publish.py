@@ -858,9 +858,15 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                    AND {_OWN_VOICE}
                    AND COALESCE(a.publication_date, a.submission_date) >= {since}
                ) AS posts,
-               (SELECT COUNT(*) FROM bw_vendor_snapshots s
-                 WHERE s.brand_id = b.id AND s.snapshot_type = 'job_posting'
-               ) AS jobs,
+               -- Jobs are filled in below from the same rules the hiring
+               -- drill-down applies, not counted here. `COUNT(*)` over the
+               -- snapshots read 209 listings against that list's 149: it
+               -- counted a listing again each time its payload changed, kept
+               -- the LinkedIn copy of a role already on the company's own
+               -- board, and kept listings last seen to be gone. An overview
+               -- figure 40% above the list behind it is the failure the
+               -- drill-downs exist to prevent.
+               0 AS jobs,
                -- Windowed to match `posts` — this used to count every article
                -- ever seen for the vendor regardless of period, so the sort
                -- mixed a period figure (posts) with an all-time one (articles)
@@ -874,6 +880,28 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
     """), {"m": market_id}).mappings().all()]
+    # Currently observed listings, from `market_lists.jobs` so this figure and
+    # the list a reader opens from it are the same measurement. Present-now is
+    # `currently_observed` plus `newly_observed`; the latter is a subset of the
+    # former in spec 4.8 terms — present in the latest successful uncapped run,
+    # and additionally absent from the one before it.
+    from app.services import market_lists as _mlists
+    _jobs = _mlists.jobs(conn, market_id, page_size=1, include_all=True)
+    _present: Dict[int, int] = {}
+    for _row in _jobs.get("_all") or []:
+        if _row["status"] in ("currently_observed", "newly_observed"):
+            _present[int(_row["brand_id"])] = \
+                _present.get(int(_row["brand_id"]), 0) + 1
+    for _row in activity:
+        _row["jobs"] = _present.get(int(_row["brand_id"]), 0)
+
+    # Whether each channel was measured for each vendor, then the index. A
+    # vendor missing one channel gets no index rather than a low one — see
+    # `market_metrics.activity_index`.
+    from app.services import market_metrics as _mmet
+    _health = _mmet.vendor_channel_health(conn, market_id)
+    _mmet.activity_index(activity, _health)
+
     # There used to be a `signals` column here, posts + jobs. It was dropped
     # because the sum has no meaning to recover: `posts` counts what a vendor
     # published inside the selected period, `jobs` counts listings standing open
@@ -881,11 +909,22 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     # either the period or the hiring freeze changes and cannot be read as
     # either. The three real measures ship on their own.
     #
-    # Ordering is earned coverage first — what other people said, which is the
-    # question the table is usually being asked — then the two owned measures in
-    # their own right as tie-breaks. No composite.
-    activity.sort(key=lambda r: (r["articles"] or 0, r["posts"] or 0,
-                                 r["jobs"] or 0), reverse=True)
+    # Ordering is the Activity Index, which is a composite but a legible one:
+    # each channel becomes a percentile before they are averaged, so it cannot
+    # be the jobs column wearing a broader name the way `signals` was. Vendors
+    # whose index was withheld follow, ranked on the raw measures — earned
+    # coverage first, then the two owned ones — because they still have real
+    # counts and dropping them would hide most of the market on a young
+    # collection. `index_unavailable_because` says why, per vendor.
+    #
+    # Deterministic tie-break at the cutoff, per spec 4.0: ranking value, then
+    # earned mentions, then the canonical name. Without the last one, two
+    # vendors on the same figures could swap places between two requests and
+    # a restricted report's Top 10 would not be stable.
+    activity.sort(key=lambda r: (r["activity_index"] is None,
+                                 -(r["activity_index"] or 0),
+                                 -(r["articles"] or 0), -(r["posts"] or 0),
+                                 -(r["jobs"] or 0), r["vendor"] or ""))
     quiet = [r for r in activity
              if not r["posts"] and not r["jobs"] and not r["articles"]]
 
@@ -919,10 +958,18 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
         "coverage": coverage,
         "funding": funding,
         "top_funded": top_funded,
-        # Full ranked list, not a pre-cut top 10 — DataTable on the frontend
-        # sorts and groups client-side, and a server-side cut by one score
-        # hides rows a different sort should have surfaced.
+        # Full ranked list. The cut to Top X is applied by the caller, because
+        # it is an entitlement decision rather than a display one: a restricted
+        # reader must never receive the rows the page then hides, and an
+        # authorised one wants every row to sort and group client-side.
         "most_active": activity,
+        "activity_index": {
+            "scored": sum(1 for r in activity
+                          if r["activity_index"] is not None),
+            "withheld": sum(1 for r in activity
+                            if r["activity_index"] is None),
+            "channels": ["posts", "jobs", "mentions"],
+        },
         "quiet_vendors": len(quiet),
         "corpus": corpus,
         "last_runs": last_runs,

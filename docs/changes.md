@@ -2,6 +2,82 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 (shared report) — the sharing link opens on a news page, and its disclosure guard was dead
+
+### Goal
+A design mockup for the shared market link: a news page rather than a report. Metric cards with
+their denominators, stories with what backs each one, a sidebar of movers and voices.
+
+### `market_report_html` — the news lead
+`NEWS_CSS` and four renderers, every rule scoped under `.mm-news`. That scoping is load-bearing:
+`html_document` and `BASE_CSS` are shared with the consensus and horizons reports, and an unscoped
+rule would restyle all three. Verified both still import and that `mm-news` appears in neither the
+shared shell nor `BASE_CSS`.
+
+The detailed sections below are unchanged and still carry the methodology appendix. This is the
+scannable front, not a replacement for the evidence.
+
+**Stories are findings**, which is what made the mockup buildable at all: a finding already has a
+theme (the tag), a headline, a corroboration state (the byline) and evidence (the link). The byline
+carries evidence state rather than a source name, because that is what a reader of a shared report
+most needs and least has: "the vendor announced it; no independent source".
+
+**Nothing is drawn that is not there.** `_spark` refuses fewer than four points, so the headcount
+series — two weekly points carrying its own `thin_coverage` flag — gets a sentence instead of a
+line. Movers and voices have explicit empty states. There is no generated summary paragraph: the
+"In summary" block in the mockup became the market's own question, because everything else on the
+page traces to a record and a synthesised paragraph would be the one thing that does not.
+
+### The disclosure backstop was silently disabled
+Building this surfaced it. `build_market_report` sets `withheld = ent.withheld_names(...)` at the
+top — the vendor names a shared page must not contain — and a later block reused the same name:
+`withheld = sum(1 for v in active if v.get("activity_index") is None)`.
+
+By the time `ent.assert_no_withheld(rendered, withheld)` ran it held an **integer**. When that count
+was `0` the backstop's `if not withheld: return` fired and **the check did nothing**; when it was
+non-zero it raised `TypeError`. So the fail-closed guard described yesterday as "the only check that
+does not depend on having remembered every section" was off on every shared report where the
+activity table rendered with all indices present.
+
+Renamed to `unscored`. The row and text filters were unaffected throughout, and the live shared
+report still names 10 of 84 vendors — no disclosure occurred.
+
+**Why the existing test missed it.** `test_mm20_the_report_names_only_authorized_vendors` asserts on
+the rendered HTML. The row and text filters were doing their job, so the output was clean and the
+test passed while the guard behind it was dead. Testing an outcome does not test the guard that
+protects it. `test_the_report_backstop_is_actually_armed` now wraps `assert_no_withheld` and asserts
+it is handed the name *list*; reintroducing the shadowing fails it with "the backstop was handed
+int, not the name list", and the fix passes it. Verified both ways.
+
+### Two more caught by reading the output
+**A window mismatch of my own making.** The strip is labelled "last 30 days" and read
+`analyses["share_of_voice"]`, which `man.run(...)` builds without `days` — all-time. It quoted 4
+earned mentions against 2,088 owned posts under a 30-day heading. The strip now fetches its own
+windowed copy, leaving the sections below untouched: 2 earned against 531 owned.
+
+**A summary that repeated its headline.** These events are extracted from a post whose first
+sentence became the title, so the two are often the same words, and the card printed the sentence
+twice. Compared after stripping the `Vendor: ` prefix the extractor adds to a headline but not to a
+summary — without that they never look alike and the duplicate survives.
+
+### Verification
+- Market suites: **227 passed**, plus the 3 pre-existing `pytest-asyncio` failures.
+- Live: anonymous sharing link 98,868 bytes naming **10 of 84** vendors; operator view 125,683 bytes
+  naming 84 of 84. Both carry the news lead and the methodology appendix.
+- `BASE_CSS` and the shared shell contain no `mm-news` rules; `consensus_html` and `horizons_html`
+  import clean.
+- Restart gated on in-flight work.
+
+### Propagation
+Canonical only. Market Monitor exists on no other tenant.
+
+### Lessons
+- **A test on the output does not test the guard.** The disclosure backstop was dead for a day
+  behind a passing test, because two independent filters upstream were keeping the output clean. If
+  a check exists to catch what the other layers miss, assert that it *ran*.
+- Reusing a variable name across 500 lines of one function is enough to disable a security control
+  without changing a line of its logic.
+
 ## 2026-08-26 (headcount average) — a market average computed from one vendor
 
 **Commit:** `05908965`
