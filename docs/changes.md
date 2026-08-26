@@ -2,6 +2,98 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (auth surface, follow-up) — the logs say nobody used the hole, and only cover 15 days of the 19 months it was open
+
+### Goal
+Yesterday's entry closed 2,712 unauthenticated routes across ten sites and left one question open:
+does any of this need telling a customer. That decision was resting on "no evidence anyone read
+anything", which nobody had checked. This is the check. No code changed.
+
+### What the access logs actually show
+Every successful request to a formerly-open endpoint in the available logs came from one of two
+places, and neither is a stranger.
+
+`90.247.228.3` — 31 hits on the config and diagnostic endpoints, 2,254 on the article-data
+endpoints. It logged in successfully once (`POST /login` → 302), runs Chrome/151 on Windows, sends
+a `Referer` of `https://bugfixing.aunoo.ai/config`, and made 91,601 requests across the window.
+That is an operator using the product, and the `/config/*` burst is the settings page loading every
+provider in sequence.
+
+`5.9.100.178` — 23 hits. That is this host's own egress IP, confirmed against `api.ipify.org`. My
+verification curls from yesterday.
+
+Nothing else. **Zero successful reads from a non-browser user agent** on either endpoint set, so no
+script, crawler or scraper got a 200 out of the routes that were open.
+
+### The finding that matters: the window is 15 days and the hole was open for 19 months
+`/etc/logrotate.d/nginx` is set to `rotate 14`, daily. The logs hold 338,669 requests spanning
+**12–26 August, 15 distinct days**. The routes were open from January 2025 (`709541c7`,
+`7b76e66e`, `97b51424`) to yesterday, so the logs cover **about 2.5% of the exposure** (15 days out of roughly 578).
+
+So the accurate statement is "no evidence of misuse in the 2.5% we can see", not "nothing happened".
+Those are different claims and the second one is not supported. Nothing in the remaining 97.5% is
+recoverable; there is no archive.
+
+The nginx log directory is **9.4 MB** and the filesystem has **1.8 TB free**, so the 14-day limit
+buys nothing. Extending it is a one-line change and is **not done** — flagged for Oliver rather
+than actioned, since it is an ops change nobody asked for.
+
+### Nearly a false alarm: `/.env` returning 200 is a single-page-app fallback, not a leak
+Outside scanners probe this host constantly. Filtering for `.env`, `.git`, `config.json` and `.aws`
+shaped paths, **781 requests returned 200** — `/.env` 51 times, `/.git/config` 40, plus
+`/.env.local`, `/.env.production`, `/backend/.env` and similar.
+
+That is not a leak, and the reason is worth writing down because the log line looks identical to
+one. Response bodies are 571–624 bytes and fetching them directly returns `<!doctype html>` — the
+`saas` and `badaura` vhosts serve `index.html` for any unmatched path, so a scanner asking for
+`/.env` gets the app shell with a 200. The monolith tenants return `{"detail":"Not Found"}` with a
+404. No secrets file was ever served.
+
+Checked by requesting `/.env` from four hosts directly rather than by reasoning about the config:
+`bugfixing` 404, `wiley` 404, `saas` 200 + HTML, `badaura` 200 + HTML.
+
+### Verification
+`sudo zcat -f /var/log/nginx/access.log*` → 338,669 lines; oldest entry 12/Aug/2026, newest
+26/Aug/2026, 15 distinct days (the concatenation is not chronological, so the bounds were taken by
+extracting and sorting every date rather than from `head`/`tail`, which gave a wrong answer first).
+
+Successful-hit counts by IP as above, taken by matching the status field positionally rather than
+with a bare `grep " 200 "`, which would also match a byte count or a path fragment.
+
+`curl https://api.ipify.org` → `5.9.100.178`, confirming the second IP is this machine.
+
+Direct fetches of `/.env` on four hosts, with the first 80 bytes of each body inspected.
+
+No code, config or database change, so no test run and no restart. Nothing to verify beyond the
+log analysis itself.
+
+### Propagation
+Nothing to propagate — this is an investigation. The scratchpad copy of the concatenated log is
+temporary and deliberately not committed.
+
+Two housekeeping notes on yesterday's entry. `eb072210` (the guard) and `56ae6795` (its
+propagation) carry commit timestamps of **2026-08-26 08:46 and 08:59** but are documented inside
+the `2026-08-25 (auth surface)` entry, because they finish one continuous piece of work that
+started there. Anyone matching entries to commit dates should expect that. All four commits from
+that piece — `91a65521`, `d4e46a77`, `eb072210`, `56ae6795` — are in canonical only; none of the
+nine production trees was committed to.
+
+### Lessons
+**ALWAYS check what a 200 actually returned before calling it a leak.** 781 requests for `.env`-
+shaped paths returned 200 on this host and not one of them served a secret. An SPA that falls back
+to `index.html` answers 200 for everything, which makes a scanner's log line indistinguishable from
+a successful theft. One `curl` settled it; reading the log alone would have produced a false
+incident.
+
+**A retention window shorter than the exposure window turns a security question into an unanswerable
+one.** The auth hole is fixed. The reason we cannot say what it cost is a `rotate 14` that nobody
+chose deliberately, against 9.4 MB of logs and 1.8 TB of free disk. Same shape as the auth gap
+itself: the failure was not the incident, it was that nothing recorded enough to answer afterwards.
+
+**NEVER take a log window from `head` and `tail` of concatenated rotated files.** `zcat access.log*`
+does not emit chronological order, and the first attempt at the window reported 12–17 August when
+the true range was 12–26. Extract the dates and sort them.
+
 ## 2026-08-25 (auth surface) — 216 routes answered anonymous requests, and admin/admin still worked
 
 ### Goal
