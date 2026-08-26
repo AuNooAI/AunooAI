@@ -256,30 +256,94 @@ JOB_STATUSES = ("currently_observed", "newly_observed", "no_longer_observed",
                 "first_observation")
 
 
-def _job_run_history(conn, market_id: int) -> Dict[int, List[int]]:
-    """Per vendor, the successful jobs runs that covered it, newest first.
+# Every source that produces a job listing. Two of them now: the billed
+# LinkedIn dataset, and the company's own hiring system, which is free.
+JOB_SOURCES = ("linkedin_jobs", "ats_jobs")
+
+
+def drop_cross_source_duplicates(rows: List[Dict[str, Any]]
+                                 ) -> List[Dict[str, Any]]:
+    """One role published on two boards is one role.
+
+    A company that posts a job to LinkedIn *and* to its own hiring system
+    produces two listings for one job, and adding the sources together counted
+    both: of 188 listings, 39 were the same role twice — 28 of 7ai's 29 LinkedIn
+    titles were also on its Ashby board, and all six of Crogl's.
+
+    The company's own board wins. It is the primary publication, it carries a
+    real posting date where the LinkedIn dataset carries none, and it is what a
+    reader checking the claim will open.
+
+    Matched on normalised title within one vendor, which is safe in this
+    direction only: if a company has two distinct roles sharing a title, its own
+    board has both of them, so dropping the LinkedIn copy loses nothing.
+
+    Shared with ``market_analysis.hiring`` so the count on a card and the count
+    in its drill-down cannot drift apart — they did, by exactly these 39.
+    """
+    own_board: Dict[Any, set] = {}
+    for row in rows:
+        if row.get("source") == "ats_jobs":
+            own_board.setdefault(row.get("brand_id"), set()).add(
+                _normalize_title(row.get("title")))
+    if not own_board:
+        return list(rows)
+
+    kept = []
+    for row in rows:
+        title_key = _normalize_title(row.get("title"))
+        if (row.get("source") != "ats_jobs" and title_key
+                and title_key in own_board.get(row.get("brand_id"), set())):
+            continue
+        kept.append(row)
+    return kept
+
+
+def _normalize_title(title: Optional[str]) -> str:
+    """A job title reduced to what two boards would agree on.
+
+    Case, punctuation and runs of whitespace only. Deliberately not fuzzy: two
+    genuinely different roles often differ by one word ("Senior Security
+    Engineer" against "Security Engineer"), so a similarity threshold would
+    merge them and undercount a company's hiring.
+    """
+    cleaned = re.sub(r"[^a-z0-9 ]", " ", (title or "").lower())
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _job_run_history(conn, market_id: int
+                     ) -> Tuple[Dict[Tuple[int, str], List[int]],
+                                Dict[int, Optional[set]]]:
+    """Per vendor and source, the successful jobs runs that covered it.
+
+    Keyed on **(vendor, source)**, not vendor alone. A listing only ever appears
+    in runs of the source that found it, so comparing an Ashby listing against
+    the latest LinkedIn run would find it absent and report it gone — every ATS
+    listing would read as closed on the next LinkedIn sweep, and vice versa.
 
     A run covers a vendor when it named that vendor (``brand_id``) or when the
     vendor was in its requested set. Market-wide sweeps are the normal case, so
     reading only ``brand_id`` would find almost no history.
 
-    Only successful runs count. The spec is explicit that a failed, partial or
-    truncated run may not mark a listing as gone, and this is where that is
-    enforced: such runs are simply not in the history, so nothing is ever
-    compared against them.
+    Only successful, uncapped runs count. The spec is explicit that a failed,
+    partial or truncated run may not mark a listing as gone, and this is where
+    that is enforced: such runs are not in the history at all, so nothing is
+    ever compared against them.
     """
     rows = conn.execute(text("""
-        SELECT r.id, r.brand_id, r.requested_brand_ids
+        SELECT r.id, r.brand_id, r.source, r.requested_brand_ids,
+               r.metrics->'seen_item_ids' AS seen_item_ids
           FROM bw_collection_runs r
-         WHERE r.market_id = :m AND r.source = 'linkedin_jobs'
+         WHERE r.market_id = :m AND r.source = ANY(:sources)
            AND r.status = 'succeeded'
            -- A batch that came back at the provider's limit may be missing
            -- listings it never saw, so it cannot be evidence of absence.
            AND COALESCE((r.metrics->>'truncated')::boolean, false) = false
          ORDER BY r.started_at DESC
-    """), {"m": market_id}).mappings().all()
+    """), {"m": market_id, "sources": list(JOB_SOURCES)}).mappings().all()
 
-    history: Dict[int, List[int]] = {}
+    history: Dict[Tuple[int, str], List[int]] = {}
+    seen_by_run: Dict[int, Optional[set]] = {}
     for row in rows:
         covered = set()
         if row["brand_id"]:
@@ -287,13 +351,19 @@ def _job_run_history(conn, market_id: int) -> Dict[int, List[int]]:
         for bid in (row["requested_brand_ids"] or []):
             covered.add(int(bid))
         for bid in covered:
-            history.setdefault(bid, []).append(int(row["id"]))
-    return history
+            history.setdefault((bid, row["source"]), []).append(int(row["id"]))
+        # What the run reported seeing, where it recorded that. None means the
+        # run predates the recording, and the caller falls back to the
+        # snapshot's own run id.
+        items = row["seen_item_ids"]
+        seen_by_run[int(row["id"])] = (
+            {str(i) for i in items} if isinstance(items, list) else None)
+    return history, seen_by_run
 
 
 def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
-         status: Optional[str] = None, page: int = 1,
-         page_size: int = DEFAULT_PAGE_SIZE,
+         status: Optional[str] = None, source: Optional[str] = None,
+         page: int = 1, page_size: int = DEFAULT_PAGE_SIZE,
          sort: str = "vendor:asc",
          include_all: bool = False) -> Dict[str, Any]:
     """Job listings we can currently see, and what changed since last time.
@@ -304,60 +374,98 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
     include it that day. The statuses say only what we observed.
     """
     size, offset = _page(page, page_size)
-    history = _job_run_history(conn, market_id)
+    history, seen_by_run = _job_run_history(conn, market_id)
 
     where = ["s.snapshot_type = 'job_posting'", "mb.market_id = :m",
-             "mb.role <> 'excluded'"]
-    params: Dict[str, Any] = {"m": market_id}
+             "mb.role <> 'excluded'", "s.source = ANY(:sources)"]
+    params: Dict[str, Any] = {"m": market_id, "sources": list(JOB_SOURCES)}
     if brand_id is not None:
         where.append("s.brand_id = :b")
         params["b"] = brand_id
+    # `source` is deliberately *not* filtered here — see the dedup below.
 
     # One row per listing, carrying every run that saw it, so the status rules
     # below are a set comparison rather than another query per row.
     rows = [dict(r) for r in conn.execute(text(f"""
-        SELECT s.provider_item_id, s.brand_id, b.display_name AS vendor,
+        SELECT s.provider_item_id, s.brand_id, s.source,
+               b.display_name AS vendor,
                MAX(s.data->>'title') AS title,
                MAX(s.data->>'location') AS location,
                MAX(s.data->>'seniority') AS seniority,
-               MAX(s.data->>'function') AS function,
+               -- ATS listings carry the board's own department in `function`
+               -- and a normalised guess in `function_hint`; LinkedIn ones only
+               -- have the former. Preferring the raw value keeps the company's
+               -- own wording where it exists.
+               COALESCE(MAX(s.data->>'function'),
+                        MAX(s.data->>'function_hint')) AS function,
                MAX(s.data->>'employment_type') AS employment_type,
                MAX(s.data->>'url') AS url,
+               MAX(s.data->>'observed_source') AS observed_source,
                MIN(s.observed_at) AS first_seen,
                MAX(s.observed_at) AS last_seen,
+               -- A real publication date where the board gives one. LinkedIn
+               -- never did reliably; Greenhouse and Ashby both do.
+               MAX(s.published_at) AS posted_at,
                ARRAY_AGG(DISTINCT s.collection_run_id) AS seen_in_runs
           FROM bw_vendor_snapshots s
           JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
           JOIN bw_brands b ON b.id = s.brand_id
          WHERE {' AND '.join(where)}
-         GROUP BY s.provider_item_id, s.brand_id, b.display_name
+         GROUP BY s.provider_item_id, s.brand_id, s.source, b.display_name
     """), params).mappings().all()]
 
     from app.services.market_analysis import _group_function
 
     out: List[Dict[str, Any]] = []
     for row in rows:
-        runs = history.get(int(row["brand_id"]), [])
+        # Keyed on the source that produced the listing, so an Ashby listing is
+        # only ever compared against Ashby runs. Comparing across sources would
+        # report every ATS listing as gone on the next LinkedIn sweep.
+        runs = history.get((int(row["brand_id"]), row["source"]), [])
         latest = runs[0] if runs else None
         previous = runs[1] if len(runs) > 1 else None
-        seen = {r for r in (row["seen_in_runs"] or []) if r is not None}
+        stored_in = {r for r in (row["seen_in_runs"] or []) if r is not None}
+
+        def _was_seen(run_id: Optional[int]) -> Optional[bool]:
+            """Was this listing present in that run? True, False, or unknown.
+
+            Three values, not two, and the third one matters. A run that
+            recorded what it saw gives a definitive answer. A run that did not
+            — every run from before that recording existed — can only confirm
+            presence, never absence: an unchanged listing writes no new
+            snapshot, so the stored row still points at the first run that saw
+            it and says nothing about later ones.
+
+            Treating that silence as absence marked all 99 listings "newly
+            observed" on the first run after the change, which is a claim about
+            a change that did not happen.
+            """
+            if run_id is None:
+                return None
+            reported = seen_by_run.get(run_id)
+            if reported is not None:
+                return row["provider_item_id"] in reported
+            return True if run_id in stored_in else None
+
+        seen_latest = _was_seen(latest)
+        seen_previous = _was_seen(previous)
 
         if latest is None:
-            # No successful covering run at all, so we cannot say anything
-            # about this listing's current state.
+            # No successful covering run at all, so nothing can be said about
+            # this listing's current state.
             state = "first_observation"
-        elif latest in seen:
-            # Present now. New only if there was a previous run to be absent
-            # from — with one run in history, everything would read as new.
-            state = ("newly_observed"
-                     if previous is not None and previous not in seen
+        elif seen_latest:
+            # Present now. "Newly" needs the previous run to have *definitely*
+            # not had it — unknown is not absent, or the first run after any
+            # change to how presence is recorded reports the whole board as new.
+            state = ("newly_observed" if seen_previous is False
                      else "currently_observed")
-        elif previous is not None and previous not in seen:
-            # Absent from the two most recent successful, uncapped runs.
+        elif seen_latest is False and seen_previous is False:
+            # Definitely absent from the two most recent successful, uncapped
+            # runs. Both have to be definite: one unknown is not a disappearance.
             state = "no_longer_observed"
         else:
-            # Absent from the latest run but we have no second run to confirm
-            # it, so it stays unclassified rather than being called gone.
+            # Not confirmed present and not confirmed gone.
             state = "first_observation"
 
         row["status"] = state
@@ -366,6 +474,15 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
         row.pop("seen_in_runs", None)
         out.append(row)
 
+    # Deduplicated across sources before any filter is applied, so filtering to
+    # one source cannot change what counts as a duplicate. Applied after, the
+    # per-source totals summed to 188 against an unfiltered 149.
+    before = len(out)
+    out = drop_cross_source_duplicates(out)
+    duplicates = before - len(out)
+
+    if source:
+        out = [r for r in out if r["source"] == source]
     if status:
         out = [r for r in out if r["status"] == status]
 
@@ -380,44 +497,65 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
         sort = "vendor:asc"
 
     total = len(out)
-    collection = mmet.collection_state(conn, market_id, "linkedin_jobs")
+    states = [mmet.collection_state(conn, market_id, src)
+              for src in JOB_SOURCES]
     single_run = sum(1 for r in out if r["runs_covering_vendor"] < 2)
+    by_source: Dict[str, int] = {}
+    for row in out:
+        by_source[row["source"]] = by_source.get(row["source"], 0) + 1
+
     notes = []
+    if duplicates:
+        notes.append(
+            f"{duplicates} LinkedIn listing(s) were excluded as the same role "
+            "already published on the company's own board, which is the "
+            "primary source and carries a posting date.")
     if single_run:
         notes.append(
             f"{single_run} listing(s) belong to a vendor with only one "
-            "successful jobs run on file, so no change can be reported for "
-            "them yet.")
+            "successful jobs run on file for that source, so no change can be "
+            "reported for them yet.")
+    # Which source found what. Two sources with very different coverage read as
+    # one number otherwise, and the LinkedIn half is the thin one.
+    if len(by_source) > 1:
+        notes.append("By source: " + ", ".join(
+            f"{n} from {k.replace('_', ' ')}"
+            for k, n in sorted(by_source.items(), key=lambda kv: -kv[1])))
 
     metric = mmet.metric(
         "observed_job_listings",
         label="Observed active job listings",
         definition=("Listings seen at a monitored vendor in the most recent "
-                    "successful, uncapped collection. First observation is not "
+                    "successful, uncapped collection, from LinkedIn and from "
+                    "the company's own hiring system. First observation is not "
                     "an opening date and disappearance is not a confirmed "
                     "closure."),
         numerator="job listings", denominator="monitored vendors",
-        collection=collection, value=total,
+        collections=states, value=total,
         limitations=[
-            # The largest limitation by far, and the one a reader is most
-            # likely to misread. Dropzone AI lists nothing on LinkedIn and has
-            # eleven roles open on its own careers page.
-            "LinkedIn only, and most companies here do not use it for hiring: "
-            "67 of 83 vendors list no roles on LinkedIn. A zero means none on "
-            "LinkedIn, not that the company is not hiring — roles posted to a "
-            "careers page or an applicant tracking system are not counted.",
+            # Kept, and rewritten. LinkedIn alone was the largest gap in this
+            # metric: Dropzone AI listed nothing there and had eleven roles on
+            # its own board. Reading the board directly closes most of it, and
+            # what remains is companies that publish nothing machine-readable.
+            "Most companies here do not hire through LinkedIn, so listings now "
+            "come from each company's own hiring system where we can find one. "
+            "A company whose careers page publishes no structured listings is "
+            "still uncovered, and a zero for it means we found nothing to read "
+            "rather than that it is not hiring.",
             "Indeed cannot attribute a listing to a company, so it is not a "
             "substitute source.",
             "A listing can disappear because it was filled, withdrawn or "
             "reworded, and we cannot tell which.",
-            "Only successful, uncapped runs are compared, so a failed run "
-            "never marks a listing as gone.",
+            "Only successful, uncapped runs are compared, and only against the "
+            "same source, so neither a failed run nor the other source ever "
+            "marks a listing as gone.",
         ])
 
     result = envelope(out[offset:offset + size], total=total,
                       page=max(1, page), page_size=size, sort=sort,
                       metric=metric, notes=notes,
-                      filters={"brand_id": brand_id, "status": status})
+                      filters={"brand_id": brand_id, "status": status,
+                               "source": source})
     if include_all:
         # The whole matching set, for the route's pre-existing `postings` key.
         # That key used to hold every listing, and quietly cutting it to one

@@ -2,6 +2,146 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (ATS job collector) — hiring read from the system each company actually uses
+
+### Goal
+Dropzone AI showed 0 open roles and had 11. LinkedIn genuinely listed none, and 67 of 83 vendors
+were in the same position, so the hiring column was near-useless for four fifths of the market.
+
+### Why the careers page was not the answer
+The obvious fix — extract listings from the careers pages we already fetch — cannot work. The
+stored `page_state` text for `dropzone.ai/careers` contains the string **"No items found."** and
+not one job title, because the page loads its listings in the browser. Checked all four
+undetectable vendors for `JobPosting` markup as well: zero hits. The listings were never in the
+HTML we keep, so no extractor over it could ever have found them.
+
+What does work is the hiring system's own public job board API. Verified against
+`boards-api.greenhouse.io/v1/boards/dropzoneai/jobs` before writing anything: **11 jobs**, the
+exact number reported.
+
+### `app/collectors/ats_collector.py` — new
+Two steps, mirroring `vendor_web_discovery` / `vendor_web`:
+
+**Discovery** reads the careers page once and records the board as a vendor identifier
+(`ats_board`, value `system:token`). This is the only step needing HTML.
+
+**Collection** calls that system's public API. Adapters for Greenhouse, Ashby, Lever, Workable,
+SmartRecruiters, Teamtailor and Recruitee, all unauthenticated and free — where every LinkedIn
+batch is billed. Attribution is exact, which is what Indeed could never give: a board token
+belongs to one company, so a listing from `ashbyhq.com/crogl` is Crogl's by construction rather
+than by name matching.
+
+Both Greenhouse and Ashby carry a real publication date. The LinkedIn dataset never did reliably,
+so this is better data as well as more of it.
+
+Normalised to the existing `job_posting` snapshot shape, so the counts, the drill-down and the
+status rules work on these unchanged. `posting_id` is namespaced `system:token:id` — two systems
+can issue the same integer and an unnamespaced collision would silently merge two companies'
+listings.
+
+### Live results
+Discovery: 82 vendors probed, **8 boards found**, 74 with none, 78 seconds.
+Collection: **97 listings from 8 boards in 2 seconds**, 0 unreadable.
+
+Four vendors had exactly Dropzone's problem, four more were badly undercounted:
+
+| Vendor | LinkedIn | Own board | System |
+|---|---|---|---|
+| Variance | 0 | 11 | Ashby |
+| Dropzone AI | 0 | 11 | Greenhouse |
+| Method Security | 0 | 7 | Ashby |
+| Wraithwatch | 0 | 6 | Ashby |
+| Qevlar | 1 | 15 | Teamtailor |
+| Nebulock | 4 | 8 | Ashby |
+| 7ai | 28 | 32 | Ashby |
+| Crogl | 6 | 7 | Ashby |
+
+Distinct roles went 91 → **149**; vendors with any listing 16 → **20**.
+
+### Four bugs found after the collector worked
+Each was found by checking output rather than by a test failing first.
+
+**Double counting.** Both sources were added together, giving 188. For the four vendors on both,
+nearly every LinkedIn title was also on the company's own board — 28 of 7ai's 29, all 6 of
+Crogl's. 39 listings were one role counted twice. `drop_cross_source_duplicates` prefers the
+company's own board (primary publication, carries a posting date) and matches on normalised title
+within one vendor, which is safe in that direction only: if a company has two roles sharing a
+title, its own board has both. Shared with `market_analysis.hiring`, because the card said 188
+while its own drill-down said 149.
+
+**Presence could not be read from stored rows.** `store_snapshot` skips a row whose content has
+not changed, so an unchanged listing keeps the `collection_run_id` of the *first* run that saw it.
+Run 450 read all 97 listings and stored none; every one then read as not-seen-since-run-433 and
+came back `first_observation`. This is the same "unchanged payload writes no row" trap as MM-05,
+which I had already tested for the profile collector and missed here. Fixed by recording
+`seen_item_ids` on the run in `bw_collection_runs.metrics` — jsonb that already exists, no
+migration.
+
+**Unknown was being read as absent.** With presence recorded on the newest run but not the older
+ones, all 99 listings reported `newly_observed` — a claim about a change that did not happen.
+`_was_seen` is now a tristate: a run that recorded what it saw is definitive; a run that did not
+can only ever *confirm* presence, never absence. `newly_observed` and `no_longer_observed` both
+require a definite negative. Now stable at 148 `currently_observed` across repeated runs.
+
+**A transaction held across HTTP.** `test_no_sweep_holds_a_transaction_across_an_http_call` — the
+guard written earlier this session — caught `_discover_ats` reading from the database and then
+awaiting a careers page without committing. This database kills a connection idle in a transaction
+for 60 seconds. Fixed by committing before the fetch and moving the multi-URL probe into
+`ats_collector.discover_board`, which touches no connection at all.
+
+Also fixed: `ats_discovery` reported `never_collected` immediately after a successful run, because
+nothing called `record_success` on its policy rows. And the `source` filter was accepted by the
+service but not passed through by the route, so both values returned the full 188.
+
+### Read path and UI
+- `JOB_SOURCES` is now a tuple, and run history is keyed on **(vendor, source)**. Keyed on vendor
+  alone, two LinkedIn sweeps would be read as evidence an Ashby listing had gone, so every ATS
+  listing would close on the next LinkedIn run and vice versa.
+- `/jobs` takes `source`; the drill-down shows Source and the company's own Posted date, kept
+  distinct from "first seen", which is when we noticed.
+- The vendor column goes back to **"Open roles"** from "Open roles on LinkedIn". Still prints `0`
+  rather than a dash — both collectors ran — with a tooltip saying a company publishing no
+  structured listings anywhere would also read as zero.
+- The metric's first limitation is rewritten: it no longer says "LinkedIn only", and it still says
+  a zero does not mean not hiring.
+
+### Verification
+- `pytest tests/test_ats_collector.py` — **15 passed**. Fixtures are trimmed real captures; no
+  live calls, because these are somebody else's public APIs. The detection tests carry the weight:
+  a wrong token does not fail loudly, it returns another company's jobs under our vendor's name.
+- `pytest tests/test_market_lists.py` — **29 passed**, including a regression for each of the four
+  bugs above.
+- Market suite: 170 passed, 10 skipped, 3 failed — the pre-existing `pytest-asyncio` failures.
+- Full suite: 789 passed. No failure in any market, ats or entity file.
+- `npm run typecheck` clean at the 246 known baseline.
+- Live: `/jobs` total 149, `/analysis/hiring` openings 149 (they agree), Dropzone 11,
+  `source=ats_jobs` 97 + `source=linkedin_jobs` 52 = 149, `collection-state` shows `ats_jobs`
+  healthy 8/8 and `ats_discovery` healthy 82/82.
+- Checked for in-flight runs before each restart; zero every time.
+
+### Two bugs the tests caught before they shipped
+- `_seniority_of` matched `"cto"` as a substring inside `"dire`**`cto`**`r"`, so every Director
+  read as an Executive. Now matched on word boundaries. Short acronyms are exactly where substring
+  matching goes wrong.
+- The Greenhouse embed URL is `greenhouse.io/embed/job_board/js?for=dropzoneai`, so a path-segment
+  match returns the literal `"embed"` — a real board belonging to nobody in particular. Every
+  Greenhouse vendor would have collected the same wrong listings, confidently.
+
+### Propagation
+Canonical only (`bugfixing`). Market Monitor exists on no other tenant.
+
+### Lessons
+- **Check whether the data is there before building the extractor.** The careers-page scraper was
+  the obvious plan and would have returned zero rows, because the listings were never in the HTML.
+  One query against the stored text settled it in a minute.
+- **A count from two sources needs a dedup rule before it needs anything else.** Adding them was
+  the first thing I did and it inflated the headline figure by 26%.
+- **"We did not observe it" is not "it is not there."** Both new status bugs were the same mistake
+  in opposite directions: treating an unknown as a definite answer.
+- Never infer presence from a content-hash-deduplicated table. It records what changed, not what
+  was seen.
+
+
 ## 2026-08-26 (Market Monitor drill-downs) — every figure now opens the records behind it
 
 ### Goal

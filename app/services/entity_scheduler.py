@@ -95,6 +95,13 @@ CADENCE_HOURS: Dict[str, int] = {
     'crunchbase_company': 168,
     'vendor_web': 12,
     'vendor_web_discovery': 168,
+    # The company's own hiring system. Free and unauthenticated, so this can
+    # run more often than the billed LinkedIn jobs dataset — daily is enough
+    # for a job board and keeps the newly/no-longer-observed comparison
+    # meaningful without hammering somebody else's API.
+    'ats_jobs': 24,
+    # Which system a company uses changes when it migrates, which is rare.
+    'ats_discovery': 336,
 }
 
 # The identifier a source cannot run without.
@@ -107,6 +114,11 @@ REQUIRED_IDENTIFIER: Dict[str, str] = {
     'vendor_web_discovery': 'domain',
     'pitchbook_company': 'pitchbook_url',
     'zoominfo_company': 'zoominfo_url',
+    # Discovery needs somewhere to look; collection needs the board discovery
+    # found. Keeping them separate means a vendor with no board sits out of the
+    # collection backlog instead of looking permanently overdue.
+    'ats_discovery': 'domain',
+    'ats_jobs': 'ats_board',
 }
 
 SCHEDULED_SOURCES = tuple(CADENCE_HOURS)

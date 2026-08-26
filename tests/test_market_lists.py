@@ -17,7 +17,9 @@ states are constructed rather than waited for.
 
 from __future__ import annotations
 
+import json
 import os
+from typing import Any, Dict, List, Optional
 
 import pytest
 from sqlalchemy import text
@@ -244,8 +246,15 @@ def test_mm11_a_practitioner_item_reports_its_real_platform(conn, market):
 # ---------------------------------------------------------------------------
 
 def _jobs_vendor(conn, market_id: int):
+    """A vendor with a listing, and the source that found it.
+
+    The source matters: run history is keyed on (vendor, source), so a fixture
+    that adds LinkedIn runs while the listing came from the company's own board
+    changes nothing — which is the isolation working, and it broke this test
+    when the second source landed.
+    """
     row = conn.execute(text("""
-        SELECT s.brand_id, s.provider_item_id
+        SELECT s.brand_id, s.provider_item_id, s.source
           FROM bw_vendor_snapshots s
           JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                AND mb.market_id = :m AND mb.role <> 'excluded'
@@ -254,32 +263,48 @@ def _jobs_vendor(conn, market_id: int):
     """), {'m': market_id}).mappings().first()
     if row is None:
         pytest.skip('no job listings in this market')
-    return int(row['brand_id']), row['provider_item_id']
+    return int(row['brand_id']), row['provider_item_id'], row['source']
 
 
 def _add_run(conn, market_id: int, *, status: str, truncated: bool,
-             brand_id: int, offset_minutes: int) -> int:
+             brand_id: int, offset_minutes: int,
+             source: str = 'linkedin_jobs',
+             saw: Optional[List[str]] = None) -> int:
+    """A run of a job source.
+
+    ``saw`` is what the run reported seeing. An empty list means it ran and
+    found nothing, which is the only thing that can establish absence — a run
+    that recorded nothing at all leaves presence *unknown*, and unknown is
+    deliberately not treated as absent.
+    """
+    metrics: Dict[str, Any] = {}
+    if truncated:
+        metrics['truncated'] = True
+    if saw is not None:
+        metrics['seen_item_ids'] = saw
     return conn.execute(text("""
         INSERT INTO bw_collection_runs
             (market_id, source, provider, status, started_at,
              requested_brand_ids, metrics)
-        VALUES (:m, 'linkedin_jobs', 'brightdata', :st,
+        VALUES (:m, :src, 'brightdata', :st,
                 NOW() + (:off || ' minutes')::INTERVAL,
                 ARRAY[:b]::integer[], CAST(:met AS JSONB))
         RETURNING id
     """), {'m': market_id, 'st': status, 'off': str(offset_minutes),
-           'b': brand_id,
-           'met': '{"truncated": true}' if truncated else '{}'}).scalar()
+           'b': brand_id, 'src': source,
+           'met': json.dumps(metrics)}).scalar()
 
 
 def test_mm14_absent_from_two_complete_runs_is_no_longer_observed(conn, market):
     """MM-14. Two successful uncapped runs without it: gone, as far as we saw."""
-    brand_id, item = _jobs_vendor(conn, market)
-    # Two later successful runs that did not see this listing.
+    brand_id, item, source = _jobs_vendor(conn, market)
+    # Two later successful runs of the listing's own source that ran and saw
+    # nothing. Reporting an empty set is what makes this absence rather than
+    # merely unknown.
     _add_run(conn, market, status='succeeded', truncated=False,
-             brand_id=brand_id, offset_minutes=10)
+             brand_id=brand_id, offset_minutes=10, source=source, saw=[])
     _add_run(conn, market, status='succeeded', truncated=False,
-             brand_id=brand_id, offset_minutes=20)
+             brand_id=brand_id, offset_minutes=20, source=source, saw=[])
 
     rows = ml.jobs(conn, market, brand_id=brand_id,
                    page_size=ml.MAX_PAGE_SIZE)['data']
@@ -294,15 +319,19 @@ def test_mm13_a_failed_or_truncated_run_cannot_mark_a_listing_gone(conn, market)
     may simply not have reached this listing. Neither is evidence of absence, so
     neither may end a listing.
     """
-    brand_id, item = _jobs_vendor(conn, market)
+    brand_id, item, source = _jobs_vendor(conn, market)
 
     for status, truncated in (('failed', False), ('succeeded', True)):
         savepoint = conn.begin_nested()
         try:
+            # These report seeing nothing too, so the only thing keeping the
+            # listing alive is that the runs failed or were capped.
             _add_run(conn, market, status=status, truncated=truncated,
-                     brand_id=brand_id, offset_minutes=10)
+                     brand_id=brand_id, offset_minutes=10, source=source,
+                     saw=[])
             _add_run(conn, market, status=status, truncated=truncated,
-                     brand_id=brand_id, offset_minutes=20)
+                     brand_id=brand_id, offset_minutes=20, source=source,
+                     saw=[])
             rows = ml.jobs(conn, market, brand_id=brand_id,
                            page_size=ml.MAX_PAGE_SIZE)['data']
             mine = [r for r in rows if r['provider_item_id'] == item]
@@ -489,18 +518,148 @@ def test_the_legacy_postings_key_still_holds_every_listing(conn, market):
     assert '_all' not in ml.jobs(conn, market, page_size=10)
 
 
-def test_the_jobs_metric_says_a_zero_means_none_on_linkedin(conn, market):
+def test_the_jobs_metric_still_says_what_a_zero_does_not_mean(conn, market):
     """The limitation a reader is most likely to misread.
 
-    Dropzone AI lists nothing on LinkedIn and has eleven roles open on its own
-    careers page, and 67 of 83 vendors in this market are in the same position.
-    So the figure is correct and still misleading unless it names its source:
-    "0 open roles" reads as "not hiring" for most of the market, where the true
-    claim is "none on LinkedIn".
+    Dropzone AI listed nothing on LinkedIn and had eleven roles on its own
+    board, and 67 of 83 vendors in this market list nothing on LinkedIn. Reading
+    the company's own hiring system closes most of that gap, but not all of it:
+    a company publishing no structured listings anywhere is still uncovered, so
+    a zero must still not read as "not hiring".
     """
     got = ml.jobs(conn, market, page_size=1)
     limits = ' '.join(got['meta']['metric']['limitations']).lower()
-    assert 'linkedin only' in limits
-    assert 'not that the company is not hiring' in limits
-    assert 'careers page' in limits, (
-        'the alternative the roles are actually on has to be named')
+    assert "own hiring system" in limits, 'both sources have to be named'
+    assert 'rather than that it is not hiring' in limits
+    # And the cross-source rule, which is the new way this could go wrong.
+    assert 'the other source' in limits
+
+
+def test_listings_are_only_compared_against_their_own_source(conn, market):
+    """The bug that two job sources make possible.
+
+    Run history is keyed on (vendor, source). Keyed on vendor alone, an Ashby
+    listing would be looked for in the latest LinkedIn run, found absent, and
+    reported as no longer observed — so every ATS listing would read as closed
+    on the next LinkedIn sweep, and every LinkedIn listing on the next ATS one.
+    """
+    history, _seen = ml._job_run_history(conn, market)
+    assert all(isinstance(k, tuple) and len(k) == 2 for k in history), (
+        'history must be keyed on (brand_id, source)')
+    assert set(ml.JOB_SOURCES) == {'linkedin_jobs', 'ats_jobs'}
+
+    got = ml.jobs(conn, market, page_size=ml.MAX_PAGE_SIZE)
+    for row in got['data']:
+        assert row['source'] in ml.JOB_SOURCES
+        # A listing's run count is its own source's history, never the total.
+        own = history.get((row['brand_id'], row['source']), [])
+        assert row['runs_covering_vendor'] == len(own)
+
+
+def test_the_jobs_list_can_be_filtered_to_one_source(conn, market):
+    every = ml.jobs(conn, market, page_size=ml.MAX_PAGE_SIZE)
+    total = every['meta']['pagination']['total']
+    per_source = 0
+    for src in ml.JOB_SOURCES:
+        got = ml.jobs(conn, market, source=src, page_size=ml.MAX_PAGE_SIZE)
+        per_source += got['meta']['pagination']['total']
+        assert all(r['source'] == src for r in got['data'])
+    assert per_source == total, 'the sources partition the list'
+
+
+def test_the_other_sources_runs_never_end_a_listing(conn, market):
+    """The failure mode two job sources introduce.
+
+    Run history is keyed on (vendor, source). Keyed on vendor alone, two
+    successful LinkedIn sweeps would be read as evidence that a listing on the
+    company's own board had gone — so every ATS listing would close on the next
+    LinkedIn run, and every LinkedIn listing on the next ATS one.
+    """
+    brand_id, item, source = _jobs_vendor(conn, market)
+    other = next(s for s in ml.JOB_SOURCES if s != source)
+
+    _add_run(conn, market, status='succeeded', truncated=False,
+             brand_id=brand_id, offset_minutes=10, source=other, saw=[])
+    _add_run(conn, market, status='succeeded', truncated=False,
+             brand_id=brand_id, offset_minutes=20, source=other, saw=[])
+
+    rows = ml.jobs(conn, market, brand_id=brand_id,
+                   page_size=ml.MAX_PAGE_SIZE)['data']
+    mine = [r for r in rows if r['provider_item_id'] == item]
+    assert mine, 'the listing should still be listed'
+    assert mine[0]['status'] != 'no_longer_observed', (
+        f'{other} runs ended a {source} listing')
+
+
+def test_one_role_on_two_boards_is_counted_once(conn, market):
+    """A company posting the same role to LinkedIn and its own board.
+
+    Both sources were being added together, so of 188 listings 39 were one role
+    counted twice — 28 of 7ai's 29 LinkedIn titles were also on its Ashby board.
+    The company's own board wins: it is the primary publication and carries a
+    posting date.
+    """
+    got = ml.jobs(conn, market, page_size=ml.MAX_PAGE_SIZE)
+    rows = got['data']
+
+    own_titles: dict = {}
+    for row in rows:
+        if row['source'] == 'ats_jobs':
+            own_titles.setdefault(row['brand_id'], set()).add(
+                ml._normalize_title(row['title']))
+    # No LinkedIn row survives whose title is on the same vendor's own board.
+    leaked = [r for r in rows if r['source'] != 'ats_jobs'
+              and ml._normalize_title(r['title'])
+              in own_titles.get(r['brand_id'], set())]
+    assert not leaked, f'{len(leaked)} duplicated role(s) still counted'
+
+    # And the exclusion is disclosed rather than silent.
+    notes = ' '.join(got['meta']['notes'])
+    if any(r['source'] == 'ats_jobs' for r in rows):
+        assert 'excluded' in notes or 'By source' in notes
+
+
+def test_title_matching_does_not_merge_two_different_roles(conn, market):
+    """Normalisation is case and punctuation only, never fuzzy.
+
+    Two genuinely different roles often differ by one word, so a similarity
+    threshold would merge "Senior Security Engineer" into "Security Engineer"
+    and undercount a company's hiring.
+    """
+    assert (ml._normalize_title('Senior Security Engineer')
+            != ml._normalize_title('Security Engineer'))
+    assert (ml._normalize_title('Account Executive')
+            == ml._normalize_title('  account   executive '))
+    assert (ml._normalize_title('Detection Engineering Lead')
+            == ml._normalize_title('Detection Engineering Lead!'))
+    assert ml._normalize_title(None) == ''
+
+
+def test_an_unchanged_listing_is_still_present_not_newly_seen(conn, market):
+    """The trap that made a whole board read as new, then as unseen.
+
+    store_snapshot skips a row whose content has not changed, so an unchanged
+    listing keeps the collection_run_id of the *first* run that saw it. Presence
+    therefore cannot be inferred from the stored row on any later run, and a run
+    that did not record what it saw can only ever confirm presence — never
+    absence.
+
+    Reading that silence as absence produced 99 spurious "newly observed" on one
+    pass and, before that, 98 listings stuck at "first observation".
+    """
+    _, seen_by_run = ml._job_run_history(conn, market)
+    # At least one run records what it saw, otherwise this test proves nothing.
+    recorded = [r for r, items in seen_by_run.items() if items is not None]
+    if not recorded:
+        pytest.skip('no run has recorded its seen items yet')
+
+    got = ml.jobs(conn, market, page_size=ml.MAX_PAGE_SIZE)
+    statuses = {r['status'] for r in got['data']}
+    # A board read twice with nothing changed must not report a market-wide
+    # change in either direction.
+    ats_rows = [r for r in got['data'] if r['source'] == 'ats_jobs']
+    if ats_rows and len([r for r in recorded]) >= 2:
+        newly = [r for r in ats_rows if r['status'] == 'newly_observed']
+        assert len(newly) < len(ats_rows), (
+            'an unchanged board reported every listing as newly observed')
+    assert statuses <= set(ml.JOB_STATUSES)

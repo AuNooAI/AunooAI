@@ -956,9 +956,19 @@ export interface JobRecord {
   title: string | null; location: string | null; seniority: string | null;
   function: string | null; function_group: string;
   employment_type: string | null; url: string | null;
-  /** First seen and last seen, never an opening or closing date -- we observe
-   *  listings, we do not see the hiring decision. */
+  /** Which collector found it: `linkedin_jobs` or `ats_jobs`. Listings are only
+   *  ever compared against runs of their own source, or every listing from one
+   *  would read as closed on the next sweep of the other. */
+  source: string;
+  /** The board it came from, e.g. `ats:greenhouse`. */
+  observed_source: string | null;
+  /** First seen and last seen by us, never an opening or closing date -- we
+   *  observe listings, we do not see the hiring decision. */
   first_seen: string; last_seen: string;
+  /** When the company published it, where its board says so. Greenhouse and
+   *  Ashby both do; the LinkedIn dataset never did reliably, so this is null
+   *  for most LinkedIn listings. */
+  posted_at: string | null;
   status: JobStatus;
   runs_covering_vendor: number;
 }
@@ -1031,7 +1041,7 @@ export async function getCoverageItems(
 export async function getMarketJobs(
   marketId: number,
   params: {
-    brand_id?: number; status?: JobStatus;
+    brand_id?: number; status?: JobStatus; source?: string;
     page?: number; page_size?: number; sort?: string;
   } = {},
 ): Promise<ListEnvelope<JobRecord> & { openings: number; postings: JobRecord[] }> {

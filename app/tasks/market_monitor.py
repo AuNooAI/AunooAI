@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -50,6 +51,8 @@ SOURCE_POSTS = "linkedin_company_post"
 SOURCE_PROFILE = "linkedin_company_profile"
 SOURCE_PAGES = "vendor_web"
 SOURCE_DISCOVERY = "vendor_web_discovery"
+SOURCE_ATS_JOBS = "ats_jobs"
+SOURCE_ATS_DISCOVERY = "ats_discovery"
 SOURCE_CANDIDATES = "funding_discovery"
 SOURCE_CRUNCHBASE = mc.CRUNCHBASE_SOURCE
 SOURCE_JOBS = mc.JOBS_SOURCE
@@ -397,6 +400,11 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
                               forced_run_id=manual.get((SOURCE_PAGES, None)))
+    # Free and unauthenticated, so outside the provider-budget gate below.
+    runs += await _discover_ats(conn, market, vendors, now,
+                                forced_run_id=manual.get((SOURCE_ATS_DISCOVERY, None)))
+    runs += await _poll_ats_jobs(conn, market, now,
+                                 forced_run_id=manual.get((SOURCE_ATS_JOBS, None)))
 
     from app.services.brightdata_linkedin import linkedin_enabled
 
@@ -821,6 +829,252 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                      new=found, skipped=failed, error=str(e))
         conn.commit()
         logger.warning("feed discovery stopped after %d vendor(s): %s", found, e)
+    return 1
+
+
+# ── Hiring system (ATS) ─────────────────────────────────────────────────────
+#
+# LinkedIn was our only source of job listings and most of these companies do
+# not hire through it. See app/collectors/ats_collector for why the careers page
+# itself is not the answer either: the listings are fetched in the browser, so
+# they are not in the HTML we store.
+#
+# Both steps are free and unauthenticated, so neither sits behind the provider
+# budget gate.
+
+
+async def _discover_ats(conn, market: Dict[str, Any], vendors: List[dict],
+                        now: datetime,
+                        forced_run_id: Optional[int] = None) -> int:
+    """Record which hiring system each vendor uses, from its careers page."""
+    from app.collectors import ats_collector as ats
+    from app.services import entity_scheduler as sch_mod
+
+    if forced_run_id is None:
+        if _is_due(conn, market["id"], SOURCE_ATS_DISCOVERY, now) is None:
+            return 0
+        run_id = mc.open_run(conn, market_id=market["id"],
+                             source=SOURCE_ATS_DISCOVERY,
+                             provider=PROVIDER_INTERNAL)
+    else:
+        run_id = forced_run_id
+
+    # Committed before any fetching, and again per vendor. Awaiting HTTP inside
+    # an open transaction exposes the connection to the 60-second
+    # idle-in-transaction timeout on this database, which took out an earlier
+    # sweep after 452 seconds with nothing saved.
+    conn.commit()
+
+    found = unchanged = missing = 0
+    try:
+        for vendor in vendors[: _max_vendors_per_run()]:
+            pages = conn.execute(text("""
+                SELECT baseline->'web_pages' FROM bw_market_brands
+                WHERE market_id = :m AND brand_id = :b
+            """), {"m": market["id"], "b": vendor["brand_id"]}).scalar() or []
+            # A careers page if one was discovered, else the site root — the
+            # board is often linked from a nav bar.
+            candidates = [p["url"] for p in pages
+                          if isinstance(p, dict) and p.get("url")
+                          and re.search(r"career|job", p["url"], re.I)]
+            if not candidates:
+                domain = conn.execute(text("""
+                    SELECT normalized_value FROM bw_vendor_identifiers
+                    WHERE brand_id = :b AND kind = 'domain' AND valid_to IS NULL
+                    LIMIT 1
+                """), {"b": vendor["brand_id"]}).scalar()
+                if not domain:
+                    continue
+                candidates = [f"https://{domain}/careers"]
+
+            # Every read for this vendor is done; release the transaction
+            # before touching the network. The reads above open one, and this
+            # database kills a connection that sits idle in a transaction for
+            # 60 seconds — a slow careers page would otherwise take the whole
+            # sweep with it. The probe itself lives in the collector and holds
+            # no connection at all.
+            conn.commit()
+            board = await ats.discover_board(candidates[:3])
+
+            # Recorded whatever the outcome, because the question this source
+            # answers is "have we looked", and we have. Without it every
+            # discovery policy row stayed at last_success_at NULL and the panel
+            # reported the source as never collected straight after a
+            # successful run.
+            sch_mod.record_success(conn, SOURCE_ATS_DISCOVERY,
+                                   [vendor["brand_id"]])
+
+            if board is None:
+                # Not an error. Several of these companies publish no listings
+                # anywhere machine-readable, and recording that is the point.
+                missing += 1
+                conn.commit()
+                continue
+
+            existing = conn.execute(text("""
+                SELECT normalized_value FROM bw_vendor_identifiers
+                WHERE brand_id = :b AND kind = :k AND valid_to IS NULL
+                LIMIT 1
+            """), {"b": vendor["brand_id"],
+                   "k": ats.IDENTIFIER_KIND}).scalar()
+            if existing == board.key:
+                unchanged += 1
+                conn.commit()
+                continue
+
+            # A company that migrated systems gets its old board closed rather
+            # than deleted, so the listings collected through it keep a reason
+            # for existing.
+            if existing:
+                conn.execute(text("""
+                    UPDATE bw_vendor_identifiers SET valid_to = NOW()
+                    WHERE brand_id = :b AND kind = :k AND valid_to IS NULL
+                """), {"b": vendor["brand_id"], "k": ats.IDENTIFIER_KIND})
+            conn.execute(text("""
+                INSERT INTO bw_vendor_identifiers
+                    (brand_id, kind, normalized_value, display_value,
+                     provenance)
+                VALUES (:b, :k, :v, :d, CAST(:p AS JSONB))
+            """), {"b": vendor["brand_id"], "k": ats.IDENTIFIER_KIND,
+                   "v": board.key, "d": board.board_url,
+                   "p": json.dumps({"source": SOURCE_ATS_DISCOVERY,
+                                    "system": board.system})})
+            found += 1
+            conn.commit()
+
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=found + unchanged + missing, new=found,
+                     skipped=unchanged + missing)
+        conn.commit()
+        if found:
+            # Newly discovered boards have no policy row yet, so collection
+            # would not pick them up until the next seeding pass.
+            sch_mod.seed_policies(conn, ats.SOURCE_JOBS)
+            conn.commit()
+            logger.info("market %s: discovered %d hiring board(s)",
+                        market["id"], found)
+    except Exception as e:                                        # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id,
+                     status="partial" if found else "failed",
+                     new=found, skipped=missing, error=str(e))
+        conn.commit()
+        logger.warning("ats discovery stopped after %d vendor(s): %s", found, e)
+    return 1
+
+
+async def _poll_ats_jobs(conn, market: Dict[str, Any], now: datetime,
+                         forced_run_id: Optional[int] = None) -> int:
+    """Job listings from each vendor's own hiring system."""
+    from app.collectors import ats_collector as ats
+    from app.services import entity_scheduler as sch
+
+    if forced_run_id is None:
+        if _is_due(conn, market["id"], SOURCE_ATS_JOBS, now) is None:
+            return 0
+        run_id = mc.open_run(conn, market_id=market["id"],
+                             source=SOURCE_ATS_JOBS,
+                             provider=PROVIDER_INTERNAL)
+    else:
+        run_id = forced_run_id
+
+    boards = [dict(r) for r in conn.execute(text("""
+        SELECT mb.brand_id, b.display_name, i.normalized_value AS board
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        JOIN bw_vendor_identifiers i ON i.brand_id = mb.brand_id
+             AND i.kind = :k AND i.valid_to IS NULL
+        WHERE mb.market_id = :m AND mb.collection_enabled
+          AND mb.role <> 'excluded'
+        ORDER BY mb.sort_order
+    """), {"m": market["id"], "k": ats.IDENTIFIER_KIND}).mappings().all()]
+
+    # Recorded on the run so the read path can tell which vendors this run
+    # covered — that is what makes "absent from the last two runs" a claim
+    # about a vendor rather than about the market.
+    covered = [b["brand_id"] for b in boards]
+    conn.execute(text("""
+        UPDATE bw_collection_runs SET requested_brand_ids = :ids WHERE id = :r
+    """), {"ids": covered, "r": run_id})
+    conn.commit()
+
+    if not boards:
+        mc.close_run(conn, run_id, status="succeeded")
+        conn.commit()
+        return 1
+
+    received = new = failed = 0
+    failed_ids: List[int] = []
+    # Which listings this run actually saw.
+    #
+    # It cannot be derived from the snapshots afterwards: store_snapshot skips
+    # a row whose content has not changed, so an unchanged listing keeps the
+    # collection_run_id of the *first* run that saw it. Run 450 read all 97 of
+    # these listings and stored none, and every one then read as though it had
+    # not been seen since run 433 — the same "unchanged payload writes no row"
+    # trap that made the profile collector look broken, one level down.
+    #
+    # Recorded on the run instead, in a jsonb column that already exists.
+    seen_items: List[str] = []
+    try:
+        for row in boards:
+            board = ats.parse_board(row["board"])
+            if board is None:
+                failed += 1
+                failed_ids.append(row["brand_id"])
+                continue
+            try:
+                postings = await ats.fetch_jobs(board)
+            except ats.AtsError as exc:
+                failed += 1
+                failed_ids.append(row["brand_id"])
+                logger.info("ats jobs: %s (%s) — %s", row["display_name"],
+                            board.key, exc)
+                conn.commit()
+                continue
+
+            for posting in postings:
+                received += 1
+                seen_items.append(posting["posting_id"])
+                payload = dict(posting)
+                payload.setdefault("company", row["display_name"])
+                payload["company_id"] = row["brand_id"]
+                if mc.store_snapshot(
+                        conn, market_id=market["id"],
+                        brand_id=row["brand_id"], source=SOURCE_ATS_JOBS,
+                        snapshot_type="job_posting",
+                        provider_item_id=posting["posting_id"],
+                        data=payload, published_at=posting.get("posted_date"),
+                        run_id=run_id):
+                    new += 1
+            # Per vendor, for the idle-in-transaction reason above.
+            sch.record_success(conn, ats.SOURCE_JOBS, [row["brand_id"]])
+            conn.commit()
+
+        conn.execute(text("""
+            UPDATE bw_collection_runs
+               SET metrics = metrics || CAST(:m AS JSONB)
+             WHERE id = :r
+        """), {"m": json.dumps({"seen_item_ids": seen_items}), "r": run_id})
+        if failed_ids:
+            sch.record_failure(conn, ats.SOURCE_JOBS, failed_ids,
+                               error="hiring board unreadable")
+        mc.close_run(conn, run_id,
+                     status="partial" if failed and received else
+                            ("failed" if failed and not received else "succeeded"),
+                     received=received, new=new, skipped=received - new,
+                     error=(f"{failed} board(s) unreadable" if failed else None))
+        conn.commit()
+        logger.info("market %s: ats jobs — %d listing(s) from %d board(s), "
+                    "%d new, %d unreadable", market["id"], received,
+                    len(boards) - failed, new, failed)
+    except Exception as e:                                        # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id,
+                     status="partial" if received else "failed",
+                     received=received, new=new, error=str(e))
+        conn.commit()
+        logger.warning("ats jobs stopped after %d listing(s): %s", received, e)
     return 1
 
 

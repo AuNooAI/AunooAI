@@ -274,3 +274,10 @@ export const JOB_STATUS_LABELS: Record<string, string> = {
   no_longer_observed: 'no longer observed',
   first_observation: 'first observation',
 };
+
+/** Which collector found a listing. Named for what a reader recognises: the
+ *  company's own hiring system, rather than the internal source key. */
+export const JOB_SOURCE_LABELS: Record<string, string> = {
+  linkedin_jobs: 'LinkedIn',
+  ats_jobs: "the company's own board",
+};

@@ -19,7 +19,7 @@ import {
   type JobRecord, type PostRecord, type VoicePostRecord,
 } from '../../services/marketMonitorApi';
 import {
-  MarketDrilldown, cell, JOB_STATUS_LABELS,
+  MarketDrilldown, cell, JOB_STATUS_LABELS, JOB_SOURCE_LABELS,
   type DrilldownColumn,
 } from './MarketDrilldown';
 
@@ -30,7 +30,7 @@ export type DrilldownSpec =
   | { kind: 'coverage'; title: string; days?: number | null; week?: string;
       source?: string; vendorId?: number; expectedTotal?: number }
   | { kind: 'jobs'; title: string; vendorId?: number;
-      status?: JobRecord['status']; expectedTotal?: number }
+      status?: JobRecord['status']; source?: string; expectedTotal?: number }
   | { kind: 'funding'; title: string; stage?: string; disclosure?: string;
       expectedTotal?: number }
   | { kind: 'investors'; title: string; expectedTotal?: number }
@@ -68,7 +68,8 @@ export function DrilldownHost({ marketId, spec, onClose, onVendor }: {
         });
       case 'jobs':
         return getMarketJobs(marketId, {
-          brand_id: spec.vendorId, status: spec.status, page, page_size: 50,
+          brand_id: spec.vendorId, status: spec.status, source: spec.source,
+          page, page_size: 50,
         });
       case 'funding':
         return getFundingVendors(marketId, {
@@ -95,7 +96,8 @@ export function DrilldownHost({ marketId, spec, onClose, onVendor }: {
           vendor_id: spec.vendorId });
       case 'jobs':
         return listCsvUrl(marketId, 'jobs',
-                          { brand_id: spec.vendorId, status: spec.status });
+                          { brand_id: spec.vendorId, status: spec.status,
+                            source: spec.source });
       case 'funding':
         return listCsvUrl(marketId, 'funding/vendors',
                           { stage: spec.stage, disclosure: spec.disclosure });
@@ -181,8 +183,18 @@ function buildColumns(spec: DrilldownSpec): DrilldownColumn<any>[] {
         { key: 'function_group', label: 'Function', secondary: true },
         { key: 'seniority', label: 'Seniority', secondary: true },
         { key: 'location', label: 'Location', secondary: true },
-        // First and last seen, never opened and closed.
-        { key: 'first_seen', label: 'First seen',
+        // Where the listing came from. Two sources with very different
+        // coverage read as one number otherwise.
+        { key: 'source', label: 'Source', secondary: true,
+          render: (r: JobRecord) => JOB_SOURCE_LABELS[r.source] ?? r.source },
+        // The company's own publication date where its board gives one. Kept
+        // distinct from "first seen", which is when we noticed.
+        { key: 'posted_at', label: 'Posted',
+          render: (r: JobRecord) => r.posted_at
+            ? cell.date(r.posted_at)
+            : <span className="text-slate-400"
+                    title="This board does not publish a posting date">—</span> },
+        { key: 'first_seen', label: 'First seen', secondary: true,
           render: (r: JobRecord) => cell.date(r.first_seen) },
         { key: 'last_seen', label: 'Last seen', secondary: true,
           render: (r: JobRecord) => cell.date(r.last_seen) },

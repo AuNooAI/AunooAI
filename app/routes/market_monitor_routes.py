@@ -1566,6 +1566,9 @@ async def market_jobs(market_id: int,
                                             "newly_observed, "
                                             "no_longer_observed or "
                                             "first_observation."),
+                      source: Optional[str] = Query(
+                          None, description="linkedin_jobs, or ats_jobs for "
+                                            "the company's own hiring system."),
                       page: int = Query(1, ge=1),
                       page_size: int = Query(50, ge=1, le=500),
                       sort: str = Query("vendor:asc"),
@@ -1585,7 +1588,7 @@ async def market_jobs(market_id: int,
         try:
             market = _load_market(conn, market_id)
             return market, ml.jobs(conn, market_id, brand_id=brand_id,
-                                   status=status, page=page,
+                                   status=status, source=source, page=page,
                                    page_size=(500 if fmt == "csv" else page_size),
                                    sort=sort, include_all=(fmt != "csv"))
         finally:

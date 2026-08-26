@@ -546,6 +546,7 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
     rows = [dict(r) for r in conn.execute(text(f"""
         SELECT DISTINCT ON (s.provider_item_id)
                b.id AS brand_id, b.display_name AS vendor,
+               s.source AS source,
                s.data->>'title' AS title,
                s.data->>'function' AS function,
                s.data->>'seniority' AS seniority,
@@ -559,6 +560,14 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
               {window}
         ORDER BY s.provider_item_id, s.observed_at DESC
     """), params).mappings().all()]
+
+    # One role published on both LinkedIn and the company's own board is one
+    # role. Both were being counted, so this aggregate said 188 where the
+    # drill-down behind it said 149 — and a card that disagrees with its own
+    # records is worse than either number alone. The rule lives in
+    # market_lists so the two cannot drift apart.
+    from app.services.market_lists import drop_cross_source_duplicates
+    rows = drop_cross_source_duplicates(rows)
 
     by_function: Dict[str, int] = {}
     by_role: Dict[str, int] = {}

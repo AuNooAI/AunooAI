@@ -1709,23 +1709,24 @@ export function MarketMonitorTab() {
                   // one screen with nothing saying so read as one window.
                   { key: 'announcements', label: 'Announced (all time)',
                     align: 'right' },
-                  // Named for the source, because the number is only true of
-                  // it. Dropzone AI shows 0 here and has 11 roles open on its
-                  // own careers page — LinkedIn genuinely lists none. 67 of 83
-                  // vendors are in that position, so an unqualified "open
-                  // roles: 0" reads as "not hiring" for most of the market.
+                  // No longer qualified as LinkedIn-only: listings now come
+                  // from each company's own hiring system too, which is where
+                  // most of them actually are. Dropzone AI read 0 here and had
+                  // 11 on its own Greenhouse board.
                   //
-                  // Zero is still printed rather than dashed: LinkedIn jobs
-                  // collection succeeded for every eligible vendor, so this is
-                  // a measured zero, and a dash would claim we had not looked.
-                  { key: 'openings', label: 'Open roles on LinkedIn',
+                  // Zero is printed rather than dashed. Both collectors ran, so
+                  // this is a measured zero; a dash would claim we had not
+                  // looked. What a zero still cannot rule out is a company that
+                  // publishes no structured listings anywhere, which the
+                  // tooltip says.
+                  { key: 'openings', label: 'Open roles',
                     align: 'right',
                     render: v => v.openings
                       ? <button
                           onClick={e => { e.stopPropagation();
                                           setRecords({
                                             kind: 'jobs',
-                                            title: `${v.vendor}: job listings on LinkedIn`,
+                                            title: `${v.vendor}: job listings`,
                                             vendorId: v.brand_id,
                                             expectedTotal: v.openings,
                                           }); }}
@@ -1734,9 +1735,7 @@ export function MarketMonitorTab() {
                           {v.openings}
                         </button>
                       : <span className="tabular-nums text-slate-500 dark:text-gray-400"
-                              title="None on LinkedIn. Many companies post only
-                                     to their own careers page or an applicant
-                                     tracking system, which we do not read.">
+                              title="None found on LinkedIn or on this company's own hiring system. A company that publishes no structured listings anywhere would also read as zero.">
                           0
                         </span> },
                 ]} />
