@@ -101,9 +101,15 @@ that needs telling them, and whether the logs should be reviewed properly first,
 connection details now require a login. If anything outside the product polls them, it will start
 reporting failures. Reverting those three is a one-line change per site.
 
+**This can no longer happen quietly, which matters more than the fix itself.** The reason it went
+unnoticed for 19 months is that nothing complained when a new address shipped without a login
+check. There is now an automated check that fails the build if one does, naming the address and how
+to fix it. It was tested by deliberately removing a login check and confirming the build failed.
+That is the part that stops a repeat; closing the 2,712 addresses only cleared the backlog.
+
 **The wider tidy-up is untouched.** 225 web addresses are still registered twice in the code. This
-is mostly harmless, but one of them means a future login fix could silently fail to take effect.
-Worth a separate piece of work.
+is mostly harmless, and the new check now catches the one dangerous version of it, where a
+duplicate would silently cancel a login fix. Still worth a separate piece of work.
 
 **The staff counts that are now blank are still blank.** We removed a wrong zero; we did not go and
 find the real number. Seven vendors on the SOC Automation list have no staff figure, and six of

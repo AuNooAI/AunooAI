@@ -225,6 +225,49 @@ encrypted files, but the plaintext backups still on disk
 `FLASK_SECRET_KEY` and `NORN_SECRET_KEY`, so the revival will very likely be fine. That is a proxy
 check, not proof.
 
+### Fix the cause, not just the instances: a guard that fails when a route drifts open
+Closing 2,712 routes fixes today. It does nothing about the next route someone adds without a
+dependency, which is how this got to 216 in the first place — over 19 months, with the unsafe path
+being silence.
+
+**`tests/test_auth_surface.py`** reads the assembled app's route table and asserts every route that
+actually serves requests is either protected by an auth dependency, listed in `PUBLIC_PATHS` with a
+stated reason, or listed in `SELF_GUARDED` because it authenticates in its own body. Adding a route
+needs no change to the file. Adding an *unprotected* route fails the suite and prints the path, the
+endpoint, and the two-line fix. Opening a route to the internet becomes a reviewable edit rather
+than an omission.
+
+Three details matter more than the headline check.
+
+`SELF_GUARDED` names the twelve endpoints individually instead of scanning bodies for
+`request.session`. A substring scan would let a new route pass by merely mentioning the session.
+Each of the twelve was read first: the two onboarding endpoints and `api_change_password` raise 401
+when there is no session user, the reset-password pair check an expiring HMAC bound to the current
+password hash, and the BrightData webhook authenticates on a shared secret and is fail-closed when
+the secret is unset.
+
+A second test catches the shadowing case, which is the version of this bug that survives code
+review. When a path is registered twice with the first copy open and a later copy protected, the
+protected copy never runs, so an auth fix applied to it looks right in the diff and changes nothing
+at runtime. It prints the registration order with each copy marked open or protected.
+
+Two smaller invariants: nothing state-changing may be allowlisted as public, and the allowlists may
+not carry dead entries — except for a module this tenant does not have, since the same file ships
+to ten sites with different feature sets and a site without Market Monitor has no BrightData
+webhook to guard.
+
+Verified by breaking it on purpose. Removing the dependency from `GET /api/docs/{name}` failed the
+suite naming that route and file; restoring it went green. Re-opening the first `/api/topics`
+registration reproduced the historical shadowing and failed both checks, printing all three copies
+in order. Reverted both.
+
+The guard reads the route table in a **child process**, and that was not the first attempt.
+Importing `app.main` inside the pytest session leaked global state — database connections, logging
+config, provider clients — and turned 98 pre-existing failures into 165. The child prints JSON and
+exits. With that fixed the suite is 98 failed / 679 passed: the same 98 as before, plus the four
+new tests. The allowlists were also confirmed portable by running the same four checks against
+wileytest, wbm and pbm, all of which pass and none of which has Market Monitor.
+
 ### Lessons
 **NEVER trust a route's auth status from grep, and never from the decorator alone.** Dependencies
 attach at the decorator, the router, or `include_router`; some handlers check `request.session`
@@ -250,6 +293,14 @@ anything is in flight, or the "check running jobs first" rule gives a false stop
 **A silent auth hole cannot be found by using the product.** The pages were login-gated the whole
 time, so every human path sent a cookie and every response looked correct. The only thing that
 finds this class of bug is asking without a cookie.
+
+**ALWAYS isolate an app import in a test subprocess.** Building the app has side effects, and a
+test that imports `app.main` in-session broke 67 unrelated tests here. A guard that damages the
+suite it lives in gets deleted, which would have taken the invariant with it.
+
+**A one-off cleanup is not a fix when the default is unsafe.** This sat open for 19 months because
+nothing failed when a route shipped without auth. `tests/test_auth_surface.py` is the part of this
+session that prevents a repeat; the 2,712 decorators only fix the backlog.
 
 ## 2026-08-25 (entity intelligence) — the registry stopped forgetting where its numbers came from, and I truncated the vendor table
 
