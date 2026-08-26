@@ -339,6 +339,13 @@ _GLASSDOOR_API = "https://api.openwebninja.com/realtime-glassdoor-data"
 # via /company-search and cached here.
 _GLASSDOOR_IDS: Dict[str, str] = {}
 
+#: Headcount we have measured, by display name, primed at the poll site so the
+#: review fetcher can verify what it resolved to. Threaded this way rather than
+#: through the signature because ``_FETCHERS`` calls every source with the same
+#: two arguments, and ``_GLASSDOOR_IDS`` already solves the identical problem
+#: the identical way.
+_GLASSDOOR_KNOWN_STAFF: Dict[str, float] = {}
+
 #: Reviews a Glassdoor company needs before name resolution will pick it on its
 #: own. The noise this exists to reject sits at 0-18 reviews — florists, estate
 #: agents, a satellite office, a same-named engineering firm. A brand small
@@ -372,6 +379,91 @@ def _shares_a_word(term_words: set, name_words: set) -> bool:
         len(t) >= 4 and len(n) >= 4 and (n.startswith(t) or t.startswith(n))
         for t in term_words for n in name_words
     )
+
+
+def measured_headcount(conn, brand_id: int) -> Optional[float]:
+    """The most recent exact employee count we have read for this company.
+
+    Exact integers only, and never a size band — a band is not a measurement,
+    and using one here would compare two guesses and call it verification.
+    Returns None when we have never read one, which means this check has no
+    opinion rather than a negative one.
+    """
+    try:
+        return conn.execute(text("""
+            SELECT (data->>'employee_count')::numeric
+              FROM bw_vendor_snapshots
+             WHERE brand_id = :b AND snapshot_type = 'profile'
+               AND data->>'employee_count' ~ '^[0-9]+$'
+               AND (data->>'employee_count')::numeric > 0
+             ORDER BY observed_at DESC LIMIT 1
+        """), {"b": brand_id}).scalar()
+    except Exception:                                             # noqa: BLE001
+        # A tenant without the snapshots table gets no opinion, not an error.
+        return None
+
+
+def _size_band(value: Any) -> Optional[tuple]:
+    """The employee range behind a Glassdoor size string, as (low, high).
+
+    Formats seen from this provider: "201 to 500 Employees", "1001 to 5000
+    Employees", "10000+ Employees", "1 to 50 Employees". Returns None when
+    nothing parses, so an unfamiliar format means "no opinion" rather than a
+    guess.
+    """
+    text_value = str(value or "").lower().replace(",", "")
+    pair = re.search(r"(\d+)\s*(?:to|-|–)\s*(\d+)", text_value)
+    if pair:
+        return int(pair.group(1)), int(pair.group(2))
+    plus = re.search(r"(\d+)\s*\+", text_value)
+    if plus:
+        return int(plus.group(1)), None
+    single = re.search(r"(\d+)", text_value)
+    if single:
+        return int(single.group(1)), int(single.group(1))
+    return None
+
+
+#: How far a Glassdoor size band may sit from a headcount we have measured
+#: before the two are treated as different companies. Generous on purpose: the
+#: band is self-reported and often years stale, and a company really does grow.
+#: Four-fold is wide enough to absorb that and still catch what it needs to.
+SIZE_DISAGREEMENT_FACTOR = 4
+
+
+def size_contradicts(known_staff: Optional[float],
+                     company_size: Any) -> Optional[str]:
+    """Why this Glassdoor company cannot be the vendor we mean, on size alone.
+
+    Returns the reason, or None when there is no contradiction — including when
+    either figure is missing, because absence is not disagreement.
+
+    This is the check that catches what the name rules cannot. Every wrong match
+    on this market was a truncation: "Kenzo Security" resolved to Kenzo the
+    clothing retailer, "Method Security" to Method the consultancy, "Secure.com"
+    to SECURE in energy and utilities, "Artemis Security" to Artemis. The name
+    rule permits a truncation deliberately — wbm tracks "Pearsons Education"
+    where Glassdoor says "Pearson", and rejecting that would break a real match
+    — so names alone cannot separate the two cases.
+
+    Size can, and without any vocabulary to maintain. We now hold an exact
+    LinkedIn headcount for most vendors, and the four wrong matches disagreed
+    with it by one to two orders of magnitude: 3 staff against a 201-500 band,
+    26 against 201-500, 34 against 1001-5000, 55 against 501-1000.
+    """
+    if not known_staff or known_staff <= 0:
+        return None
+    band = _size_band(company_size)
+    if not band:
+        return None
+    low, high = band
+    if low and known_staff * SIZE_DISAGREEMENT_FACTOR < low:
+        return (f"we measure {int(known_staff)} employees and this company "
+                f"reports {company_size}")
+    if high and known_staff > high * SIZE_DISAGREEMENT_FACTOR:
+        return (f"we measure {int(known_staff)} employees and this company "
+                f"reports only {company_size}")
+    return None
 
 
 def _name_is_compatible(term_words: set, name_words: set) -> bool:
@@ -423,7 +515,9 @@ def _prefix_match(a: str, b: str) -> bool:
     return a.startswith(b) or b.startswith(a)
 
 
-def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str) -> Optional[Dict[str, Any]]:
+def _pick_glassdoor_company(hits: list, term: str,
+                            known_staff: Optional[float] = None
+                            ) -> Optional[Dict[str, Any]]:
     """The candidate that actually IS the brand, or None.
 
     Glassdoor's search does not rank by relevance. For "Wiley" it returns
@@ -480,6 +574,13 @@ def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str) -> Optional[D
             reviews = 0
         if reviews < MIN_REVIEWS_FOR_AUTO_MATCH:
             continue
+        # A company whose size disagrees with the headcount we have measured is
+        # a different company, whatever its name looks like.
+        clash = size_contradicts(known_staff, h.get("company_size"))
+        if clash:
+            logger.info("glassdoor: rejecting '%s' for '%s' — %s",
+                        name, term, clash)
+            continue
         scored.append((name_norm == term_norm, reviews, str(cid), h))
     if not scored:
         return None
@@ -488,7 +589,9 @@ def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str) -> Optional[D
 
 
 async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
-                                headers: Dict[str, str]) -> Optional[str]:
+                                headers: Dict[str, str],
+                                known_staff: Optional[float] = None
+                                ) -> Optional[str]:
     if term in _GLASSDOOR_IDS:
         return _GLASSDOOR_IDS[term]
     resp = await client.get(f"{_GLASSDOOR_API}/company-search",
@@ -497,7 +600,7 @@ async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
     hits = resp.json().get("data") or []
     if isinstance(hits, dict):
         hits = hits.get("companies") or hits.get("results") or []
-    best = _pick_glassdoor_company(hits, term)
+    best = _pick_glassdoor_company(hits, term, known_staff)
     if best:
         cid = str(best.get("company_id") or best.get("id"))
         _GLASSDOOR_IDS[term] = cid
@@ -521,14 +624,18 @@ _OVERVIEW_FIELDS = [
 
 
 async def fetch_glassdoor_overview(term: str,
-                                   company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                                   company_id: Optional[str] = None,
+                                   known_staff: Optional[float] = None
+                                   ) -> Optional[Dict[str, Any]]:
     """Live aggregate employer ratings from /company-overview, or None."""
     api_key = os.getenv("OPENWEBNINJA_API_KEY")
     if not api_key:
         return None
     headers = {"x-api-key": api_key, "User-Agent": _UA}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        cid = str(company_id) if company_id else await _glassdoor_company_id(client, term, headers)
+        cid = (str(company_id) if company_id
+               else await _glassdoor_company_id(client, term, headers,
+                                                known_staff))
         if not cid:
             return None
         resp = await client.get(f"{_GLASSDOOR_API}/company-overview",
@@ -593,12 +700,27 @@ async def refresh_glassdoor_overview(conn, brand_id: int, display_name: str,
     cached, fresh = get_cached_glassdoor_overview(cfg)
     if fresh and not force:
         return cached
+    known_staff = measured_headcount(conn, brand_id)
     try:
-        data = await fetch_glassdoor_overview(display_name, cfg.get("glassdoor_company_id"))
+        data = await fetch_glassdoor_overview(
+            display_name, cfg.get("glassdoor_company_id"), known_staff)
     except Exception as e:
         logger.warning(f"glassdoor overview fetch failed for {display_name}: {e}")
         return cached
     if not data:
+        return cached
+
+    # Checked here as well as during name resolution, because a *pinned* id
+    # bypasses resolution entirely — and every wrong match on this market was
+    # pinned. Kenzo Security's config pointed at Kenzo the clothing retailer,
+    # so no amount of care in the matcher would have helped the next refresh.
+    clash = size_contradicts(known_staff, data.get("company_size"))
+    if clash:
+        logger.warning(
+            "glassdoor: discarding a reading for %s — %s. The pinned "
+            "company_id %s is probably a different company; clear or correct "
+            "config.glassdoor_company_id.",
+            display_name, clash, data.get("company_id"))
         return cached
 
     # Refuse a reading for a different company than the one already being
@@ -643,7 +765,8 @@ async def _fetch_glassdoor(term: str, since: datetime) -> List[Dict[str, Any]]:
     since_d = since.strftime("%Y-%m-%d")
     out: List[Dict[str, Any]] = []
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        cid = await _glassdoor_company_id(client, term, headers)
+        cid = await _glassdoor_company_id(
+            client, term, headers, _GLASSDOOR_KNOWN_STAFF.get(term))
         if not cid:
             return []
         for page in range(1, 4):  # up to 30 most-recent reviews per poll
@@ -880,8 +1003,30 @@ async def poll_official_sources(db, force: bool = False,
                 fetcher = _FETCHERS.get(source)
                 if fetcher is None:
                     continue
-                if source == "glassdoor" and cfg.get("glassdoor_company_id"):
-                    _GLASSDOOR_IDS[display_name] = str(cfg["glassdoor_company_id"])
+                if source == "glassdoor":
+                    known = measured_headcount(conn, bid)
+                    if known:
+                        _GLASSDOOR_KNOWN_STAFF[display_name] = float(known)
+                    # A pin that contradicts what we have measured points at a
+                    # different company, and every review fetched under it
+                    # belongs to that company. Checked against the cached
+                    # overview, so this costs no request: Kenzo Security was
+                    # pinned to Kenzo the clothing retailer, and skipping is the
+                    # only answer that does not put somebody else's employee
+                    # reviews on a vendor's page.
+                    cached_gd = ((cfg.get("glassdoor_overview") or {})
+                                 .get("data") or {})
+                    clash = size_contradicts(known, cached_gd.get("company_size"))
+                    if clash:
+                        logger.warning(
+                            "glassdoor: skipping %s — the pinned company %s is "
+                            "a different company (%s). Clear or correct "
+                            "config.glassdoor_company_id.",
+                            display_name, cfg.get("glassdoor_company_id"), clash)
+                        continue
+                    if cfg.get("glassdoor_company_id"):
+                        _GLASSDOOR_IDS[display_name] = str(
+                            cfg["glassdoor_company_id"])
                 since = _due_since(source_state, source, now, force=force)
                 if since is None:
                     continue

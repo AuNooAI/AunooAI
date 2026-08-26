@@ -173,8 +173,9 @@ def test_mm20_the_report_names_only_authorized_vendors(conn, market):
     html = build_market_report(conn, dict(row), days=30,
                                allowed_brand_ids=allowed).decode()
 
-    leaked = [n for n in withheld if n in html]
-    assert not leaked, f'{len(leaked)} withheld vendor(s) named: {leaked[:5]}'
+    # The production rule, for the same reason as the feed test below: a
+    # substring check would fail on a vendor name embedded in a longer word.
+    ent.assert_no_withheld(html, withheld, context='report')
 
     # And the authorized ones are actually present, or this passes vacuously.
     shown = ent.vendor_names(conn, market, allowed).values()
@@ -306,8 +307,11 @@ def test_mm20_the_feed_names_only_authorized_vendors(conn, market):
 
     xml = mp.build_feed(conn, dict(row), base_url='https://example.test',
                         limit=50, allowed_brand_ids=allowed).decode()
-    leaked = [n for n in withheld if n in xml]
-    assert not leaked, f'{len(leaked)} withheld vendor(s) in the feed: {leaked[:5]}'
+    # Asserted with the production rule, not a stricter one. A plain substring
+    # check fails on "#HumanAISOC", which contains the vendor name "AISOC"
+    # inside a longer word — the filter and the backstop both match on word
+    # boundaries, and a test that does not is testing something else.
+    ent.assert_no_withheld(xml, withheld, context='feed')
 
     # Still a usable feed, not an empty one.
     assert '<rss' in xml and '</channel>' in xml

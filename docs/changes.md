@@ -2,6 +2,103 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Glassdoor matching) — employee reviews were another company's, and size settles it
+
+### Goal
+The last flagged defect: employer reviews in this market matched the wrong companies. Left
+untouched through several passes because I had not verified how many were wrong.
+
+### All four stored matches were wrong, and each was contradicted twice by data we hold
+| Vendor | Glassdoor matched | Glassdoor industry | Its size band | Our LinkedIn headcount |
+|---|---|---|---|---|
+| Kenzo Security | "Kenzo" | Department, Clothing & Shoe Stores | 201–500 | **3** |
+| Secure.com | "SECURE" | Energy & Utilities | 1001–5000 | **34** |
+| Method Security | "Method" | Business Consulting | 201–500 | **26** |
+| Artemis Security | "Artemis" | — | 501–1000 | **55** |
+
+Seven employee reviews had landed under these and three other unpinned brands, with text like "I
+like being on the move" against a six-person security startup.
+
+### Why the name rules could not catch it
+`_name_is_compatible` is well-reasoned and already catches the cases it documents — "Radiant
+Security" against Radiant Waxing, "Legion Security" against Legion Logistics. Its rule is *every
+word of the shorter name must appear in the longer one*, and every wrong match here was a
+**truncation**: "Kenzo" is a subset of "Kenzo Security", so it passes.
+
+That is not a bug to fix in the name rule, because truncation is sometimes right: wbm tracks
+"Pearsons Education" where Glassdoor says "Pearson", and forbidding subsets would break a real
+match. Names genuinely cannot separate the two cases.
+
+### Size can, and needs no vocabulary
+`size_contradicts(known_staff, company_size)` in `bw_official_sources`. It compares Glassdoor's
+band against the **exact** LinkedIn headcount we now hold for 80 of 84 vendors — which only became
+possible because of the profile-collection work earlier today.
+
+`SIZE_DISAGREEMENT_FACTOR = 4`, deliberately generous: a band is self-reported and often years
+stale, and companies grow. Four-fold absorbs that and still catches one to two orders of magnitude,
+which is what every wrong match was off by. Verified: all four rejected, a 55-person company
+against a 51–200 band accepted, and 400 against 201–500 accepted.
+
+**Absence is not disagreement.** No headcount or no band means no opinion, so this cannot switch
+Glassdoor off for tenants tracking companies we have never read a headcount for. That was the main
+regression risk, since this file serves all Brand Watcher tenants.
+
+### Applied at both paths, because the reviews came through the unguarded one
+- `_pick_glassdoor_company(hits, term, known_staff)` — rejects a size mismatch even on an exact
+  name match, which is precisely how the wrong ones won.
+- `refresh_glassdoor_overview` — checks the fetched overview too, because a **pinned** id bypasses
+  name resolution entirely and all four wrong matches were pinned. No matcher improvement would
+  have helped the next refresh.
+- The review poll (`_fetch_glassdoor`) re-resolved by name on every poll with no pin and no check —
+  the path the seven reviews came through. Headcount is primed into
+  `_GLASSDOOR_KNOWN_STAFF` at the poll site, mirroring how `_GLASSDOOR_IDS` already threads the
+  pinned id through the fixed `_FETCHERS` signature.
+- The poll site now skips Glassdoor entirely for a brand whose **cached** overview contradicts,
+  which costs no request and stops reviews landing under a bad pin.
+
+### Cleared
+4 pinned ids and their 4 cached overviews, 7 mentions, 7 article attributions, 44 Glassdoor
+articles. Of those 44, 7 were attributed to vendors and 37 were unattributed orphans; all came
+through the same unverified path. Checked first that no brand held a *non-contradicting* overview —
+none did — so nothing verified was destroyed.
+
+### What this does to earned coverage
+`earned_total` for the market: **22 → 11** (this morning's vendor-blog fix) **→ 4**. Four items is
+the market's genuine third-party coverage, and the attention breakdown no longer carries an
+`employee` channel at all.
+
+### One test of mine was stricter than the code
+`test_mm20_the_feed_names_only_authorized_vendors` started failing on `AISOC` — because the
+Glassdoor deletion changed the earned ranking, which moved the authorised top-10. The name appears
+in the feed inside the hashtag `#HumanAISOC`, which the production filter correctly ignores: both
+the filter and the backstop match on word boundaries. My test used a plain substring check. Both
+entitlement tests now call `assert_no_withheld`, so they assert the rule the code actually applies
+rather than a stricter one that fails on a legitimate word.
+
+### Verification
+- `pytest tests/test_glassdoor_company_resolution.py` — **32 passed**, 7 new. The four wrong
+  matches are pinned as named cases with their exact figures, so a regression is recognisable.
+- Market and entity suites: 139 → **passing** after the test fix; entitlements 20 passed.
+- Live: anonymous report still names 10 of 84. `share_of_voice` earned_total 4, owned_web 11,
+  own_total 2065 unchanged.
+- Nothing left referencing Glassdoor: 0 mentions, 0 articles, 0 pins, 0 cached overviews.
+- Restart gated on an in-flight check written as an `if`, not an `&&` chain.
+
+### Propagation
+`bw_official_sources.py` is Brand Watcher-wide, so this needs copying to wiley, wileytest and wbm.
+Not done: those tenants track large publishers where the headcount source differs, and the check is
+silent without a headcount, so it is safe but unverified there. **Copy pending.**
+
+### Lessons
+- **When two names cannot settle an identity, find a number that can.** Tuning the name rules would
+  have broken the Pearson case and still missed these. Headcount is exact, already collected, and
+  needs no list of business-type words to maintain.
+- **Check every path, not the one you found first.** The matcher was defensible; the reviews came in
+  through a poll that never called it with any context.
+- A test stricter than the code is a false alarm waiting for unrelated data to change. Assert with
+  the production predicate.
+
+
 ## 2026-08-26 (earned coverage) — half the market's "third-party coverage" was vendors' own blogs
 
 ### Goal
