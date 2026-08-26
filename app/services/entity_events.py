@@ -126,20 +126,67 @@ def independence_key_for_source(source: str) -> str:
 
 def independence_key_for_article(news_source: Optional[str],
                                  url: Optional[str] = None,
-                                 bias_source: Optional[str] = None) -> str:
+                                 bias_source: Optional[str] = None,
+                                 owned_domains: Optional[Dict[str, str]] = None
+                                 ) -> str:
     """What counts as one source.
 
     The publisher's domain, so syndicated copies collapse. A vendor's own
     channel is keyed to the vendor, so its blog and its LinkedIn are one voice
     rather than two.
+
+    ``bias_source`` alone was not enough to establish that. Dropzone AI's blog
+    posts are stored with an empty ``bias_source``, so eleven of them keyed as
+    ``domain:dropzone.ai`` — an independent publisher. Pair that with the
+    vendor's LinkedIn post about the same launch and the event would have read
+    as *corroborated*: the company confirming itself, presented as two sources
+    agreeing. Manufactured consensus is the thing this system exists to detect,
+    so producing it internally is the worst available failure.
+
+    ``owned_domains`` maps a host to the vendor that owns it, from the registry's
+    own ``domain`` identifiers. A host in that map is the vendor speaking
+    whatever the record says.
     """
     if (bias_source or '').startswith('vendor:'):
         return f"owned:{bias_source}"
     if url:
-        host = (urlsplit(url).netloc or '').lower().lstrip('www.')
+        host = (urlsplit(url).netloc or '').lower()
+        if host.startswith('www.'):
+            host = host[4:]
         if host:
+            owner = (owned_domains or {}).get(host)
+            if owner:
+                return f"owned:vendor:{owner}"
             return f"domain:{host}"
     return f"source:{(news_source or 'unknown').lower()}"
+
+
+def owned_domains(conn, market_id: Optional[int] = None) -> Dict[str, str]:
+    """Host to owning vendor, for every monitored company's own site.
+
+    Read from the registry rather than guessed from a name, so a company whose
+    domain does not resemble its display name is still recognised as itself.
+    """
+    sql = """
+        SELECT i.normalized_value AS host, b.display_name
+          FROM bw_vendor_identifiers i
+          JOIN bw_brands b ON b.id = i.brand_id
+         WHERE i.kind = 'domain' AND i.valid_to IS NULL
+    """
+    params: Dict[str, Any] = {}
+    if market_id is not None:
+        sql += """ AND EXISTS (SELECT 1 FROM bw_market_brands mb
+                                WHERE mb.brand_id = i.brand_id
+                                  AND mb.market_id = :m)"""
+        params['m'] = market_id
+    out: Dict[str, str] = {}
+    for row in conn.execute(text(sql), params).mappings():
+        host = (row['host'] or '').strip().lower()
+        if host.startswith('www.'):
+            host = host[4:]
+        if host:
+            out[host] = row['display_name']
+    return out
 
 
 # ---------------------------------------------------------------------------

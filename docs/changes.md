@@ -2,6 +2,126 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Market Monitor findings) — findings instead of a feed, and a blocked extractor reported rather than faked
+
+### Goal
+P1 #9, the last P1 item. The Findings page listed collected posts newest-first, which answers
+"what did the system ingest" — a post is evidence, and evidence is not a conclusion.
+
+### What the audit found before any code
+`bw_entity_events` already held most of the specification's finding model: `occurred_at` with its
+own `date_precision`, `first_observed_at`, corroboration counted on distinct `independence_key`,
+evidence rows and affected entities. Four fields were missing and all four are filterable, so
+`mm_010` adds them as columns: `materiality`, `review_state`, `why_it_matters`, `limitations`,
+with check constraints and a partial index on `(status, materiality, occurred_at)`.
+
+**Every one of the 194 active events has exactly one distinct source.** 193 are `vendor_claim`.
+Nothing in this market is corroborated, and the page now says so rather than implying otherwise.
+
+### The news extractor is blocked, and building it would have been harmful
+MM-22 wants three articles about one funding event to become one finding with three evidence
+records. That needs news to produce events, and it is not buildable here:
+
+Of 22 "earned" items attributed to market vendors, all time — **11 are Dropzone AI's own blog**,
+1 is Radiant Security's own, 7 are Glassdoor, and **3 are genuine third-party** (analyticsinsight,
+securitybrief, Techmeme). There is no independently covered event to find.
+
+Worse, building it would have manufactured corroboration. `independence_key_for_article` keyed a
+vendor's own channel as owned only when `bias_source` started with `vendor:` — and Dropzone's blog
+rows have `bias_source` **empty**, so eleven of them keyed as `domain:dropzone.ai`, an independent
+publisher. Pair one with the vendor's LinkedIn post about the same launch and the event would have
+read as *corroborated*: the company confirming itself, presented as two sources agreeing.
+Manufactured consensus is what this platform exists to detect, so producing it internally is the
+worst available failure.
+
+**Fixed instead:** `entity_events.owned_domains(conn, market_id)` reads the registry's own `domain`
+identifiers, and `independence_key_for_article` takes that map. A host owned by a monitored vendor
+now keys `owned:vendor:<name>` whatever the record says. Verified: `dropzone.ai/blog` →
+`owned:vendor:Dropzone AI`, `reuters.com` → `domain:reuters.com`. 85 domains in the map.
+
+### `app/services/market_findings.py` — new
+Six themes per §4.15, with an unmapped type falling back to Attention and narrative rather than
+vanishing, and the raw type travelling with every finding.
+
+Status maps the two stored fields onto the four a reader sees: `rejected`/`superseded` →
+`dismissed`, `primary_document` → `confirmed`, `corroborated` → `corroborated`, everything else →
+`watch`. A vendor's own announcement is a watch item; it is good evidence of what the vendor said
+and none that anyone else agrees.
+
+Materiality is rule-based and **the rule is returned with the value**, because the spec forbids an
+unexplained score. Money and ownership are high; a partnership or named customer is medium, high if
+it touches several monitored vendors at once; hiring is deliberately low, because every growing
+company is always hiring.
+
+"Recommended" order is the spec's five tiers, ending on the finding id so the order is total —
+without that last tie-break two otherwise-identical findings swap places between requests and the
+page appears to shuffle itself. Four alternative sorts, all verified stable.
+
+Four degraded states, which are not interchangeable: `collection_incomplete` outranks everything;
+`synthesis_pending` is evidence in hand and nothing examined (MM-23), which is not "no findings";
+`no_findings` requires collection to have succeeded; `ready`.
+
+### Three bugs found by reading the output
+**Source counting used a narrower rule than corroboration does.** I wrote
+`relationship = 'supports'`; the canonical rule in `recompute_corroboration` is
+`('supports', 'originates')`, and `originates` is 201 of 216 evidence rows. So every finding
+displayed **zero sources** beside a corroboration field that disagreed. I then fixed it in one
+place and not the other, so the card said 1 and its drill-down said 0. Now named once as
+`SUPPORTING`, with a test that reads `recompute_corroboration`'s source and fails if the two
+diverge.
+
+**A changed web page ranked as a product launch.** The web-diff extractor files page diffs as
+`product_launch`, so "Andesite: news page changed" — twelve words different on a news index, with
+no date established — was a medium-materiality executive finding. Materiality now checks
+`attributes.page_kind` first and returns low with the word count in the reason.
+
+**A stranded run, my own fault.** I restarted the service while `vendor_web_discovery` run 579 was
+running: the check printed `1` and my `&&` chain restarted anyway. A `running` row blocks its
+source indefinitely, which is the exact failure `_fail_undispatched` was written for. Closed it as
+failed with a truthful error, confirmed nothing else stranded and no policy left claimed. The
+restart is now behind an `if`, not a chain.
+
+### Routes
+`GET /markets/{id}/findings` — days, theme, vendor_id, status, materiality, sort,
+include_dismissed, pagination, `fmt=csv`. Returns the paginated list plus `executive` (max 5),
+`by_theme` and `watch_items`.
+`GET /markets/{id}/findings/{finding_id}/evidence` — every record with whose voice it is, and a
+note when every source is the vendor's own.
+
+### Verification
+- `pytest tests/test_market_findings.py` — **23 passed**. MM-22 is tested on a constructed fixture
+  and the docstring says why: the counting rule is what would be wrong silently, and there is no
+  corroborated event in this market to read.
+- Market and entity suites together: **179 passed, 10 skipped**.
+- Live: 47 findings in 30 days, all `watch`, across four themes (Product 23, Customers 15, Hiring
+  8, Leadership 1). Executive section holds 5. The page states: "No finding in this period is
+  independently corroborated."
+- Card and drill-down agree on 327: 1 source, 0 non-vendor, with the all-owned note.
+- Filters verified live: `materiality=high` → 0 (correct — nothing here is high once page diffs
+  are demoted), `theme=Hiring and headcount` → 8, `status=watch` → 47.
+- `alembic upgrade head` applied `mm_010`; columns and both check constraints present.
+
+### Propagation
+Canonical only (`bugfixing`). `mm_010` needs `alembic upgrade head` wherever Market Monitor runs,
+which is nowhere else today.
+
+### Adjacent defect, not fixed
+**Earned attention counts vendor blogs as third-party.** The rule is
+`bias_source <> 'vendor:linkedin'`, so a vendor's own blog — 12 of the 22 "earned" items here —
+is counted as somebody else covering the vendor. That inflates the earned-attention figure shipped
+on 2026-08-26 in `share_of_voice`, whose limitations do not mention it. The independence fix above
+covers the *corroboration* path, which is what findings needed; the attention metric reads a
+different rule and is untouched. Flagged for a decision rather than changed here.
+
+### Lessons
+- **Check whether the corpus can support the metric before building the extractor.** Three genuine
+  third-party items in the whole market is the answer to MM-22, and no amount of code changes it.
+- **A second copy of a counting rule will disagree with the first.** Mine did, in two places, and
+  the symptom looked like missing data rather than a wrong predicate.
+- **The check has to gate the action.** `check && restart` is not a gate; `if check; then` is. I
+  had the right instinct, the right query, and still killed a running job.
+
+
 ## 2026-08-26 (Market Monitor entitlements) — a shared market report was naming every vendor
 
 ### Goal

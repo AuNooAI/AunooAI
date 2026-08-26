@@ -747,6 +747,7 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                           now: datetime, forced_run_id: Optional[int] = None) -> int:
     """Record each vendor's RSS/Atom feeds and the pages worth watching."""
     from app.collectors import vendor_web_collector as vw
+    from app.services import entity_scheduler as sch
 
     if forced_run_id is None:
         if _is_due(conn, market["id"], SOURCE_DISCOVERY, now) is None:
@@ -786,10 +787,25 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                 continue
             try:
                 sources = await vw.discover_sources(domain, probe_pages=True)
-            except Exception:
+            except Exception as probe_error:
                 failed += 1
                 logger.debug("feed discovery failed for %s", domain, exc_info=True)
+                # Backed off rather than left untouched. A policy that is
+                # neither advanced nor failed keeps next_due_at NULL, which
+                # reads as due forever, so a domain that always throws is
+                # re-probed on every pass and never backs off.
+                sch.record_failure(conn, SOURCE_DISCOVERY,
+                                   [vendor["brand_id"]], str(probe_error))
+                conn.commit()
                 continue
+            # Credited whatever the probe found, because the question this
+            # source answers is "have we looked at this vendor's site", and we
+            # have. Without it every policy row stayed at last_success_at NULL
+            # and the panel reported the source as never collected immediately
+            # after a run that swept the whole registry — the same gap the ATS
+            # discovery sweep above had.
+            sch.record_success(conn, SOURCE_DISCOVERY, [vendor["brand_id"]])
+
             # Register the feeds so the existing RSS collector polls them.
             # Recording them only in the baseline would leave a vendor's blog
             # "discovered" and never read.

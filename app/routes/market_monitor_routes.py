@@ -2369,6 +2369,70 @@ async def market_collection_state(
     return await asyncio.to_thread(_work)
 
 
+@router.get("/markets/{market_id}/findings")
+async def market_findings(
+    market_id: int,
+    days: Optional[int] = Query(30, ge=1, le=3650),
+    theme: Optional[str] = Query(None, description="One of the six themes."),
+    vendor_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(
+        None, description="confirmed, corroborated, watch or dismissed."),
+    materiality: Optional[str] = Query(None, description="high, medium or low."),
+    sort: str = Query("recommended"),
+    include_dismissed: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """What changed in this market, as findings rather than a feed.
+
+    A finding is a deduplicated change with its evidence attached, so several
+    reports of one event are one finding. The default order is the
+    specification's deterministic tiers, not a relevance score.
+    """
+    from app.services import market_findings as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, mf.findings(
+                conn, market_id, days=days, theme=theme, vendor_id=vendor_id,
+                status=status, materiality=materiality, sort=sort,
+                include_dismissed=include_dismissed, page=page,
+                page_size=(500 if fmt == "csv" else page_size))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "findings", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/findings/{finding_id}/evidence")
+async def market_finding_evidence(
+    market_id: int, finding_id: int,
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Every record behind one finding, with whose voice each one is."""
+    from app.services import market_findings as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                return market, mf.evidence(conn, market_id, finding_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "evidence", out) if fmt == "csv" else out
+
+
 # ---------------------------------------------------------------------------
 # Discovery — vendors the registry does not have yet
 # ---------------------------------------------------------------------------
