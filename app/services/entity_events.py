@@ -41,7 +41,18 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_VERSION = '1.0'
+# Bump this when an extractor's *output for the same event* improves — a better
+# headline, a fuller description. The upsert below refreshes title and
+# description when the incoming version is newer than the stored one, and
+# leaves them alone otherwise, so a re-run at the same version never churns.
+#
+# 1.1: owned-post events were titled from the post's opening line, so a real
+# Booz Allen Hamilton partnership read "Security operations are being asked to
+# move at machine speed" and named neither the partner nor the partnership.
+# 1.2: rejected headlines that point at the news instead of stating it — "Read
+# the logic behind...", "dive into the details of our official announcement
+# below" — which matched a kind marker and then deferred.
+EXTRACTION_VERSION = '1.2'
 
 EVENT_TYPES = (
     'funding_round', 'acquisition', 'operating_status_change',
@@ -167,7 +178,28 @@ def upsert_event(conn, *, event_type: str, title: str, description: str,
                 :published, :confidence, 'uncorroborated', 'active',
                 CAST(:attrs AS JSONB), :version, :hash)
         ON CONFLICT (dedupe_hash) DO UPDATE
-           SET last_observed_at = NOW(), updated_at = NOW()
+           SET last_observed_at = NOW(), updated_at = NOW(),
+               -- First-seen wins on the facts, but not against a better
+               -- extractor. Refreshed only when the incoming version is newer:
+               -- a re-run at the same version leaves the text untouched, so
+               -- nothing churns, and a later *worse* pass cannot overwrite a
+               -- good headline by being later.
+               title = CASE
+                   WHEN EXCLUDED.extraction_version IS NOT NULL
+                    AND (bw_entity_events.extraction_version IS NULL
+                         OR EXCLUDED.extraction_version
+                            > bw_entity_events.extraction_version)
+                   THEN EXCLUDED.title ELSE bw_entity_events.title END,
+               description = CASE
+                   WHEN EXCLUDED.extraction_version IS NOT NULL
+                    AND (bw_entity_events.extraction_version IS NULL
+                         OR EXCLUDED.extraction_version
+                            > bw_entity_events.extraction_version)
+                   THEN EXCLUDED.description
+                   ELSE bw_entity_events.description END,
+               extraction_version = GREATEST(
+                   bw_entity_events.extraction_version,
+                   EXCLUDED.extraction_version)
         RETURNING id, (xmax = 0) AS created
     """), {'type': event_type, 'subtype': subtype, 'title': title[:500],
            'description': description, 'occurred': occurred_at,

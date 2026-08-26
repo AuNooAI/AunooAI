@@ -12,6 +12,8 @@ _2026-08-26 · Market Monitor — vendor table, coverage figures, hiring, downlo
 - Provider data now arrives when it is sent rather than ten minutes later.
 - Top Voices now tells you who a handle belongs to, and separates people who post regularly from single posts that travelled.
 - Third-party mentions of a vendor now show per vendor, split by where they came from — news, Twitter, Bluesky, Reddit, employee reviews.
+- Event cards say what happened. A partnership card now names the partner.
+- The line explaining where an event came from describes the evidence instead of implying doubt.
 
 ## Why it matters
 
@@ -46,6 +48,16 @@ Two changes. The list now separates **consistent voices** (accounts posting at l
 And every handle now links to its account profile under brand monitoring — the bio, follower count, topics, sentiment and watchlist state that were already being kept one screen away and never connected. Profiles are still built only when you ask for one, so nothing is generated in bulk.
 
 Who feels it: an analyst deciding whose opinion to follow, and anyone who wants to know who a handle actually is. It also makes profiling worth doing — one account here is worth a profile, rather than eighty-seven.
+
+**Event cards described the wrong thing.** A card read "Andesite: Security operations are being asked to move at machine speed", tagged as a partnership. It *was* a real partnership — with Booz Allen Hamilton — but the card took the opening line of the announcement post as its headline, so the partner was never named. Vendor posts open with a hook and state their news a few sentences in, so the first line is almost never the news.
+
+Cards now take their headline from the sentence that states what happened. Of 192 events, 92 were retitled; the rest kept their existing headline because no sentence clearly stated the news, which is deliberate — a guessed headline is worse than a dull one.
+
+**And the line under the headline read as doubt.** It said "the vendor says so; not yet corroborated". That mixes a fact with an insinuation: the company announcing its own partnership is a fact about where we heard it, while "not yet corroborated" sounds like we doubt the partnership is real. We don't. It also promised a follow-up that never comes — nothing goes looking for confirmation, so a permanent state was worded as a temporary one.
+
+It now reads "announced by the vendor, no independent source", and is no longer flagged as a warning. A company announcing its own news is how you normally learn about it. The warning tone is kept for events with no recorded source at all.
+
+Who feels it: anyone scanning a vendor's timeline. Before, every self-announced event carried a caution colour and a headline that hid the news.
 
 **Provider data was arriving late, every single time.** Every batch we bought was being refused on delivery and then fetched a second time ten minutes later by a fallback. Customers never saw an error, because the fallback worked — but every figure was up to ten minutes staler than it needed to be, and we were paying to fetch the same records twice. Deliveries now land on arrival.
 

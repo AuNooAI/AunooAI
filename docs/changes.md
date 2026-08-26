@@ -170,6 +170,83 @@ version tallied per file and failed on correct code, counting a docstring mentio
 deliberately-unguarded `is_owned` label. Verified by removing the guard from one query and watching
 it name `market_publish.py:106`.
 
+### Social collection turned on for the market's vendors
+Two gates, both were shut. `ENTITY_INTELLIGENCE_SOCIAL_ENABLED` was unset and defaults to false,
+which makes `entity_ingest.on_article` skip the `public_social` and `community` channels outright;
+and `bw_market_brands.social_collection_enabled` was false for all 83 in-scope vendors, which left
+the term-matching brand list empty for those channels. Set both: the flag in `.env` with a comment
+saying what it costs, and the column for the 83 vendors with `role <> 'excluded'`.
+
+Flag state confirmed live through `entity_flags.snapshot()`: `SOCIAL_ENABLED = True`.
+
+Note what this does and does not do. It turns public social posts **already in the corpus** into
+per-vendor mentions; it does not fetch new social posts. It also only affects articles processed
+from here on — `bw_entity_link_attempts` records each examination against
+`entity_content.MATCHER_VERSION` (currently `1.0`, 1,001 articles examined), so re-examining the
+161 social posts already matched to this market needs that version bumped. **Not done**: bumping it
+re-examines every article, and the social lanes feed a model-scored evaluation queue, so the cost
+should be sized before it is spent rather than after.
+
+### Event headlines say what happened, and an extractor improvement can now reach old events
+A card read `Andesite: Security operations are being asked to move at machine speed · partnership ·
+the vendor says so; not yet corroborated · 18 Aug 2026`. The classification was **right** — the
+post body says "Andesite is excited to announce a new partnership with Booz Allen Hamilton focused
+on machine-speed defense for mission-critical SOC modernization". The title was the problem: the
+card never mentioned Booz Allen Hamilton, which is the single most useful word on it.
+
+**`app/services/entity_event_extractors/owned_post.py`** — `title` was
+`row['title']`, the article title, which for a LinkedIn post is `{vendor}: {first line of the post}`.
+A vendor post opens with a hook and states its news two or three sentences down, so the first line
+is almost never the news. New `announcing_sentence(body, kind)` picks the first sentence carrying a
+marker for that kind — "partner", "alliance", "founding member" for a partnership; "launch",
+"unveil", "introduc" for a launch — strips leading emoji, drops the vendor prefix when the sentence
+already opens with the company name, and trims on a word boundary.
+
+It returns `None` rather than a guess when nothing carries the news, falling back to the post's own
+title, so it is never worse than before. That path is load-bearing: of 192 events, **92 were
+retitled and 100 kept their post title**, and every fragmentary title inspected afterwards
+("Radiant Security: Three banks.", "7AI: Welcome, Devon O'Brien!") turned out to be an unchanged
+fallback rather than something this made worse.
+
+A first pass at version `1.1` retitled 87 and produced a handful that pointed at the news instead of
+stating it — "Read the logic behind the new standard for remediation", "dive into the details of our
+official announcement below", "We built #Agent_Vera around that question". Those match a kind marker
+and then defer, so `1.2` rejects sentences opening with `read`/`dive into`/`watch`/`learn more` and
+any containing "in the comments", "at the link" or "that question", and raises the minimum length
+from 20 to 30 characters. Ten titles reverted to their fallback, which is the right answer for them.
+
+**`app/services/entity_events.py`** — the upsert was `ON CONFLICT (dedupe_hash) DO UPDATE SET
+last_observed_at, updated_at`, so first-seen won on the text and **an extractor improvement could
+never reach an event that already existed**. The first run of the retitling changed 0 of 198 titles
+for exactly that reason. `title` and `description` are now refreshed when the incoming
+`extraction_version` is *newer* than the stored one, and left alone otherwise: a re-run at the same
+version never churns, and a later worse pass cannot overwrite a good headline by being later.
+`EXTRACTION_VERSION` carries a note per bump saying what improved.
+
+Safe because `fingerprint()` keys on event type, subjects, attributes and date bucket — **not** on
+the title — so retitling cannot fork an event.
+
+### The corroboration line described doubt instead of evidence
+**`ui/src/components/newsfeed/entityProvenance.ts`** — `vendor_claim` rendered as "the vendor says
+so; not yet corroborated", tinted `warn`. That asserted two things and only one was a measurement.
+The company saying it is a fact about the evidence; "not yet corroborated" reads as doubt about
+whether the partnership happened, and for a company announcing its own partnership its own
+announcement is close to the best available source that the partnership exists. What is missing is
+the counterparty and an independent account of what it amounts to.
+
+"Not yet" also promised something the system does not do: the ladder in `recompute_corroboration`
+only rises if a matching independent source happens to arrive in the corpus, and for a small vendor
+that may be never — so a permanently accurate state was worded as a temporary one.
+
+Now `announced by the vendor, no independent source`, tone `neutral`. `warn` is kept for
+`uncorroborated`, reworded to `no source recorded`, which is a real gap. The other three rungs were
+already describing evidence rather than grading truth and are unchanged. The HTML report's separate
+cluster-based wording ("Vendor source only") was already right and is untouched.
+
+UI rebuilt and deployed: `npm run typecheck` clean against its baseline (246 known, none new), new
+wording present in `MarketMonitorTab-kkrkMvzy.js`, old wording absent from the build, templates
+repointed, service restarted.
+
 ### Earned attention read from the resolved mentions instead of ignored
 Chasing why zero of the market's 161 social posts were attributed to any vendor turned out to be
 the same shape as everything else in this entry. `bw_entity_mentions` already holds resolved

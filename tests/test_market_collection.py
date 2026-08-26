@@ -956,3 +956,90 @@ def test_earned_attention_never_counts_a_vendors_own_posts():
             f"{row['vendor']}: platform counts ({att['by_platform']}) exceed "
             f"the attention total ({att['total']}) — something outside the "
             f"earned channels is being counted")
+
+
+# ---------------------------------------------------------------------------
+# An event headline should say what happened
+# ---------------------------------------------------------------------------
+
+#: The real post behind event 209, trimmed. A genuine Booz Allen Hamilton
+#: partnership whose card said "Security operations are being asked to move at
+#: machine speed" — naming neither the partner nor the partnership.
+ANDESITE_POST = (
+    "Security operations are being asked to move at machine speed. But speed "
+    "alone isn't the answer - defenders need the right context, the right "
+    "intelligence, and the ability to make high-confidence decisions faster.\n\n"
+    "That's why Andesite is excited to announce a new partnership with Booz "
+    "Allen Hamilton focused on machine-speed defense for mission-critical SOC "
+    "modernization."
+)
+
+
+def test_an_event_headline_names_the_announcement_not_the_hook():
+    """Vendor posts open with a hook and state the news a few sentences down.
+
+    Taking the post's first line as the event title produced a partnership card
+    that never mentioned the partner. The counterparty is the single most
+    useful word on that card.
+    """
+    from app.services.entity_event_extractors.owned_post import (
+        announcing_sentence,
+    )
+
+    got = announcing_sentence(ANDESITE_POST, 'partnership')
+    assert got, 'no announcing sentence found in a post that plainly has one'
+    assert 'Booz Allen Hamilton' in got
+    assert not got.startswith('Security operations are being asked')
+
+
+def test_no_marker_sentence_keeps_the_existing_title():
+    """A guess is worse than the status quo here.
+
+    Returning some other sentence when none carries the news would invent a
+    headline; falling back to the post's own title is exactly as good as before
+    the change.
+    """
+    from app.services.entity_event_extractors.owned_post import (
+        announcing_sentence,
+    )
+
+    assert announcing_sentence(
+        "Thoughts on the state of detection engineering in 2026.",
+        'partnership') is None
+    assert announcing_sentence('', 'partnership') is None
+    # A kind with no markers defined is not forced into one.
+    assert announcing_sentence(ANDESITE_POST, 'award') is None
+
+
+def test_a_headline_is_trimmed_on_a_word_boundary():
+    from app.services.entity_event_extractors.owned_post import (
+        announcing_sentence, _TITLE_CHARS,
+    )
+
+    long_one = ('We are pleased to announce a partnership with '
+                + 'Extremely Long Partner Name ' * 20 + 'today.')
+    got = announcing_sentence(long_one, 'partnership')
+    assert got and len(got) <= _TITLE_CHARS + 1     # +1 for the ellipsis
+    assert got.endswith('…')
+    assert not got[:-1].endswith(' '), 'trimmed mid-space rather than on a word'
+
+
+def test_the_vendor_name_is_not_repeated_in_its_own_headline():
+    """"Dropzone AI: Dropzone AI is a founding member" reads as a bug."""
+    from app.services.entity_event_extractors.owned_post import _event_title
+
+    row = {'display_name': 'Dropzone AI', 'title': 'ignored',
+           'summary': 'Dropzone AI is a founding member of the Agentic SOC '
+                      'Alliance.'}
+    assert _event_title(row, 'partnership') == (
+        'Dropzone AI is a founding member of the Agentic SOC Alliance.')
+
+
+def test_leading_decoration_is_not_a_headline():
+    from app.services.entity_event_extractors.owned_post import _event_title
+
+    row = {'display_name': 'Exaforce', 'title': 'ignored',
+           'summary': '\U0001F680 We are proud to join CrowdStrike as a '
+                      'founding member of the alliance.'}
+    got = _event_title(row, 'partnership')
+    assert got.startswith('Exaforce: We are proud'), got
