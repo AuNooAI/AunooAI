@@ -218,6 +218,31 @@ keys, so those two runs supplied `FLASK_SECRET_KEY=analysis-only NORN_SECRET_KEY
 the environment. That is static analysis of the route table only — it does not touch
 `.env.encrypted` and starts nothing.
 
+**The guard runs on all ten tenants.** It was canonical-only at first, on the reasoning that the
+deploy trees have no pytest and that prod-tree pytest hits the prod database. Oliver asked for it
+everywhere, which is the right call — a guard that only exists where nobody deploys from does not
+guard much. Making it useful there took two changes.
+
+`tests/test_auth_surface.py` now runs as a plain script as well as under pytest. The `pytest` import
+falls back to a nine-line shim providing `fail` and `fixture`, and a `main()` runs the same checks
+and exits non-zero, so it can gate a deploy script or a cron job. The checks need nothing but the
+standard library. No pytest was installed into any production venv.
+
+The checks are also split by kind, which the propagation forced. The three security invariants —
+nothing open, nothing shadowed, nothing state-changing allowlisted — are fatal everywhere. The
+allowlist-hygiene check is advisory in script mode, because pearson's `auth_routes` predates the
+reset-password feature and so lacks two functions `SELF_GUARDED` names. An allowlist entry for a
+function that does not exist grants no cover and cannot hide a hole, so it is worth failing only in
+canonical, where a stale entry could mask a rename. Under pytest it stays strict.
+
+Result on every tenant: **3/3 security checks pass**, exit 0. Route tables range from 1,169 routes
+(pbm) to 1,326 (wiley and interroll). pearson prints the advisory note and still exits 0.
+
+On the two dormant tenants the guard exits **2** with "could not read the route table" and the
+`NORN_SECRET_KEY is not set` message, because the app refuses to import without a readable `.env`.
+That is deliberate: an unverifiable route table is reported as unverified rather than as a pass.
+Supplying throwaway keys for a static read shows 3/3 on both.
+
 **Whoever revives pearson or interroll must confirm both signing keys are in the decrypted
 `.env`**, or the service will refuse to start and say which key is missing. I could not verify the
 encrypted files, but the plaintext backups still on disk

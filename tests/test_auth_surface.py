@@ -21,7 +21,33 @@ import os
 import subprocess
 import sys
 
-import pytest
+try:
+    import pytest
+except ImportError:  # pragma: no cover
+    # The nine deploy trees have no pytest in their venv, and installing it
+    # there would pull a test runner into production for one file. The checks
+    # themselves need nothing but the standard library, so this shims the two
+    # pytest names used below and the file stays runnable as a script:
+    #     python tests/test_auth_surface.py
+    import types
+
+    pytest = types.ModuleType('pytest')
+
+    class _Failed(AssertionError):
+        pass
+
+    def _fail(msg):
+        raise _Failed(msg)
+
+    def _fixture(*args, **kwargs):
+        if args and callable(args[0]):
+            return args[0]
+        return lambda fn: fn
+
+    pytest.fail = _fail
+    pytest.fixture = _fixture
+    pytest.Failed = _Failed
+    sys.modules['pytest'] = pytest
 
 # Any of these as a dependency counts as protecting a route.
 AUTH_DEPENDENCIES = {
@@ -243,3 +269,59 @@ def test_the_allowlists_have_no_dead_entries(routes):
     assert not stale_endpoints, (
         "SELF_GUARDED lists endpoints whose module is present but whose "
         f"function is gone: {sorted(stale_endpoints)}")
+
+
+# The security invariants. A failure here is a hole and exits non-zero.
+CHECKS = (
+    'test_no_route_is_open_to_anonymous_callers',
+    'test_no_open_registration_shadows_a_protected_one',
+    'test_nothing_state_changing_is_allowlisted_as_public',
+)
+
+# Hygiene, not security. Reported but not fatal in script mode, because the
+# deploy trees run older feature sets: pearson's auth_routes has no
+# reset_password_submit, so the allowlist names a function that is absent there.
+# An entry for a function that does not exist grants no cover, so it cannot
+# hide a hole — it is only worth failing in canonical, where a stale entry
+# could mask a rename. Under pytest, which runs in canonical, it is strict.
+ADVISORY_CHECKS = (
+    'test_the_allowlists_have_no_dead_entries',
+)
+
+
+def main():
+    """Run the same four checks without a test runner.
+
+    Exists so the invariant is enforceable on the deploy trees, which have no
+    pytest. Exits non-zero if any check fails, so it can gate a deploy script
+    or a cron job. Under pytest this is not used.
+    """
+    try:
+        table = routes.__wrapped__() if hasattr(routes, '__wrapped__') else routes()
+    except AssertionError as exc:
+        # Most likely this tenant has no readable .env, so the app refuses to
+        # import. Report it as a failure to CHECK rather than a clean pass —
+        # an unverifiable route table is not a verified one.
+        print(f'ERROR could not read the route table\n{exc}')
+        return 2
+    failures = 0
+    for name in CHECKS:
+        try:
+            globals()[name](table)
+            print(f'PASS  {name}')
+        except AssertionError as exc:
+            failures += 1
+            print(f'FAIL  {name}\n{exc}')
+    for name in ADVISORY_CHECKS:
+        try:
+            globals()[name](table)
+            print(f'PASS  {name}')
+        except AssertionError as exc:
+            print(f'NOTE  {name} (advisory, not a hole)\n{exc}')
+    print(f'\n{len(CHECKS) - failures}/{len(CHECKS)} security checks passed '
+          f'over {len(table)} registered routes')
+    return 1 if failures else 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
