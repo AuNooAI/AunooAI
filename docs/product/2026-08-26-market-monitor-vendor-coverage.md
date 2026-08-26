@@ -10,6 +10,7 @@ _2026-08-26 · Market Monitor — vendor table, coverage figures, hiring, downlo
 - Job listings are being collected again after being switched off in error. Postings held went from 33 across 7 companies to 91 across 16.
 - A company's staff count can no longer be filled in from a size band, so no vendor can appear with a made-up headcount.
 - Provider data now arrives when it is sent rather than ten minutes later.
+- Top Voices now tells you who a handle belongs to, and separates people who post regularly from single posts that travelled.
 
 ## Why it matters
 
@@ -31,6 +32,14 @@ Who feels it: anyone comparing vendors on how much they say. Also anyone quoting
 
 **Hiring data had been switched off by mistake.** The job-listing collector was paused in error nine days ago, citing a provider error that had already been fixed on the same day it appeared. Because a paused source is simply silent, nothing on screen distinguished "we are not collecting this" from "there is nothing to report". It is collecting again, and the number of tracked job postings nearly tripled in one run.
 
+**"Top voices" was mostly single posts, and the handles were strangers.** The list ranked accounts by how much engagement they got, which meant one post that travelled outranked an account posting week after week. In this market that is not a small distortion: of 87 accounts discussing it, 81 posted exactly once, and the only account posting repeatedly — nine times — had no engagement at all, so it ranked last.
+
+Two changes. The list now separates **consistent voices** (accounts posting at least three times, ranked by how much they say) from **breakout posts** (a single post that did numbers, which is a real thing and worth seeing, just not a voice). Single-post entries are marked as such so nobody mistakes one for a regular commentator. For this market that is one consistent voice and 86 breakout posts.
+
+And every handle now links to its account profile under brand monitoring — the bio, follower count, topics, sentiment and watchlist state that were already being kept one screen away and never connected. Profiles are still built only when you ask for one, so nothing is generated in bulk.
+
+Who feels it: an analyst deciding whose opinion to follow, and anyone who wants to know who a handle actually is. It also makes profiling worth doing — one account here is worth a profile, rather than eighty-seven.
+
 **Provider data was arriving late, every single time.** Every batch we bought was being refused on delivery and then fetched a second time ten minutes later by a fallback. Customers never saw an error, because the fallback worked — but every figure was up to ten minutes staler than it needed to be, and we were paying to fetch the same records twice. Deliveries now land on arrival.
 
 ## Release notes (copy-ready)
@@ -42,6 +51,8 @@ Who feels it: anyone comparing vendors on how much they say. Also anyone quoting
 - Job-listing collection has been restored. Tracked postings rose from 33 to 91.
 - Provider data now arrives as soon as the provider sends it.
 - Post counts now separate what a company published from what it reshared. Reshares are reported on their own rather than counted as the company's own output.
+- Top Voices separates accounts that post regularly from single posts that got attention, and marks single-post entries as such.
+- Each voice links to its account profile under brand monitoring. Profiles are still built on request, not in bulk.
 
 ## Demo / walkthrough
 

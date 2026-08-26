@@ -825,3 +825,67 @@ def test_no_sweep_holds_a_transaction_across_an_http_call():
         'these vendor loops await network calls without committing inside the '
         'loop, so the connection sits idle-in-transaction and one slow host '
         'loses the whole sweep: ' + ', '.join(offenders))
+
+
+# ---------------------------------------------------------------------------
+# Top voices: a post is not a voice
+# ---------------------------------------------------------------------------
+
+def test_the_voice_threshold_is_configurable_and_defaults_to_three(monkeypatch):
+    from app.services.market_analysis import consistent_voice_min_posts
+
+    monkeypatch.delenv('MARKET_CONSISTENT_VOICE_MIN_POSTS', raising=False)
+    assert consistent_voice_min_posts() == 3
+    monkeypatch.setenv('MARKET_CONSISTENT_VOICE_MIN_POSTS', '5')
+    assert consistent_voice_min_posts() == 5
+    # A threshold of zero would put every single-post account back among the
+    # voices, which is the thing being fixed.
+    monkeypatch.setenv('MARKET_CONSISTENT_VOICE_MIN_POSTS', '0')
+    assert consistent_voice_min_posts() == 1
+    monkeypatch.setenv('MARKET_CONSISTENT_VOICE_MIN_POSTS', 'not a number')
+    assert consistent_voice_min_posts() == 3
+
+
+def test_top_voices_separates_a_voice_from_a_single_post():
+    """One post is a post. 81 of this market's 87 authors posted once.
+
+    Ranked by engagement and labelled "top voices", the list put those 81 above
+    the one account that posted nine times — which had zero engagement and so
+    came last. That inverts the question the panel is asking: who is driving
+    this conversation, not which single post did numbers.
+    """
+    import inspect
+
+    from app.services import market_analysis as man
+
+    src = inspect.getsource(man.top_voices)
+    for key in ('"consistent"', '"breakout"', '"consistent_min_posts"',
+                '"sample_of_one"'):
+        assert key in src, f'top_voices no longer reports {key}'
+    # The union stays, so existing callers do not break.
+    assert '"voices": voices' in src
+
+
+def test_top_voices_links_accounts_without_building_profiles():
+    """Brand monitoring's account profiles are built on demand, never in bulk.
+
+    ``social_profile_service`` says so outright — "Built ON-DEMAND only (never
+    bulk/auto) for cost" — and this list is 87 accounts. Joining to report
+    whether a profile exists is free; calling the builder from a read path
+    would profile the whole market every time somebody opened the tab.
+    """
+    import inspect
+
+    from app.services import market_analysis as man
+
+    src = inspect.getsource(man.top_voices)
+    assert 'social_accounts' in src, (
+        'top_voices no longer joins the account profiles, so a handle here is '
+        'a stranger while its profile sits one screen away')
+    assert 'handle_canonical' in src, (
+        'the account link must carry handle_canonical — /accounts/profile is '
+        'keyed on (platform, handle_canonical)')
+    for forbidden in ('build_profile', 'SocialProfileService'):
+        assert forbidden not in src, (
+            f'top_voices calls {forbidden}: a read path must not build '
+            f'profiles, which are on-demand only for cost')

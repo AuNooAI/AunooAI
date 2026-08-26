@@ -170,6 +170,41 @@ version tallied per file and failed on correct code, counting a docstring mentio
 deliberately-unguarded `is_owned` label. Verified by removing the guard from one query and watching
 it name `market_publish.py:106`.
 
+### Top voices joined to brand monitoring's account profiles, and split from breakout posts
+Brand monitoring already keeps per-account profiles in `social_accounts` — handle, bio, reach,
+topics, brand-relative sentiment, watchlist state, sample posts. Top Voices listed handles beside
+them and never joined the two, so the same account was an anonymous string on one screen and a
+profile on another.
+
+The join needed no matching layer: all **87** of this market's distinct voices match a
+`social_accounts` row exactly on `(platform, lower(author) = handle_canonical)`, which is the same
+key `/accounts/profile` uses. Checked before building anything, because a fuzzy-match requirement
+would have made this a different job.
+
+**`app/services/market_analysis.py`** — `top_voices` now returns an `account` block per voice:
+`account_id`, `handle_canonical`, display name, followers, bio, summary, tags, `watchlisted` and
+`profiled`. A voice with no registered account returns `null` rather than an empty dict, because an
+empty dict reads as "profiled, and empty".
+
+It **reports** whether a profile exists and never builds one. `social_profile_service` is explicit
+that profiles are "Built ON-DEMAND only (never bulk/auto) for cost", and this list is 87 accounts —
+calling the builder from a read path would profile the whole market every time somebody opened the
+tab. A test asserts `build_profile` and `SocialProfileService` do not appear in `top_voices`.
+
+**The list it decorates was mostly single posts.** Post counts in this market: one author with 9,
+five with 2, and **81 with 1**. Ranked by engagement and labelled "top voices", those 81 sat above
+the only account posting repeatedly — `polsia`, 9 posts and *zero* engagement, so it ranked last.
+That inverts the question the panel asks.
+
+`top_voices` now also returns `consistent` (at least `MARKET_CONSISTENT_VOICE_MIN_POSTS` posts,
+default 3, ranked by post count first), `breakout` (everything below the threshold, which is a real
+category and not a failure), `consistent_min_posts`, and `sample_of_one` per row. `voices` stays as
+the engagement-ranked union so existing callers — including the HTML report — keep working.
+
+Result for this market: **1 consistent voice, 86 breakout posts.** Which also makes the account
+integration actionable rather than theoretical: one account is worth an on-demand profile, not
+eighty-seven.
+
 ### Loose ends
 **Three sources reported as failing forever.** The health panel shows the state of the most recent
 run, and PitchBook, ZoomInfo and Indeed are refused at admission — so nothing will ever replace

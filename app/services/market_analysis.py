@@ -15,6 +15,7 @@ Nothing here calls a model or a provider. It reads rows.
 """
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -663,6 +664,22 @@ def run(conn, market_id: int, name: str, *, days: Optional[int] = None
 _OWN_VOICE = own_voice_sql("a")
 
 
+def consistent_voice_min_posts() -> int:
+    """Relevant posts before an account counts as a voice rather than a post.
+
+    One post is a post. Ranking a list by engagement and calling it "top
+    voices" put 81 single-post accounts of this market's 87 above the one
+    account that posted nine times, which inverts the question being asked:
+    who is driving this conversation, not which single post did numbers.
+
+    Configurable because three is a judgement, not a measurement.
+    """
+    try:
+        return max(1, int(os.getenv("MARKET_CONSISTENT_VOICE_MIN_POSTS", "3")))
+    except ValueError:
+        return 3
+
+
 DRILLDOWNS = ("quiet", "watched", "paused", "observed", "unobserved",
               "disclosed", "undisclosed", "no_linkedin", "posting", "hiring")
 
@@ -995,6 +1012,53 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             v[key] = int(v[key] or 0)
         v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
 
+    # Who each handle belongs to. Brand monitoring already keeps account
+    # profiles in social_accounts — bio, reach, topics, brand-relative
+    # sentiment, watchlist state — and Top Voices was listing handles beside
+    # them without ever joining the two, so the same account was a stranger
+    # here and a profile one screen away.
+    #
+    # Reports whether a profile exists; does not build one.
+    # social_profile_service is explicit that profiles are built "ON-DEMAND
+    # only (never bulk/auto) for cost", and this list is 87 accounts.
+    # `handle_canonical` is returned so a caller can hand it straight to
+    # /accounts/profile, which is keyed on (platform, handle_canonical).
+    if voices:
+        pairs = {(v["author"], v["platform"]) for v in voices}
+        accounts = {
+            (r["handle_canonical"], r["platform"]): dict(r)
+            for r in conn.execute(text("""
+                SELECT platform, handle_canonical, id AS account_id, handle,
+                       display_name, followers_count, summary, watchlisted,
+                       tags, bio, profile_url,
+                       last_profiled_at IS NOT NULL AS profiled
+                  FROM social_accounts
+                 WHERE (platform, handle_canonical) IN (
+                     SELECT lower(p), lower(h) FROM UNNEST(:plats, :handles)
+                          AS t(p, h))
+            """), {"plats": [p for _, p in pairs],
+                   "handles": [a for a, _ in pairs]}).mappings().all()
+        }
+        for v in voices:
+            hit = accounts.get((str(v["author"]).lower(),
+                                str(v["platform"]).lower()))
+            # Absent is a real answer: an author we have seen posting but never
+            # registered as an account. Saying so beats an empty dict that
+            # reads as "profiled, and empty".
+            v["account"] = ({
+                "account_id": hit["account_id"],
+                "handle": hit["handle"],
+                "handle_canonical": hit["handle_canonical"],
+                "display_name": hit["display_name"],
+                "followers": hit["followers_count"],
+                "summary": hit["summary"],
+                "bio": hit["bio"],
+                "profile_url": hit["profile_url"],
+                "watchlisted": bool(hit["watchlisted"]),
+                "tags": hit["tags"] or [],
+                "profiled": bool(hit["profiled"]),
+            } if hit else None)
+
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
     # driving which conversation, and about whom.
@@ -1050,8 +1114,28 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           {window}
     """), params).fetchone()
 
+    # Two different questions, split rather than blended. `voices` stays as it
+    # was so existing callers keep working; it is the union, still engagement-
+    # ranked.
+    threshold = consistent_voice_min_posts()
+    for v in voices:
+        v["sample_of_one"] = int(v["posts"] or 0) <= 1
+
+    # Who is actually driving the conversation: ranked by how much they say
+    # first, because that is the claim the word "voice" makes.
+    consistent = sorted(
+        (v for v in voices if int(v["posts"] or 0) >= threshold),
+        key=lambda v: (-int(v["posts"] or 0), -int(v["engagement"] or 0),
+                       str(v.get("last_seen") or "")))
+    # Individual posts that travelled, including from accounts with only one.
+    # Legitimate, and not a voice.
+    breakout = [v for v in voices if int(v["posts"] or 0) < threshold]
+
     return {
         "voices": voices,
+        "consistent": consistent,
+        "breakout": breakout,
+        "consistent_min_posts": threshold,
         "days": days,
         "coverage": _coverage(with_author or 0, total or 0,
                               "practitioner posts name an author"),
