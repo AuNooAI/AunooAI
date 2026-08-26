@@ -1043,3 +1043,85 @@ def test_leading_decoration_is_not_a_headline():
                       'founding member of the alliance.'}
     got = _event_title(row, 'partnership')
     assert got.startswith('Exaforce: We are proud'), got
+
+
+# ---------------------------------------------------------------------------
+# One announcement said twice is one event
+# ---------------------------------------------------------------------------
+
+def test_a_reviewer_reason_that_names_something_is_an_identity():
+    from app.services.entity_events import subject_key
+
+    assert subject_key('Partnership with Booz Allen Hamilton announced')
+    assert subject_key('Launch of Org Brain product')
+    # A lowercase dotted brand names something and never gets a capital.
+    assert subject_key('detections.ai Enterprise product live')
+    # Same reason, different punctuation and case, is the same identity.
+    assert (subject_key('Launch of Org Brain product.')
+            == subject_key('launch of org brain PRODUCT'))
+
+
+@pytest.mark.parametrize('boilerplate', [
+    'Specific role being filled',
+    'Specific senior role being filled',
+    'Enterprise product went live',
+    '', None,
+])
+def test_a_boilerplate_reason_is_not_an_identity(boilerplate):
+    """This test is the whole reason the proper-noun check exists.
+
+    Imperum's nine hiring posts reduce to two reasons — "Specific role being
+    filled" and "Specific senior role being filled". Keying on the reviewer's
+    reason without requiring a name would collapse nine genuine job
+    announcements into two events, which is far worse than the duplicate it
+    set out to fix.
+    """
+    from app.services.entity_events import subject_key
+
+    assert subject_key(boilerplate) is None
+
+
+def test_a_duplicate_is_superseded_rather_than_deleted():
+    """Deleting the loser frees its fingerprint.
+
+    The next extractor pass then recreates the duplicate and the merge folds it
+    again: stable in count, but churning ids and repeating the work on every
+    run. A tombstone keeps the fingerprint claimed, so the upsert updates that
+    row instead of making a new one.
+    """
+    import inspect
+
+    from app.services import entity_events
+
+    src = inspect.getsource(entity_events.merge_duplicates)
+    assert "'superseded'" in src
+    assert 'superseded_by' in src, (
+        'the merge must record which event absorbed this one, or the decision '
+        'is unauditable')
+    assert 'DELETE FROM bw_entity_events' not in src, (
+        'deleting the loser frees the fingerprint and the duplicate comes back')
+    # The projection carries no foreign key to entity events, so it has to be
+    # cleared by hand or it points at a tombstone.
+    assert 'bw_market_events' in src
+
+
+def test_a_tombstone_is_hidden_and_never_projected():
+    import inspect
+
+    from app.services import entity_events
+
+    for fn in (entity_events.events_for_brand, entity_events.merge_duplicates):
+        src = inspect.getsource(fn)
+        if 'status' in src:
+            assert 'superseded' in src, (
+                f'{fn.__name__} filters on status without excluding tombstones')
+
+    # Recomputing corroboration must not set a tombstone back to active.
+    src = inspect.getsource(entity_events.recompute_corroboration)
+    assert "'superseded'" in src, (
+        'recompute_corroboration would resurrect a tombstone')
+
+    src = inspect.getsource(entity_events.project_to_markets)
+    assert 'superseded' in src, (
+        'a superseded event would be published to the market wire alongside '
+        'the survivor, which is the duplicate showing up again')

@@ -31,6 +31,7 @@ An event whose date nobody stated keeps a null date and ``date_precision =
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import logging
 from datetime import datetime, timezone
@@ -283,8 +284,12 @@ def recompute_corroboration(conn, event_id: int) -> Dict[str, Any]:
 
     conn.execute(text("""
         UPDATE bw_entity_events
-           SET corroboration = :level, status = CASE WHEN status = 'rejected'
-                                                     THEN status ELSE :status END,
+           SET corroboration = :level,
+               -- A rejected or superseded event keeps that status. Setting it
+               -- back to active here would resurrect a tombstone every time
+               -- corroboration was recomputed.
+               status = CASE WHEN status IN ('rejected', 'superseded')
+                             THEN status ELSE :status END,
                updated_at = NOW()
          WHERE id = :e
     """), {'level': level, 'status': status, 'e': event_id})
@@ -333,6 +338,14 @@ def project_to_markets(conn, event_id: int) -> int:
           FROM bw_entity_events WHERE id = :e
     """), {'e': event_id}).mappings().first()
     if not event:
+        return 0
+    # A superseded event is a tombstone kept only to hold its fingerprint. Its
+    # evidence now lives on the survivor, so projecting it would put the same
+    # announcement on the market wire twice.
+    if event['status'] in ('superseded', 'rejected'):
+        conn.execute(text(
+            'DELETE FROM bw_market_events WHERE entity_event_id = :e'),
+            {'e': event_id})
         return 0
 
     markets = conn.execute(text("""
@@ -390,6 +403,139 @@ def project_to_markets(conn, event_id: int) -> int:
 # Reads
 # ---------------------------------------------------------------------------
 
+def subject_key(reason: Optional[str]) -> Optional[str]:
+    """What an event is *about*, from the reviewer's own words — or None.
+
+    ``market_post_review`` already reads every vendor post once and writes a
+    one-line reason. When that reason names something ("Partnership with Booz
+    Allen Hamilton announced", "Launch of Org Brain product") it is a usable
+    identity, and it cost nothing extra because the model has already run.
+
+    When it does not name anything it is boilerplate, and using it would be
+    destructive: Imperum's nine hiring posts all reduce to "Specific role being
+    filled" or "Specific senior role being filled", so keying on the reason
+    alone would collapse nine genuine job announcements into two. Requiring a
+    proper noun is what separates the two cases — measured on this corpus, 113
+    of 192 owned-post events get a key, and it merges 4 pairs and nothing else.
+
+    Three alternatives were measured and rejected before this one. Text
+    similarity ranks Imperum's *different* roles at 0.83 while the real Booz
+    Allen duplicate scores 0.23, so it merges the wrong things. Bucketing the
+    fingerprint by month collapses seven distinct System Two Security product
+    posts into one. And the reviewer's reason without the proper-noun test is
+    the nine-into-two case above.
+    """
+    if not reason:
+        return None
+    words = str(reason).split()
+    named = any(re.match(r'^[A-Z][A-Za-z0-9&.\-]*$', w) for w in words[1:])
+    # A lowercase dotted brand — "detections.ai", "exaforce.io" — names
+    # something too, and never gets a capital.
+    named = named or any('.' in w and w[:1].islower() for w in words)
+    if not named:
+        return None
+    return re.sub(r'[^a-z0-9 ]', '', str(reason).lower()).strip() or None
+
+
+def merge_duplicates(conn, *, announced_by: str = 'vendor') -> Dict[str, Any]:
+    """Fold events that are the same announcement said twice.
+
+    A vendor restating its own news creates a second event, because the
+    fingerprint keys on the day and the two posts are days apart. Reconciling
+    afterwards rather than changing the fingerprint is deliberate: changing
+    identity would rehash every existing event and orphan the old rows, and
+    this achieves the same result with no migration and no risk to events the
+    rule does not apply to.
+
+    Idempotent. The survivor is the lowest id — the first sighting, which is
+    also the one whose date the timeline should keep.
+    """
+    rows = conn.execute(text("""
+        SELECT e.id, e.event_type, ma.review_reason,
+               (SELECT array_agg(DISTINCT ee.brand_id ORDER BY ee.brand_id)
+                  FROM bw_entity_event_entities ee WHERE ee.event_id = e.id)
+                   AS brands
+          FROM bw_entity_events e
+          JOIN bw_entity_event_evidence ev ON ev.event_id = e.id
+          JOIN bw_market_articles ma ON ma.article_uri = ev.article_uri
+         WHERE e.attributes->>'announced_by' = :who
+           AND e.status NOT IN ('rejected', 'superseded')
+         ORDER BY e.id
+    """), {'who': announced_by}).mappings().all()
+
+    groups: Dict[tuple, List[int]] = {}
+    seen: set = set()
+    for row in rows:
+        if row['id'] in seen:
+            continue
+        seen.add(row['id'])
+        key = subject_key(row['review_reason'])
+        if not key or not row['brands']:
+            continue
+        groups.setdefault(
+            (row['event_type'], tuple(row['brands']), key), []).append(row['id'])
+
+    merged = 0
+    for ids in groups.values():
+        if len(ids) < 2:
+            continue
+        survivor, losers = ids[0], ids[1:]
+        for loser in losers:
+            # Evidence first, so the survivor inherits the second sighting and
+            # its corroboration reflects both posts. ON CONFLICT because the
+            # same article can already be attached to the survivor.
+            conn.execute(text("""
+                UPDATE bw_entity_event_evidence SET event_id = :s
+                 WHERE event_id = :l
+                   AND NOT EXISTS (
+                       SELECT 1 FROM bw_entity_event_evidence x
+                        WHERE x.event_id = :s
+                          AND x.relationship = bw_entity_event_evidence.relationship
+                          AND x.article_uri IS NOT DISTINCT FROM
+                              bw_entity_event_evidence.article_uri
+                          AND x.snapshot_id IS NOT DISTINCT FROM
+                              bw_entity_event_evidence.snapshot_id
+                          AND x.observation_id IS NOT DISTINCT FROM
+                              bw_entity_event_evidence.observation_id
+                          AND x.mention_id IS NOT DISTINCT FROM
+                              bw_entity_event_evidence.mention_id)
+            """), {'s': survivor, 'l': loser})
+            conn.execute(text("""
+                INSERT INTO bw_entity_event_entities (event_id, brand_id, relation)
+                SELECT :s, brand_id, relation FROM bw_entity_event_entities
+                 WHERE event_id = :l
+                ON CONFLICT (event_id, brand_id, relation) DO NOTHING
+            """), {'s': survivor, 'l': loser})
+            # bw_market_events.entity_event_id carries no foreign key, so the
+            # projection has to be cleared by hand or it points at a dead row.
+            conn.execute(text("""
+                DELETE FROM bw_market_events WHERE entity_event_id = :l
+            """), {'l': loser})
+            # Superseded, not deleted. Deleting frees the fingerprint, so the
+            # next extractor pass recreates the duplicate and the merge folds
+            # it again — stable in count but churning ids and repeating work
+            # every run. A tombstone keeps the fingerprint claimed, so the
+            # upsert updates this row instead of making a new one, and the
+            # merge decision stays auditable.
+            conn.execute(text("""
+                UPDATE bw_entity_events
+                   SET status = 'superseded',
+                       attributes = attributes
+                           || jsonb_build_object('superseded_by', :s),
+                       updated_at = NOW()
+                 WHERE id = :l
+            """), {'l': loser, 's': survivor})
+            merged += 1
+        recompute_corroboration(conn, survivor)
+        project_to_markets(conn, survivor)
+
+    if merged:
+        logger.info('merged %d duplicate event(s) into %d survivor(s)',
+                    merged, sum(1 for v in groups.values() if len(v) > 1))
+    return {'groups': sum(1 for v in groups.values() if len(v) > 1),
+            'merged': merged}
+
+
 def events_for_brand(conn, brand_id: int, limit: int = 50) -> List[Dict[str, Any]]:
     rows = conn.execute(text("""
         SELECT e.id, e.event_type, e.event_subtype, e.title, e.description,
@@ -402,7 +548,7 @@ def events_for_brand(conn, brand_id: int, limit: int = 50) -> List[Dict[str, Any
                        ('supports','originates')) AS sources
           FROM bw_entity_events e
           JOIN bw_entity_event_entities ee ON ee.event_id = e.id
-         WHERE ee.brand_id = :b AND e.status <> 'rejected'
+         WHERE ee.brand_id = :b AND e.status NOT IN ('rejected', 'superseded')
          ORDER BY COALESCE(e.occurred_at, e.first_observed_at) DESC
          LIMIT :lim
     """), {'b': brand_id, 'lim': limit}).mappings().all()

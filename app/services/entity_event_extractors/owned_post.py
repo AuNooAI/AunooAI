@@ -219,5 +219,12 @@ def run(conn, *, brand_id: Optional[int] = None,
         created += 1 if outcome['created'] else 0
         merged += 0 if outcome['created'] else 1
 
+    # Fold the same announcement said twice. Runs after, not during: a vendor's
+    # second post about one partnership is only recognisable once both events
+    # exist, and reconciling is cheaper than making the fingerprint understand
+    # restatement.
+    dupes = entity_events.merge_duplicates(conn)
+
     return {'candidates': len(rows), 'created': created, 'merged': merged,
+            'duplicates_folded': dupes['merged'],
             'skipped_not_an_event': skipped, 'unmapped_kinds': unmapped}

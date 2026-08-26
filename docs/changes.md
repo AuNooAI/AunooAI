@@ -226,6 +226,55 @@ version never churns, and a later worse pass cannot overwrite a good headline by
 Safe because `fingerprint()` keys on event type, subjects, attributes and date bucket — **not** on
 the title — so retitling cannot fork an event.
 
+### One announcement said twice is now one event
+Events 209 and 210 were both Andesite's Booz Allen Hamilton partnership, posted on 18 and 20
+August. `fingerprint()` keys on the day bucket, so two posts about one partnership are two events.
+
+**Three cheaper fixes were measured and rejected**, which is why this one looks the way it does.
+
+- *Text similarity.* Jaccard over title and description ranks Imperum's **different** hiring roles
+  at 0.83 while the real Booz Allen duplicate scores **0.23**. It merges the wrong things and misses
+  the right one.
+- *Bucketing the fingerprint by month.* Would fold 37 groups and remove 71 events — including seven
+  distinct System Two Security product posts in July 2026 that are genuinely seven posts.
+- *The reviewer's reason on its own.* Imperum's nine hiring posts reduce to two reasons, "Specific
+  role being filled" and "Specific senior role being filled", so keying on it would collapse nine
+  job announcements into two.
+
+What works is the reviewer's reason **when it names something**. `market_post_review` already reads
+every vendor post once and writes a one-line reason, and for both Booz Allen posts it wrote the same
+string — "Partnership with Booz Allen Hamilton announced". The model has already run, so this costs
+nothing. Requiring a proper noun (or a lowercase dotted brand like `detections.ai`) separates a
+naming reason from boilerplate.
+
+Measured on this corpus: **113 of 192** owned-post events get a key, producing **4 merge groups**
+and removing 4 duplicates — Booz Allen, Spencer Fane, Org Brain, SailPoint — and merging nothing
+else. No hiring post merges, because its reason names nothing.
+
+**`app/services/entity_events.py`** — new `subject_key()` and `merge_duplicates()`. Reconciliation
+after the fact rather than a change to `fingerprint()`, deliberately: changing identity would rehash
+113 events, orphan the old rows and need a migration, and this reaches the same result with neither.
+
+The loser is **superseded, not deleted**. Deleting frees its fingerprint, so the next extractor pass
+recreates the duplicate and the merge folds it again — stable in count but churning ids and
+repeating the work every run, which is exactly what the first implementation did (`max(id)` jumped
+826 → 2004 on one pass). `status = 'superseded'` was already an allowed value in the check
+constraint; the row now keeps its fingerprint claimed and records `superseded_by` in attributes.
+Three consecutive runs after the fix: folded 4, then **0, then 0**, with `max(id)` unmoved.
+
+Three follow-on edits the tombstone forced, each of which would otherwise have resurrected it:
+`recompute_corroboration` set status back to `active` on every recompute; `events_for_brand` and the
+brand read filtered only `<> 'rejected'`; and `project_to_markets` would have published the tombstone
+to the market wire beside its survivor, which is the duplicate reappearing by another route.
+`bw_market_events.entity_event_id` carries **no foreign key**, so the projection is cleared by hand —
+0 orphans and 0 tombstones projected, verified.
+
+Corroboration is unaffected by design, and this is the check that matters: the survivor now holds
+**2 evidence rows but 1 distinct source**, so it stays `vendor_claim`. Folding two of a vendor's own
+posts does not manufacture independent confirmation, because independence is keyed on
+`independence_key` rather than on rows — which is what `recompute_corroboration`'s own docstring said
+it was protecting against.
+
 ### The corroboration line described doubt instead of evidence
 **`ui/src/components/newsfeed/entityProvenance.ts`** — `vendor_claim` rendered as "the vendor says
 so; not yet corroborated", tinted `warn`. That asserted two things and only one was a measurement.
