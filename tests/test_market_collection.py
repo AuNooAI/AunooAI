@@ -1251,3 +1251,42 @@ def test_an_expired_listing_is_not_an_open_role():
     got = map_indeed_job(dict(INDEED_OTHER_EMPLOYER_SAMPLE, is_expired=True))
     assert got['is_expired'] is True, (
         'the flag has to survive mapping so the ingest can drop it')
+
+
+def test_the_indeed_domain_is_the_bare_host():
+    """`www.indeed.com` is rejected; `indeed.com` is accepted.
+
+    The dataset's own example is "fr.indeed.com", which reads like a full host
+    and is why this was changed to the www form on a guess. A live trigger on
+    2026-08-26 came back HTTP 400 with a validation error naming `domain`. The
+    value was already correct before I changed it.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/services/brightdata_linkedin.py').read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.AsyncFunctionDef)
+              and n.name == 'trigger_indeed_discover')
+    body = ast.get_source_segment(src, fn)
+    # The assignment, not the whole function: the comment explaining this
+    # necessarily names the rejected value, and an earlier version of this test
+    # tripped on its own documentation.
+    assert 's.get("domain") or "indeed.com"' in body
+    assert 's.get("domain") or "www.indeed.com"' not in body
+
+
+def test_a_provider_error_record_is_dropped_not_stored():
+    """The canary's own result shape.
+
+    Both canary inputs came back as ``{'error': 'Jobs not been found',
+    'error_code': 'dead_page', 'input': {...}}`` rather than as listings. Those
+    are records in the response and must not become job postings.
+    """
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    assert map_indeed_job({
+        'input': {'keyword_search': '7ai'},
+        'error': 'Jobs not been found', 'error_code': 'dead_page',
+    }) is None

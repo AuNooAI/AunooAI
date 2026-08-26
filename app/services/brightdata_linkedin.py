@@ -475,8 +475,13 @@ class LinkedInDatasetClient:
         payload = [
             {
                 "country": s.get("country") or "US",
-                # The documented form is the full host, not the bare domain.
-                "domain": s.get("domain") or "www.indeed.com",
+                # "indeed.com", not "www.indeed.com". The dataset's own
+                # example is "fr.indeed.com", which reads like a full host, and
+                # the provider rejects the www form with a validation error on
+                # this field. Confirmed against a live trigger on 2026-08-26 —
+                # and this value was already correct before I changed it on the
+                # strength of that example.
+                "domain": s.get("domain") or "indeed.com",
                 "keyword_search": s["employer"],
                 "location": s.get("location") or "United States",
                 "date_posted": s.get("date_posted") or "",

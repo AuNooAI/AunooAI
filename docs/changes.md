@@ -65,10 +65,30 @@ input. One input per vendor over 84 vendors at ~20 records each is roughly **$2.
 before the location multiplier. Cheap; the latency and the location fan-out are the real
 constraints.
 
-### Not run against the provider
-No live call was made. The mapping and the employer rule are tested against the dataset sample
-verbatim, and running a paid canary is a spend decision — the same discipline that applies to every
-paid dataset here, and the reason two accidental probes cost four cents earlier in this session.
+### The canary, run
+Two inputs, 10 records each, no webhook — records fetched and examined before anything could reach
+the database.
+
+**First attempt: HTTP 400, validation error on `domain`.** I had changed `indeed.com` to
+`www.indeed.com` while rewriting the trigger, reasoning from the dataset's own example
+"fr.indeed.com" that it wanted a full host. The provider rejects the www form. The value was
+already correct before I touched it, which is the second time today a working line was changed on
+the strength of a plausible reading. Reverted, and pinned by a test. No charge: validation fails
+before any collection.
+
+**Second attempt: accepted, snapshot ready in 100 seconds.** So the request shape is right —
+`keyword_search` carrying the company, `posted_by` absent, `domain: indeed.com`.
+
+**Both inputs returned `{"error": "Jobs not been found", "error_code": "dead_page"}`.** Neither 7ai
+(Boston) nor Dropzone AI (Seattle) has findable Indeed listings, which is consistent with what we
+already know: they hire through Ashby and Greenhouse respectively. `map_indeed_job` drops those
+error records, which is now also a test.
+
+Also confirmed from the echoed input: `posted_by` comes back as `""` in the provider's own view of
+the request, so it is a known field being defaulted rather than something we are failing to send —
+and the earlier finding that it rejects a company name stands.
+
+Cost so far: two error records, under a cent.
 
 ### Verification
 - `pytest tests/test_market_collection.py` — **78 passed**, 6 new, plus the 3 pre-existing

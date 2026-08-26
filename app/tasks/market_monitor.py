@@ -1249,6 +1249,34 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                     market["id"], source, exc)
         return 0
 
+    # Crunchbase is the one paid source whose identifier can be derived instead
+    # of entered, so deriving it is identifier maintenance and not collection.
+    # It has to happen before every gate below, because all of them return
+    # early: this used to sit after the claim, where a pass with nothing due
+    # returns at the `not claimed_brand_ids` guard, and a pass outside the
+    # weekly cadence returns at `_is_due`. A vendor added to the registry could
+    # therefore never get a URL, never become eligible, and never be claimed —
+    # a deadlock rather than a delay. 44 of this market's 84 vendors sat that
+    # way. Seeding is a local slug guess against the vendor's own name: no
+    # provider call, no cost, and a no-op once every vendor has one.
+    if source == SOURCE_CRUNCHBASE:
+        try:
+            seeded = mc.seed_crunchbase_urls(conn, market["id"])
+            if seeded.get("seeded"):
+                # A URL only makes a vendor collectable once its policy row
+                # agrees, and claim_due reads the policy. Same reason the ATS
+                # sweep re-seeds after discovering a hiring board.
+                sch.seed_policies(conn, source)
+                logger.info("market %s: seeded %d Crunchbase URL(s)",
+                            market["id"], seeded["seeded"])
+            conn.commit()
+        except Exception:                                       # noqa: BLE001
+            # Preparation, not the work. A fault here must not stop the batch
+            # for the vendors that already have a URL.
+            conn.rollback()
+            logger.exception("market %s: could not seed Crunchbase URLs",
+                             market["id"])
+
     if forced_run_id is None:
         if _is_due(conn, market["id"], source, now) is None:
             return 0
@@ -1271,8 +1299,7 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
 
     companies: list = []
     if source == SOURCE_CRUNCHBASE:
-        mc.seed_crunchbase_urls(conn, market["id"])
-        conn.commit()
+        # Seeded above, before the gates.
         url_map = mc.crunchbase_url_map(conn, market["id"])
         urls = ([u for u, bid in url_map.items() if bid == forced_brand_id]
                 if forced_brand_id is not None else list(url_map.keys()))
