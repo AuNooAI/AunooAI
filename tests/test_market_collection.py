@@ -14,6 +14,7 @@ a stable id, which the mapping tests already cover.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -603,3 +604,130 @@ def test_the_indeed_posted_date_is_a_date_and_not_eight_days_ago():
     First-seen and last-seen are useless built from the former."""
     mapped = bd.map_indeed_job(INDEED_SAMPLE)
     assert mapped['posted_date'] == '2026-08-18T01:34:46.635Z'
+
+
+# ---------------------------------------------------------------------------
+# A reshare is not the vendor speaking
+# ---------------------------------------------------------------------------
+
+
+def _python_says_company_speaking(meta):
+    """``entity_ingest._is_company_speaking`` over a plain dict.
+
+    That function probes its argument with ``in row.keys()``, so a dict is fed
+    through a shim rather than passed directly.
+    """
+    from app.services.entity_ingest import _is_company_speaking
+
+    class Row(dict):
+        def keys(self):                                            # noqa: D102
+            return super().keys()
+
+    return _is_company_speaking(Row({'social_meta': meta}))
+
+
+#: Every shape the two implementations have to agree on. The realistic ones are
+#: the last three: a plain owned post, and a record from before these fields
+#: were retained.
+OWN_VOICE_CASES = [
+    {'is_repost': True},
+    {'is_repost': False},
+    {'is_repost': True, 'account_type': 'organization'},
+    {'account_type': 'organization'},
+    {'account_type': 'company'},
+    {'account_type': 'person'},
+    {'account_type': 'PERSON'},
+    {'account_type': 'Organization'},
+    {'is_repost': False, 'account_type': 'organization'},
+    {'platform': 'linkedin'},
+    {},
+    None,
+]
+
+
+@pytest.mark.skipif(os.getenv('DB_TYPE', 'postgresql').lower() != 'postgresql',
+                    reason='the fragment is Postgres jsonb')
+def test_the_sql_and_python_rules_agree_on_who_is_speaking():
+    """Two implementations of one rule, pinned to each other.
+
+    The entity layer has excluded reshares in Python since those fields were
+    kept; the Market Monitor read paths needed the same rule in SQL, and a
+    second copy of a rule is a second thing to drift.
+
+    Evaluated on PostgreSQL, not a stand-in. A first version of this test ran
+    the fragment through sqlite's ``json_extract``, which returns integer 1 for
+    a JSON ``true`` where Postgres ``->>`` returns the text ``'true'`` — so the
+    translation disagreed with the rule and the test blamed the rule. Testing a
+    Postgres expression anywhere but Postgres is how that goes wrong.
+    """
+    import json
+
+    from sqlalchemy import text
+
+    from app.database import get_database_instance
+    from app.services.market_corpus import own_voice_sql
+
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        frag = own_voice_sql('a')
+        disagreements = []
+        for meta in OWN_VOICE_CASES:
+            payload = json.dumps(meta) if meta is not None else None
+            sql_says = conn.execute(text(
+                f'SELECT {frag} FROM (SELECT CAST(:m AS JSONB) AS social_meta) a'
+            ), {'m': payload}).scalar()
+            expected = _python_says_company_speaking(meta)
+            if bool(sql_says) != expected:
+                disagreements.append((meta, bool(sql_says), expected))
+    finally:
+        conn.rollback()
+        conn.close()
+
+    assert not disagreements, '\n'.join(
+        f'{m!r}: SQL={s}, Python={e}' for m, s, e in disagreements)
+
+
+def _owned_post_queries():
+    """Every SQL block that counts a vendor's own posts.
+
+    Per query, not per file: a file-level tally counts docstring mentions and
+    the deliberately-unguarded ``is_owned`` label, which is what an earlier
+    version of this did — it failed on correct code and had to be replaced.
+    """
+    import pathlib
+    import re
+
+    out = []
+    for path in ('app/services/market_analysis.py',
+                 'app/services/market_publish.py',
+                 'app/routes/market_monitor_routes.py'):
+        src = pathlib.Path(path).read_text()
+        for m in re.finditer(r'text\(f?"""(.*?)"""', src, re.S):
+            body = m.group(1)
+            if "= 'vendor:linkedin'" not in body:
+                continue
+            # A count or an existence test over owned posts. A SELECT that only
+            # labels a row is not a count and is excluded on purpose.
+            if not re.search(r'COUNT\s*\(|EXISTS\s*\(|SUM\s*\(', body):
+                continue
+            out.append((path, src[:m.start()].count('\n') + 1, body))
+    return out
+
+
+def test_every_owned_post_count_excludes_reshares():
+    """A count of a vendor's own posts must not include its reshares.
+
+    17% of this market's supposed vendor posts were the vendor amplifying
+    somebody else — 32% for one vendor — and every figure built on them
+    (loudest, quietest, post volume, share of voice, the Announced column)
+    credited the vendor for words it did not write. The rule existed in the
+    entity layer and no read path consulted it.
+    """
+    queries = _owned_post_queries()
+    assert queries, 'found no owned-post counts — have these modules moved?'
+
+    unguarded = [f'{path}:{line}' for path, line, body in queries
+                 if '_OWN_VOICE' not in body]
+    assert not unguarded, (
+        'these queries count a vendor\'s own posts without excluding '
+        'reshares: ' + ', '.join(unguarded))

@@ -4,6 +4,7 @@ _2026-08-26 · Market Monitor — vendor table, coverage figures, hiring, downlo
 ## What shipped
 
 - Every vendor in a market is now collected, instead of the first twenty by list order.
+- A company resharing somebody else's post no longer counts as that company posting.
 - The vendor table's "no observed activity" count fell from 58 to 6, because 52 of those companies did have activity — nobody had looked.
 - Employee-count readings are now live for 78 of 84 vendors, up from 21. The rest still show the figure from the imported spreadsheet, and say so.
 - Job listings are being collected again after being switched off in error. Postings held went from 33 across 7 companies to 91 across 16.
@@ -22,6 +23,12 @@ There was also a real case in the other direction: the provider returned a staff
 
 Who feels it: anyone reading a market total, a top-movers list, or a single vendor's headcount trend. All three were one bad provider response away from being obviously wrong, or quietly wrong.
 
+**A company resharing someone else's post was counted as that company posting.** About one in six posts the market treated as a company's own were it amplifying somebody else, and for one vendor it was one in three. So the "who is most active" ranking partly measured who reshares most, and a vendor could look busy without having said anything.
+
+Reshares are now reported on their own. A reshare counts as neither the company's own post nor third-party coverage of it, because it is neither. The market's 30-day post total went from 671 to 533, and one vendor turned out to have published nothing at all itself in the window — it had only reshared.
+
+Who feels it: anyone comparing vendors on how much they say. Also anyone quoting a per-vendor post count externally, which until now overstated owned output by roughly a sixth.
+
 **Hiring data had been switched off by mistake.** The job-listing collector was paused in error nine days ago, citing a provider error that had already been fixed on the same day it appeared. Because a paused source is simply silent, nothing on screen distinguished "we are not collecting this" from "there is nothing to report". It is collecting again, and the number of tracked job postings nearly tripled in one run.
 
 **Provider data was arriving late, every single time.** Every batch we bought was being refused on delivery and then fetched a second time ten minutes later by a fallback. Customers never saw an error, because the fallback worked — but every figure was up to ten minutes staler than it needed to be, and we were paying to fetch the same records twice. Deliveries now land on arrival.
@@ -34,6 +41,7 @@ Who feels it: anyone reading a market total, a top-movers list, or a single vend
 - Staff counts are no longer inferred from company size bands, and a reported count of zero is treated as unknown rather than as a measurement.
 - Job-listing collection has been restored. Tracked postings rose from 33 to 91.
 - Provider data now arrives as soon as the provider sends it.
+- Post counts now separate what a company published from what it reshared. Reshares are reported on their own rather than counted as the company's own output.
 
 ## Demo / walkthrough
 
@@ -51,7 +59,7 @@ It does not yet close the objection fully. See below.
 
 **"No observed activity" is still the wrong label even at 6.** The count is built from attributed coverage and job postings. It cannot yet tell a customer whether a vendor was measured and found empty, or never measured. Splitting that into two figures — measured-and-empty versus not-yet-measured — is the next piece of work, and it is what the phrase claims to already do.
 
-**About one in six "vendor posts" is not the vendor.** 17% of what the market counts as a company's own posts are that company resharing somebody else, and for one vendor it is 32%. The system already detects reshares correctly for one internal purpose, but the figures on the Market Monitor screens do not consult it. So loudest-and-quietest rankings, post volume and share of voice all currently credit a vendor for amplifying other people. Sales should not quote per-vendor post counts as owned activity until this is wired through.
+**Older posts cannot be re-checked for reshares.** Posts collected before the system started recording whether a post was a reshare are still treated as the company's own. That is deliberate — reclassifying them on no evidence would be worse — but it means the split is exact only for posts gathered from this point on.
 
 **Employer ratings are matching the wrong companies.** Where employer-review data appears, all four current matches in this market are a different company with a similar name — one three-person security startup is matched to a Paris fashion house. No customer alert has fired from it, but the data should not be shown or cited. This is a separate subsystem from the collection work above and is untouched.
 

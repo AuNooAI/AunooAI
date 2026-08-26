@@ -37,6 +37,10 @@ from app.services import market_publish as mp
 from app.services import market_import as mi
 from app.services import entity_dual_read as _dr
 
+from app.services.market_corpus import own_voice_sql
+
+_OWN_VOICE = own_voice_sql("a")
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/market-monitor", tags=["Market Monitor"])
@@ -2463,7 +2467,7 @@ async def vendor_detail(market_id: int, brand_id: int,
             # DISTINCT ON the uri, not just an ORDER BY: bw_article_categories
             # is keyed on (article, brand, category), so a post filed under
             # three categories was taking three of these ten slots.
-            vendor["posts"] = [dict(r) for r in conn.execute(text("""
+            vendor["posts"] = [dict(r) for r in conn.execute(text(f"""
                 SELECT * FROM (
                     SELECT DISTINCT ON (a.uri)
                            a.uri, a.title, a.summary, a.publication_date,
@@ -2472,6 +2476,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                     JOIN articles a ON a.uri = bac.article_uri
                     WHERE bac.brand_id = :b
                       AND a.bias_source = 'vendor:linkedin'
+                      AND {_OWN_VOICE}
                     ORDER BY a.uri, a.publication_date DESC
                 ) p
                 ORDER BY p.publication_date DESC NULLS LAST LIMIT 10

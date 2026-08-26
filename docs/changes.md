@@ -127,16 +127,50 @@ The "No observed activity" count went **58 → 6**; vendors with attributed cove
 and byte-identical on a stashed tree — `pytest-asyncio` is not installed, so every async test in
 that file errors regardless.
 
+### A reshare is no longer counted as the vendor speaking
+**17% of what the market counted as vendor-owned posts were reshares** — 426 of 2,495, and 32% for
+PRE Security (20 of 63). `entity_ingest._is_company_speaking` had excluded reposts and non-company
+accounts since those fields were retained, but `market_analysis.py`, `market_publish.py` and
+`market_monitor_routes.py` contained zero references to `is_repost` or `account_type`. So
+loudest/quietest, post volume, share of voice, the Announced column and the HTML report all counted
+a vendor amplifying somebody else as the vendor speaking. One post read
+"Silensec: PRE Security's Post" — authored by Silensec, sitting on PRE Security's account, counted
+as PRE Security's own.
+
+**`app/services/market_corpus.py`** — new `own_voice_sql(alias)` returns the rule as SQL, defined
+once beside `classify_article` where the ownership taxonomy already lives. A record with neither
+field still passes, which is how it was already treated; changing that would relabel the historical
+corpus on no evidence.
+
+Applied at every site that counts owned posts: share of voice, per-vendor reach, both quietest
+queries and the top-posts list in `market_analysis.py`; the per-brand `posts_30d`, `build_brief`'s
+loudest and the activity table in `market_publish.py`; the per-vendor recent-posts query in
+`market_monitor_routes.py`; and the review candidate selection in `market_post_review.py`, where a
+reshare was costing a model call to be misclassified as the vendor's own signal.
+
+A reshare now counts as **neither owned nor earned**. It is not the vendor speaking, and it is not
+somebody else covering the vendor either, so moving it to earned would have been the same error
+reversed. `share_of_voice` reports it as its own `reshared` figure, and the top-posts list carries
+`is_reshare` beside `is_owned` so a reshare is labelled rather than silently relabelled as
+third-party coverage.
+
+Measured on live data, before and after: `own_posts` 2,491 → **2,065** with 426 reported separately;
+PRE Security 63 → **43 owned, 20 reshared**; `posts_30d` across the market 671 → **533**;
+`quietest_total` 6 → **7**, because one vendor's only posts in the window were reshares, so it had
+in fact said nothing itself.
+
+Two tests. `test_the_sql_and_python_rules_agree_on_who_is_speaking` evaluates the SQL fragment on
+PostgreSQL against twelve payload shapes and compares each to `_is_company_speaking`, so the two
+copies of one rule cannot drift. Its first version ran the fragment through sqlite's
+`json_extract`, which returns integer `1` for a JSON `true` where Postgres `->>` returns the text
+`'true'` — the translation disagreed with the rule and the test blamed the rule.
+`test_every_owned_post_count_excludes_reshares` extracts each SQL block that both mentions
+`= 'vendor:linkedin'` and aggregates, and fails if it has no reference to the rule. An earlier
+version tallied per file and failed on correct code, counting a docstring mention and the
+deliberately-unguarded `is_owned` label. Verified by removing the guard from one query and watching
+it name `market_publish.py:106`.
+
 ### Found, measured, and deliberately not fixed
-**17% of what the market counts as vendor-owned posts are reshares** — 426 of 2,495, and 32% for
-PRE Security (20 of 63). `entity_ingest._is_company_speaking` excludes reposts and non-company
-accounts correctly, but `market_analysis.py`, `market_publish.py`, `market_corpus.py` and
-`market_report_html.py` contain zero references to `is_repost` or `account_type`. So
-loudest/quietest, post volume, share of voice, the Announced column and the HTML report all count a
-vendor amplifying somebody else as the vendor speaking. One post reads
-"Silensec: PRE Security's Post" — authored by Silensec, on PRE Security's account, counted as PRE
-Security's own. Wiring the guard into the analytics changes what every post figure means, so it is
-Oliver's call.
 
 `company_id` is null on all 2,495 posts despite `8fb8f9c0` ("…and keep company_id"). 485 older
 posts have no `is_repost` at all and default to "the company speaking" by design, to keep the

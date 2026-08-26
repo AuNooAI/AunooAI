@@ -192,6 +192,30 @@ _DISCUSSION_SOURCES = ("bluesky", "bsky", "xpoz", "reddit", "mastodon")
 _RESEARCH_SOURCES = {"semantic_scholar", "arxiv", "pubmed", "biorxiv"}
 
 
+def own_voice_sql(alias: str = "a") -> str:
+    """SQL for "this post on a vendor's channel is really the vendor speaking".
+
+    A reshare is the company amplifying somebody else, and a person's post is
+    not the company's at all. Counting either as an owned post credits a vendor
+    for words it did not write — 17% of this market's supposed vendor posts,
+    and 32% for one vendor.
+
+    ``entity_ingest._is_company_speaking`` is the same rule in Python, and the
+    entity layer has applied it since the fields were retained. This is the
+    expression the read paths need, defined once so the two cannot drift; a
+    test asserts they agree row for row.
+
+    A record with neither field — everything collected before they were kept —
+    passes, which is how it was already treated. Changing that would relabel
+    the historical corpus on no evidence.
+    """
+    return (
+        f"(COALESCE({alias}.social_meta->>'is_repost', 'false') <> 'true'"
+        f" AND (lower(COALESCE({alias}.social_meta->>'account_type',"
+        f" 'organization')) IN ('organization', 'company')))"
+    )
+
+
 def vendor_domains(conn, market_id: int) -> set:
     """Registered domains for every vendor in the market, excluded ones too.
 

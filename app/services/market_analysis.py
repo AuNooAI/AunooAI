@@ -22,6 +22,8 @@ from sqlalchemy import text
 
 from app.services.market_corpus import _iso_days_ago
 
+from app.services.market_corpus import own_voice_sql
+
 logger = logging.getLogger(__name__)
 
 ANALYSES = ("formation", "signal_noise", "funding", "hiring",
@@ -656,6 +658,11 @@ def run(conn, market_id: int, name: str, *, days: Optional[int] = None
 # the most interesting number on that page and there was no way to see which
 # 62. These are the sets behind the figures, named so a link can carry one.
 
+# "The vendor is actually speaking", as SQL. Defined in market_corpus so this
+# module and the entity layer cannot drift apart on what an owned post is.
+_OWN_VOICE = own_voice_sql("a")
+
+
 DRILLDOWNS = ("quiet", "watched", "paused", "observed", "unobserved",
               "disclosed", "undisclosed", "no_linkedin", "posting", "hiring")
 
@@ -811,7 +818,14 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         WITH pb AS ({_POST_BRANDS})
         SELECT b.id AS brand_id, b.display_name AS vendor,
                COUNT(DISTINCT a.uri) FILTER (
-                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin') AS own_posts,
+                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                     AND {_OWN_VOICE}) AS own_posts,
+               -- A reshare counts as neither. It is not the vendor speaking,
+               -- and it is not somebody else covering the vendor either, so
+               -- adding it to earned would be the same error the other way.
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                     AND NOT {_OWN_VOICE}) AS reshared,
                COUNT(DISTINCT a.uri) FILTER (
                    WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin') AS earned,
                COUNT(DISTINCT a.uri) AS total
@@ -839,7 +853,8 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                COUNT(*) FILTER (WHERE a.social_meta IS NOT NULL) AS measured
         FROM pb
         JOIN articles a ON a.uri = pb.article_uri
-        WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin' {window}
+        WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
+          AND {_OWN_VOICE} {window}
         GROUP BY 1
     """), params).fetchall()}
 
@@ -890,6 +905,7 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
               JOIN articles a ON a.uri = bac.article_uri
               WHERE bac.brand_id = b.id
                 AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                AND {_OWN_VOICE}
                 {window}
           )
         ORDER BY b.display_name
@@ -905,6 +921,7 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
               JOIN articles a ON a.uri = bac.article_uri
               WHERE bac.brand_id = b.id
                 AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                AND {_OWN_VOICE}
                 {window}
           )
     """), params).scalar() or 0
@@ -1113,6 +1130,12 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
                    AS author,
                a.news_source,
                COALESCE(a.bias_source, '') = 'vendor:linkedin' AS is_owned,
+               -- On the vendor's channel but not the vendor's words. Kept
+               -- beside is_owned rather than folded into it, so a reshare is
+               -- labelled as one instead of silently becoming third-party
+               -- coverage.
+               (COALESCE(a.bias_source, '') = 'vendor:linkedin'
+                AND NOT {_OWN_VOICE}) AS is_reshare,
                COALESCE((a.social_meta->>'likes')::numeric, 0)
                  + COALESCE((a.social_meta->>'comments')::numeric, 0)
                  + COALESCE((a.social_meta->>'reposts')::numeric,
