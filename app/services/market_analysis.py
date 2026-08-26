@@ -25,7 +25,8 @@ from app.services.market_corpus import _iso_days_ago
 
 from app.services import entity_flags
 from app.services import market_metrics as mm
-from app.services.market_corpus import own_voice_sql
+from app.services.market_corpus import (earned_sql, own_voice_sql,
+                                        vendor_domain_sql)
 
 logger = logging.getLogger(__name__)
 
@@ -854,8 +855,16 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                COUNT(DISTINCT a.uri) FILTER (
                    WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
                      AND NOT {_OWN_VOICE}) AS reshared,
+               -- A post on the vendor's own site is the vendor speaking, the
+               -- same as its LinkedIn. It carries no bias_source, so it used to
+               -- fall through to earned: eleven of Dropzone AI's blog posts and
+               -- one of Radiant Security's counted as third parties covering
+               -- them, which was half this market's earned coverage.
                COUNT(DISTINCT a.uri) FILTER (
-                   WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin') AS earned,
+                   WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin'
+                     AND {vendor_domain_sql("a", "pb")}) AS owned_web,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE {earned_sql("a", "pb")}) AS earned,
                COUNT(DISTINCT a.uri) AS total
         FROM pb
         JOIN articles a ON a.uri = pb.article_uri
@@ -1062,6 +1071,9 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                 "as quieter than it is.",
                 "Posts collected before reshare state was recorded are counted "
                 "as the vendor's own.",
+                "Earned coverage counts only what somebody other than the "
+                "vendor published. A post on the vendor's own site is reported "
+                "separately as owned, not as coverage of it.",
             ]),
         "reactions_total": sum(r["reactions"] for r in rows),
         "earned_total": earned_total,

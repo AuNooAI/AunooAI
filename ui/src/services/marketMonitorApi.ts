@@ -930,9 +930,11 @@ export interface PostRecord {
   published_at: string | null; observed_at: string | null;
   excerpt: string | null; account: string | null; platform: string;
   engagement: number; is_reshare: boolean; is_owned: boolean;
-  /** Three values, not two: a reshare is neither the vendor speaking nor
-   *  somebody else covering it. */
-  ownership: 'owned' | 'reshared' | 'earned';
+  /** Four values. A LinkedIn post and a post on the vendor's own site are both
+   *  the vendor speaking; a reshare is it amplifying somebody else; earned is
+   *  anyone else publishing about it. The vendor's website used to fall into
+   *  `earned`, which was half this market's supposed third-party coverage. */
+  ownership: 'owned' | 'owned_web' | 'reshared' | 'earned';
   classification: string;
   classification_raw: string | null;
   classification_kind: string | null;

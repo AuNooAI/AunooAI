@@ -250,6 +250,56 @@ def _host(uri: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+def vendor_domain_sql(article: str = "a", brand: Optional[str] = "bac",
+                      market_param: str = ":m") -> str:
+    """SQL for "this article was published on the vendor's own site".
+
+    The SQL twin of the domain check in :func:`classify_article`, which has
+    always got this right in Python and which the counting paths never
+    consulted. They keyed owned-versus-earned on ``bias_source`` alone, and a
+    vendor's blog carries no ``bias_source`` — so eleven of Dropzone AI's own
+    blog posts, and one of Radiant Security's, were counted as third parties
+    covering them. Half of this market's supposed earned coverage was vendors
+    talking about themselves.
+
+    ``brand`` is the alias holding the vendor the article is attributed to, and
+    the match is against *that* vendor's domains. This is deliberate and it is
+    the interesting part: Dropzone's blog writing about Crogl is Dropzone's own
+    voice for Dropzone and genuine third-party coverage for Crogl. Pass
+    ``brand=None`` where no vendor is in scope and any monitored vendor's domain
+    should count as owned.
+
+    Defined once here beside :func:`own_voice_sql` for the same reason: a second
+    copy of a classification rule is a second thing to drift, and a test asserts
+    this agrees with the Python row for row.
+    """
+    host = (f"lower(regexp_replace(COALESCE({article}.url, {article}.uri),"
+            f" '^https?://(www\\.)?([^/]+).*$', '\\2'))")
+    scope = (f"vi.brand_id = {brand}.brand_id" if brand else f"""
+                 EXISTS (SELECT 1 FROM bw_market_brands vmb
+                          WHERE vmb.brand_id = vi.brand_id
+                            AND vmb.market_id = {market_param}
+                            AND vmb.role <> 'excluded')""")
+    return f"""EXISTS (
+        SELECT 1 FROM bw_vendor_identifiers vi
+         WHERE vi.kind = 'domain' AND vi.valid_to IS NULL
+           AND {scope}
+           AND ({host} = lower(vi.normalized_value)
+                OR {host} LIKE '%.' || lower(vi.normalized_value)))"""
+
+
+def earned_sql(article: str = "a", brand: Optional[str] = "bac",
+               market_param: str = ":m") -> str:
+    """SQL for "somebody other than this vendor published this".
+
+    Earned coverage is the whole point of watching a market — it is the
+    difference between a company saying it matters and anyone else agreeing —
+    so it has to exclude both of the vendor's own channels, not just LinkedIn.
+    """
+    return (f"(COALESCE({article}.bias_source,'') <> 'vendor:linkedin'"
+            f" AND NOT {vendor_domain_sql(article, brand, market_param)})")
+
+
 def classify_article(uri: str, news_source: Optional[str],
                      bias_source: Optional[str], domains: set) -> str:
     """Which kind of thing this article is."""

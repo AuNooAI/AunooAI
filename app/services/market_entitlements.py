@@ -117,17 +117,22 @@ def authorized_brand_ids(conn, market_id: int,
     if limit is None:
         return None
 
-    rows = conn.execute(text("""
+    from app.services.market_corpus import earned_sql
+
+    EARNED = earned_sql("a", "bac")
+    rows = conn.execute(text(f"""
         WITH activity AS (
             SELECT mb.brand_id,
                    b.display_name,
                    mb.is_public,
+                   -- Earned coverage only, so a vendor cannot rank into a
+                   -- shared view on the strength of its own blog.
                    COALESCE((
                        SELECT COUNT(DISTINCT bac.article_uri)
                          FROM bw_article_categories bac
                          JOIN articles a ON a.uri = bac.article_uri
                         WHERE bac.brand_id = mb.brand_id
-                          AND COALESCE(a.bias_source,'') <> 'vendor:linkedin'
+                          AND {EARNED}
                    ), 0) AS earned,
                    COALESCE((
                        SELECT COUNT(DISTINCT bac.article_uri)

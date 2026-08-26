@@ -663,3 +663,106 @@ def test_an_unchanged_listing_is_still_present_not_newly_seen(conn, market):
         assert len(newly) < len(ats_rows), (
             'an unchanged board reported every listing as newly observed')
     assert statuses <= set(ml.JOB_STATUSES)
+
+
+def test_a_vendors_own_website_is_not_third_party_coverage(conn, market):
+    """Half of this market's "earned" coverage was vendors' own blogs.
+
+    The rule keyed on ``bias_source``, which a vendor's website article does not
+    carry, so eleven of Dropzone AI's blog posts and one of Radiant Security's
+    counted as somebody else covering them. Earned coverage is the difference
+    between a company saying it matters and anyone else agreeing, so this is the
+    figure it matters most on.
+    """
+    earned = ml.posts(conn, market, days=None, ownership='earned')
+    own_site = ml.posts(conn, market, days=None, ownership='owned_web')
+
+    assert own_site['meta']['pagination']['total'] > 0, (
+        'this market has vendor-website articles to classify')
+    # Disjoint: no item is both.
+    earned_uris = {r['uri'] for r in earned['data']}
+    own_uris = {r['uri'] for r in own_site['data']}
+    assert not (earned_uris & own_uris)
+
+    for row in own_site['data']:
+        assert row['ownership'] == 'owned_web'
+    for row in earned['data']:
+        assert row['ownership'] == 'earned'
+
+
+def test_the_sql_and_python_agree_on_whose_website_it_is(conn, market):
+    """One rule, two implementations, pinned to each other.
+
+    ``market_corpus.classify_article`` has always got this right in Python and
+    the counting paths never consulted it. Now they share the SQL twin, and this
+    is what stops the two drifting — the same guarantee ``own_voice_sql`` has.
+    """
+    from app.services.market_corpus import classify_article, vendor_domain_sql
+
+    domains: dict = {}
+    for row in conn.execute(text("""
+        SELECT brand_id, normalized_value FROM bw_vendor_identifiers
+         WHERE kind = 'domain' AND valid_to IS NULL
+    """)).fetchall():
+        domains.setdefault(row[0], set()).add(row[1].lower())
+
+    frag = vendor_domain_sql('a', 'bac')
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.news_source, a.bias_source, bac.brand_id,
+               ({frag}) AS sql_says
+          FROM bw_article_categories bac
+          JOIN articles a ON a.uri = bac.article_uri
+          JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id
+               AND mb.market_id = :m AND mb.role <> 'excluded'
+         WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin'
+    """), {'m': market}).mappings().all()
+    assert rows, 'nothing to compare'
+
+    disagreements = []
+    for row in rows:
+        python_says = classify_article(
+            row['uri'], row['news_source'], row['bias_source'],
+            domains.get(row['brand_id'], set())) == 'vendor'
+        if bool(row['sql_says']) != python_says:
+            disagreements.append((row['news_source'], bool(row['sql_says']),
+                                  python_says))
+    assert not disagreements, disagreements[:5]
+
+
+def test_a_vendors_blog_writing_about_a_rival_is_earned_for_the_rival(conn,
+                                                                     market):
+    """The match is against the *attributed* vendor's domains, on purpose.
+
+    Dropzone's blog is Dropzone's own voice for Dropzone, and genuine
+    third-party coverage for anyone else it writes about. Matching against every
+    monitored domain at once would erase real coverage.
+    """
+    from app.services.market_corpus import vendor_domain_sql
+
+    row = conn.execute(text("""
+        SELECT i.brand_id, i.normalized_value AS host
+          FROM bw_vendor_identifiers i
+          JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
+               AND mb.market_id = :m
+         WHERE i.kind = 'domain' AND i.valid_to IS NULL
+         ORDER BY i.brand_id LIMIT 1
+    """), {'m': market}).mappings().first()
+    if row is None:
+        pytest.skip('no vendor domains')
+
+    other = conn.execute(text("""
+        SELECT brand_id FROM bw_market_brands
+         WHERE market_id = :m AND role <> 'excluded' AND brand_id <> :b
+         LIMIT 1
+    """), {'m': market, 'b': row['brand_id']}).scalar()
+
+    frag = vendor_domain_sql('a', 'bac')
+    sql = text(f"""
+        SELECT ({frag}) FROM (SELECT :url AS url, :url AS uri) a,
+                             (SELECT :bid AS brand_id) bac
+    """)
+    url = f"https://www.{row['host']}/blog/a-post"
+    # Owned for the vendor whose domain it is.
+    assert conn.execute(sql, {'url': url, 'bid': row['brand_id']}).scalar()
+    # Earned for anybody else.
+    assert not conn.execute(sql, {'url': url, 'bid': other}).scalar()

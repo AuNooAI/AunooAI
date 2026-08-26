@@ -2,6 +2,78 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (earned coverage) — half the market's "third-party coverage" was vendors' own blogs
+
+### Goal
+Flagged in the findings entry below and left for a decision: the earned/owned split keyed on
+`bias_source`, and a vendor's website article carries none, so a company's own blog counted as
+somebody else covering it.
+
+### Measured before changing anything
+Of 22 earned items attributed to this market's vendors, all time, **11 were the vendor's own
+site** — 10 of Dropzone AI's blog posts and 1 of Radiant Security's. Earned coverage is the whole
+point of watching a market, because it is the difference between a company saying it matters and
+anyone else agreeing, so this was the worst figure to have wrong.
+
+The 30-day figure is unchanged at 9: those blog posts are older than the window, which is why the
+error survived the checks I ran when the metric shipped.
+
+### The rule already existed and nothing read it
+`market_corpus.classify_article` has always got this right in Python — it matches the article's
+host against the registry's `domain` identifiers and returns `"vendor"`, with the comment "Vendor
+is decided by domain against the registry, which is exact." The counting paths never called it and
+keyed on `bias_source` instead.
+
+So this follows the precedent `own_voice_sql` set: **`market_corpus.vendor_domain_sql()`** is the
+SQL twin, defined once beside it, with `earned_sql()` composing it. A test compares the two
+implementations row for row against PostgreSQL — 35 rows, 0 disagreements — which is the same
+guarantee the reshare rule has.
+
+The match is against the **attributed** vendor's domains, deliberately. Dropzone's blog writing
+about Crogl is Dropzone's own voice for Dropzone and genuine third-party coverage for Crogl;
+matching every monitored domain at once would erase real coverage. There is a test for that too.
+
+### Applied at three sites
+- `market_analysis.share_of_voice` — `earned` now uses `earned_sql`, and a new `owned_web` count
+  reports the vendor's own site separately, following the `reshared` precedent: a thing that is
+  neither an owned LinkedIn post nor earned coverage gets its own bucket rather than being folded
+  into whichever is nearest.
+- `market_lists.posts` — `ownership` gains `owned_web`, so the drill-down and the CSV say which of
+  the four a row is. `coverage_items` labels these "vendor-owned (own site)".
+- `market_entitlements.authorized_brand_ids` — the public top-10 ranks on earned coverage, so a
+  vendor could have ranked into a shared report on the strength of its own blog.
+
+### One bug the new test caught
+`_OWN_VOICE` returns **true by default** for an article with no `social_meta`: its COALESCE
+fallbacks are "not a repost" and "organization". That rule only means anything for a LinkedIn post,
+and applied to a website article it labelled a vendor blog post `owned` — as though the company had
+written it on LinkedIn. The label now branches on the channel first and only consults the own-voice
+rule for a LinkedIn post.
+
+### Verification
+- SQL against Python: 35 rows compared, 0 disagreements.
+- Live, all time: `earned_total` 22 → **11**, `owned_web` **11**, `own_total` 2065 unchanged,
+  `reshared` 426 unchanged.
+- Live, posts by ownership: owned 2065, owned_web 11, reshared 426, earned 11.
+- Dropzone AI's coverage items: 72 "vendor-owned", **10 "vendor-owned (own site)"**, 0 third-party.
+- `share_of_voice`'s limitations now state that a post on the vendor's own site is reported as
+  owned rather than as coverage of it.
+- Market suites: **145 passed, 10 skipped**. `npm run typecheck` clean at the 246 baseline.
+- Checked for in-flight runs before the restart, with the check as an `if` and not an `&&` chain.
+
+### Propagation
+Canonical only (`bugfixing`).
+
+### Lessons
+- **A window can hide a wrong rule.** The 30-day figure was right by accident, because the
+  misclassified items were older. Checking one window is not checking the rule.
+- **Look for an existing implementation before writing the predicate.** `classify_article` had this
+  correct for as long as it has existed. The bug was not a missing rule, it was a read path not
+  using the rule that was there.
+- A default-true guard is dangerous outside its intended population. `_OWN_VOICE` is correct for a
+  LinkedIn post and meaningless for a website article, and nothing stopped it being asked.
+
+
 ## 2026-08-26 (Market Monitor findings) — findings instead of a feed, and a blocked extractor reported rather than faked
 
 ### Goal

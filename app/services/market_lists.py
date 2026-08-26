@@ -32,7 +32,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 
 from app.services import market_metrics as mmet
-from app.services.market_corpus import own_voice_sql
+from app.services.market_corpus import (earned_sql, own_voice_sql,
+                                        vendor_domain_sql)
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,11 @@ CLASSIFICATION_LABELS: Dict[str, str] = {
 }
 UNREVIEWED_LABEL = "Unreviewed"
 
-OWNERSHIP_VALUES = ("owned", "reshared", "earned")
+# Four, not two. A vendor's LinkedIn post and its blog are both the vendor
+# speaking; a reshare is it amplifying somebody else; earned is anyone else.
+# Collapsing any of these into another credits or discredits a vendor for words
+# it did not write.
+OWNERSHIP_VALUES = ("owned", "owned_web", "reshared", "earned")
 
 _POST_SORTS = {
     "published_at:desc": "published_at DESC NULLS LAST, uri",
@@ -165,10 +170,17 @@ def posts(conn, market_id: int, *, days: Optional[int] = None,
         where.append(f"NOT {_OWN_VOICE}")
     elif ownership == "earned":
         # Earned items are not vendor:linkedin at all, so this drops the
-        # owned-source condition rather than adding to it.
+        # owned-source condition rather than adding to it — and it excludes the
+        # vendor's own website too, which carries no bias_source and used to
+        # count as somebody else covering the vendor.
+        where = [w for w in where
+                 if w != "COALESCE(a.bias_source,'') = 'vendor:linkedin'"]
+        where.append(earned_sql("a", "bac"))
+    elif ownership == "owned_web":
         where = [w for w in where
                  if w != "COALESCE(a.bias_source,'') = 'vendor:linkedin'"]
         where.append("COALESCE(a.bias_source,'') <> 'vendor:linkedin'")
+        where.append(vendor_domain_sql("a", "bac"))
     if classification:
         if classification == "unreviewed":
             where.append("r.review_verdict IS NULL")
@@ -209,7 +221,9 @@ def posts(conn, market_id: int, *, days: Optional[int] = None,
                r.review_kind AS classification_kind,
                r.matched_terms AS matched_terms,
                r.score AS relevance_score,
-               ({_OWN_VOICE}) AS is_owned
+               COALESCE(a.bias_source, '') AS bias_source,
+               ({_OWN_VOICE}) AS is_owned,
+               ({vendor_domain_sql("a", "bac")}) AS is_own_site
         {joined}
         ORDER BY {order}
         LIMIT :lim OFFSET :off
@@ -221,9 +235,17 @@ def posts(conn, market_id: int, *, days: Optional[int] = None,
         row["engagement"] = float(row["engagement"] or 0)
         # Three values, not two. "Not owned" covers both a reshare and somebody
         # else's article, which are different things.
-        row["ownership"] = ("owned" if row["is_owned"]
-                            else "reshared" if row["is_reshare"]
-                            else "earned")
+        # Branch on the channel first, because the own-voice rule only means
+        # anything for a LinkedIn post. Applied to a website article, whose
+        # social_meta is null, its COALESCE defaults evaluate to true — so a
+        # vendor blog post came back labelled `owned`, as though it were a
+        # LinkedIn post the company had written.
+        if row["bias_source"] == "vendor:linkedin":
+            row["ownership"] = "owned" if row["is_owned"] else "reshared"
+        elif row["is_own_site"]:
+            row["ownership"] = "owned_web"
+        else:
+            row["ownership"] = "earned"
         leg = mmet.legend_for("linkedin_company_post")
         row["provider"] = leg["provider"]
 
@@ -633,7 +655,10 @@ def coverage_items(conn, market_id: int, *, days: Optional[int] = None,
                         CASE WHEN COALESCE(a.bias_source,'') = 'vendor:linkedin'
                              THEN 'linkedin' ELSE 'news' END) AS platform,
                CASE WHEN COALESCE(a.bias_source,'') = 'vendor:linkedin'
-                    THEN 'vendor-owned' ELSE 'third-party (earned)' END
+                         THEN 'vendor-owned'
+                    WHEN {vendor_domain_sql("a", "bac")}
+                         THEN 'vendor-owned (own site)'
+                    ELSE 'third-party (earned)' END
                    AS ownership,
                LEFT(COALESCE(a.summary, ''), 400) AS excerpt
         {joined}
