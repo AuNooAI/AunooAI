@@ -492,3 +492,39 @@ def test_every_tracked_source_has_a_legend_entry():
     missing = [s for s in mmet.tracked_sources()
                if mmet.legend_for(s)['platform'] == 'unknown']
     assert not missing, f'no legend row for: {missing}'
+
+
+def test_no_market_average_is_computed_from_one_vendor(conn, market):
+    """An average across one vendor is that vendor's number.
+
+    The panel read "Average +1.3% / Median +1.3% across 1 vendor", which was
+    Dropzone AI's +1.3% printed three times and labelled as the market's. Same
+    guard the market already applies to a share of voice below
+    MIN_EARNED_FOR_SHARE and a per-post ratio below MIN_POSTS_FOR_RATIO:
+    withhold the aggregate rather than compute one from too little.
+    """
+    from app.services import market_publish as mp
+
+    row = conn.execute(text(
+        "SELECT * FROM bw_markets WHERE id = :m"), {'m': market}).mappings().first()
+    brief = mp.build_brief(conn, dict(row), days=30)
+
+    movers = len(brief['headcount_movers'])
+    if movers >= mp.MIN_VENDORS_FOR_HEADCOUNT_AVERAGE:
+        pytest.skip('this market now has enough movers for an average')
+
+    assert brief['headcount_avg_pct'] is None
+    assert brief['headcount_median_pct'] is None
+    assert brief['headcount_n'] == 0
+    # The movers themselves are still shown, and so is the market total, which
+    # needs only one reading per vendor and is unaffected.
+    assert movers >= 0
+    assert brief['observed_market_headcount'] > 0
+    assert brief['headcount_cohort'] > 1
+
+
+def test_the_threshold_is_a_real_floor_not_a_formality():
+    from app.services import market_publish as mp
+
+    assert mp.MIN_VENDORS_FOR_HEADCOUNT_AVERAGE >= 3, (
+        'two numbers are not a market trend either')

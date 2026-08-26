@@ -66,11 +66,10 @@ KNOWN_SOURCES = {
 # attribution field is an inference not yet confirmed against a real
 # response. They still route through the same manual-run/webhook machinery
 # as everything else here — nothing about them is a bespoke pipeline.
-PAID_SOURCES = {
-    "linkedin_company_post", "linkedin_company_profile",
-    "crunchbase_company", "linkedin_jobs",
-    "pitchbook_company", "zoominfo_company", "indeed_jobs",
-}
+# One definition, in the module that prices a record. A second copy here
+# would let a new paid source be added to one list and missed by the other,
+# and the one that matters for spend is the pricing side.
+PAID_SOURCES = mc.PAID_SOURCES
 
 # indeed_jobs matches a listing back to a vendor by employer name, a field
 # inferred from Bright Data's own sample request and not yet confirmed
@@ -2759,6 +2758,7 @@ async def brightdata_linkedin_callback(
                 conn, run_id,
                 status=mc.outcome_status(len(records), result.get("stored", 0),
                                          result.get("provider_errors", 0)),
+                provider_errors=result.get("provider_errors", 0),
                 received=len(records),
                 new=result.get("stored", 0),
                 skipped=(result.get("unchanged", 0) + result.get("unmatched", 0)

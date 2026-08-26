@@ -2,6 +2,246 @@
 
 Running log of notable operational/code changes. Newest first.
 
+### Headcount: no market average from one vendor (same day)
+The panel read **"Average +1.3% / Median +1.3% across 1 vendor"**, which was Dropzone AI's +1.3%
+printed three times and labelled as the market's.
+
+Only Dropzone has two exact LinkedIn readings; 79 vendors have exactly one, because the profile
+sweeps before the roster fix only reached 19 vendors. Movement needs two readings of the same
+measurement, so a single mover is the correct output — but an average computed from it is not a
+market statistic.
+
+`MIN_VENDORS_FOR_HEADCOUNT_AVERAGE = 5` in `market_publish`, applied the same way the market already
+withholds a share of voice below `MIN_EARNED_FOR_SHARE` and a per-post ratio below
+`MIN_POSTS_FOR_RATIO`: withhold the aggregate, keep the underlying rows. The movers list and the
+market total are untouched — the total needs only one reading per vendor and still reads 2,916
+across 80.
+
+The UI already hid the average row when the count was zero, which would have made a figure vanish
+with no explanation. It now says why: "No market average yet: it needs several vendors with two
+readings, and only one has a second one so far."
+
+Live after the change: `headcount_avg_pct` and `headcount_median_pct` are null, `headcount_n` is 0,
+one mover still listed, market total unchanged. 95 passed across the market suites.
+
+The list fills on its own — the next profile sweep is due 09:15 tomorrow for the 19 vendors read on
+08-20, then 2 September for the 61 read on 08-26.
+
+## 2026-08-26 (Market Monitor coverage crediting) — three sources reported work they had already done as never done
+
+### Goal
+Add Simbian to Brand Watcher and the SOC Automation market. The coverage panel then read
+`vendor_web_discovery 0/83 never collected` immediately after a sweep that had read 82 vendors'
+websites, which turned out to be three separate bugs with one shape: a source did the work and
+never recorded that it had.
+
+### Simbian added to both surfaces (data only, no code)
+`bw_brands` id **37807**, slug `simbian`, `enabled = true`, brand keywords `["Simbian"]` —
+`brand_keywords_for_vendor` leaves it unqualified because the name is seven characters and is not
+an ordinary word. Glassdoor is in `config.extra_sources`, matching what the market monitor's own
+brand-monitoring toggle does.
+
+`bw_market_brands` id **34916** in market 2, role `vendor`, with `collection_enabled`,
+`brand_monitoring_enabled` and `social_collection_enabled` all on, category `AI Security` /
+`SOC Automation`. Four identifiers on file: `domain` `simbian.ai`, `website_url`,
+`linkedin_company_url` `https://www.linkedin.com/company/simbian/`, and a slug-guessed
+`crunchbase_url` marked `verified: false`. The LinkedIn URL supplied in the request was doubled
+(`.../simbian/posts/https://www.linkedin.com/company/simbian/posts/`); the slug `simbian` was
+taken from it and the canonical company URL stored.
+
+Baseline facts carry their sources in `baseline.provenance`: HQ United States, founded 2023,
+funding `Disclosed` / $10M from the seed round announced 11 April 2024. The funding status is
+load-bearing, not decoration — `plan_market_keywords` only searches a vendor by name when
+`funding_baseline.status = 'Disclosed'`, so a blank there would have left Simbian tracked and never
+searched for.
+
+`monitored_keywords` id **466** added `Simbian` to keyword group 16, taking it from 52 to 53 terms.
+I added the one keyword rather than re-running `/collection-setup`, which deletes and rewrites all
+52 and resets their `last_checked` — a full provider sweep spent to add one name.
+
+Note the drift this exposed: `brand_monitoring_enabled` is `false` on all 33 other enabled brands
+in this market while `bw_brands.enabled` is `true` for them. That is fallout from the 2026-08-24
+`TRUNCATE ... CASCADE`, whose reconstruction note says hand-set per-vendor flags were not
+recoverable. Simbian is currently the only row where the market UI's column agrees with reality.
+
+### `_discover_feeds` never credited the vendors it read (`f6a7207d`)
+`app/tasks/market_monitor.py` probed every vendor, wrote their feeds into `rss_feeds`, stamped
+`baseline.web_discovered_at` and closed the run succeeded — and never called
+`sch.record_success`. The coverage panel counts a vendor as collected only when its policy row in
+`bw_entity_source_policies` has a `last_success_at`, so every row stayed NULL and the source read
+"never collected" straight after a full sweep.
+
+The identical bug had already been found and fixed for ATS discovery, whose comment names it
+exactly: *"Without it every discovery policy row stayed at last_success_at NULL and the panel
+reported the source as never collected straight after a successful run."* Feed discovery was the
+one sweep that never got the same treatment.
+
+Also added `sch.record_failure` on the probe's exception branch. That is the other half of the same
+gap: a policy neither advanced nor failed keeps `next_due_at` NULL, which reads as due forever, so a
+domain that always throws was re-probed every pass with no backoff.
+
+### `_discover_feeds` held a transaction open across the network await (`aa4e465c`)
+The `domain` lookup opened a transaction and the site probe was then awaited with it still open.
+This database runs `idle_in_transaction_session_timeout = 1min`, so one slow site killed the
+backend and the next statement died with `SSL connection has been closed unexpectedly`. This is why
+the source had never completed a clean sweep: run **345** died that way at 11:17 and run **675** at
+20:15, both before the fix reached the running process.
+
+`_discover_ats` already had the explicit `conn.commit()` before its probe for this exact reason.
+Feed discovery now does the same.
+
+### `_poll_pages` had both bugs, and a third symptom (`aa4e465c`)
+`vendor_web` read **19 of 83** vendors. It never called `record_success` either — the 19 credited
+rows had arrived indirectly through `entity_scheduler.reconcile_from_history`, which reads
+`bw_vendor_snapshots`. A snapshot is only written when a page changes *materially*, so a vendor with
+a stable website was indistinguishable from one never fetched. That was the whole gap: the sweep was
+reading far more sites than it got credit for.
+
+Crediting is now on having read the vendor's pages, not on having found a change in them, which is
+the question this source answers.
+
+The transaction bug was worse here than in discovery. The loop's only `conn.commit()` sat *inside*
+the "changed materially" branch, so a vendor whose pages were all unchanged — the common case —
+held one transaction open across every fetch, and across vendors. The comment above the loop claimed
+"committed before fetching, and again after each vendor"; the per-vendor commit did not exist. It
+now commits before each fetch, and the comment says what the code does.
+
+A vendor with no discovered pages is deliberately neither credited nor failed. There is nothing to
+read for it, and crediting it would hide that feed discovery found it no pages.
+
+One red herring worth recording: the last three `vendor_web` runs before this fetched zero pages in
+about 20 milliseconds, which looks exactly like vendor starvation. It was not. The 2026-08-24
+`TRUNCATE ... CASCADE` wiped `bw_market_brands` and the rebuild did not restore
+`baseline.web_pages`, so there was genuinely nothing to fetch until discovery repopulated it.
+
+### Crunchbase seeding sat behind two gates that could never open (`a7a288ed`)
+`crunchbase_company` read **20 of 40** while the registry held 84 vendors. 44 vendors carried
+`ineligible_reason = 'no active crunchbase_url identifier on file'`, and `claim_due` only claims
+policies marked eligible. The seeding that would have given them a URL — `seed_crunchbase_urls`,
+which derives the slug from the vendor's own name — sat *after* two early returns in
+`_poll_dataset`: `if _is_due(...) is None: return 0` and `if not claimed_brand_ids: return 0`.
+
+So a vendor could not be claimed without a URL, and could not get a URL without something else
+already being claimable. A deadlock, not a delay. The identifier history shows it: 38 URLs seeded
+2026-08-20, 2 more on 08-24, then nothing, because the 08-24 truncate wiped the registry and the
+82-row rebuild on 08-25 arrived with 44 rows that had no URL and no route to one.
+
+Deriving the URL is identifier maintenance, not collection — no provider call, no cost, a no-op once
+every vendor has one — so it now runs before every gate including `_is_due`. It re-seeds the policy
+rows immediately afterwards so a newly-derived URL makes the vendor claimable in the same pass,
+which is what `_discover_ats` already does after finding a hiring board. The seeding is wrapped so a
+fault there cannot stop the batch for vendors that already have a URL.
+
+### Provider spend is now priced, so the monthly budget cap works — `app/services/market_collect.py` (pending)
+`MARKET_MONTHLY_BUDGET_USD` has always existed and `_budget_blocks` has always read it, but the gate
+sums `bw_collection_runs.cost_amount` and that column was always NULL. `source-health` said so
+itself: *"the provider does not return a price with a job and no caller computes one."* Across all
+113 runs on this market, in all 14 sources, zero had a cost. Setting the cap did nothing.
+
+Bright Data's published pay-as-you-go rate is **$1.50 per 1,000 records, billed on success only**.
+`close_run` now prices every run from the run's own `source`, inside the existing UPDATE — no extra
+query, and it covers all 31 call sites without touching any of them. That is the same reason the
+entity-ingest hook lives there: it is the one function every collector path reaches.
+
+`provider_errors` is a new optional argument, passed at the two sites that ingest delivered batches
+(`app/tasks/market_monitor.py` polling path, `app/routes/market_monitor_routes.py` webhook
+callback) — the only two places paid records ever arrive. Billable is `received - provider_errors`.
+The codebase already had a case where this matters: a LinkedIn jobs delivery of 20 records where all
+20 were proxy errors. Pricing that as 20 records would make the gate refuse work nobody was charged
+for.
+
+Free sources keep a NULL cost rather than a zero. `vendor_web` fetching 321 pages stays NULL —
+the question does not apply. A *paid* run that dispatched nothing gets `0.0`, which is a different
+statement: it was priced, and it cost nothing.
+
+The duplicate `PAID_SOURCES` in `app/routes/market_monitor_routes.py` now imports the one in
+`market_collect`. Two copies would let a new paid source be added to one and go unpriced by the
+other, and the pricing side is the one that matters for spend.
+
+### `MARKET_MONTHLY_BUDGET_USD=50` set on bugfixing
+`.env` line 97, backup at `.env.bak-budgetcap-20260826_211450`. `.env` is gitignored
+(`.gitignore:29`), so this is local-only on this tenant. Priced against what actually ran this
+month: `linkedin_company_post` 7,329 records = $11.00, `linkedin_jobs` 132 = $0.20,
+`linkedin_company_profile` 85 = $0.13, `crunchbase_company` 26 = $0.04 — about **$11.36 total**,
+roughly a fifth of the cap, with posts at 97% of it. The Crunchbase fix takes that source from 26
+records a month to about 336, an extra **$0.46/month**.
+
+### Verification
+All run before the pending commit.
+
+Coverage panel via `market_metrics.collection_state(conn, 2, source)`:
+
+| Source | Before | After |
+|---|---|---|
+| `vendor_web_discovery` | 0/83 never collected | **83/83 measured** |
+| `vendor_web` | 19/83 | **69/83** |
+| `crunchbase_company` | 20/40 | **20/84** (denominator corrected) |
+| three LinkedIn sources | 82/82 | 82/83 (Simbian awaiting first sweep) |
+
+- **Discovery.** Run **702** succeeded in 12m01s: 83 vendors credited, 25 new feeds, no error.
+  First clean full sweep this source has ever completed. Simbian credited 20:29:07, closing the
+  last gap. Runs 579 and 675 before it were cut short — 579 by a service restart from another
+  session, 675 by the transaction bug, which is what surfaced it.
+- **Discovery backfill.** 82 policies credited from `baseline.web_discovered_at`, the per-vendor
+  evidence this code has always written, with `last_success_at` set to the real probe time
+  (11:21:56) and `next_due_at` from each policy's own cadence. Same approach as
+  `reconcile_from_history`, which cannot help here because this source writes no
+  `bw_vendor_snapshots` row.
+- **`vendor_web`.** Run **704** succeeded in 4m58s: all 321 discovered pages fetched, 230 snapshots
+  written, no SSL error. 66 credited in-run plus 3 already credited = 69; 13 vendors have no
+  discovered pages; 1 (Imperum) backed off after every page failed. 69 + 13 + 1 = 83, nothing
+  unexplained. Snapshots now cover 69 brands, up from 20.
+- **Crunchbase.** 44 URLs seeded at 21:12, one minute after the restart that loaded the fix.
+  `bw_entity_source_policies` for `crunchbase_company`: **84 eligible, 0 ineligible**, down from
+  40/44. No paid batch fired — the most recent Crunchbase run is still 2026-08-24 — so the fix was
+  verified at zero cost, because `_is_due` still holds the batch to the weekly cadence.
+- **Pricing**, against the live schema in a rolled-back transaction: `crunchbase_company` 84
+  records → $0.126; `linkedin_company_post` 500 → $0.75; `linkedin_jobs` 20 received / 20 errors →
+  $0.00; 20 received / 5 errors → $0.0225; `vendor_web` 321 → NULL; `ats_discovery` 83 → NULL. All
+  six correct.
+- `python -m py_compile` clean on all three modified files.
+- `pytest tests/test_market_collection.py tests/test_market_metrics.py
+  tests/test_entity_scheduler.py tests/test_market_import.py` → **112 passed, 10 skipped, 3
+  failed**. All three failures are `async def functions are not natively supported` — `pytest-asyncio`
+  is not installed in this venv. Pre-existing, unrelated, and identical before and after the change.
+  `_discover_feeds` and `_poll_pages` are themselves async, so they have no test coverage here
+  either way, which is why everything above was verified against the running service.
+
+### Propagation
+**bugfixing only, and nothing to propagate.** Neither `wiley` nor `wileytest` has
+`app/tasks/market_monitor.py` — Market Monitor does not exist on those tenants. Verified with
+`ls`, not assumed.
+
+Service restarted five times during the session to load each fix: 18:43, 20:16, 20:32, 21:11,
+21:15. All in-flight checks were clean beforehand; the three `running` rows in `bw_tracker_runs` and
+`analysis_run_logs` are orphans from old restarts, 34 to 217 days old.
+
+Four of the five code fixes are already committed, each swept into an unrelated commit by another
+session running `git add -u` in this same tree while I worked: discovery crediting in `f6a7207d`
+("Turn the Findings page into findings"), the discovery transaction fix and both `_poll_pages`
+fixes in `aa4e465c` ("Collect Indeed listings"), and the Crunchbase reorder in `a7a288ed` ("Fix the
+Indeed domain the canary rejected"). The fixes are intact; they are just filed under messages that
+do not describe them. The spend-pricing work is still pending in the working tree.
+
+### Lessons
+- **A crediting gap and a collection gap look identical on a coverage panel.** All three bugs made
+  work already done read as never done. Before treating a low coverage number as a collection
+  problem, check whether the source stamps `last_success_at` at all — `grep record_success` against
+  the sweep is a five-second test that would have saved most of this session.
+- **NEVER `await` an HTTP call with a transaction open on this database.** `idle_in_transaction_session_timeout`
+  is 1 minute, and the failure arrives as `SSL connection has been closed unexpectedly` at whatever
+  statement runs next — which points at the innocent statement, not the slow fetch. Both bugs here
+  were the reads before the await, not the await itself.
+- **Deriving an identifier must never sit behind a gate that needs that identifier.**
+  `seed_crunchbase_urls` behind `claim_due` was a deadlock that looked like a cadence wait for six
+  days. Free derivation belongs before every early return.
+- **A budget cap that reads a column nobody writes is worse than no cap**, because it looks like
+  protection. `cost_amount` was NULL on all 107 runs while `MARKET_MONTHLY_BUDGET_USD` sat ready to
+  be set. Check that the gate's input is populated before trusting the gate.
+- **Do not credit a vendor for a source that had nothing to read.** 13 vendors have no discovered
+  pages; crediting them would have shown 83/83 and hidden that discovery found them nothing. The
+  residual gap is the finding.
+
 ## 2026-08-26 (Indeed collector) — attribution works after all, and I had said it did not
 
 ### Goal

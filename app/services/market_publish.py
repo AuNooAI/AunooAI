@@ -34,6 +34,13 @@ _OWN_VOICE = own_voice_sql("a")
 logger = logging.getLogger(__name__)
 
 
+#: Vendors needed before a market-wide headcount average means anything. Below
+#: this the movers are shown and the average is withheld, because a mean of two
+#: numbers is not a market trend. Sized to match the intent of
+#: market_analysis.MIN_POSTS_FOR_RATIO rather than to any statistical claim.
+MIN_VENDORS_FOR_HEADCOUNT_AVERAGE = 5
+
+
 def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
     """Registry size split by role and collection state.
 
@@ -427,6 +434,16 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
     hc = headcount_market(conn, market)
     movers = hc["movers"]
     pct_values = [m["pct"] for m in movers if m["pct"] is not None]
+    # An average across one vendor is that vendor's number wearing a market
+    # statistic's clothes. The panel read "Average +1.3% / Median +1.3% across
+    # 1 vendor", which is Dropzone AI's +1.3% printed three times.
+    #
+    # Same guard the market already applies to a share of voice below
+    # MIN_EARNED_FOR_SHARE and a per-post ratio below MIN_POSTS_FOR_RATIO:
+    # withhold the aggregate rather than compute one from too little, and let
+    # the caller show the movers themselves instead.
+    if len(pct_values) < MIN_VENDORS_FOR_HEADCOUNT_AVERAGE:
+        pct_values = []
     headcount_avg_pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
     headcount_median_pct = (
         round(statistics.median(pct_values), 1) if pct_values else None)

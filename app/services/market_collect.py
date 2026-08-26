@@ -27,6 +27,24 @@ logger = logging.getLogger(__name__)
 LINKEDIN_POST_SOURCE = "linkedin_company_post"
 VENDOR_WEB_SOURCE = "vendor_web"
 
+# Bright Data pay-as-you-go: $1.50 per 1,000 records delivered, billed on
+# success only, so a record returned as a provider error is not charged. This
+# is the provider's published rate rather than a local preference, which is why
+# it is a constant here and not an environment variable — if Bright Data
+# changes the rate, this line changes with it.
+PRICE_PER_1K_RECORDS_USD = 1.50
+
+# The sources whose records come from a paid provider. Defined here because
+# close_run is the one function every collector path reaches, so this is where
+# a record can be priced; app.routes.market_monitor_routes imports it rather
+# than keeping a second copy, so a new paid source cannot be added to one list
+# and silently missed by the other.
+PAID_SOURCES = frozenset({
+    "linkedin_company_post", "linkedin_company_profile",
+    "crunchbase_company", "linkedin_jobs",
+    "pitchbook_company", "zoominfo_company", "indeed_jobs",
+})
+
 # Without an entry here a record whose text matches no category keyword is
 # stored but attributed to nothing — and the Brand Watcher UI reads through
 # bw_article_categories, so it would be invisible rather than uncategorised.
@@ -102,8 +120,25 @@ def outcome_status(received: int, stored: int, provider_errors: int = 0) -> str:
 
 def close_run(conn, run_id: int, *, status: str, received: int = 0, new: int = 0,
               skipped: int = 0, error: Optional[str] = None,
+              provider_errors: int = 0,
               cost_amount: Optional[float] = None,
               cost_currency: Optional[str] = None) -> None:
+    """Close a run and price it.
+
+    Spend is derived here rather than at the thirty-odd call sites, because
+    this is the one function every collector path reaches — the same reason the
+    entity hook below lives here. The price is applied from the run's own
+    ``source`` inside the UPDATE, so a free internal source keeps a NULL cost
+    and is distinguishable from a paid batch that happened to cost nothing.
+
+    ``provider_errors`` is what the batch was not charged for. Bright Data
+    bills on success, so a delivery of twenty records where all twenty came
+    back as proxy errors costs nothing, and pricing it as twenty records would
+    make the budget gate refuse work that was never paid for.
+
+    An explicit ``cost_amount`` still wins, for the day a provider returns a
+    real price with a job.
+    """
     # clock_timestamp(), not NOW(): NOW() is transaction-start time, so a run
     # opened and closed inside one transaction — which is every internal
     # source — would report zero latency forever.
@@ -111,14 +146,20 @@ def close_run(conn, run_id: int, *, status: str, received: int = 0, new: int = 0
         UPDATE bw_collection_runs
         SET status = :st, records_received = :rec, records_new = :new,
             records_skipped = :skip, error = :err,
-            cost_amount = :cost, cost_currency = :cur,
+            cost_amount = COALESCE(:cost, CASE WHEN source = ANY(:paid)
+                                               THEN :billable * :unit END),
+            cost_currency = COALESCE(:cur, CASE WHEN source = ANY(:paid)
+                                                THEN 'USD' END),
             completed_at = clock_timestamp(),
             latency_ms = GREATEST(0, EXTRACT(EPOCH FROM
                 (clock_timestamp() - started_at)) * 1000)
         WHERE id = :r
     """), {"st": status, "rec": received, "new": new, "skip": skipped,
            "err": (str(error)[:2000] if error else None), "cost": cost_amount,
-           "cur": cost_currency, "r": run_id})
+           "cur": cost_currency, "r": run_id,
+           "paid": list(PAID_SOURCES),
+           "billable": max(0, received - max(0, provider_errors)),
+           "unit": PRICE_PER_1K_RECORDS_USD / 1000.0})
 
     # Turn what this run collected into entity observations, links and
     # mentions. Every collector path reaches this function, so wiring it here

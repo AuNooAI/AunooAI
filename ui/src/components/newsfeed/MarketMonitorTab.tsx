@@ -1999,6 +1999,19 @@ export function MarketMonitorTab() {
                   </span>
                 </div>
               )}
+              {/* Why the average row above is absent. A withheld figure that
+                  simply disappears reads as a rendering fault; this says it was
+                  withheld and what would bring it back. */}
+              {pulse && pulse.headcount_n === 0
+                    && pulse.headcount_movers.length > 0 && (
+                <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
+                  No market average yet: it needs several vendors with two
+                  readings, and {pulse.headcount_movers.length === 1
+                    ? 'only one has' : `only ${pulse.headcount_movers.length} have`}
+                  {' '}a second one so far. An average across one vendor is that
+                  vendor&apos;s number, not the market&apos;s.
+                </p>
+              )}
               {!pulse || pulse.headcount_movers.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
                   No vendor has two LinkedIn readings yet

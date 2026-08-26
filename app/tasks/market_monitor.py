@@ -559,6 +559,7 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
                 conn, run_id,
                 status=mc.outcome_status(len(records), result.get("stored", 0),
                                          result.get("provider_errors", 0)),
+                provider_errors=result.get("provider_errors", 0),
                 received=len(records),
                 new=result.get("stored", 0),
                 skipped=(result.get("unchanged", 0) + result.get("unmatched", 0)
