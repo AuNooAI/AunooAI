@@ -2,6 +2,188 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Market Monitor collection) — 58 vendors read as "no activity" because nobody had ever collected them
+
+### Goal
+An external review said all 58 vendors in the SOC Automation market showed zero activity. Two of
+its three headline claims were misreads, but the symptom was real and the cause was worse than the
+review guessed: collection had never run for most of the roster, and the dashboard reported the
+absence as a measurement.
+
+### The dispatch bug: one sibling fixed, the other left alone
+**`app/tasks/market_monitor.py`** — `_poll_linkedin` selected vendors with
+`ORDER BY mb.sort_order LIMIT 20` and never called `sch.claim_due`. Commit `3b60d879` ("Sweep the
+vendor roster instead of re-reading its first page") fixed precisely this in `_poll_dataset` and
+did not touch `_poll_linkedin`, so posts and profiles — the two sources the product leans on
+hardest — kept re-reading the same twenty vendors forever. Its own comment states the cost:
+"Slicing the first N by sort_order is what pinned collection to the same nineteen vendors while
+sixty-four were never collected at all."
+
+State before the fix: 84 of 85 vendors had a LinkedIn URL, so nearly all were eligible. Profile
+collection had ever succeeded for 20 of 83. Post collection for **0 of 83** — the post path never
+wrote `requested_brand_ids`, and because posts become `articles` rather than snapshots,
+`reconcile_from_history` cannot repair them either.
+
+`_poll_linkedin` now claims from `bw_entity_source_policies`, writes the claimed list on the run so
+a batch that succeeds with zero records still advances those vendors, releases a claimed vendor it
+found no URL for instead of marking it collected, and refuses a paused source at admission.
+
+### `seed_policies` had no caller outside the tests
+**`app/tasks/market_monitor.py`** — nothing in the application created the per-vendor schedule rows
+that dispatch depends on; the production rows had been seeded by hand. Survivable while dispatch
+read the vendor table directly, fatal once dispatch claims policies, because a vendor added
+afterwards is uncollectable *and silent* — no error, no run, no coverage figure admitting the skip.
+`tick()` now refreshes them before anything is dispatched, inside its own try so a fault there
+cannot stop the pass collecting for vendors already covered. This defect was introduced by the
+fix above, not found alongside it.
+
+### A size band became a headcount
+**`app/services/brightdata_linkedin.py`** — `_as_int` strips every non-digit, which is correct for
+a follower count written "13,111" and catastrophic for a band: `"51-200"` returned **51200** and
+`"1,001-5,000"` returned **10,015,000**. `company_size`, Bright Data's band field, sat second in
+the headcount fallback chain, so one response without `employees_in_linkedin` would have put ten
+million staff into a market total with nothing on screen suggesting a fault.
+
+New `_as_headcount` accepts only a bare run of digits, and refuses zero as well.
+`entity_field_registry` already says `allow_zero=False` for this field ("Zero staff is not a
+company. It is the shape of a missing field"), and the canonical column was safe — but
+`market_publish.py:139` and the `profile_series` query at `market_monitor_routes.py:2429` read the
+snapshot payload directly with no such guard. Bright Data returned `employee_count: 0` for a vendor
+whose own band read "2-10 employees"; that vendor would have shown 0 staff and plotted a point on
+the floor. **`alembic/versions/mm_009_zero_headcount_snapshots.py`** clears the one already stored
+(1 row). `company_size` is retained as `employee_band`, the way `map_crunchbase_company` already
+separates the two. The same guard covers the ZoomInfo and PitchBook mappers.
+
+### nginx was refusing every provider delivery with 413
+Chasing why a run stayed `running` after Bright Data reported ready: four callback attempts for
+run 301, all **413**. No `client_max_body_size` existed anywhere in the nginx config, so every site
+was on the 1 MB default while Bright Data posts a whole batch as one JSON body.
+
+This had **never worked on this tenant**. Every completed Bright Data run closed between 400 and
+900 seconds — 603s, 604s, 603s, 568s, 631s — clustered on the 10-minute `_reconcile_open_jobs`
+window. Those were all reconciler closures fetching each batch a second time because the first
+delivery was refused at the front door.
+
+Fixed with a `location = /api/market-monitor/webhooks/brightdata/linkedin` block carrying
+`client_max_body_size 64m`, scoped to the callback path rather than the site because that endpoint
+authenticates on a shared secret and nothing else needs a body that size. Verified: a 2.1 MB
+unauthenticated body now reaches the app and gets a 401 instead of nginx's 413.
+
+### `linkedin_jobs` was paused on a reason that had stopped being true
+**`app/services/entity_scheduler.py`** — `PAUSED_SOURCES` cited `HTTP 400 "Incorrect discovery
+collector id"`. Timeline from the run ledger: three market-wide runs failed with that 400 on
+20 August 09:41–09:54; run 15 **succeeded with 30 records** at 15:08 the same day; commit
+`59da6a89` ("and the control test I should have run first") landed at 15:11; five more runs
+succeeded 22–24 August. The pause was written on 25 August (`3b60d879`) off the three failed rows
+from the morning of the 20th. Because a paused source is refused at admission and skipped by
+`claim_due`, the collector had been silent since.
+
+Un-paused. `PAUSED_SOURCES` is now empty.
+
+### Indeed would have discarded every record it ever received
+**`app/services/brightdata_linkedin.py`** — `map_indeed_job` looked for `job_id`, `id` and `jk`.
+The field is **`jobid`**, one word, so `posting_id` was always `None` and the guard two lines down
+dropped the record. A live batch would have reported that Indeed returned nothing while actually
+returning everything. Also `date_posted` is relative text ("8 days ago") and
+`date_posted_parsed` is the ISO date, so any first-seen date built from it was unusable.
+
+Both corrected against the dataset sample Oliver supplied, which is kept as a test fixture. Three
+API probes established the request contract the docstring had guessed at: `keyword_search` is
+required and searches "job title or company"; `posted_by` is a closed, case-sensitive enum
+(`Employer` valid, `employer` and a company name both rejected), so it filters *who posted*, never
+*which company*. Indeed stays manual-only.
+
+### Guards added
+**`tests/test_market_collection.py`** — `test_every_paid_dispatch_path_claims_the_roster` finds
+Bright Data dispatchers from the AST rather than a hand-written list and asserts each claims a
+roster and records its batch, so the next provider path is covered without anyone remembering.
+Verified by reverting the fix and watching it name `_poll_linkedin`.
+`test_the_pass_seeds_policies_before_it_dispatches` covers the seeding dependency.
+**`tests/test_entity_scheduler.py`** — `test_nothing_is_paused_on_a_reason_that_no_longer_holds`
+fails if any paused source's most recent completed run succeeded. That is the check nobody ran on
+25 August. The old test that asserted `linkedin_jobs` was paused is replaced by one asserting the
+verified request shape; the pause *mechanism* is now tested against a patched stand-in so it holds
+whatever is paused.
+
+### Verification
+Sweep proved against the live database in a rolled-back transaction before any spend: posts 82 of
+82 eligible vendors in 5 passes, 0 stranded, pass 6 correctly reporting nothing due; profiles 62
+never-collected in 4 passes, with the 20 already collected correctly left on cadence.
+
+Forced profile run 301 — 62 vendors dispatched (was 20), 61 records, 1 dead page, all 62 policies
+advanced. Profile coverage 21 → 82 vendors; canonical headcount source is now
+`linkedin_company_profile` for 78 vendors and `workbook` for 6.
+
+Forced post run 311 — 82 vendors, 1,732 records, 1,212 new, **delivered by webhook with HTTP 200**
+and closing at 1,118s, matching Bright Data's actual collection time rather than the 600s reconcile
+window every prior run sat on. All 82 post policies advanced.
+
+Forced jobs run 312 — 81 vendors, 79 records, webhook 200. Held job postings 33 across 7 vendors →
+**91 across 16**.
+
+The "No observed activity" count went **58 → 6**; vendors with attributed coverage 26 → 78.
+
+`pytest`: 127 passed, 10 skipped. The 3 failures in `test_market_collection.py` are pre-existing
+and byte-identical on a stashed tree — `pytest-asyncio` is not installed, so every async test in
+that file errors regardless.
+
+### Found, measured, and deliberately not fixed
+**17% of what the market counts as vendor-owned posts are reshares** — 426 of 2,495, and 32% for
+PRE Security (20 of 63). `entity_ingest._is_company_speaking` excludes reposts and non-company
+accounts correctly, but `market_analysis.py`, `market_publish.py`, `market_corpus.py` and
+`market_report_html.py` contain zero references to `is_repost` or `account_type`. So
+loudest/quietest, post volume, share of voice, the Announced column and the HTML report all count a
+vendor amplifying somebody else as the vendor speaking. One post reads
+"Silensec: PRE Security's Post" — authored by Silensec, on PRE Security's account, counted as PRE
+Security's own. Wiring the guard into the analytics changes what every post figure means, so it is
+Oliver's call.
+
+`company_id` is null on all 2,495 posts despite `8fb8f9c0` ("…and keep company_id"). 485 older
+posts have no `is_repost` at all and default to "the company speaking" by design, to keep the
+historical corpus stable — so the contamination cannot be cleaned without re-collection.
+
+**Every Glassdoor match in this market is the wrong company.** Kenzo Security (3 staff) → Kenzo,
+the Paris fashion house, industry "Department, Clothing & Shoe Stores"; Secure.com (34) → SECURE,
+Energy & Utilities, Calgary; Method Security (26) → Method, Business Consulting; Artemis Security
+(55) → Artemis, Athens. `MIN_REVIEWS_FOR_AUTO_MATCH = 50` was added to stop the wbm incident where
+"Wiley" resolved to a 3-review Australian entity. For a registry where 80 of 84 vendors are under
+100 staff the threshold inverts: the real company has almost no reviews and is excluded, so the
+only candidates clearing 50 are larger strangers sharing a first word. No alert has fired
+(`glassdoor_deterioration` has zero events) because all five snapshots per vendor are the same
+wrong company, so the ratings are stable. It is a loaded trigger, not a fired one. Untouched.
+
+`bw_collection_runs.cost_amount` is always NULL, so the `MARKET_MONTHLY_BUDGET_USD` gate would
+compute spend as zero and never fire. The cap is currently decorative.
+
+### Propagation
+Market Monitor exists **only on bugfixing** — checked the route trees of wiley, wileytest, wbm,
+abm, pearson, ibaset and bwtemplate; none has `app/tasks/market_monitor.py` or the Bright Data
+webhook. Nothing to copy.
+
+`MARKET_MAX_VENDORS_PER_RUN=85` is in `.env`, which is gitignored, so a clone silently reverts to
+20 and a partial sweep. The `.env` backup was written to the session scratchpad rather than beside
+the file, because several `.env.bak-*` files already sit untracked in this tree.
+
+The nginx block was added to **`/home/orochford/bin/setup_site.py`**'s `FULL_TEMPLATE` so a site
+regeneration keeps it — that file lives in the separate `/home/orochford` repo and is committed
+there, not here. Verified by rendering the template and running the output through `nginx -t`.
+
+### Lessons
+NEVER add an entry to `PAUSED_SOURCES` without reading that source's **most recent** completed run.
+The most alarming row in its history is not its current state, and a paused source is silent, which
+on a dashboard reads as a source with nothing to report.
+
+NEVER trust a field because its name fits. `posted_by` looked like an employer filter and is a
+poster-type enum; `job_id` looked like an id field and the real one is `jobid`; `company_size`
+looked like a count and is a band. Each was a guess that would have failed quietly.
+
+When a fix moves a read from one table to another, check what populates the new table. Moving
+dispatch onto `bw_entity_source_policies` made `seed_policies` load-bearing, and nothing called it.
+
+ALWAYS check a provider parameter exists before relying on it. `validate_only=true` is not a
+Bright Data parameter; unknown query params are ignored, so two probes intended as dry runs were
+real billed collections (~30 records, about four cents).
+
 ## 2026-08-26 (auth surface, follow-up) — the logs say nobody used the hole, and only cover 15 days of the 19 months it was open
 
 ### Goal

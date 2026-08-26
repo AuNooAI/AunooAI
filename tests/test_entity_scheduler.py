@@ -304,11 +304,38 @@ def test_a_vendor_scoped_manual_request_is_allowed_with_the_identifier(conn):
     sch.admit_request(conn, 'pitchbook_company', brand_id=brand)   # no raise
 
 
-def test_a_paused_source_is_not_dispatched(conn):
-    """LinkedIn jobs is rejected by the provider with HTTP 400. Until the
-    request shape is confirmed against a sample it stays paused rather than
-    failing a run per cycle."""
-    assert 'linkedin_jobs' in sch.PAUSED_SOURCES
+def test_a_paused_source_is_not_dispatched(conn, monkeypatch):
+    """The pause mechanism itself, tested against a stand-in.
+
+    This used to assert that ``linkedin_jobs`` was paused. That entry was
+    removed once the record showed the HTTP 400 it cited had been fixed five
+    days before the pause was written — so the test was pinning a stale
+    diagnosis in place, and would have failed the moment anyone corrected it.
+
+    What is worth guarding is the behaviour: a paused source claims nothing
+    and refuses a market-wide request. Patching the registry keeps that true
+    whatever happens to be paused today, including nothing.
+    """
+    monkeypatch.setitem(sch.PAUSED_SOURCES, 'linkedin_jobs', 'paused for this test')
     assert sch.claim_due(conn, 'linkedin_jobs', limit=20) == []
     with pytest.raises(ValueError):
         sch.admit_request(conn, 'linkedin_jobs', brand_id=None)
+
+
+def test_nothing_is_paused_on_a_reason_that_no_longer_holds(conn):
+    """A pause has to be re-justified, not inherited.
+
+    A paused source is silent, and a silent source reads on the dashboard as a
+    source with nothing to report. So every entry must name a failure that is
+    still the most recent thing that happened to it — not the most alarming
+    thing in its history.
+    """
+    for source in sch.PAUSED_SOURCES:
+        latest = conn.execute(text("""
+            SELECT status FROM bw_collection_runs
+             WHERE source = :s AND status IN ('succeeded', 'failed', 'partial')
+             ORDER BY started_at DESC LIMIT 1
+        """), {'s': source}).scalar()
+        assert latest != 'succeeded', (
+            f'{source} is paused, but its most recent completed run succeeded. '
+            f'Either the pause reason is stale or it needs a new one.')

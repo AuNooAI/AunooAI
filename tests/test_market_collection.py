@@ -398,10 +398,208 @@ def test_a_record_with_no_stable_id_is_dropped():
     assert map_job_listing({'job_posting_id': '3'}) is None
 
 
-def test_linkedin_jobs_stays_paused_until_the_request_shape_is_confirmed():
-    """The output contract being known is not permission to dispatch. The
-    HTTP 400 is about the discovery request, which the sample does not show."""
+def test_linkedin_jobs_uses_the_one_discovery_mode_that_works():
+    """This test used to assert the source stayed paused for an HTTP 400.
+
+    The 400 was real on the morning of 20 August and fixed that afternoon by
+    switching to ``discover_by=keyword`` with ``company`` as its own input
+    field. The source then succeeded six times running. The pause was added
+    five days later off the old failed rows, and this test pinned it there.
+
+    What matters is the request shape, so that is what is asserted now. Three
+    other modes were tried and two of them failed silently — a company-name
+    keyword returns other employers' postings, which is worse than nothing.
+    """
     from app.services import entity_scheduler as sch
 
-    assert 'linkedin_jobs' in sch.PAUSED_SOURCES
-    assert 'discovery' in sch.PAUSED_SOURCES['linkedin_jobs'].lower()
+    assert 'linkedin_jobs' not in sch.PAUSED_SOURCES
+    assert 'linkedin_jobs' not in sch.MANUAL_ONLY_SOURCES
+
+    payload_shape = bd.LinkedInDatasetClient.trigger_jobs.__doc__ or ''
+    assert 'discover_by=keyword' in payload_shape
+
+
+# ---------------------------------------------------------------------------
+# Dispatch has to claim the roster, on every paid path
+# ---------------------------------------------------------------------------
+
+def _brightdata_dispatchers():
+    """Every function that puts a Bright Data batch up, by source.
+
+    Found rather than listed. A new provider path added next month is caught
+    by the assertions below without anyone remembering to add it here, which
+    is the failure this whole check exists to prevent.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/tasks/market_monitor.py').read_text()
+    tree = ast.parse(src)
+    out = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        body = ast.get_source_segment(src, node) or ''
+        # A `trigger_*` call, not merely a mention of the client: the
+        # reconciler also builds a client, to collect the results of a batch
+        # somebody else paid for, and it has no roster to claim.
+        if any(f'.trigger_{verb}' in body for verb in
+               ('posts', 'profiles', 'crunchbase', 'pitchbook', 'zoominfo',
+                'indeed_discover', 'jobs')):
+            out[node.name] = body
+    return out
+
+
+def test_every_paid_dispatch_path_claims_the_roster():
+    """The bug this guards was a fix applied to one sibling and not the other.
+
+    ``claim_due`` was added to the dataset path, which sweeps Crunchbase and
+    the rest. The LinkedIn path — posts and profiles, the two sources the
+    product leans on hardest — kept selecting the first twenty vendors by
+    ``sort_order``, so the other sixty-three were never collected once and
+    every one of them read as a measured zero.
+
+    Asserting the property for whichever paid paths exist, rather than for a
+    hand-written list of two, is what makes the next one safe.
+    """
+    dispatchers = _brightdata_dispatchers()
+    assert dispatchers, 'no Bright Data dispatch path found — has the module moved?'
+
+    for name, body in dispatchers.items():
+        assert 'claim_due' in body, (
+            f'{name} dispatches a paid batch without claiming vendors from '
+            f'bw_entity_source_policies, so it will re-collect the same page '
+            f'of the roster forever')
+        assert 'requested_brand_ids' in body, (
+            f'{name} does not record which vendors the batch was for, so a '
+            f'batch that succeeds with zero records cannot advance them and '
+            f'they stay permanently due')
+        assert 'sort_order LIMIT' not in body.replace('\n', ' '), (
+            f'{name} still slices the roster by sort_order')
+
+
+def test_the_linkedin_path_releases_a_vendor_it_could_not_dispatch():
+    """Claiming a vendor and then not asking about it must not look like success.
+
+    Recording success for a vendor the provider was never sent is exactly how
+    a gap in collection becomes a confident zero on the dashboard.
+    """
+    body = _brightdata_dispatchers()['_poll_linkedin']
+    assert 'release_claims' in body
+    assert 'record_failure' in body
+
+
+# ---------------------------------------------------------------------------
+# A size band is not a headcount
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('band', [
+    '51-200', '51–200', '1,001-5,000', '51 to 200', '10K+', '10000+', 'n/a',
+])
+def test_a_size_band_never_becomes_a_headcount(band):
+    """The old parser stripped non-digits, which is right for "13,111"
+    followers and catastrophic for a band: "1,001-5,000" came back as
+    10,015,000. One vendor like that would have put ten million staff into a
+    market total with nothing on screen to suggest anything was wrong."""
+    assert bd._as_headcount(band) is None
+
+
+@pytest.mark.parametrize('value,expected', [
+    ('145', 145), ('1,234', 1234), ('200 employees', 200), (145, 145),
+    (145.0, 145), ('', None), (None, None), (True, None),
+])
+def test_an_exact_count_still_parses(value, expected):
+    assert bd._as_headcount(value) == expected
+
+
+@pytest.mark.parametrize('zero', [0, 0.0, '0', '000', '0 employees'])
+def test_zero_staff_is_a_missing_field_not_a_measurement(zero):
+    """Bright Data returned 0 for a real vendor whose band said "2-10".
+
+    ``entity_field_registry`` already refuses a zero headcount, so the
+    canonical column was safe — but the published vendor row and the headcount
+    chart both read the snapshot payload directly and had no such guard, so one
+    vendor would have shown 0 staff and plotted a point on the floor.
+    """
+    assert bd._as_headcount(zero) is None
+
+
+def test_company_size_is_kept_as_a_band_not_promoted_to_a_count():
+    """``company_size`` used to sit second in the count chain, so a response
+    without ``employees_in_linkedin`` stored the band as the number. It is
+    still retained — just never as arithmetic."""
+    mapped = bd.map_company_profile({
+        'name': 'Acme', 'url': 'https://www.linkedin.com/company/acme',
+        'company_size': '51-200 employees',
+    })
+    assert mapped['employee_count'] is None
+    assert mapped['employee_band'] == '51-200 employees'
+
+    exact = bd.map_company_profile({
+        'name': 'Acme', 'url': 'https://www.linkedin.com/company/acme',
+        'employees_in_linkedin': 145, 'company_size': '51-200 employees',
+    })
+    assert exact['employee_count'] == 145
+
+
+def test_the_pass_seeds_policies_before_it_dispatches():
+    """Dispatch claims vendors from bw_entity_source_policies, so whatever
+    creates those rows has to run first, on every pass.
+
+    Nothing outside the tests called ``seed_policies``, which was harmless
+    while dispatch read the vendor table directly. Once dispatch moved to
+    claiming policies, a vendor with no policy row became uncollectable and
+    silent — no error, no run, no coverage figure saying it was skipped.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/tasks/market_monitor.py').read_text()
+    tree = ast.parse(src)
+    tick = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.AsyncFunctionDef) and n.name == 'tick')
+    body = ast.get_source_segment(src, tick) or ''
+    assert 'seed_policies' in body, (
+        'tick() does not refresh collection policies, so a vendor added after '
+        'the last hand-run of seed_policies will never be collected')
+
+
+#: One record from the Bright Data dashboard sample for gd_l4dx9j9sscpvs7no2,
+#: trimmed to the fields the mapper reads. The point of keeping it is that the
+#: id is `jobid` and the usable date is `date_posted_parsed`.
+INDEED_SAMPLE = {
+    'jobid': '97203ff9bcc3ad72',
+    'company_name': 'Mediacom Communications Corporation',
+    'date_posted_parsed': '2026-08-18T01:34:46.635Z',
+    'date_posted': '8 days ago',
+    'job_title': 'Customer Retention and Sales Representative I',
+    'job_type': 'Full-time',
+    'location': 'Chillicothe, IL',
+    'job_location': 'Hybrid work in Chillicothe, IL',
+    'salary_formatted': '$15.00 - $16.50 an hour',
+    'url': 'https://www.indeed.com/viewjob?jk=97203ff9bcc3ad72',
+    'is_expired': False,
+}
+
+
+def test_an_indeed_record_maps_against_the_real_field_names():
+    """The id is ``jobid``, one word.
+
+    The mapper looked for ``job_id``, ``id`` and ``jk``, so every record failed
+    the id guard and was dropped. A live batch would have reported that Indeed
+    returned nothing while actually returning everything — the worst shape of
+    failure, because it looks like an answer.
+    """
+    mapped = bd.map_indeed_job(INDEED_SAMPLE)
+    assert mapped is not None, 'the whole batch would be silently discarded'
+    assert mapped['posting_id'] == '97203ff9bcc3ad72'
+    assert mapped['company'] == 'Mediacom Communications Corporation'
+    assert mapped['title'].startswith('Customer Retention')
+    assert mapped['salary'] == '$15.00 - $16.50 an hour'
+
+
+def test_the_indeed_posted_date_is_a_date_and_not_eight_days_ago():
+    """``date_posted`` is relative text; ``date_posted_parsed`` is the ISO one.
+    First-seen and last-seen are useless built from the former."""
+    mapped = bd.map_indeed_job(INDEED_SAMPLE)
+    assert mapped['posted_date'] == '2026-08-18T01:34:46.635Z'

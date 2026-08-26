@@ -52,13 +52,18 @@ MANUAL_ONLY_SOURCES = frozenset({
 
 # Sources temporarily withheld from automatic dispatch, with the reason. These
 # are not manual-only by policy; they are broken and honest about it.
-PAUSED_SOURCES: Dict[str, str] = {
-    'linkedin_jobs': (
-        'provider rejects the request: HTTP 400 "Incorrect discovery collector '
-        'id. Available types: keyword, url". The discovery contract needs '
-        'confirming against a dashboard sample before this is dispatched again.'
-    ),
-}
+#
+# linkedin_jobs was listed here on 25 August for an HTTP 400 naming the wrong
+# discovery collector id. That request shape had been corrected on 20 August
+# (see LinkedInDatasetClient.trigger_jobs, discover_by=keyword with company as
+# its own input field) and the source had succeeded six times running before
+# the pause was written. The entry was reading the three failed rows from the
+# morning of the 20th as current state. Removed, because a pause whose stated
+# reason no longer holds silences a working source and reads as a broken one.
+#
+# Before adding an entry here: check the most recent run of that source, not
+# the most alarming one.
+PAUSED_SOURCES: Dict[str, str] = {}
 
 # Effective cadence per source, in hours.
 CADENCE_HOURS: Dict[str, int] = {

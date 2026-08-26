@@ -563,6 +563,38 @@ def _as_int(value: Any) -> Optional[int]:
     return int(digits) if digits else None
 
 
+def _as_headcount(value: Any) -> Optional[int]:
+    """An exact staff count, or nothing.
+
+    ``_as_int`` strips every non-digit, which is right for a follower count
+    written "13,111" and badly wrong for a size band: "51-200" comes back as
+    51200, and a market total built from it would be out by three orders of
+    magnitude with no sign that anything had gone wrong. A band is not a
+    count, so this returns None rather than a guess, and the caller keeps the
+    band in its own field.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        # Zero is not a staff count, it is the shape of a field the provider
+        # did not fill in — which is what entity_field_registry already says
+        # about this field with allow_zero=False. Returning it would put a
+        # point at zero on the headcount chart and a "0" in the published
+        # vendor row, both of which read as a measurement. The band is kept
+        # separately, so nothing the provider actually knew is lost.
+        return int(value) or None
+    cleaned = str(value).strip().lower()
+    for suffix in (" employees", " employee", " staff"):
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[: -len(suffix)].strip()
+    cleaned = cleaned.replace(",", "").replace(" ", "")
+    # Only a bare run of digits is an exact count. Ranges ("51-200", "51–200",
+    # "51to200"), open-ended values ("10000+", "10k+") and anything else are
+    # bands, and a band that silently became a number is the failure this
+    # guards against.
+    return (int(cleaned) or None) if cleaned.isdigit() else None
+
+
 def _as_dt(value: Any) -> Optional[datetime]:
     if not value:
         return None
@@ -613,8 +645,13 @@ def map_company_profile(raw: dict[str, Any]) -> dict[str, Any]:
     as "this company has no staff", which is a claim the source did not make.
     """
     followers = _as_int(_first(raw, "followers", "followers_count", "follower_count"))
-    employees = _as_int(_first(
-        raw, "employees_in_linkedin", "company_size", "employees", "employee_count",
+    # "company_size" is deliberately absent: it is Bright Data's size band, not
+    # a count, and it used to sit second in this chain — so a response without
+    # employees_in_linkedin stored "51-200" as the number 51200. It is kept
+    # below as employee_band instead, the same way map_crunchbase_company
+    # already separates the two.
+    employees = _as_headcount(_first(
+        raw, "employees_in_linkedin", "employees", "employee_count",
     ))
     return {
         "company_id": _first(raw, "company_id", "id", "linkedin_id"),
@@ -628,6 +665,8 @@ def map_company_profile(raw: dict[str, Any]) -> dict[str, Any]:
         "founded": _as_int(_first(raw, "founded", "founded_year")),
         "website": _first(raw, "website", "company_website"),
         "employee_count": employees,
+        # A band ("51-200"), not a count — do not compare it to a headcount.
+        "employee_band": _first(raw, "company_size"),
         "followers": followers,
         "employees_sample": _first(raw, "employees"),
         "affiliated": _first(raw, "affiliated", "affiliated_companies"),
@@ -874,7 +913,8 @@ def map_zoominfo_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         "description": raw.get("description"),
         "revenue_usd": _as_int(raw.get("revenue")),
         "revenue_text": raw.get("revenue_text"),
-        "employee_count": _as_int(raw.get("employees") or raw.get("total_employees")),
+        "employee_count": _as_headcount(
+            raw.get("employees") or raw.get("total_employees")),
         "industry": raw.get("industry"),
         "headquarters": raw.get("headquarters"),
         "website": raw.get("website"),
@@ -908,7 +948,7 @@ def map_pitchbook_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         "description": _first(raw, "description", "about"),
         "industry": _first(raw, "industry", "industries", "sector"),
         "headquarters": _first(raw, "headquarters", "hq", "location"),
-        "employee_count": _as_int(_first(raw, "employees", "employee_count")),
+        "employee_count": _as_headcount(_first(raw, "employees", "employee_count")),
         "total_funding_usd": _as_int(
             _first(raw, "total_raised", "total_funding", "total_funding_amount")),
         "last_round": _first(raw, "last_financing_deal_type", "last_round_type"),
@@ -920,14 +960,26 @@ def map_pitchbook_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
 def map_indeed_job(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Indeed job listing → the hiring snapshot we store.
 
-    No output sample was available for this dataset either — field names are
-    the most likely candidates, tried through ``_first``. Unverified; read a
-    real response before trusting a count built from these.
+    Field names verified against the dataset sample for ``gd_l4dx9j9sscpvs7no2``
+    on 2026-08-26. Two of them were guessed before that and both were wrong in
+    ways that would not have raised anything:
+
+    - The id is ``jobid``, one word. This function tried ``job_id``, ``id`` and
+      ``jk``, so ``posting_id`` was always None and the guard below dropped
+      *every* record. A live batch would have reported "Indeed returned
+      nothing" while actually returning everything.
+    - ``date_posted`` is relative text ("8 days ago"), not a date.
+      ``date_posted_parsed`` is the ISO one, and a first-seen date built from
+      the former would have been unusable.
+
+    The sample also carries ``is_expired``, ``company_link``,
+    ``description_text``, ``benefits``, ``qualifications``, ``company_rating``
+    and ``company_reviews_count``, none of which are kept here yet.
     """
     if raw.get("error") or raw.get("error_code"):
         return None
     title = _first(raw, "job_title", "title")
-    posting_id = _first(raw, "job_id", "id", "jk")
+    posting_id = _first(raw, "jobid", "job_id", "id", "jk")
     if not title or not posting_id:
         return None
     return {
@@ -935,8 +987,8 @@ def map_indeed_job(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         "title": title,
         "company": _first(raw, "company_name", "company", "employer"),
         "location": _first(raw, "location", "job_location"),
-        "posted_date": _first(raw, "date_posted", "posted_date"),
+        "posted_date": _first(raw, "date_posted_parsed", "posted_date"),
         "url": _first(raw, "url", "job_link"),
-        "salary": _first(raw, "salary", "salary_formatted"),
+        "salary": _first(raw, "salary_formatted", "salary"),
         "observed_source": "brightdata_indeed",
     }
