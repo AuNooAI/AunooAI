@@ -1053,6 +1053,19 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
     }
 
     stored = unchanged = unmatched = expired = 0
+    # A record the provider could not fetch is not a listing we looked for and
+    # did not find. Without this the run closes as `succeeded` with nothing
+    # stored, which reads as "Indeed ran and this market has no jobs" — the
+    # measured-zero claim the whole metric contract exists to prevent.
+    #
+    # Not hypothetical: the first live control returned five records for
+    # Louisiana-Pacific and every one was `{"error": "Crawler error: ...too
+    # many requests", "error_code": "rate_limit"}`. ``ingest_jobs`` has counted
+    # these since the LinkedIn dataset did the same thing with `proxy` errors;
+    # this ingest was written without it.
+    provider_errors = sum(
+        1 for r in records
+        if isinstance(r, dict) and (r.get("error") or r.get("error_code")))
     for raw in records:
         if not isinstance(raw, dict):
             continue
@@ -1095,8 +1108,12 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
     if unmatched:
         logger.info("indeed: %d listing(s) belonged to another employer and "
                     "were dropped", unmatched)
+    if provider_errors:
+        logger.info("indeed: %d of %d records were provider errors, so this run "
+                    "is not evidence that these vendors have no listings",
+                    provider_errors, len(records))
     return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched,
-            "expired": expired}
+            "expired": expired, "provider_errors": provider_errors}
 
 
 def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:

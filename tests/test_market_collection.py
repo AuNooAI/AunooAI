@@ -1290,3 +1290,38 @@ def test_a_provider_error_record_is_dropped_not_stored():
         'input': {'keyword_search': '7ai'},
         'error': 'Jobs not been found', 'error_code': 'dead_page',
     }) is None
+
+
+def test_a_throttled_indeed_batch_is_not_a_measured_zero():
+    """The live control's actual result, and what it must not be recorded as.
+
+    Searching Louisiana-Pacific in Two Harbors returned five records and every
+    one was ``{"error": "Crawler error: ...too many requests", "error_code":
+    "rate_limit"}``. Counted as ordinary unmatched rows, the run closes as
+    `succeeded` with nothing stored — which the hiring panel reads as "Indeed
+    ran and found no jobs" rather than "the provider throttled us".
+
+    ``ingest_jobs`` has counted provider errors since the LinkedIn dataset
+    returned twenty `proxy` errors and was marked succeeded. This ingest was
+    written without it.
+    """
+    from app.services.market_collect import outcome_status
+
+    assert outcome_status(5, 0, 5) == 'failed'
+    assert outcome_status(5, 3, 2) == 'partial'
+    assert outcome_status(5, 5, 0) == 'succeeded'
+
+
+def test_the_indeed_ingest_reports_provider_errors():
+    """The count has to reach outcome_status, or the status is decided blind."""
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/services/market_collect.py').read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == 'ingest_indeed_jobs')
+    body = ast.get_source_segment(src, fn)
+    assert 'provider_errors' in body
+    assert '"provider_errors": provider_errors' in body, (
+        'the count must be returned, not just computed')

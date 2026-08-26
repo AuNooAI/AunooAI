@@ -2,7 +2,15 @@
 
 Running log of notable operational/code changes. Newest first.
 
-### Headcount: no market average from one vendor (same day)
+## 2026-08-26 (headcount average) — a market average computed from one vendor
+
+**Commit:** `05908965`
+
+### Goal
+The Market Monitor headcount panel reported an average and a median across a single vendor. The
+figure was real and the label was not.
+
+### No market average from one vendor
 The panel read **"Average +1.3% / Median +1.3% across 1 vendor"**, which was Dropzone AI's +1.3%
 printed three times and labelled as the market's.
 
@@ -28,6 +36,8 @@ The list fills on its own — the next profile sweep is due 09:15 tomorrow for t
 08-20, then 2 September for the 61 read on 08-26.
 
 ## 2026-08-26 (Market Monitor coverage crediting) — three sources reported work they had already done as never done
+
+**Commit:** `297e8966`
 
 ### Goal
 Add Simbian to Brand Watcher and the SOC Automation market. The coverage panel then read
@@ -244,6 +254,8 @@ do not describe them. The spend-pricing work is still pending in the working tre
 
 ## 2026-08-26 (Indeed collector) — attribution works after all, and I had said it did not
 
+**Commits:** `aa4e465c`, `a7a288ed`
+
 ### Goal
 I told the customer Indeed listings "cannot be attributed to a specific vendor", wrote that into
 `MANUAL_ONLY_REASONS` where it shows in the source-health panel, and used it to justify leaving the
@@ -330,6 +342,35 @@ and the earlier finding that it rejects a company name stands.
 
 Cost so far: two error records, under a cent.
 
+### The positive control: the search finds the right jobs, the fetch is throttled
+Two `dead_page` results cannot tell "the collector works and these vendors are not on Indeed" from
+"the collector silently finds nothing". So a third call searched **Louisiana-Pacific in Two Harbors,
+MN** — the company and location from the dataset's own sample, where a listing is known to exist.
+
+It returned **five records, and the search half worked**: the job ids it found include
+`b5dedb22576b1a5d`, which is the exact listing in the pasted sample. `keyword_search` plus
+`location` does target a specific company's listings, which is the thing I had said was impossible.
+
+**Every one of the five failed to fetch:** `{"error": "Crawler error: Navigation failed for
+https://indeed.com/viewjob?jk=... too many requests", "error_code": "rate_limit"}`. That is provider
+capacity, not our request shape — the same dataset stalled two snapshots past an hour earlier in
+this project. This snapshot also sat `running` for over 800 seconds against a documented 6m52s
+average before going ready.
+
+**A defect in my own new code, exposed by that result.** `ingest_indeed_jobs` counted those five as
+ordinary unmatched rows and returned no `provider_errors`, so `outcome_status(5, 0, 0)` closes the
+run **succeeded** — which the hiring panel reads as "Indeed ran and this market has no jobs".
+`ingest_jobs` has counted provider errors since the LinkedIn dataset returned twenty `proxy` errors
+and was marked succeeded; this ingest was written without it. Fixed: `outcome_status(5, 0, 5)` now
+returns `failed`, and a partial batch returns `partial`.
+
+`close_run` already excludes provider errors from `billable`, so those five rows should not be
+charged.
+
+**Verdict.** Targeting works and is proven. Retrieval is unreliable at the provider, which is a
+second reason to keep this source operator-triggered — independent of the location fan-out and the
+per-record cost.
+
 ### Verification
 - `pytest tests/test_market_collection.py` — **78 passed**, 6 new, plus the 3 pre-existing
   `pytest-asyncio` failures. The new tests use the 2026-08-26 sample verbatim, including the case
@@ -357,6 +398,8 @@ Canonical only. Market Monitor exists on no other tenant.
 
 
 ## 2026-08-26 (Glassdoor matching) — employee reviews were another company's, and size settles it
+
+**Commits:** `241fd433`, `c6910e4d`
 
 ### Goal
 The last flagged defect: employer reviews in this market matched the wrong companies. Left
@@ -481,6 +524,8 @@ the prod venvs, so the assertions were run directly rather than through the suit
 
 ## 2026-08-26 (earned coverage) — half the market's "third-party coverage" was vendors' own blogs
 
+**Commit:** `3e59bd60`
+
 ### Goal
 Flagged in the findings entry below and left for a decision: the earned/owned split keyed on
 `bias_source`, and a vendor's website article carries none, so a company's own blog counted as
@@ -552,6 +597,8 @@ Canonical only (`bugfixing`).
 
 
 ## 2026-08-26 (Market Monitor findings) — findings instead of a feed, and a blocked extractor reported rather than faked
+
+**Commit:** `f6a7207d`
 
 ### Goal
 P1 #9, the last P1 item. The Findings page listed collected posts newest-first, which answers
@@ -673,6 +720,8 @@ different rule and is untouched. Flagged for a decision rather than changed here
 
 ## 2026-08-26 (Market Monitor entitlements) — a shared market report was naming every vendor
 
+**Commit:** `0db43fc2`
+
 ### Goal
 P1 #8. The spec calls Top-X an access-control rule rather than a visual truncation, so the first
 job was finding the actual anonymous surface rather than building a UI cap.
@@ -785,6 +834,8 @@ Canonical only (`bugfixing`). Market Monitor exists on no other tenant.
 
 
 ## 2026-08-26 (ATS job collector) — hiring read from the system each company actually uses
+
+**Commit:** `84304846`
 
 ### Goal
 Dropzone AI showed 0 open roles and had 11. LinkedIn genuinely listed none, and 67 of 83 vendors
@@ -925,6 +976,8 @@ Canonical only (`bugfixing`). Market Monitor exists on no other tenant.
 
 
 ## 2026-08-26 (Market Monitor drill-downs) — every figure now opens the records behind it
+
+**Commit:** `2911ee3c`
 
 ### Goal
 P1 #3. Spec §5 requires nine list capabilities, server-side pagination, the metric contract on
@@ -1070,6 +1123,8 @@ Canonical only (`bugfixing`). Market Monitor exists on no other tenant.
 
 
 ## 2026-08-26 (Market Monitor metric contract) — a zero on the page now has to be a measurement
+
+**Commit:** `063be94a`
 
 ### Goal
 The 25 August collection work fixed the data; this fixes what the page claims about it. The
@@ -1218,6 +1273,8 @@ rebuild and rsync of `static/` and `templates/`.
 
 
 ## 2026-08-26 (Market Monitor collection) — 58 vendors read as "no activity" because nobody had ever collected them
+
+**Commits:** `e609811c`, `dd2220bb`, `0f239b14`, `c742aea8`, `d4b54e6b`, `57b7ee55`, `e28db4b6`
 
 ### Goal
 An external review said all 58 vendors in the SOC Automation market showed zero activity. Two of
@@ -1718,6 +1775,8 @@ Bright Data parameter; unknown query params are ignored, so two probes intended 
 real billed collections (~30 records, about four cents).
 
 ## 2026-08-26 (auth surface, follow-up) — the logs say nobody used the hole, and only cover 15 days of the 19 months it was open
+
+**Commit:** `dcf360f5`
 
 ### Goal
 Yesterday's entry closed 2,712 unauthenticated routes across ten sites and left one question open:
