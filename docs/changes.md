@@ -84,10 +84,36 @@ rather than a stricter one that fails on a legitimate word.
 - Nothing left referencing Glassdoor: 0 mentions, 0 articles, 0 pins, 0 cached overviews.
 - Restart gated on an in-flight check written as an `if`, not an `&&` chain.
 
-### Propagation
-`bw_official_sources.py` is Brand Watcher-wide, so this needs copying to wiley, wileytest and wbm.
-Not done: those tenants track large publishers where the headcount source differs, and the check is
-silent without a headcount, so it is safe but unverified there. **Copy pending.**
+### Propagation of the Glassdoor size check (same day)
+Copied `app/services/bw_official_sources.py` and
+`tests/test_glassdoor_company_resolution.py` to wiley, wileytest and wbm.
+
+**Divergence check first.** Each tenant differed from canonical by 9 lines, and all 9 were the
+pre-change forms of the lines this fix edits — no genuine local divergence in this file, so a copy
+was safe. That check also caught a regression of mine: my edit had loosened
+`_pick_glassdoor_company`'s annotation from `hits: List[Dict[str, Any]]` to `hits: list`. Restored.
+
+**A bug that would have broken all three.** `bw_vendor_snapshots` exists on **none** of wiley,
+wileytest or wbm. On PostgreSQL a failed statement aborts the whole transaction, so
+`measured_headcount`'s `except Exception: return None` would have swallowed the error and left the
+caller's connection poisoned — the next `conn.commit()` in the poll dies with "current transaction
+is aborted". The query now runs inside `conn.begin_nested()` and rolls the savepoint back on
+failure. Verified against each tenant's live database: `measured_headcount` returns None and the
+connection is still usable afterwards.
+
+**The fix is inert on these three, by design.** With no headcount, `size_contradicts` always
+returns None — absence is not disagreement — so no existing pin is disturbed. Their four pins are
+all correct and one is the case this check deliberately protects: `Pearsons Education → Pearson`,
+the legitimate truncation that a stricter name rule would have broken.
+
+**Not restarted.** The copied file only takes effect on restart, and a restart of these tenants
+fires overdue observer agents and sends email (see the 2026-07 observer email-spam entry). Since
+the change cannot do anything there until a headcount source exists, restarting to activate an
+inert fix is the wrong trade. The trees no longer drift, and the next planned restart picks it up.
+
+Verified per tenant with each tenant's own interpreter: the four wrong-match cases reject, real
+matches and absent data pass, and size overrides an exact name match. pytest is not installed in
+the prod venvs, so the assertions were run directly rather than through the suite.
 
 ### Lessons
 - **When two names cannot settle an identity, find a number that can.** Tuning the name rules would

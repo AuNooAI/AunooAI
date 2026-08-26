@@ -389,8 +389,15 @@ def measured_headcount(conn, brand_id: int) -> Optional[float]:
     Returns None when we have never read one, which means this check has no
     opinion rather than a negative one.
     """
+    # Inside a savepoint, because swallowing the exception is not enough on
+    # PostgreSQL: a failed statement aborts the whole transaction, and the
+    # caller's next write then dies with "current transaction is aborted". The
+    # snapshots table exists on none of wiley, wileytest or wbm, so a plain
+    # try/except here would have broken the Glassdoor poll on every tenant this
+    # was copied to — worse than the wrong-company bug it exists to prevent.
+    savepoint = conn.begin_nested()
     try:
-        return conn.execute(text("""
+        value = conn.execute(text("""
             SELECT (data->>'employee_count')::numeric
               FROM bw_vendor_snapshots
              WHERE brand_id = :b AND snapshot_type = 'profile'
@@ -398,8 +405,11 @@ def measured_headcount(conn, brand_id: int) -> Optional[float]:
                AND (data->>'employee_count')::numeric > 0
              ORDER BY observed_at DESC LIMIT 1
         """), {"b": brand_id}).scalar()
+        savepoint.commit()
+        return value
     except Exception:                                             # noqa: BLE001
         # A tenant without the snapshots table gets no opinion, not an error.
+        savepoint.rollback()
         return None
 
 
@@ -515,7 +525,7 @@ def _prefix_match(a: str, b: str) -> bool:
     return a.startswith(b) or b.startswith(a)
 
 
-def _pick_glassdoor_company(hits: list, term: str,
+def _pick_glassdoor_company(hits: List[Dict[str, Any]], term: str,
                             known_staff: Optional[float] = None
                             ) -> Optional[Dict[str, Any]]:
     """The candidate that actually IS the brand, or None.
