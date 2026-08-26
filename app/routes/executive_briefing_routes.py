@@ -23,7 +23,7 @@ from app.services.executive_briefing_service import (
     EBConfig,
     DEFAULT_PERSONAS
 )
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 
@@ -257,7 +257,7 @@ async def start_eb_generation(
             )
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(verify_session_api)])
 async def health_check():
     """Health check endpoint for Executive Briefing service."""
     try:
@@ -325,7 +325,7 @@ async def get_eb_config(
         return default_config
 
 
-@router.get("/config/defaults")
+@router.get("/config/defaults", dependencies=[Depends(verify_session_api)])
 async def get_eb_defaults():
     """Get factory default Executive Briefing configuration."""
     return {

@@ -11,6 +11,7 @@ from pathlib import Path
 from app.database import Database, get_database_instance
 from app.services.dashboard_cache_service import DashboardCacheService
 from app.services.dashboard_export_service import DashboardExportService
+from app.security.session import verify_session_api
 
 router = APIRouter(prefix="/api/dashboard-cache", tags=["dashboard-cache"])
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Save Dashboard Endpoint
 # =============================================================================
 
-@router.post("/save")
+@router.post("/save", dependencies=[Depends(verify_session_api)])
 async def save_dashboard(
     request: Request,
     db: Database = Depends(get_database_instance)
@@ -86,7 +87,7 @@ async def save_dashboard(
 # Get Dashboard Endpoint
 # =============================================================================
 
-@router.get("/get/{cache_key}")
+@router.get("/get/{cache_key}", dependencies=[Depends(verify_session_api)])
 async def get_dashboard(
     cache_key: str,
     db: Database = Depends(get_database_instance)
@@ -115,7 +116,7 @@ async def get_dashboard(
 # List Dashboards Endpoint
 # =============================================================================
 
-@router.get("/list")
+@router.get("/list", dependencies=[Depends(verify_session_api)])
 async def list_dashboards(
     limit: int = 20,
     db: Database = Depends(get_database_instance)
@@ -140,7 +141,7 @@ async def list_dashboards(
 # Delete Dashboard Endpoint
 # =============================================================================
 
-@router.delete("/delete/{cache_key}")
+@router.delete("/delete/{cache_key}", dependencies=[Depends(verify_session_api)])
 async def delete_dashboard(
     cache_key: str,
     db: Database = Depends(get_database_instance)
@@ -169,7 +170,7 @@ async def delete_dashboard(
 # Export Endpoints
 # =============================================================================
 
-@router.post("/export/markdown")
+@router.post("/export/markdown", dependencies=[Depends(verify_session_api)])
 async def export_dashboard_markdown(
     request: Request,
     db: Database = Depends(get_database_instance)
@@ -229,7 +230,7 @@ async def export_dashboard_markdown(
         raise HTTPException(status_code=500, detail=f"Failed to export to Markdown: {str(e)}")
 
 
-@router.post("/export/pdf")
+@router.post("/export/pdf", dependencies=[Depends(verify_session_api)])
 async def export_dashboard_pdf(
     request: Request,
     db: Database = Depends(get_database_instance)
@@ -286,7 +287,7 @@ async def export_dashboard_pdf(
         raise HTTPException(status_code=500, detail=f"Failed to export to PDF: {str(e)}")
 
 
-@router.post("/export/image")
+@router.post("/export/image", dependencies=[Depends(verify_session_api)])
 async def export_dashboard_image(
     request: Request,
     db: Database = Depends(get_database_instance)

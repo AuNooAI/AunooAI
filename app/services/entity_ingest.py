@@ -107,6 +107,24 @@ def link_content(conn, article_uri: str,
         # An owned post proves the company said something. It is a claim, it is
         # fully relevant to them, and it is not somebody else's opinion of
         # them, so it is scored here rather than queued for a model.
+        #
+        # Unless it is not the company speaking. A reshare is the company
+        # amplifying somebody else, and a person's post is not the company's
+        # at all — calling either an owned claim puts words in a vendor's
+        # mouth, at relevance 1.0. Both stay linked and visible; they are
+        # simply not claims.
+        if owned and not _is_company_speaking(article):
+            entity_content.record_mention(
+                conn, brand_id=brand_id, article_uri=article_uri,
+                mention_type='explicit_name', channel=channel,
+                platform=platform, content_link_id=link_id,
+                matched_term=candidate.get('term'),
+                relevance=1.0, sentiment=None, stance='not_applicable',
+                status='accepted', evaluation_method='attribution',
+                metadata={'reason': 'reshare or non-company account'})
+            result['mentions'] += 1
+            continue
+
         if owned:
             mention_id = entity_content.record_mention(
                 conn, brand_id=brand_id, article_uri=article_uri,
@@ -128,6 +146,26 @@ def link_content(conn, article_uri: str,
         if mention_id:
             result['mentions'] += 1
     return result
+
+
+def _is_company_speaking(article) -> bool:
+    """Whether an owned-channel post is really the company's own words.
+
+    ``social_meta`` carries ``account_type`` and ``is_repost`` from the
+    provider. A record with neither — everything collected before those fields
+    were retained — is treated as the company speaking, which is what it was
+    treated as before and keeps the historical corpus stable.
+    """
+    meta = article['social_meta'] if 'social_meta' in article.keys() else None
+    if not isinstance(meta, dict):
+        return True
+    if meta.get('is_repost'):
+        return False
+    account_type = meta.get('account_type')
+    if account_type and str(account_type).lower() not in ('organization',
+                                                          'company'):
+        return False
+    return True
 
 
 def _account_for(conn, article, platform: Optional[str]) -> Optional[int]:
@@ -204,6 +242,35 @@ def _all_brands(conn) -> List[int]:
     return [int(r[0]) for r in rows]
 
 
+def _advance_requested_policies(conn, run_id: int, status: str) -> None:
+    """Move the claimed vendors on, or back them off, by the run's outcome.
+
+    Its own savepoint: this is bookkeeping, and a fault in it must not abort
+    the transaction holding the provider rows.
+    """
+    from app.services import entity_scheduler as sch
+
+    point = conn.begin_nested()
+    try:
+        row = conn.execute(text("""
+            SELECT source, requested_brand_ids FROM bw_collection_runs
+             WHERE id = :r
+        """), {'r': run_id}).mappings().first()
+        if not row or not row['requested_brand_ids']:
+            point.rollback()
+            return
+        ids = [int(b) for b in row['requested_brand_ids']]
+        if status in ('succeeded', 'partial'):
+            sch.record_success(conn, row['source'], ids)
+        else:
+            sch.record_failure(conn, row['source'], ids,
+                               error=f'run closed {status}')
+        point.commit()
+    except Exception:                                       # noqa: BLE001
+        point.rollback()
+        logger.warning('could not advance vendor policies for run_id=%s', run_id)
+
+
 def process_pending(conn, run_id: Optional[int] = None,
                     snapshot_limit: int = 200,
                     article_limit: int = 200) -> Dict[str, Any]:
@@ -251,17 +318,33 @@ def process_pending(conn, run_id: Optional[int] = None,
             if row['brand_id']:
                 touched.add(int(row['brand_id']))
 
-    # Articles that something attributed to a company but which have no entity
-    # relationship yet. Cheap to find and it catches every collector, not only
-    # the ones that write snapshots.
+    # Articles with no entity relationship yet, from **both** places they
+    # land. Brand Watcher attributes articles into bw_article_categories;
+    # the market keyword group and the vendor RSS feeds land theirs in
+    # bw_market_articles and are never attributed to a company at all.
+    # Reading only the first meant the entire market news corpus — over a
+    # thousand articles, growing by a hundred a day — never became a content
+    # link, so a vendor's page showed firmographics and no coverage.
+    # An article we have already examined is skipped even when it matched
+    # nothing. Asking only for articles with no content link meant the ones
+    # that name no vendor — most of a news corpus — were re-scanned on every
+    # run and the backlog never drained: 2,400 examinations produced twelve
+    # links, the same few hundred articles going round.
     unlinked = conn.execute(text("""
-        SELECT DISTINCT c.article_uri
-          FROM bw_article_categories c
+        SELECT article_uri FROM (
+            SELECT DISTINCT c.article_uri FROM bw_article_categories c
+            UNION
+            SELECT DISTINCT m.article_uri FROM bw_market_articles m
+        ) candidates
          WHERE NOT EXISTS (SELECT 1 FROM bw_entity_content_links l
-                            WHERE l.article_uri = c.article_uri)
-         ORDER BY c.article_uri
+                            WHERE l.article_uri = candidates.article_uri)
+           AND NOT EXISTS (SELECT 1 FROM bw_entity_link_attempts a
+                            WHERE a.article_uri = candidates.article_uri
+                              AND a.matcher_version = :matcher)
+         ORDER BY article_uri
          LIMIT :lim
-    """), {'lim': article_limit}).fetchall()
+    """), {'lim': article_limit,
+           'matcher': entity_content.MATCHER_VERSION}).fetchall()
 
     for (article_uri,) in unlinked:
         summary['articles'] += 1
@@ -269,6 +352,17 @@ def process_pending(conn, run_id: Optional[int] = None,
                                context={'collection_run_id': run_id})
         summary['links'] += outcome['links']
         summary['mentions'] += outcome['mentions']
+        # Record the examination, matched or not. Keyed by matcher version so
+        # widening the query terms re-examines the corpus deliberately rather
+        # than the backlog being sealed forever.
+        conn.execute(text("""
+            INSERT INTO bw_entity_link_attempts
+                (article_uri, matcher_version, links_found)
+            VALUES (:u, :matcher, :found)
+            ON CONFLICT (article_uri, matcher_version) DO UPDATE
+               SET examined_at = NOW(), links_found = EXCLUDED.links_found
+        """), {'u': article_uri, 'matcher': entity_content.MATCHER_VERSION,
+               'found': outcome['links']})
 
     for brand_id in sorted(touched):
         entity_resolution.resolve_entity(conn, brand_id, trigger='ingest')
@@ -289,6 +383,13 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
     markers mean anything skipped here is retried on the next close.
     """
     from app.services import entity_flags
+
+    # Advance the vendor policies this run asked the provider for, whatever
+    # the entity layer is doing. A batch that succeeded with zero records
+    # still means those vendors were processed; leaving them due would put the
+    # same batch up again on the next pass forever. This is scheduling state,
+    # not entity state, so it is not behind the entity flag.
+    _advance_requested_policies(conn, run_id, status)
 
     if not entity_flags.enabled():
         return None
@@ -317,6 +418,14 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
     # Say so on the run. A run that normalized nothing because every payload
     # was malformed is not a clean success, and the ledger is where an
     # operator looks.
+    #
+    # Its own savepoint, for the same reason the processing has one. This is a
+    # database statement like any other: if it fails, the transaction aborts,
+    # and catching the Python exception without rolling back to a savepoint
+    # leaves the caller's commit to fail and take the provider rows with it.
+    # Protecting the expensive work and then leaving the cheap bookkeeping
+    # unprotected would have reintroduced the same defect one statement later.
+    metrics_point = conn.begin_nested()
     try:
         status_now = 'partial' if result.get('failed') else None
         conn.execute(text("""
@@ -326,8 +435,11 @@ def on_run_closed(conn, run_id: int, status: str) -> Optional[Dict[str, Any]]:
              WHERE id = :id
         """), {'metrics': _json({'entity': result}), 'status': status_now,
                'id': run_id})
+        metrics_point.commit()
     except Exception:                                       # noqa: BLE001
-        logger.warning('could not record entity metrics on run_id=%s', run_id)
+        metrics_point.rollback()
+        logger.warning('could not record entity metrics on run_id=%s; the '
+                       'processing itself stands', run_id)
     return result
 
 

@@ -111,7 +111,12 @@ def candidates(conn, market_id: int, *, limit: int = 200,
     topic, because a post's topic is its own vendor's Brand Watch lane and
     those are not scoped to a market.
     """
-    where = ["a.bias_source = 'vendor:linkedin'"]
+    # A reshare is not the vendor's claim, so classifying it as the vendor's
+    # signal or noise is a category error — and it spends a model call to make
+    # one.
+    from app.services.market_corpus import own_voice_sql
+
+    where = ["a.bias_source = 'vendor:linkedin'", own_voice_sql("a")]
     params: Dict[str, Any] = {"m": market_id, "lim": int(limit)}
     if not redo:
         where.append("(ma.review_verdict IS NULL OR ma.article_uri IS NULL)")

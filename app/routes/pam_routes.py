@@ -18,7 +18,7 @@ import os
 from datetime import datetime
 
 from app.services.pam_service import get_pam_service, TREND_DEFINITIONS, SCENARIOS_2030
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.config.settings import AUSPEX_DIR, AUSPEX_AGENTS_DIR
 
 logger = logging.getLogger(__name__)
@@ -323,7 +323,7 @@ async def get_trend_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/trends/definitions")
+@router.get("/trends/definitions", dependencies=[Depends(verify_session_api)])
 async def get_trend_definitions():
     """
     Get definitions for all 2030 trends.
@@ -352,7 +352,7 @@ async def get_trend_definitions():
 # Cached Reports Endpoints
 # ============================================================================
 
-@router.get("/cached/latest")
+@router.get("/cached/latest", dependencies=[Depends(verify_session_api)])
 async def get_cached_pam_report(
     topic: Optional[str] = Query(None, description="Topic filter (null for all topics)")
 ):
@@ -392,7 +392,7 @@ async def get_cached_pam_report(
         }
 
 
-@router.get("/cached/list")
+@router.get("/cached/list", dependencies=[Depends(verify_session_api)])
 async def list_cached_pam_reports(
     limit: int = Query(10, ge=1, le=50, description="Maximum reports to return")
 ):
@@ -519,7 +519,7 @@ async def analyze_publisher_position(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/publisher-pillars")
+@router.get("/publisher-pillars", dependencies=[Depends(verify_session_api)])
 async def get_publisher_pillars():
     """
     Get definitions for the three publisher value pillars.
@@ -546,7 +546,7 @@ async def get_publisher_pillars():
 # Scenario Endpoints
 # ============================================================================
 
-@router.get("/scenarios")
+@router.get("/scenarios", dependencies=[Depends(verify_session_api)])
 async def get_scenarios():
     """
     Get 2030 scenario definitions and current probabilities.
@@ -1551,7 +1551,7 @@ async def update_pam_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/provider-status")
+@router.get("/provider-status", dependencies=[Depends(verify_session_api)])
 async def get_provider_status():
     """
     Get status of external data providers.

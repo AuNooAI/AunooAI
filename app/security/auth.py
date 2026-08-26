@@ -11,7 +11,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuration
-SECRET_KEY = os.getenv('NORN_SECRET_KEY', 'nornforever')  # Change this to a secure secret key
+#
+# There is deliberately no fallback. This key signs the JWTs that stand in for
+# a logged-in user, so a default baked into a public repository is the same
+# thing as no authentication: anyone can mint a token for any account. Refusing
+# to start is louder than shipping a tenant that looks secured and is not.
+SECRET_KEY = os.getenv('NORN_SECRET_KEY')
+if not SECRET_KEY:
+    raise RuntimeError(
+        "NORN_SECRET_KEY is not set. It signs authentication tokens, so there "
+        "is no safe default. Generate one with "
+        "`python -c \"import secrets; print(secrets.token_urlsafe(32))\"` "
+        "and add it to .env."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

@@ -7,6 +7,7 @@ import logging
 from urllib.parse import quote_plus, unquote_plus
 import httpx
 import os
+from app.security.session import verify_session_api
 
 router = APIRouter(prefix="/auth", tags=["OAuth"])
 logger = logging.getLogger(__name__)
@@ -298,7 +299,7 @@ async def oauth_status(request: Request):
             'error': str(e)
         }
 
-@router.get("/config-check")
+@router.get("/config-check", dependencies=[Depends(verify_session_api)])
 async def oauth_config_check():
     """Check OAuth configuration without exposing secrets"""
     try:

@@ -22,7 +22,7 @@ from app.services.focus_group_service import (
     get_focus_group_service,
     FGConfig
 )
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 
@@ -235,7 +235,7 @@ async def start_fg_generation(
             )
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(verify_session_api)])
 async def health_check():
     """Health check endpoint for Focus Group service."""
     try:

@@ -31,11 +31,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.database import get_database_instance
-from app.security.session import verify_session, verify_session_optional
+from app.security.session import verify_session, verify_session_optional, verify_session_api
 from app.services import market_collect as mc
 from app.services import market_publish as mp
 from app.services import market_import as mi
 from app.services import entity_dual_read as _dr
+
+from app.services.market_corpus import own_voice_sql
+
+_OWN_VOICE = own_voice_sql("a")
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +303,7 @@ async def _read_upload(file: UploadFile) -> bytes:
 @router.post("/markets/import/validate")
 async def validate_import(
     file: UploadFile = File(...),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """Parse a registry workbook and report exactly what an import would do.
 
@@ -318,7 +322,7 @@ async def commit_import(
     market_id: int = Form(...),
     batch_id: str = Form(...),
     allow_partial: bool = Form(False),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """Apply a validated workbook to a market, in one transaction.
 
@@ -369,7 +373,7 @@ async def commit_import(
 # ---------------------------------------------------------------------------
 
 @router.get("/markets")
-async def list_markets(session=Depends(verify_session)):
+async def list_markets(session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -394,7 +398,7 @@ async def list_markets(session=Depends(verify_session)):
 
 
 @router.post("/markets", status_code=201)
-async def create_market(payload: MarketCreate, session=Depends(verify_session)):
+async def create_market(payload: MarketCreate, session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -421,7 +425,7 @@ async def create_market(payload: MarketCreate, session=Depends(verify_session)):
 
 
 @router.get("/markets/{market_id}")
-async def get_market(market_id: int, session=Depends(verify_session)):
+async def get_market(market_id: int, session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -448,7 +452,7 @@ async def get_market(market_id: int, session=Depends(verify_session)):
 
 @router.put("/markets/{market_id}")
 async def update_market(market_id: int, payload: MarketUpdate,
-                        session=Depends(verify_session)):
+                        session=Depends(verify_session_api)):
     fields = payload.model_dump(exclude_none=True)
 
     def _work():
@@ -483,7 +487,7 @@ async def update_market(market_id: int, payload: MarketUpdate,
 
 
 @router.delete("/markets/{market_id}")
-async def delete_market(market_id: int, session=Depends(verify_session)):
+async def delete_market(market_id: int, session=Depends(verify_session_api)):
     """Delete the market. Vendor brands survive.
 
     Cascading into ``bw_brands`` would destroy monitoring configuration and
@@ -515,7 +519,7 @@ async def list_vendors(
     market_id: int,
     role: Optional[str] = Query(None, pattern="^(vendor|watch|excluded)$"),
     collecting_only: bool = Query(False),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     def _work():
         conn = _conn()
@@ -555,7 +559,7 @@ class AddVendor(BaseModel):
 
 @router.post("/markets/{market_id}/vendors", status_code=201)
 async def add_vendor(market_id: int, payload: AddVendor,
-                     session=Depends(verify_session)):
+                     session=Depends(verify_session_api)):
     """Add one competitor to the market's registry.
 
     A company that shows up in the market's own phrase-matched coverage
@@ -638,7 +642,7 @@ async def add_vendor(market_id: int, payload: AddVendor,
 
 @router.post("/markets/{market_id}/vendors/collection")
 async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
-                                session=Depends(verify_session)):
+                                session=Depends(verify_session_api)):
     """Turn collection, or brand monitoring, on or off for selected vendors.
 
     The motivating case is narrowing a large registry to the vendors worth
@@ -759,7 +763,7 @@ async def set_vendor_collection(market_id: int, payload: VendorCollectionToggle,
 
 
 @router.get("/markets/{market_id}/vendors/facets")
-async def vendor_facets(market_id: int, session=Depends(verify_session)):
+async def vendor_facets(market_id: int, session=Depends(verify_session_api)):
     """The distinct values a vendor filter can be built from, with counts.
 
     So the toggle UI offers the funding statuses and countries this registry
@@ -799,7 +803,7 @@ async def vendor_facets(market_id: int, session=Depends(verify_session)):
 
 @router.put("/markets/{market_id}/vendors/visibility")
 async def set_vendor_visibility(market_id: int, payload: VendorVisibility,
-                                session=Depends(verify_session)):
+                                session=Depends(verify_session_api)):
     """Opt named vendors into or out of a public surface.
 
     Tracking a vendor and publishing a page about it are separate decisions, so
@@ -837,7 +841,7 @@ async def list_review_tasks(
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     limit: int = Query(200, ge=1, le=1000),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     def _work():
         conn = _conn()
@@ -887,7 +891,7 @@ async def list_review_tasks(
 @router.put("/markets/{market_id}/review-tasks/{task_id}")
 async def update_review_task(market_id: int, task_id: int,
                              payload: ReviewTaskUpdate,
-                             session=Depends(verify_session)):
+                             session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -943,7 +947,7 @@ class CollectionTerms(BaseModel):
 
 @router.put("/markets/{market_id}/collection-terms")
 async def set_collection_terms(market_id: int, payload: CollectionTerms,
-                               session=Depends(verify_session)):
+                               session=Depends(verify_session_api)):
     """Replace the market's collection terms.
 
     These are what actually gets searched. Changing them does not re-run
@@ -985,7 +989,7 @@ async def set_collection_terms(market_id: int, payload: CollectionTerms,
 @router.get("/markets/{market_id}/collection-plan")
 async def collection_plan(market_id: int, qualifier: str = Query("security"),
                           vendor_names: str = Query("funded"),
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     """What the market's collection group would search for. Reads only."""
     def _work():
         conn = _conn()
@@ -1005,7 +1009,7 @@ async def collection_plan(market_id: int, qualifier: str = Query("security"),
 
 @router.post("/markets/{market_id}/collection-setup")
 async def collection_setup(market_id: int, payload: CollectionSetup,
-                           session=Depends(verify_session)):
+                           session=Depends(verify_session_api)):
     """Create the market's collection topic and keyword group.
 
     One group for the whole market, not one per vendor. Brand Watcher's own
@@ -1048,7 +1052,7 @@ class SourceSetting(BaseModel):
 
 
 @router.get("/markets/{market_id}/sources")
-async def get_sources(market_id: int, session=Depends(verify_session)):
+async def get_sources(market_id: int, session=Depends(verify_session_api)):
     """Every source, its schedule, and when it last ran."""
     from app.tasks import market_monitor as mm
 
@@ -1087,7 +1091,7 @@ async def get_sources(market_id: int, session=Depends(verify_session)):
 
 @router.put("/markets/{market_id}/sources")
 async def set_sources(market_id: int, payload: Dict[str, SourceSetting],
-                      session=Depends(verify_session)):
+                      session=Depends(verify_session_api)):
     """Replace the per-source schedule and on/off settings."""
     cleaned = {
         src: {k: v for k, v in setting.model_dump().items() if v is not None}
@@ -1218,7 +1222,7 @@ def _market_report_token(market_id: int, exp: int) -> str:
 async def market_report_link(
     market_id: int,
     days: int = Query(30, ge=1, le=365),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """A signed, expiring URL for the report that needs no login to open."""
     import time
@@ -1387,7 +1391,7 @@ class BriefingRequest(BaseModel):
 
 @router.post("/markets/{market_id}/briefings")
 async def market_briefing_generate(market_id: int, body: BriefingRequest,
-                                   session=Depends(verify_session)):
+                                   session=Depends(verify_session_api)):
     """Write the briefing for one day, week, month or year: facts from stored
     rows, prose on top.
 
@@ -1419,7 +1423,7 @@ async def market_briefing_generate(market_id: int, body: BriefingRequest,
 @router.get("/markets/{market_id}/briefings")
 async def market_briefings(market_id: int,
                            limit: int = Query(24, ge=1, le=120),
-                           session=Depends(verify_session)):
+                           session=Depends(verify_session_api)):
     """Briefings for this market, newest period first."""
     from app.services import market_briefing as mbr
 
@@ -1436,7 +1440,7 @@ async def market_briefings(market_id: int,
 
 @router.get("/markets/{market_id}/briefings/{briefing_id}")
 async def market_briefing_detail(market_id: int, briefing_id: int,
-                                 session=Depends(verify_session)):
+                                 session=Depends(verify_session_api)):
     """One briefing, with the facts it was written from.
 
     The facts are returned deliberately: they are how a reader checks the
@@ -1466,7 +1470,7 @@ class BriefingStatus(BaseModel):
 @router.put("/markets/{market_id}/briefings/{briefing_id}/status")
 async def market_briefing_status(market_id: int, briefing_id: int,
                                  body: BriefingStatus,
-                                 session=Depends(verify_session)):
+                                 session=Depends(verify_session_api)):
     """Approve or reject a briefing. Regenerating one returns it to draft."""
     from app.services import market_briefing as mbr
 
@@ -1496,7 +1500,7 @@ class ReviewClose(BaseModel):
 
 @router.post("/markets/{market_id}/review-tasks/{task_id}/fix")
 async def market_review_fix(market_id: int, task_id: int, body: ReviewFix,
-                            session=Depends(verify_session)):
+                            session=Depends(verify_session_api)):
     """Answer a review task by correcting the value it complains about."""
     from app.services import market_review as mrv
 
@@ -1517,7 +1521,7 @@ async def market_review_fix(market_id: int, task_id: int, body: ReviewFix,
 
 @router.post("/markets/{market_id}/review-tasks/{task_id}/close")
 async def market_review_close(market_id: int, task_id: int, body: ReviewClose,
-                              session=Depends(verify_session)):
+                              session=Depends(verify_session_api)):
     """Accept a task as unanswerable, or dismiss it as mistaken."""
     from app.services import market_review as mrv
 
@@ -1539,7 +1543,7 @@ async def market_review_close(market_id: int, task_id: int, body: ReviewClose,
 @router.post("/markets/{market_id}/review-tasks/auto-close")
 async def market_review_auto_close(market_id: int,
                                    dry_run: bool = Query(False),
-                                   session=Depends(verify_session)):
+                                   session=Depends(verify_session_api)):
     """Close tasks that collection has since answered."""
     from app.services import market_review as mrv
 
@@ -1557,7 +1561,7 @@ async def market_review_auto_close(market_id: int,
 @router.get("/markets/{market_id}/jobs")
 async def market_jobs(market_id: int,
                       brand_id: Optional[int] = Query(None),
-                      session=Depends(verify_session)):
+                      session=Depends(verify_session_api)):
     """The job listings behind the hiring counts, each with its URL."""
     from app.services import market_analysis as man
 
@@ -1575,7 +1579,7 @@ async def market_jobs(market_id: int,
 
 @router.get("/markets/{market_id}/drilldown/{name}")
 async def market_drilldown(market_id: int, name: str,
-                           session=Depends(verify_session)):
+                           session=Depends(verify_session_api)):
     """The vendors behind one figure on the overview.
 
     Every number on that page used to be a dead end. "62 vendors with no
@@ -1602,7 +1606,7 @@ async def market_drilldown(market_id: int, name: str,
 async def market_voices(market_id: int,
                         days: Optional[int] = Query(None, ge=1, le=3650),
                         limit: int = Query(25, ge=1, le=200),
-                        session=Depends(verify_session)):
+                        session=Depends(verify_session_api)):
     """The accounts posting about this market, ranked."""
     from app.services import market_analysis as man
 
@@ -1620,7 +1624,7 @@ async def market_voices(market_id: int,
 @router.get("/markets/{market_id}/channel-mix")
 async def market_channel_mix(market_id: int,
                              days: Optional[int] = Query(None, ge=1, le=3650),
-                             session=Depends(verify_session)):
+                             session=Depends(verify_session_api)):
     """How coverage splits across kinds of source, and how that moved."""
     from app.services import market_analysis as man
 
@@ -1638,7 +1642,7 @@ async def market_channel_mix(market_id: int,
 @router.get("/markets/{market_id}/leaderboards")
 async def market_leaderboards(market_id: int,
                               days: Optional[int] = Query(30, ge=1, le=3650),
-                              session=Depends(verify_session)):
+                              session=Depends(verify_session_api)):
     """Per-network rankings and named hires — the Coverage tab's highlights.
 
     Kept as its own endpoint rather than folded into ``/analysis`` because
@@ -1667,7 +1671,7 @@ async def market_leaderboards(market_id: int,
 @router.get("/markets/{market_id}/analysis/{name}")
 async def market_analysis(market_id: int, name: str,
                           days: Optional[int] = Query(None, ge=1, le=365),
-                          session=Depends(verify_session)):
+                          session=Depends(verify_session_api)):
     """One cross-sectional analysis of the market.
 
     ``formation`` — founding years against announcement volume.
@@ -1699,7 +1703,7 @@ async def market_analysis(market_id: int, name: str,
 @router.get("/markets/{market_id}/analysis")
 async def market_analysis_all(market_id: int,
                               days: Optional[int] = Query(None, ge=1, le=365),
-                              session=Depends(verify_session)):
+                              session=Depends(verify_session_api)):
     """All four analyses in one call — what the Analysis view loads.
 
     ``days`` only affects the analyses where a period has a real meaning
@@ -1728,7 +1732,7 @@ async def market_analysis_all(market_id: int,
 
 @router.get("/markets/{market_id}/data")
 async def market_data_inventory(market_id: int,
-                                session=Depends(verify_session)):
+                                session=Depends(verify_session_api)):
     """Everything this market has stored, with row counts and download links.
 
     The monitor writes to eight tables and the UI showed two of them, so the
@@ -1795,7 +1799,7 @@ class PostReviewRequest(BaseModel):
 
 @router.post("/markets/{market_id}/posts/review")
 async def market_post_review(market_id: int, body: PostReviewRequest,
-                             session=Depends(verify_session)):
+                             session=Depends(verify_session_api)):
     """Read unreviewed vendor posts and record what each one is.
 
     Vendor LinkedIn posts cannot be used wholesale — 562 against 122 news
@@ -1824,7 +1828,7 @@ async def market_post_review(market_id: int, body: PostReviewRequest,
 async def market_overview(
     market_id: int,
     days: int = Query(30, ge=1, le=365),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """The market's standing picture: coverage, money, activity, corpus.
 
@@ -1858,7 +1862,7 @@ class CorpusScanRequest(BaseModel):
 
 @router.post("/markets/{market_id}/corpus/scan")
 async def market_corpus_scan(market_id: int, body: CorpusScanRequest,
-                             session=Depends(verify_session)):
+                             session=Depends(verify_session_api)):
     """Match the existing article corpus against the market's phrases.
 
     Brand Watcher's classifier answers "which articles named this vendor". This
@@ -1912,7 +1916,7 @@ async def market_corpus_articles(
         False, description="Include vendor posts the review judged noise. Off "
                            "by default — a post is shown once it is known to "
                            "say something."),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """The matched corpus, newest first."""
     from app.services import market_corpus as mcorp
@@ -1955,7 +1959,7 @@ async def market_corpus_articles(
 async def market_corpus_summary(
     market_id: int,
     days: int = Query(30, ge=1, le=365),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """Counts, top phrases and top sources for the matched corpus."""
     from app.services import market_corpus as mcorp
@@ -1984,7 +1988,7 @@ async def market_themes(
                            "cluster. Off by default — clustering alone is "
                            "free; this is a model call."),
     model: Optional[str] = Query(None),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """Embedding clusters over the matched corpus — what it is actually about,
     not just what matched a phrase. ``scope=vendor`` narrows to vendor-
@@ -2011,7 +2015,7 @@ async def market_themes(
 async def market_brief(
     market_id: int,
     days: int = Query(7, ge=1, le=90),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """What changed, who moved, and what is still unknown.
 
@@ -2034,7 +2038,7 @@ async def market_brief(
 async def market_headcount_trend(
     market_id: int,
     weeks: int = Query(26, ge=4, le=104),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """Market-wide headcount trend, as-of each week against each vendor's baseline.
 
@@ -2064,7 +2068,7 @@ async def discover_candidates(
     days: int = Query(14, ge=1, le=180),
     min_alignment: float = Query(0.4, ge=0.0, le=1.0),
     dry_run: bool = Query(False),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
 ):
     """Read the market's recent funding coverage and propose new vendors.
 
@@ -2099,7 +2103,7 @@ async def discover_candidates(
 # ---------------------------------------------------------------------------
 
 @router.get("/markets/{market_id}/source-health")
-async def source_health(market_id: int, session=Depends(verify_session)):
+async def source_health(market_id: int, session=Depends(verify_session_api)):
     """Per-source freshness and outcome.
 
     "Failed" and "ran but found nothing" are reported as different things.
@@ -2111,6 +2115,7 @@ async def source_health(market_id: int, session=Depends(verify_session)):
     caller computes one — so reporting it as a number implied we track spend
     when we do not. The column stays for the day there is a price list.
     """
+    from app.services import entity_scheduler as sch
     from app.services.brightdata_linkedin import linkedin_enabled, webhook_secret
 
     def _work():
@@ -2151,13 +2156,36 @@ async def source_health(market_id: int, session=Depends(verify_session)):
                 )
                 latest = row.pop("latest_status", None)
                 latest_error = row.pop("latest_error", None)
-                # In flight is neither healthy nor failing — it is pending.
+                # Whether this source is dispatched on a cadence at all, and
+                # why not. Without it, a source that is correctly never
+                # dispatched reports the last run before that policy took
+                # effect — so PitchBook, ZoomInfo and Indeed each read
+                # "failing" indefinitely on a stranded row from 24 August,
+                # which is not their state and is not actionable.
+                row["scheduled"] = (
+                    row["source"] not in sch.MANUAL_ONLY_SOURCES
+                    and row["source"] not in sch.PAUSED_SOURCES)
+                row["policy"] = (
+                    "manual_only" if row["source"] in sch.MANUAL_ONLY_SOURCES
+                    else "paused" if row["source"] in sch.PAUSED_SOURCES
+                    else "scheduled")
+                row["policy_reason"] = (
+                    sch.PAUSED_SOURCES.get(row["source"])
+                    or sch.MANUAL_ONLY_REASONS.get(row["source"]))
+                # In flight is neither healthy nor failing — it is pending. A
+                # source that is not scheduled is neither: nothing is going to
+                # replace its last run, so reporting that run as the current
+                # state means the panel never stops accusing it.
                 row["state"] = (
-                    "in_flight" if latest in ("queued", "running")
+                    "not_scheduled" if not row["scheduled"]
+                    else "in_flight" if latest in ("queued", "running")
                     else "failing" if latest == "failed"
                     else "healthy" if latest == "succeeded"
                     else "unknown"
                 )
+                # Not healthy and not broken. A caller counting unhealthy
+                # sources should not count these, and a caller listing what to
+                # fix should not list them either.
                 row["healthy"] = row["state"] == "healthy"
                 # Only surface the error when the most recent run is the one
                 # that failed. Historical errors stay in the run log.
@@ -2192,7 +2220,7 @@ async def source_health(market_id: int, session=Depends(verify_session)):
 @router.get("/markets/{market_id}/runs")
 async def list_runs(market_id: int, source: Optional[str] = Query(None),
                     limit: int = Query(50, ge=1, le=500),
-                    session=Depends(verify_session)):
+                    session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -2219,7 +2247,7 @@ async def list_runs(market_id: int, source: Optional[str] = Query(None),
 
 @router.post("/markets/{market_id}/runs", status_code=202)
 async def start_run(market_id: int, payload: ManualRun,
-                    session=Depends(verify_session)):
+                    session=Depends(verify_session_api)):
     """Queue a manual collection run and return its id immediately.
 
     202 with a durable row rather than 200 with a background closure: a Bright
@@ -2393,7 +2421,7 @@ async def brightdata_linkedin_callback(
 
 @router.get("/markets/{market_id}/vendors/{brand_id}")
 async def vendor_detail(market_id: int, brand_id: int,
-                        session=Depends(verify_session)):
+                        session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
@@ -2463,7 +2491,7 @@ async def vendor_detail(market_id: int, brand_id: int,
             # DISTINCT ON the uri, not just an ORDER BY: bw_article_categories
             # is keyed on (article, brand, category), so a post filed under
             # three categories was taking three of these ten slots.
-            vendor["posts"] = [dict(r) for r in conn.execute(text("""
+            vendor["posts"] = [dict(r) for r in conn.execute(text(f"""
                 SELECT * FROM (
                     SELECT DISTINCT ON (a.uri)
                            a.uri, a.title, a.summary, a.publication_date,
@@ -2472,6 +2500,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                     JOIN articles a ON a.uri = bac.article_uri
                     WHERE bac.brand_id = :b
                       AND a.bias_source = 'vendor:linkedin'
+                      AND {_OWN_VOICE}
                     ORDER BY a.uri, a.publication_date DESC
                 ) p
                 ORDER BY p.publication_date DESC NULLS LAST LIMIT 10
@@ -2556,7 +2585,7 @@ class SetIdentifier(BaseModel):
 @router.put("/markets/{market_id}/vendors/{brand_id}/identifier")
 async def set_vendor_identifier(market_id: int, brand_id: int,
                                 body: SetIdentifier,
-                                session=Depends(verify_session)):
+                                session=Depends(verify_session_api)):
     """Record a hand-entered identifier for one vendor.
 
     Supersedes rather than overwrites: the old row's ``valid_to`` is stamped

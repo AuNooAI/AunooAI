@@ -15,7 +15,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.security.session import verify_session_api
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ _DOC_PATHS: dict[str, str] = {
 }
 
 
-@router.get("/api/docs/{name}")
+@router.get("/api/docs/{name}", dependencies=[Depends(verify_session_api)])
 async def get_doc(name: str):
     """Return ``{name, content, path}`` for a whitelisted doc, 404 otherwise.
 

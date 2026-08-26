@@ -25,6 +25,12 @@ from xml.sax.saxutils import escape
 
 from sqlalchemy import text
 
+from app.services.market_corpus import own_voice_sql
+
+# "The vendor is actually speaking". A reshare is the vendor
+# amplifying somebody else, so it is not an owned post.
+_OWN_VOICE = own_voice_sql("a")
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,11 +103,12 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
         ORDER BY mb.sort_order, b.display_name
     """), {"m": market_id}).mappings().all()
 
-    posts = dict(conn.execute(text("""
+    posts = dict(conn.execute(text(f"""
         SELECT bac.brand_id, COUNT(DISTINCT a.uri)
         FROM bw_article_categories bac
         JOIN articles a ON a.uri = bac.article_uri
         WHERE a.bias_source = 'vendor:linkedin'
+          AND {_OWN_VOICE}
           AND COALESCE(a.publication_date, a.submission_date)
               >= (NOW() - INTERVAL '30 days')::text
         GROUP BY 1
@@ -375,7 +382,8 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
     # Headcount movement: the newest profile against the workbook baseline.
     movers = [dict(r) for r in conn.execute(text("""
         SELECT b.display_name AS vendor,
-               (mb.baseline->'metrics'->>'employee_count')::numeric AS was,
+               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                   AS was,
                (s.data->>'employee_count')::numeric AS now_count
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
@@ -385,7 +393,10 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
             ORDER BY observed_at DESC LIMIT 1
         ) s ON TRUE
         WHERE mb.market_id = :m
-          AND (mb.baseline->'metrics'->>'employee_count') IS NOT NULL
+          -- Zero is a blank workbook cell. Left in, every such vendor became
+          -- a mover that had apparently hired its entire staff this period.
+          AND NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+              IS NOT NULL
           AND (s.data->>'employee_count') IS NOT NULL
     """), {"m": market["id"]}).mappings().all()]
     for m in movers:
@@ -402,13 +413,14 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
     headcount_median_pct = (
         round(statistics.median(pct_values), 1) if pct_values else None)
 
-    loudest = [dict(r) for r in conn.execute(text("""
+    loudest = [dict(r) for r in conn.execute(text(f"""
         SELECT b.display_name AS vendor, COUNT(DISTINCT a.uri) AS posts
         FROM bw_article_categories bac
         JOIN bw_brands b ON b.id = bac.brand_id
         JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
         JOIN articles a ON a.uri = bac.article_uri
         WHERE a.bias_source = 'vendor:linkedin'
+          AND {_OWN_VOICE}
           AND COALESCE(a.publication_date, a.submission_date)
               >= (NOW() - (:d || ' days')::INTERVAL)::text
         GROUP BY 1 ORDER BY 2 DESC LIMIT 10
@@ -496,7 +508,8 @@ def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[st
         ),
         vendors AS (
             SELECT b.id AS brand_id,
-                   (mb.baseline->'metrics'->>'employee_count')::numeric AS baseline_count
+                   NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                       AS baseline_count
             FROM bw_market_brands mb
             JOIN bw_brands b ON b.id = mb.brand_id
             WHERE mb.market_id = :m AND mb.role <> 'excluded'
@@ -624,6 +637,7 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                   JOIN articles a ON a.uri = bac.article_uri
                  WHERE bac.brand_id = b.id
                    AND a.bias_source = 'vendor:linkedin'
+                   AND {_OWN_VOICE}
                    AND COALESCE(a.publication_date, a.submission_date) >= {since}
                ) AS posts,
                (SELECT COUNT(*) FROM bw_vendor_snapshots s

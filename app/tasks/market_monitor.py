@@ -321,6 +321,32 @@ async def tick() -> Dict[str, Any]:
     summary = {"markets": 0, "runs": 0, "errors": 0}
     conn = get_database_instance()._temp_get_connection()
     try:
+        # One policy row per (vendor, source), refreshed before anything is
+        # dispatched. Dispatch claims vendors from these rows, so a vendor
+        # without one is invisible to collection — and eligibility changes on
+        # its own as identifiers are added, which is why this is recomputed
+        # every pass rather than once at import. Idempotent: an upsert per
+        # eligible pair, a handful of indexed writes.
+        #
+        # Nothing called this outside the tests, so the rows in production were
+        # seeded by hand. That was survivable while dispatch read the vendor
+        # table directly; it stopped being survivable when dispatch moved to
+        # claiming policies, because a vendor added afterwards would simply
+        # never be collected and nothing would say so.
+        try:
+            from app.services import entity_scheduler as sch
+
+            seeded = sch.seed_policies(conn)
+            conn.commit()
+            if seeded.get("created"):
+                logger.info("seeded %d new collection policy row(s)",
+                            seeded["created"])
+        except Exception:                                       # noqa: BLE001
+            # Seeding is preparation, not the work. A fault here must not stop
+            # the pass from collecting for the vendors already covered.
+            conn.rollback()
+            logger.exception("could not refresh collection policies")
+
         markets = conn.execute(text(
             "SELECT id, name FROM bw_markets WHERE enabled = TRUE ORDER BY id"
         )).mappings().all()
@@ -728,6 +754,18 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
         "SELECT config->'collection'->>'topic_name' FROM bw_markets WHERE id = :m"),
         {"m": market["id"]}).scalar() or f"Market Monitoring {market['name']}"
 
+    # The run row is committed before any probing, and every vendor commits its
+    # own result. This used to be one transaction across the whole sweep, with
+    # HTTP awaited inside it — so the database connection sat idle-in-
+    # transaction while a site was fetched, and PostgreSQL here is configured
+    # with idle_in_transaction_session_timeout = 60s. One slow domain killed the
+    # backend, the next INSERT died with "SSL connection has been closed
+    # unexpectedly", and the rollback threw away every vendor already probed:
+    # run 345 spent 452 seconds and saved nothing. Committing per vendor keeps
+    # each transaction to milliseconds of database work and makes a failure cost
+    # one vendor instead of eighty-five.
+    conn.commit()
+
     found = failed = 0
     try:
         for vendor in vendors[: _max_vendors_per_run()]:
@@ -769,13 +807,20 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                        "web_feeds": sources.feeds,
                        "web_discovered_at": now.isoformat(),
                    }, default=str)})
+            # This vendor's feeds and pages are durable from here. A later
+            # vendor failing no longer un-discovers it.
+            conn.commit()
             await asyncio.sleep(0.5)
         mc.close_run(conn, run_id, status="succeeded", new=found, skipped=failed)
         conn.commit()
     except Exception as e:
         conn.rollback()
-        mc.close_run(conn, run_id, status="failed", error=str(e))
+        # Partial, not failed: the vendors already committed keep their pages,
+        # and reporting the whole sweep as a failure would hide that.
+        mc.close_run(conn, run_id, status="partial" if found else "failed",
+                     new=found, skipped=failed, error=str(e))
         conn.commit()
+        logger.warning("feed discovery stopped after %d vendor(s): %s", found, e)
     return 1
 
 
@@ -794,6 +839,12 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                              provider=PROVIDER_INTERNAL)
     else:
         run_id = forced_run_id
+
+    # Committed before fetching, and again after each vendor — same reason as
+    # _discover_feeds: awaiting HTTP inside an open transaction exposes the
+    # connection to the 60-second idle-in-transaction timeout, and a single
+    # transaction across the sweep loses every vendor when it trips.
+    conn.commit()
 
     fetched = changed = unchanged = errors = 0
     try:
@@ -843,14 +894,23 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                     observed_at=result.fetched_at, run_id=run_id,
                 )
                 changed += 1
+                # Per page, not per vendor: the fetch below is awaited inside
+                # this loop, so a vendor with several slow pages would hold the
+                # transaction open across all of them and hit the same 60-second
+                # idle-in-transaction timeout the outer commit was added for.
+                conn.commit()
                 await asyncio.sleep(0.3)  # courtesy spacing on one host
         mc.close_run(conn, run_id, status="succeeded", received=fetched,
                      new=changed, skipped=unchanged + errors)
         conn.commit()
     except Exception as e:
         conn.rollback()
-        mc.close_run(conn, run_id, status="failed", error=str(e))
+        mc.close_run(conn, run_id,
+                     status="partial" if changed else "failed",
+                     received=fetched, new=changed,
+                     skipped=unchanged + errors, error=str(e))
         conn.commit()
+        logger.warning("page poll stopped after %d change(s): %s", changed, e)
     return 1
 
 
@@ -871,6 +931,19 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
         BrightDataError, LinkedInDatasetClient, api_key, webhook_auth_value,
     )
 
+    from app.services import entity_scheduler as sch
+
+    # Refuse before opening a run. A market-wide PitchBook/ZoomInfo/Indeed
+    # request used to be admitted, claimed, and then failed as undispatched —
+    # one failed run per source per scheduler cycle, which buries real
+    # failures. Paused sources are refused the same way.
+    try:
+        sch.admit_request(conn, source, forced_brand_id)
+    except ValueError as exc:
+        logger.info("market %s: %s not dispatched — %s",
+                    market["id"], source, exc)
+        return 0
+
     if forced_run_id is None:
         if _is_due(conn, market["id"], source, now) is None:
             return 0
@@ -880,6 +953,16 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     key = api_key()
     if not key:
         return 0
+
+    # Which vendors this batch is for. Claimed from the per-vendor policies so
+    # successive passes sweep the roster instead of re-reading the first
+    # twenty by sort_order, which left sixty-four vendors never collected.
+    claimed_brand_ids: list = []
+    if forced_brand_id is None and source in sch.SCHEDULED_SOURCES:
+        claimed_brand_ids = sch.claim_due(conn, source)
+        conn.commit()
+        if not claimed_brand_ids:
+            return 0
 
     companies: list = []
     if source == SOURCE_CRUNCHBASE:
@@ -929,9 +1012,22 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
         urls = [c["name"] for c in companies]
     else:
         urls = list(mc.linkedin_url_map(conn, market["id"])[0].keys())
-    if source != SOURCE_JOBS and forced_brand_id is None:
+    if claimed_brand_ids:
+        # The batch is exactly the vendors this pass claimed. Slicing the
+        # first N by sort_order is what pinned collection to the same
+        # nineteen vendors while sixty-four were never collected at all.
+        claimed = set(claimed_brand_ids)
+        if source in (SOURCE_CRUNCHBASE, SOURCE_PITCHBOOK, SOURCE_ZOOMINFO):
+            urls = [u for u, bid in url_map.items() if bid in claimed]
+    elif source != SOURCE_JOBS and forced_brand_id is None:
         urls = urls[: _max_vendors_per_run()]
+
     if not urls:
+        if claimed_brand_ids:
+            # Claimed but nothing dispatchable: release rather than leaving
+            # the vendors locked until the claim times out.
+            sch.release_claims(conn, source, claimed_brand_ids)
+            conn.commit()
         if forced_run_id:
             mc.close_run(conn, forced_run_id, status="succeeded",
                          error="no vendors with a usable URL for this source")
@@ -941,6 +1037,15 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     run_id = forced_run_id or mc.open_run(
         conn, market_id=market["id"], source=source,
         provider=PROVIDER_BRIGHTDATA, status="queued")
+    if claimed_brand_ids:
+        # Recorded on the run so a batch that succeeds with zero
+        # records still advances these vendors. Without it they
+        # stay permanently due and the same batch goes up again
+        # on every pass.
+        conn.execute(text("""
+            UPDATE bw_collection_runs SET requested_brand_ids = :ids
+             WHERE id = :r
+        """), {'ids': claimed_brand_ids, 'r': run_id})
     conn.commit()
 
     client = LinkedInDatasetClient(key)
@@ -967,6 +1072,8 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                 webhook_auth=webhook_auth_value())
     except BrightDataError as e:
         mc.close_run(conn, run_id, status="failed", error=str(e))
+        if claimed_brand_ids:
+            sch.record_failure(conn, source, claimed_brand_ids, error=str(e))
         conn.commit()
         logger.warning("market %s: %s trigger failed: %s", market["id"], source, e)
         return 1
@@ -994,6 +1101,19 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
         BrightDataError, LinkedInDatasetClient, api_key, webhook_auth_value,
     )
 
+    from app.services import entity_scheduler as sch
+
+    # Refused before a run is opened, the same way the non-LinkedIn path does
+    # it. Neither posts nor profiles are paused today, but a paused source that
+    # still opened a run would write one failed row per cycle, which is what
+    # buries real failures.
+    try:
+        sch.admit_request(conn, source, forced_brand_id)
+    except ValueError as exc:
+        logger.info("market %s: %s not dispatched — %s",
+                    market["id"], source, exc)
+        return 0
+
     since = _is_due(conn, market["id"], source, now)
     if forced_run_id is None:
         if since is None or _circuit_open(conn, market["id"], source):
@@ -1011,17 +1131,47 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
             conn.commit()
         return 0
 
-    urls = [r[0] for r in conn.execute(text("""
-        SELECT i.normalized_value FROM bw_vendor_identifiers i
-        JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
-                                 AND mb.market_id = :m
-        WHERE i.kind = 'linkedin_company_url' AND i.valid_to IS NULL
-          AND mb.collection_enabled AND mb.role <> 'excluded'
-          AND (:bid IS NULL OR mb.brand_id = :bid)
-        ORDER BY mb.sort_order LIMIT :lim
-    """), {"m": market["id"], "bid": forced_brand_id,
-           "lim": 1 if forced_brand_id is not None else _max_vendors_per_run()}
-    ).fetchall()]
+    # Which vendors this batch is for. Claimed from the per-vendor policies so
+    # successive passes sweep the whole roster. Taking the first twenty by
+    # sort_order — what this path used to do — pinned posts and profiles to the
+    # same twenty vendors and left the other sixty-three never collected once,
+    # so all of them read as a measured zero rather than as unmeasured.
+    claimed_brand_ids: List[int] = []
+    if forced_brand_id is None:
+        claimed_brand_ids = sch.claim_due(conn, source)
+        conn.commit()
+        if not claimed_brand_ids:
+            return 0
+
+    where_claimed = ""
+    params: Dict[str, Any] = {"m": market["id"], "bid": forced_brand_id}
+    if claimed_brand_ids:
+        where_claimed = " AND mb.brand_id = ANY(:ids)"
+        params["ids"] = claimed_brand_ids
+
+    rows = conn.execute(text(f"""
+        SELECT mb.brand_id, i.normalized_value
+          FROM bw_vendor_identifiers i
+          JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
+                                   AND mb.market_id = :m
+         WHERE i.kind = 'linkedin_company_url' AND i.valid_to IS NULL
+           AND mb.collection_enabled AND mb.role <> 'excluded'
+           AND (:bid IS NULL OR mb.brand_id = :bid){where_claimed}
+         ORDER BY mb.sort_order
+    """), params).fetchall()
+    urls = [r[1] for r in rows]
+
+    # Only the vendors actually going up in this batch advance on the callback.
+    # A claimed vendor that no URL was found for is released instead, because
+    # recording success for a vendor the provider was never asked about is how
+    # a gap in collection turns into a confident zero.
+    dispatched_brand_ids = [int(r[0]) for r in rows]
+    dispatched = set(dispatched_brand_ids)
+    stranded = [b for b in claimed_brand_ids if b not in dispatched]
+    if stranded:
+        sch.release_claims(conn, source, stranded)
+        conn.commit()
+
     if not urls:
         if forced_run_id:
             mc.close_run(conn, forced_run_id, status="succeeded",
@@ -1035,6 +1185,17 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
     run_id = forced_run_id or mc.open_run(
         conn, market_id=market["id"], source=source,
         provider=PROVIDER_BRIGHTDATA, status="queued")
+    if dispatched_brand_ids:
+        # Recorded on the run so a batch that succeeds with zero records still
+        # advances these vendors. Without it they stay permanently due and the
+        # same batch goes up again on every pass. It is also the only way the
+        # post source can ever record a per-vendor success: posts become
+        # articles rather than snapshots, so reconcile_from_history cannot see
+        # them.
+        conn.execute(text("""
+            UPDATE bw_collection_runs SET requested_brand_ids = :ids
+             WHERE id = :r
+        """), {"ids": dispatched_brand_ids, "r": run_id})
     conn.commit()
 
     client = LinkedInDatasetClient(key)
@@ -1049,6 +1210,8 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
                 webhook_auth=webhook_auth_value())
     except BrightDataError as e:
         mc.close_run(conn, run_id, status="failed", error=str(e))
+        if dispatched_brand_ids:
+            sch.record_failure(conn, source, dispatched_brand_ids, error=str(e))
         conn.commit()
         logger.warning("market %s: %s trigger failed (retryable=%s): %s",
                        market["id"], source, e.retryable, e)

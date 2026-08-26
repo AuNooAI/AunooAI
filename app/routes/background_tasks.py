@@ -2,7 +2,7 @@
 API routes for managing background tasks and bulk operations.
 Provides non-blocking endpoints for bulk analysis and saving operations.
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Optional
 import logging
@@ -12,11 +12,12 @@ from app.services.background_task_manager import (
     run_bulk_analysis_task,
     run_bulk_save_task
 )
+from app.security.session import verify_session_api
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/background-tasks", tags=["background-tasks"])
 
-@router.post("/bulk-analysis")
+@router.post("/bulk-analysis", dependencies=[Depends(verify_session_api)])
 async def start_bulk_analysis(
     background_tasks: BackgroundTasks,
     request_data: Dict
@@ -73,7 +74,7 @@ async def start_bulk_analysis(
         logger.error(f"Failed to start bulk analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/bulk-save")
+@router.post("/bulk-save", dependencies=[Depends(verify_session_api)])
 async def start_bulk_save(
     background_tasks: BackgroundTasks,
     request_data: Dict
@@ -113,7 +114,7 @@ async def start_bulk_save(
         logger.error(f"Failed to start bulk save: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/task/{task_id}")
+@router.get("/task/{task_id}", dependencies=[Depends(verify_session_api)])
 async def get_task_status(task_id: str):
     """Get the status of a background task"""
     try:
@@ -134,7 +135,7 @@ async def get_task_status(task_id: str):
         logger.error(f"Failed to get task status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/tasks")
+@router.get("/tasks", dependencies=[Depends(verify_session_api)])
 async def list_tasks(status: Optional[str] = None):
     """List all background tasks, optionally filtered by status"""
     try:
@@ -163,7 +164,7 @@ async def list_tasks(status: Optional[str] = None):
         logger.error(f"Failed to list tasks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/task/{task_id}")
+@router.delete("/task/{task_id}", dependencies=[Depends(verify_session_api)])
 async def cancel_task(task_id: str):
     """Cancel a running background task"""
     try:
@@ -189,7 +190,7 @@ async def cancel_task(task_id: str):
         logger.error(f"Failed to cancel task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/cleanup")
+@router.post("/cleanup", dependencies=[Depends(verify_session_api)])
 async def cleanup_old_tasks(max_age_hours: int = 24):
     """Clean up old completed/failed tasks"""
     try:
@@ -205,7 +206,7 @@ async def cleanup_old_tasks(max_age_hours: int = 24):
         logger.error(f"Failed to cleanup tasks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/summary")
+@router.get("/summary", dependencies=[Depends(verify_session_api)])
 async def get_task_summary():
     """Get summary of all background tasks"""
     try:

@@ -15,7 +15,7 @@ import threading
 
 from app.ai_models import resolve_litellm_call_params, resolve_model_identity
 from app.services.report_style import CLINICAL_STYLE, find_severity_language
-from app.security.session import verify_session, verify_session_optional
+from app.security.session import verify_session, verify_session_optional, verify_session_api
 from app.vector_store import (
     search_articles,
     upsert_article,
@@ -70,7 +70,7 @@ except ImportError:
     )
 
 
-@router.get("/vector-dependencies")
+@router.get("/vector-dependencies", dependencies=[Depends(verify_session_api)])
 def check_vector_dependencies():
     """Check availability of optional dependencies for vector analysis."""
     return {
@@ -3404,7 +3404,7 @@ def _report_email_extras(report_id, report_title, report_content, instr_config) 
     return extras
 
 
-@router.get("/signal-reports/{report_id}/download")
+@router.get("/signal-reports/{report_id}/download", dependencies=[Depends(verify_session_api)])
 async def download_signal_report(report_id: int, exp: int, token: str,
                                  fmt: str = "html"):
     """Tokenized report download — NO session required (links land in email)."""

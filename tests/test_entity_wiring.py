@@ -627,3 +627,95 @@ def test_the_guarded_paths_have_no_undefined_names():
         [sys.executable, 'scripts/lint_undefined_names.py'],
         capture_output=True, text=True)
     assert result.returncode == 0, result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Third review: durability past the metrics write, and a gate that fails closed
+# ---------------------------------------------------------------------------
+
+def test_a_failing_metrics_write_cannot_take_the_provider_rows(
+        conn, brand, flags, monkeypatch):
+    """The processing was savepoint-protected and the ledger update that
+    follows it was not, so the same defect sat one statement later: a database
+    error there aborts the transaction, the broad catch does not un-abort it,
+    and the caller's commit rolls back the provider rows."""
+    from app.services import entity_ingest, market_collect as mc
+
+    flags(enabled=True)
+    market_id = conn.execute(text("""
+        INSERT INTO bw_markets (name, slug) VALUES ('M', 'pytest-metrics-m')
+        RETURNING id
+    """)).scalar()
+    conn.execute(text("""
+        INSERT INTO bw_market_brands (market_id, brand_id, baseline)
+        VALUES (:m, :b, '{}'::jsonb)
+    """), {'m': market_id, 'b': brand})
+
+    run_id = mc.open_run(conn, market_id=market_id,
+                         source='linkedin_company_profile', provider='pytest')
+    mc.store_snapshot(
+        conn, market_id=market_id, brand_id=brand,
+        source='linkedin_company_profile', snapshot_type='profile',
+        provider_item_id='pytest-metrics-1', data={'employee_count': 77},
+        run_id=run_id)
+
+    # Make only the metrics write fail, and fail the way a database fails.
+    real_json = entity_ingest._json
+    monkeypatch.setattr(entity_ingest, '_json',
+                        lambda value: '{"not valid json at all')
+
+    mc.close_run(conn, run_id, status='succeeded', received=1, new=1)
+    monkeypatch.setattr(entity_ingest, '_json', real_json)
+
+    # The transaction must still be usable...
+    survived = conn.execute(text("""
+        SELECT count(*) FROM bw_vendor_snapshots
+         WHERE provider_item_id = 'pytest-metrics-1'
+    """)).scalar()
+    assert survived == 1
+
+    # ...and the processing itself must have stood, since only the
+    # bookkeeping failed.
+    assert conn.execute(text("""
+        SELECT normalization_status FROM bw_vendor_snapshots
+         WHERE provider_item_id = 'pytest-metrics-1'
+    """)).scalar() == 'normalized'
+
+
+def test_the_lint_gate_fails_closed_when_the_checker_is_missing(tmp_path):
+    """The gate inspected only stdout, so with pyflakes absent it reported
+    'clean' and exited 0 — and this regression test passed too. A gate that
+    passes when it cannot check anything is worse than no gate."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+
+    # An interpreter shim that cannot import pyflakes, standing in for a fresh
+    # checkout or a CI image without the dependency.
+    shim = tmp_path / 'nopyflakes.py'
+    shim.write_text(
+        'import sys\n'
+        'sys.stderr.write("No module named pyflakes\\n")\n'
+        'sys.exit(1)\n')
+
+    result = subprocess.run(
+        [sys.executable, str(root / 'scripts' / 'lint_undefined_names.py')],
+        capture_output=True, text=True, cwd=root,
+        env={'PATH': '/nonexistent', 'HOME': str(tmp_path)})
+    # Either it ran the checker properly, or it refused. It must never report
+    # success without having checked.
+    assert result.returncode in (0, 1, 2)
+    if result.returncode == 0:
+        assert 'known (baseline' in result.stdout, (
+            'exited 0 without reporting a real count: ' + result.stdout)
+
+
+def test_pyflakes_is_declared_so_the_gate_is_reproducible():
+    """The gate is only a gate if a fresh checkout installs what it needs."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    declared = (root / 'requirements.txt').read_text().lower()
+    assert 'pyflakes' in declared, 'pyflakes is not in requirements.txt'

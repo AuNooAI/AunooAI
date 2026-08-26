@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 from fastapi import APIRouter, status, Request, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -435,7 +435,7 @@ async def api_health():
         }
 
 
-@router.get("/health/detailed", tags=["Health"])
+@router.get("/health/detailed", tags=["Health"], dependencies=[Depends(verify_session_api)])
 async def detailed_health():
     """
     Detailed health check with system metrics.
@@ -520,7 +520,7 @@ async def detailed_health():
         )
 
 
-@router.get("/health/database", tags=["Health"])
+@router.get("/health/database", tags=["Health"], dependencies=[Depends(verify_session_api)])
 async def database_health():
     """
     Database-specific health check.
@@ -534,7 +534,7 @@ async def database_health():
     return get_database_health()
 
 
-@router.get("/health/resources", tags=["Health"])
+@router.get("/health/resources", tags=["Health"], dependencies=[Depends(verify_session_api)])
 async def resource_health():
     """
     System resource health check.

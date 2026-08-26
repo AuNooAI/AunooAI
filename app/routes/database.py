@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from app.database import get_database_instance, Database
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from typing import List, Optional
 from pydantic import BaseModel
 import os
@@ -559,7 +559,7 @@ async def create_database_backup(db: Database = Depends(get_database_instance), 
         logger.error(f"Error creating database backup: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/database-health")
+@router.get("/api/database-health", dependencies=[Depends(verify_session_api)])
 async def get_database_health(db: Database = Depends(get_database_instance)):
     """
     Get database health metrics (PostgreSQL-specific).

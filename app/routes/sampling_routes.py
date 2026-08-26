@@ -2,7 +2,7 @@
 API routes for the sampling and filtering framework.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 import logging
@@ -13,6 +13,7 @@ from app.services.sampling import (
     ArticlePipeline
 )
 from app.services.sampling.pipeline import PipelineBuilder
+from app.security.session import verify_session_api
 
 logger = logging.getLogger(__name__)
 
@@ -66,35 +67,35 @@ class PresetInfo(BaseModel):
 
 # Endpoints
 
-@router.get("/strategies", response_model=List[StrategyInfo])
+@router.get("/strategies", response_model=List[StrategyInfo], dependencies=[Depends(verify_session_api)])
 async def list_strategies():
     """List all available sampling strategies."""
     registry = get_registry()
     return registry.list_strategies()
 
 
-@router.get("/filters", response_model=List[StrategyInfo])
+@router.get("/filters", response_model=List[StrategyInfo], dependencies=[Depends(verify_session_api)])
 async def list_filters():
     """List all available filter strategies."""
     registry = get_registry()
     return registry.list_filters()
 
 
-@router.get("/scorers", response_model=List[StrategyInfo])
+@router.get("/scorers", response_model=List[StrategyInfo], dependencies=[Depends(verify_session_api)])
 async def list_scorers():
     """List all available article scorers."""
     registry = get_registry()
     return registry.list_scorers()
 
 
-@router.get("/presets", response_model=List[PresetInfo])
+@router.get("/presets", response_model=List[PresetInfo], dependencies=[Depends(verify_session_api)])
 async def list_presets():
     """List all available pipeline presets."""
     registry = get_registry()
     return registry.list_presets()
 
 
-@router.get("/presets/{preset_name}")
+@router.get("/presets/{preset_name}", dependencies=[Depends(verify_session_api)])
 async def get_preset(preset_name: str):
     """Get details of a specific preset."""
     registry = get_registry()
@@ -104,7 +105,7 @@ async def get_preset(preset_name: str):
     return preset
 
 
-@router.post("/execute", response_model=PipelineResponse)
+@router.post("/execute", response_model=PipelineResponse, dependencies=[Depends(verify_session_api)])
 async def execute_pipeline(request: PipelineRequest):
     """
     Execute a sampling pipeline on articles.
@@ -156,7 +157,7 @@ async def execute_pipeline(request: PipelineRequest):
     )
 
 
-@router.post("/sample")
+@router.post("/sample", dependencies=[Depends(verify_session_api)])
 async def quick_sample(
     topic: Optional[str] = Query(None, description="Topic to fetch articles for"),
     strategy: str = Query("recency_diversity", description="Sampling strategy name"),
@@ -210,7 +211,7 @@ async def quick_sample(
     }
 
 
-@router.get("/default-for-topic")
+@router.get("/default-for-topic", dependencies=[Depends(verify_session_api)])
 async def get_default_for_topic(
     topic: Optional[str] = Query(None, description="Topic name (None or __all__ for cross-topic)")
 ):

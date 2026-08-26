@@ -20,7 +20,7 @@ from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_plugin_base import get_tool_registry
 from app.ai_models import LiteLLMModel
 from app.vector_store import search_articles as vector_search_articles
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def get_ai_model_getter(model_name: str = None):
     return getter
 
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(verify_session_api)])
 async def generate_newsletter(request: Request, body: NewsletterGenerateRequest):
     """
     Generate a newsletter with SSE streaming progress updates.

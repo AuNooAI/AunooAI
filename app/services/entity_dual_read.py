@@ -78,7 +78,10 @@ READS: Dict[str, FieldRead] = {
         canonical='mb.sub_category'),
     'employee_count': FieldRead(
         'employee_count',
-        legacy="(mb.baseline->'metrics'->>'employee_count')::numeric",
+        # NULLIF so a blank workbook cell stored as 0 is not reported as the
+        # legacy side disagreeing with canonical. Canonical never had the
+        # zero, so without this every such vendor looked like real drift.
+        legacy="NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)",
         canonical='p.employee_count::numeric',
         numeric=True, tolerance=0.02),
     'founded_year': FieldRead(

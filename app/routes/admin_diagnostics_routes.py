@@ -8,12 +8,13 @@ doing instead of guessing.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
+from app.security.session import verify_session_api
 
 router = APIRouter()
 
 
-@router.get("/api/admin/event-loop-status")
+@router.get("/api/admin/event-loop-status", dependencies=[Depends(verify_session_api)])
 async def event_loop_status(
     limit: int = Query(60, ge=1, le=240),
     dump: int = Query(0, ge=0, le=1),

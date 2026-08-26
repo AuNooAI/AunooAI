@@ -15,12 +15,15 @@ Nothing here calls a model or a provider. It reads rows.
 """
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
 from app.services.market_corpus import _iso_days_ago
+
+from app.services.market_corpus import own_voice_sql
 
 logger = logging.getLogger(__name__)
 
@@ -656,6 +659,27 @@ def run(conn, market_id: int, name: str, *, days: Optional[int] = None
 # the most interesting number on that page and there was no way to see which
 # 62. These are the sets behind the figures, named so a link can carry one.
 
+# "The vendor is actually speaking", as SQL. Defined in market_corpus so this
+# module and the entity layer cannot drift apart on what an owned post is.
+_OWN_VOICE = own_voice_sql("a")
+
+
+def consistent_voice_min_posts() -> int:
+    """Relevant posts before an account counts as a voice rather than a post.
+
+    One post is a post. Ranking a list by engagement and calling it "top
+    voices" put 81 single-post accounts of this market's 87 above the one
+    account that posted nine times, which inverts the question being asked:
+    who is driving this conversation, not which single post did numbers.
+
+    Configurable because three is a judgement, not a measurement.
+    """
+    try:
+        return max(1, int(os.getenv("MARKET_CONSISTENT_VOICE_MIN_POSTS", "3")))
+    except ValueError:
+        return 3
+
+
 DRILLDOWNS = ("quiet", "watched", "paused", "observed", "unobserved",
               "disclosed", "undisclosed", "no_linkedin", "posting", "hiring")
 
@@ -705,14 +729,25 @@ def drilldown(conn, market_id: int, name: str) -> Dict[str, Any]:
                mb.baseline->>'founded_year' AS founded,
                mb.baseline->'funding_baseline'->>'status' AS funding_status,
                (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS musd,
-               (mb.baseline->'metrics'->>'employee_count')::numeric AS staff,
+               -- A zero here is a blank cell in the imported workbook, not
+               -- a company with no staff, so it reads as unknown. The
+               -- observation path already drops these (see
+               -- entity_observations._map_workbook_metric); this is the
+               -- legacy baseline read catching up.
+               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                   AS staff,
                (SELECT COUNT(DISTINCT ma.article_uri)
                   FROM bw_market_articles ma
                   JOIN bw_article_categories bac
                        ON bac.article_uri = ma.article_uri
                  WHERE bac.brand_id = b.id
                    AND ma.review_verdict = 'signal') AS announcements,
-               (SELECT COUNT(*) FROM bw_vendor_snapshots s
+               -- DISTINCT on the provider's own id, to match job_postings()
+               -- below. A posting seen twice is one opening; counting rows
+               -- made this number drift away from the list it drills into as
+               -- soon as a source re-observed anything.
+               (SELECT COUNT(DISTINCT s.provider_item_id)
+                  FROM bw_vendor_snapshots s
                  WHERE s.brand_id = b.id
                    AND s.snapshot_type = 'job_posting') AS openings
         FROM bw_market_brands mb
@@ -800,7 +835,14 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         WITH pb AS ({_POST_BRANDS})
         SELECT b.id AS brand_id, b.display_name AS vendor,
                COUNT(DISTINCT a.uri) FILTER (
-                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin') AS own_posts,
+                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                     AND {_OWN_VOICE}) AS own_posts,
+               -- A reshare counts as neither. It is not the vendor speaking,
+               -- and it is not somebody else covering the vendor either, so
+               -- adding it to earned would be the same error the other way.
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                     AND NOT {_OWN_VOICE}) AS reshared,
                COUNT(DISTINCT a.uri) FILTER (
                    WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin') AS earned,
                COUNT(DISTINCT a.uri) AS total
@@ -828,7 +870,8 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                COUNT(*) FILTER (WHERE a.social_meta IS NOT NULL) AS measured
         FROM pb
         JOIN articles a ON a.uri = pb.article_uri
-        WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin' {window}
+        WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
+          AND {_OWN_VOICE} {window}
         GROUP BY 1
     """), params).fetchall()}
 
@@ -879,6 +922,7 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
               JOIN articles a ON a.uri = bac.article_uri
               WHERE bac.brand_id = b.id
                 AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                AND {_OWN_VOICE}
                 {window}
           )
         ORDER BY b.display_name
@@ -894,6 +938,7 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
               JOIN articles a ON a.uri = bac.article_uri
               WHERE bac.brand_id = b.id
                 AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                AND {_OWN_VOICE}
                 {window}
           )
     """), params).scalar() or 0
@@ -967,6 +1012,53 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             v[key] = int(v[key] or 0)
         v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
 
+    # Who each handle belongs to. Brand monitoring already keeps account
+    # profiles in social_accounts — bio, reach, topics, brand-relative
+    # sentiment, watchlist state — and Top Voices was listing handles beside
+    # them without ever joining the two, so the same account was a stranger
+    # here and a profile one screen away.
+    #
+    # Reports whether a profile exists; does not build one.
+    # social_profile_service is explicit that profiles are built "ON-DEMAND
+    # only (never bulk/auto) for cost", and this list is 87 accounts.
+    # `handle_canonical` is returned so a caller can hand it straight to
+    # /accounts/profile, which is keyed on (platform, handle_canonical).
+    if voices:
+        pairs = {(v["author"], v["platform"]) for v in voices}
+        accounts = {
+            (r["handle_canonical"], r["platform"]): dict(r)
+            for r in conn.execute(text("""
+                SELECT platform, handle_canonical, id AS account_id, handle,
+                       display_name, followers_count, summary, watchlisted,
+                       tags, bio, profile_url,
+                       last_profiled_at IS NOT NULL AS profiled
+                  FROM social_accounts
+                 WHERE (platform, handle_canonical) IN (
+                     SELECT lower(p), lower(h) FROM UNNEST(:plats, :handles)
+                          AS t(p, h))
+            """), {"plats": [p for _, p in pairs],
+                   "handles": [a for a, _ in pairs]}).mappings().all()
+        }
+        for v in voices:
+            hit = accounts.get((str(v["author"]).lower(),
+                                str(v["platform"]).lower()))
+            # Absent is a real answer: an author we have seen posting but never
+            # registered as an account. Saying so beats an empty dict that
+            # reads as "profiled, and empty".
+            v["account"] = ({
+                "account_id": hit["account_id"],
+                "handle": hit["handle"],
+                "handle_canonical": hit["handle_canonical"],
+                "display_name": hit["display_name"],
+                "followers": hit["followers_count"],
+                "summary": hit["summary"],
+                "bio": hit["bio"],
+                "profile_url": hit["profile_url"],
+                "watchlisted": bool(hit["watchlisted"]),
+                "tags": hit["tags"] or [],
+                "profiled": bool(hit["profiled"]),
+            } if hit else None)
+
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
     # driving which conversation, and about whom.
@@ -1022,8 +1114,28 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           {window}
     """), params).fetchone()
 
+    # Two different questions, split rather than blended. `voices` stays as it
+    # was so existing callers keep working; it is the union, still engagement-
+    # ranked.
+    threshold = consistent_voice_min_posts()
+    for v in voices:
+        v["sample_of_one"] = int(v["posts"] or 0) <= 1
+
+    # Who is actually driving the conversation: ranked by how much they say
+    # first, because that is the claim the word "voice" makes.
+    consistent = sorted(
+        (v for v in voices if int(v["posts"] or 0) >= threshold),
+        key=lambda v: (-int(v["posts"] or 0), -int(v["engagement"] or 0),
+                       str(v.get("last_seen") or "")))
+    # Individual posts that travelled, including from accounts with only one.
+    # Legitimate, and not a voice.
+    breakout = [v for v in voices if int(v["posts"] or 0) < threshold]
+
     return {
         "voices": voices,
+        "consistent": consistent,
+        "breakout": breakout,
+        "consistent_min_posts": threshold,
         "days": days,
         "coverage": _coverage(with_author or 0, total or 0,
                               "practitioner posts name an author"),
@@ -1102,6 +1214,12 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
                    AS author,
                a.news_source,
                COALESCE(a.bias_source, '') = 'vendor:linkedin' AS is_owned,
+               -- On the vendor's channel but not the vendor's words. Kept
+               -- beside is_owned rather than folded into it, so a reshare is
+               -- labelled as one instead of silently becoming third-party
+               -- coverage.
+               (COALESCE(a.bias_source, '') = 'vendor:linkedin'
+                AND NOT {_OWN_VOICE}) AS is_reshare,
                COALESCE((a.social_meta->>'likes')::numeric, 0)
                  + COALESCE((a.social_meta->>'comments')::numeric, 0)
                  + COALESCE((a.social_meta->>'reposts')::numeric,

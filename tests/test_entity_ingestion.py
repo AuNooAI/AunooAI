@@ -383,3 +383,136 @@ def test_a_rejected_mapping_is_not_proposed_again(conn, brands):
         relationship='unofficial', verification_method='manual',
         actor='pytest')
     assert manual['status'] == 'verified'
+
+
+# ---------------------------------------------------------------------------
+# A reshare is not the company speaking
+# ---------------------------------------------------------------------------
+
+def test_the_provider_sample_maps_and_keeps_what_decides_ownership():
+    """Checked against the Bright Data dashboard sample for the posts dataset.
+
+    ``account_type`` and ``repost`` were both being discarded, and both decide
+    whether a post is the vendor's own claim."""
+    from app.services.brightdata_linkedin import map_company_post
+
+    sample = {
+        'id': '7447791645200211968',
+        'url': 'https://www.linkedin.com/posts/x-activity-7447791645200211968',
+        'user_id': 'ausbiz-capital',
+        'use_url': 'https://au.linkedin.com/company/ausbiz-capital?trk=public_post',
+        'headline': 'Direct Access.',
+        'post_text': 'Direct Access. Real Market Insights.',
+        'date_posted': '2026-04-08T23:45:01.477Z',
+        'num_likes': 3, 'num_comments': 0, 'user_followers': 139,
+        'account_type': 'Organization', 'post_type': 'post',
+        'user_name': 'ausbiz capital',
+        'repost': {'repost_id': None, 'repost_url': None},
+    }
+    mapped = map_company_post(sample)
+    assert mapped is not None, 'the dashboard sample would have been dropped'
+    assert mapped['external_id'] == '7447791645200211968'
+    assert mapped['account_type'] == 'Organization'
+    assert mapped['is_repost'] is False
+
+
+def test_a_reshare_is_detected_from_the_repost_object():
+    """The provider returns a repost object on every record and fills it only
+    for a reshare, so its presence proves nothing — its contents do."""
+    from app.services.brightdata_linkedin import map_company_post
+
+    base = {'id': '1', 'url': 'https://x/1', 'post_text': 'body',
+            'user_name': 'Vendor', 'use_url': 'https://linkedin.com/company/v'}
+    assert map_company_post(
+        {**base, 'repost': {'repost_id': None}})['is_repost'] is False
+    assert map_company_post(
+        {**base, 'repost': {'repost_id': '99',
+                            'repost_user_name': 'Someone'}})['is_repost'] is True
+
+
+def test_a_reshared_post_is_linked_but_is_not_an_owned_claim(conn, brands):
+    """A vendor amplifying an analyst is not the vendor claiming anything.
+    Marking it owned_claim at relevance 1.0 puts words in their mouth."""
+    import json
+
+    from app.services import entity_ingest
+
+    uri = 'pytest://owned/reshare'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              bias_source, social_meta, publication_date)
+        VALUES (:u, 'Reshared analyst take', 'body', 'linkedin',
+                'https://x/1', 'vendor:linkedin', CAST(:meta AS JSONB),
+                '2026-08-20T00:00:00')
+    """), {'u': uri, 'meta': json.dumps({'platform': 'linkedin',
+                                         'account_type': 'Organization',
+                                         'is_repost': True})})
+    conn.execute(text("""
+        INSERT INTO bw_article_categories (article_uri, brand_id, category)
+        VALUES (:u, :b, 'Product & Innovation')
+    """), {'u': uri, 'b': brands[0]})
+
+    entity_ingest.link_content(conn, uri)
+
+    row = conn.execute(text("""
+        SELECT stance, relevance FROM bw_entity_mentions
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brands[0]}).mappings().first()
+    assert row is not None, 'the post should still be linked and visible'
+    assert row['stance'] == 'not_applicable'
+    assert row['stance'] != 'owned_claim'
+
+
+def test_the_companys_own_post_is_still_an_owned_claim(conn, brands):
+    import json
+
+    from app.services import entity_ingest
+
+    uri = 'pytest://owned/genuine'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              bias_source, social_meta, publication_date)
+        VALUES (:u, 'We shipped a thing', 'body', 'linkedin', 'https://x/2',
+                'vendor:linkedin', CAST(:meta AS JSONB), '2026-08-20T00:00:00')
+    """), {'u': uri, 'meta': json.dumps({'platform': 'linkedin',
+                                         'account_type': 'Organization',
+                                         'is_repost': False})})
+    conn.execute(text("""
+        INSERT INTO bw_article_categories (article_uri, brand_id, category)
+        VALUES (:u, :b, 'Product & Innovation')
+    """), {'u': uri, 'b': brands[0]})
+
+    entity_ingest.link_content(conn, uri)
+
+    row = conn.execute(text("""
+        SELECT stance FROM bw_entity_mentions
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brands[0]}).mappings().first()
+    assert row['stance'] == 'owned_claim'
+
+
+def test_posts_collected_before_these_fields_existed_still_read_as_owned(
+        conn, brands):
+    """The historical corpus has no account_type or is_repost. Treating those
+    as not-the-company would silently reclassify 1,209 existing posts."""
+    from app.services import entity_ingest
+
+    uri = 'pytest://owned/legacy'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              bias_source, publication_date)
+        VALUES (:u, 'Older post', 'body', 'linkedin', 'https://x/3',
+                'vendor:linkedin', '2026-07-01T00:00:00')
+    """), {'u': uri})
+    conn.execute(text("""
+        INSERT INTO bw_article_categories (article_uri, brand_id, category)
+        VALUES (:u, :b, 'Product & Innovation')
+    """), {'u': uri, 'b': brands[0]})
+
+    entity_ingest.link_content(conn, uri)
+
+    row = conn.execute(text("""
+        SELECT stance FROM bw_entity_mentions
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brands[0]}).mappings().first()
+    assert row['stance'] == 'owned_claim'

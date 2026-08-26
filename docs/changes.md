@@ -2,6 +2,762 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Market Monitor collection) — 58 vendors read as "no activity" because nobody had ever collected them
+
+### Goal
+An external review said all 58 vendors in the SOC Automation market showed zero activity. Two of
+its three headline claims were misreads, but the symptom was real and the cause was worse than the
+review guessed: collection had never run for most of the roster, and the dashboard reported the
+absence as a measurement.
+
+### The dispatch bug: one sibling fixed, the other left alone
+**`app/tasks/market_monitor.py`** — `_poll_linkedin` selected vendors with
+`ORDER BY mb.sort_order LIMIT 20` and never called `sch.claim_due`. Commit `3b60d879` ("Sweep the
+vendor roster instead of re-reading its first page") fixed precisely this in `_poll_dataset` and
+did not touch `_poll_linkedin`, so posts and profiles — the two sources the product leans on
+hardest — kept re-reading the same twenty vendors forever. Its own comment states the cost:
+"Slicing the first N by sort_order is what pinned collection to the same nineteen vendors while
+sixty-four were never collected at all."
+
+State before the fix: 84 of 85 vendors had a LinkedIn URL, so nearly all were eligible. Profile
+collection had ever succeeded for 20 of 83. Post collection for **0 of 83** — the post path never
+wrote `requested_brand_ids`, and because posts become `articles` rather than snapshots,
+`reconcile_from_history` cannot repair them either.
+
+`_poll_linkedin` now claims from `bw_entity_source_policies`, writes the claimed list on the run so
+a batch that succeeds with zero records still advances those vendors, releases a claimed vendor it
+found no URL for instead of marking it collected, and refuses a paused source at admission.
+
+### `seed_policies` had no caller outside the tests
+**`app/tasks/market_monitor.py`** — nothing in the application created the per-vendor schedule rows
+that dispatch depends on; the production rows had been seeded by hand. Survivable while dispatch
+read the vendor table directly, fatal once dispatch claims policies, because a vendor added
+afterwards is uncollectable *and silent* — no error, no run, no coverage figure admitting the skip.
+`tick()` now refreshes them before anything is dispatched, inside its own try so a fault there
+cannot stop the pass collecting for vendors already covered. This defect was introduced by the
+fix above, not found alongside it.
+
+### A size band became a headcount
+**`app/services/brightdata_linkedin.py`** — `_as_int` strips every non-digit, which is correct for
+a follower count written "13,111" and catastrophic for a band: `"51-200"` returned **51200** and
+`"1,001-5,000"` returned **10,015,000**. `company_size`, Bright Data's band field, sat second in
+the headcount fallback chain, so one response without `employees_in_linkedin` would have put ten
+million staff into a market total with nothing on screen suggesting a fault.
+
+New `_as_headcount` accepts only a bare run of digits, and refuses zero as well.
+`entity_field_registry` already says `allow_zero=False` for this field ("Zero staff is not a
+company. It is the shape of a missing field"), and the canonical column was safe — but
+`market_publish.py:139` and the `profile_series` query at `market_monitor_routes.py:2429` read the
+snapshot payload directly with no such guard. Bright Data returned `employee_count: 0` for a vendor
+whose own band read "2-10 employees"; that vendor would have shown 0 staff and plotted a point on
+the floor. **`alembic/versions/mm_009_zero_headcount_snapshots.py`** clears the one already stored
+(1 row). `company_size` is retained as `employee_band`, the way `map_crunchbase_company` already
+separates the two. The same guard covers the ZoomInfo and PitchBook mappers.
+
+### nginx was refusing every provider delivery with 413
+Chasing why a run stayed `running` after Bright Data reported ready: four callback attempts for
+run 301, all **413**. No `client_max_body_size` existed anywhere in the nginx config, so every site
+was on the 1 MB default while Bright Data posts a whole batch as one JSON body.
+
+This had **never worked on this tenant**. Every completed Bright Data run closed between 400 and
+900 seconds — 603s, 604s, 603s, 568s, 631s — clustered on the 10-minute `_reconcile_open_jobs`
+window. Those were all reconciler closures fetching each batch a second time because the first
+delivery was refused at the front door.
+
+Fixed with a `location = /api/market-monitor/webhooks/brightdata/linkedin` block carrying
+`client_max_body_size 64m`, scoped to the callback path rather than the site because that endpoint
+authenticates on a shared secret and nothing else needs a body that size. Verified: a 2.1 MB
+unauthenticated body now reaches the app and gets a 401 instead of nginx's 413.
+
+### `linkedin_jobs` was paused on a reason that had stopped being true
+**`app/services/entity_scheduler.py`** — `PAUSED_SOURCES` cited `HTTP 400 "Incorrect discovery
+collector id"`. Timeline from the run ledger: three market-wide runs failed with that 400 on
+20 August 09:41–09:54; run 15 **succeeded with 30 records** at 15:08 the same day; commit
+`59da6a89` ("and the control test I should have run first") landed at 15:11; five more runs
+succeeded 22–24 August. The pause was written on 25 August (`3b60d879`) off the three failed rows
+from the morning of the 20th. Because a paused source is refused at admission and skipped by
+`claim_due`, the collector had been silent since.
+
+Un-paused. `PAUSED_SOURCES` is now empty.
+
+### Indeed would have discarded every record it ever received
+**`app/services/brightdata_linkedin.py`** — `map_indeed_job` looked for `job_id`, `id` and `jk`.
+The field is **`jobid`**, one word, so `posting_id` was always `None` and the guard two lines down
+dropped the record. A live batch would have reported that Indeed returned nothing while actually
+returning everything. Also `date_posted` is relative text ("8 days ago") and
+`date_posted_parsed` is the ISO date, so any first-seen date built from it was unusable.
+
+Both corrected against the dataset sample Oliver supplied, which is kept as a test fixture. Three
+API probes established the request contract the docstring had guessed at: `keyword_search` is
+required and searches "job title or company"; `posted_by` is a closed, case-sensitive enum
+(`Employer` valid, `employer` and a company name both rejected), so it filters *who posted*, never
+*which company*. Indeed stays manual-only.
+
+### Guards added
+**`tests/test_market_collection.py`** — `test_every_paid_dispatch_path_claims_the_roster` finds
+Bright Data dispatchers from the AST rather than a hand-written list and asserts each claims a
+roster and records its batch, so the next provider path is covered without anyone remembering.
+Verified by reverting the fix and watching it name `_poll_linkedin`.
+`test_the_pass_seeds_policies_before_it_dispatches` covers the seeding dependency.
+**`tests/test_entity_scheduler.py`** — `test_nothing_is_paused_on_a_reason_that_no_longer_holds`
+fails if any paused source's most recent completed run succeeded. That is the check nobody ran on
+25 August. The old test that asserted `linkedin_jobs` was paused is replaced by one asserting the
+verified request shape; the pause *mechanism* is now tested against a patched stand-in so it holds
+whatever is paused.
+
+### Verification
+Sweep proved against the live database in a rolled-back transaction before any spend: posts 82 of
+82 eligible vendors in 5 passes, 0 stranded, pass 6 correctly reporting nothing due; profiles 62
+never-collected in 4 passes, with the 20 already collected correctly left on cadence.
+
+Forced profile run 301 — 62 vendors dispatched (was 20), 61 records, 1 dead page, all 62 policies
+advanced. Profile coverage 21 → 82 vendors; canonical headcount source is now
+`linkedin_company_profile` for 78 vendors and `workbook` for 6.
+
+Forced post run 311 — 82 vendors, 1,732 records, 1,212 new, **delivered by webhook with HTTP 200**
+and closing at 1,118s, matching Bright Data's actual collection time rather than the 600s reconcile
+window every prior run sat on. All 82 post policies advanced.
+
+Forced jobs run 312 — 81 vendors, 79 records, webhook 200. Held job postings 33 across 7 vendors →
+**91 across 16**.
+
+The "No observed activity" count went **58 → 6**; vendors with attributed coverage 26 → 78.
+
+`pytest`: 127 passed, 10 skipped. The 3 failures in `test_market_collection.py` are pre-existing
+and byte-identical on a stashed tree — `pytest-asyncio` is not installed, so every async test in
+that file errors regardless.
+
+### A reshare is no longer counted as the vendor speaking
+**17% of what the market counted as vendor-owned posts were reshares** — 426 of 2,495, and 32% for
+PRE Security (20 of 63). `entity_ingest._is_company_speaking` had excluded reposts and non-company
+accounts since those fields were retained, but `market_analysis.py`, `market_publish.py` and
+`market_monitor_routes.py` contained zero references to `is_repost` or `account_type`. So
+loudest/quietest, post volume, share of voice, the Announced column and the HTML report all counted
+a vendor amplifying somebody else as the vendor speaking. One post read
+"Silensec: PRE Security's Post" — authored by Silensec, sitting on PRE Security's account, counted
+as PRE Security's own.
+
+**`app/services/market_corpus.py`** — new `own_voice_sql(alias)` returns the rule as SQL, defined
+once beside `classify_article` where the ownership taxonomy already lives. A record with neither
+field still passes, which is how it was already treated; changing that would relabel the historical
+corpus on no evidence.
+
+Applied at every site that counts owned posts: share of voice, per-vendor reach, both quietest
+queries and the top-posts list in `market_analysis.py`; the per-brand `posts_30d`, `build_brief`'s
+loudest and the activity table in `market_publish.py`; the per-vendor recent-posts query in
+`market_monitor_routes.py`; and the review candidate selection in `market_post_review.py`, where a
+reshare was costing a model call to be misclassified as the vendor's own signal.
+
+A reshare now counts as **neither owned nor earned**. It is not the vendor speaking, and it is not
+somebody else covering the vendor either, so moving it to earned would have been the same error
+reversed. `share_of_voice` reports it as its own `reshared` figure, and the top-posts list carries
+`is_reshare` beside `is_owned` so a reshare is labelled rather than silently relabelled as
+third-party coverage.
+
+Measured on live data, before and after: `own_posts` 2,491 → **2,065** with 426 reported separately;
+PRE Security 63 → **43 owned, 20 reshared**; `posts_30d` across the market 671 → **533**;
+`quietest_total` 6 → **7**, because one vendor's only posts in the window were reshares, so it had
+in fact said nothing itself.
+
+Two tests. `test_the_sql_and_python_rules_agree_on_who_is_speaking` evaluates the SQL fragment on
+PostgreSQL against twelve payload shapes and compares each to `_is_company_speaking`, so the two
+copies of one rule cannot drift. Its first version ran the fragment through sqlite's
+`json_extract`, which returns integer `1` for a JSON `true` where Postgres `->>` returns the text
+`'true'` — the translation disagreed with the rule and the test blamed the rule.
+`test_every_owned_post_count_excludes_reshares` extracts each SQL block that both mentions
+`= 'vendor:linkedin'` and aggregates, and fails if it has no reference to the rule. An earlier
+version tallied per file and failed on correct code, counting a docstring mention and the
+deliberately-unguarded `is_owned` label. Verified by removing the guard from one query and watching
+it name `market_publish.py:106`.
+
+### Top voices joined to brand monitoring's account profiles, and split from breakout posts
+Brand monitoring already keeps per-account profiles in `social_accounts` — handle, bio, reach,
+topics, brand-relative sentiment, watchlist state, sample posts. Top Voices listed handles beside
+them and never joined the two, so the same account was an anonymous string on one screen and a
+profile on another.
+
+The join needed no matching layer: all **87** of this market's distinct voices match a
+`social_accounts` row exactly on `(platform, lower(author) = handle_canonical)`, which is the same
+key `/accounts/profile` uses. Checked before building anything, because a fuzzy-match requirement
+would have made this a different job.
+
+**`app/services/market_analysis.py`** — `top_voices` now returns an `account` block per voice:
+`account_id`, `handle_canonical`, display name, followers, bio, summary, tags, `watchlisted` and
+`profiled`. A voice with no registered account returns `null` rather than an empty dict, because an
+empty dict reads as "profiled, and empty".
+
+It **reports** whether a profile exists and never builds one. `social_profile_service` is explicit
+that profiles are "Built ON-DEMAND only (never bulk/auto) for cost", and this list is 87 accounts —
+calling the builder from a read path would profile the whole market every time somebody opened the
+tab. A test asserts `build_profile` and `SocialProfileService` do not appear in `top_voices`.
+
+**The list it decorates was mostly single posts.** Post counts in this market: one author with 9,
+five with 2, and **81 with 1**. Ranked by engagement and labelled "top voices", those 81 sat above
+the only account posting repeatedly — `polsia`, 9 posts and *zero* engagement, so it ranked last.
+That inverts the question the panel asks.
+
+`top_voices` now also returns `consistent` (at least `MARKET_CONSISTENT_VOICE_MIN_POSTS` posts,
+default 3, ranked by post count first), `breakout` (everything below the threshold, which is a real
+category and not a failure), `consistent_min_posts`, and `sample_of_one` per row. `voices` stays as
+the engagement-ranked union so existing callers — including the HTML report — keep working.
+
+Result for this market: **1 consistent voice, 86 breakout posts.** Which also makes the account
+integration actionable rather than theoretical: one account is worth an on-demand profile, not
+eighty-seven.
+
+### Loose ends
+**Three sources reported as failing forever.** The health panel shows the state of the most recent
+run, and PitchBook, ZoomInfo and Indeed are refused at admission — so nothing will ever replace
+their last rows, three stranded runs from 24 August reading `no collector dispatched source ...`.
+All three read "failing" indefinitely: not their state, not actionable, and it buries a genuinely
+broken source among two working as designed.
+
+**`app/services/entity_scheduler.py`** — new `MANUAL_ONLY_REASONS`, one plain-language reason per
+source, kept beside `MANUAL_ONLY_SOURCES` the way `PAUSED_SOURCES` already keeps its own.
+**`app/routes/market_monitor_routes.py`** — `source_health` now reports `scheduled`, `policy`
+(`scheduled` / `manual_only` / `paused`) and `policy_reason` separately from `state`, and a source
+that is not dispatched reads `not_scheduled` rather than inheriting a stale error. Nine sources now
+read healthy, three read not-scheduled with a reason, none read falsely broken.
+
+**The vendor-website collector had nothing to collect.** `vendor_web` returned 88 and 91 records on
+24 August, then 0 on the 25th at 09:47, 0 at 21:47 and 0 on the 26th at 09:51 — reported each time
+as *succeeded*. `_poll_pages` reads `baseline->'web_pages'`, and the TRUNCATE CASCADE of 24 August
+took it: all 85 vendors carry the reconstruction note, which says outright that "web page discovery
+timestamps ... were not recoverable", and **zero have `web_pages`**. Page-state snapshots stop dead
+on 24 August. A collector with no input list reporting a measured-looking zero is the exact
+confusion this whole entry is about, in a place nobody was looking.
+
+`vendor_web_discovery` repopulates that key and runs on a 720-hour cadence, last fired 20 August,
+so it would not have recovered on its own until 19 September.
+
+**Forcing it exposed a second defect, and the forced run failed.** Run 345 probed for 452 seconds
+and saved nothing:
+
+```
+(psycopg2.OperationalError) SSL connection has been closed unexpectedly
+[SQL: INSERT INTO rss_feeds ...] [parameters: {'u': 'https://aisoc.cloud/feed/', ...}]
+```
+
+This PostgreSQL runs with `idle_in_transaction_session_timeout = 60000`. Both website sweeps
+awaited HTTP **inside** an open transaction — `_discover_feeds` around `vw.discover_sources`,
+`_poll_pages` around `vw.fetch_page` — so between vendors the connection sat idle-in-transaction
+while a site was fetched. The first domain taking over a minute got the backend killed, and the
+next INSERT failed with a message that reads like a network fault rather than the design fault it
+is. The rollback then discarded every vendor already probed. It survived on 20 August only because
+the cap was 20 and the domains were quick; at 85 it could not.
+
+**`app/tasks/market_monitor.py`** — both sweeps now commit as they go. `_discover_feeds` commits the
+run row before probing and again after each vendor. `_poll_pages` commits after each **page**, not
+each vendor: the first attempt committed per vendor and the guard test caught that `vw.fetch_page`
+is awaited in the *inner* page loop, so a vendor with several slow pages would have held the
+transaction across all of them and hit the same timeout. Both now close as `partial` rather than
+`failed` when some vendors succeeded, because reporting a whole sweep as failed hides work that is
+durable.
+
+`test_no_sweep_holds_a_transaction_across_an_http_call` walks the AST for loops that await a network
+call without committing inside themselves. Its first version flagged six loops, five falsely —
+`tick` awaiting `_poll_market`, and `_poll_market` awaiting the pollers, all of which own their own
+transaction scope — so it now ignores awaits on other pollers and on courtesy sleeps. Verified by
+removing the per-vendor commit and watching it name `_discover_feeds`.
+
+Re-run as 354 with the fix loaded, and the difference is visible in the data as it goes: 2 vendors
+reached at 11:22, 17 by 11:23, 35 by 11:24, 60 by 11:28, 82 by 11:31, each durable on arrival.
+Run 345 showed 0 the whole way and then lost everything.
+
+**354 succeeded in 585 seconds, 0 failed domains.** 83 vendors are in scope
+(`collection_enabled AND role <> 'excluded'`); 82 were reached and **319 pages** recorded, 68
+vendors with at least one page and 14 where discovery ran and found nothing worth watching — a real
+observed zero, correctly distinguishable from the 3 not reached. 19 vendors have feeds and
+`rss_feeds` went from 7 rows to 22.
+
+The three not reached account for themselves: Kenzo Security and Edge Delta are `role = 'excluded'`
+so the sweep skips them by design, and **Intezer has no `domain` identifier at all**, so
+`_discover_feeds` skips it on `if not domain: continue`. That last one is a gap rather than a
+policy: a vendor in the market with no domain on file can never have its website watched, and
+nothing surfaces that.
+
+Worth knowing and not checked: nothing else in the codebase was audited against that 60-second
+timeout. Any other path awaiting network work mid-transaction has the same exposure, and it fails
+looking like a connection problem.
+
+**Stale nginx vhost.** `/etc/nginx/sites-enabled/saas.aunoo.ai.bak-1786977093` was being loaded by
+nginx, producing `conflicting server name "saas.aunoo.ai" ... ignored` on every config test. Diffed
+against the live file first: identical but for a cache-control block the live one has, so it is an
+older copy that nginx was already ignoring on alphabetical order. **Moved**, not deleted, to
+`/etc/nginx/disabled-backups/`. `nginx -t` is now warning-free; `saas.aunoo.ai` returns 200 and
+`bugfixing.aunoo.ai` 307 after the reload.
+
+### Found, measured, and deliberately not fixed
+
+485 older posts have no `is_repost` at all and default to "the company speaking" by design, to
+keep the historical corpus stable — so the contamination cannot be cleaned without re-collection.
+The split is exact only for posts gathered from here on.
+
+Correcting something said earlier in this entry and in `dd2220bb`'s message: `company_id` being
+null on posts is not an unfulfilled intention of `8fb8f9c0`. That commit added `company_id` to
+`map_job_listing` and it is also on `map_company_profile`; `map_company_post` never carried it and
+was never meant to. Post attribution runs off `discovery_input.url` — the page we asked for — and
+the reshare guard needs `is_repost` and `account_type`, not an id. Nothing is missing here.
+
+**Every Glassdoor match in this market is the wrong company.** Kenzo Security (3 staff) → Kenzo,
+the Paris fashion house, industry "Department, Clothing & Shoe Stores"; Secure.com (34) → SECURE,
+Energy & Utilities, Calgary; Method Security (26) → Method, Business Consulting; Artemis Security
+(55) → Artemis, Athens. `MIN_REVIEWS_FOR_AUTO_MATCH = 50` was added to stop the wbm incident where
+"Wiley" resolved to a 3-review Australian entity. For a registry where 80 of 84 vendors are under
+100 staff the threshold inverts: the real company has almost no reviews and is excluded, so the
+only candidates clearing 50 are larger strangers sharing a first word. No alert has fired
+(`glassdoor_deterioration` has zero events) because all five snapshots per vendor are the same
+wrong company, so the ratings are stable. It is a loaded trigger, not a fired one. Untouched.
+
+`bw_collection_runs.cost_amount` is always NULL, so the `MARKET_MONTHLY_BUDGET_USD` gate would
+compute spend as zero and never fire. The cap is currently decorative.
+
+### Propagation
+Market Monitor exists **only on bugfixing** — checked the route trees of wiley, wileytest, wbm,
+abm, pearson, ibaset and bwtemplate; none has `app/tasks/market_monitor.py` or the Bright Data
+webhook. Nothing to copy.
+
+`MARKET_MAX_VENDORS_PER_RUN=85` is in `.env`, which is gitignored, so a clone silently reverts to
+20 and a partial sweep. The `.env` backup was written to the session scratchpad rather than beside
+the file, because several `.env.bak-*` files already sit untracked in this tree.
+
+The nginx block was added to **`/home/orochford/bin/setup_site.py`**'s `FULL_TEMPLATE` so a site
+regeneration keeps it — that file lives in the separate `/home/orochford` repo and is committed
+there, not here. Verified by rendering the template and running the output through `nginx -t`.
+
+### Lessons
+NEVER add an entry to `PAUSED_SOURCES` without reading that source's **most recent** completed run.
+The most alarming row in its history is not its current state, and a paused source is silent, which
+on a dashboard reads as a source with nothing to report.
+
+NEVER trust a field because its name fits. `posted_by` looked like an employer filter and is a
+poster-type enum; `job_id` looked like an id field and the real one is `jobid`; `company_size`
+looked like a count and is a band. Each was a guess that would have failed quietly.
+
+When a fix moves a read from one table to another, check what populates the new table. Moving
+dispatch onto `bw_entity_source_policies` made `seed_policies` load-bearing, and nothing called it.
+
+ALWAYS check a provider parameter exists before relying on it. `validate_only=true` is not a
+Bright Data parameter; unknown query params are ignored, so two probes intended as dry runs were
+real billed collections (~30 records, about four cents).
+
+## 2026-08-26 (auth surface, follow-up) — the logs say nobody used the hole, and only cover 15 days of the 19 months it was open
+
+### Goal
+Yesterday's entry closed 2,712 unauthenticated routes across ten sites and left one question open:
+does any of this need telling a customer. That decision was resting on "no evidence anyone read
+anything", which nobody had checked. This is the check. No code changed.
+
+### What the access logs actually show
+Every successful request to a formerly-open endpoint in the available logs came from one of two
+places, and neither is a stranger.
+
+`90.247.228.3` — 31 hits on the config and diagnostic endpoints, 2,254 on the article-data
+endpoints. It logged in successfully once (`POST /login` → 302), runs Chrome/151 on Windows, sends
+a `Referer` of `https://bugfixing.aunoo.ai/config`, and made 91,601 requests across the window.
+That is an operator using the product, and the `/config/*` burst is the settings page loading every
+provider in sequence.
+
+`5.9.100.178` — 23 hits. That is this host's own egress IP, confirmed against `api.ipify.org`. My
+verification curls from yesterday.
+
+Nothing else. **Zero successful reads from a non-browser user agent** on either endpoint set, so no
+script, crawler or scraper got a 200 out of the routes that were open.
+
+### The finding that matters: the window is 15 days and the hole was open for 19 months
+`/etc/logrotate.d/nginx` is set to `rotate 14`, daily. The logs hold 338,669 requests spanning
+**12–26 August, 15 distinct days**. The routes were open from January 2025 (`709541c7`,
+`7b76e66e`, `97b51424`) to yesterday, so the logs cover **about 2.5% of the exposure** (15 days out of roughly 578).
+
+So the accurate statement is "no evidence of misuse in the 2.5% we can see", not "nothing happened".
+Those are different claims and the second one is not supported. Nothing in the remaining 97.5% is
+recoverable; there is no archive.
+
+The nginx log directory is **9.4 MB** and the filesystem has **1.8 TB free**, so the 14-day limit
+buys nothing. Extending it is a one-line change and is **not done** — flagged for Oliver rather
+than actioned, since it is an ops change nobody asked for.
+
+### Nearly a false alarm: `/.env` returning 200 is a single-page-app fallback, not a leak
+Outside scanners probe this host constantly. Filtering for `.env`, `.git`, `config.json` and `.aws`
+shaped paths, **781 requests returned 200** — `/.env` 51 times, `/.git/config` 40, plus
+`/.env.local`, `/.env.production`, `/backend/.env` and similar.
+
+That is not a leak, and the reason is worth writing down because the log line looks identical to
+one. Response bodies are 571–624 bytes and fetching them directly returns `<!doctype html>` — the
+`saas` and `badaura` vhosts serve `index.html` for any unmatched path, so a scanner asking for
+`/.env` gets the app shell with a 200. The monolith tenants return `{"detail":"Not Found"}` with a
+404. No secrets file was ever served.
+
+Checked by requesting `/.env` from four hosts directly rather than by reasoning about the config:
+`bugfixing` 404, `wiley` 404, `saas` 200 + HTML, `badaura` 200 + HTML.
+
+### Verification
+`sudo zcat -f /var/log/nginx/access.log*` → 338,669 lines; oldest entry 12/Aug/2026, newest
+26/Aug/2026, 15 distinct days (the concatenation is not chronological, so the bounds were taken by
+extracting and sorting every date rather than from `head`/`tail`, which gave a wrong answer first).
+
+Successful-hit counts by IP as above, taken by matching the status field positionally rather than
+with a bare `grep " 200 "`, which would also match a byte count or a path fragment.
+
+`curl https://api.ipify.org` → `5.9.100.178`, confirming the second IP is this machine.
+
+Direct fetches of `/.env` on four hosts, with the first 80 bytes of each body inspected.
+
+No code, config or database change, so no test run and no restart. Nothing to verify beyond the
+log analysis itself.
+
+### Propagation
+Nothing to propagate — this is an investigation. The scratchpad copy of the concatenated log is
+temporary and deliberately not committed.
+
+Two housekeeping notes on yesterday's entry. `eb072210` (the guard) and `56ae6795` (its
+propagation) carry commit timestamps of **2026-08-26 08:46 and 08:59** but are documented inside
+the `2026-08-25 (auth surface)` entry, because they finish one continuous piece of work that
+started there. Anyone matching entries to commit dates should expect that. All four commits from
+that piece — `91a65521`, `d4e46a77`, `eb072210`, `56ae6795` — are in canonical only; none of the
+nine production trees was committed to.
+
+### Lessons
+**ALWAYS check what a 200 actually returned before calling it a leak.** 781 requests for `.env`-
+shaped paths returned 200 on this host and not one of them served a secret. An SPA that falls back
+to `index.html` answers 200 for everything, which makes a scanner's log line indistinguishable from
+a successful theft. One `curl` settled it; reading the log alone would have produced a false
+incident.
+
+**A retention window shorter than the exposure window turns a security question into an unanswerable
+one.** The auth hole is fixed. The reason we cannot say what it cost is a `rotate 14` that nobody
+chose deliberately, against 9.4 MB of logs and 1.8 TB of free disk. Same shape as the auth gap
+itself: the failure was not the incident, it was that nothing recorded enough to answer afterwards.
+
+**NEVER take a log window from `head` and `tail` of concatenated rotated files.** `zcat access.log*`
+does not emit chronological order, and the first attempt at the window reported 12–17 August when
+the true range was 12–26. Extract the dates and sort them.
+
+## 2026-08-25 (auth surface) — 216 routes answered anonymous requests, and admin/admin still worked
+
+### Goal
+Oliver pasted an external review of Market Monitor and asked whether it was true. Checking it
+turned up two wrong headline claims and three correct security ones, so the session split in
+two: correct the record on Market Monitor, then close the auth holes. The auth work grew once
+I enumerated routes properly — the review named five endpoints, and there were 216.
+
+### The review's headline finding was a misread of the screen
+The review reported all 58 vendors showing `Announced = 0` and `Open roles = 0` and concluded the
+collection pipeline was dead. That table is the **`quiet` drilldown**, whose header on screen
+reads "Vendors with no observed activity — no posts, no job listings, no matched coverage".
+`app/services/market_analysis.py:667` defines the set as vendors with no matched articles *and*
+no job postings, so zeros in those two columns are the query's answer.
+
+Running the review's own aggregation against `test`: 83 non-excluded vendors in market 2, the
+`quiet` set is exactly **58**, and separately **24 vendors have announcements** and **7 have open
+roles**. The corpus holds 261 articles at `review_verdict = 'signal'` and 33 job postings across
+7 brands, most collected 24 August. Nothing was broken.
+
+The review's second claim — that Market Monitor is absent from the repository — is true of the
+commit it read (`84a1fb25`, 17 August) and misleading as a conclusion. The feature is on this
+branch, 60 commits ahead of `origin/main`, fully tracked: 25 source files, 7 migrations
+(`mm_001`–`mm_007`), and 3 test files (`test_market_collection.py`, `test_market_import.py`,
+`test_market_report_copy.py`). It is unmerged, not uncommitted.
+
+### Incident: 216 live routes took anonymous requests, 87 of them state-changing
+This is the real finding and it was internet-facing. nginx for every tenant is a bare
+`location /` proxy to `127.0.0.1:<port>` with no `auth_basic`, no allowlist, and modsecurity
+commented out; ufw is inactive. So every route the app exposes, the internet reaches.
+
+The cause is architectural and already noted in this repo: there is no global auth middleware, so
+a route is unprotected unless its author declares a dependency. Over 1,010 live routes the default
+won more often than the discipline did. It never surfaced because the *pages* are login-gated — a
+browser always sends the session cookie, so a logged-in user sees identical behaviour whether or
+not the route checks, and nothing logs a request that was never refused.
+
+Enumerating from the running app rather than by grep, then filtering three ways, was necessary to
+get a real number. Nine routes guard `request.session` inline rather than by dependency
+(`/api/change-password` among them) and were never open. Six were dead duplicate registrations.
+And `/reset-password` is public on purpose — HMAC-gated with an expiry, the token bound to the
+current password hash so it is single-use.
+
+**The review's "unauthenticated destructive routes" framing does not survive that check.**
+`POST /api/databases/reset` and `/api/databases/backup` are each registered three times, and the
+*first* registration — the one FastAPI serves — is the protected copy in `app/routes/database.py`.
+The open copies in `app/main.py` are dead. Nobody could reset a database anonymously.
+
+What was genuinely open was worse than "configuration": 16 training routes including
+`POST /api/training/runs/{run_id}/deploy`, `/rollback` and `/trigger-finetune`, so anonymous model
+deploy and rollback; `POST /api/news-feed/share`, which minted a public share token for internal
+article data; `/api/auto-ingest/enable|disable|run-sync`; and `/api/newsletter/generate`,
+`/api/sampling/*`, `/api/bulk-research`, `/api/podcast/create` as unmetered LLM spend. On the read
+side `/auth/config-check` returned `client_id_preview` and `client_secret_length` per OAuth
+provider, and `/api/debug_settings` returned the whole topic and category list. The `/config/*`
+GETs return status flags, **not** raw API keys — they leaked the configured Bluesky handle and
+which providers are set up, which is reconnaissance rather than a key dump.
+
+Fixed by adding `dependencies=[Depends(verify_session_api)]` to each open route's decorator —
+87 state-changing and 129 read on this tenant. Eleven routes stay public deliberately: five
+liveness probes plus `/api/health`, `/auth/login/{provider}`, `/auth/providers`, and the two
+share-token endpoints.
+
+### Fix: the admin/admin credential, and an unauthenticated write nobody had noticed
+**`app/routes/auth_routes.py`** — the login handler opened with
+`if username == "admin" and password == "admin"`, which bootstrapped an admin account on any
+fresh deployment. It had a second problem the review did not mention: on that branch it called
+`db.set_force_password_change(username, True)` *before* verifying any password, so an anonymous
+caller could POST `admin/admin` repeatedly and hold the real admin account in forced-password-
+change. Login is now purely DB-driven, with a first-run bootstrap gated on
+`AUNOO_BOOTSTRAP_ADMIN_PASSWORD` that only ever creates an account which does not already exist
+and compares with `secrets.compare_digest`. With the variable unset there is no bootstrap path.
+Live `admin` accounts were checked and none had `admin` as its password.
+
+### Fix: two signing keys with committed fallbacks, one of them missed by the review
+**`app/security/auth.py`** — `SECRET_KEY = os.getenv('NORN_SECRET_KEY', 'nornforever')`, the key
+signing the JWTs. **`app/middleware/setup.py`** — `os.getenv("FLASK_SECRET_KEY",
+"your-fallback-secret-key")`, and this is the worse of the two because it signs the session cookie
+that gates the whole app: with the variable unset, anyone who read this file could forge a session
+for any user. The review found the first and missed the second. Both now raise at startup with a
+message giving the `secrets.token_urlsafe(32)` command. Safe to do because all eight live
+tenants already have both set to real 43-character values, checked before the change. The two
+dormant tenants could not be checked — see Propagation.
+
+### Fix: blank workbook headcounts were stored, and read, as a confident zero
+Seven vendors on the SOC Automation roster carried `employee_count = 0`, and six of the seven had a
+LinkedIn page on file. The workbook uses `0` in that column to mean "no figure"; `_as_int` returned
+it verbatim.
+
+**`app/services/market_import.py`** — new `_as_headcount()` treats zero as unknown at the import
+boundary, so it cannot re-enter `baseline`. **`app/services/market_analysis.py`**,
+**`market_publish.py`** (two sites) and **`entity_dual_read.py`** wrap the legacy baseline read in
+`NULLIF(..., 0)`. `DataTable.tsx:136` already renders null as `—`, the convention `founded`
+uses, so the vendor tables now show unknown instead of a claim.
+
+One of those read sites was doing real harm. The headcount-movers query in `market_publish.py`
+computed `delta = now − 0`, so the first real profile scrape of a blank-baseline vendor would have
+been published as that vendor hiring its entire staff in one period. No vendor is currently in
+that state — the mover count is 21 before and after — so this is preventive, not a correction of a
+wrong number already shipped.
+
+**`alembic/versions/mm_008_blank_headcount_to_null.py`** clears the seven stored zeros. It probes
+`to_regclass('public.bw_market_brands')` first so it is a no-op on tenants without Market Monitor,
+and `downgrade()` is deliberately empty: restoring the zeros restores the bug, and a cell that
+said 0 is indistinguishable from a blank one after the fact.
+
+### Fix: the open-roles count disagreed with the list it opened
+**`app/services/market_analysis.py`** — the drilldown counted `COUNT(*)` over `job_posting`
+snapshots while `job_postings()` below it dedupes with `DISTINCT ON (provider_item_id)`. A posting
+observed twice is one opening, so the number would have drifted from the list as soon as a source
+re-read anything. Now `COUNT(DISTINCT s.provider_item_id)`. Currently 33 rows and 33 distinct, so
+again preventive.
+
+### Fix: Market Monitor's API redirected XHR callers instead of refusing them
+**`app/routes/market_monitor_routes.py`** and **`market_entity_routes.py`** — 64 dependencies moved
+from `verify_session` (307 to the login page) to `verify_session_api` (401). Three endpoints stay
+on the 307 because the UI opens them as `href` targets, where a 401 shows raw JSON in a fresh tab:
+`/dataset`, `/export.zip`, `/data/{dataset}`. `feed.xml` and `report.html` were already on
+`verify_session_optional` with a signed-link path and were not touched.
+
+### Ops: three duplicate router registrations removed, 225 left
+**`app/main.py`** — `keyword_monitor_router`, `keyword_monitor_page_router` and
+`onboarding_router` were each registered twice. Removed the second run. The wider problem is
+untouched: **225 path+method pairs are still registered more than once**, 235 extra route objects.
+Mostly harmless because FastAPI keeps the first match, with one exception worth knowing —
+`GET /api/topics` has an open copy in `topic_routes` winning over a protected copy in `main.py`,
+which is exactly how a future auth fix gets silently shadowed.
+
+### UI: the drilldown counts say which window they cover
+**`ui/src/components/newsfeed/MarketMonitorTab.tsx`** — `Announced` and `Open roles` are now
+`Announced (all time)` and `Open roles (all time)`, because the pulse strip directly above them is
+scoped to `period_days`. Two windows on one screen with nothing saying so read as one window.
+Rebuilt and deployed; bundle `newsfeed-C5czsmWs.js`, template `explore_react.html`.
+
+### Verification
+`python -m py_compile` over all 33 changed `.py` files plus `mm_008`: all compile.
+
+`pytest tests/ -q` → **99 failed, 674 passed, 11 skipped, 31 errors**. The failure list is
+**byte-identical with the changes stashed and applied** (`comm -13` and `comm -23` on the sorted
+`FAILED` lines both return nothing), which is the actual evidence that 33 touched files introduced
+no new failures. Note the count moved from an earlier 98/675 reading, so one test in the
+pre-existing set is flaky; three consecutive runs then held at 99. All 99 are pre-existing and
+concentrate in `test_ai_models_error_handling.py` (17), `test_retry.py` (14),
+`test_exceptions.py` (11), `test_article_analyzer.py` (11) and
+`test_chromadb_concurrent_postgres.py` (10).
+
+`npm run typecheck` → 246 errors, all baseline-known, none new.
+
+Route audit per tenant after the change, from the running app: **11 open, 0 state-changing**,
+the same eleven on all ten.
+
+| tenant | live routes | closed this session | state-changing closed |
+|---|---|---|---|
+| bugfixing | 1010 | 216 | 87 |
+| wiley | 1091 | 261 | 86 |
+| wileytest | 939 | 220 | 86 |
+| wbm | 939 | 280 | 116 |
+| abm | 939 | 280 | 116 |
+| pbm | 934 | 279 | 116 |
+| ibaset | 939 | 280 | 116 |
+| bwtemplate | 939 | 280 | 116 |
+| pearson (dormant, static check only) | 993 | 295 | 114 |
+| interroll (dormant, static check only) | 1091 | 321 | 116 |
+
+2,712 decorators closed across ten tenants.
+
+External checks over HTTPS on the public hostnames, all eight live tenants: `/api/databases`,
+`/api/debug_settings`, `/auth/config-check` and `/api/training/model-config` return **401**;
+`/login` and `/health/live` return **200**; `POST /login` with `admin/admin` returns **401**.
+On bugfixing `force_password_change` for `admin` stayed `f` across that POST, confirming the
+pre-auth write is gone.
+
+`mm_008` applied on bugfixing only (`alembic current` → `mm_008 (head)`). Market 2 now reads
+**0 zeros, 7 unknown, 78 with a real count**.
+
+Both fail-closed secrets were checked to raise when unset, and the service starts with them set.
+No errors or tracebacks in any tenant's journal since restart, and the only 401s in the nginx log
+from the newly-closed paths are my own verification curls.
+
+### Propagation
+Canonical (bugfixing) holds all of it and is **uncommitted** — pre-commit mode, nothing staged.
+
+The four other monolith tenants got the security work by **applying the same transformations to
+their own files, not by copying files**, because these trees carry local divergence that a
+wholesale sync would clobber. The sweep imports each tenant's own app, audits its own routes and
+patches its own decorators, which is why the counts differ — wbm and abm have 116 state-changing
+routes to close against wiley's 86, since they carry different features. Backed up
+`app/routes`, `app/security`, `app/middleware` and `main.py` per tenant first; each tenant done
+separately, restarted, and verified externally.
+
+wiley, wileytest, wbm and abm are prod deploy trees and were **not committed**, per the standing
+rule. The changes exist only in those working trees, so a tenant cloned from canonical will not
+have them until canonical is committed and the clone re-synced.
+
+**None of the four has Market Monitor**, so `mm_008` and the market read-path fixes did not
+propagate and there was no alembic head divergence to work around. All four already had both
+signing keys set, so fail-closed was safe.
+
+Then Oliver asked for the rest, so **all ten monolith tenants** now have it. `pbm` (279 routes),
+`ibaset` (280) and `bwtemplate` (280) were live and got the full treatment — patched, restarted,
+verified externally. The SaaS-family sites (saas, saasmvp, agentic, monitoring) already returned
+401 and are a different codebase, so they were untouched.
+
+`pearson` and `interroll` are mothballed: their plaintext `.env` was deleted and encrypted to
+`.env.encrypted` (pearson 11 August, interroll 25 August 12:45, per its journal), which is why
+they return 502 rather than serving anything. They are **not** currently exposed. Both got the
+code fixes — pearson 295 routes, interroll 321 — but they cannot be started, so the verification
+is static only: the route audit run against the imported app reports 11 open and 0 state-changing,
+same as everywhere else, and every `.py` file parses. There is no external check for these two and
+no service restart.
+
+The route sweep needs the app to import, and the app now refuses to import without both signing
+keys, so those two runs supplied `FLASK_SECRET_KEY=analysis-only NORN_SECRET_KEY=analysis-only` in
+the environment. That is static analysis of the route table only — it does not touch
+`.env.encrypted` and starts nothing.
+
+**The guard runs on all ten tenants.** It was canonical-only at first, on the reasoning that the
+deploy trees have no pytest and that prod-tree pytest hits the prod database. Oliver asked for it
+everywhere, which is the right call — a guard that only exists where nobody deploys from does not
+guard much. Making it useful there took two changes.
+
+`tests/test_auth_surface.py` now runs as a plain script as well as under pytest. The `pytest` import
+falls back to a nine-line shim providing `fail` and `fixture`, and a `main()` runs the same checks
+and exits non-zero, so it can gate a deploy script or a cron job. The checks need nothing but the
+standard library. No pytest was installed into any production venv.
+
+The checks are also split by kind, which the propagation forced. The three security invariants —
+nothing open, nothing shadowed, nothing state-changing allowlisted — are fatal everywhere. The
+allowlist-hygiene check is advisory in script mode, because pearson's `auth_routes` predates the
+reset-password feature and so lacks two functions `SELF_GUARDED` names. An allowlist entry for a
+function that does not exist grants no cover and cannot hide a hole, so it is worth failing only in
+canonical, where a stale entry could mask a rename. Under pytest it stays strict.
+
+Result on every tenant: **3/3 security checks pass**, exit 0. Route tables range from 1,169 routes
+(pbm) to 1,326 (wiley and interroll). pearson prints the advisory note and still exits 0.
+
+On the two dormant tenants the guard exits **2** with "could not read the route table" and the
+`NORN_SECRET_KEY is not set` message, because the app refuses to import without a readable `.env`.
+That is deliberate: an unverifiable route table is reported as unverified rather than as a pass.
+Supplying throwaway keys for a static read shows 3/3 on both.
+
+**Whoever revives pearson or interroll must confirm both signing keys are in the decrypted
+`.env`**, or the service will refuse to start and say which key is missing. I could not verify the
+encrypted files, but the plaintext backups still on disk
+(`pearson.aunoo.ai/.env.backup.20251122-103215`, `interroll.aunoo.ai/.env.backup`) both carry
+`FLASK_SECRET_KEY` and `NORN_SECRET_KEY`, so the revival will very likely be fine. That is a proxy
+check, not proof.
+
+### Fix the cause, not just the instances: a guard that fails when a route drifts open
+Closing 2,712 routes fixes today. It does nothing about the next route someone adds without a
+dependency, which is how this got to 216 in the first place — over 19 months, with the unsafe path
+being silence.
+
+**`tests/test_auth_surface.py`** reads the assembled app's route table and asserts every route that
+actually serves requests is either protected by an auth dependency, listed in `PUBLIC_PATHS` with a
+stated reason, or listed in `SELF_GUARDED` because it authenticates in its own body. Adding a route
+needs no change to the file. Adding an *unprotected* route fails the suite and prints the path, the
+endpoint, and the two-line fix. Opening a route to the internet becomes a reviewable edit rather
+than an omission.
+
+Three details matter more than the headline check.
+
+`SELF_GUARDED` names the twelve endpoints individually instead of scanning bodies for
+`request.session`. A substring scan would let a new route pass by merely mentioning the session.
+Each of the twelve was read first: the two onboarding endpoints and `api_change_password` raise 401
+when there is no session user, the reset-password pair check an expiring HMAC bound to the current
+password hash, and the BrightData webhook authenticates on a shared secret and is fail-closed when
+the secret is unset.
+
+A second test catches the shadowing case, which is the version of this bug that survives code
+review. When a path is registered twice with the first copy open and a later copy protected, the
+protected copy never runs, so an auth fix applied to it looks right in the diff and changes nothing
+at runtime. It prints the registration order with each copy marked open or protected.
+
+Two smaller invariants: nothing state-changing may be allowlisted as public, and the allowlists may
+not carry dead entries — except for a module this tenant does not have, since the same file ships
+to ten sites with different feature sets and a site without Market Monitor has no BrightData
+webhook to guard.
+
+Verified by breaking it on purpose. Removing the dependency from `GET /api/docs/{name}` failed the
+suite naming that route and file; restoring it went green. Re-opening the first `/api/topics`
+registration reproduced the historical shadowing and failed both checks, printing all three copies
+in order. Reverted both.
+
+The guard reads the route table in a **child process**, and that was not the first attempt.
+Importing `app.main` inside the pytest session leaked global state — database connections, logging
+config, provider clients — and turned 98 pre-existing failures into 165. The child prints JSON and
+exits. With that fixed the suite is 98 failed / 679 passed: the same 98 as before, plus the four
+new tests. The allowlists were also confirmed portable by running the same four checks against
+wileytest, wbm and pbm, all of which pass and none of which has Market Monitor.
+
+### Lessons
+**NEVER trust a route's auth status from grep, and never from the decorator alone.** Dependencies
+attach at the decorator, the router, or `include_router`; some handlers check `request.session`
+inline; and a duplicate registration means the copy you are reading may never serve a request.
+Enumerate from the running app, dedupe by first match, and check the body for an inline guard.
+Skipping any of the three overstated the count here by 3x and mislabelled the destructive routes.
+
+**ALWAYS check which registration wins before believing a route is exposed.** The two most
+alarming endpoints in the review were already protected by an earlier registration.
+
+**When inserting an import programmatically, confine it to the header above the first decorator.**
+Three bugs in one session, all in the tooling rather than the fix: an import placed inside a
+multi-line `from x import (` block; a presence check that ran after the decorator was written and
+matched its own text, silently skipping 12 files; and worst, an import that landed at line 1421
+because I searched the whole file for the last top-level import. A decorator runs at module import
+time, so an import below it is dead. `python -m py_compile` passes all three — only importing the
+app catches them.
+
+**`background_tasks` accumulates orphaned `running` rows.** wbm showed 22, the newest started
+1 June against a 24 August boot. Compare `started_at` to the process start before believing
+anything is in flight, or the "check running jobs first" rule gives a false stop.
+
+**A silent auth hole cannot be found by using the product.** The pages were login-gated the whole
+time, so every human path sent a cookie and every response looked correct. The only thing that
+finds this class of bug is asking without a cookie.
+
+**ALWAYS isolate an app import in a test subprocess.** Building the app has side effects, and a
+test that imports `app.main` in-session broke 67 unrelated tests here. A guard that damages the
+suite it lives in gets deleted, which would have taken the invariant with it.
+
+**A one-off cleanup is not a fix when the default is unsafe.** This sat open for 19 months because
+nothing failed when a route shipped without auth. `tests/test_auth_surface.py` is the part of this
+session that prevents a repeat; the 2,712 decorators only fix the backlog.
+
 ## 2026-08-25 (entity intelligence) — the registry stopped forgetting where its numbers came from, and I truncated the vendor table
 
 ### Goal
@@ -283,6 +1039,128 @@ PostgreSQL error in the hook leaves the provider rows intact; that a `failed` sn
 and surfaced on the run; that a run which could not normalise anything is not a clean success;
 that a vendor in two markets sees only its own market's history; and that `ENABLED=false`
 disables the read paths too. Entity suite is now **121 passing**.
+
+### Fix: a third review found the durability fix stopped one statement short
+**`app/services/entity_ingest.py`** — the processing was wrapped in a `SAVEPOINT`; the run-ledger
+update that follows it was not. So the defect the savepoint was added to fix still existed, one
+statement later: if that `UPDATE` fails, the transaction aborts, the broad catch does not un-abort
+it, and the caller's commit still rolls back the provider rows. The metrics write now has its own
+savepoint, so a failure there loses the bookkeeping and nothing else.
+
+**`scripts/lint_undefined_names.py` — the gate failed open, and the test passed anyway.** It read
+only stdout. Without pyflakes installed the subprocess wrote "No module named pyflakes" to stderr,
+stdout was empty, and the gate printed "Guarded paths clean" and exited 0 — while reporting 0
+undefined names in the rest of `app/` against a baseline of 30, which it also did not object to.
+pyflakes was in neither requirements file, so the gate was decorative in any fresh checkout.
+
+Now: a non-zero exit or anything on stderr raises rather than returning an empty list, and the
+script exits 2 telling you how to install it. A count that has collapsed far below the baseline
+also fails, because a sharp drop is the checker not reaching the files rather than good news.
+`pyflakes==3.2.0` added to `requirements.txt`, and a test asserts it is declared there so a fresh
+checkout can actually run the gate.
+
+Verified both by reverting them: removing the metrics savepoint turns
+`test_a_failing_metrics_write_cannot_take_the_provider_rows` red, and running the gate under an
+interpreter without pyflakes now exits 2 instead of reporting clean. Entity suite **124 passing**.
+
+### Fix: collection refreshed the same nineteen vendors and never reached the other sixty-four
+**`app/tasks/market_monitor.py`, `app/services/entity_scheduler.py`** — the collector selected
+vendors with `ORDER BY mb.sort_order` and then `[:MARKET_MAX_VENDORS_PER_RUN]`, with no cursor. The
+cap was applied to a fixed prefix, so every pass re-read the same first twenty. With 83 vendors
+that meant **19 were refreshed indefinitely and 64 had never been collected from any live source** —
+their only data was the April workbook import.
+
+Selection state now lives in `bw_entity_source_policies`, one row per `(brand_id, source)`, ordered
+due-first, then never-collected before long-ago-collected, then priority, then brand id. The cap is
+applied **after** that filtering. Claims are persisted with `FOR UPDATE SKIP LOCKED` so two
+overlapping passes cannot take the same vendor, and the state is in the database so a deploy
+mid-sweep resumes rather than restarting.
+
+Eligibility is per source rather than global, which also explains a number that looked like a bug:
+Crunchbase covered only 20 vendors because **44 of 83 have no Crunchbase URL on file**. Those are
+now marked ineligible with the reason, instead of sitting in the backlog looking permanently
+overdue.
+
+`bw_collection_runs.requested_brand_ids` records who a batch was for, so a run that succeeds with
+zero records still advances those vendors — without it they stay due forever and the same batch
+goes up on every pass. A failure backs off exponentially and deliberately leaves `last_success_at`
+alone, so staleness stays visible rather than being hidden behind a failure.
+
+### Fix: three sources failed once per scheduler cycle, and one is paused
+PitchBook, ZoomInfo and Indeed were absent from the cadence tuple but market-wide requests were
+still admitted, claimed, and then failed as undispatched — one failed run per source per cycle,
+burying real failures. They are now in `MANUAL_ONLY_SOURCES` and refused at admission, before a run
+is created. Vendor-scoped manual requests still work, and PitchBook/ZoomInfo additionally require
+the operator-supplied URL to exist first.
+
+`linkedin_jobs` is **paused**, not manual-only: the provider rejects the request with
+`HTTP 400 "Incorrect discovery collector id. Available types: keyword, url"`. The stale comments
+claiming the request shape was verified are wrong. Per the standing rule about paid datasets this
+is not being fixed by guessing another field name — it needs a dashboard sample confirming the
+discovery contract, then a single-company canary through trigger, callback, ingest and attribution
+before it goes back on the schedule.
+
+### Fix: the article backlog never drained
+**`app/services/entity_ingest.py`, `ei_004`** — the backlog asked for articles with no entity
+content link. An article that names no vendor never gets one, so it stayed in the answer set and
+was re-scanned on every run: draining it took 2,400 examinations to produce twelve links, the same
+few hundred articles going round. `bw_entity_link_attempts` records that an article was examined
+and by which matcher version, so a routine run skips it and a matcher upgrade re-examines it
+deliberately. The backlog now drains — 326 articles in three passes, then zero.
+
+The same fix widened the backlog to `bw_market_articles`. It had only read `bw_article_categories`,
+so the entire market news corpus — 1,463 articles, growing by about a hundred a day — was never
+linked to a vendor at all.
+
+### Incident: a test wrote scheduling state into the live registry
+The first version of the scheduler fixture parked every non-fixture policy 30 days into the future
+so its own vendors would sort first, and one test committed to prove state survives a lost
+connection. Together those pushed **all 498 live policies out by 30 days**, which would have
+stopped real collection silently.
+
+Caught by the deployment gate — coverage reported `due=0` for a source with 62 never-collected
+vendors, which is not a state that can occur naturally. Repaired by resetting `next_due_at` and
+re-reconciling from real snapshot history.
+
+Both causes are removed: the fixture no longer writes outside the rows it created, and the
+durability test asserts the claim is a database row rather than committing and opening a second
+connection. Verified afterwards that a full suite run leaves no test brands and no stale claims.
+
+### Fix: a reshare was being recorded as the vendor's own claim
+**`app/services/brightdata_linkedin.py`, `market_collect.py`, `entity_ingest.py`** — the Bright
+Data dashboard sample for the posts dataset showed two fields the mapper was discarding:
+`account_type` (`Organization` vs `Person`) and a `repost` object.
+
+Both decide whether a post is the company speaking. A vendor resharing an analyst's take was being
+stored as `stance='owned_claim'` at relevance 1.0 — words put in a vendor's mouth — and so was a
+person's post that discovery happened to return. Both are now retained through `social_meta` and
+checked before the owned-claim stance is applied. The post stays linked and visible either way; it
+is simply not a claim.
+
+Records collected before these fields were kept carry neither, and are still treated as the
+company speaking. Doing otherwise would silently reclassify the 1,209 owned posts already stored.
+
+The same sample confirmed the rest of the posts contract maps correctly, including that
+`normalize_linkedin_key` survives a country subdomain and a tracking query — the sample's
+`use_url` is `https://au.linkedin.com/company/ausbiz-capital?trk=...`, which normalises to the
+same key as the stored identifier.
+
+### LinkedIn jobs: output contract confirmed, request contract still unknown
+The jobs dataset dictionary confirms the **output** schema, and the existing mapper already matches
+it — `job_posting_id`, `job_title`, `company_name`, `job_location`, `job_seniority_level`,
+`job_function`, `job_employment_type`. No drift.
+
+One gap it revealed: the dictionary documents `company_id` and not `company_url`, so a posting can
+arrive attributable by numeric id alone. That is now retained. We already held every profile's
+`company_id` in snapshot data and had never promoted it to an identifier, so 21 vendors gained a
+`linkedin_company_id` — a stronger key than the URL, because a numeric id survives a page rename.
+
+The source **stays paused**. The HTTP 400 is about the discovery *request*, and the sample shows
+output only. Re-enabling needs the dashboard's sample request: whether discovery `type` is
+`keyword` or `url`, the exact JSON input fields, the dataset id, and where `limit_per_input`
+belongs. Guessing another field name at a paid dataset is what the standing rule forbids, so the
+canary waits. Five fixture tests now cover what the sample does establish, including one asserting
+the source remains paused.
 
 ### Verification
 Migrations applied cleanly to head `ei_003`. Backfill produced, on the SOC Automation market:
