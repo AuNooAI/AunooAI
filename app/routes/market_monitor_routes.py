@@ -1561,20 +1561,246 @@ async def market_review_auto_close(market_id: int,
 @router.get("/markets/{market_id}/jobs")
 async def market_jobs(market_id: int,
                       brand_id: Optional[int] = Query(None),
+                      status: Optional[str] = Query(
+                          None, description="currently_observed, "
+                                            "newly_observed, "
+                                            "no_longer_observed or "
+                                            "first_observation."),
+                      page: int = Query(1, ge=1),
+                      page_size: int = Query(50, ge=1, le=500),
+                      sort: str = Query("vendor:asc"),
+                      fmt: str = Query("json", pattern="^(json|csv)$"),
                       session=Depends(verify_session_api)):
-    """The job listings behind the hiring counts, each with its URL."""
-    from app.services import market_analysis as man
+    """The job listings behind the hiring counts, each with its URL.
+
+    ``openings`` and ``postings`` are still returned so existing callers keep
+    working, alongside the paginated envelope every other list uses.
+    """
+    from fastapi.responses import Response
+
+    from app.services import market_lists as ml
 
     def _work():
         conn = _conn()
         try:
-            _load_market(conn, market_id)
-            rows = man.job_postings(conn, market_id, brand_id)
-            return {"openings": len(rows), "postings": rows}
+            market = _load_market(conn, market_id)
+            return market, ml.jobs(conn, market_id, brand_id=brand_id,
+                                   status=status, page=page,
+                                   page_size=(500 if fmt == "csv" else page_size),
+                                   sort=sort, include_all=(fmt != "csv"))
         finally:
             conn.close()
 
-    return await asyncio.to_thread(_work)
+    market, out = await asyncio.to_thread(_work)
+    if fmt == "csv":
+        return _list_csv(market, "jobs", out)
+    # The old shape, kept beside the new one rather than replaced: the vendor
+    # page and the hiring panel both read `postings` today, and both expect
+    # every listing rather than the first page.
+    out["openings"] = out["meta"]["pagination"]["total"]
+    out["postings"] = out.pop("_all", out["data"])
+    return out
+
+
+def _list_csv(market: Dict[str, Any], name: str, out: Dict[str, Any]):
+    """A list as CSV, from the same rows the JSON returned.
+
+    Same rows and same filters, so an export cannot disagree with the screen.
+    """
+    from fastapi.responses import Response
+
+    from app.services import market_lists as ml
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"{market['slug']}-{name}-{stamp}.csv"
+    return Response(
+        content=ml.csv_of(out["data"]), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/markets/{market_id}/posts")
+async def market_posts(
+    market_id: int,
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    vendor_id: Optional[int] = Query(None),
+    platform: Optional[str] = Query(None),
+    ownership: Optional[str] = Query(
+        None, description="owned, reshared or earned. A reshare is neither the "
+                          "vendor speaking nor coverage of it."),
+    classification: Optional[str] = Query(
+        None, description="signal, commentary, noise or unreviewed."),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    sort: str = Query("published_at:desc"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """The posts behind a post count.
+
+    Pass the same ``days`` the card used. The window bound is a string
+    comparison against a TEXT column, so a window computed independently here
+    would disagree with the card by whatever sits on the boundary.
+    """
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.posts(
+                conn, market_id, days=days, vendor_id=vendor_id,
+                platform=platform, ownership=ownership,
+                classification=classification, page=page,
+                page_size=(500 if fmt == "csv" else page_size), sort=sort)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "posts", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/coverage/items")
+async def market_coverage_items(
+    market_id: int,
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    week: Optional[str] = Query(
+        None, description="ISO date inside the week, as the chart's x-axis "
+                          "carries it."),
+    source: Optional[str] = Query(
+        None, description="news, vendor_linkedin, or a platform name."),
+    vendor_id: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    sort: str = Query("published_at:desc"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """The records behind one bar of the weekly content chart."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.coverage_items(
+                conn, market_id, days=days, week=week, source=source,
+                vendor_id=vendor_id, page=page,
+                page_size=(500 if fmt == "csv" else page_size), sort=sort)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "coverage", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/funding/vendors")
+async def market_funding_vendors(
+    market_id: int,
+    stage: Optional[str] = Query(None, description="A stage group name."),
+    disclosure: Optional[str] = Query(
+        None, description="disclosed, undisclosed or unavailable. Undisclosed "
+                          "is a company that did not say; unavailable is data "
+                          "we do not have."),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    sort: str = Query("disclosed:desc"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Funding per vendor, each field labelled with where it came from."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.funding_vendors(
+                conn, market_id, stage=stage, disclosure=disclosure, page=page,
+                page_size=(500 if fmt == "csv" else page_size), sort=sort)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "funding", out) if fmt == "csv" else out
+
+
+# Literal before parameterised: `/funding/investors` must not be captured by
+# `/funding/investors/{investor}`, and FastAPI matches in declaration order.
+@router.get("/markets/{market_id}/funding/investors")
+async def market_investors(
+    market_id: int,
+    min_vendors: int = Query(2, ge=1, le=50),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Investors appearing in more than one monitored vendor's record.
+
+    Portfolio overlap only. It says nothing about amount invested, ownership,
+    who led a round, or how the investment did.
+    """
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.investors(
+                conn, market_id, min_vendors=min_vendors, page=page,
+                page_size=(500 if fmt == "csv" else page_size))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "investors", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/funding/investors/{investor}")
+async def market_investor_vendors(
+    market_id: int, investor: str,
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Every monitored vendor whose record names one investor."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.investor_vendors(conn, market_id, investor)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "investor", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/voices/{author}/posts")
+async def market_voice_posts(
+    market_id: int, author: str,
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Every relevant post by one account, and what made each one match."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.voice_posts(
+                conn, market_id, author, days=days, page=page,
+                page_size=(500 if fmt == "csv" else page_size))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "voice", out) if fmt == "csv" else out
 
 
 @router.get("/markets/{market_id}/drilldown/{name}")

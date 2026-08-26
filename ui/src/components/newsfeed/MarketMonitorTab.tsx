@@ -20,6 +20,7 @@ import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
 import { MetricHeading, SourceLegend } from './MarketMetric';
+import { DrilldownHost, type DrilldownSpec } from './MarketDrilldownHost';
 import {
   BarChart, Bar, CartesianGrid, Cell, Legend, Line,
   LineChart as RLineChart, ReferenceArea, ReferenceLine,
@@ -1014,6 +1015,13 @@ export function MarketMonitorTab() {
   const [health, setHealth] = useState<SourceHealth | null>(null);
   const [collectionState, setCollectionState] =
     useState<CollectionStateResponse | null>(null);
+  /** Which records the reader asked to see. One at a time: a stack of open
+   *  drill-downs makes it unclear which figure the rows belong to.
+   *
+   *  Named `records` rather than `drill` because `drill` is already the vendor
+   *  drill-down below, which lists vendors behind an overview figure. This one
+   *  lists the underlying posts, articles, listings and funding rows. */
+  const [records, setRecords] = useState<DrilldownSpec | null>(null);
   const [runs, setRuns] = useState<CollectionRun[] | null>(null);
   const [plan, setPlan] = useState<CollectionPlan | null>(null);
 
@@ -1701,8 +1709,36 @@ export function MarketMonitorTab() {
                   // one screen with nothing saying so read as one window.
                   { key: 'announcements', label: 'Announced (all time)',
                     align: 'right' },
-                  { key: 'openings', label: 'Open roles (all time)',
-                    align: 'right' },
+                  // Named for the source, because the number is only true of
+                  // it. Dropzone AI shows 0 here and has 11 roles open on its
+                  // own careers page — LinkedIn genuinely lists none. 67 of 83
+                  // vendors are in that position, so an unqualified "open
+                  // roles: 0" reads as "not hiring" for most of the market.
+                  //
+                  // Zero is still printed rather than dashed: LinkedIn jobs
+                  // collection succeeded for every eligible vendor, so this is
+                  // a measured zero, and a dash would claim we had not looked.
+                  { key: 'openings', label: 'Open roles on LinkedIn',
+                    align: 'right',
+                    render: v => v.openings
+                      ? <button
+                          onClick={e => { e.stopPropagation();
+                                          setRecords({
+                                            kind: 'jobs',
+                                            title: `${v.vendor}: job listings on LinkedIn`,
+                                            vendorId: v.brand_id,
+                                            expectedTotal: v.openings,
+                                          }); }}
+                          className="text-sky-700 dark:text-sky-400 hover:underline
+                                     tabular-nums">
+                          {v.openings}
+                        </button>
+                      : <span className="tabular-nums text-slate-500 dark:text-gray-400"
+                              title="None on LinkedIn. Many companies post only
+                                     to their own careers page or an applicant
+                                     tracking system, which we do not read.">
+                          0
+                        </span> },
                 ]} />
             </div>
           )}
@@ -2155,8 +2191,17 @@ export function MarketMonitorTab() {
                     {/* Clicking a week opens the articles it counted. A bar
                         that names a number without offering the rows behind it
                         is a dead end. */}
+                    {/* The clicked week is passed through as the server's own
+                        filter rather than being turned into a date range here,
+                        so the list cannot bound the week differently from the
+                        bar. */}
                     <Bar dataKey="n" fill={cc(isDark, '#475569', '#9ca3af')} name="Articles"
-                         cursor="pointer" onClick={() => openCollection('coverage')} />
+                         cursor="pointer"
+                         onClick={(d: any) => setRecords({
+                           kind: 'coverage',
+                           title: `Content observed, week of ${d?.week ?? ''}`,
+                           week: d?.week, expectedTotal: d?.n,
+                         })} />
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="text-xs text-slate-400 text-center -mt-1 dark:text-gray-500">
@@ -2167,11 +2212,23 @@ export function MarketMonitorTab() {
             </div>
 
             <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-              <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                LinkedIn post volume
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                  LinkedIn post volume
+                </div>
+                <button
+                  onClick={() => setRecords({
+                    kind: 'posts',
+                    title: `Vendor posts, last ${periodDays} days`,
+                    days: periodDays, ownership: 'owned',
+                  })}
+                  className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+                  All posts
+                </button>
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-                Posts published in the selected window.
+                Posts published in the selected window. Click a bar for that
+                vendor&apos;s posts.
               </p>
               {!pulse || pulse.loudest_vendors.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
@@ -2187,10 +2244,19 @@ export function MarketMonitorTab() {
                     <YAxis type="category" dataKey="vendor" width={110}
                            fontSize={11} interval={0} />
                     <Tooltip />
+                    {/* Opens the posts, not the vendor page. The bar states a
+                        post count, so the records behind it are the posts —
+                        sending the reader to a profile instead is the dead end
+                        this whole layer exists to remove. */}
                     <Bar dataKey="posts" fill="#d6409f" cursor="pointer"
                          onClick={(d: any) => {
                            const hit = vendors?.find(v => v.display_name === d?.vendor);
-                           if (hit) openVendorPage(hit.brand_id);
+                           if (hit) setRecords({
+                             kind: 'posts',
+                             title: `${hit.display_name}: posts, last ${periodDays} days`,
+                             days: periodDays, vendorId: hit.brand_id,
+                             ownership: 'owned', expectedTotal: d?.posts,
+                           });
                          }} radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -2199,12 +2265,26 @@ export function MarketMonitorTab() {
           </div>
 
           <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-              Largest disclosed raises
+            {/* Not "largest raise". These are cumulative totals, and there is
+                no round-level amount or date in the data, so naming a single
+                raise would be a claim nothing supports. */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                Largest disclosed total funding
+              </div>
+              <button
+                onClick={() => setRecords({
+                  kind: 'funding',
+                  title: 'Funding by vendor',
+                })}
+                className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+                All vendors
+              </button>
             </div>
             <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-              Total raised, from the imported registry. Vendors that never
-              disclosed a figure are absent, not zero.
+              Cumulative total raised, from the imported registry — not a single
+              round. Vendors that never disclosed a figure are absent rather
+              than shown as zero.
             </p>
             <div className="divide-y max-h-[420px] overflow-y-auto pr-1">
               {overview.top_funded.map(v => (
@@ -2288,6 +2368,7 @@ export function MarketMonitorTab() {
 
       {view === 'findings' && marketId !== null && (
         <MarketAnalysisView marketId={marketId} onVendor={openVendorPage}
+                            onRecords={setRecords}
                             days={periodDays}
                             onDrill={(kind, value) => {
                               if (kind === 'founded') {
@@ -3864,6 +3945,22 @@ export function MarketMonitorTab() {
         </div>
       )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* The records behind whichever figure was clicked. A dialog rather than
+          an inline panel: the list can be long, and it belongs to the figure
+          that opened it rather than to the section it happens to sit in. */}
+      {records && marketId !== null && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center
+                        overflow-y-auto bg-black/40 p-4 sm:p-8"
+             role="dialog" aria-modal="true"
+             aria-label={records.title}
+             onClick={() => setRecords(null)}>
+          <div className="w-full max-w-6xl" onClick={e => e.stopPropagation()}>
+            <DrilldownHost marketId={marketId} spec={records}
+                           onClose={() => setRecords(null)}
+                           onVendor={openVendorPage} />
           </div>
         </div>
       )}

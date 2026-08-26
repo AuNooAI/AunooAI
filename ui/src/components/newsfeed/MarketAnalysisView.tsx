@@ -23,6 +23,7 @@ import {
 import { DataTable, type Column } from './DataTable';
 import { MarketThemesPanel } from './MarketThemesPanel';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
+import type { DrilldownSpec } from './MarketDrilldownHost';
 
 // SVG stroke/fill props take a literal color, not a Tailwind class, so every
 // chart color needs a light/dark pair picked at render time (see `cc` below).
@@ -82,12 +83,16 @@ function Panel({ title, children, full }: {
   );
 }
 
-export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
+export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
+                                     days }: {
   marketId: number;
   onVendor: (brandId: number) => void;
   /** Open a filtered list for a chart segment. Optional so the view still
    *  renders where no drilldown target exists. */
   onDrill?: (kind: string, value: string) => void;
+  /** Open the records behind a figure — the posts, listings or funding rows
+   *  themselves, as opposed to onDrill's list of vendors. */
+  onRecords?: (spec: DrilldownSpec) => void;
   /** The shared period, same as Pulse and Coverage. Only reaches the panels
    *  where a window has a real meaning — signal/noise, hiring, share of
    *  voice, top voices, channel mix. Formation and funding describe the
@@ -561,7 +566,21 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
                 initialSort="engagement" initialDir="desc"
                 columns={[
                   { key: 'author', label: 'Account', groupable: false,
-                    render: v => `@${v.author}` },
+                    // Opens every relevant post by this account. A ranked
+                    // handle whose posts cannot be read is an assertion.
+                    render: v => onRecords ? (
+                      <button
+                        onClick={e => { e.stopPropagation();
+                                        onRecords({
+                                          kind: 'voice',
+                                          title: `@${v.author}: posts about this market`,
+                                          author: v.author, days,
+                                          expectedTotal: v.posts,
+                                        }); }}
+                        className="text-sky-700 dark:text-sky-400 hover:underline">
+                        @{v.author}
+                      </button>
+                    ) : `@${v.author}` },
                   { key: 'platform', label: 'Platform', groupable: true },
                   // A ranked list of handles with no subject is a list of
                   // strangers. What they talk about is the useful part.
@@ -734,6 +753,19 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
               </p>
             ) : (
               <div className="divide-y">
+                {onRecords && (
+                  <div className="pb-1.5">
+                    <button
+                      onClick={() => onRecords({
+                        kind: 'investors',
+                        title: 'Investors backing more than one vendor',
+                        expectedTotal: fu.shared_investors.length,
+                      })}
+                      className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+                      Open the full list, with the evidence behind each
+                    </button>
+                  </div>
+                )}
                 {fu.shared_investors.map(inv => (
                   <div key={inv.investor} className="py-1.5">
                     <div className="text-sm text-slate-800 dark:text-gray-100">{inv.investor}</div>

@@ -897,6 +897,200 @@ export async function getCollectionState(
       { credentials: 'include' }), 'Failed to load collection state');
 }
 
+// ---------------------------------------------------------------------------
+// Drill-downs: the records behind a number
+// ---------------------------------------------------------------------------
+
+/** The shape every list endpoint returns.
+ *
+ *  `applied_filters` is echoed by the server so a caller can prove the list it
+ *  is showing is the one it asked for. A drill-down whose filters differ from
+ *  the aggregate's will report a different total, and then neither number can
+ *  be trusted -- so pass the card's own filters through rather than rebuilding
+ *  them here.
+ */
+export interface ListEnvelope<T> {
+  data: T[];
+  meta: {
+    metric: MetricMeta | null;
+    pagination: {
+      page: number; page_size: number; total: number; pages: number;
+      sort: string; has_more: boolean;
+    };
+    applied_filters: Record<string, unknown>;
+    /** Disclosed caps or unclassifiable subsets. A silently bounded list reads
+     *  as a complete one, so anything the query could not answer is said. */
+    notes: string[];
+  };
+}
+
+export interface PostRecord {
+  brand_id: number; vendor: string; uri: string;
+  title: string | null; url: string | null;
+  published_at: string | null; observed_at: string | null;
+  excerpt: string | null; account: string | null; platform: string;
+  engagement: number; is_reshare: boolean; is_owned: boolean;
+  /** Three values, not two: a reshare is neither the vendor speaking nor
+   *  somebody else covering it. */
+  ownership: 'owned' | 'reshared' | 'earned';
+  classification: string;
+  classification_raw: string | null;
+  classification_kind: string | null;
+  why_relevant: string | null;
+  matched_terms: string[] | null;
+  relevance_score: number | null;
+  provider: string;
+}
+
+export interface CoverageRecord {
+  uri: string; title: string | null; url: string | null;
+  published_at: string | null; bias_source: string | null;
+  platform: string; ownership: string; excerpt: string | null;
+}
+
+export type JobStatus = 'currently_observed' | 'newly_observed'
+                      | 'no_longer_observed' | 'first_observation';
+
+export interface JobRecord {
+  provider_item_id: string; brand_id: number; vendor: string;
+  title: string | null; location: string | null; seniority: string | null;
+  function: string | null; function_group: string;
+  employment_type: string | null; url: string | null;
+  /** First seen and last seen, never an opening or closing date -- we observe
+   *  listings, we do not see the hiring decision. */
+  first_seen: string; last_seen: string;
+  status: JobStatus;
+  runs_covering_vendor: number;
+}
+
+export interface FundingRecord {
+  brand_id: number; vendor: string;
+  disclosed_total_musd: number | null;
+  /** `undisclosed` is a company that chose not to say; `unavailable` is data we
+   *  do not have. Rendering either as 0 puts them at the bottom of a chart
+   *  beside genuinely small raises. */
+  disclosure: 'disclosed' | 'undisclosed' | 'unavailable';
+  funding_status: string | null;
+  stage_raw: string | null; stage_group: string; is_equity_stage: boolean;
+  rounds: number | null; growth_score: number | null;
+  heat_score: number | null; cb_rank: number | null;
+  investors: string[] | null; lead_investors: string[] | null;
+  crunchbase_url: string | null; crunchbase_read_at: string | null;
+  /** Per field, because the total and the stage have different origins. */
+  sources: Record<string, string>;
+}
+
+export interface InvestorRecord {
+  investor: string; normalized: string; vendor_count: number;
+  forms?: string[];
+  vendors: { brand_id: number; vendor: string; evidence_url: string | null }[];
+}
+
+export interface VoicePostRecord {
+  uri: string; title: string | null; url: string | null;
+  published_at: string | null; platform: string; engagement: number;
+  excerpt: string | null; matched_terms: string[] | null;
+  relevance_score: number | null; why_relevant: string | null;
+  vendors_mentioned: string[];
+}
+
+function listQuery(params: Record<string, unknown>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
+export async function getMarketPosts(
+  marketId: number,
+  params: {
+    days?: number | null; vendor_id?: number; platform?: string;
+    ownership?: string; classification?: string;
+    page?: number; page_size?: number; sort?: string;
+  } = {},
+): Promise<ListEnvelope<PostRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/posts${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load posts');
+}
+
+export async function getCoverageItems(
+  marketId: number,
+  params: {
+    days?: number | null; week?: string; source?: string; vendor_id?: number;
+    page?: number; page_size?: number; sort?: string;
+  } = {},
+): Promise<ListEnvelope<CoverageRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/coverage/items${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load coverage items');
+}
+
+export async function getMarketJobs(
+  marketId: number,
+  params: {
+    brand_id?: number; status?: JobStatus;
+    page?: number; page_size?: number; sort?: string;
+  } = {},
+): Promise<ListEnvelope<JobRecord> & { openings: number; postings: JobRecord[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/jobs${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load job listings');
+}
+
+export async function getFundingVendors(
+  marketId: number,
+  params: { stage?: string; disclosure?: string;
+            page?: number; page_size?: number; sort?: string } = {},
+): Promise<ListEnvelope<FundingRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/funding/vendors${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load funding');
+}
+
+export async function getInvestors(
+  marketId: number,
+  params: { min_vendors?: number; page?: number; page_size?: number } = {},
+): Promise<ListEnvelope<InvestorRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/funding/investors${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load investors');
+}
+
+export async function getInvestorVendors(
+  marketId: number, investor: string,
+): Promise<ListEnvelope<{ brand_id: number; vendor: string;
+                          evidence_url: string | null }>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/funding/investors/`
+                + encodeURIComponent(investor),
+      { credentials: 'include' }), 'Failed to load investor');
+}
+
+export async function getVoicePosts(
+  marketId: number, author: string,
+  params: { days?: number | null; page?: number; page_size?: number } = {},
+): Promise<ListEnvelope<VoicePostRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/voices/`
+                + encodeURIComponent(author) + `/posts${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load posts for this account');
+}
+
+/** CSV of a list, using the same server-side filters as the JSON.
+ *
+ *  Built as a URL rather than fetched so the browser downloads it directly.
+ *  The server applies the same authorization it applies to the list itself.
+ */
+export function listCsvUrl(
+  marketId: number, path: string, params: Record<string, unknown> = {},
+): string {
+  return `${BASE}/markets/${marketId}/${path}`
+       + listQuery({ ...params, fmt: 'csv' });
+}
+
 export interface DatasetRow { [key: string]: unknown }
 
 export async function getDataset(

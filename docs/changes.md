@@ -2,6 +2,151 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Market Monitor drill-downs) — every figure now opens the records behind it
+
+### Goal
+P1 #3. Spec §5 requires nine list capabilities, server-side pagination, the metric contract on
+every list, CSV, and — the acceptance criterion that actually bites — a drill-down total that
+matches the aggregate that opened it. The spec is explicit that these describe capabilities, not
+permission to duplicate APIs, so the audit came first: `/corpus`, `/jobs`, `/voices`,
+`/data/{dataset}` and `/drilldown/{name}` already existed, and none had a total, a metric block or
+a stable sort.
+
+### `app/services/market_lists.py` — new, one envelope for every list
+`envelope()` produces the §5 shape (`data` + `meta.metric` / `meta.pagination` /
+`meta.applied_filters` / `meta.notes`). Six list functions: `posts`, `coverage_items`, `jobs`,
+`voice_posts`, `funding_vendors`, `investors` / `investor_vendors`.
+
+Pagination is in the database with a `COUNT` for the true total and a unique tie-break in every
+`ORDER BY`, so page two cannot repeat a row from page one. Verified: 532 owned posts collected
+across 11 pages with zero duplicates.
+
+`applied_filters` is echoed from the server rather than reflected from the request, so a filter the
+server ignored cannot pass unnoticed.
+
+### The three ways a drill-down silently disagreed with its card
+All three were live bugs found while building this, and none looked like a bug.
+
+**Window format.** `articles.publication_date` is TEXT, so the window bound is a *string*
+comparison. `datetime.isoformat()` emits microseconds and `+00:00`; the aggregates use
+`market_corpus._iso_days_ago`, which emits neither. One post sat between the two spellings, so the
+card said 533 and the list said 532. `_since()` now delegates to `_iso_days_ago` rather than
+reimplementing it.
+
+**Wrong population.** `top_voices` counts `bw_market_articles` (the market corpus). The first
+`voice_posts` joined `bw_article_categories` (per-vendor attribution) and returned **zero** posts
+for `gabsmashh`, an account the voices list ranks — a practitioner post can be about the market
+without naming a vendor we track. Vendor attribution is now a `LEFT JOIN` that labels a row rather
+than deciding whether it counts.
+
+**Truncating an existing caller.** `/jobs` returned every listing under `postings`; adding
+pagination cut it to 50 of 91, and `MarketAnalysisView.tsx:149` reads it market-wide. `ml.jobs`
+takes `include_all` and the route fills `postings` from the full set, which the rows already are
+before slicing. Both keys ship: `data` is the page, `postings` is everything.
+
+### §4.8 job status rules, from the run ledger
+`bw_vendor_snapshots.collection_run_id` is populated (112/112 for `job_posting` across 3 runs), and
+`bw_collection_runs.requested_brand_ids` records which vendors a market-wide sweep covered. So
+"the latest successful run covering this vendor" is well defined and `_job_run_history` computes it.
+
+Only `status='succeeded'` runs with `metrics->>'truncated'` false enter the history, which is where
+the spec's rule is enforced: a failed or capped run is never compared against, so it can never mark
+a listing gone. A listing absent from the latest run with no second run to confirm it stays
+`first_observation` rather than being called gone.
+
+Live: 91 listings — 80 `currently_observed`, 2 `newly_observed`, 0 `no_longer_observed`,
+9 `first_observation`, with a note stating that 89 belong to vendors with one run on file so no
+change can be reported for them yet.
+
+### Funding (§4.5, §4.7)
+`STAGE_GROUPS` implements the spec's ten ordered groups; `NON_EQUITY_GROUPS` marks Debt and
+Grant / non-equity so a loan is not sorted beside a Series C. `convertible_note` maps to
+Other / undisclosed per the spec, being neither.
+
+Disclosure is three states, not two: `disclosed`, `undisclosed` (the company chose not to say) and
+`unavailable` (we have not read it). Live: 37 / 0 / 46. Neither missing state renders as zero.
+Every row carries per-field `sources`, because the total is the workbook's and the stage, investors
+and scores are Crunchbase's — presented together unlabelled, a reader attributes the whole row to
+Crunchbase.
+
+`_normalize_investor` handles case, spacing and trailing punctuation only, and a test pins
+`Accel != Accel-KKR`: a similarity guess would invent the portfolio overlap this metric exists to
+measure. Currently 0 investors back two or more vendors and 102 back one, and the metric's first
+limitation states that only 20 of 39 Crunchbase pages have been read — so it reports `partial`, not
+`observed_zero`. That distinction is the whole contract working.
+
+### Jobs on LinkedIn only — found by the user mid-session
+Dropzone AI showed 0 open roles and has **11 on its own careers page** (Greenhouse). Checked: brand
+92 has a correct `linkedin_company_url`, run 312 covered it and succeeded, and LinkedIn itself says
+"There are no jobs right now." Our zero is correct **for LinkedIn** and was still misleading.
+
+**67 of 83 vendors list no roles on LinkedIn**, so an unqualified "Open roles: 0" reads as "not
+hiring" for 81% of the market. The column is now **"Open roles on LinkedIn"**, the metric's first
+limitation names the careers-page/ATS gap and the 67-of-83 figure, and the count still prints `0`
+rather than an em dash because collection succeeded — a dash would claim we had not looked. My own
+first version of that cell dashed it, which was the same defect one level down.
+
+Not built: reading listings from careers pages. We already fetch 16 of them as `page_state`
+(including `dropzone.ai/careers`), so the pages are in hand and only an extractor is missing. That
+is a new collector, not a label change, and it is out of scope here.
+
+### Routes
+Eight added or extended on `app/routes/market_monitor_routes.py`, each with `fmt=csv` through a
+shared `_list_csv` helper that exports the same rows the JSON returned: `/posts`,
+`/coverage/items`, `/jobs` (extended), `/funding/vendors`, `/funding/investors`,
+`/funding/investors/{investor}`, `/voices/{author}/posts`. The literal `/funding/investors` is
+declared before `/funding/investors/{investor}` because FastAPI matches in declaration order.
+
+### UI
+- **`MarketDrilldown.tsx`** — one generic table for every list. Always on screen: the server's
+  total, the server's applied filters, and the metric state. An empty list from a source that never
+  ran renders `UnmeasuredNotice` instead of "nothing matched". If the list total and the
+  aggregate's `expectedTotal` disagree, it says so in an amber banner rather than leaving a reader
+  to notice.
+- **`MarketDrilldownHost.tsx`** — per-list columns and fetchers, keyed on the spec so a filter
+  change reloads from page one.
+- Wired: LinkedIn post-volume bars (per vendor) and header (all posts), content-observed-by-week
+  bars (the clicked week is passed through as the server's filter, never recomputed), the vendor
+  table's Open roles column, funding, investors, and each Top Voices handle.
+- The tab's existing `drill` state is the vendor drill-down, so the new one is `records` — the two
+  answer different questions and a name collision was a compile error, not a merge.
+- Renamed **"Largest disclosed raises"** to **"Largest disclosed total funding"**. §4.5 forbids the
+  first for a cumulative figure, and there is no round-level amount or date in the data.
+
+### Verification
+- `pytest tests/test_market_lists.py` — **23 passed**. MM-11, MM-13 to MM-16, plus a regression per
+  bug above. MM-13/MM-14 are a differential pair: same fixture, differing only in run status and
+  truncation, asserting a successful uncapped pair ends a listing and a failed or capped pair
+  cannot. MM-13 uses nested savepoints to test both branches.
+- Market suite: **148 passed, 10 skipped, 3 failed** — the same pre-existing `pytest-asyncio`
+  failures in `test_market_collection.py`.
+- `npm run typecheck` → clean at the 246 known baseline.
+- Live, all eight endpoints HTTP 200 with a minted session; CSV returns a correct
+  `Content-Disposition` on all five list endpoints.
+- MM-16 measured live: owned posts card 532 = list 532; reshared 138 = 138; jobs 91 = 91;
+  `@gabsmashh` voices card 1 = list 1.
+- Backwards compatibility: `/jobs` returns `openings` 91 and `postings` 91 alongside a 50-row
+  `data` page, and `_all` does not leak into the response.
+- `/overview`, `/brief`, `/analysis`, `/voices`, `/jobs` all still 200; `report.html` still
+  generates at 102,903 bytes.
+- Checked `bw_collection_runs` for in-flight work before each of the four restarts; zero every
+  time.
+
+### Propagation
+Canonical only (`bugfixing`). Market Monitor exists on no other tenant.
+
+### Lessons
+- **A drill-down must reuse the aggregate's own helpers, not reimplement them.** Both the window
+  format and the population bugs were independent reimplementations of something that already had
+  one correct definition. Where a card and its list must agree, they have to share the code that
+  makes them agree.
+- **Adding pagination to an endpoint that had none is a breaking change.** `postings` went from
+  everything to a page silently. Check every consumer of a key before paginating it.
+- A correct number can still be a misleading one. "0 open roles" was accurate and read as "not
+  hiring" for 81% of the market; naming the source in the column label was the fix, not changing
+  the figure.
+
+
 ## 2026-08-26 (Market Monitor metric contract) — a zero on the page now has to be a measurement
 
 ### Goal
