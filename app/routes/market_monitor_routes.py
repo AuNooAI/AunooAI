@@ -2115,6 +2115,7 @@ async def source_health(market_id: int, session=Depends(verify_session_api)):
     caller computes one — so reporting it as a number implied we track spend
     when we do not. The column stays for the day there is a price list.
     """
+    from app.services import entity_scheduler as sch
     from app.services.brightdata_linkedin import linkedin_enabled, webhook_secret
 
     def _work():
@@ -2155,13 +2156,36 @@ async def source_health(market_id: int, session=Depends(verify_session_api)):
                 )
                 latest = row.pop("latest_status", None)
                 latest_error = row.pop("latest_error", None)
-                # In flight is neither healthy nor failing — it is pending.
+                # Whether this source is dispatched on a cadence at all, and
+                # why not. Without it, a source that is correctly never
+                # dispatched reports the last run before that policy took
+                # effect — so PitchBook, ZoomInfo and Indeed each read
+                # "failing" indefinitely on a stranded row from 24 August,
+                # which is not their state and is not actionable.
+                row["scheduled"] = (
+                    row["source"] not in sch.MANUAL_ONLY_SOURCES
+                    and row["source"] not in sch.PAUSED_SOURCES)
+                row["policy"] = (
+                    "manual_only" if row["source"] in sch.MANUAL_ONLY_SOURCES
+                    else "paused" if row["source"] in sch.PAUSED_SOURCES
+                    else "scheduled")
+                row["policy_reason"] = (
+                    sch.PAUSED_SOURCES.get(row["source"])
+                    or sch.MANUAL_ONLY_REASONS.get(row["source"]))
+                # In flight is neither healthy nor failing — it is pending. A
+                # source that is not scheduled is neither: nothing is going to
+                # replace its last run, so reporting that run as the current
+                # state means the panel never stops accusing it.
                 row["state"] = (
-                    "in_flight" if latest in ("queued", "running")
+                    "not_scheduled" if not row["scheduled"]
+                    else "in_flight" if latest in ("queued", "running")
                     else "failing" if latest == "failed"
                     else "healthy" if latest == "succeeded"
                     else "unknown"
                 )
+                # Not healthy and not broken. A caller counting unhealthy
+                # sources should not count these, and a caller listing what to
+                # fix should not list them either.
                 row["healthy"] = row["state"] == "healthy"
                 # Only surface the error when the most recent run is the one
                 # that failed. Historical errors stay in the run log.

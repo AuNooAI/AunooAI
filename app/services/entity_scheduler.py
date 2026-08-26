@@ -50,6 +50,28 @@ MANUAL_ONLY_SOURCES = frozenset({
     'pitchbook_company', 'zoominfo_company', 'indeed_jobs',
 })
 
+# Why each one is manual-only, in words a reader can act on. Kept beside the
+# set rather than in a comment, because the health panel reported these as
+# "failing" on a stranded run from before the policy existed and had nothing
+# truer to show.
+MANUAL_ONLY_REASONS: Dict[str, str] = {
+    'pitchbook_company': (
+        'needs a pitchbook_url an operator entered by hand — unlike Crunchbase '
+        'there is no slug to guess from the company name'
+    ),
+    'zoominfo_company': (
+        'needs a zoominfo_url an operator entered by hand — unlike Crunchbase '
+        'there is no slug to guess from the company name'
+    ),
+    'indeed_jobs': (
+        "the dataset has no employer field. keyword_search is free text and "
+        "posted_by is a closed enum of poster types ('Employer' is a member, a "
+        "company name is rejected), so a listing cannot be attributed to a "
+        "specific vendor the way LinkedIn jobs can. Confirmed against the "
+        "provider on 2026-08-26."
+    ),
+}
+
 # Sources temporarily withheld from automatic dispatch, with the reason. These
 # are not manual-only by policy; they are broken and honest about it.
 #

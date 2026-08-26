@@ -170,11 +170,50 @@ version tallied per file and failed on correct code, counting a docstring mentio
 deliberately-unguarded `is_owned` label. Verified by removing the guard from one query and watching
 it name `market_publish.py:106`.
 
+### Loose ends
+**Three sources reported as failing forever.** The health panel shows the state of the most recent
+run, and PitchBook, ZoomInfo and Indeed are refused at admission — so nothing will ever replace
+their last rows, three stranded runs from 24 August reading `no collector dispatched source ...`.
+All three read "failing" indefinitely: not their state, not actionable, and it buries a genuinely
+broken source among two working as designed.
+
+**`app/services/entity_scheduler.py`** — new `MANUAL_ONLY_REASONS`, one plain-language reason per
+source, kept beside `MANUAL_ONLY_SOURCES` the way `PAUSED_SOURCES` already keeps its own.
+**`app/routes/market_monitor_routes.py`** — `source_health` now reports `scheduled`, `policy`
+(`scheduled` / `manual_only` / `paused`) and `policy_reason` separately from `state`, and a source
+that is not dispatched reads `not_scheduled` rather than inheriting a stale error. Nine sources now
+read healthy, three read not-scheduled with a reason, none read falsely broken.
+
+**The vendor-website collector had nothing to collect.** `vendor_web` returned 88 and 91 records on
+24 August, then 0 on the 25th at 09:47, 0 at 21:47 and 0 on the 26th at 09:51 — reported each time
+as *succeeded*. `_poll_pages` reads `baseline->'web_pages'`, and the TRUNCATE CASCADE of 24 August
+took it: all 85 vendors carry the reconstruction note, which says outright that "web page discovery
+timestamps ... were not recoverable", and **zero have `web_pages`**. Page-state snapshots stop dead
+on 24 August. A collector with no input list reporting a measured-looking zero is the exact
+confusion this whole entry is about, in a place nobody was looking.
+
+`vendor_web_discovery` repopulates that key and runs on a 720-hour cadence, last fired 20 August,
+so it would not have recovered on its own until 19 September. Forced (run 345, internal collector,
+no provider cost).
+
+**Stale nginx vhost.** `/etc/nginx/sites-enabled/saas.aunoo.ai.bak-1786977093` was being loaded by
+nginx, producing `conflicting server name "saas.aunoo.ai" ... ignored` on every config test. Diffed
+against the live file first: identical but for a cache-control block the live one has, so it is an
+older copy that nginx was already ignoring on alphabetical order. **Moved**, not deleted, to
+`/etc/nginx/disabled-backups/`. `nginx -t` is now warning-free; `saas.aunoo.ai` returns 200 and
+`bugfixing.aunoo.ai` 307 after the reload.
+
 ### Found, measured, and deliberately not fixed
 
-`company_id` is null on all 2,495 posts despite `8fb8f9c0` ("…and keep company_id"). 485 older
-posts have no `is_repost` at all and default to "the company speaking" by design, to keep the
-historical corpus stable — so the contamination cannot be cleaned without re-collection.
+485 older posts have no `is_repost` at all and default to "the company speaking" by design, to
+keep the historical corpus stable — so the contamination cannot be cleaned without re-collection.
+The split is exact only for posts gathered from here on.
+
+Correcting something said earlier in this entry and in `dd2220bb`'s message: `company_id` being
+null on posts is not an unfulfilled intention of `8fb8f9c0`. That commit added `company_id` to
+`map_job_listing` and it is also on `map_company_profile`; `map_company_post` never carried it and
+was never meant to. Post attribution runs off `discovery_input.url` — the page we asked for — and
+the reshare guard needs `is_repost` and `account_type`, not an id. Nothing is missing here.
 
 **Every Glassdoor match in this market is the wrong company.** Kenzo Security (3 staff) → Kenzo,
 the Paris fashion house, industry "Department, Clothing & Shoe Stores"; Secure.com (34) → SECURE,

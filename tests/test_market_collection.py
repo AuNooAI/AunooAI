@@ -731,3 +731,44 @@ def test_every_owned_post_count_excludes_reshares():
     assert not unguarded, (
         'these queries count a vendor\'s own posts without excluding '
         'reshares: ' + ', '.join(unguarded))
+
+
+def test_a_source_that_is_never_dispatched_does_not_report_as_failing():
+    """A policy decision is not a fault, and the panel has to say which it is.
+
+    PitchBook, ZoomInfo and Indeed are refused at admission, so nothing will
+    ever replace their last run — three rows from 24 August reading
+    "no collector dispatched source ...". The health panel reports the state of
+    the most recent run, so all three read "failing" indefinitely: not their
+    state, not actionable, and it buries a source that is genuinely broken
+    among two that are working as designed.
+
+    Every manual-only and paused source must therefore carry a reason a reader
+    can act on, rather than inheriting a stale error.
+    """
+    from app.services import entity_scheduler as sch
+
+    for source in sch.MANUAL_ONLY_SOURCES:
+        reason = sch.MANUAL_ONLY_REASONS.get(source)
+        assert reason, f'{source} is manual-only with no stated reason'
+        assert len(reason) > 30, f'{source}: reason is too thin to act on'
+
+    for source, reason in sch.PAUSED_SOURCES.items():
+        assert reason and len(reason) > 30, (
+            f'{source} is paused with no usable reason')
+
+
+def test_the_health_panel_separates_policy_from_run_state():
+    """``state`` answers "is this working"; ``policy`` answers "is this even
+    running". Collapsing them is what made three sources read as broken."""
+    import inspect
+
+    from app.routes import market_monitor_routes as mmr
+
+    src = inspect.getsource(mmr.source_health)
+    for field in ('"scheduled"', '"policy"', '"policy_reason"',
+                  '"not_scheduled"'):
+        assert field in src, f'source_health no longer reports {field}'
+    assert 'MANUAL_ONLY_REASONS' in src, (
+        'source_health does not surface why a source is not dispatched, so a '
+        'reader sees "not scheduled" with no way to find out why')
