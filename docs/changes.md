@@ -2,6 +2,154 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Market Monitor metric contract) — a zero on the page now has to be a measurement
+
+### Goal
+The 25 August collection work fixed the data; this fixes what the page claims about it. The
+specification's P1 list is mostly presentation, and the audit found the trust contract absent:
+`metric_id`, `data_state`, `pct_of_eligible` and `limitations` had zero hits across `app/` and
+`ui/src`. Two figures were also actively wrong — "quietest" counted vendors nobody had collected,
+and headcount movers compared a LinkedIn reading against the April workbook import and called the
+difference growth.
+
+Spec items delivered: P1 #1 (data states), #2 (metric contract), #4 (headcount), #6 (quietest),
+plus the Signals removal from #8 and the Growth-vs-Heat rename from P2 #3.
+
+### `app/services/market_metrics.py` — new, the one place that knows a metric's state
+No migration was needed, which was the useful finding of the audit.
+`bw_entity_source_policies` already carries per vendor per source: `eligible`,
+`ineligible_reason`, `last_attempt_at`, `last_success_at`, `cadence_seconds`,
+`consecutive_failures`, `enabled`. That is the spec's whole coverage contract — registry total,
+eligible, attempted, successful, freshness, stale — so `collection_state()` is a read over two
+existing tables (83 policy rows × 6 sources).
+
+`collection_state(conn, market_id, source)` returns the seven states. It deliberately never
+returns `observed_zero`, because it does not know what was counted; `resolve(collection, value)`
+combines state with value, and that function is the whole rule: a zero is only a zero when
+collection succeeded across the stated population.
+
+Freshness is two missed intervals of the source's *own* cadence, from `CADENCE_HOURS` or a
+per-vendor `cadence_seconds` override. One global threshold would have read the weekly profile
+collector as stale six days out of seven.
+
+`SOURCE_LEGEND` holds the spec's §4.10 table as data — content, platform, provider, ownership —
+consumed by both the live UI and the HTML export so they cannot drift. A test asserts every
+tracked source has a row; it failed on first run and caught three genuinely missing
+(`vendor_web_discovery`, `pitchbook_company`, `zoominfo_company`).
+
+Live output, all nine sources distinguishable: LinkedIn posts/profile/jobs `healthy` 82/82,
+`crunchbase_company` `partial` 20/39, `vendor_web` `partial` 19/82, `vendor_web_discovery`
+`never_collected` 0/82, Indeed/PitchBook/ZoomInfo `not_configured` with their reasons.
+
+### `app/services/market_analysis.py` — quietest excludes vendors nobody collected
+`share_of_voice` read the full registry with a `NOT EXISTS` on posts, so a vendor whose collection
+had never succeeded was reported as quiet. That is the dashboard accusing a company of silence
+nobody listened for, and it is the specific claim the 25 August entry said was still outstanding.
+
+Quiet now requires `bw_entity_source_policies.last_success_at IS NOT NULL` for
+`linkedin_company_post`. The rest come back as a separate `unmeasured` list. The gate is the policy
+row rather than content, because "no posts" is exactly the condition under test — reading it from
+content would be circular.
+
+Each row also carries `last_posted_at`, deliberately **unbounded by the selected window**, plus
+`posts_in_selected_window`. Inside the window that date is always empty for a quiet vendor by
+construction, so it would have printed "never" for Almanax, which last posted 2026-03-19.
+
+Live: 18 quiet, 1 unmeasured (SOCAI), `own_total` 533 — matching the post-reshare figure.
+
+### `app/services/market_publish.py` — `headcount_market()` replaces the forbidden join
+The old query (was at `:383`) joined `mb.baseline->'metrics'->>'employee_count'` to the latest
+LinkedIn snapshot. Two different measurements four months apart, so nearly every vendor looked
+like a mover. Movement now needs two LinkedIn readings, each returned with its own date.
+
+Only exact integers are summed: `data->>'employee_count' ~ '^[0-9]+$'` and `> 0`. A band must never
+reach the arithmetic — a digit-stripping parser turns "51-200" into 51200 and "1,001-5,000" into
+10015000 — and the provider returns 0 when it has no count.
+
+Live: `observed_market_headcount` 2,916 across an 80-vendor cohort, **1 mover** (Dropzone AI
+77→78, 20→22 Aug), 82 in `insufficient_history`. The short mover list is the honest state and
+fills as the next profile sweep lands; the preflight measured 81 of 82 vendors with exactly one
+reading. The workbook comparison still ships under `baseline_comparison` with its own source label
+and a caution string, per §4.1's "label it as a separate baseline source".
+
+`build_brief` now calls it. `market_briefing.py:274` and the UI `HeadcountMover` type were updated
+in the same change, because the mover row keys went from `was`/`now_count` to
+`previous`/`latest` plus dates — the briefing prompt would otherwise have printed `None -> None`.
+
+### `signals` removed (spec §4.0)
+`market_publish.py` summed 30-day posts with currently-open job listings. Adding a flow to a stock
+gives a number that moves when either the period or a hiring freeze changes and reads as neither.
+Dropped from the payload, the TS type and the UI column. It was also the sort tie-break, which was
+the same error, so ordering is now earned coverage then posts then jobs as separate keys — no
+composite. `quiet_vendors` derives from the three raw counts instead.
+
+### UI
+- **`MarketMetric.tsx`** — new. `MetricHelp` (the §3 "What this means" popover), `DataStateBadge`,
+  `MetricHeading`, `UnmeasuredNotice`, `SourceLegend`, and `metricValue()` which returns an em dash
+  rather than a zero when `meta.measured` is false. The server's `measured` flag is authoritative;
+  nothing here re-derives the rule.
+- **`CollectionStatePanel`** in `MarketMonitorTab.tsx`, above the existing `HealthPanel`. Kept
+  separate on purpose: `source-health` answers "is the collector working", this answers "may I
+  believe this number", and the denominator differs — that source's eligible vendors, not the
+  registry.
+- Quietest panel now shows the all-time last-post date per vendor and an **Unmeasured** group
+  beneath a dashed rule.
+- Headcount panel leads with observed market headcount and its cohort.
+- "Coverage by week" → **"Content observed by week"**; the old name covered both content volume
+  and collection completeness, so a low bar could mean either.
+- "Growth outlook" → **"Crunchbase Growth vs Heat"** in both files, with help text saying both are
+  proprietary upstream scores we cannot reproduce and that Heat is attention now, not a forecast.
+
+### `app/services/market_report_html.py` — methodology appendix (§6, P2 #7)
+The file previously contained no legend or methodology text at all. It already renders the same
+payload as the UI and computes nothing, so once the aggregates carried `metric` blocks the export
+got them almost free. New "How to read this report" section: source legend, per-source collection
+state table, metric definitions with limitations, and the post-classification legend.
+`_metric_blocks()` walks the payloads for `metric` / `*_metric` keys rather than naming each one,
+so a metric added to an aggregate appears without anyone remembering to list it.
+
+### Verification
+- `pytest tests/test_market_metrics.py` — **16 passed**. MM-01 through MM-09 as named fixtures,
+  each constructed in a rolled-back transaction so it does not depend on what production happens
+  to contain. MM-09 takes one quiet vendor's collection away and asserts it leaves `quietest`,
+  enters `unmeasured`, and that the two sets are disjoint.
+- Market suite: `pytest tests/test_market_collection.py tests/test_market_metrics.py
+  tests/test_entity_events_narratives.py tests/test_entity_scheduler.py tests/test_market_import.py
+  tests/test_market_report_copy.py` → **127 passed, 10 skipped, 3 failed**. The 3 are the
+  pre-existing `pytest-asyncio` failures (`async def functions are not natively supported`),
+  unchanged by this work.
+- Full suite `pytest tests/` → 745 passed, 98 failed. Every failure is in a pre-existing family
+  (`test_ai_models_error_handling`, `test_circuit_breaker`, `test_retry`, `test_exceptions`,
+  `test_article_analyzer`, `test_chromadb_concurrent_postgres`, `week2`/`week3` migration) —
+  missing `pytest-asyncio`, sqlite `PRAGMA` against Postgres, and Mock JSON serialization.
+- `npm run typecheck` → "Type check clean: 246 errors, all 246 known". No new type errors.
+- `./ui/deploy-react-ui.sh`, then `sudo systemctl restart bugfixing.aunoo.ai.service` — active, no
+  errors in the journal. Checked `bw_collection_runs` for `queued`/`running` and
+  `bw_entity_source_policies` for claims first: both empty, so no background job was killed.
+- Live endpoints with a minted session cookie: `/collection-state` returns all nine sources with
+  distinct states and 13 legend rows; `/headcount/movers` returns 2,916 / cohort 80 / 1 mover / 82
+  insufficient; `/analysis/share_of_voice?days=30` carries the new `metric` block.
+- `report.html` generated live (102,902 bytes) and contains the legend, the per-source state table
+  with "partly collected", and both metric definitions.
+
+### Propagation
+Canonical only (`bugfixing`). Not copied to wiley, wileytest or wbm. Market Monitor is only on
+bugfixing, so no other tenant needs the backend files; if that changes the set is
+`app/services/market_metrics.py`, `market_analysis.py`, `market_publish.py`,
+`market_report_html.py`, `market_briefing.py`, `app/routes/market_monitor_routes.py`, plus the UI
+rebuild and rsync of `static/` and `templates/`.
+
+### Lessons
+- **`py_compile` passes on undefined names.** `_metric_blocks(overview, analyses, brief)` compiled
+  fine with no `brief` in scope. Only generating a real report caught it. Compile is not a smoke
+  test; run the function.
+- Two test failures looked like code bugs and were my fixture missing NOT NULL columns
+  (`bw_vendor_snapshots.source`, then `provider_item_id`). Read the constraint before suspecting
+  the query.
+- A per-source legend test is worth writing even when it looks tautological. It found three
+  sources with no legend row, each of which would have rendered as "unknown" on the page.
+
+
 ## 2026-08-26 (Market Monitor collection) — 58 vendors read as "no activity" because nobody had ever collected them
 
 ### Goal

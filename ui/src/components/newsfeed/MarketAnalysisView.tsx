@@ -459,25 +459,61 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
                   </div>
                   <div>
                     <div className="text-xs font-medium text-slate-600 mb-1 dark:text-gray-400">
-                      Quietest — no own posts in this window
+                      Quietest — collected, and said nothing
                     </div>
-                    {/* Vendors with zero own LinkedIn posts, not the bottom
-                        of "loudest" reversed — those are two different
-                        questions (a vendor near the bottom of loudest may
-                        still post regularly; these post nothing). */}
+                    {/* Two conditions, both required. Zero own posts in the
+                        window, *and* a successful collection for that vendor.
+                        Without the second, this list was accusing 57 companies
+                        of silence when nothing had ever been collected from
+                        them — the vendors below the split are that group, kept
+                        separate because "we did not look" is not a finding
+                        about the company.
+
+                        The date shown is the vendor's last post at any time,
+                        not inside the window. A vendor quiet this month may
+                        have posted in March, and "never" would be a lie the
+                        window told. */}
                     <div className="divide-y">
                       {sov.quietest.slice(0, 10).map(v => (
                         <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
-                                className="w-full py-1.5 text-sm text-left
+                                className="w-full py-1.5 text-sm text-left flex items-baseline
+                                           justify-between gap-2
                                            text-slate-700 hover:bg-slate-50
                                            dark:text-gray-300 dark:hover:bg-gray-700">
-                          {v.vendor}
+                          <span>{v.vendor}</span>
+                          <span className="text-xs text-slate-400 dark:text-gray-500 shrink-0">
+                            {v.last_posted_at
+                              ? `last posted ${String(v.last_posted_at).slice(0, 10)}`
+                              : 'no post on record'}
+                          </span>
                         </button>
                       ))}
                     </div>
                     {sov.quietest_total > 10 && (
                       <div className="text-xs text-slate-400 dark:text-gray-500 pt-1">
                         {sov.quietest_total - 10} more of {sov.quietest_total} total
+                      </div>
+                    )}
+
+                    {sov.unmeasured_total > 0 && (
+                      <div className="mt-3 pt-2 border-t border-dashed">
+                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
+                          Unmeasured — {sov.unmeasured_total} not collected
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-gray-400 mb-1">
+                          Post collection has never succeeded for these, so we
+                          cannot say whether they are quiet.
+                        </p>
+                        <div className="divide-y">
+                          {sov.unmeasured.slice(0, 10).map(v => (
+                            <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
+                                    className="w-full py-1.5 text-sm text-left
+                                               text-slate-700 hover:bg-slate-50
+                                               dark:text-gray-300 dark:hover:bg-gray-700">
+                              {v.vendor}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -594,10 +630,10 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
             </ResponsiveContainer>
           </Panel>
 
-          <Panel title="Growth outlook vs. attention">
+          <Panel title="Crunchbase Growth vs Heat">
             <CoverageLine
               coverage={fu.coverage}
-              note="Two separate reads on each company, both scored 0-100 by Crunchbase: how fast it looks like it's growing, and how much attention it's getting. A company's investor-database rank is in the tooltip, not the dot size — it would make every dot look the same." />
+              note="Growth and Heat are Crunchbase's own scores, 0-100. We do not compute them, cannot reproduce how they are calculated, and neither is a forecast: Heat is how much attention a company is getting now, not a prediction about it. A company's Crunchbase rank is in the tooltip rather than the dot size, which would make every dot look the same." />
             <ResponsiveContainer width="100%" height={230}>
               <ScatterChart margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
@@ -655,11 +691,11 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
                                    py-1.5 text-sm hover:bg-slate-50 text-left dark:hover:bg-gray-700">
                   <span className="text-slate-700 dark:text-gray-300">{m.vendor}</span>
                   <span className="text-slate-500 tabular-nums dark:text-gray-400">
-                    <span title="Crunchbase's growth-outlook score, 0-100">
+                    <span title="Crunchbase Growth, their own score, 0-100. Not ours and not a forecast.">
                       growth {m.growth_score ?? '—'}
                     </span>
                     {' · '}
-                    <span title="Crunchbase's attention score, 0-100">
+                    <span title="Crunchbase Heat, their own score, 0-100. Attention now, not a prediction.">
                       attention {m.heat_score ?? '—'}
                     </span>
                   </span>

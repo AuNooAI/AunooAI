@@ -11,6 +11,89 @@ const BASE = '/api/market-monitor';
 // Types
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// The metric contract
+// ---------------------------------------------------------------------------
+
+/** What a figure's state actually is. Only `observed_zero` licenses printing a
+ *  zero: it means a collector ran, completed across the stated population, and
+ *  found nothing. The four states in `UNMEASURED_STATES` mean the number is not
+ *  a measurement and must not be rendered as one. */
+export type DataState =
+  | 'observed_zero' | 'healthy' | 'not_configured' | 'never_collected'
+  | 'collecting' | 'partial' | 'stale' | 'failed';
+
+/** States where there is no defensible value to show. Mirrors
+ *  market_metrics.UNMEASURED on the server; the server's copy is
+ *  authoritative and `MetricMeta.measured` already carries the verdict, so
+ *  prefer that over re-deriving it here. */
+export const UNMEASURED_STATES: DataState[] = [
+  'not_configured', 'never_collected', 'collecting', 'failed',
+];
+
+export interface MetricSource {
+  provider: string;
+  dataset: string;
+  platform: string;
+  ownership: string;
+  status: DataState;
+  last_success_at: string | null;
+  expected_interval_seconds: number;
+  records_observed: number | null;
+  truncated: boolean;
+}
+
+/** Collection completeness — how much of the market we successfully measured.
+ *  Deliberately not called "coverage" on its own: that word was doing double
+ *  duty for this and for content volume, which is why a percentage alone is
+ *  never enough. Numerator and denominator both travel. */
+export interface MetricCoverage {
+  registry_total: number;
+  eligible: number;
+  attempted: number;
+  successful: number;
+  pct_of_eligible: number | null;
+  label: string;
+}
+
+export interface MetricFreshness {
+  last_success_at: string | null;
+  expected_interval_seconds: number;
+  stale_after: string | null;
+  is_stale: boolean;
+}
+
+/** Travels with every figure. Feeds the "What this means" control, so a reader
+ *  can always get to the definition, the period, the provider and the
+ *  limitations without leaving the page. */
+export interface MetricMeta {
+  metric_id: string;
+  label: string;
+  definition: string;
+  numerator: string;
+  denominator: string | null;
+  window: { days?: number | null; start?: string; end?: string } | null;
+  as_of: string;
+  data_state: DataState;
+  data_state_label: string;
+  /** False when the figure is not a measurement. Render the state, not a 0. */
+  measured: boolean;
+  state_detail: string | null;
+  sources: MetricSource[];
+  coverage: MetricCoverage | null;
+  freshness: MetricFreshness | null;
+  limitations: string[];
+}
+
+export interface SourceLegendRow {
+  key: string;
+  content: string;
+  platform: string;
+  provider: string;
+  ownership: string;
+  dataset: string;
+}
+
 export interface Market {
   id: number;
   name: string;
@@ -602,12 +685,51 @@ export async function getWireArticles(uris: string[]): Promise<WireArticle[]> {
  *  WireEventCard (article_uris expand-on-click, vendor pivot) works for both. */
 export type BriefEvent = TimelineEvent;
 
+export interface QuietVendor {
+  brand_id: number;
+  vendor: string;
+  /** When collection last succeeded for this vendor. Null in `unmeasured`. */
+  collected_at: string | null;
+  /** The vendor's most recent own post at any time, not just inside the
+   *  selected window — see the note in market_analysis.share_of_voice. */
+  last_posted_at: string | null;
+  posts_in_selected_window: number;
+}
+
 export interface HeadcountMover {
   vendor: string;
-  was: number;
-  now_count: number;
+  brand_id: number;
+  /** Both readings come from LinkedIn, so the difference is a measurement of
+   *  the same thing twice. Each carries its own date because a +1 over two days
+   *  and a +1 over four months are not the same fact. */
+  previous: number;
+  previous_at: string | null;
+  latest: number;
+  latest_at: string | null;
   delta: number;
   pct: number | null;
+  fresh: boolean;
+}
+
+/** A vendor we cannot report movement for, and why. Shown instead of listing
+ *  it as unchanged, which would be a claim we have no reading to support. */
+export interface HeadcountGap {
+  vendor: string;
+  brand_id: number;
+  reason: string;
+  latest?: number;
+  latest_at?: string | null;
+  workbook?: number | null;
+}
+
+/** The workbook-vs-LinkedIn comparison, kept separate from movement above
+ *  because the two figures are different measurements months apart. */
+export interface HeadcountBaseline {
+  rows: { vendor: string; brand_id: number; workbook: number;
+          latest: number; delta: number; pct: number | null }[];
+  total: number;
+  source: string;
+  caution: string;
 }
 
 export interface MarketPulse {
@@ -624,6 +746,11 @@ export interface MarketPulse {
   headcount_avg_pct: number | null;
   headcount_median_pct: number | null;
   headcount_n: number;
+  observed_market_headcount: number;
+  headcount_cohort: number;
+  headcount_insufficient: number;
+  headcount_baseline: HeadcountBaseline;
+  headcount_metric: MetricMeta;
   loudest_vendors: { vendor: string; posts: number }[];
   /** Whatever matched this market's phrases in the window, ranked by
    *  engagement then recency. Fetch titles/links via getWireArticles. */
@@ -696,6 +823,78 @@ export async function getHeadcountTrend(
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/headcount-trend?weeks=${weeks}`,
       { credentials: 'include' }), 'Failed to load headcount trend');
+}
+
+/** Observed market headcount and movement.
+ *
+ *  Separate from getHeadcountTrend, which is a normalized weekly index. This is
+ *  the absolute total plus the vendors that actually moved, and it holds to the
+ *  rule that movement needs two readings of the same measurement — so
+ *  `movers` is often much shorter than the vendor list and
+ *  `insufficient_history` carries the rest with a reason each.
+ */
+export interface MarketHeadcount {
+  observed_market_headcount: number;
+  /** Vendors whose latest exact reading is current. Shown beside the total,
+   *  because a market total without its cohort is not interpretable. */
+  cohort: number;
+  registry_total: number;
+  with_exact_reading: number;
+  workbook_only: number;
+  increases: HeadcountMover[];
+  decreases: HeadcountMover[];
+  movers: HeadcountMover[];
+  movers_total: number;
+  insufficient_history: HeadcountGap[];
+  insufficient_total: number;
+  baseline_comparison: HeadcountBaseline;
+  metric: MetricMeta;
+}
+
+export async function getHeadcountMarket(
+  marketId: number,
+): Promise<MarketHeadcount> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/headcount/movers`,
+      { credentials: 'include' }), 'Failed to load market headcount');
+}
+
+/** Per-source collection state: whether a zero on this page is a measurement.
+ *
+ *  Distinct from getSourceHealth, which answers "is the collector working".
+ *  This answers "may I believe this number", and its denominator is that
+ *  source's own eligible vendors rather than the whole registry.
+ */
+export interface CollectionStateRow {
+  source: string;
+  state: DataState;
+  state_detail: string | null;
+  scheduled: boolean;
+  coverage: MetricCoverage;
+  freshness: MetricFreshness;
+  latest_run: {
+    status: string; error_code: string | null;
+    records_received: number | null;
+    started_at: string | null; completed_at: string | null;
+  } | null;
+}
+
+export interface CollectionStateResponse {
+  market_id: number;
+  sources: CollectionStateRow[];
+  legend: SourceLegendRow[];
+  state_labels: Record<string, string>;
+  /** Which states mean "not a measurement". Sent by the server so the browser
+   *  does not keep its own copy of the rule. */
+  unmeasured_states: string[];
+}
+
+export async function getCollectionState(
+  marketId: number,
+): Promise<CollectionStateResponse> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/collection-state`,
+      { credentials: 'include' }), 'Failed to load collection state');
 }
 
 export interface DatasetRow { [key: string]: unknown }
@@ -838,7 +1037,7 @@ export interface MarketOverview {
   top_funded: { vendor: string; brand_id: number; musd: number | null;
                 last_round: string | null }[];
   most_active: { brand_id: number; vendor: string; posts: number;
-                 jobs: number; articles: number; signals: number }[];
+                 jobs: number; articles: number }[];
   quiet_vendors: number;
   corpus: CorpusSummary | Record<string, never>;
   last_runs: { source: string; status: string; records_received: number;
@@ -1324,8 +1523,13 @@ export interface ShareOfVoice {
   /** Vendors with zero own LinkedIn posts in the window — the actual quiet
    *  end of the market, not the bottom of `loudest` reversed. Capped at 10;
    *  see `quietest_total` for the real count. */
-  quietest: { brand_id: number; vendor: string }[];
+  quietest: QuietVendor[];
   quietest_total: number;
+  /** Vendors whose post collection has never succeeded. Never folded into
+   *  `quietest`: silence we did not listen for is not silence. */
+  unmeasured: QuietVendor[];
+  unmeasured_total: number;
+  metric: MetricMeta;
   reactions_total: number;
   earned_total: number;
   /** False when `earned_total` is too small for a percentage to mean

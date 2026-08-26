@@ -2057,6 +2057,62 @@ async def market_headcount_trend(
     return await asyncio.to_thread(_work)
 
 
+@router.get("/markets/{market_id}/headcount/movers")
+async def market_headcount_movers(
+    market_id: int,
+    session=Depends(verify_session_api),
+):
+    """Observed market headcount, the vendors that moved, and who we cannot say.
+
+    Separate from /headcount-trend, which is a normalized weekly index. This is
+    the absolute figure and the mover list, and it holds itself to the rule that
+    movement needs two readings of the same measurement. Vendors with one
+    reading come back under ``insufficient_history`` rather than as unchanged.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return mp.headcount_market(conn, market)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/collection-state")
+async def market_collection_state(
+    market_id: int,
+    session=Depends(verify_session_api),
+):
+    """Per source: what state it is in, how much of the market it reached.
+
+    The panel that tells a reader whether a zero on this page is a measurement.
+    ``source-health`` answers "is the collector working"; this answers "may I
+    believe this number", which is a different question with a different
+    denominator — that source's own eligible vendors, not the whole registry.
+    """
+    from app.services import market_metrics as mmet
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            states = [mmet.collection_state(conn, market_id, src)
+                      for src in mmet.tracked_sources()]
+            return {
+                "market_id": market_id,
+                "sources": states,
+                "legend": mmet.SOURCE_LEGEND,
+                "state_labels": mmet.STATE_LABELS,
+                "unmeasured_states": sorted(mmet.UNMEASURED),
+            }
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 # ---------------------------------------------------------------------------
 # Discovery — vendors the registry does not have yet
 # ---------------------------------------------------------------------------

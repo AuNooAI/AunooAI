@@ -24,6 +24,7 @@ from sqlalchemy import text
 from app.services.market_corpus import _iso_days_ago
 
 from app.services import entity_flags
+from app.services import market_metrics as mm
 from app.services.market_corpus import own_voice_sql
 
 logger = logging.getLogger(__name__)
@@ -959,6 +960,11 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         WHERE market_id = :m AND role <> 'excluded'
     """), {"m": market_id}).scalar() or 0
 
+    # Read once and reused by the quiet/unmeasured split and by the metric
+    # block, so the two cannot disagree about whether this source worked.
+    post_collection = mm.collection_state(conn, market_id,
+                                          'linkedin_company_post')
+
     loudest = sorted((r for r in rows if r["own_posts"]),
                      key=lambda r: -r["own_posts"])[:10]
 
@@ -968,10 +974,33 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
     # full in-scope registry instead of deriving "quietest" from `loudest`
     # (the earlier version was `loudest[-10:]` reversed: the bottom of the top
     # ten, not the vendors that actually say nothing).
-    quietest = [dict(r) for r in conn.execute(text(f"""
-        SELECT b.id AS brand_id, b.display_name AS vendor
+    # Silence is only silence if somebody listened. A vendor whose post
+    # collection has never succeeded has no posts on file, so the query above
+    # returned it as quiet — the dashboard accused 57 companies of saying
+    # nothing when nothing had ever been collected from them. Quiet now
+    # requires a successful run for that vendor; the rest are reported as
+    # unmeasured, which is a different claim and an honest one.
+    #
+    # The gate is the per-vendor policy row, not the presence of posts. Reading
+    # it from content would be circular: no posts is exactly the condition
+    # under test.
+    quiet_sql = f"""
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               p.last_success_at AS collected_at,
+               -- All-time, deliberately unbounded by the selected window. A
+               -- vendor quiet this month may have posted last month, and
+               -- "last posted: never" when it posted in June is a lie the
+               -- window would tell.
+               (SELECT MAX(COALESCE(a.publication_date, a.submission_date))
+                  FROM bw_article_categories bac
+                  JOIN articles a ON a.uri = bac.article_uri
+                 WHERE bac.brand_id = b.id
+                   AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                   AND {_OWN_VOICE}) AS last_posted_at
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
+        LEFT JOIN bw_entity_source_policies p
+               ON p.brand_id = b.id AND p.source = 'linkedin_company_post'
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
           AND NOT EXISTS (
               SELECT 1 FROM bw_article_categories bac
@@ -981,29 +1010,50 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                 AND {_OWN_VOICE}
                 {window}
           )
+          AND p.last_success_at IS {{null_test}}
         ORDER BY b.display_name
-        LIMIT 10
-    """), params).mappings().all()]
-    quietest_total = conn.execute(text(f"""
-        SELECT COUNT(*)
-        FROM bw_market_brands mb
-        JOIN bw_brands b ON b.id = mb.brand_id
-        WHERE mb.market_id = :m AND mb.role <> 'excluded'
-          AND NOT EXISTS (
-              SELECT 1 FROM bw_article_categories bac
-              JOIN articles a ON a.uri = bac.article_uri
-              WHERE bac.brand_id = b.id
-                AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
-                AND {_OWN_VOICE}
-                {window}
-          )
-    """), params).scalar() or 0
+    """
+    quietest = [dict(r) for r in conn.execute(
+        text(quiet_sql.format(null_test="NOT NULL")),
+        params).mappings().all()]
+    # Not quiet and not loud: not measured. Kept as its own list so no caller
+    # can accidentally fold it back into the quiet count.
+    unmeasured = [dict(r) for r in conn.execute(
+        text(quiet_sql.format(null_test="NULL")),
+        params).mappings().all()]
+    for row in quietest + unmeasured:
+        row["posts_in_selected_window"] = 0
+    quietest_total = len(quietest)
+    unmeasured_total = len(unmeasured)
 
     return {
         "vendors": rows,
         "loudest": loudest,
         "quietest": quietest,
         "quietest_total": quietest_total,
+        # Vendors we cannot describe either way. Separate from quiet by
+        # design — see the comment on quiet_sql.
+        "unmeasured": unmeasured,
+        "unmeasured_total": unmeasured_total,
+        "metric": mm.metric(
+            "owned_post_volume",
+            label="Vendor posts observed",
+            definition=(
+                "Posts published by a monitored vendor's own LinkedIn account "
+                "in the selected period. A post the vendor reshared from "
+                "somebody else is counted separately and is not treated as the "
+                "vendor speaking."),
+            numerator="vendor-owned LinkedIn posts",
+            denominator="vendors whose post collection succeeded",
+            window={"days": days},
+            collection=post_collection,
+            value=own_total,
+            limitations=[
+                "Covers LinkedIn only. A vendor active on another network reads "
+                "as quieter than it is.",
+                "Posts collected before reshare state was recorded are counted "
+                "as the vendor's own.",
+            ]),
         "reactions_total": sum(r["reactions"] for r in rows),
         "earned_total": earned_total,
         "earned_share_reliable": share_reliable,

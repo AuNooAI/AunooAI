@@ -379,35 +379,11 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
                  event_date DESC
     """), {"sid": topic, "d": str(days)}).mappings().all()]
 
-    # Headcount movement: the newest profile against the workbook baseline.
-    movers = [dict(r) for r in conn.execute(text("""
-        SELECT b.display_name AS vendor,
-               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
-                   AS was,
-               (s.data->>'employee_count')::numeric AS now_count
-        FROM bw_market_brands mb
-        JOIN bw_brands b ON b.id = mb.brand_id
-        JOIN LATERAL (
-            SELECT data FROM bw_vendor_snapshots
-            WHERE brand_id = mb.brand_id AND snapshot_type = 'profile'
-            ORDER BY observed_at DESC LIMIT 1
-        ) s ON TRUE
-        WHERE mb.market_id = :m
-          -- Zero is a blank workbook cell. Left in, every such vendor became
-          -- a mover that had apparently hired its entire staff this period.
-          AND NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
-              IS NOT NULL
-          AND (s.data->>'employee_count') IS NOT NULL
-    """), {"m": market["id"]}).mappings().all()]
-    for m in movers:
-        m["delta"] = float(m["now_count"]) - float(m["was"])
-        m["pct"] = round(m["delta"] / float(m["was"]) * 100, 1) if m["was"] else None
-    movers.sort(key=lambda x: abs(x["delta"]), reverse=True)
-
-    # The mean and median read across every vendor with both a baseline and a
-    # current headcount, not just the ten biggest movers the list below is
-    # truncated to — a market-wide figure computed from the shortlist would
-    # be skewed toward whoever moved the most.
+    # Headcount movement, from two LinkedIn readings only. See
+    # headcount_market for why the old workbook-vs-LinkedIn comparison was
+    # replaced: it treated two different measurements as one series.
+    hc = headcount_market(conn, market)
+    movers = hc["movers"]
     pct_values = [m["pct"] for m in movers if m["pct"] is not None]
     headcount_avg_pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
     headcount_median_pct = (
@@ -472,10 +448,193 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         "headcount_avg_pct": headcount_avg_pct,
         "headcount_median_pct": headcount_median_pct,
         "headcount_n": len(pct_values),
+        # The market's own size, which needs only one reading per vendor and so
+        # is available now even though movement mostly is not.
+        "observed_market_headcount": hc["observed_market_headcount"],
+        "headcount_cohort": hc["cohort"],
+        "headcount_insufficient": hc["insufficient_total"],
+        "headcount_baseline": hc["baseline_comparison"],
+        "headcount_metric": hc["metric"],
         "loudest_vendors": loudest,
         "top_article_uris": top_articles,
         "coverage": dict(coverage or {}),
         "open_questions": gaps,
+    }
+
+
+def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
+    """Observed market headcount, and the vendors that moved.
+
+    Two rules make this defensible, and the previous version broke both.
+
+    **Only exact counts are summed.** A LinkedIn profile may report a size band
+    ("51-200") instead of a number. A band is not a measurement of anything, so
+    it is never added to a total; the vendor is reported as having no exact
+    reading. Zero is treated the same way, because the provider returns 0 for a
+    company whose staff count it does not have.
+
+    **A mover needs two readings of the same kind.** The old query compared the
+    latest LinkedIn reading against the April workbook baseline, which are two
+    different measurements of two different things taken four months apart, and
+    called the difference growth. Every vendor therefore looked like a mover.
+    Movement now requires two LinkedIn readings, each with its own date.
+
+    Today that yields very few movers, because most vendors have exactly one
+    reading — the first full sweep only happened on 2026-08-26. That is the
+    honest answer and it fills in on its own as the next sweep lands. Vendors
+    with one reading are returned under ``insufficient_history`` rather than
+    being shown as having not moved, which is a claim we cannot make.
+
+    The workbook comparison is still returned, under its own key and labelled
+    with its own source. It is useful; it is just not a LinkedIn measurement.
+    """
+    from app.services import market_metrics as mm
+
+    market_id = market["id"]
+    profile_state = mm.collection_state(conn, market_id,
+                                        'linkedin_company_profile')
+    cadence = profile_state["freshness"]["expected_interval_seconds"]
+
+    rows = [dict(r) for r in conn.execute(text("""
+        WITH readings AS (
+            SELECT s.brand_id, s.observed_at,
+                   (s.data->>'employee_count')::numeric AS headcount
+              FROM bw_vendor_snapshots s
+              JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                   AND mb.market_id = :m AND mb.role <> 'excluded'
+             WHERE s.snapshot_type = 'profile'
+               -- Exact integers only. A band, a range or any other text is
+               -- not a count and must not reach the arithmetic below.
+               AND s.data->>'employee_count' ~ '^[0-9]+$'
+               AND (s.data->>'employee_count')::numeric > 0
+        ), ranked AS (
+            SELECT brand_id, observed_at, headcount,
+                   ROW_NUMBER() OVER (PARTITION BY brand_id
+                                      ORDER BY observed_at DESC) AS rn,
+                   COUNT(*) OVER (PARTITION BY brand_id) AS readings
+              FROM readings
+        )
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               MAX(r.headcount) FILTER (WHERE r.rn = 1) AS latest,
+               MAX(r.observed_at) FILTER (WHERE r.rn = 1) AS latest_at,
+               MAX(r.headcount) FILTER (WHERE r.rn = 2) AS previous,
+               MAX(r.observed_at) FILTER (WHERE r.rn = 2) AS previous_at,
+               MAX(r.readings) AS readings,
+               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                   AS workbook
+          FROM bw_market_brands mb
+          JOIN bw_brands b ON b.id = mb.brand_id
+          LEFT JOIN ranked r ON r.brand_id = b.id AND r.rn <= 2
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+         GROUP BY b.id, b.display_name, mb.baseline
+         ORDER BY b.display_name
+    """), {"m": market_id}).mappings().all()]
+
+    now = datetime.now(timezone.utc)
+    cohort, movers, insufficient = [], [], []
+    workbook_only = 0
+    for row in rows:
+        latest, latest_at = row["latest"], row["latest_at"]
+        if latest is None:
+            # No exact LinkedIn reading at all. Say which fallback exists
+            # rather than reporting the vendor as zero staff.
+            insufficient.append({
+                "vendor": row["vendor"], "brand_id": row["brand_id"],
+                "reason": ("no exact employee count has been read from LinkedIn"
+                           + (" — the imported workbook figure is the only one "
+                              "on file" if row["workbook"] else "")),
+                "workbook": (float(row["workbook"]) if row["workbook"] else None),
+            })
+            if row["workbook"]:
+                workbook_only += 1
+            continue
+
+        # Fresh means "inside two of this collector's own intervals". A weekly
+        # profile poll cannot be judged against a twelve-hour threshold.
+        fresh = bool(latest_at and
+                     (now - latest_at).total_seconds() <= cadence * 2)
+        entry = {
+            "vendor": row["vendor"], "brand_id": row["brand_id"],
+            "latest": float(latest),
+            "latest_at": latest_at.isoformat() if latest_at else None,
+            "fresh": fresh,
+        }
+        if fresh:
+            cohort.append(entry)
+
+        if row["previous"] is not None:
+            was, now_count = float(row["previous"]), float(latest)
+            delta = now_count - was
+            movers.append({**entry,
+                           "previous": was,
+                           "previous_at": (row["previous_at"].isoformat()
+                                           if row["previous_at"] else None),
+                           "delta": delta,
+                           "pct": (round(delta / was * 100, 1) if was else None)})
+        else:
+            insufficient.append({
+                "vendor": row["vendor"], "brand_id": row["brand_id"],
+                "reason": ("only one LinkedIn reading so far, so there is "
+                           "nothing to compare it against"),
+                "latest": float(latest),
+                "latest_at": latest_at.isoformat() if latest_at else None,
+            })
+
+    movers.sort(key=lambda m: abs(m["delta"]), reverse=True)
+    total = int(sum(c["latest"] for c in cohort))
+
+    # Kept apart from everything above. Same numbers, different measurement,
+    # and the label travels with it.
+    baseline_rows = []
+    for row in rows:
+        if row["latest"] is not None and row["workbook"]:
+            was, now_count = float(row["workbook"]), float(row["latest"])
+            baseline_rows.append({
+                "vendor": row["vendor"], "brand_id": row["brand_id"],
+                "workbook": was, "latest": now_count,
+                "delta": now_count - was,
+                "pct": round((now_count - was) / was * 100, 1) if was else None,
+            })
+    baseline_rows.sort(key=lambda m: abs(m["delta"]), reverse=True)
+
+    return {
+        "observed_market_headcount": total,
+        "cohort": len(cohort),
+        "registry_total": profile_state["coverage"]["registry_total"],
+        "with_exact_reading": sum(1 for r in rows if r["latest"] is not None),
+        "workbook_only": workbook_only,
+        "increases": [m for m in movers if m["delta"] > 0][:10],
+        "decreases": [m for m in movers if m["delta"] < 0][:10],
+        "movers": movers[:10],
+        "movers_total": len(movers),
+        "insufficient_history": insufficient,
+        "insufficient_total": len(insufficient),
+        "baseline_comparison": {
+            "rows": baseline_rows[:10],
+            "total": len(baseline_rows),
+            "source": "imported workbook baseline vs latest LinkedIn reading",
+            "caution": ("Two different measurements taken months apart. Useful "
+                        "as a rough direction, not as observed growth."),
+        },
+        "metric": mm.metric(
+            "observed_market_headcount",
+            label="Observed market headcount",
+            definition=(
+                "The sum of the most recent exact employee counts read from "
+                "LinkedIn, across vendors whose reading is current. Size bands "
+                "are never counted as numbers and vendors without an exact "
+                "reading are excluded rather than counted as zero."),
+            numerator="latest exact employee counts",
+            denominator="vendors with a current LinkedIn profile reading",
+            collection=profile_state,
+            value=total,
+            limitations=[
+                "Counts only vendors with an exact reading, so it is a floor "
+                "for the market rather than its true total.",
+                "LinkedIn headcount is self-reported by each company.",
+                ("Movement needs two readings. %d of %d vendors have only one "
+                 "so far." % (len(insufficient), len(rows))),
+            ]),
     }
 
 
@@ -656,18 +815,20 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
     """), {"m": market_id}).mappings().all()]
-    for row in activity:
-        row["signals"] = (row["posts"] or 0) + (row["jobs"] or 0)
-    # Sorted by earned coverage — what other people said about a vendor —
-    # rather than by owned output (own posts + open jobs). The old
-    # `signals`-first sort ranked "who posts on LinkedIn and is hiring" under
-    # a name that implied a composite activity signal, and pre-cut the table
-    # to the top 10 by that score before the frontend's sortable table ever
-    # saw the rest — so re-sorting by "Articles" client-side only re-sorted
-    # within a set signals had already decided. `signals` still ships as its
-    # own column for a reader who wants it.
-    activity.sort(key=lambda r: (r["articles"] or 0, r["signals"]), reverse=True)
-    quiet = [r for r in activity if r["signals"] == 0 and not r["articles"]]
+    # There used to be a `signals` column here, posts + jobs. It was dropped
+    # because the sum has no meaning to recover: `posts` counts what a vendor
+    # published inside the selected period, `jobs` counts listings standing open
+    # right now. Adding a flow to a stock produces a number that changes when
+    # either the period or the hiring freeze changes and cannot be read as
+    # either. The three real measures ship on their own.
+    #
+    # Ordering is earned coverage first — what other people said, which is the
+    # question the table is usually being asked — then the two owned measures in
+    # their own right as tie-breaks. No composite.
+    activity.sort(key=lambda r: (r["articles"] or 0, r["posts"] or 0,
+                                 r["jobs"] or 0), reverse=True)
+    quiet = [r for r in activity
+             if not r["posts"] and not r["jobs"] and not r["articles"]]
 
     corpus: Dict[str, Any] = {}
     if conn.execute(text("SELECT to_regclass('bw_market_articles')")).scalar():

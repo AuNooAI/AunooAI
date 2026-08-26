@@ -507,6 +507,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
     """
     from app.services import market_analysis as man
     from app.services import market_corpus as mcorp
+    from app.services import market_metrics as mmet
     from app.services import market_publish as mp
 
     overview = mp.build_overview(conn, market, days=days)
@@ -1110,5 +1111,122 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30
                     + "</tbody></table></details>")
         body.append("</section>")
 
+    # ================================================================
+    # Methodology — definitions, sources, and what we did not measure
+    # ================================================================
+    #
+    # The spec's rule is that no metric may look more definitive in the
+    # downloadable file than on the live page. The figures above already come
+    # from the same payload the UI renders, so the gap was never the numbers —
+    # it was that the file carried none of the definitions, none of the source
+    # labels and none of the collection state, so a reader who opened it a month
+    # later had no way to tell what any of it had been measured against.
+    body.append(section_open("How to read this report"))
+
+    body.append("<h3>Where coverage comes from</h3>")
+    body.append(
+        "<p>The platform something was published on and the provider we "
+        "collected it through are different things. Bright Data is a provider; "
+        "LinkedIn is a platform; Xpoz is a provider whose items carry their own "
+        "platform.</p>")
+    body.append('<table class="mm-table"><thead><tr>'
+                "<th>Content</th><th>Platform</th>"
+                "<th>Collected by</th><th>Whose voice</th>"
+                "</tr></thead><tbody>")
+    for row in mmet.SOURCE_LEGEND:
+        body.append(f'<tr><td>{esc(row["content"])}</td>'
+                    f'<td>{esc(row["platform"])}</td>'
+                    f'<td>{esc(row["provider"])}</td>'
+                    f'<td>{esc(row["ownership"])}</td></tr>')
+    body.append("</tbody></table>")
+
+    body.append("<h3>How much of the market was measured</h3>")
+    body.append(
+        "<p>&ldquo;Collected&rdquo; counts the vendors a source successfully ran "
+        "for, out of the vendors it <em>can</em> run for &mdash; a source needs "
+        "an identifier on file, so its denominator is not the whole registry. "
+        "A source with no configured vendors is reported as unconfigured "
+        "rather than as empty.</p>")
+    body.append('<table class="mm-table"><thead><tr>'
+                "<th>Source</th><th>State</th><th>Collected</th><th>Notes</th>"
+                "</tr></thead><tbody>")
+    for src in mmet.tracked_sources():
+        try:
+            st = mmet.collection_state(conn, market["id"], src)
+        except Exception as exc:                                  # noqa: BLE001
+            logger.warning("report collection state %s failed: %s", src, exc)
+            continue
+        cov = st["coverage"]
+        reached = (f'{cov["successful"]}/{cov["eligible"]}'
+                   if cov["eligible"] else "&mdash;")
+        body.append(
+            f'<tr><td>{esc(src)}</td>'
+            f'<td>{esc(mmet.STATE_LABELS.get(st["state"], st["state"]))}</td>'
+            f'<td>{reached}</td>'
+            f'<td>{esc(st["state_detail"] or "")}</td></tr>')
+    body.append("</tbody></table>")
+
+    body.append("<h3>What the figures mean</h3>")
+    # Definitions are pulled from the metric blocks the aggregates already
+    # carry, so the report cannot define a metric differently from the API.
+    seen_metrics = set()
+    # The headcount metric lives on its own payload rather than on the
+    # overview, so it is fetched here instead of being missed.
+    try:
+        headcount = mp.headcount_market(conn, market)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("report headcount failed: %s", exc)
+        headcount = None
+    for meta in _metric_blocks(overview, analyses, headcount):
+        if not meta or meta.get("metric_id") in seen_metrics:
+            continue
+        seen_metrics.add(meta["metric_id"])
+        body.append(f'<h4>{esc(meta["label"])}</h4>')
+        body.append(f'<p>{esc(meta["definition"])}</p>')
+        bits = [f'Counts {esc(meta["numerator"])}']
+        if meta.get("denominator"):
+            bits.append(f'out of {esc(meta["denominator"])}')
+        if (meta.get("window") or {}).get("days"):
+            bits.append(f'over the last {meta["window"]["days"]} days')
+        body.append(f'<p class="mm-src">{", ".join(bits)}. '
+                    f'State: {esc(meta["data_state_label"])}'
+                    + (f' &mdash; {esc(meta["state_detail"])}'
+                       if meta.get("state_detail") else "")
+                    + "</p>")
+        if meta.get("limitations"):
+            body.append("<ul>" + "".join(
+                f"<li>{esc(l)}</li>" for l in meta["limitations"]) + "</ul>")
+
+    body.append("<h3>Post classification</h3>")
+    body.append(
+        "<p>Vendor posts are sorted into four kinds. "
+        "<strong>Announcement or factual update</strong> is a substantive "
+        "company event or a verifiable update. <strong>Commentary or "
+        "opinion</strong> is interpretation or educational material. "
+        "<strong>Promotion</strong> is marketing with no new event in it. "
+        "<strong>Unreviewed</strong> means nothing has classified it yet, and "
+        "is not a judgement about the post.</p>")
+    body.append("</section>")
+
     return html_document(f'{market["name"]} — Market Monitor',
                          "".join(body)).encode("utf-8")
+
+
+def _metric_blocks(overview: Dict[str, Any], analyses: Dict[str, Any],
+                   headcount: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Every metric block carried by the payloads this report already renders.
+
+    Collected by walking what is there rather than naming each one, so a metric
+    added to an aggregate shows up in the methodology appendix without anyone
+    having to remember to list it here.
+    """
+    out: List[Dict[str, Any]] = []
+    for payload in [overview, headcount] + list((analyses or {}).values()):
+        if not isinstance(payload, dict):
+            continue
+        for key, value in payload.items():
+            if key == "metric" and isinstance(value, dict):
+                out.append(value)
+            elif key.endswith("_metric") and isinstance(value, dict):
+                out.append(value)
+    return out

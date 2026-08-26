@@ -272,10 +272,14 @@ def _render_facts(facts: Dict[str, Any]) -> str:
             lines.append(f"- {e['vendor']} (founded {e.get('founded') or '?'})")
 
     if facts["headcount_movers"]:
-        lines.append("\nHEADCOUNT AGAINST THE IMPORTED BASELINE:")
+        # Two LinkedIn readings, each with its own date. The dates are given to
+        # the model because a +1 over two days and a +1 over four months are
+        # different facts and it cannot tell them apart otherwise.
+        lines.append("\nHEADCOUNT MOVEMENT (two LinkedIn readings):")
         for m in facts["headcount_movers"]:
-            lines.append(f"- {m['vendor']}: {m.get('was')} -> "
-                         f"{m.get('now_count')} ({m.get('pct')}%)")
+            lines.append(f"- {m['vendor']}: {m.get('previous')} on "
+                         f"{str(m.get('previous_at'))[:10]} -> {m.get('latest')} on "
+                         f"{str(m.get('latest_at'))[:10]} ({m.get('pct')}%)")
 
     if facts["hiring"]:
         top = ", ".join(f"{h['vendor']} {h['openings']}"

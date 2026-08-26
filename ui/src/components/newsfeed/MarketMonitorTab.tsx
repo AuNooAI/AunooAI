@@ -19,6 +19,7 @@ import { MarketAnalysisView } from './MarketAnalysisView';
 import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
+import { MetricHeading, SourceLegend } from './MarketMetric';
 import {
   BarChart, Bar, CartesianGrid, Cell, Legend, Line,
   LineChart as RLineChart, ReferenceArea, ReferenceLine,
@@ -34,11 +35,13 @@ import {
   getLeaderboards,
   getMarketTable, getFacets,
   getMarketTimeline, getMarkets, getOverview, getReviewTasks, getWireArticles,
-  getRuns, getSourceHealth, getSources, getVendors, reviewPosts, saveSources,
+  getCollectionState, getRuns, getSourceHealth, getSources, getVendors,
+  reviewPosts, saveSources,
   scanCorpus,
   setCollectionTerms, setVendorCollection, setupCollection, updateMarket,
   autoCloseReviewTasks, closeReviewTask, fixReviewTask,
-  type CollectionPlan, type CollectionRun, type CorpusArticle,
+  type CollectionPlan, type CollectionRun, type CollectionStateResponse,
+  type CorpusArticle,
   type ArticleClass, type CorpusSummary, type DatasetInfo,
   type DrilldownVendor,
   type DiscoveryResult, type Facets, type FundingAnalysis,
@@ -305,6 +308,91 @@ function Stat({ label, value, hint, onClick, tone }: {
  *  read-only data for two different audiences (a reader checking the
  *  pipeline vs. an admin mid-configuration) — one component so they can't
  *  drift apart. */
+/** Whether a zero on this page is a measurement.
+ *
+ *  Deliberately separate from HealthPanel below, which answers "is the
+ *  collector working". This answers "may I believe this number", and the
+ *  denominator is different: that source's own eligible vendors, not the whole
+ *  registry. A source with no vendors configured for it is not broken, and a
+ *  source that reached 20 of 39 vendors is not healthy — both used to read as
+ *  the same "no data".
+ */
+function CollectionStatePanel({ state }: { state: CollectionStateResponse | null }) {
+  if (!state) return null;
+  const unmeasured = new Set(state.unmeasured_states);
+  return (
+    <div className="space-y-3 max-w-4xl">
+      <div className="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+          Can these numbers be believed?
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
+          One row per source. &ldquo;Collected&rdquo; is how many of the vendors
+          this source <em>can</em> run for it actually reached — so a source with
+          no configured vendors reads as unconfigured rather than empty.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-slate-500 dark:text-gray-400">
+                <th className="py-1 pr-3 font-medium">Source</th>
+                <th className="py-1 pr-3 font-medium">State</th>
+                <th className="py-1 pr-3 font-medium">Collected</th>
+                <th className="py-1 font-medium">Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.sources.map(s => (
+                <tr key={s.source} className="border-t border-slate-100 dark:border-gray-700">
+                  <td className="py-1 pr-3 text-slate-700 dark:text-gray-200">
+                    {s.source}
+                    {!s.scheduled && (
+                      <span className="ml-1 text-slate-400 dark:text-gray-500">
+                        (not scheduled)
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1 pr-3">
+                    <span className={
+                      s.state === 'healthy'
+                        ? 'text-slate-600 dark:text-gray-300'
+                        : unmeasured.has(s.state)
+                        ? 'text-red-700 dark:text-red-400'
+                        : 'text-amber-700 dark:text-amber-400'}>
+                      {state.state_labels[s.state] ?? s.state}
+                    </span>
+                  </td>
+                  <td className="py-1 pr-3 tabular-nums text-slate-600 dark:text-gray-300">
+                    {s.coverage.eligible
+                      ? `${s.coverage.successful}/${s.coverage.eligible}`
+                      : '—'}
+                  </td>
+                  <td className="py-1 text-slate-500 dark:text-gray-400">
+                    {s.state_detail ?? ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+          Where coverage comes from
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
+          The platform something was published on, and the provider we collected
+          it through, are different things. Bright Data is a provider; LinkedIn
+          is a platform; Xpoz is a provider whose items carry their own platform.
+        </p>
+        <SourceLegend rows={state.legend} />
+      </div>
+    </div>
+  );
+}
+
+
 function HealthPanel({ health, runs }: {
   health: SourceHealth; runs: CollectionRun[] | null;
 }) {
@@ -924,6 +1012,8 @@ export function MarketMonitorTab() {
   const [facets, setFacets] = useState<Facets | null>(null);
   const [tasks, setTasks] = useState<ReviewTask[] | null>(null);
   const [health, setHealth] = useState<SourceHealth | null>(null);
+  const [collectionState, setCollectionState] =
+    useState<CollectionStateResponse | null>(null);
   const [runs, setRuns] = useState<CollectionRun[] | null>(null);
   const [plan, setPlan] = useState<CollectionPlan | null>(null);
 
@@ -1087,10 +1177,12 @@ export function MarketMonitorTab() {
       getVendors(marketId), getFacets(marketId),
       getReviewTasks(marketId, { status: 'open' }),
       getSourceHealth(marketId), getRuns(marketId, 20),
+      getCollectionState(marketId),
       getCollectionPlan(marketId, vendorMode), getPulse(marketId, periodDays),
       getSources(marketId), getOverview(marketId, periodDays),
       getCorpusSummary(marketId, periodDays),
-    ]).then(([v, f, t, h, r, p, b, s, o, cs]) => {
+    ]).then(([v, f, t, h, r, colState, p, b, s, o, cs]) => {
+      setCollectionState(colState);
       setPulse(b); setSources(s.sources); setMinInterval(s.min_interval_hours);
       setOverview(o); setCorpus(cs);
       setVendors(v); setFacets(f); setTasks(t); setHealth(h); setRuns(r); setPlan(p);
@@ -1728,7 +1820,6 @@ export function MarketMonitorTab() {
                   { key: 'posts', label: 'Posts', align: 'right' },
                   { key: 'jobs', label: 'Jobs', align: 'right' },
                   { key: 'articles', label: 'Articles', align: 'right' },
-                  { key: 'signals', label: 'Signals', align: 'right' },
                 ]} />
             </div>
           </div>
@@ -1821,12 +1912,35 @@ export function MarketMonitorTab() {
                 sibling doesn't leave an empty grid cell. */}
             <div className={`border rounded-lg p-4 bg-white dark:bg-gray-800 ${
                               headcountConfidence.ok ? '' : 'lg:col-span-2'}`}>
-              <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                Headcount change
-              </div>
+              <MetricHeading title="Headcount change"
+                             meta={pulse?.headcount_metric} />
+              {/* This panel used to compare the latest LinkedIn reading against
+                  the April workbook import and call the difference growth. Two
+                  different measurements, four months apart, so nearly every
+                  vendor looked like a mover. Movement now needs two LinkedIn
+                  readings, which most vendors do not have yet — the first full
+                  sweep was 2026-08-26 — so the list is short on purpose and
+                  fills as the next sweep lands. */}
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-                LinkedIn count vs imported baseline. Vendors with both values only.
+                Two LinkedIn readings of the same vendor, each with its own date.
+                Vendors with only one reading are listed below as awaiting a
+                second rather than shown as unchanged.
               </p>
+              {pulse && (
+                <div className="text-sm mb-3">
+                  <span className="text-slate-500 dark:text-gray-400">
+                    Observed market headcount{' '}
+                  </span>
+                  <span className="font-medium tabular-nums text-slate-800 dark:text-gray-100">
+                    {pulse.observed_market_headcount.toLocaleString()}
+                  </span>
+                  <span className="text-slate-400 dark:text-gray-500">
+                    {' '}across {pulse.headcount_cohort} vendor
+                    {pulse.headcount_cohort === 1 ? '' : 's'} with a current
+                    exact reading
+                  </span>
+                </div>
+              )}
               {pulse && pulse.headcount_n > 0 && (
                 <div className="flex gap-4 text-sm mb-3">
                   <span>
@@ -1852,7 +1966,10 @@ export function MarketMonitorTab() {
               )}
               {!pulse || pulse.headcount_movers.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
-                  No vendor has both values.
+                  No vendor has two LinkedIn readings yet
+                  {pulse ? `, so movement cannot be measured for any of the
+                            ${pulse.headcount_insufficient} awaiting a second one`
+                         : ''}.
                 </p>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
@@ -1932,10 +2049,10 @@ export function MarketMonitorTab() {
                     <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="avg_heat_score" name="Attention"
+                    <Line type="monotone" dataKey="avg_heat_score" name="Crunchbase Heat"
                           stroke={cc(isDark, '#0369a1', '#38bdf8')} strokeWidth={2} dot={{ r: 3 }}
                           connectNulls={false} />
-                    <Line type="monotone" dataKey="avg_growth_score" name="Growth outlook"
+                    <Line type="monotone" dataKey="avg_growth_score" name="Crunchbase Growth"
                           stroke={cc(isDark, '#b45309', '#fbbf24')} strokeWidth={2} dot={{ r: 3 }}
                           connectNulls={false} />
                   </RLineChart>
@@ -1954,10 +2071,12 @@ export function MarketMonitorTab() {
                 Who's getting more attention or momentum
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-                Companies whose attention (how much people are noticing them)
-                or growth outlook (how fast they look like they're growing)
-                moved since the last check. Only real changes are listed —
-                nothing here means the company held steady.
+                Companies whose Crunchbase Growth or Heat score moved since
+                the last check. Both are Crunchbase's own scores and we cannot
+                reproduce how either is calculated, so treat a move as a change
+                in what Crunchbase reports rather than a measured change in the
+                company. Only real changes are listed — nothing here means the
+                score held steady.
               </p>
               {!fundingMomentum?.momentum_events?.length ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
@@ -2007,11 +2126,19 @@ export function MarketMonitorTab() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
+              {/* Named for what it is. "Coverage by week" was doing double
+                  duty for content volume and for collection completeness, so a
+                  low bar could mean either "little was published" or "we
+                  collected almost nothing that week" and the chart could not
+                  say which. Volume lives here; completeness is the Collection
+                  state panel. */}
               <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                Coverage by week
+                Content observed by week
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
                 Articles matching the market&apos;s phrases, by publication week.
+                A bar is how much we observed that week, which is a floor for
+                how much was published, not a measure of it.
               </p>
               {!overview.corpus?.by_week?.length ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
@@ -2690,7 +2817,10 @@ export function MarketMonitorTab() {
       )}
 
           {collectionSubView === 'health' && health && (
-            <HealthPanel health={health} runs={runs} />
+            <div className="space-y-3">
+              <CollectionStatePanel state={collectionState} />
+              <HealthPanel health={health} runs={runs} />
+            </div>
           )}
         </div>
       )}
