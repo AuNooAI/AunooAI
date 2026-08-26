@@ -785,6 +785,15 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
             """), {"b": vendor["brand_id"]}).scalar()
             if not domain:
                 continue
+
+            # The read above opened a transaction, and probing a site can take
+            # longer than this database's idle_in_transaction_session_timeout of
+            # 60 seconds. Awaiting the probe with it still open is what killed
+            # the backend mid-sweep: run 345 and run 675 both died on "SSL
+            # connection has been closed unexpectedly" at the first statement
+            # after the await. Release it before touching the network, the same
+            # way the ATS discovery sweep below does.
+            conn.commit()
             try:
                 sources = await vw.discover_sources(domain, probe_pages=True)
             except Exception as probe_error:
@@ -1099,6 +1108,7 @@ async def _poll_ats_jobs(conn, market: Dict[str, Any], now: datetime,
 async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                       now: datetime, forced_run_id: Optional[int] = None) -> int:
     from app.collectors import vendor_web_collector as vw
+    from app.services import entity_scheduler as sch
 
     if forced_run_id is None:
         if _is_due(conn, market["id"], SOURCE_PAGES, now) is None:
@@ -1110,10 +1120,10 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
     else:
         run_id = forced_run_id
 
-    # Committed before fetching, and again after each vendor — same reason as
-    # _discover_feeds: awaiting HTTP inside an open transaction exposes the
-    # connection to the 60-second idle-in-transaction timeout, and a single
-    # transaction across the sweep loses every vendor when it trips.
+    # Committed before fetching, and again before every page fetch — same
+    # reason as _discover_feeds: awaiting HTTP inside an open transaction
+    # exposes the connection to the 60-second idle-in-transaction timeout, and
+    # a single transaction across the sweep loses every vendor when it trips.
     conn.commit()
 
     fetched = changed = unchanged = errors = 0
@@ -1123,6 +1133,7 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                 SELECT baseline->'web_pages' FROM bw_market_brands
                 WHERE market_id = :m AND brand_id = :b
             """), {"m": market["id"], "b": vendor["brand_id"]}).scalar() or []
+            polled = vendor_errors = 0
             for page in pages:
                 if not isinstance(page, dict) or not page.get("url"):
                     continue
@@ -1134,6 +1145,12 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                     ORDER BY observed_at DESC LIMIT 1
                 """), {"b": vendor["brand_id"], "u": url}).first()
                 prior_data = (prior[0] if prior else None) or {}
+                # Both reads for this page are done. The only commit in this
+                # loop used to sit inside the "changed materially" branch
+                # below, so a vendor whose pages were all unchanged — the
+                # common case — held one transaction open across every fetch
+                # and tripped the 60-second idle-in-transaction timeout.
+                conn.commit()
                 result = await vw.fetch_page(
                     url, etag=prior_data.get("etag"),
                     last_modified=prior_data.get("last_modified"),
@@ -1142,7 +1159,9 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                 fetched += 1
                 if result.error:
                     errors += 1
+                    vendor_errors += 1
                     continue
+                polled += 1
                 if not result.changed:
                     unchanged += 1
                     continue
@@ -1164,12 +1183,28 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                     observed_at=result.fetched_at, run_id=run_id,
                 )
                 changed += 1
-                # Per page, not per vendor: the fetch below is awaited inside
-                # this loop, so a vendor with several slow pages would hold the
-                # transaction open across all of them and hit the same 60-second
-                # idle-in-transaction timeout the outer commit was added for.
                 conn.commit()
                 await asyncio.sleep(0.3)  # courtesy spacing on one host
+
+            # Credited on having read the vendor's pages, not on having found
+            # a change in them. A snapshot is only written when a page changes
+            # materially, and reconcile_from_history reads snapshots, so a
+            # vendor with a stable website was indistinguishable from one never
+            # fetched: nineteen vendors were credited here while sixty-four
+            # read as unmeasured after a sweep that fetched all of them.
+            if polled:
+                sch.record_success(conn, SOURCE_PAGES, [vendor["brand_id"]])
+                conn.commit()
+            elif vendor_errors:
+                # Every page for this vendor failed. Backed off rather than
+                # left untouched, so a host that is always down stops taking a
+                # slot on every pass.
+                sch.record_failure(conn, SOURCE_PAGES, [vendor["brand_id"]],
+                                   "all discovered pages failed to fetch")
+                conn.commit()
+            # A vendor with no discovered pages is neither credited nor failed.
+            # There is nothing to read for it, and saying we measured it would
+            # hide that feed discovery found it no pages.
         mc.close_run(conn, run_id, status="succeeded", received=fetched,
                      new=changed, skipped=unchanged + errors)
         conn.commit()
@@ -1257,7 +1292,30 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
               AND (:bid IS NULL OR mb.brand_id = :bid)
             ORDER BY mb.sort_order
         """), {"m": market["id"], "bid": forced_brand_id}).fetchall()
-        companies = [{"employer": r[0].split("(")[0].strip()} for r in rows]
+        # `location` is a required Indeed input with no "anywhere" value, so
+        # each search needs one. The vendor's own LinkedIn headquarters is the
+        # best answer we hold — 70 of 82 vendors have one — and the country
+        # comes from the same reading. Falling back to the United States is a
+        # guess and is the reason a miss here reads as "no listings" rather
+        # than "wrong place"; the employer check downstream stops it becoming
+        # somebody else's jobs either way.
+        companies = []
+        for row in rows:
+            employer = row[0].split("(")[0].strip()
+            profile = conn.execute(text("""
+                SELECT data->>'headquarters' AS hq, data->>'country' AS country
+                  FROM bw_vendor_snapshots
+                 WHERE brand_id = (SELECT id FROM bw_brands WHERE display_name = :n)
+                   AND snapshot_type = 'profile'
+                 ORDER BY observed_at DESC LIMIT 1
+            """), {"n": row[0]}).mappings().first()
+            hq = (profile or {}).get("hq")
+            country = ((profile or {}).get("country") or "US").split(",")[0].strip()
+            companies.append({
+                "employer": employer,
+                "location": hq or "United States",
+                "country": country or "US",
+            })
         if forced_brand_id is None:
             companies = companies[: _max_vendors_per_run()]
         urls = [c["employer"] for c in companies]

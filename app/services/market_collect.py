@@ -987,15 +987,20 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
     signal, kept apart only by ``source`` and ``provider_item_id``'s separate
     id namespace, so neither can collide with or double the other.
 
-    Attribution is by the employer name we searched for, read back from
-    ``discovery_input.posted_by`` the same way ``ingest_posts`` reads
-    ``discovery_input.url`` — the input we sent is the one fact we know is
-    right, unlike whatever field the provider chose to echo the company
-    under. Unverified against a real response: if ``discovery_input`` turns
-    out not to carry ``posted_by``, every record here becomes unmatched
-    rather than mis-attributed, which is the safe failure.
+    Attribution is the ``company_name`` Indeed reports, checked against the
+    vendor with ``employer_matches``. The previous plan read
+    ``discovery_input.posted_by``; the dataset sample shows ``discovery_input``
+    arriving as ``null``, so every record would have gone unmatched — the safe
+    failure that was documented, and still a collector returning nothing.
+
+    The check matters because ``keyword_search`` matches job titles as well as
+    company names, so a search for one vendor legitimately returns other
+    employers' listings. Anything whose reported employer does not contain every
+    identifying word of the vendor's name is dropped, and the count is logged
+    rather than left to look like an empty market.
     """
-    from app.services.brightdata_linkedin import map_indeed_job
+    from app.services.brightdata_linkedin import (employer_matches,
+                                                  map_indeed_job)
 
     name_to_brand = {
         name.split("(")[0].strip().lower(): brand_id
@@ -1006,7 +1011,7 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
         """), {"m": run["market_id"]}).fetchall()
     }
 
-    stored = unchanged = unmatched = 0
+    stored = unchanged = unmatched = expired = 0
     for raw in records:
         if not isinstance(raw, dict):
             continue
@@ -1014,10 +1019,27 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
         if not mapped:
             unmatched += 1
             continue
-        discovery = raw.get("discovery_input")
-        posted_by = ((discovery or {}).get("posted_by")
-                    if isinstance(discovery, dict) else None) or mapped.get("company")
-        brand_id = name_to_brand.get((posted_by or "").strip().lower())
+        # An expired listing is not an open role. Kept out rather than stored
+        # and filtered later, because the hiring counts read every stored
+        # job_posting row and would include it.
+        if mapped.get("is_expired"):
+            expired += 1
+            continue
+
+        # Attribution is the employer Indeed reports, checked against the
+        # vendor we searched for. `discovery_input` was the previous plan and
+        # the dataset sample shows it arriving as null, so nothing would have
+        # matched. `company_name` is the field that is populated.
+        #
+        # The check is not a formality: `keyword_search` matches job titles as
+        # well as companies, so a search for one vendor legitimately returns
+        # other employers' jobs.
+        reported = (mapped.get("company") or "").strip()
+        brand_id = None
+        for name, bid in name_to_brand.items():
+            if employer_matches(name, reported):
+                brand_id = bid
+                break
         if not brand_id:
             unmatched += 1
             continue
@@ -1029,7 +1051,11 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
             stored += 1
         else:
             unchanged += 1
-    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
+    if unmatched:
+        logger.info("indeed: %d listing(s) belonged to another employer and "
+                    "were dropped", unmatched)
+    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched,
+            "expired": expired}
 
 
 def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:

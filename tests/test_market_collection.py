@@ -1125,3 +1125,129 @@ def test_a_tombstone_is_hidden_and_never_projected():
     assert 'superseded' in src, (
         'a superseded event would be published to the market wire alongside '
         'the survivor, which is the duplicate showing up again')
+
+
+# ---------------------------------------------------------------------------
+# Indeed: attribution by reported employer
+# ---------------------------------------------------------------------------
+#
+# Indeed was written off earlier as unable to attribute a listing to a company.
+# That was wrong, and the correction matters: `posted_by` really is a closed
+# enum of poster types and really does reject a company name — but
+# `keyword_search` is documented as "Search jobs by job title **or company**",
+# and every record carries `company_name`. So the shape is search-then-verify,
+# the same as the ATS collector.
+#
+# The verify half is not optional. Because keyword_search also matches titles, a
+# search for one vendor returns other employers' jobs, and this fixture is one:
+# a sawmill supervisor role at Louisiana-Pacific, taken verbatim from the
+# dataset sample on 2026-08-26.
+
+INDEED_OTHER_EMPLOYER_SAMPLE = {
+    "jobid": "b5dedb22576b1a5d",
+    "company_name": "Louisiana-Pacific Corporation",
+    "date_posted_parsed": "2026-08-21T18:47:46.558Z",
+    "job_title": "Shift Supv II",
+    "job_type": None,
+    "location": "Two Harbors, MN 55616",
+    "job_location": "Hybrid work in Two Harbors, MN 55616",
+    "salary_formatted": None,
+    "company_rating": 3.2,
+    "company_reviews_count": 204,
+    "country": "US",
+    "date_posted": "4 days ago",
+    "region": "MN",
+    "company_link": "https://www.indeed.com/cmp/Lp-Building-Solutions-3",
+    "company_website": None,
+    "url": "https://www.indeed.com/viewjob?jk=b5dedb22576b1a5d",
+    "is_expired": False,
+    "discovery_input": None,
+}
+
+
+def test_the_2026_08_26_indeed_sample_maps_completely():
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    got = map_indeed_job(INDEED_OTHER_EMPLOYER_SAMPLE)
+    assert got is not None
+    assert got['posting_id'] == 'b5dedb22576b1a5d'
+    assert got['title'] == 'Shift Supv II'
+    assert got['company'] == 'Louisiana-Pacific Corporation'
+    # date_posted is "4 days ago"; the ISO one is date_posted_parsed.
+    assert got['posted_date'].startswith('2026-08-21')
+    assert got['is_expired'] is False
+    assert got['company_reviews'] == 204
+    assert got['observed_source'] == 'brightdata_indeed'
+
+
+def test_the_employer_check_rejects_another_companys_listing():
+    """The sample is exactly the case that makes the check necessary."""
+    from app.services.brightdata_linkedin import employer_matches
+
+    assert not employer_matches('Method Security',
+                                INDEED_OTHER_EMPLOYER_SAMPLE['company_name'])
+    assert not employer_matches('Dropzone AI', 'Louisiana-Pacific Corporation')
+
+
+def test_the_employer_check_accepts_the_vendor_and_its_suffixed_forms():
+    from app.services.brightdata_linkedin import employer_matches
+
+    for reported in ('Twine Security', 'Twine Security, Inc.',
+                     'Twine Security LLC', 'twine security'):
+        assert employer_matches('Twine Security', reported), reported
+    # A suffix or a generic token on our side is ignored too.
+    assert employer_matches('Exaforce AI', 'Exaforce')
+    assert employer_matches('Dropzone AI', 'Dropzone')
+
+
+def test_the_employer_check_rejects_a_truncation():
+    """The Kenzo case, in the direction that matters here.
+
+    Glassdoor's rule permits a truncation because wbm tracks "Pearsons
+    Education" where Glassdoor says "Pearson". Here we chose the query, so a
+    shorter answer means the provider matched fewer of our words — which is the
+    wrong-company case, not a synonym.
+    """
+    from app.services.brightdata_linkedin import employer_matches
+
+    assert not employer_matches('Kenzo Security', 'Kenzo')
+    assert not employer_matches('Method Security', 'Method')
+    assert not employer_matches('Radiant Security', 'Radiant Waxing')
+    assert not employer_matches('System Two Security', 'System Two Logistics')
+    # And an empty or missing employer never matches.
+    assert not employer_matches('Kenzo Security', None)
+    assert not employer_matches('Kenzo Security', '')
+    assert not employer_matches('', 'Anything')
+
+
+def test_the_trigger_sends_the_company_in_keyword_search_not_posted_by():
+    """posted_by looks like the employer filter and is not.
+
+    It is a closed enum of poster types — "Employer" is a member, a company
+    name is rejected — confirmed against the provider. An earlier version put
+    the employer there and left keyword_search empty, which would have failed a
+    required field.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/services/brightdata_linkedin.py').read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.AsyncFunctionDef)
+              and n.name == 'trigger_indeed_discover')
+    body = ast.get_source_segment(src, fn)
+    assert '"keyword_search": s["employer"]' in body
+    assert 'posted_by' not in body.split('"""')[2], (
+        'posted_by must not appear in the payload')
+    # All four required inputs are present.
+    for field in ('country', 'domain', 'keyword_search', 'location'):
+        assert f'"{field}"' in body, field
+
+
+def test_an_expired_listing_is_not_an_open_role():
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    got = map_indeed_job(dict(INDEED_OTHER_EMPLOYER_SAMPLE, is_expired=True))
+    assert got['is_expired'] is True, (
+        'the flag has to survive mapping so the ingest can drop it')

@@ -2,6 +2,100 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-26 (Indeed collector) — attribution works after all, and I had said it did not
+
+### Goal
+I told the customer Indeed listings "cannot be attributed to a specific vendor", wrote that into
+`MANUAL_ONLY_REASONS` where it shows in the source-health panel, and used it to justify leaving the
+source off. The dataset documentation says otherwise.
+
+### The correction
+- `keyword_search` is documented as **"Search jobs by job title *or company*"**, and it is the only
+  input that accepts a company name.
+- every record carries **`company_name`** — "Louisiana-Pacific Corporation" in the sample.
+
+What I said about `posted_by` stands: it is a closed enum of *poster types*, "Employer" is a member
+and a company name is rejected, confirmed against the provider on 2026-08-26. I generalised from
+that one field to "attribution is impossible", and that was wrong.
+
+So the shape is search-then-verify, the same as the ATS collector: ask by company name, then keep
+only the records whose reported employer is that company.
+
+### `trigger_indeed_discover` — rewritten
+The previous payload put the employer in `posted_by` and left `keyword_search` empty. That fails a
+required field, and had it not, it would have searched for nothing. Now `keyword_search` carries the
+employer, `posted_by` is absent, and all four required inputs — `country`, `domain`,
+`keyword_search`, `location` — are sent.
+
+### `employer_matches` — the half that makes it usable
+`keyword_search` matches titles as well as companies, so a search for one vendor legitimately
+returns other employers' jobs. The rule: **every identifying word of the vendor's name must appear
+in the reported employer.** Suffixes and generic tokens (`inc`, `ltd`, `ai`, `labs`) are ignored on
+both sides, so "Twine Security" matches "Twine Security, Inc." and "Exaforce AI" matches "Exaforce".
+
+This is the **opposite asymmetry** to `bw_official_sources._name_is_compatible`, which permits a
+truncation because wbm tracks "Pearsons Education" where Glassdoor says "Pearson". The direction
+differs because the risk does: there, both names were chosen independently and either may be
+longer; here we chose the query, so a shorter answer means the provider matched fewer of our words —
+the wrong-company case, not a synonym. `Kenzo Security → Kenzo` is rejected here and allowed there,
+deliberately, and both are tested.
+
+### `ingest_indeed_jobs` — attribution rewritten
+It read `discovery_input.posted_by`. The dataset sample shows `discovery_input` arriving as
+**null**, so every record would have gone unmatched — the safe failure the old docstring predicted,
+and still a collector that returns nothing. It now attributes on `company_name` through
+`employer_matches`, drops `is_expired` listings before they reach the hiring counts, and logs how
+many belonged to another employer rather than letting a filtered-out batch look like an empty
+market.
+
+### `location` comes from the vendor's own profile
+`location` is required and has no "anywhere" value. The vendor's LinkedIn headquarters is the best
+answer we hold — 70 of 82 vendors have one — with the country from the same reading, falling back to
+the United States. The employer check makes a wrong location fail as "no listings" rather than as
+somebody else's jobs.
+
+### Still manual-only, and the reason string now says why
+The old reason claimed attribution was impossible. It now says attribution works, that every search
+is billed, and that the dataset has no "anywhere" location — so a vendor hiring in several countries
+needs one paid input per location. That is the reason to keep it operator-triggered rather than on
+cadence, not a capability gap.
+
+**Cost if it were turned on:** $0.0015 per record, up to 1,000 records per input, average 6m52s per
+input. One input per vendor over 84 vendors at ~20 records each is roughly **$2.50 per sweep**
+before the location multiplier. Cheap; the latency and the location fan-out are the real
+constraints.
+
+### Not run against the provider
+No live call was made. The mapping and the employer rule are tested against the dataset sample
+verbatim, and running a paid canary is a spend decision — the same discipline that applies to every
+paid dataset here, and the reason two accidental probes cost four cents earlier in this session.
+
+### Verification
+- `pytest tests/test_market_collection.py` — **78 passed**, 6 new, plus the 3 pre-existing
+  `pytest-asyncio` failures. The new tests use the 2026-08-26 sample verbatim, including the case
+  that makes the check necessary: a sawmill supervisor role at Louisiana-Pacific.
+- One of the new tests reads `trigger_indeed_discover`'s source and fails if `posted_by` reappears
+  in the payload or a required input goes missing.
+- A fixture collision caught during the run: the file already defined `INDEED_SAMPLE` from the
+  earlier Indeed work, and my append shadowed it, breaking the existing mapper test. Renamed.
+- Market and entity suites together: **232 passed**.
+- **Not restarted.** A `vendor_web` sweep was running when the gate was checked, and the gate
+  refused — this time correctly saving a real job, having failed to earlier today when the check was
+  an `&&` chain instead of an `if`.
+
+### Propagation
+Canonical only. Market Monitor exists on no other tenant.
+
+### Lessons
+- **One unusable field is not an unusable dataset.** `posted_by` really is a poster-type enum. I
+  turned that into "Indeed cannot attribute a listing", put it in a customer-visible panel, and
+  acted on it for a week.
+- **Read the provider's own field documentation before concluding a capability is missing.**
+  "Search jobs by job title or company" was in the docs the whole time.
+- The same name-matching rule is right in opposite directions depending on who chose the query.
+  Worth stating in both places, because a future reader will otherwise "fix" one to match the other.
+
+
 ## 2026-08-26 (Glassdoor matching) — employee reviews were another company's, and size settles it
 
 ### Goal

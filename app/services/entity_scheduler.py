@@ -64,11 +64,13 @@ MANUAL_ONLY_REASONS: Dict[str, str] = {
         'there is no slug to guess from the company name'
     ),
     'indeed_jobs': (
-        "the dataset has no employer field. keyword_search is free text and "
-        "posted_by is a closed enum of poster types ('Employer' is a member, a "
-        "company name is rejected), so a listing cannot be attributed to a "
-        "specific vendor the way LinkedIn jobs can. Confirmed against the "
-        "provider on 2026-08-26."
+        "attribution works, but every search is billed and needs a location. "
+        "keyword_search takes the company name and each listing is kept only "
+        "when the employer Indeed reports contains every word of the vendor's "
+        "name — posted_by is a closed enum of poster types and is not the "
+        "employer filter it looks like. Left manual because the dataset has no "
+        "'anywhere' location, so a vendor hiring in several countries needs one "
+        "paid input per location."
     ),
 }
 

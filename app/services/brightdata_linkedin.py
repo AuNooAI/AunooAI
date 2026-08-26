@@ -444,31 +444,42 @@ class LinkedInDatasetClient:
         self, searches: list[dict[str, Any]], *, limit_per_input: int = 15,
         webhook_url: str | None = None, webhook_auth: str | None = None,
     ) -> TriggerResult:
-        """Discover Indeed job listings by employer.
+        """Discover Indeed job listings for an employer.
 
-        Confirmed request shape (2026-08-22): ``discover_by=keyword`` with
-        ``country``, ``domain``, ``keyword_search``, ``location``,
-        ``date_posted``, ``posted_by`` and ``location_radius``. The sample
-        request used ``keyword_search`` for the role ("analyst", "product
-        manager"), which leaves ``posted_by`` as the employer filter by
-        elimination — an inference from the field name and the pattern
-        already verified for LinkedIn jobs (a separate ``company`` field,
-        not the keyword itself), not a confirmed response. Read the first
-        live batch's employer attribution before trusting the volume, the
-        same discipline ``trigger_jobs`` already documents for its own
-        history of silently-wrong modes.
+        The employer goes in ``keyword_search``. The dataset documents that
+        field as "Search jobs by job title **or company**", and it is the only
+        input that accepts a company name.
+
+        ``posted_by`` is deliberately absent. It reads like the employer filter
+        and is not: it is a closed enum of *poster types* — "Employer" is a
+        member, a company name is rejected — confirmed against the provider on
+        2026-08-26. An earlier version of this function put the employer there
+        and left ``keyword_search`` empty, which would have failed a required
+        field and, had it not, searched for nothing.
+
+        Because ``keyword_search`` also matches titles, the response is not
+        attribution: a search for "Method Security" returns whatever Indeed
+        thinks matches those words, including jobs at other companies. The
+        employer is established afterwards from each record's ``company_name``
+        — see :func:`employer_matches`.
+
+        ``country``, ``domain``, ``keyword_search`` and ``location`` are all
+        required. ``location`` is the awkward one: it has no "anywhere" value,
+        so a vendor hiring across several countries needs one input per
+        location, and both cost and latency multiply with them.
 
         ``searches`` entries take ``employer`` (required) and optionally
-        ``role``, ``location``, ``country``, ``domain``, ``date_posted``.
+        ``location``, ``country``, ``domain``, ``date_posted``,
+        ``location_radius``.
         """
         payload = [
             {
                 "country": s.get("country") or "US",
-                "domain": s.get("domain") or "indeed.com",
-                "keyword_search": s.get("role") or "",
+                # The documented form is the full host, not the bare domain.
+                "domain": s.get("domain") or "www.indeed.com",
+                "keyword_search": s["employer"],
                 "location": s.get("location") or "United States",
                 "date_posted": s.get("date_posted") or "",
-                "posted_by": s["employer"],
                 "location_radius": s.get("location_radius") or "",
             }
             for s in searches if s.get("employer")
@@ -477,7 +488,6 @@ class LinkedInDatasetClient:
             indeed_dataset(), payload, limit_per_input=limit_per_input,
             webhook_url=webhook_url, webhook_auth=webhook_auth,
         )
-
 
 def crunchbase_url_for(slug: str) -> str:
     """Derive a Crunchbase organization URL from a vendor slug.
@@ -957,6 +967,45 @@ def map_pitchbook_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     }
 
 
+def _employer_words(name: str) -> set:
+    """A company name reduced to the words that identify it."""
+    cleaned = re.sub(r"[^\w\s]", " ", (name or "").lower())
+    cleaned = re.sub(
+        r"\b(inc|llc|ltd|limited|plc|corp|corporation|co|the|group|holdings|"
+        r"technologies|technology|labs|labs?|sa|bv|gmbh|ai)\b", " ", cleaned)
+    return {w for w in cleaned.split() if w}
+
+
+def employer_matches(vendor: str, company_name: Optional[str]) -> bool:
+    """Is this listing's employer the vendor we searched for?
+
+    ``keyword_search`` matches titles as well as companies, so the response
+    contains other employers' jobs and this is what keeps them out.
+
+    The rule: **every identifying word of the vendor's name must appear in the
+    company name.** So "Kenzo Security" accepts "Kenzo Security" and "Kenzo
+    Security Inc" and rejects "Kenzo" — the clothing retailer that a name-only
+    match on the Glassdoor path did accept.
+
+    This is the *opposite* asymmetry to
+    ``bw_official_sources._name_is_compatible``, which allows a truncation
+    because wbm tracks "Pearsons Education" where Glassdoor calls it "Pearson".
+    The direction differs because the risk does. There, the tracked name and the
+    provider's name were chosen independently and either may be the longer.
+    Here we chose the query, so a shorter answer means the provider matched
+    fewer of our words — which is exactly the wrong-company case. Dropping a
+    word we asked for is never a better match.
+
+    Suffixes and a few generic tokens are ignored on both sides, so "Twine
+    Security" still matches "Twine Security, Inc." and "Exaforce AI" matches
+    "Exaforce".
+    """
+    wanted = _employer_words(vendor)
+    if not wanted:
+        return False
+    return wanted.issubset(_employer_words(company_name or ""))
+
+
 def map_indeed_job(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Indeed job listing → the hiring snapshot we store.
 
@@ -985,10 +1034,20 @@ def map_indeed_job(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     return {
         "posting_id": str(posting_id),
         "title": title,
+        # The field attribution now rests on. Kept verbatim so a mismatch can be
+        # read back rather than inferred from the fact that nothing matched.
         "company": _first(raw, "company_name", "company", "employer"),
-        "location": _first(raw, "location", "job_location"),
+        "location": _first(raw, "job_location", "location"),
         "posted_date": _first(raw, "date_posted_parsed", "posted_date"),
-        "url": _first(raw, "url", "job_link"),
+        "url": _first(raw, "url", "apply_link", "job_link"),
         "salary": _first(raw, "salary_formatted", "salary"),
+        "employment_type": _first(raw, "job_type"),
+        "company_url": _first(raw, "company_link"),
+        # Indeed's own employer signals. Not headcount, so they cannot verify
+        # size the way the Glassdoor band does, but they are the only
+        # corroborating facts the record carries.
+        "company_rating": raw.get("company_rating"),
+        "company_reviews": raw.get("company_reviews_count"),
+        "is_expired": bool(raw.get("is_expired")),
         "observed_source": "brightdata_indeed",
     }
