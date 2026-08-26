@@ -193,8 +193,57 @@ on 24 August. A collector with no input list reporting a measured-looking zero i
 confusion this whole entry is about, in a place nobody was looking.
 
 `vendor_web_discovery` repopulates that key and runs on a 720-hour cadence, last fired 20 August,
-so it would not have recovered on its own until 19 September. Forced (run 345, internal collector,
-no provider cost).
+so it would not have recovered on its own until 19 September.
+
+**Forcing it exposed a second defect, and the forced run failed.** Run 345 probed for 452 seconds
+and saved nothing:
+
+```
+(psycopg2.OperationalError) SSL connection has been closed unexpectedly
+[SQL: INSERT INTO rss_feeds ...] [parameters: {'u': 'https://aisoc.cloud/feed/', ...}]
+```
+
+This PostgreSQL runs with `idle_in_transaction_session_timeout = 60000`. Both website sweeps
+awaited HTTP **inside** an open transaction — `_discover_feeds` around `vw.discover_sources`,
+`_poll_pages` around `vw.fetch_page` — so between vendors the connection sat idle-in-transaction
+while a site was fetched. The first domain taking over a minute got the backend killed, and the
+next INSERT failed with a message that reads like a network fault rather than the design fault it
+is. The rollback then discarded every vendor already probed. It survived on 20 August only because
+the cap was 20 and the domains were quick; at 85 it could not.
+
+**`app/tasks/market_monitor.py`** — both sweeps now commit as they go. `_discover_feeds` commits the
+run row before probing and again after each vendor. `_poll_pages` commits after each **page**, not
+each vendor: the first attempt committed per vendor and the guard test caught that `vw.fetch_page`
+is awaited in the *inner* page loop, so a vendor with several slow pages would have held the
+transaction across all of them and hit the same timeout. Both now close as `partial` rather than
+`failed` when some vendors succeeded, because reporting a whole sweep as failed hides work that is
+durable.
+
+`test_no_sweep_holds_a_transaction_across_an_http_call` walks the AST for loops that await a network
+call without committing inside themselves. Its first version flagged six loops, five falsely —
+`tick` awaiting `_poll_market`, and `_poll_market` awaiting the pollers, all of which own their own
+transaction scope — so it now ignores awaits on other pollers and on courtesy sleeps. Verified by
+removing the per-vendor commit and watching it name `_discover_feeds`.
+
+Re-run as 354 with the fix loaded, and the difference is visible in the data as it goes: 2 vendors
+reached at 11:22, 17 by 11:23, 35 by 11:24, 60 by 11:28, 82 by 11:31, each durable on arrival.
+Run 345 showed 0 the whole way and then lost everything.
+
+**354 succeeded in 585 seconds, 0 failed domains.** 83 vendors are in scope
+(`collection_enabled AND role <> 'excluded'`); 82 were reached and **319 pages** recorded, 68
+vendors with at least one page and 14 where discovery ran and found nothing worth watching — a real
+observed zero, correctly distinguishable from the 3 not reached. 19 vendors have feeds and
+`rss_feeds` went from 7 rows to 22.
+
+The three not reached account for themselves: Kenzo Security and Edge Delta are `role = 'excluded'`
+so the sweep skips them by design, and **Intezer has no `domain` identifier at all**, so
+`_discover_feeds` skips it on `if not domain: continue`. That last one is a gap rather than a
+policy: a vendor in the market with no domain on file can never have its website watched, and
+nothing surfaces that.
+
+Worth knowing and not checked: nothing else in the codebase was audited against that 60-second
+timeout. Any other path awaiting network work mid-transaction has the same exposure, and it fails
+looking like a connection problem.
 
 **Stale nginx vhost.** `/etc/nginx/sites-enabled/saas.aunoo.ai.bak-1786977093` was being loaded by
 nginx, producing `conflicting server name "saas.aunoo.ai" ... ignored` on every config test. Diffed

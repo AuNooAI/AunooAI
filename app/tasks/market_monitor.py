@@ -754,6 +754,18 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
         "SELECT config->'collection'->>'topic_name' FROM bw_markets WHERE id = :m"),
         {"m": market["id"]}).scalar() or f"Market Monitoring {market['name']}"
 
+    # The run row is committed before any probing, and every vendor commits its
+    # own result. This used to be one transaction across the whole sweep, with
+    # HTTP awaited inside it — so the database connection sat idle-in-
+    # transaction while a site was fetched, and PostgreSQL here is configured
+    # with idle_in_transaction_session_timeout = 60s. One slow domain killed the
+    # backend, the next INSERT died with "SSL connection has been closed
+    # unexpectedly", and the rollback threw away every vendor already probed:
+    # run 345 spent 452 seconds and saved nothing. Committing per vendor keeps
+    # each transaction to milliseconds of database work and makes a failure cost
+    # one vendor instead of eighty-five.
+    conn.commit()
+
     found = failed = 0
     try:
         for vendor in vendors[: _max_vendors_per_run()]:
@@ -795,13 +807,20 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                        "web_feeds": sources.feeds,
                        "web_discovered_at": now.isoformat(),
                    }, default=str)})
+            # This vendor's feeds and pages are durable from here. A later
+            # vendor failing no longer un-discovers it.
+            conn.commit()
             await asyncio.sleep(0.5)
         mc.close_run(conn, run_id, status="succeeded", new=found, skipped=failed)
         conn.commit()
     except Exception as e:
         conn.rollback()
-        mc.close_run(conn, run_id, status="failed", error=str(e))
+        # Partial, not failed: the vendors already committed keep their pages,
+        # and reporting the whole sweep as a failure would hide that.
+        mc.close_run(conn, run_id, status="partial" if found else "failed",
+                     new=found, skipped=failed, error=str(e))
         conn.commit()
+        logger.warning("feed discovery stopped after %d vendor(s): %s", found, e)
     return 1
 
 
@@ -820,6 +839,12 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                              provider=PROVIDER_INTERNAL)
     else:
         run_id = forced_run_id
+
+    # Committed before fetching, and again after each vendor — same reason as
+    # _discover_feeds: awaiting HTTP inside an open transaction exposes the
+    # connection to the 60-second idle-in-transaction timeout, and a single
+    # transaction across the sweep loses every vendor when it trips.
+    conn.commit()
 
     fetched = changed = unchanged = errors = 0
     try:
@@ -869,14 +894,23 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                     observed_at=result.fetched_at, run_id=run_id,
                 )
                 changed += 1
+                # Per page, not per vendor: the fetch below is awaited inside
+                # this loop, so a vendor with several slow pages would hold the
+                # transaction open across all of them and hit the same 60-second
+                # idle-in-transaction timeout the outer commit was added for.
+                conn.commit()
                 await asyncio.sleep(0.3)  # courtesy spacing on one host
         mc.close_run(conn, run_id, status="succeeded", received=fetched,
                      new=changed, skipped=unchanged + errors)
         conn.commit()
     except Exception as e:
         conn.rollback()
-        mc.close_run(conn, run_id, status="failed", error=str(e))
+        mc.close_run(conn, run_id,
+                     status="partial" if changed else "failed",
+                     received=fetched, new=changed,
+                     skipped=unchanged + errors, error=str(e))
         conn.commit()
+        logger.warning("page poll stopped after %d change(s): %s", changed, e)
     return 1
 
 

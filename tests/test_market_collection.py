@@ -772,3 +772,56 @@ def test_the_health_panel_separates_policy_from_run_state():
     assert 'MANUAL_ONLY_REASONS' in src, (
         'source_health does not surface why a source is not dispatched, so a '
         'reader sees "not scheduled" with no way to find out why')
+
+
+def test_no_sweep_holds_a_transaction_across_an_http_call():
+    """A vendor sweep must commit as it goes, not once at the end.
+
+    PostgreSQL here runs with ``idle_in_transaction_session_timeout = 60s``.
+    Both website sweeps awaited HTTP inside an open transaction, so the
+    connection sat idle-in-transaction while a site was fetched; one slow
+    domain killed the backend and the rollback discarded every vendor already
+    probed. Run 345 spent 452 seconds and saved nothing — the error was
+    "SSL connection has been closed unexpectedly" on the next INSERT, which
+    reads like a network fault rather than a design one.
+
+    So: any sweep that awaits inside its vendor loop has to commit inside that
+    loop too.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/tasks/market_monitor.py').read_text()
+    tree = ast.parse(src)
+
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        for loop in ast.walk(node):
+            if not isinstance(loop, (ast.For, ast.AsyncFor)):
+                continue
+            body = ast.get_source_segment(src, loop) or ''
+            if 'await ' not in body:
+                continue
+            # Only loops that themselves reach the network. A loop awaiting
+            # another poller (tick over markets, _poll_market over sources) is
+            # not holding anything open — the callee owns its own transaction
+            # scope — and a courtesy sleep reaches nothing at all.
+            awaits = [ln for ln in body.splitlines()
+                      if 'await ' in ln
+                      and 'asyncio.sleep' not in ln
+                      and 'await _poll' not in ln
+                      and 'await _discover' not in ln
+                      and 'await _review' not in ln
+                      and 'await _write' not in ln
+                      and 'await _reconcile' not in ln]
+            if not awaits:
+                continue
+            if 'conn.commit()' not in body:
+                offenders.append(f'{node.name} (line {loop.lineno})')
+
+    assert not offenders, (
+        'these vendor loops await network calls without committing inside the '
+        'loop, so the connection sits idle-in-transaction and one slow host '
+        'loses the whole sweep: ' + ', '.join(offenders))
