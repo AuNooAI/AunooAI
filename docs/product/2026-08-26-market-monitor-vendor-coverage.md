@@ -11,6 +11,7 @@ _2026-08-26 · Market Monitor — vendor table, coverage figures, hiring, downlo
 - A company's staff count can no longer be filled in from a size band, so no vendor can appear with a made-up headcount.
 - Provider data now arrives when it is sent rather than ten minutes later.
 - Top Voices now tells you who a handle belongs to, and separates people who post regularly from single posts that travelled.
+- Third-party mentions of a vendor now show per vendor, split by where they came from — news, Twitter, Bluesky, Reddit, employee reviews.
 
 ## Why it matters
 
@@ -31,6 +32,12 @@ Reshares are now reported on their own. A reshare counts as neither the company'
 Who feels it: anyone comparing vendors on how much they say. Also anyone quoting a per-vendor post count externally, which until now overstated owned output by roughly a sixth.
 
 **Hiring data had been switched off by mistake.** The job-listing collector was paused in error nine days ago, citing a provider error that had already been fixed on the same day it appeared. Because a paused source is simply silent, nothing on screen distinguished "we are not collecting this" from "there is nothing to report". It is collecting again, and the number of tracked job postings nearly tripled in one run.
+
+**Third-party discussion of a vendor was being worked out and then discarded.** The platform already identifies which vendor a news article or practitioner post is talking about, and keeps it separated by source — news, Twitter, Bluesky, Reddit, employee reviews. The Market Monitor screens never read any of it. So a vendor's page could show its own posts in full while showing almost nothing of what other people said about it.
+
+Vendors with any third-party mention went from a handful to 12, and the number of mentions counted from 22 to 50 — with each one now labelled by where it came from rather than lumped together. No new collection was needed; this was all already gathered.
+
+Who feels it: anyone asking "is anyone actually talking about this vendor?", which is most of the reason to watch a market at all.
 
 **"Top voices" was mostly single posts, and the handles were strangers.** The list ranked accounts by how much engagement they got, which meant one post that travelled outranked an account posting week after week. In this market that is not a small distortion: of 87 accounts discussing it, 81 posted exactly once, and the only account posting repeatedly — nine times — had no engagement at all, so it ranked last.
 
@@ -53,6 +60,7 @@ Who feels it: an analyst deciding whose opinion to follow, and anyone who wants 
 - Post counts now separate what a company published from what it reshared. Reshares are reported on their own rather than counted as the company's own output.
 - Top Voices separates accounts that post regularly from single posts that got attention, and marks single-post entries as such.
 - Each voice links to its account profile under brand monitoring. Profiles are still built on request, not in bulk.
+- Third-party mentions of a vendor are now counted per vendor and split by source: news, Twitter, Bluesky, Reddit and employee reviews.
 
 ## Demo / walkthrough
 

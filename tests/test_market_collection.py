@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 from app.collectors import vendor_web_collector as vw
 from app.services import brightdata_linkedin as bd
@@ -889,3 +890,69 @@ def test_top_voices_links_accounts_without_building_profiles():
         assert forbidden not in src, (
             f'top_voices calls {forbidden}: a read path must not build '
             f'profiles, which are on-demand only for cost')
+
+
+# ---------------------------------------------------------------------------
+# Earned attention comes from the resolved mentions, not from nowhere
+# ---------------------------------------------------------------------------
+
+def test_share_of_voice_reads_the_resolved_mentions():
+    """The entity layer resolves who a third-party post is about; use it.
+
+    ``bw_entity_mentions`` holds 1,933 rows across 53 brands with channel and
+    platform kept separate, and no Market Monitor read path referenced it while
+    ``ENTITY_INTELLIGENCE_MENTION_READ`` was on. So practitioner discussion of
+    a vendor was being resolved and then ignored: the article-categories count
+    saw 22 items where the mentions table has 50 across news, Twitter, Bluesky,
+    Reddit and Glassdoor.
+    """
+    import inspect
+
+    from app.services import market_analysis as man
+
+    src = inspect.getsource(man.share_of_voice)
+    assert 'bw_entity_mentions' in src
+    assert 'mention_read' in src, (
+        'the mention read must be gated on the rollout flag, like every other '
+        'entity read')
+    assert '"earned"' in src or 'earned' in src, (
+        'the article-derived earned count must stay: callers compare against '
+        'it, and a number that silently doubles is worse than two whose '
+        'sources are stated')
+
+
+@pytest.mark.skipif(os.getenv('DB_TYPE', 'postgresql').lower() != 'postgresql',
+                    reason='reads live mention rows')
+def test_earned_attention_never_counts_a_vendors_own_posts():
+    """Owned social is already `own_posts`. Counting it again under attention
+    would double it beneath a heading that says the opposite.
+
+    The first version of this excluded owned_social from the channel breakdown
+    and not from the platform breakdown, so a vendor showed
+    ``platforms={'linkedin': 72}`` beside ``total=13`` — its own LinkedIn posts
+    reported as earned attention. Both breakdowns are filtered now, and the
+    invariant that catches it is that platforms can never outnumber the total.
+    """
+    from app.database import get_database_instance
+    from app.services import market_analysis as man
+
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        market = conn.execute(text(
+            'SELECT id FROM bw_markets WHERE enabled ORDER BY id LIMIT 1'
+        )).scalar()
+        if market is None:
+            pytest.skip('no market to read')
+        sov = man.share_of_voice(conn, int(market))
+    finally:
+        conn.rollback()
+        conn.close()
+
+    for row in sov['vendors']:
+        att = row['attention']
+        assert 'owned_social' not in att['by_channel'], (
+            f"{row['vendor']}: owned social counted as earned attention")
+        assert sum(att['by_platform'].values()) <= att['total'], (
+            f"{row['vendor']}: platform counts ({att['by_platform']}) exceed "
+            f"the attention total ({att['total']}) — something outside the "
+            f"earned channels is being counted")

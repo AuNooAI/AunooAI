@@ -170,6 +170,41 @@ version tallied per file and failed on correct code, counting a docstring mentio
 deliberately-unguarded `is_owned` label. Verified by removing the guard from one query and watching
 it name `market_publish.py:106`.
 
+### Earned attention read from the resolved mentions instead of ignored
+Chasing why zero of the market's 161 social posts were attributed to any vendor turned out to be
+the same shape as everything else in this entry. `bw_entity_mentions` already holds resolved
+per-vendor mentions — **1,933 rows across 53 brands**, with `channel` and `platform` kept separate
+exactly as §4.10 asks — and grep found **no reference to it anywhere in Market Monitor's services
+or routes**, while `ENTITY_INTELLIGENCE_MENTION_READ=true`. Practitioner discussion of a vendor was
+being resolved and then thrown away.
+
+Scoped to this market the table holds `owned_social` 1,883 (52 vendors), `earned_news` 29 (7),
+`public_social` twitter 9 (5) and bluesky 4 (4), `employee`/glassdoor 7 (4), `community`/reddit 1.
+
+Two dead ends checked first, so this is the third answer rather than the first idea: the corpus
+scan's `matched_terms` on those social posts are theme terms — "AI SOC", "SIEM", "alert triage" —
+not vendor names, so nothing was derivable from them. And the 22 news attributions that do exist
+came from Brand Watcher's `llm_semantic` path, which means **earned coverage per vendor in Market
+Monitor is a by-product of brand monitoring**, and brand monitoring is off for all 85 vendors. A
+term matcher was the obvious next move and would have duplicated work the entity layer already
+does properly.
+
+**`app/services/market_analysis.py`** — `share_of_voice` now returns `attention` per vendor:
+`by_channel`, `by_platform` and a total, gated on `entity_flags.mention_read()` like every other
+entity read. Added beside `earned` rather than replacing it: `earned` comes from
+`bw_article_categories` and callers compare against it, so a number that silently doubles is worse
+than two numbers whose sources are stated.
+
+**12 vendors now have earned attention where the article count found 22 items in total; the
+mentions give 50**, split across news, Twitter, Bluesky, Reddit and Glassdoor.
+
+`owned_social` is excluded — it is already `own_posts`, and counting it again under a heading that
+says "earned" would double it. The first version excluded it from the channel breakdown and not the
+platform one, so Dropzone AI read `platforms={'linkedin': 72}` beside `total=13`: its own posts
+reported as earned attention. Caught by looking at the output rather than trusting it. The
+invariant that platform counts can never exceed the attention total is now a test, verified by
+reintroducing the leak and watching it name the vendor and the numbers.
+
 ### Top voices joined to brand monitoring's account profiles, and split from breakout posts
 Brand monitoring already keeps per-account profiles in `social_accounts` — handle, bio, reach,
 topics, brand-relative sentiment, watchlist state, sample posts. Top Voices listed handles beside

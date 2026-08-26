@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from app.services.market_corpus import _iso_days_ago
 
+from app.services import entity_flags
 from app.services.market_corpus import own_voice_sql
 
 logger = logging.getLogger(__name__)
@@ -875,6 +876,44 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         GROUP BY 1
     """), params).fetchall()}
 
+    # Earned attention, by channel, from the entity layer's resolved mentions.
+    #
+    # bw_entity_mentions already holds this — 1,933 rows across 53 brands, with
+    # channel and platform kept separate exactly as they should be — and no
+    # Market Monitor read path referenced it, while
+    # ENTITY_INTELLIGENCE_MENTION_READ was on. So practitioner discussion of a
+    # vendor was being resolved and then ignored: `earned` here counts 22
+    # articles where the mentions table has 43 across news, Twitter, Bluesky,
+    # Reddit and Glassdoor.
+    #
+    # Added beside `earned` rather than replacing it. `earned` comes from
+    # bw_article_categories and existing callers compare against it; a number
+    # that silently doubles is worse than two numbers whose sources are stated.
+    mentions: Dict[int, Dict[str, Any]] = {}
+    if entity_flags.mention_read():
+        mwindow = ""
+        if days:
+            mwindow = ("AND COALESCE(a.publication_date, a.submission_date) "
+                       ">= :since")
+        for r in conn.execute(text(f"""
+            SELECT m.brand_id, m.channel, m.platform,
+                   COUNT(DISTINCT m.article_uri) AS items
+              FROM bw_entity_mentions m
+              JOIN bw_market_brands mb ON mb.brand_id = m.brand_id
+                                       AND mb.market_id = :m
+              JOIN articles a ON a.uri = m.article_uri
+             WHERE mb.role <> 'excluded' {mwindow}
+             GROUP BY 1, 2, 3
+        """), params).mappings().all():
+            # Keyed by (channel, platform) and split afterwards. Aggregating
+            # platform independently mixed the vendor's own LinkedIn posts into
+            # a platform breakdown labelled earned attention — 72 next to a
+            # total of 13, which is not a rounding disagreement, it is two
+            # different measures under one heading.
+            bucket = mentions.setdefault(int(r["brand_id"]), {})
+            key = (r["channel"] or "unknown", r["platform"])
+            bucket[key] = bucket.get(key, 0) + int(r["items"])
+
     earned_total = sum(r["earned"] for r in rows) or 0
     own_total = sum(r["own_posts"] for r in rows) or 0
     # A percentage of a handful of mentions turns noise into a ranking — a
@@ -883,6 +922,23 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
     # this is the market-wide equivalent for the denominator itself.
     share_reliable = earned_total >= MIN_EARNED_FOR_SHARE
     for row in rows:
+        # Owned social is the vendor's own channel and is already counted as
+        # own_posts; including it here would double it under a different name.
+        # Excluded from both breakdowns, not just the channel one.
+        by_channel: Dict[str, int] = {}
+        by_platform: Dict[str, int] = {}
+        for (channel, platform), items in (
+                mentions.get(row["brand_id"]) or {}).items():
+            if channel == "owned_social":
+                continue
+            by_channel[channel] = by_channel.get(channel, 0) + items
+            if platform:
+                by_platform[platform] = by_platform.get(platform, 0) + items
+        row["attention"] = {
+            "by_channel": by_channel,
+            "by_platform": by_platform,
+            "total": sum(by_channel.values()),
+        }
         hit = reach.get(row["brand_id"])
         row["reactions"] = int(hit[1] or 0) if hit else 0
         row["measured_posts"] = int(hit[2] or 0) if hit else 0
