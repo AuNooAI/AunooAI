@@ -386,6 +386,21 @@ def process_pending(conn, run_id: Optional[int] = None,
             SELECT DISTINCT c.article_uri FROM bw_article_categories c
             UNION
             SELECT DISTINCT m.article_uri FROM bw_market_articles m
+            UNION
+            -- The third place: public posts the keyword monitor collects for
+            -- a "<vendor> - Social" or market social group. They land in
+            -- articles under the group's topic and in neither table above,
+            -- so a vendor with social monitoring switched on had posts and
+            -- no mentions, and the Social tab (which reads mentions) was
+            -- empty for it.
+            SELECT DISTINCT a.uri FROM articles a
+             WHERE (a.topic LIKE 'Brand Monitoring %'
+                    OR a.topic LIKE 'Market Monitoring %')
+               AND (LOWER(a.news_source) LIKE 'xpoz:%'
+                    OR LOWER(a.news_source) LIKE 'bsky%'
+                    OR LOWER(a.news_source) IN ('bluesky', 'reddit')
+                    OR LOWER(a.news_source) LIKE 'reddit%'
+                    OR LOWER(a.news_source) LIKE 'www.reddit%')
         ) candidates
          WHERE NOT EXISTS (SELECT 1 FROM bw_entity_content_links l
                             WHERE l.article_uri = candidates.article_uri)

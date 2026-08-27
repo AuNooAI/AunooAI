@@ -1223,16 +1223,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // With no header selection, the "X only" social scope means the primary brand.
   const selectedBrand = selectedBrands[0] || brands.find(b => b.is_primary) || brands[0] || undefined;
 
-  // Comparison tab shows the selected (or primary) brands plus the top N by
-  // article volume. Every brand at once is unreadable on a tenant with dozens.
-  const compPinnedIds = new Set<number>(
-    config.selectedBrandIds.length ? config.selectedBrandIds : brands.filter(b => b.is_primary).map(b => b.id));
+  // Comparison tab shows the primary brand plus the top N by article volume,
+  // N being the total shown. Every brand at once is unreadable on a tenant
+  // with dozens. The header selection is deliberately not a pin list: it
+  // remembers brands across sessions that nobody meant to pin, and pinning
+  // them on top of N showed 15 brands under a "top 5" dropdown.
+  const compPinnedIds = new Set<number>(brands.filter(b => b.is_primary).map(b => b.id));
   const pickTopN = <T extends { brand_id: number }>(rows: T[], volume: (r: T) => number): Set<number> => {
     const keep = new Set<number>(compPinnedIds);
-    let added = 0;
     for (const r of [...rows].sort((a, b) => volume(b) - volume(a))) {
-      if (added >= compTopN) break;
-      if (!keep.has(r.brand_id)) { keep.add(r.brand_id); added++; }
+      if (keep.size >= compTopN) break;
+      keep.add(r.brand_id);
     }
     return keep;
   };
@@ -5333,8 +5334,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           )}
           {!exportingReport && (comparison.length > 0 || shareOfVoice.length > 0) && (
             <label className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
-              title="Selected brands (or the primary brand) are always shown; the rest are the brands with the most articles in this window. Share of Voice folds the remainder into one Others slice.">
-              Show {compPinnedIds.size > 0 ? (config.selectedBrandIds.length ? 'selected' : 'primary') + ' + ' : ''}top
+              title="The brands with the most articles in this window; the primary brand is always one of them. Share of Voice folds the remainder into one Others slice.">
+              Show top
               <select
                 value={compTopN}
                 onChange={e => setCompTopN(Number(e.target.value))}

@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1276,9 +1277,14 @@ async def market_report(
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
     view: str = Query("report"),
+    preview: Optional[str] = Query(None, description="'shared': render what a reader without a login gets, even with a session"),
     session=Depends(verify_session_optional),
 ):
     """The market as one self-contained HTML file.
+
+    ``preview=shared`` lets a logged-in operator see the shared view — the
+    vendor cap, the blur and the trial form — without logging out. Access
+    is still decided by the real session; only the entitlement is lowered.
 
     ``view=news`` is the second page: every record in the period as a
     time-ordered river of headlines, no analysis.
@@ -1313,7 +1319,8 @@ async def market_report(
             # report used to name all 84 vendors to anybody with the URL, and
             # because is_public was true it needed no token at all.
             entitlement = ent.resolve(
-                session=session, signed_link=signed,
+                session=None if preview == "shared" else session,
+                signed_link=signed or (preview == "shared" and bool(session)),
                 market_is_public=bool(market.get("is_public")))
             allowed = ent.authorized_brand_ids(
                 conn, market_id, entitlement.vendor_limit)
@@ -1336,6 +1343,96 @@ async def market_report(
     html = await asyncio.to_thread(_work)
     return Response(content=html, media_type="text/html; charset=utf-8",
                     headers={"Cache-Control": "private, max-age=300"})
+
+
+class TrialRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    email: str = Field(..., min_length=3, max_length=254)
+    title: Optional[str] = Field(None, max_length=200)
+
+
+_TRIAL_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
+TRIAL_REQUESTS_PER_IP_PER_DAY = 20
+
+
+def _notify_trial_request(market: Dict[str, Any], row_id: int, name: str,
+                          email: str, title: Optional[str]) -> bool:
+    """Tell whoever handles trials. Stored first, mailed second: the row is
+    the record, the mail is a convenience, and a mail outage loses nothing."""
+    import html as _html
+
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("trial request %s stored; MARKET_TRIAL_NOTIFY_EMAIL is unset, "
+                    "so no mail was sent", row_id)
+        return False
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            logger.warning("trial request %s stored; email service not configured", row_id)
+            return False
+        lines = [f"Name: {name}", f"Email: {email}", f"Title: {title or '-'}",
+                 f"Market: {market['name']} (id {market['id']})",
+                 f"Request id: {row_id}"]
+        html_body = "<p>" + "<br>".join(_html.escape(l) for l in lines) + "</p>"
+        return bool(svc.send_email(
+            to, f"Trial request: {name} — {market['name']}",
+            html_body, "\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001 — never fail the request over mail
+        logger.warning("trial request %s stored; notification failed: %s", row_id, exc)
+        return False
+
+
+@router.post("/markets/{market_id}/trial-request", status_code=201)
+async def market_trial_request(market_id: int, body: TrialRequest, request: Request):
+    """A reader of the shared report asks for a trial.
+
+    No session, by design: the people filling this in are the ones without
+    one. The market has to exist, the address has to look like one, and one
+    address gets a small number of requests a day.
+    """
+    name = body.name.strip()
+    email = body.email.strip().lower()
+    title = (body.title or "").strip() or None
+    if not name or not _TRIAL_EMAIL_RE.match(email):
+        raise HTTPException(status_code=422,
+                            detail="A name and a valid email address are required")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else None)) or None
+    agent = (request.headers.get("user-agent") or "")[:400]
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if ip:
+                recent = conn.execute(text("""
+                    SELECT COUNT(*) FROM market_trial_requests
+                     WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day'
+                """), {"ip": ip}).scalar() or 0
+                if recent >= TRIAL_REQUESTS_PER_IP_PER_DAY:
+                    raise HTTPException(status_code=429,
+                                        detail="Too many requests from this address today")
+            row_id = conn.execute(text("""
+                INSERT INTO market_trial_requests
+                    (market_id, name, email, title, surface, viewer_reason, ip, user_agent)
+                VALUES (:m, :n, :e, :t, 'report.html', 'shared view', :ip, :ua)
+                RETURNING id
+            """), {"m": market_id, "n": name, "e": email, "t": title,
+                   "ip": ip, "ua": agent}).scalar()
+            conn.commit()
+            if _notify_trial_request(market, row_id, name, email, title):
+                conn.execute(text("UPDATE market_trial_requests SET notified = true "
+                                  "WHERE id = :i"), {"i": row_id})
+                conn.commit()
+            return {"ok": True, "id": int(row_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.get("/markets/{market_id}/export.zip")

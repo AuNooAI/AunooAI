@@ -63,11 +63,12 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
     + (b.dimensions.employee?.reviews_n || 0);
   const defaultIds = (): Set<number> => {
     const ranked = [...brands].sort((a, b) => volumeOf(b) - volumeOf(a) || a.display_name.localeCompare(b.display_name));
+    // N is the number of brands shown, full stop. The primary brand is always
+    // one of them; it does not come on top of N.
     const ids = new Set<number>(brands.filter(b => b.is_primary).map(b => b.brand_id));
-    let added = 0;
     for (const b of ranked) {
-      if (added >= topN) break;
-      if (!ids.has(b.brand_id)) { ids.add(b.brand_id); added++; }
+      if (ids.size >= topN) break;
+      ids.add(b.brand_id);
     }
     return ids;
   };
@@ -139,8 +140,8 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
       {/* Brand toggles: default = primary + top N by volume, click to add or remove */}
       <div className="flex flex-wrap items-center gap-2">
         <label className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mr-1"
-          title="The primary brand is always shown; the rest are the brands with the most scored items in this window. Click any brand to add or remove it.">
-          Show {brands.some(b => b.is_primary) ? 'primary + ' : ''}top
+          title="The brands with the most scored items in this window; the primary brand is always one of them. Click any brand to add or remove it.">
+          Show top
           <select
             value={topN}
             onChange={e => setTopN(Number(e.target.value))}

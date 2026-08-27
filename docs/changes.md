@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-27 — perception scores find a brand's articles by its link; radar and comparison show fewer brands
+## 2026-08-27 — perception scores find a brand's articles by its link; the social tab reads scored mentions; the market coverage table stops listing collectors we do not run; the shared market report blurs most figures behind a trial form
 
 ### Goal
 On bugfixing the Brand Watcher perception table read "no data" for 32 of 34 brands, the radar
@@ -35,12 +35,85 @@ across all vendors in 90 days (21 news, 10 social), so most cells stay "no data"
 The "+679" and "+1001" in the pasted table were the score and the grey volume number glued
 together by copy-paste: +67 from 9 posts, +100 from 1 item.
 
-### Fix — social tab empty on bugfixing: a collection gap, not a display bug (no code change)
-`ENTITY_INTELLIGENCE_MENTION_READ=true` in bugfixing's `.env`, so the social tab reads
-`bw_entity_mentions`. That table holds 3,109 rows, of which 2,920 are the vendors' own LinkedIn
-posts; public social mentions total 26 (15 Bluesky, 10 X, 1 Reddit) across 80 vendors, all
-`pending`, none scored. There is no per-vendor social collection; the market topic collects
-by market keywords and a post rarely names a vendor. Left as is.
+### Fix — social tab empty on bugfixing: nothing linked or scored the mentions the tab reads
+The earlier version of this entry called this a collection gap with no code change. That was
+wrong. `ENTITY_INTELLIGENCE_MENTION_READ=true` in bugfixing's `.env` makes `/social` answer from
+`bw_entity_mentions` (`entity_social_read.social_feed`), and with the default "≥0.4" filter that
+means `m.relevance >= 0.4`. Two things kept that table empty of usable rows:
+
+- **Nothing scored the mentions.** `social_eval_service.evaluate_mentions_for_group` is the
+  scorer for per-vendor mentions and had no caller anywhere in the tree. Every public social
+  mention was `pending` with `relevance NULL`, while the same posts carried a score on the
+  article row (`topic_alignment_score`) from the topic-level evaluator the tab no longer reads.
+- **Nothing linked posts from a "<vendor> - Social" group.** `entity_ingest.process_pending`
+  examined only articles in `bw_article_categories` or `bw_market_articles`. Posts the keyword
+  monitor collects for group 19 "Dropzone AI - Social" land in `articles` under
+  `Brand Monitoring Dropzone AI` and in neither table, so Dropzone had 10 posts (5 scored ≥0.4 on
+  the article row) and 0 mentions. 7ai's had been linked by the 08-25 backfill, which is why it
+  looked like Dropzone alone was missing.
+
+**`app/services/entity_ingest.py`**: the candidate query gains a third member — social posts
+(`xpoz:%`, `bluesky`, `bsky%`, `reddit%`) under a `Brand Monitoring %` or `Market Monitoring %`
+topic. The examined-attempts table still stops re-scans. **`app/tasks/brand_watcher_monitor.py`**:
+the hourly social sweep (every 4th adverse cycle, next to `sweep_unevaluated_social`) now runs
+`entity_ingest.process_pending(conn, snapshot_limit=0)` off-loop and then
+`evaluate_mentions_for_group(db)`, both gated on `entity_flags.enabled() and social_enabled()`
+and wrapped in an `ImportError` guard, so a tenant without the entity layer skips it. The
+scorer uses `SOCIAL_EVAL_MODEL` (`bedrock-claude-haiku` on bugfixing) one post per call.
+
+The backlog was drained once by hand through the same two functions: 126 posts examined, 32
+pending mentions scored (32 of 32), 30 of them at ≥0.4 across ten vendors — 7ai 9, Radiant
+Security 5, Dropzone AI 5, Crogl 3, AISOC 3, Intezer 2, and one or two for SOCNova, Legion,
+Prophet and Secure.com.
+
+### Fix — market coverage table: "Attempted 0, Collected 69", and rows for collectors we do not run
+**`app/services/entity_scheduler.py`**. Only `claim_due` stamped `last_attempt_at`;
+`record_success` and `seed_success_from_snapshots` set `last_success_at` without it. Every
+source collected outside the claim path (Crunchbase, vendor site updates, feed discovery, ATS
+jobs and discovery) therefore reported attempted 0 against a non-zero collected count in the
+report's "How much of the market we checked" table. Both writers now set
+`last_attempt_at = COALESCE(last_attempt_at, <success time>)`. The one-line backfill for the
+existing rows (`UPDATE bw_entity_source_policies SET last_attempt_at = last_success_at WHERE
+last_attempt_at IS NULL AND last_success_at IS NOT NULL`) was blocked by the session's
+permission classifier and is **not run**; until it is, those five rows keep showing 0 and each
+vendor corrects itself on its next successful collection.
+
+**`app/services/market_report_html.py`**. Sources with state `not_configured` (Indeed, PitchBook,
+ZoomInfo: 0 of 84 eligible) are no longer table rows; they are one sentence under the table,
+"Not read for this market: …", carrying the same public note. The "Paused 0 / 84 0%" row is
+only printed when something is paused. And "Job boards read 20 / 84" was a mislabel:
+`market_analysis.hiring()["coverage"]` counts vendors with at least one listing in the window
+("vendors have job listings we have seen"), not boards read — the row above it says 82 boards
+were read. Relabelled "Have job listings we have seen".
+
+### Feature — shared market report: a few figures in full, the rest blurred, and a trial-request form
+**`app/services/market_report_html.py`**. When `build_market_report` runs for a restricted
+viewer (`allowed_brand_ids is not None`: a signed link or a public market, never a session),
+the lead stays as it was and a trial panel is inserted after it. Inside the drawers, the
+evidence from "Funding and investor activity" through "What people are saying", the vendor
+registry after its first `TEASER_REGISTRY_ROWS = 3` rows, and the "How much of the market we
+checked" tables are wrapped in `.mm-teaser`: CSS blur, `user-select: none`, capped at 560px, with
+a card on top ("… are blurred in this shared view. Request a trial"). Market scope, the period
+comparison, the snapshot, formation, the headline stat cards, "About this report" and "Where the
+numbers come from" stay readable. Blur alone leaves the figures in the page source, so
+`_scrub_digits` replaces every digit in the blurred text nodes with 8 before wrapping (tags and
+attributes untouched; bar heights in the blurred SVG charts still encode values). The ranges
+are marked with HTML comments while the body is built and wrapped by `_apply_teasers` on the
+finished document, before `assert_no_withheld` runs. The full (session) view has no markers and
+no panel.
+
+The panel says what a trial includes — every vendor and figure, an RSS feed, an MCP server, CSV
+export, a weekly report by email — and asks for name, company email and title. Its inline script
+posts JSON to the new endpoint and shows the outcome in place; a copy saved to disk shows a
+plain failure line.
+
+**`app/routes/market_monitor_routes.py`**: `POST /api/market-monitor/markets/{id}/trial-request`,
+no session. Validates name and email shape (format only; free-mail domains are not rejected),
+404s on an unknown market, 429s past 20 requests per IP per day, inserts into
+`market_trial_requests`, then mails `MARKET_TRIAL_NOTIFY_EMAIL` (comma-separated) through
+`EmailService` if that variable is set and the service is configured, and marks the row
+`notified`. The row is written before the mail is attempted. **`alembic/versions/mm_011_market_trial_requests.py`**
+creates the table (`mm_010 → mm_011`, applied on bugfixing).
 
 ### Feature — radar and comparison default to primary/selected + top N
 **`ui/src/components/newsfeed/BrandWatcherPerception.tsx`**: the default visible set is the
@@ -52,6 +125,22 @@ primary) plus top N by `total_articles` / `mention_count`; Category Breakdown, t
 table and the sentiment summary read `compShown`; Share of Voice folds the remainder into one
 "Others (n)" slice so percentages still sum to 100, and that slice has no drill-down. Pinned
 brands do not consume a top-N slot.
+
+### Fix — "top 5" showed 15 on the comparison tab
+**`BrandWatcherTab.tsx`, `BrandWatcherPerception.tsx`** (later the same day). The first version
+pinned every brand in the header selection *and* added the top N, so a remembered ten-brand
+selection plus "top 5" drew fifteen. N is now the total shown; the primary brand is always one
+of them and the header selection no longer pins. Labels read "Show top N". Rebuilt
+(`BrandWatcherTab-BI4ObE27.js`, entry `newsfeed-BP-jSDZj.js`) and copied to wiley and
+wileytest with the templates; all three restarted.
+
+### Feature — `report.html?preview=shared`
+**`app/routes/market_monitor_routes.py`**. A session always gets the full report, which is why
+the blurred view was invisible to the operator who asked for it. `preview=shared` lowers the
+entitlement to the shared tier for that request only; access is still decided by the real
+session. Verified: without it 0 teaser blocks, with it 2 and the form. The attempt-stamp
+backfill was run afterwards (284 rows), so the coverage table now reads attempted = collected
+for every source.
 
 ### Fix — the Brand Watcher sub-tab reset on reload
 **`BrandWatcherTab.tsx`**: `activeTab` was `useState('dashboard')`. It now initialises from
@@ -71,7 +160,24 @@ rest are kept; dropped entries use the `check` key the report expects. Found unc
 the tree from earlier work and committed on its own.
 
 ### Verification
-`EXPLAIN ANALYZE` of the new query on `test`: 56.5 ms. `/api/brand-watcher/perception?days_back=90`
+Social and coverage fixes, after restart on bugfixing: `/api/brand-watcher/social?min_relevance=0.4&days_back=30`
+with the 7ai + Dropzone AI topics returns 6 posts (Dropzone 4, 7ai 2; 7ai's other scored posts
+are June/July, outside 30 days) where it returned 0; with every enabled vendor's topic, 17 posts
+across six vendors. `/api/market-monitor/markets/2/report.html?days=30`: the coverage table has
+eight rows (was eleven), the "Not read for this market" sentence names Indeed, PitchBook and
+ZoomInfo, no Paused row, hiring row reads "Have job listings we have seen 20 / 84". `py_compile`
+clean on all four files. Journal after restart shows only the pre-existing "NewsData.io API key
+not found".
+
+Shared report: `report.html?days=30` without a session on bugfixing → 200, two `.mm-teaser`
+blocks (Funding…What people are saying; coverage tables), 8 blurred registry rows, one form, no
+leftover markers, and the only digit in the blurred text is 8 — the full view's "20 / 84" hiring
+figure does not appear in the shared page. With a session: 0 teaser blocks, no form. `POST
+…/trial-request`: 201 `{"ok": true, "id": 1}` and a row with the forwarded IP (test row deleted
+afterwards); bad email → 422; market 999 → 404; journal logs "MARKET_TRIAL_NOTIFY_EMAIL is unset,
+so no mail was sent". Playwright screenshots of the three surfaces checked by eye.
+
+Perception work: `EXPLAIN ANALYZE` of the new query on `test`: 56.5 ms. `/api/brand-watcher/perception?days_back=90`
 via a minted session cookie after restart — bugfixing: 34 brands, 9 with scores (was 2),
 e.g. Prophet Security media +75 from 8 items, Dropzone AI media +50 from 2; wileytest: 4
 brands, all five dimensions, Wiley media +32 from 351 articles; the old topic-only path
@@ -81,7 +187,13 @@ link adds about 40 per brand; wiley: `brands: []` because `bw_brands` has 0 rows
 logs a pre-existing "Bluesky credentials not found" from its collector.
 
 ### Propagation
-Backend block byte-identical on bugfixing, wiley, wileytest (diff checked). Built bundle
+Social, coverage and shared-report work: bugfixing only, uncommitted at the time of writing. `MARKET_TRIAL_NOTIFY_EMAIL` is not set on bugfixing yet, so requests are stored but nobody is emailed. `entity_ingest.py`,
+`entity_scheduler.py` and `market_report_html.py` exist only on market tenants (wiley and
+wileytest do not have them). The `brand_watcher_monitor.py` hook is inert without
+`entity_flags.py`, so it was not copied to wiley or wileytest, whose copies of that file also
+differ from canonical for other reasons.
+
+Perception work: backend block byte-identical on bugfixing, wiley, wileytest (diff checked). Built bundle
 (`index-Ctuc41qu.js`) rsynced with `--delete` to both tenants' `static/trend-convergence/`
 plus the six `*_react.html` templates; the only other `ui/src` change since their 08-24 sync
 was Market Monitor code already in that bundle. All three services restarted after a

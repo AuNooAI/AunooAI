@@ -298,6 +298,34 @@ NEWS_CSS = """
 
 
 EXTRA_CSS = """
+
+/* Shared view: most of the evidence is blurred behind a trial request. */
+.mm-teaser { position: relative; margin: .4rem 0 1rem; }
+.mm-teaser-body { filter: blur(6px); user-select: none; pointer-events: none;
+                  opacity: .75; max-height: 560px; overflow: hidden; }
+.mm-teaser-cta { position: absolute; top: 2.2rem; left: 0; right: 0;
+                 display: flex; justify-content: center; }
+.mm-teaser-cta > div { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+                       padding: 1rem 1.25rem; max-width: 400px; text-align: center;
+                       font-size: .9rem; color: #111827;
+                       box-shadow: 0 8px 24px rgba(17, 24, 39, .12); }
+.mm-btn { display: inline-block; margin-top: .6rem; background: #111827; color: #fff !important;
+          border: 0; border-radius: 6px; padding: .5rem .9rem; font-size: .85rem;
+          font-weight: 600; cursor: pointer; text-decoration: none !important; }
+tr.mm-teaser-row td { filter: blur(5px); user-select: none; pointer-events: none; }
+.mm-trial { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 1.1rem 1.25rem; margin: 1.2rem 0; }
+.mm-trial h2 { margin: 0 0 .3rem; font-size: 1.05rem; }
+.mm-trial p { margin: 0 0 .7rem; font-size: .9rem; color: #334155; }
+.mm-trial form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                 gap: .6rem; align-items: end; }
+.mm-trial label { display: block; font-size: .72rem; color: #64748b; text-transform: uppercase;
+                  letter-spacing: .05em; margin-bottom: .2rem; }
+.mm-trial input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1;
+                  border-radius: 6px; padding: .45rem .55rem; font-size: .88rem; }
+.mm-trial .mm-btn { margin-top: 0; }
+.mm-trial-msg { grid-column: 1 / -1; font-size: .85rem; color: #0f7a4e; min-height: 1em; }
+.mm-trial-msg.err { color: #be123c; }
 .mm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: .7rem; margin: .8rem 0 1rem; }
 .mm-stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: .7rem .85rem; }
@@ -929,6 +957,101 @@ def _relink(params: Dict[str, Any], **overrides: Any) -> str:
     return esc(urlencode(merged))
 
 
+# ---------------------------------------------------------------------------
+# The shared view: a few figures in full, the rest blurred behind a trial form
+# ---------------------------------------------------------------------------
+#
+# A restricted reader (shared link or public market) sees the lead, the market
+# scope, the period comparison, the snapshot and the formation section in
+# full. Funding onwards, the registry beyond its first rows, and the coverage
+# figures are rendered and then blurred. Blur alone is not a paywall: the
+# figures would still be in the page source, so every digit in the blurred
+# text is replaced with an 8 first. The shape of the evidence stays, the
+# values do not.
+
+_TEASER_START = "<!--mm-teaser-start-->"
+_TEASER_END = "<!--mm-teaser-end-->"
+TEASER_REGISTRY_ROWS = 3
+
+_TRIAL_JS = """
+(function(){var f=document.getElementById('mm-trial-form');if(!f)return;
+var m=document.getElementById('mm-trial-msg');var el=f.elements;
+f.addEventListener('submit',function(e){e.preventDefault();
+var b=f.querySelector('button');b.disabled=true;m.className='mm-trial-msg';
+m.textContent='Sending…';
+var d={name:el['name'].value,email:el['email'].value,title:el['title'].value};
+fetch(f.getAttribute('data-endpoint'),{method:'POST',
+headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+.then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+.then(function(x){if(x.ok){f.reset();
+m.textContent='Thanks. We will be in touch at '+d.email+'.';}
+else{b.disabled=false;m.className='mm-trial-msg err';
+m.textContent=(x.j&&x.j.detail&&typeof x.j.detail==='string')?x.j.detail:'Could not send the request.';}})
+.catch(function(){b.disabled=false;m.className='mm-trial-msg err';
+m.textContent='Could not send the request from this copy of the page.';});});})();
+"""
+
+
+def _teaser_open(what: str) -> str:
+    """Marks where blurring starts; ``what`` names the blurred figures."""
+    return f"{_TEASER_START}[{esc(what)}]"
+
+
+def _scrub_digits(fragment: str) -> str:
+    """Every digit in the text of ``fragment`` becomes 8. Tags and attributes
+    are left alone, so the markup still lays out as it did."""
+    return re.sub(r">([^<]*)<",
+                  lambda m: ">" + re.sub(r"\d", "8", m.group(1)) + "<",
+                  fragment)
+
+
+def _teaser_row(row_html: str) -> str:
+    return _scrub_digits(row_html).replace("<tr>", '<tr class="mm-teaser-row">', 1)
+
+
+def _apply_teasers(rendered: str) -> str:
+    """Wrap every marked range: scrubbed and blurred, with the request card
+    on top. Runs on the finished document so the ranges can span sections."""
+    def _wrap(m):
+        what, inner = m.group(1), m.group(2)
+        return ('<div class="mm-teaser">'
+                '<div class="mm-teaser-body" aria-hidden="true">'
+                + _scrub_digits(inner) + "</div>"
+                '<div class="mm-teaser-cta"><div>'
+                f"{what} are blurred in this shared view."
+                '<br><a class="mm-btn" href="#mm-trial">Request a trial</a>'
+                "</div></div></div>")
+    return re.sub(re.escape(_TEASER_START) + r"\[(.*?)\](.*?)" + re.escape(_TEASER_END),
+                  _wrap, rendered, flags=re.S)
+
+
+def _trial_panel(market_id: int) -> str:
+    """The request form. One per page; the blurred blocks link to it."""
+    return (
+        '<section class="mm-trial" id="mm-trial">'
+        "<h2>Get the full report and the data behind it</h2>"
+        "<p>This shared view shows part of the market. A trial gives you the "
+        "whole of it: every vendor and every figure, an RSS feed, an MCP "
+        "server for your own tools, CSV export of the data, and a weekly "
+        "report by email.</p>"
+        '<form id="mm-trial-form" data-endpoint='
+        f'"/api/market-monitor/markets/{int(market_id)}/trial-request">'
+        '<div><label for="mm-trial-name">Name</label>'
+        '<input id="mm-trial-name" name="name" required maxlength="200" '
+        'autocomplete="name"></div>'
+        '<div><label for="mm-trial-email">Company email</label>'
+        '<input id="mm-trial-email" name="email" type="email" required '
+        'maxlength="254" autocomplete="email"></div>'
+        '<div><label for="mm-trial-title">Title</label>'
+        '<input id="mm-trial-title" name="title" maxlength="200" '
+        'autocomplete="organization-title"></div>'
+        '<div><button type="submit" class="mm-btn">Request trial</button></div>'
+        '<div class="mm-trial-msg" id="mm-trial-msg" role="status"></div>'
+        "</form>"
+        f"<script>{_TRIAL_JS}</script>"
+        "</section>")
+
+
 def _drawer_open(title: str, blurb: str, anchor: str = "") -> str:
     """A collapsed section of the report, named by what is inside it.
 
@@ -1487,6 +1610,9 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         headcount = None
 
     # ── The entitlement gate ────────────────────────────────────────────
+    # A restricted reader also gets the teaser treatment below: some
+    # figures in full, the rest blurred behind the trial form.
+    teaser = allowed_brand_ids is not None
     if allowed_brand_ids is not None:
         overview = ent.filter_rows(overview, allowed_brand_ids, allowed_names)
         analyses = ent.filter_rows(analyses, allowed_brand_ids, allowed_names)
@@ -1646,6 +1772,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>')
     body.append("</div>")
     body.append(f"<script>{_NEWS_JS}</script>")
+    if teaser:
+        body.append(_trial_panel(market["id"]))
 
     # ================================================================
     # The evidence behind the conclusions, collapsed
@@ -1775,6 +1903,9 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</section>")
 
     # ---- Funding and investor activity
+    if teaser:
+        body.append(_teaser_open("Funding, hiring, headcount, announcements, "
+                                 "sentiment and who is talking"))
     body.append(section_open("Funding and investor activity"))
     capital_devs = [d for d in developments
                     if d["event_type"] in ("funding", "acquisition")]
@@ -2075,6 +2206,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 -int(latest) if latest.isdigit() else 0, r["vendor"])
 
     registry_rows.sort(key=_registry_key)
+    if teaser:
+        body.append(_TEASER_END)
     body.append(_drawer_close())
     body.append(_drawer_open(
         "The vendors we track",
@@ -2101,7 +2234,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                    "monitored_no_material_change": "No change observed",
                    "incomplete_coverage": "Incomplete",
                    "paused": "Paused", "not_yet_collected": "Not collected"}
-    for row in registry_rows:
+    for i, row in enumerate(registry_rows):
         raised = row.get("total_funding_musd")
         watched = bool(row.get("collecting"))
         jobs_cell = str(row.get("open_jobs") or 0) if watched else "—"
@@ -2110,7 +2243,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         label = short_state.get(state, state or "—")
         reasons = "; ".join(st.get("reasons") or [])
         last_sig = last_material.get(row["vendor"], "")
-        body.append(
+        row_html = (
             f'<tr><td>{esc(row["vendor"])}</td>'
             f'<td class="mm-src" title="{esc(reasons)}">{esc(label)}</td>'
             f'<td>{esc(row.get("country") or "—")}</td>'
@@ -2120,10 +2253,15 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             f'<td class="mm-num">{announced.get(row["vendor"], 0) if watched else "—"}</td>'
             f'<td class="mm-num">{esc(jobs_cell)}</td>'
             f'<td class="mm-src">{esc(last_sig[:10]) if last_sig else "—"}</td></tr>')
+        body.append(_teaser_row(row_html)
+                    if teaser and i >= TEASER_REGISTRY_ROWS else row_html)
     body.append("</tbody></table>"
                 '<p class="mm-src">A dash under developments or open roles '
                 'means collection is paused for that vendor.</p>'
-                "</section>")
+                + ((f'<p class="mm-src">Rows after the first {TEASER_REGISTRY_ROWS} '
+                    'are blurred in this shared view. <a href="#mm-trial">Request a '
+                    'trial</a> for the full registry.</p>') if teaser else "")
+                + "</section>")
 
     # ================================================================
     # How this was measured
@@ -2134,6 +2272,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         "Which sources we read, how much of the market each one reached, what "
         "every figure counts, and the records behind it.",
         anchor="mm-method"))
+    if teaser:
+        body.append(_teaser_open("Coverage figures"))
     body.append(section_open("How much of the market we checked"))
     body.append(
         "<p>Per source: vendors it could read, set up for it, attempted, and "
@@ -2145,7 +2285,16 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<th class="mm-num">Attempted</th>'
                 '<th class="mm-num">Collected</th><th>Notes</th>'
                 "</tr></thead><tbody>")
+    # A source nobody has set up for any vendor is not a measurement of the
+    # market. Listing it as a row of zeros beside the sources we read makes
+    # the table look like it is reporting on broken collectors. It is named
+    # once below the table instead, so the reader still knows what the
+    # figures do not cover.
+    not_covered = []
     for src in assessment.get("source_coverage") or []:
+        if src.get("state") == "not_configured":
+            not_covered.append(src)
+            continue
         body.append(
             f'<tr><td>{esc(src["name"])}</td>'
             f'<td>{esc(src.get("state_label") or "")}</td>'
@@ -2155,11 +2304,17 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             f'<td class="mm-num">{src["successful"]}</td>'
             f'<td class="mm-src">{esc(src.get("note") or "")}</td></tr>')
     body.append("</tbody></table>")
+    if not_covered:
+        body.append('<p class="mm-src">Not read for this market: '
+                    + "; ".join(f'{esc(s["name"])} ({esc(s["note"])})' if s.get("note")
+                                else esc(s["name"]) for s in not_covered)
+                    + ".</p>")
     body.append('<table class="mm-table"><thead><tr><th>Coverage</th>'
                 '<th class="mm-num">Vendors</th><th class="mm-num">%</th>'
                 "</tr></thead><tbody>")
     body.append(_pct_row("Being watched", cov["watching"], registry_total))
-    body.append(_pct_row("Paused", cov["paused"], registry_total))
+    if cov.get("paused"):
+        body.append(_pct_row("Paused", cov["paused"], registry_total))
     body.append(_pct_row("We have seen something from", cov["observed"], registry_total))
     if formation and formation.get("announcement_coverage"):
         ac = formation["announcement_coverage"]
@@ -2170,7 +2325,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append(_pct_row("Crunchbase profile read", fc["measured"], fc["total"]))
     if hiring and hiring.get("coverage"):
         hc = hiring["coverage"]
-        body.append(_pct_row("Job boards read", hc["measured"], hc["total"]))
+        # hiring["coverage"] counts vendors with at least one listing in the
+        # window, not vendors whose board we read. Labelled "Job boards read"
+        # it sat under a table row saying 82 boards were read and showed 20.
+        body.append(_pct_row("Have job listings we have seen",
+                             hc["measured"], hc["total"]))
     body.append("</tbody></table>")
     counts = observation.get("counts") or {}
     body.append(
@@ -2185,6 +2344,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         + '.</p>')
     body.append("</section>")
 
+    if teaser:
+        body.append(_TEASER_END)
     body.append(section_open("About this report"))
     body.append(
         "<p>Aunoo matches everything it collects against the phrases that "
@@ -2268,10 +2429,13 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             '<p class="mm-src">This is a shared view. It covers the '
             f'{len(allowed_brand_ids)} most active of the {total} vendors we '
             'watch, and leaves the rest out. Figures that cover the whole '
-            'market say so.</p>')
+            'market say so. <a href="#mm-trial">Request a trial</a> to see '
+            'all of it.</p>')
 
     rendered = html_document(f'{market["name"]} — Market Monitor',
                              "".join(body))
+    if teaser:
+        rendered = _apply_teasers(rendered)
 
     # Fail closed. Serving a page that names a vendor the viewer is not
     # entitled to see cannot be undone, and a refusal can.

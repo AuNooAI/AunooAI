@@ -243,6 +243,10 @@ def reconcile_from_history(conn, source: Optional[str] = None) -> int:
     updated = conn.execute(text("""
         UPDATE bw_entity_source_policies p
            SET last_success_at = s.newest,
+               -- A success is an attempt. Only claim_due stamped attempts, so
+               -- every source collected outside the claim path reported
+               -- "attempted 0, collected 69" in the coverage table.
+               last_attempt_at = COALESCE(p.last_attempt_at, s.newest),
                next_due_at = s.newest + make_interval(secs => p.cadence_seconds),
                updated_at = NOW()
           FROM (SELECT brand_id, source, max(observed_at) AS newest
@@ -315,6 +319,7 @@ def record_success(conn, source: str, brand_ids: List[int]) -> int:
     return int(conn.execute(text("""
         UPDATE bw_entity_source_policies
            SET last_success_at = NOW(),
+               last_attempt_at = COALESCE(last_attempt_at, NOW()),
                next_due_at = NOW() + make_interval(secs => cadence_seconds),
                claimed_at = NULL, claimed_by = NULL,
                consecutive_failures = 0, last_error = NULL, updated_at = NOW()
