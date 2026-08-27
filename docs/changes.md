@@ -460,6 +460,16 @@ them, tag them.
   The vendor page lists the row under identifiers with an @ icon; the badge reads
   "· on profile" once recorded.
 - The report's note under the table no longer claims vendors' own accounts are left out.
+- **Untracked vendors go into the vendor-request queue** (`mm_014`, `_queue_untracked`,
+  `_notify_queued`). A voice tagged as a vendor's own account whose organisation is not a
+  vendor on the market has no profile to attach to, so `link_vendor_accounts` files it in
+  `market_vendor_requests` — the same queue "Is your company missing?" fills — with
+  `source = 'top_voices'`, the account URL as website, no email (the column is now nullable),
+  and a note with the handle, post count, reactions and profile summary. One row per company
+  per market from the product side (partial unique index on `lower(company)` where source is
+  not `form`); the form can still repeat. One digest mail per run to
+  `MARKET_TRIAL_NOTIFY_EMAIL` lists what was queued. Accounts the profile read as having no
+  clear connection to the market are skipped.
 
 ### Fix — the report said no account posted more than twice while two had three and four
 **`market_analysis.py`.** `top_voices` cut to `limit` by engagement before splitting off the
@@ -564,7 +574,11 @@ among them, none tracked on this market). `link_vendor_accounts(db, 2)` recorded
 `social_account` identifiers: Dropzone AI `twitter:dropzoneai` (name match) and Secure.com
 `reddit:secure_com_official` (profile); a first run also recorded @onuroktay for SOCNova,
 which led to the own-account guard, and that row was deleted. `GET /markets/2/vendors/92`
-lists `('social_account', 'https://x.com/DropzoneAI')`. `aisoc.aunoo.ai` Who cell for polsia
+lists `('social_account', 'https://x.com/DropzoneAI')`. Queue: `alembic upgrade head` applied
+mm_014; `link_vendor_accounts(db, 2)` → `{'linked': 0, 'queued': 11}` (SentinelOne, Axis
+Security Solutions, Sophos, Palo Alto Networks, Microsoft, Criminal IP, DevArmor, KonsoleOne,
+CyberMon, Bell Cyber, Polsia — rows 2–12, `source = top_voices`, `notified = true`, one
+digest mail); a second run → `{'linked': 0, 'queued': 0}`. `aisoc.aunoo.ai` Who cell for polsia
 reads "Vendor (Polsia) · Polsia · … followers".
 
 Merge rule: `assess()` over 90 days lists 12 customer developments, all `source: review`, each
@@ -615,8 +629,8 @@ link adds about 40 per brand; wiley: `brands: []` because `bw_brands` has 0 rows
 logs a pre-existing "Bluesky credentials not found" from its collector.
 
 ### Propagation
-Top voices profiles, the repeat-poster fix, the Bluesky author backfill and the merge rule:
-bugfixing only. The UI bundle is rebuilt on bugfixing; wiley and wileytest have neither the new
+Top voices profiles, the repeat-poster fix, the Bluesky author backfill, the merge rule, the
+vendor tag and the queue (mm_014 applied on bugfixing only): bugfixing only. The UI bundle is rebuilt on bugfixing; wiley and wileytest have neither the new
 bundle nor the backend and do not run Market Monitor. The backfill is a data change on
 bugfixing's `test` DB and would need re-running on any tenant with pre-collector-fix Bluesky
 rows. Customer reading and vendor requests: bugfixing only. mm_012 and mm_013 are applied on bugfixing's `test` DB; wiley and wileytest

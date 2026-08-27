@@ -18,6 +18,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import text
+
 logger = logging.getLogger(__name__)
 
 # One job per market at a time. Progress lives here because a bulk profile
@@ -109,13 +111,26 @@ def link_vendor_accounts(db, market_id: int, days: Optional[int] = None) -> Dict
     from app.services import market_analysis as man
     from app.services.market_import import _upsert_identifier
     conn = db._temp_get_connection()
+    market_name = conn.execute(text("SELECT name FROM bw_markets WHERE id = :m"),
+                               {"m": market_id}).scalar() or f"market {market_id}"
     voices = man.top_voices(conn, market_id, days=days, limit=200)
     added = 0
+    queued: List[Dict[str, Any]] = []
     for v in voices.get("voices") or []:
         tag = v.get("vendor_tag") or {}
-        if tag.get("label") != "vendor" or not tag.get("brand_id") or tag.get("linked"):
+        if tag.get("label") != "vendor":
             continue
         acct = v.get("account") or {}
+        if not tag.get("brand_id"):
+            # A vendor we do not track: nothing to attach the account to, so
+            # it goes into the queue a reader fills through "Is your company
+            # missing?", for the same person to look at.
+            row = _queue_untracked(conn, market_id, v, tag)
+            if row:
+                queued.append(row)
+            continue
+        if tag.get("linked"):
+            continue
         _upsert_identifier(
             conn, brand_id=int(tag["brand_id"]), kind=man.SOCIAL_IDENTIFIER_KIND,
             normalized=man.social_identifier(v.get("platform"), v.get("author")),
@@ -128,7 +143,79 @@ def link_vendor_accounts(db, market_id: int, days: Optional[int] = None) -> Dict
         conn.commit()
     except Exception:  # noqa: BLE001
         pass
-    return {"linked": added}
+    if queued:
+        _notify_queued(market_id, market_name, queued)
+    return {"linked": added, "queued": len(queued)}
+
+
+QUEUE_SOURCE = "top_voices"
+
+
+def _queue_untracked(conn, market_id: int, v: Dict[str, Any],
+                     tag: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """One vendor-request row per untracked vendor per market, from the
+    account's own posting. Skips accounts the profile read as unconnected to
+    the market — a vendor of something else is not a missing vendor."""
+    org = (tag.get("org") or "").strip()
+    acct = v.get("account") or {}
+    relation = (acct.get("relation") or "").strip().lower()
+    if not org or relation.startswith("no clear connection"):
+        return None
+    note = (f"Seen on {v.get('platform')} as @{v.get('author')}: {v.get('posts')} post(s) "
+            f"about the market, {v.get('engagement')} reactions. "
+            + (acct.get("summary") or ""))[:2000]
+    row_id = conn.execute(text("""
+        INSERT INTO market_vendor_requests
+            (market_id, company, website, email, note, source)
+        SELECT :m, :c, :w, NULL, :n, :s
+        WHERE NOT EXISTS (
+            SELECT 1 FROM market_vendor_requests
+             WHERE market_id = :m AND lower(company) = lower(:c))
+        RETURNING id
+    """), {"m": market_id, "c": org[:200], "w": (v.get("profile_url") or "")[:300] or None,
+           "n": note, "s": QUEUE_SOURCE}).scalar()
+    if not row_id:
+        return None
+    return {"id": int(row_id), "company": org, "website": v.get("profile_url"),
+            "handle": f"@{v.get('author')} ({v.get('platform')})"}
+
+
+def _notify_queued(market_id: int, market_name: str, rows: List[Dict[str, Any]]) -> None:
+    """One mail per run listing the companies queued, to the same address the
+    form notifies. Stored first; mail is a convenience."""
+    import html as _html
+    import os
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("%d vendor(s) queued from top voices; MARKET_TRIAL_NOTIFY_EMAIL unset, "
+                    "no mail sent", len(rows))
+        return
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            return
+        lines = [f"{r['company']} — {r['handle']} — {r['website'] or '-'} (request {r['id']})"
+                 for r in rows]
+        text_body = (f"Vendors posting about {market_name} that we do not track:\n"
+                     + "\n".join(lines))
+        html_body = ("<p>Vendors posting about " + _html.escape(market_name)
+                     + " that we do not track:</p><ul>"
+                     + "".join(f"<li>{_html.escape(l)}</li>" for l in lines) + "</ul>")
+        if svc.send_email(to, f"Untracked vendors seen in Top voices — {market_name}",
+                          html_body, text_body):
+            conn_ids = [r["id"] for r in rows]
+            from app.database import get_database_instance
+            conn = get_database_instance()._temp_get_connection()
+            conn.execute(text("UPDATE market_vendor_requests SET notified = true "
+                              "WHERE id = ANY(:ids)"), {"ids": conn_ids})
+            try:
+                conn.commit()
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception as exc:  # noqa: BLE001 — never fail the run over mail
+        logger.warning("queued-vendor notification failed: %s", exc)
 
 
 def start_many(db, market_id: int, market_name: str, voices: List[Dict[str, Any]],
