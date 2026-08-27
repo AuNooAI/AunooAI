@@ -1,5 +1,5 @@
-# Sharing an incident by email works again, and market briefings cite properly
-_2026-08-27 · Incident sharing (Explore), Market Monitor briefings_
+# Sharing an incident by email works again, market briefings cite properly, and an approved briefing appears in the news feed
+_2026-08-27 · Incident sharing (Explore), Market Monitor briefings, News Feed_
 
 ## What shipped
 - Sharing an incident by email no longer fails when the AI wrote the timeline as a set of dated
@@ -8,6 +8,10 @@ _2026-08-27 · Incident sharing (Explore), Market Monitor briefings_
   after the sentence rather than in front of it.
 - Market briefings are now written by a different model (Kimi K2.5). Internal change; the reader
   sees a briefing in the same format.
+- An approved market briefing appears in the shared news feed as an item of its own, and opens
+  as a page with every citation linked to its source. The feed refreshes as soon as you approve.
+- Vendors whose jobs come from their own careers page (Greenhouse, Lever) now show which
+  teams they are hiring for. Before, every one of those roles was "not stated".
 
 ## Why it matters
 **Incident sharing.** Before, some incidents could not be shared at all. The analyst pressed
@@ -27,17 +31,36 @@ list is complete, and the warning strip is gone. Felt by anyone reading a briefi
 the report read like a numbered list. It now places the citation after the full stop, and a
 deterministic pass catches any it still gets wrong at the start of a line.
 
+**Briefing in the feed.** The weekly briefing lived only on the Reports tab, so a reader who
+kept to the feed never saw it. Now, when an analyst approves a briefing, it appears in the news
+feed for that day, under the market's topic, with the source "Aunoo Market Monitor" and the
+briefing's opening paragraph as its summary. Clicking it opens the briefing as a page. Rejecting
+the briefing, or regenerating it, takes it out of the feed again, so only text somebody has read
+and approved is ever in there. Felt by everyone who reads the feed rather than the Reports tab.
+
+**Hiring charts.** Dropzone AI showed 11 open roles, all "not stated". Its postings come from
+its Greenhouse careers page, which names the department differently from LinkedIn, and the
+hiring analysis only read the LinkedIn field. Now both are read, so Dropzone shows 6
+engineering, 3 sales and 2 marketing roles, and Qevlar's 15 roles classify too. Felt by anyone
+reading the hiring section of a market report or a vendor page.
+
 ## Release notes (copy-ready)
 - Fixed: sharing an incident by email failed with a validation message when the incident's
   timeline or leads were structured rather than plain text.
 - Fixed: a market briefing sentence citing two sources at once lost both from the References
   list.
 - Improved: market briefing citations follow the sentence they support.
+- New: an approved market briefing appears in the news feed and opens as a page with linked
+  sources. Rejecting or regenerating it removes it from the feed. The feed refreshes on approval.
+- Fixed: job postings collected from a vendor's own careers page showed as "not stated" on the
+  hiring charts instead of their department.
 
 ## Demo / walkthrough
 Incident sharing: Explore → an incident card → Share → enter an address → Send. Market
 briefings: Market Monitor → Briefings → pick a week → Generate report; citations appear as
 `[A5]` after sentences, and the References list at the end has one line per cited source.
+Briefing in the feed: Reports tab → a briefing → Approve, then News Feed → today; the item is
+there with source "Aunoo Market Monitor". Click it to open the page.
 
 ## Positioning notes
 None that change the story. The briefing's claim is that every figure comes from a stored
@@ -51,7 +74,11 @@ quietly stopped being true.
   from the text alone it cannot be told apart from one closing the previous sentence. Only
   line-start cases are corrected automatically; the rest rely on the prompt.
 - The 2026-08-17 weekly was regenerated three times today and is in draft. It still needs an
-  approve or reject.
+  approve or reject, and approving it is what puts the first briefing into the feed.
+- The briefing page needs a login. A feed shared by link to someone outside the site will show
+  the briefing item, but the link behind it lands on the login page.
+- The feed item is stored like an article, so the AI agents that watch a topic can see it. One
+  item a week per market; it is marked as a report, but nothing filters on that mark yet.
 - Three internal customer sites (pbm, ibaset, bwtemplate) were stopped and disabled today.
   Their web addresses still answer with an error page rather than nothing, and their data is
   kept.

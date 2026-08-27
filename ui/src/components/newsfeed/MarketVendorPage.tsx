@@ -18,6 +18,7 @@ import { AtSign,
 import {
   getVendorDetail, setVendorIdentifier, startRun, type VendorDetail,
 } from '../../services/marketMonitorApi';
+import { MarketVendorHorizonControls } from './MarketVendorHorizonControls';
 import { MarketVendorBenchmark } from './MarketVendorBenchmark';
 import { MarketVendorProvenance } from './MarketVendorProvenance';
 
@@ -242,6 +243,11 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
           because it only means anything once the reader knows what the
           numbers being compared are. */}
       <MarketVendorBenchmark marketId={marketId} brandId={brandId} />
+
+      {/* The analyst's hand on the Market Horizon: per-input weights,
+          status (acquired, closed) and a note, all printed beside the vendor
+          on the map so nothing is adjusted silently. */}
+      <MarketVendorHorizonControls marketId={marketId} brandId={brandId} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Headcount: LinkedIn readings only, workbook as a reference line. */}

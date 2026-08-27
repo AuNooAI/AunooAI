@@ -437,9 +437,9 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
 _FUNCTION_GROUPS = (
     ("engineering", ("engineering", "information technology", "research")),
     ("sales", ("sales", "business development")),
-    ("marketing", ("marketing", "product management")),
+    ("marketing", ("marketing", "product management", "product")),
     ("operations", ("management", "manufacturing", "administrative",
-                    "human resources", "finance")),
+                    "human resources", "finance", "operations")),
 )
 
 
@@ -566,7 +566,9 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
                b.id AS brand_id, b.display_name AS vendor,
                s.source AS source,
                s.data->>'title' AS title,
-               s.data->>'function' AS function,
+               -- ATS boards (Greenhouse, Lever…) leave `function` empty and put
+               -- the department in `function_hint`; LinkedIn fills `function`.
+               COALESCE(NULLIF(s.data->>'function', ''), s.data->>'function_hint') AS function,
                s.data->>'seniority' AS seniority,
                s.data->>'employment_type' AS employment_type,
                s.data->>'location' AS location
@@ -818,7 +820,9 @@ def job_postings(conn, market_id: int,
                s.data->>'title' AS title,
                s.data->>'location' AS location,
                s.data->>'seniority' AS seniority,
-               s.data->>'function' AS function,
+               -- ATS boards (Greenhouse, Lever…) leave `function` empty and put
+               -- the department in `function_hint`; LinkedIn fills `function`.
+               COALESCE(NULLIF(s.data->>'function', ''), s.data->>'function_hint') AS function,
                s.data->>'employment_type' AS employment_type,
                s.data->>'posted_date' AS posted_date,
                s.data->>'url' AS url,

@@ -1720,14 +1720,43 @@ async def market_briefing_status(market_id: int, briefing_id: int,
     def _work():
         conn = _conn()
         try:
-            _load_market(conn, market_id)
+            market = _load_market(conn, market_id)
             if not mbr.set_status(conn, market_id, briefing_id, body.status):
                 raise HTTPException(status_code=404, detail="Briefing not found")
-            return {"ok": True, "id": briefing_id, "status": body.status}
+            # An approved briefing is a news-feed item; anything else is not.
+            feed = mbr.sync_feed_entry(conn, market, briefing_id)
+            return {"ok": True, "id": briefing_id, "status": body.status,
+                    "feed": feed}
         finally:
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}/report.html")
+async def market_briefing_page(market_id: int, briefing_id: int,
+                               session=Depends(verify_session)):
+    """The briefing as a page. This is the URL its news-feed item opens.
+
+    A session is required, and a reader without one is sent to the login
+    page rather than shown a 401, because this link is followed by people
+    clicking a feed card, not by machines.
+    """
+    from fastapi.responses import HTMLResponse
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            row = mbr.get(conn, market_id, briefing_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return mbr.render_page(market, row)
+        finally:
+            conn.close()
+
+    return HTMLResponse(await asyncio.to_thread(_work))
 
 
 class ReviewFix(BaseModel):
@@ -2206,6 +2235,67 @@ async def market_horizon_compute(market_id: int,
             result = mh.compute(conn, market)
             result["id"] = mh.store(conn, result)
             return mh.with_movement(result, previous[0] if previous else None)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class HorizonControls(BaseModel):
+    multipliers: Dict[str, float] = Field(default_factory=dict)
+    note: Optional[str] = Field(None, max_length=4000)
+    status: str = Field("active", pattern="^(active|acquired|closed)$")
+    acquired_by: Optional[str] = Field(None, max_length=200)
+    status_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.get("/markets/{market_id}/vendors/{brand_id}/horizon-controls")
+async def get_horizon_controls(market_id: int, brand_id: int,
+                               session=Depends(verify_session_api)):
+    """The analyst's controls for one vendor on this market's horizon, and
+    the inputs they can weight."""
+    from app.services import market_horizon as mh
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            cfg = mh.load_config()
+            return {"controls": mh.load_controls(conn, market_id).get(brand_id)
+                    or {"multipliers": {}, "note": None, "status": "active",
+                        "acquired_by": None, "status_date": None},
+                    "inputs": {k: {"label": v["label"], "axis": v["axis"],
+                                   "weight": v["weight"]}
+                               for k, v in cfg["inputs"].items()},
+                    "statuses": list(mh.STATUSES)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.put("/markets/{market_id}/vendors/{brand_id}/horizon-controls")
+async def put_horizon_controls(market_id: int, brand_id: int, body: HorizonControls,
+                               session=Depends(verify_session_api)):
+    """Save the controls. Applied on the next compute, printed beside the
+    vendor, so an adjustment is never silent."""
+    from app.services import market_horizon as mh
+    by = None
+    if isinstance(session, dict):
+        by = session.get("username") or session.get("user") or session.get("email")
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            if not conn.execute(text(
+                    "SELECT 1 FROM bw_market_brands WHERE market_id = :m AND brand_id = :b"),
+                    {"m": market_id, "b": brand_id}).scalar():
+                raise HTTPException(status_code=404, detail="Vendor is not on this market")
+            return mh.save_controls(
+                conn, market_id, brand_id, multipliers=body.multipliers, note=body.note,
+                status=body.status, acquired_by=body.acquired_by,
+                status_date=body.status_date, updated_by=str(by) if by else None)
         finally:
             conn.close()
 
@@ -3211,7 +3301,8 @@ async def vendor_detail(market_id: int, brand_id: int,
             vendor["jobs"] = [dict(r) for r in conn.execute(text("""
                 SELECT DISTINCT ON (provider_item_id)
                        data->>'title' AS title, data->>'location' AS location,
-                       data->>'seniority' AS seniority, data->>'function' AS function,
+                       data->>'seniority' AS seniority,
+                       COALESCE(NULLIF(data->>'function', ''), data->>'function_hint') AS function,
                        data->>'posted_date' AS posted_date, data->>'url' AS url
                 FROM bw_vendor_snapshots
                 WHERE brand_id = :b AND snapshot_type = 'job_posting'

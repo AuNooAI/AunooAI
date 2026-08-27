@@ -69,17 +69,36 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # A vendor at or above the cut on an axis is "high" on it. Fifty is the
     # median of the rated set, so the four tiers start out roughly even.
     "tiers": {"scale_cut": 50, "momentum_cut": 50},
+    # Innovating is a marker across every tier, not a region of the map: the
+    # top third of rated vendors by this score, from what we can read of
+    # product work. Patents, code activity and release notes are not held.
+    "innovation": {
+        "top_fraction": 0.34,
+        "inputs": {
+            "launches": {"weight": 0.35, "label": "Launches and partnerships in the period"},
+            "launches_corroborated": {"weight": 0.25,
+                                      "label": "Launches an outside source confirmed"},
+            "research": {"weight": 0.20, "label": "Research posts in the period"},
+            "engineering_share": {"weight": 0.20,
+                                  "label": "Engineering share of open roles"},
+        },
+    },
 }
 
+STATUSES = ("active", "acquired", "closed")
+
 TIERS: Dict[str, Dict[str, str]] = {
-    "executors": {"label": "Executors",
+    "executors": {"label": "Executing",
                   "means": "growing, and already large"},
-    "innovators": {"label": "Innovators",
+    "innovators": {"label": "Accelerating",
                    "means": "growing fast from a smaller base"},
-    "established": {"label": "Established",
+    "established": {"label": "Establishing",
                     "means": "large, with little change in the period"},
     "emerging": {"label": "Emerging",
-                 "means": "small, and not yet moving"},
+                 "means": "small, and not yet moving fast"},
+    # Not a region: an acquired vendor is listed, not placed.
+    "acquired": {"label": "Acquired",
+                 "means": "bought, so no longer rated as an independent vendor"},
 }
 
 WHAT_IT_IS_NOT = ("A map of scale against momentum from readings we collect. "
@@ -246,7 +265,144 @@ def gather_inputs(conn, market: Dict[str, Any], cfg: Dict[str, Any]
         else:
             gap(bid, "cb_growth", "no Crunchbase reading")
 
+    # Innovation inputs. Research posts follow the posts collection like
+    # launches do; corroborated launches are events with more than the
+    # vendor's own word behind them; the engineering share needs at least
+    # three open roles to mean anything.
+    research = _reviewed_counts(conn, market_id, days, ("research",))
+    corroborated = _corroborated_launches(conn, market_id, days)
+    for bid in eligible:
+        if "posts" in values.get(bid, {}):
+            put(bid, "research", float(len(research.get(bid, []))))
+            put(bid, "launches_corroborated", float(corroborated.get(bid, 0)))
+    for bid, share in _engineering_share(conn, market_id).items():
+        if share is None:
+            gap(bid, "engineering_share", "fewer than three open roles observed")
+        else:
+            put(bid, "engineering_share", share)
+
     return eligible, values, missing
+
+
+def _corroborated_launches(conn, market_id: int, days: int) -> Dict[int, int]:
+    """Launch and partnership events with an independent source behind them."""
+    return {int(b): int(n) for b, n in conn.execute(text("""
+        SELECT ev.brand_id, COUNT(DISTINCT e.id)
+          FROM bw_market_events e
+          JOIN bw_event_vendors ev ON ev.event_id = e.id
+         WHERE e.market_id = :m
+           AND e.event_type IN ('product_launch', 'partnership')
+           AND COALESCE(e.corroboration, 'vendor_claim')
+               NOT IN ('vendor_claim', 'single_source')
+           AND COALESCE(e.event_date, e.created_at::date)
+               >= (NOW() - (:d || ' days')::interval)::date
+         GROUP BY ev.brand_id
+    """), {"m": market_id, "d": days}).fetchall()}
+
+
+def _engineering_share(conn, market_id: int) -> Dict[int, Optional[float]]:
+    """Share of a vendor's open roles that are engineering, research or IT,
+    as a percentage; None where fewer than three roles were observed."""
+    from app.services import market_lists as mlists
+    listing = mlists.jobs(conn, market_id, page_size=1, include_all=True)
+    totals: Dict[int, int] = {}
+    eng: Dict[int, int] = {}
+    for row in listing.get("_all") or []:
+        if row.get("status") not in ("currently_observed", "newly_observed"):
+            continue
+        bid = int(row["brand_id"])
+        totals[bid] = totals.get(bid, 0) + 1
+        if (row.get("function_group") or "") == "engineering":
+            eng[bid] = eng.get(bid, 0) + 1
+    return {bid: (round(eng.get(bid, 0) / n * 100, 1) if n >= 3 else None)
+            for bid, n in totals.items()}
+
+
+def load_controls(conn, market_id: int) -> Dict[int, Dict[str, Any]]:
+    """Analyst controls per vendor: multipliers, note, status."""
+    out: Dict[int, Dict[str, Any]] = {}
+    for r in conn.execute(text("""
+        SELECT brand_id, multipliers, note, status, acquired_by, status_date,
+               updated_by, updated_at
+          FROM bw_market_vendor_controls WHERE market_id = :m
+    """), {"m": market_id}).mappings().all():
+        out[int(r["brand_id"])] = {
+            "multipliers": {k: float(v) for k, v in (r["multipliers"] or {}).items()
+                            if isinstance(v, (int, float))},
+            "note": r["note"], "status": r["status"] or "active",
+            "acquired_by": r["acquired_by"],
+            "status_date": r["status_date"].isoformat() if r["status_date"] else None,
+            "updated_by": r["updated_by"],
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+        }
+    return out
+
+
+def save_controls(conn, market_id: int, brand_id: int, *, multipliers: Dict[str, float],
+                  note: Optional[str], status: str, acquired_by: Optional[str],
+                  status_date: Optional[str], updated_by: Optional[str]) -> Dict[str, Any]:
+    clean = {k: max(0.0, min(2.0, float(v))) for k, v in (multipliers or {}).items()
+             if k in DEFAULT_CONFIG["inputs"] and isinstance(v, (int, float))}
+    clean = {k: v for k, v in clean.items() if v != 1.0}
+    conn.execute(text("""
+        INSERT INTO bw_market_vendor_controls
+            (market_id, brand_id, multipliers, note, status, acquired_by, status_date,
+             updated_by, updated_at)
+        VALUES (:m, :b, CAST(:mult AS JSONB), :note, :status, :acq, :sd, :by, NOW())
+        ON CONFLICT (market_id, brand_id) DO UPDATE SET
+            multipliers = EXCLUDED.multipliers, note = EXCLUDED.note,
+            status = EXCLUDED.status, acquired_by = EXCLUDED.acquired_by,
+            status_date = EXCLUDED.status_date, updated_by = EXCLUDED.updated_by,
+            updated_at = NOW()
+    """), {"m": market_id, "b": brand_id, "mult": json.dumps(clean),
+           "note": (note or "").strip() or None,
+           "status": status if status in STATUSES else "active",
+           "acq": (acquired_by or "").strip()[:200] or None,
+           "sd": status_date or None, "by": updated_by})
+    conn.commit()
+    return load_controls(conn, market_id).get(brand_id) or {}
+
+
+def acquisition_hints(conn, market_id: int, days: int = 120) -> List[Dict[str, Any]]:
+    """Vendors that look acquired but are not marked so: Crunchbase says
+    acquired, or a matched headline in the period says so. A hint, for a
+    person to confirm on the vendor page; nothing changes on its own."""
+    hints: List[Dict[str, Any]] = []
+    for bid, name, by in conn.execute(text("""
+        SELECT DISTINCT ON (s.brand_id) s.brand_id, b.display_name, s.data->>'acquired_by'
+          FROM bw_vendor_snapshots s
+          JOIN bw_brands b ON b.id = s.brand_id
+          JOIN bw_market_brands mb ON mb.brand_id = s.brand_id AND mb.market_id = :m
+         WHERE s.market_id = :m AND s.snapshot_type = 'funding'
+           AND COALESCE(s.data->>'acquired_by', '') <> ''
+         ORDER BY s.brand_id, s.observed_at DESC
+    """), {"m": market_id}).fetchall():
+        # Crunchbase sometimes stores the acquirer as a JSON object.
+        if isinstance(by, str) and by.strip().startswith("{"):
+            try:
+                by = (json.loads(by) or {}).get("acquirer") or by
+            except ValueError:
+                pass
+        hints.append({"brand_id": int(bid), "vendor": name,
+                      "why": f"Crunchbase records it as acquired by {by}"})
+    for bid, name, title in conn.execute(text("""
+        SELECT DISTINCT ON (bac.brand_id) bac.brand_id, b.display_name, a.title
+          FROM bw_article_categories bac
+          JOIN articles a ON a.uri = bac.article_uri
+          JOIN bw_brands b ON b.id = bac.brand_id
+          JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id AND mb.market_id = :m
+          JOIN bw_market_articles ma ON ma.article_uri = a.uri AND ma.market_id = :m
+         WHERE a.title ~* '\\macquir(es|ed|ing|ition)\\M'
+           AND a.title ILIKE '%' || b.display_name || '%'
+           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+           AND COALESCE(a.publication_date, a.submission_date)
+               >= (NOW() - (:d || ' days')::interval)::text
+         ORDER BY bac.brand_id, COALESCE(a.publication_date, a.submission_date) DESC
+    """), {"m": market_id, "d": days}).fetchall():
+        if not any(h["brand_id"] == int(bid) for h in hints):
+            hints.append({"brand_id": int(bid), "vendor": name,
+                          "why": f'a headline in the period: "{(title or "")[:120]}"'})
+    return hints
 
 
 # ---------------------------------------------------------------------------
@@ -280,12 +436,25 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
     inputs_cfg: Dict[str, Dict[str, Any]] = cfg["inputs"]
     required = [k for k, spec in inputs_cfg.items() if not spec.get("optional")]
     eligible, values, missing = gather_inputs(conn, market, cfg)
+    controls = load_controls(conn, int(market["id"]))
+
+    # An acquired or closed vendor is listed, not placed, and leaves the
+    # cohort every percentile is ranked in.
+    acquired = []
+    for bid, ctl in controls.items():
+        if bid in eligible and ctl.get("status") in ("acquired", "closed"):
+            acquired.append({"brand_id": bid, "vendor": eligible[bid],
+                             "status": ctl["status"], "acquired_by": ctl.get("acquired_by"),
+                             "status_date": ctl.get("status_date"),
+                             "note": ctl.get("note")})
+    out_of_cohort = {a["brand_id"] for a in acquired}
 
     rated_ids = [bid for bid in eligible
-                 if all(k in values.get(bid, {}) for k in required)]
+                 if bid not in out_of_cohort
+                 and all(k in values.get(bid, {}) for k in required)]
     not_rated = []
     for bid in eligible:
-        if bid in rated_ids:
+        if bid in rated_ids or bid in out_of_cohort:
             continue
         gaps = [{"key": k, "label": inputs_cfg[k]["label"],
                  "reason": missing.get(bid, {}).get(k, "not measured")}
@@ -298,8 +467,15 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
         cohort[key] = {bid: values[bid][key] for bid in rated_ids
                        if key in values.get(bid, {})}
 
+    innovation_cfg = (cfg.get("innovation") or {}).get("inputs") or {}
+    inno_cohort: Dict[str, Dict[int, float]] = {
+        key: {bid: values[bid][key] for bid in rated_ids if key in values.get(bid, {})}
+        for key in innovation_cfg}
+
     rated = []
     for bid in rated_ids:
+        ctl = controls.get(bid) or {}
+        mult = ctl.get("multipliers") or {}
         axes: Dict[str, Dict[str, float]] = {"scale": {"num": 0.0, "den": 0.0},
                                              "momentum": {"num": 0.0, "den": 0.0}}
         detail: Dict[str, Dict[str, Any]] = {}
@@ -308,11 +484,26 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
                 continue
             others = [v for b, v in cohort[key].items() if b != bid]
             pct = _percentile(values[bid][key], others)
-            w = float(spec.get("weight") or 0)
+            # The analyst's multiplier scales this vendor's weight on this
+            # input; it never touches the value or the percentile.
+            w = float(spec.get("weight") or 0) * float(mult.get(key, 1.0))
             axes[spec["axis"]]["num"] += w * pct
             axes[spec["axis"]]["den"] += w
             detail[key] = {"value": values[bid][key], "percentile": pct,
-                           "weight": w, "axis": spec["axis"]}
+                           "weight": round(w, 3), "axis": spec["axis"],
+                           **({"multiplier": mult[key]} if key in mult else {})}
+        # Innovation: a score beside the axes, from the product-work inputs.
+        inum = iden = 0.0
+        inno_detail: Dict[str, Dict[str, Any]] = {}
+        for key, spec in innovation_cfg.items():
+            if key not in values.get(bid, {}):
+                continue
+            others = [v for b, v in inno_cohort[key].items() if b != bid]
+            pct = _percentile(values[bid][key], others)
+            w = float(spec.get("weight") or 0)
+            inum += w * pct
+            iden += w
+            inno_detail[key] = {"value": values[bid][key], "percentile": pct, "weight": w}
         scale = round(axes["scale"]["num"] / axes["scale"]["den"], 1) \
             if axes["scale"]["den"] else 50.0
         momentum = round(axes["momentum"]["num"] / axes["momentum"]["den"], 1) \
@@ -320,11 +511,33 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
         rated.append({"brand_id": bid, "vendor": eligible[bid],
                       "scale": scale, "momentum": momentum,
                       "tier": _tier(scale, momentum, cfg["tiers"]),
-                      "inputs": detail})
+                      "inputs": detail,
+                      "innovation": round(inum / iden, 1) if iden else None,
+                      "innovation_inputs": inno_detail,
+                      "innovating": False,
+                      "analyst_note": ctl.get("note"),
+                      "multipliers": mult or None})
+    # The Innovating marker: the top third by innovation score, and only
+    # vendors that shipped something — a high rank among zeros is not a rank.
+    top_fraction = float((cfg.get("innovation") or {}).get("top_fraction") or 0.34)
+    scored = sorted((r for r in rated if r["innovation"] is not None
+                     and (r["inputs"].get("launches") or {}).get("value", 0) > 0),
+                    key=lambda r: -r["innovation"])
+    import math
+    for r in scored[:int(math.ceil(len(rated) * top_fraction))]:
+        r["innovating"] = True
     rated.sort(key=lambda r: (-(r["scale"] + r["momentum"]), r["vendor"]))
     not_rated.sort(key=lambda r: (len(r["missing"]), r["vendor"]))
+    acquired.sort(key=lambda a: a["vendor"])
 
     tier_counts = {t: sum(1 for r in rated if r["tier"] == t) for t in TIERS}
+    tier_counts["acquired"] = len(acquired)
+    try:
+        hints = [h for h in acquisition_hints(conn, int(market["id"]))
+                 if h["brand_id"] not in out_of_cohort]
+    except Exception as exc:  # noqa: BLE001 — hints are a convenience
+        logger.warning("acquisition hints failed: %s", exc)
+        hints = []
     return {
         "market_id": int(market["id"]),
         "market": market.get("name"),
@@ -334,8 +547,12 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
         "tiers": {t: {**TIERS[t], "count": tier_counts[t]} for t in TIERS},
         "rated": rated,
         "not_rated": not_rated,
+        "acquired": acquired,
+        "innovating": [r["vendor"] for r in rated if r["innovating"]],
+        "acquisition_hints": hints,
         "counts": {"eligible": len(eligible), "rated": len(rated),
-                   "not_rated": len(not_rated)},
+                   "not_rated": len(not_rated), "acquired": len(acquired),
+                   "innovating": sum(1 for r in rated if r["innovating"])},
         "what_it_is_not": WHAT_IT_IS_NOT,
     }
 
@@ -365,6 +582,11 @@ def latest(conn, market_id: int, n: int = 2) -> List[Dict[str, Any]]:
          WHERE market_id = :m ORDER BY computed_at DESC LIMIT :n
     """), {"m": market_id, "n": n}).mappings().all():
         result = dict(row["result"] or {})
+        # Tier names are presentation, so a stored map takes the current
+        # ones rather than the ones in force when it was computed.
+        for key, info in (result.get("tiers") or {}).items():
+            if key in TIERS and isinstance(info, dict):
+                info.update({k: v for k, v in TIERS[key].items()})
         result["config"] = row["config"]
         result["id"] = row["id"]
         result["computed_at"] = (row["computed_at"].isoformat()

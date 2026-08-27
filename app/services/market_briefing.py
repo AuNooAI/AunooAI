@@ -651,6 +651,8 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
            "content": content, "uris": uris, "model": model,
            "generation": generation,
            "lint": json.dumps(lint, default=str)}).scalar()
+    # Back to draft means out of the feed until somebody approves this text.
+    _withdraw_from_feed(conn, market["id"], row)
     conn.commit()
     result["id"] = row
     result["stored"] = True
@@ -684,3 +686,206 @@ def set_status(conn, market_id: int, briefing_id: int, status: str) -> bool:
     """), {"s": status, "m": market_id, "i": briefing_id}).rowcount
     conn.commit()
     return bool(updated)
+
+
+# ---------------------------------------------------------------------------
+# The approved briefing as a news-feed item
+# ---------------------------------------------------------------------------
+#
+# The shared news feed is a query over ``articles``: anything with a category
+# and a sentiment inside the date range is a feed item. So an approved
+# briefing joins the feed by becoming one row there, pointing at its own
+# HTML page. Approval puts the row in; rejecting, or regenerating (which
+# returns the briefing to draft), takes it out again. The row is marked
+# ``article_origin = 'report'`` so any reader of ``articles`` that should not
+# treat a briefing as one more article can tell it apart.
+
+FEED_SOURCE = "Aunoo Market Monitor"
+FEED_CATEGORY = "Market Briefing"
+FEED_SENTIMENT = "Neutral"
+FEED_ORIGIN = "report"
+FEED_SUMMARY_LIMIT = 480
+
+
+def briefing_page_path(market_id: int, briefing_id: int) -> str:
+    return f"/api/market-monitor/markets/{market_id}/briefings/{briefing_id}/report.html"
+
+
+def briefing_page_url(market_id: int, briefing_id: int) -> str:
+    """The absolute URL the feed row carries as its ``uri``.
+
+    Absolute because the feed card opens it in a new tab and other readers
+    of ``articles`` take the host out of the URI as the source name.
+    """
+    base = (os.getenv("APP_URL") or "").rstrip("/")
+    return base + briefing_page_path(market_id, briefing_id)
+
+
+_MD_HEADING_RE = re.compile(r"^\s*(#{1,6}\s|[-*_]{3,}\s*$|\*\*[^*]+\*\*\s*$|>\s)")
+
+
+def feed_summary(content: str, limit: int = FEED_SUMMARY_LIMIT) -> str:
+    """The first real paragraph of the briefing, citations removed.
+
+    The briefing opens with a byline, a bold title, a rule and a heading
+    before it says anything, so the first prose paragraph is the one worth
+    showing on a feed card. Cut on a sentence end where there is one.
+    """
+    for para in re.split(r"\n\s*\n", content or ""):
+        lines = [ln for ln in para.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        prose = [ln for ln in lines if not _MD_HEADING_RE.match(ln)
+                 and "|" not in ln]
+        if not prose:
+            continue
+        joined = " ".join(ln.strip() for ln in prose)
+        joined = _CITATION_RE.sub("", joined)
+        joined = re.sub(r"\s+([.,;:!?])", r"\1", joined)
+        joined = re.sub(r"\s{2,}", " ", joined).strip()
+        if len(joined) <= limit:
+            return joined
+        cut = joined[:limit]
+        end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+        return (cut[:end + 1] if end > limit // 3 else cut.rstrip() + "…")
+    return ""
+
+
+def market_topic(market: Dict[str, Any]) -> str:
+    """The topic name the market's own articles carry, so the briefing sits
+    under the same topic filter as the news it summarises."""
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    return ((cfg.get("collection") or {}).get("topic_name")
+            or market.get("name") or "")
+
+
+def feed_row(market: Dict[str, Any], briefing: Dict[str, Any],
+             approved_at: Optional[datetime] = None) -> Dict[str, Any]:
+    """The ``articles`` row for an approved briefing. Pure; no database."""
+    stamp = (approved_at or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    return {
+        "uri": briefing_page_url(market["id"], briefing["id"]),
+        "title": briefing.get("title") or f"{market['name']} — {briefing.get('period_label', '')}",
+        "summary": feed_summary(briefing.get("report_content") or ""),
+        "news_source": FEED_SOURCE,
+        "publication_date": stamp,
+        "submission_date": stamp,
+        "category": FEED_CATEGORY,
+        "sentiment": FEED_SENTIMENT,
+        "topic": market_topic(market),
+        "tags": ", ".join(t for t in ("market briefing", market.get("name", "")) if t),
+        "analyzed": True,
+        "ingest_status": "approved",
+        "article_origin": FEED_ORIGIN,
+    }
+
+
+def _withdraw_from_feed(conn, market_id: int, briefing_id: int) -> int:
+    return conn.execute(text(
+        "DELETE FROM articles WHERE uri = :u AND article_origin = :o"
+    ), {"u": briefing_page_url(market_id, briefing_id), "o": FEED_ORIGIN}).rowcount
+
+
+def _publish_to_feed(conn, market: Dict[str, Any], briefing: Dict[str, Any]) -> None:
+    row = feed_row(market, briefing)
+    conn.execute(text("""
+        INSERT INTO articles
+            (uri, title, summary, news_source, publication_date, submission_date,
+             category, sentiment, topic, tags, analyzed, ingest_status, article_origin)
+        VALUES (:uri, :title, :summary, :news_source, :publication_date,
+                :submission_date, :category, :sentiment, :topic, :tags,
+                :analyzed, :ingest_status, :article_origin)
+        ON CONFLICT (uri) DO UPDATE SET
+            title = EXCLUDED.title, summary = EXCLUDED.summary,
+            publication_date = EXCLUDED.publication_date,
+            submission_date = EXCLUDED.submission_date,
+            category = EXCLUDED.category, sentiment = EXCLUDED.sentiment,
+            topic = EXCLUDED.topic, tags = EXCLUDED.tags,
+            analyzed = EXCLUDED.analyzed, ingest_status = EXCLUDED.ingest_status,
+            article_origin = EXCLUDED.article_origin
+    """), row)
+
+
+def sync_feed_entry(conn, market: Dict[str, Any], briefing_id: int,
+                    commit: bool = True) -> Optional[str]:
+    """Make the feed agree with the briefing's status.
+
+    Approved: the briefing has a row in ``articles``. Anything else: it does
+    not. Returns "published", "withdrawn", or None when the briefing does not
+    exist. Safe to call repeatedly.
+    """
+    briefing = get(conn, market["id"], briefing_id)
+    if not briefing:
+        return None
+    if briefing.get("status") == "approved":
+        _publish_to_feed(conn, market, briefing)
+        outcome = "published"
+    else:
+        _withdraw_from_feed(conn, market["id"], briefing_id)
+        outcome = "withdrawn"
+    if commit:
+        conn.commit()
+    return outcome
+
+
+# ---------------------------------------------------------------------------
+# The briefing as a page
+# ---------------------------------------------------------------------------
+
+def render_page(market: Dict[str, Any], briefing: Dict[str, Any]) -> str:
+    """The briefing as one self-contained HTML page: the report with each
+    citation linked to its source, and the References list under it."""
+    import markdown as _markdown
+    from app.services.html_report_common import esc, html_document
+
+    facts = briefing.get("facts") or {}
+    if isinstance(facts, str):
+        try:
+            facts = json.loads(facts)
+        except ValueError:
+            facts = {}
+    index = facts.get("citation_index") or {}
+
+    content = briefing.get("report_content") or ""
+    body = _markdown.markdown(content, extensions=["tables"])
+
+    seen: List[str] = []
+
+    def _link(match: "re.Match[str]") -> str:
+        parts = []
+        for cid in _CITE_ID_RE.findall(match.group(1)):
+            ref = index.get(cid)
+            if ref and cid not in seen:
+                seen.append(cid)
+            if ref and ref.get("uri"):
+                parts.append(f'<a href="{esc(ref["uri"])}" target="_blank" '
+                             f'rel="noreferrer">{cid}</a>')
+            else:
+                parts.append(cid)
+        return "[" + ", ".join(parts) + "]"
+
+    body = _CITATION_RE.sub(_link, body)
+
+    refs = ""
+    if seen:
+        items = []
+        for cid in seen:
+            ref = index[cid]
+            label = " — ".join(p for p in (ref.get("vendor"), ref.get("title")) if p)
+            uri = ref.get("uri") or ""
+            items.append(
+                f'<li><strong>{cid}</strong> {esc(label)}'
+                + (f' <a href="{esc(uri)}" target="_blank" rel="noreferrer">'
+                   f'{esc(uri)}</a>' if uri else "") + "</li>")
+        refs = "<h2>References</h2><ol class=\"refs\">" + "".join(items) + "</ol>"
+
+    status = briefing.get("status") or "draft"
+    head = (f'<p class="eyebrow">{esc(market.get("name", ""))} · '
+            f'{esc(briefing.get("period_label", ""))} · {esc(status)}</p>')
+    return html_document(briefing.get("title") or market.get("name", "Briefing"),
+                         head + body + refs)

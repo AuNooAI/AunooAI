@@ -1020,7 +1020,7 @@ function CoverageTimeline({ articles }: { articles: CorpusArticle[] }) {
   );
 }
 
-export function MarketMonitorTab() {
+export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void } = {}) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const [markets, setMarkets] = useState<Market[] | null>(null);
@@ -3120,7 +3120,7 @@ export function MarketMonitorTab() {
 
       {/* ---- Briefings ---- */}
       {view === 'briefings' && marketId !== null && (
-        <MarketBriefingsView marketId={marketId} />
+        <MarketBriefingsView marketId={marketId} onFeedChanged={onFeedChanged} />
       )}
 
       {/* ---- Data (Collection sub-view) ---- */}

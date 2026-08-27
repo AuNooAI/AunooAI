@@ -354,6 +354,10 @@ tr.mm-teaser-row td { filter: blur(5px); user-select: none; pointer-events: none
            border-radius: 4px; background: #ecfdf5; color: #065f46;
            border: 1px solid #a7f3d0; }
 .mm-src { font-size: .74rem; color: #6b7280; }
+.mm-fold { margin: 10px 0; border-top: 1px solid #e5e7eb; }
+.mm-fold > summary { cursor: pointer; padding: 8px 0; font-size: .86rem; color: #334155; }
+.mm-fold > summary::marker { color: #94a3b8; }
+.mm-fold-body { padding: 0 0 8px; }
 svg.mm-chart { display: block; width: 100%; height: auto; }
 details summary { cursor: pointer; font-size: .82rem; color: #475569;
                   padding: .3rem 0; }
@@ -734,8 +738,8 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     balanced up the middle. The concentric arcs are the horizons. Names only
     where the viewer may see them; the dots give nothing away."""
     import math
-    w, h = 720, 420
-    cx, cy, radius = w / 2, h - 40, 330
+    w, h = 720, 440
+    cx, cy, radius = w / 2, h - 60, 330
     # The angle is the balance between the axes, scaled to the rated set's
     # own spread so the horizon is used whatever the market looks like: the
     # most lopsided vendor sits 80 degrees off the vertical.
@@ -752,95 +756,180 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
              'aria-label="Market Horizon: position and balance">',
              f'<path d="{arc(1.0)} Z" fill="#f8fafc" stroke="#e2e8f0"/>']
-    for frac, name in ((0.25, "horizon 1"), (0.5, "horizon 2"), (0.75, "horizon 3")):
+    for frac in (0.25, 0.5, 0.75):
         parts.append(f'<path d="{arc(frac)}" fill="none" stroke="#cbd5e1" stroke-dasharray="4 4"/>')
-        parts.append(f'<text x="{cx + radius*frac + 4:.1f}" y="{cy - 4:.1f}" font-size="9" fill="#94a3b8">{name}</text>')
-    parts += [f'<text x="{cx:.0f}" y="{cy - radius - 12:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Executors — growing, and already large</text>',
-              f'<text x="{cx - radius + 4:.0f}" y="{cy - 60:.0f}" font-size="11" fill="#64748b">Established</text>',
-              f'<text x="{cx + radius - 4:.0f}" y="{cy - 60:.0f}" text-anchor="end" font-size="11" fill="#64748b">Innovators</text>',
-              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Emerging — near the base</text>',
+    parts += [f'<text x="{cx:.0f}" y="{cy - radius - 12:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Executing — growing, and already large</text>',
+              f'<text x="{cx - radius + 4:.0f}" y="{cy - 60:.0f}" font-size="11" fill="#64748b">Establishing</text>',
+              f'<text x="{cx + radius - 4:.0f}" y="{cy - 60:.0f}" text-anchor="end" font-size="11" fill="#64748b">Accelerating</text>',
+              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Emerging — small, and not yet moving fast</text>',
               f'<text x="{cx - radius:.0f}" y="{cy + 30:.0f}" font-size="10" fill="#94a3b8">← scale-heavy</text>',
-              f'<text x="{cx + radius:.0f}" y="{cy + 30:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">momentum-heavy →</text>']
-    placed: List[tuple] = []
-    for r in sorted(rated, key=lambda r: -(r["scale"] + r["momentum"])):
-        x, y = place(r)
+              f'<text x="{cx + radius:.0f}" y="{cy + 30:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">momentum-heavy →</text>',
+              f'<circle cx="{cx - 60:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
+              f'<text x="{cx - 50:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">ringed: innovating — top third by launches, corroborated launches, research and engineering hiring</text>']
+    dots = [(r, *place(r)) for r in sorted(rated, key=lambda r: -(r["scale"] + r["momentum"]))]
+    # Labels must not sit on another label or on any dot. Each label tries
+    # right, left, above, below, then right at increasing drops, and takes
+    # the first clear spot. Placed labels are boxes (x, y_top, w, h).
+    boxes: List[tuple] = [(x - 6, y - 6, 12, 12) for _, x, y in dots]
+    def clear(bx: float, by: float, bw: float, bh: float) -> bool:
+        return not any(bx < ox + ow and ox < bx + bw and by < oy + oh and oy < by + bh
+                       for ox, oy, ow, oh in boxes)
+    for r, x, y in dots:
         colour = _TIER_COLOUR.get(r["tier"], "#6b7280")
         shown = allowed is None or r["vendor"] in allowed
         # The hover title names the vendor, so it is withheld with the label.
         title = (f'<title>{esc(r["vendor"])}: scale {r["scale"]}, momentum {r["momentum"]}</title>'
                  if shown else '')
+        if r.get("innovating"):
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.5" fill="none" '
+                         'stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>')
         parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85">'
                      f'{title}</circle>')
-        if shown:
-            # Nudge a label down when it would sit on one already placed.
-            lx, ly, width = x + 7, y + 4, 5.5 * len(r["vendor"]) + 4
-            for _ in range(4):
-                if any(abs(ly - py) < 11 and lx < px + pw and px < lx + width
-                       for px, py, pw in placed):
-                    ly += 11
-                else:
-                    break
-            placed.append((lx, ly, width))
-            parts.append(f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
+        if not shown:
+            continue
+        width, height = 5.4 * len(r["vendor"]) + 2, 11
+        candidates = [(x + 8, y - 5, "start"), (x - 8 - width, y - 5, "end"),
+                      (x - width / 2, y - 18, "middle"), (x - width / 2, y + 8, "middle")]
+        candidates += [(x + 8, y - 5 + 12 * k, "start") for k in range(1, 6)]
+        candidates += [(x - 8 - width, y - 5 + 12 * k, "end") for k in range(1, 6)]
+        for bx, by, anchor in candidates:
+            if clear(bx, by, width, height):
+                break
+        boxes.append((bx, by, width, height))
+        tx = bx if anchor == "start" else bx + width if anchor == "end" else bx + width / 2
+        parts.append(f'<text x="{tx:.1f}" y="{by + 9:.1f}" text-anchor="{anchor}" '
+                     f'font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
     parts.append("</svg>")
     return "".join(parts)
 
 
-def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set]) -> str:
-    """The map, the tiers, the not-rated list and the weights, in that order."""
+_HORIZON_SLOT = "<!--mm-horizon-slot-->"
+
+
+def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
+                     public_names: bool = False) -> str:
+    """The map, the tiers, the not-rated list and the weights, in that order.
+
+    ``public_names`` labels every rated vendor and lists every tier in full
+    whatever the entitlement; the not-rated names still follow ``allowed``.
+    """
     cfg = horizon.get("config") or {}
     rated = horizon.get("rated") or []
     not_rated = horizon.get("not_rated") or []
-    out = [section_open("Market Horizon")]
+    names_allowed = None if public_names else allowed
+    # The drawer's own title already says "Market Horizon"; no second heading.
+    out = ['<section class="section">']
     out.append(f'<p class="mm-src">{esc(horizon.get("what_it_is_not") or "")} '
                f'Computed {esc((horizon.get("computed_at") or "")[:10])} over the '
                f'last {horizon.get("days")} days.</p>')
-    out.append(_horizon_svg(rated, allowed, cfg.get("tiers") or {}))
+    out.append(_horizon_svg(rated, names_allowed, cfg.get("tiers") or {}))
+    acquired = horizon.get("acquired") or []
+    innovating = [r for r in rated if r.get("innovating")]
+    full_view = allowed is None
+
+    def fold(summary: str, inner: str) -> str:
+        # The map is the page's opening picture; the lists behind it open on
+        # request, so the eye lands on the horizon and not on a wall of names.
+        return (f'<details class="mm-fold"><summary>{summary}</summary>'
+                f'<div class="mm-fold-body">{inner}</div></details>')
+
+    tiers_html = []
     for tier in _TIER_ORDER:
         info = (horizon.get("tiers") or {}).get(tier) or {}
         rows = [r for r in rated if r["tier"] == tier]
         if not rows:
             continue
-        shown = [r for r in rows if allowed is None or r["vendor"] in allowed]
+        shown = [r for r in rows if names_allowed is None or r["vendor"] in names_allowed]
         hidden = len(rows) - len(shown)
-        names = [f'{esc(r["vendor"])}' + (" ↑" if r.get("moved") and (r.get("previous") or {}).get("tier") in ("emerging", "established") and tier in ("innovators", "executors") else "")
-                 for r in shown]
+        names = []
+        for r in shown:
+            name = esc(r["vendor"])
+            if r.get("innovating"):
+                name += ' <span class="mm-src" title="innovating">◌</span>'
+            if r.get("moved") and (r.get("previous") or {}).get("tier") != tier:
+                name += f' <span class="mm-src">(was {esc((r["previous"] or {}).get("tier", ""))})</span>'
+            names.append(name)
         if hidden:
             names.append(f'{hidden} vendor{"s" if hidden > 1 else ""} not shown in this view')
-        out.append(f'<h3>{esc(info.get("label") or tier.capitalize())} '
-                   f'<span class="mm-src">({len(rows)}) — {esc(info.get("means") or "")}</span></h3>')
-        out.append(f'<p>{", ".join(names)}</p>')
-    if not_rated:
+        tiers_html.append(f'<h3>{esc(info.get("label") or tier.capitalize())} '
+                          f'<span class="mm-src">({len(rows)}) — {esc(info.get("means") or "")}</span></h3>')
+        tiers_html.append(f'<p>{", ".join(names)}</p>')
+    if innovating:
+        inames = [esc(r["vendor"]) for r in innovating
+                  if names_allowed is None or r["vendor"] in names_allowed]
+        ihidden = len(innovating) - len(inames)
+        if ihidden:
+            inames.append(f'{ihidden} vendor{"s" if ihidden > 1 else ""} not shown in this view')
+        tiers_html.append(f'<h3>Innovating <span class="mm-src">({len(innovating)}) — top third by '
+                          'launches, corroborated launches, research posts and engineering '
+                          'hiring; a marker across every tier</span></h3>')
+        tiers_html.append(f'<p>{", ".join(inames)}</p>')
+    if acquired:
+        tiers_html.append(f'<h3>Acquired <span class="mm-src">({len(acquired)}) — listed, not placed</span></h3>')
+        tiers_html.append('<p>' + "; ".join(
+            esc(a["vendor"]) + (f' — by {esc(a["acquired_by"])}' if a.get("acquired_by") else "")
+            + (f', {esc(a["status_date"])}' if a.get("status_date") else "")
+            for a in acquired if names_allowed is None or a["vendor"] in names_allowed) + '</p>')
+    tier_summary = ", ".join(
+        f'{(horizon.get("tiers") or {}).get(t, {}).get("label", t)} {sum(1 for r in rated if r["tier"] == t)}'
+        for t in _TIER_ORDER)
+    out.append(fold(f"Who is where — {esc(tier_summary)}"
+                    + (f", innovating {len(innovating)}" if innovating else "")
+                    + (f", acquired {len(acquired)}" if acquired else ""),
+                    "".join(tiers_html)))
+
+    if full_view:
+        noted = [r for r in rated if r.get("analyst_note") or r.get("multipliers")]
+        noted += [a for a in acquired if a.get("note")]
+        if noted:
+            lines = []
+            for r in noted:
+                bits = []
+                if r.get("multipliers"):
+                    bits.append("weights " + ", ".join(f"{k} ×{v:g}" for k, v in r["multipliers"].items()))
+                if r.get("analyst_note") or r.get("note"):
+                    bits.append(esc(r.get("analyst_note") or r.get("note")))
+                lines.append(f'<li><strong>{esc(r["vendor"])}</strong>: ' + "; ".join(bits) + '</li>')
+            out.append(fold(f"Analyst notes and adjustments ({len(noted)})",
+                            '<ul class="mm-src">' + "".join(lines) + '</ul>'))
+
+    # What is missing is the operator's to-do, not the reader's business:
+    # the not-rated list is in the full view only.
+    if not_rated and full_view:
         by_reason: Dict[str, int] = {}
         for nr in not_rated:
             for g in nr.get("missing") or []:
                 by_reason[g["label"]] = by_reason.get(g["label"], 0) + 1
         reasons = "; ".join(f"{n} lack {esc(label.lower())}" for label, n in
                             sorted(by_reason.items(), key=lambda kv: -kv[1]))
-        out.append(f'<h3>Not rated <span class="mm-src">({len(not_rated)})</span></h3>')
-        out.append(f'<p class="mm-src">A vendor is rated only when every input was '
-                   f'measured. {reasons}.</p>')
-        if allowed is None:
-            out.append('<p class="mm-src">' + "; ".join(
+        inner = (f'<p class="mm-src">A vendor is rated only when every input was '
+                 f'measured. {reasons}.</p>')
+        if True:
+            inner += '<p class="mm-src">' + "; ".join(
                 f'{esc(nr["vendor"])}: ' + ", ".join(esc(g["label"].lower()) for g in nr["missing"])
-                for nr in not_rated) + '</p>')
+                for nr in not_rated) + '</p>'
+        out.append(fold(f"Not rated ({len(not_rated)}) — what each one lacks", inner))
+
     inputs = cfg.get("inputs") or {}
-    out.append('<h3>Weights</h3><table class="mm-table"><thead><tr><th>Input</th>'
+    ordered = sorted(inputs.items(), key=lambda kv: (0 if kv[1].get("axis") == "scale" else 1,
+                                                     -float(kv[1].get("weight") or 0)))
+    weights = ('<table class="mm-table"><thead><tr><th>Input</th>'
                '<th>Axis</th><th class="mm-num">Weight</th></tr></thead><tbody>'
                + "".join(f'<tr><td>{esc(v.get("label") or k)}'
                          + (f' <span class="mm-src">{esc(v["note"])}</span>' if v.get("note") else "")
                          + (' <span class="mm-src">(optional)</span>' if v.get("optional") else "")
                          + f'</td><td>{esc(v.get("axis") or "")}</td>'
                          f'<td class="mm-num">{float(v.get("weight") or 0):.2f}</td></tr>'
-                         for k, v in inputs.items())
+                         for k, v in ordered)
                + "</tbody></table>")
-    out.append('<p class="mm-src">Each input is a percentile rank among the rated '
-               'vendors; an axis is the weighted mean of its inputs. On the map, distance '
-               'from the base is the mean of the two axes and the angle is their balance. '
-               f'A vendor at or above {cfg.get("tiers", {}).get("scale_cut", 50)} on scale '
-               f'and {cfg.get("tiers", {}).get("momentum_cut", 50)} on momentum is an '
-               'Executor; high on one only is Established (scale) or an Innovator '
-               '(momentum); below both is Emerging.</p>')
+    weights += ('<p class="mm-src">Each input is a percentile rank among the rated '
+                'vendors; an axis is the weighted mean of its inputs. On the map, distance '
+                'from the base is the mean of the two axes and the angle is their balance. '
+                f'A vendor at or above {cfg.get("tiers", {}).get("scale_cut", 50)} on scale '
+                f'and {cfg.get("tiers", {}).get("momentum_cut", 50)} on momentum is '
+                'Executing; high on one only is Establishing (scale) or Accelerating '
+                '(momentum); below both is Emerging.</p>')
+    out.append(fold("How the map is computed — weights and rules", weights))
     out.append("</section>")
     return "".join(out)
 
@@ -1276,7 +1365,8 @@ def _trial_panel(market_id: int) -> str:
         "</section>")
 
 
-def _drawer_open(title: str, blurb: str, anchor: str = "") -> str:
+def _drawer_open(title: str, blurb: str, anchor: str = "", *,
+                 opened: bool = False) -> str:
     """A collapsed section of the report, named by what is inside it.
 
     ``<details>`` rather than a scripted toggle: it opens with the keyboard,
@@ -1288,7 +1378,8 @@ def _drawer_open(title: str, blurb: str, anchor: str = "") -> str:
     # landing just outside a closed drawer scrolls to a shut door; on the
     # element itself, the script walking up from the target opens it.
     ident = f' id="{esc(anchor)}"' if anchor else ""
-    return (f'<details class="mm-drawer"{ident}><summary>'
+    # `opened` for the one drawer that is the page's opening picture.
+    return (f'<details class="mm-drawer"{ident}{" open" if opened else ""}><summary>'
             f'<span class="mm-drawer-t">{esc(title)}</span>'
             f'<span class="mm-drawer-b">{esc(blurb)}</span>'
             f'</summary><div class="mm-drawer-body">')
@@ -1919,11 +2010,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append('<div class="n-top">'
                 + _brand_line()
                 + '<nav class="n-jump" aria-label="Jump to section">'
+                '<a href="#mm-horizon">Horizon</a>'
                 '<a href="#mm-assessment">Assessment</a>'
                 '<a href="#mm-moved">Who moved</a>'
                 '<a href="#mm-developments">Developments</a>'
                 '<a href="#mm-analysis">Evidence</a>'
-                '<a href="#mm-horizon">Horizon</a>'
                 '<a href="#mm-registry">Vendors</a>'
                 '<a href="#mm-method">Method</a></nav>'
                 '<nav class="n-pages" aria-label="Pages">'
@@ -1953,6 +2044,31 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 f'{generated.strftime("%d %B %Y, %H:%M UTC")}</div></div></div>')
 
     # 1. Executive assessment
+    # ---- Market Horizon first: the map is the page's opening picture
+    try:
+        from app.services import market_horizon as mh
+        stored = mh.latest(conn, market["id"], n=2)
+    except Exception as exc:  # noqa: BLE001 — the report stands without it
+        logger.warning("market horizon unavailable: %s", exc)
+        stored = []
+    horizon_html = ""
+    if stored:
+        horizon = mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
+        body.append(_drawer_open(
+            "Market Horizon",
+            f"Where {horizon['counts']['rated']} of the market's "
+            f"{horizon['counts']['eligible']} vendors sit today: how big they "
+            "are, and how fast they are moving.",
+            anchor="mm-horizon", opened=True))
+        # The horizon names every rated vendor in the shared view too — the
+        # placement is the public draw; each vendor's inputs and the
+        # not-rated names stay in the full report. The fail-closed check
+        # below scans the page for withheld names, so this one section is
+        # rendered apart and put back after the check (`public_names`).
+        horizon_html = _horizon_section(horizon, allowed_names, public_names=True)
+        body.append(_HORIZON_SLOT)
+        body.append(_drawer_close())
+
     body.append('<section class="n-block" id="mm-assessment">'
                 '<div class="n-sec-head"><h2>Executive assessment</h2>'
                 f'<span class="n-updated">{len(assessment["findings"])} '
@@ -2446,24 +2562,6 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append(_TEASER_END)
     body.append(_drawer_close())
 
-    # ---- Market Horizon: the latest stored map, or nothing
-    try:
-        from app.services import market_horizon as mh
-        stored = mh.latest(conn, market["id"], n=2)
-    except Exception as exc:  # noqa: BLE001 — the report stands without it
-        logger.warning("market horizon unavailable: %s", exc)
-        stored = []
-    if stored:
-        horizon = mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
-        body.append(_drawer_open(
-            "Market Horizon",
-            f"{horizon['counts']['rated']} of {horizon['counts']['eligible']} "
-            "vendors on a map of scale against momentum, from the readings "
-            "we collect. The rest are listed with the reading they lack.",
-            anchor="mm-horizon"))
-        body.append(_horizon_section(horizon, allowed_names))
-        body.append(_drawer_close())
-
     body.append(_drawer_open(
         "The vendors we track",
         f"{len(registry_rows)} companies we watch, with each one's "
@@ -2698,6 +2796,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # entitled to see cannot be undone, and a refusal can.
     ent.assert_no_withheld(rendered, withheld,
                            context=f'market {market["id"]} report')
+
+    # The one deliberate exception, put back after the check: the Market
+    # Horizon names every rated vendor by decision (27 August 2026).
+    rendered = rendered.replace(_HORIZON_SLOT, horizon_html)
 
     return rendered.encode("utf-8")
 

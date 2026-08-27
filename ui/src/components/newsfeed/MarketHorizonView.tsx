@@ -48,7 +48,7 @@ function HorizonArc({ rated, onVendor }: {
   rated: HorizonVendor[]; onVendor?: (brandId: number) => void;
 }) {
   const [hover, setHover] = useState<HorizonVendor | null>(null);
-  const W = 760, H = 440, cx = W / 2, cy = H - 44, R = 350;
+  const W = 760, H = 464, cx = W / 2, cy = H - 64, R = 350;
   // The angle is the balance between the axes, scaled to the rated set's own
   // spread so the horizon is used whatever the market looks like: the most
   // lopsided vendor sits 80 degrees off the vertical.
@@ -64,46 +64,57 @@ function HorizonArc({ rated, onVendor }: {
     const d = R * f;
     return `M ${cx - d} ${cy} A ${d} ${d} 0 0 1 ${cx + d} ${cy}`;
   };
-  // Labels, nudged down when they would sit on one already placed.
-  const placed: { x: number; y: number; w: number }[] = [];
-  const labels = [...rated]
+  // Labels must not sit on another label or on any dot. Each label tries
+  // right, left, above, below, then right and left at increasing drops, and
+  // takes the first clear spot.
+  const dots = [...rated]
     .sort((a, b) => (b.scale + b.momentum) - (a.scale + a.momentum))
-    .map(v => {
-      const { x, y } = place(v);
-      let lx = x + 7, ly = y + 4;
-      const w = 5.5 * v.vendor.length + 4;
-      for (let i = 0; i < 4; i++) {
-        if (placed.some(p => Math.abs(ly - p.y) < 11 && lx < p.x + p.w && p.x < lx + w)) ly += 11;
-        else break;
-      }
-      placed.push({ x: lx, y: ly, w });
-      return { v, x, y, lx, ly };
-    });
+    .map(v => ({ v, ...place(v) }));
+  const boxes: { x: number; y: number; w: number; h: number }[] =
+    dots.map(d => ({ x: d.x - 6, y: d.y - 6, w: 12, h: 12 }));
+  const clear = (bx: number, by: number, bw: number, bh: number) =>
+    !boxes.some(o => bx < o.x + o.w && o.x < bx + bw && by < o.y + o.h && o.y < by + bh);
+  const labels = dots.map(({ v, x, y }) => {
+    const w = 5.4 * v.vendor.length + 2, h = 11;
+    const candidates: { bx: number; by: number; anchor: 'start' | 'end' | 'middle' }[] = [
+      { bx: x + 8, by: y - 5, anchor: 'start' }, { bx: x - 8 - w, by: y - 5, anchor: 'end' },
+      { bx: x - w / 2, by: y - 18, anchor: 'middle' }, { bx: x - w / 2, by: y + 8, anchor: 'middle' },
+    ];
+    for (let k = 1; k <= 5; k++) candidates.push({ bx: x + 8, by: y - 5 + 12 * k, anchor: 'start' });
+    for (let k = 1; k <= 5; k++) candidates.push({ bx: x - 8 - w, by: y - 5 + 12 * k, anchor: 'end' });
+    let pick = candidates[candidates.length - 1];
+    for (const c of candidates) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
+    boxes.push({ x: pick.bx, y: pick.by, w, h });
+    const tx = pick.anchor === 'start' ? pick.bx : pick.anchor === 'end' ? pick.bx + w : pick.bx + w / 2;
+    return { v, x, y, lx: tx, ly: pick.by + 9, anchor: pick.anchor };
+  });
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
            aria-label="Market Horizon: position and balance">
         <path d={`${arc(1)} Z`} fill="#f8fafc" stroke="#e2e8f0" className="dark:fill-gray-900" />
-        {[0.25, 0.5, 0.75].map((f, i) => (
-          <g key={f}>
-            <path d={arc(f)} fill="none" stroke="#cbd5e1" strokeDasharray="4 4" />
-            <text x={cx + R * f + 4} y={cy - 4} fontSize={9} fill="#94a3b8">horizon {i + 1}</text>
-          </g>
+        {[0.25, 0.5, 0.75].map(f => (
+          <path key={f} d={arc(f)} fill="none" stroke="#cbd5e1" strokeDasharray="4 4" />
         ))}
-        <text x={cx} y={cy - R - 12} textAnchor="middle" fontSize={11} fill="#64748b">Executors — growing, and already large</text>
-        <text x={cx - R + 4} y={cy - 60} fontSize={11} fill="#64748b">Established</text>
-        <text x={cx + R - 4} y={cy - 60} textAnchor="end" fontSize={11} fill="#64748b">Innovators</text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">Emerging — near the base</text>
+        <text x={cx} y={cy - R - 12} textAnchor="middle" fontSize={11} fill="#64748b">Executing — growing, and already large</text>
+        <text x={cx - R + 4} y={cy - 60} fontSize={11} fill="#64748b">Establishing</text>
+        <text x={cx + R - 4} y={cy - 60} textAnchor="end" fontSize={11} fill="#64748b">Accelerating</text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">Emerging — small, and not yet moving fast</text>
         <text x={cx - R} y={cy + 30} fontSize={10} fill="#94a3b8">← scale-heavy</text>
         <text x={cx + R} y={cy + 30} textAnchor="end" fontSize={10} fill="#94a3b8">momentum-heavy →</text>
-        {labels.map(({ v, x, y, lx, ly }) => (
+        <circle cx={cx - 60} cy={cy + 44} r={6} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
+        <text x={cx - 50} y={cy + 48} fontSize={10} fill="#64748b">ringed: innovating — top third by launches, corroborated launches, research and engineering hiring</text>
+        {labels.map(({ v, x, y, lx, ly, anchor }) => (
           <g key={v.brand_id}
              onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
              onClick={() => onVendor?.(v.brand_id)}
              style={{ cursor: onVendor ? 'pointer' : 'default' }}>
+            {v.innovating && (
+              <circle cx={x} cy={y} r={8.5} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
+            )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
                     fill={TIER_COLOUR[v.tier] ?? '#6b7280'} fillOpacity={0.85} />
-            <text x={lx} y={ly} fontSize={10} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
+            <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>
         ))}
       </svg>
@@ -112,8 +123,17 @@ function HorizonArc({ rated, onVendor }: {
           <div className="font-medium text-slate-800 dark:text-gray-100">{hover.vendor}</div>
           <div className="text-slate-500 dark:text-gray-400">
             scale {hover.scale} · momentum {hover.momentum} · {hover.tier}
+            {hover.innovation != null && <> · innovation {hover.innovation}{hover.innovating ? ' (innovating)' : ''}</>}
           </div>
           <InputsTable v={hover} />
+          {hover.multipliers && (
+            <div className="mt-1 text-amber-700 dark:text-amber-400">
+              analyst weights: {Object.entries(hover.multipliers).map(([k, m]) => `${k} ×${m}`).join(', ')}
+            </div>
+          )}
+          {hover.analyst_note && (
+            <div className="mt-1 text-slate-600 dark:text-gray-300">note: {hover.analyst_note}</div>
+          )}
         </div>
       )}
     </div>
@@ -234,6 +254,13 @@ export function MarketHorizonView({ marketId, onVendor }: {
                           {!r.previous && horizon.previous_at && (
                             <span className="text-xs text-slate-400" title="Not rated on the previous map">new</span>
                           )}
+                          {r.innovating && <span className="text-xs text-slate-500" title="innovating">◌</span>}
+                          {(r.analyst_note || r.multipliers) && (
+                            <span className="text-xs text-amber-700 dark:text-amber-400"
+                                  title={[r.multipliers ? 'weights ' + Object.entries(r.multipliers).map(([k, m]) => `${k} ×${m}`).join(', ') : '', r.analyst_note ?? ''].filter(Boolean).join(' — ')}>
+                              adjusted
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -241,6 +268,53 @@ export function MarketHorizonView({ marketId, onVendor }: {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {horizon && horizon.innovating.length > 0 && (
+          <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
+            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+              Innovating ({horizon.innovating.length})
+              <span className="text-xs font-normal text-slate-500 dark:text-gray-400"> — a marker across every tier: the top third by launches, corroborated launches, research posts and engineering hiring</span>
+            </div>
+            <p className="text-sm mt-1">{horizon.innovating.join(', ')}</p>
+          </div>
+        )}
+
+        {horizon && horizon.acquired.length > 0 && (
+          <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
+            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+              Acquired ({horizon.acquired.length})
+              <span className="text-xs font-normal text-slate-500 dark:text-gray-400"> — listed, not placed</span>
+            </div>
+            <ul className="text-sm mt-1 space-y-0.5">
+              {horizon.acquired.map(a => (
+                <li key={a.brand_id}>
+                  {onVendor ? (
+                    <button onClick={() => onVendor(a.brand_id)}
+                            className="text-sky-700 dark:text-sky-400 hover:underline">{a.vendor}</button>
+                  ) : a.vendor}
+                  {a.acquired_by && <span className="text-slate-600 dark:text-gray-300"> — by {a.acquired_by}</span>}
+                  {a.status_date && <span className="text-xs text-slate-500 dark:text-gray-400">, {a.status_date}</span>}
+                  {a.note && <span className="text-xs text-slate-500 dark:text-gray-400"> · {a.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {horizon && horizon.acquisition_hints.length > 0 && (
+          <div className="mt-4 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
+            Possibly acquired, not yet marked — confirm on the vendor page:{' '}
+            {horizon.acquisition_hints.map((h, i) => (
+              <span key={h.brand_id}>
+                {i > 0 ? '; ' : ''}
+                {onVendor ? (
+                  <button onClick={() => onVendor(h.brand_id)} className="underline">{h.vendor}</button>
+                ) : h.vendor}
+                {' '}({h.why})
+              </span>
+            ))}
           </div>
         )}
 
@@ -271,7 +345,7 @@ export function MarketHorizonView({ marketId, onVendor }: {
               Each input is a percentile rank among the rated vendors; an axis is the weighted mean
               of its inputs. On the map, distance from the base is the mean of the two axes and the
               angle is their balance. At or above {cuts.scale_cut} on scale and {cuts.momentum_cut} on
-              momentum is an Executor; high on one only is Established (scale) or an Innovator
+              momentum is Executing; high on one only is Establishing (scale) or Accelerating
               (momentum); below both is Emerging. Edit <code>app/config/market_horizon.json</code> to
               change them.
             </p>

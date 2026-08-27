@@ -163,7 +163,13 @@ function periodOptions(kind: PeriodKind): { refDate: string; label: string }[] {
   return out;
 }
 
-export function MarketBriefingsView({ marketId }: { marketId: number }) {
+export function MarketBriefingsView({ marketId, onFeedChanged }: {
+  marketId: number;
+  /** An approved briefing is an item in the news feed, and rejecting or
+   *  regenerating one takes it out again. The page owns the feed's article
+   *  list, so it is told when that list has changed underneath it. */
+  onFeedChanged?: () => void;
+}) {
   const [list, setList] = useState<BriefingSummary[] | null>(null);
   const [open, setOpen] = useState<BriefingDetail | null>(null);
   const [showFacts, setShowFacts] = useState(false);
@@ -207,6 +213,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
           ? `${r.period_label}: ${r.item_count} items — too few to write from, or the model returned nothing. The stored briefing is the evidence itself.`
           : `${r.period_label} written from ${r.item_count} items.`);
       reload();
+      onFeedChanged?.();
       if (r.id) openBriefing(r.id);
     } catch (e: any) {
       setNote(`Could not write it: ${e.message ?? e}`);
@@ -221,6 +228,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
       await setBriefingStatus(marketId, open.id, status);
       setOpen({ ...open, status: status as BriefingDetail['status'] });
       reload();
+      onFeedChanged?.();
     } catch (e: any) {
       setError(String(e.message ?? e));
     }

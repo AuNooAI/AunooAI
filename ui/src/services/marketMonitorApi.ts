@@ -1884,8 +1884,28 @@ export interface HorizonVendor {
   brand_id: number; vendor: string; scale: number; momentum: number;
   tier: 'executors' | 'innovators' | 'established' | 'emerging';
   inputs: Record<string, HorizonInput>;
+  /** Product-work score beside the axes, and the top-third marker. */
+  innovation: number | null;
+  innovation_inputs: Record<string, { value: number; percentile: number; weight: number }>;
+  innovating: boolean;
+  /** The analyst's note and per-input multipliers, if any were set. */
+  analyst_note: string | null;
+  multipliers: Record<string, number> | null;
   previous: { tier: string; scale: number; momentum: number } | null;
   moved: boolean;
+}
+export interface HorizonAcquired {
+  brand_id: number; vendor: string; status: 'acquired' | 'closed';
+  acquired_by: string | null; status_date: string | null; note: string | null;
+}
+export interface HorizonControls {
+  multipliers: Record<string, number>;
+  note: string | null;
+  status: 'active' | 'acquired' | 'closed';
+  acquired_by: string | null;
+  status_date: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
 }
 export interface HorizonNotRated {
   brand_id: number; vendor: string;
@@ -1907,8 +1927,33 @@ export interface MarketHorizon {
   tiers: Record<string, { label: string; means: string; count: number }>;
   rated: HorizonVendor[];
   not_rated: HorizonNotRated[];
-  counts: { eligible: number; rated: number; not_rated: number };
+  acquired: HorizonAcquired[];
+  innovating: string[];
+  /** Vendors that look acquired but are not marked so; a person confirms. */
+  acquisition_hints: { brand_id: number; vendor: string; why: string }[];
+  counts: { eligible: number; rated: number; not_rated: number; acquired: number; innovating: number };
   what_it_is_not: string;
+}
+
+export async function getHorizonControls(marketId: number, brandId: number): Promise<{
+  controls: HorizonControls;
+  inputs: Record<string, { label: string; axis: string; weight: number }>;
+  statuses: string[];
+}> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/horizon-controls`,
+    { credentials: 'include' }), 'Failed to load horizon controls');
+}
+
+export async function saveHorizonControls(
+  marketId: number, brandId: number, body: HorizonControls,
+): Promise<HorizonControls> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/horizon-controls`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }), 'Failed to save horizon controls');
 }
 
 export async function getMarketHorizon(marketId: number): Promise<MarketHorizon | null> {

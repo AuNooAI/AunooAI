@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi and puts its citations after the sentence
+## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi, puts its citations after the sentence, and joins the shared news feed when approved; ATS job postings classify by department
 
 ### Goal
 On wileytest, sharing an incident by email returned "Input should be a valid string; Input
@@ -81,6 +81,78 @@ after the first sentence's terminator on that line, quotes kept with the sentenc
 touches line starts: mid-paragraph, `X. [A3] Y.` is the correct form and cannot be told from a
 leading one, so it is never moved. Headings with no full stop are left alone.
 
+### Feature — an approved market briefing is an item in the shared news feed
+The news feed has no "post this" path. A feed item is a row in `articles` that has a category
+and a sentiment inside the date range (`get_news_feed_articles_for_date_range`,
+`app/database_query_facade.py:5643`), and the feed is already shared: nothing in that query is
+per user. So an approved briefing joins the feed by becoming one such row, and leaves it by that
+row being deleted.
+
+**`app/services/market_briefing.py`** (uncommitted). `sync_feed_entry(conn, market,
+briefing_id)` reads the briefing and makes `articles` agree with its status: `approved` upserts
+a row keyed on the briefing's own page URL; `draft` or `rejected` deletes it. `feed_row()` builds
+the row: `news_source = "Aunoo Market Monitor"`, `category = "Market Briefing"`, `sentiment =
+"Neutral"` (the two the feed gate needs), `topic` = the market's `config.collection.topic_name`
+so it sits under the same topic filter as the news it summarises, `publication_date` = the
+approval time so it appears in that day's feed, and `article_origin = 'report'` so any reader of
+`articles` can tell it from an article. `feed_summary()` takes the first prose paragraph of the
+briefing (skipping the byline, bold title, rule and headings) with the `[A2]` brackets removed,
+cut on a sentence end at 480 characters. `generate(store=True)` now also deletes the feed row,
+because the upsert there resets status to `draft` and a regenerated text should not stay in the
+feed under the old approval. `render_page()` is the briefing as one HTML page, markdown rendered
+with the `markdown` package, each citation linked to its source from `facts.citation_index`, and
+a References list of the IDs actually cited.
+
+**`app/routes/market_monitor_routes.py`** (uncommitted). `PUT
+/markets/{id}/briefings/{bid}/status` calls `sync_feed_entry` after `set_status` and returns
+`"feed": "published" | "withdrawn"`. New `GET /markets/{id}/briefings/{bid}/report.html` serves
+the page behind `verify_session`, which sends a reader without a session to the login page
+rather than a 401 — the link is followed from a feed card by a person. The path ends in
+`/report.html` rather than `{bid}.html` because `{briefing_id}` is typed `int` and `7.html`
+would 422 in the existing route before FastAPI tried another.
+
+Not done, on purpose: nothing else that reads `articles` was taught to skip `article_origin =
+'report'`. The observer agents and the daily-briefing compose both select on topic + category +
+sentiment, so an approved briefing under `Market Monitoring SOC Automation` is visible to an
+observer scoped to that topic. One row a week per market; flagged, not filtered.
+
+### Tests — `tests/test_market_briefing_feed.py`
+Uncommitted. Six tests: the summary skips the byline and headings and drops citations, a long
+summary cuts on a sentence end, the row passes the feed gate and carries `report`, the page
+links each cited ID and lists only the ones with a source, an approve→approve→reject round trip
+against the real database inside a rolled-back transaction (row appears once, updates in place,
+disappears), and a missing briefing returns None.
+
+### Fix — approving a briefing refreshes the feed
+The News Feed page fetches its article list on load, on a filter change, and on the Refresh
+button (`ui/src/hooks/useNewsFeed.ts:291-298`, `NewsFeedPage.tsx:692`); nothing else. The
+Reports tab is a separate component on that page, and its Approve button refetched only the
+briefings list, so the item was in the feed but the page had not asked. `MarketBriefingsView`
+takes `onFeedChanged`, called after approve/reject and after a regeneration (which withdraws
+the row); `MarketMonitorTab` passes it through; `NewsFeedPage` hands it `fetchArticles`. Built
+with `./ui/deploy-react-ui.sh` → `newsfeed-CJqpmJ24.js`; templates auto-reload, so no restart
+was needed for the UI. `npm run typecheck` clean against the 246-error baseline.
+
+### Fix — every ATS job posting was "not stated" on the hiring charts
+Dropzone AI showed "not stated 11 · 11 open roles". Its postings come from the Greenhouse
+collector (`app/collectors/ats_collector.py:256`), which leaves `function` empty and writes
+the board's department to `function_hint`; LinkedIn postings fill `function`. `hiring()` and
+the vendor-jobs query read `data->>'function'` only, so every ATS posting grouped as "not
+stated" — Dropzone 12 of 12, Qevlar 15 of 17 — while `market_lists.py:427` had already been
+coalescing the two for the vendor list.
+
+**`app/services/market_analysis.py`** — both job SELECTs (hiring, and the per-vendor one at
+~821) now read `COALESCE(NULLIF(data->>'function',''), data->>'function_hint')`. Two needles
+added so the hint values land somewhere: `"operations"` → operations, `"product"` → marketing
+(LinkedIn's "Product Management and Marketing" already went there). **`market_monitor_routes.py`**
+vendor `jobs` query (~3304), same coalesce. The jobs CSV export (`market_publish.py:1317`) still
+writes the raw `function` column, blank for ATS rows; not changed.
+
+Before → after, market 2: `by_function` had `not stated` 27 → gone; Dropzone AI now
+engineering 6, sales 3, marketing 2; Qevlar sales 9, engineering 2, operations 2, other 2.
+`tests/test_market_hiring_function.py`: 9 passed (eight hint→group cases, one DB check that no
+ATS vendor with hints has a "not stated" bucket).
+
 ### Tests — `tests/test_market_briefing_citations.py`
 `1c819191`. Nineteen tests: nine for the resolver (six fail against the pre-`89071fe9` code),
 ten for placement, including the mid-paragraph case that must not move and the `check` key the
@@ -107,11 +179,24 @@ output-heavy and that is where the two prices are closest. The third run made tw
 (`_generate_report_with_retry` retried, most likely on an empty first answer), so it cost
 roughly double. `pytest tests/test_market_briefing_citations.py` → 19 passed.
 
+Feed item: `pytest tests/test_market_briefing_feed.py tests/test_market_briefing_citations.py`
+→ 25 passed; `articles WHERE article_origin='report'` → 0 rows after the run (the round trip
+rolled back). `render_page` on briefing 7: 39,643 bytes, 81 citation links, 26 References
+entries, which is the number of distinct IDs in its text (`regexp_matches` over
+`report_content` → 26; the citation index holds 98). `feed_row` uri →
+`https://bugfixing.aunoo.ai/api/market-monitor/markets/2/briefings/7/report.html`; summary
+opens "Four vendors announced new AI SOC capabilities or product tiers. Arambh Labs launched
+Armor Detect…". After restart: the page answers 307 → `/login` with no session, the JSON and
+status routes still 401. No briefing is approved yet, so the feed has no row; approving briefing
+7 in the Reports tab is what puts the first one in.
+
 ### Propagation
 Share fix: bugfixing, wiley, wileytest (whole file); wbm, abm (patched, running); ibaset, pbm,
 bwtemplate (patched, stopped). Briefing changes: bugfixing only — `market_briefing.py` and
-`market_themes.py` exist on no other tenant. bugfixing restarted twice for them; no job was
-running either time.
+`market_themes.py` exist on no other tenant. bugfixing restarted four times for them; no job was
+running any time (the `running` rows in `bw_tracker_runs` and `bw_collection_runs` all predate
+the previous boot). The feed item and page are bugfixing only for the same reason: wiley and
+wileytest have neither file.
 
 ### Lessons
 - A `Union[str, List[str]]` on an LLM-written field fails on the object case with two messages
@@ -514,8 +599,8 @@ fast it is moving, so those are the axes, and the page says so in one sentence.
 - **Ranking.** Each input is a percentile rank among the rated vendors (ties share the
   middle), never an absolute score, because headcount, funding and attention are skewed. An
   axis is the weighted mean of its inputs. Tiers by cut-off (default 50 on each axis):
-  Executors (high/high), Innovators (high momentum, lower scale), Established (high scale,
-  low momentum), Emerging (low/low). Weights, window and cut-offs are `DEFAULT_CONFIG`, laid
+  Executing (high/high), Accelerating (high momentum, lower scale), Establishing (high scale,
+  low momentum), Emerging (low/low — small, and not yet moving fast). Weights, window and cut-offs are `DEFAULT_CONFIG`, laid
   over by `app/config/market_horizon.json` if present (`MARKET_HORIZON_CONFIG` overrides the
   path); the page prints them.
 - **Storage and movement.** `bw_market_horizon` (mm_015) keeps one row per computation
@@ -531,12 +616,59 @@ fast it is moving, so those are the axes, and the page says so in one sentence.
 - **The picture is a horizon, not a quadrant.** A first version drew a 2×2 scatter with cut
   lines, which read as a Magic Quadrant. Now: vendors sit on a semicircle. Distance from the
   base is the overall position (the mean of scale and momentum); the angle is the balance —
-  scale-heavy to the left (Established), momentum-heavy to the right (Innovators), balanced up
-  the middle (Executors); Emerging sit near the base. Three concentric dashed arcs are the
+  scale-heavy to the left (Establishing), momentum-heavy to the right (Accelerating), balanced up
+  the middle (Executing); Emerging sit near the base. Three concentric dashed arcs are the
   horizons. Same geometry in the tab (`HorizonArc`, plain SVG, hover shows every input) and
-  the report (`_horizon_svg`); labels are nudged down when they would sit on one already
-  placed. Tier membership is still decided by the axis cut-offs, not by the drawing.
-- **Report.** A "Market Horizon" drawer before the vendor registry, with an SVG horizon,
+  the report (`_horizon_svg`). Labels must not sit on another label or on any dot: each one
+  tries right, left, above, below, then right and left at increasing drops, and takes the
+  first clear spot (the first version only nudged down, and the Emerging cluster still
+  overlapped). The three arcs are unlabelled: "horizon 1/2/3" tags said nothing the arcs do
+  not. Tier membership is still decided by the axis cut-offs, not by the drawing.
+- **Tier names** (renamed on request): Executing, Accelerating, Establishing, Emerging.
+  "Innovating" was tried first for the momentum-heavy tier and dropped the same evening: of
+  its five vendors, two (Wraithwatch, Method Security) were there on hiring alone — 40 and 27
+  open roles per 100 staff, one launch each — and "innovating" is a claim about product that
+  hiring does not support. "Accelerating" says what the axis measures. Labels are
+  presentation, so `latest()` applies the current names to stored maps.
+- **The external report names every rated vendor** (decision 27 August). The shared view
+  otherwise labels only the ten entitled vendors; for the horizon the placement is the
+  public draw, so all dots and tier lists are in full, while each vendor's inputs (tab hover)
+  and the not-rated names stay in the full report. The fail-closed name check scans the whole
+  page, so `build_market_report` renders the horizon apart, leaves a slot comment in the
+  body, runs the check, and puts the section back (`_HORIZON_SLOT`, `public_names=True`).
+- **Innovating is a marker, not a tier** (`config.innovation`). A score beside the axes from
+  the product work we can read: launches and partnerships in the period, launches an outside
+  source confirmed (`bw_market_events.corroboration` not vendor_claim/single_source — none
+  yet on market 2), research posts, and the engineering share of open roles (needs three
+  roles; `_group_function` from market_analysis). The top third of rated vendors by that
+  score, among those with at least one launch, are ringed on the map and listed. Patents,
+  code activity and release notes are not held, and the page says so. First map: 12 of 35.
+- **Per-vendor analyst controls** (`bw_market_vendor_controls`, mm_016; `load_controls`,
+  `save_controls`; `GET/PUT /markets/{id}/vendors/{brand}/horizon-controls`;
+  `MarketVendorHorizonControls.tsx` on the vendor page). A multiplier per input, 0 to 2,
+  default 1, scaling that vendor's weight on the input — never the value or the percentile —
+  plus a status (active, acquired, closed) with acquirer and date, and a free-text note.
+  Stored per vendor per market with who saved it, applied on the next compute, and printed
+  beside the vendor: "adjusted" with the weights on the tab, an "Analyst notes and
+  adjustments" fold in the full report. Notes never reach the shared view.
+- **Acquired vendors are listed, not placed.** A vendor whose status is acquired or closed
+  leaves the cohort every percentile is ranked in and appears under "Acquired — listed, not
+  placed" with acquirer and date. `acquisition_hints` flags vendors that look acquired but
+  are not marked — Crunchbase `acquired_by`, or a matched headline in the period with
+  "acquire" and the vendor's name — as a notice on the tab for a person to confirm; nothing
+  changes on its own. Radiant Security was marked acquired by Cribl (AI technology assets,
+  19 August 2026) after it ranked as Executing on map 2; the hint had found the Cribl
+  headline. Kenzo Security (Crunchbase: acquired by Rapid7) is still an open hint.
+- **The external view says nothing about what is missing.** The drawer blurb reads "Where
+  35 of the market's 85 vendors sit today: how big they are, and how fast they are moving";
+  the not-rated fold is full-view only; with every rated vendor named there are no "not
+  shown" counts. The lists under the map are folds (`.mm-fold`): who is where, analyst notes
+  (full view), not rated (full view), and how the map is computed, with the weights ordered
+  by axis.
+- **The map opens the report.** The drawer sits first in the page, above the assessment,
+  open by default (`_drawer_open(..., opened=True)`), and "Horizon" is the first nav link;
+  the drawer title is the only heading. It was first placed before the vendor registry.
+- **Report.** A "Market Horizon" drawer, with an SVG horizon,
   tier lists, the not-rated summary and the weights. In the shared view the dots are drawn
   but only entitled vendors are labelled; the rest read "N vendors not shown in this view";
   the per-vendor not-rated list is full-view only. The nav gains "Horizon".
@@ -545,9 +677,9 @@ fast it is moving, so those are the axes, and the page says so in one sentence.
 a second headcount reading inside the 90-day window — profile collection on this market began
 on 19 August and polls weekly, so the second reading arrives within a week. 47 also lack a
 disclosed funding total. A provisional computation with headcount change optional (not
-stored) rated 36: 11 Executors (7ai, exaforce, Dropzone AI, Qevlar, Crogl, Radiant Security,
-Legion Security, Twine Security, Andesite, Command Zero, Conifers AI), 5 Innovators, 6
-Established, 14 Emerging. A map of one is not useful, so `app/config/market_horizon.json` (new, committed) marks
+stored) rated 36: 11 Executing (7ai, exaforce, Dropzone AI, Qevlar, Crogl, Radiant Security,
+Legion Security, Twine Security, Andesite, Command Zero, Conifers AI), 5 Accelerating, 6
+Establishing, 14 Emerging. A map of one is not useful, so `app/config/market_horizon.json` (new, committed) marks
 headcount change optional with the reason in the file: it still counts for every vendor that
 has two readings and does not keep the others off the map. Map 2, stored 27 August: 36 of 85
 rated, 11/5/6/14 by tier; 49 not rated, 47 of them for no disclosed funding total.
@@ -650,6 +782,20 @@ figure does not appear in the shared page. With a session: 0 teaser blocks, no f
 …/trial-request`: 201 `{"ok": true, "id": 1}` and a row with the forwarded IP (test row deleted
 afterwards); bad email → 422; market 999 → 404; journal logs "MARKET_TRIAL_NOTIFY_EMAIL is unset,
 so no mail was sent". Playwright screenshots of the three surfaces checked by eye.
+
+Controls and marker: `alembic upgrade head` applied mm_016. `PUT
+/markets/2/vendors/91/horizon-controls` (Radiant Security: acquired, Cribl, 2026-08-19, note)
+→ 200; `POST …/horizon/compute` → map 3: 35 rated, 49 not rated, 1 acquired, 12 innovating;
+tiers 11/6/6/12; Radiant absent from the rated list and present under acquired; hints: Kenzo
+Security. `aisoc.aunoo.ai` → 200; the horizon drawer blurb as above; two folds ("Who is
+where …", "How the map is computed …"); 0 "not shown" and 0 "lack" mentions; 13 dashed rings
+(12 vendors plus the legend); Acquired listed. Screenshots of the tab, the vendor-page
+controls panel and the public top of page checked by eye.
+
+External horizon, after restart: `https://aisoc.aunoo.ai/` → 200, 37 labels in the SVG (36
+vendors plus the axis caption), all four tier lists in full, 0 "horizon 1" tags, no slot
+comment left in the page, and the not-rated section still shows counts only. Screenshot
+checked by eye.
 
 Market Horizon, second incident of the day, same backstop: the first arc drawing put a
 `<title>` with the vendor name on every dot, including the ones the shared view withholds, so

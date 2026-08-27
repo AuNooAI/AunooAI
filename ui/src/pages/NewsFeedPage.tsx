@@ -1318,7 +1318,7 @@ export function NewsFeedPage() {
             {/* Market Monitor Tab Content */}
             {currentTab === 'market_monitor' && isModuleEnabled('market_monitor') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-slate-500" /></div>}>
-                <MarketMonitorTab />
+                <MarketMonitorTab onFeedChanged={fetchArticles} />
               </Suspense>
             )}
 

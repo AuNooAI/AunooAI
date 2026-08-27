@@ -19,9 +19,14 @@ _27 August 2026 · Market Monitor — the shared report link and aisoc.aunoo.ai_
   and one button profiles the whole list.
 - The report's list of accounts that keep posting about the market no longer misses the ones
   with few reactions.
+- Market Horizon marks the vendors doing the most product work as "innovating" — a ring on
+  the dot, across every tier — from launches, confirmed launches, research posts and
+  engineering hiring. Acquired vendors are listed with the acquirer, not placed on the map.
+  On each vendor's page an analyst can weight the inputs for that vendor, mark it acquired or
+  closed, and leave a note; every adjustment is shown beside the vendor.
 - Market Horizon: a map of every rated vendor by scale (headcount, funding, followers,
   customer evidence) against momentum (headcount change, hiring, launches, coverage), in four
-  tiers — Executors, Innovators, Established, Emerging. A vendor is on the map only when every
+  tiers — Executing, Accelerating, Establishing, Emerging. A vendor is on the map only when every
   reading behind it was collected; the rest are listed with what is missing. The weights are
   printed under the chart. It is in Market Monitor and in the report.
 - A vendor seen posting about the market that we do not yet track is filed automatically in
