@@ -52,5 +52,8 @@ quietly stopped being true.
   line-start cases are corrected automatically; the rest rely on the prompt.
 - The 2026-08-17 weekly was regenerated three times today and is in draft. It still needs an
   approve or reject.
+- Three internal customer sites (pbm, ibaset, bwtemplate) were stopped and disabled today.
+  Their web addresses still answer with an error page rather than nothing, and their data is
+  kept.
 - The writer change was judged on one week of one market, by eye. A wider before/after across
   several periods is the sensible next step before treating it as settled.

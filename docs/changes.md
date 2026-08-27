@@ -32,7 +32,7 @@ next attempt sent (`Resend email sent successfully: 44ac9c58…`). `ShareModal.t
 any non-OK answer from `/api/email/status` — a 401, a dropped connection, a restart — as "not
 configured" and tells the reader to set `RESEND_API_KEY`. Not changed.
 
-### Ops — the share fix on the other tenants, and three tenants stopped
+### Ops — the share fix on the other tenants, and three tenants stopped and disabled
 wiley and wileytest took the whole file (identical to canonical apart from an import order).
 wbm, ibaset, abm, pbm and bwtemplate lag canonical by one revision (no
 `_backfill_missing_sources`, 2026-08-24), so they were patched in place with a script that
@@ -46,8 +46,13 @@ the six inactive tenants are unpatched.
 on each but no agent fired, and the journals show zero emails sent — but the restart was not
 mine to make. On the user's instruction pbm, ibaset and bwtemplate were then stopped
 (`systemctl stop`; graceful shutdown 10:58:48–49; `.env` re-encrypted by `ExecStopPost` as
-designed). They are still `enabled` and still in nginx `sites-enabled`, so they return to life
-on reboot and their hostnames serve a 502 — left as-is pending a decision.
+designed). Later, on instruction, `systemctl disable` on all three: systemd removed their
+`multi-user.target.wants` links, so they stay down across a reboot — `disabled / inactive`,
+the same state as abbott and sage. Nothing will page about them: no cron entry or timer names
+them, and the two health checks that alert on a stopped service cover only `bugfixing
+wileytest wbm` (`collector_health_check.sh:22`) and `bugfixing wileytest wiley wbm`
+(`embedding_health_check.sh:39`). Still in nginx `sites-enabled`, so the three hostnames serve
+a 502 rather than nothing; databases `pbm`, `ibaset`, `bwtemplate` kept. Both left as-is.
 
 ### Fix — a briefing citation bracket with two IDs lost both
 `89071fe9`, documented under the first 2026-08-27 entry above. Recorded here only because the
@@ -484,6 +489,14 @@ in this view". Verified in-process with the backstop on, then on `https://aisoc.
 (200; the row reads "Evolution Equity Partners — 2 vendors not shown in this view", digits
 blurred in the teaser). Lesson: any new list of vendor names on the report needs the mask, and
 the backstop is doing its job — it turned a leak into an outage, which is the right way round.
+
+### Fix — vendor page profile table: "Founded 2,019" and "series_c"
+**`MarketVendorProvenance.tsx`.** `displayValue` formatted every integer with a thousands
+separator, so the founding year read "2,019" (the header above it already said "founded
+2019"), and printed Crunchbase's round slug raw. Years are now printed as they are, and
+`last_funding_type` goes through `stageLabel`, the same rule as the report's `_stage_label`
+("series_c" → "Series C"). Seen on Anvilogic's and Dropzone AI's pages; verified on Anvilogic
+after rebuild: "Founded 2019", "Latest round Series C".
 
 ### Fix — the report said no account posted more than twice while two had three and four
 **`market_analysis.py`.** `top_voices` cut to `limit` by engagement before splitting off the

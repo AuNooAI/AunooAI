@@ -83,11 +83,25 @@ function baselineValue(baseline: Record<string, any> | null | undefined,
   }
 }
 
+/** Crunchbase's round slug as words: series_c -> Series C. Same rule as
+ *  the report's _stage_label, so the two never disagree. */
+function stageLabel(raw: string): string {
+  if (!raw || raw === 'not stated') return 'not stated';
+  return raw.replace(/_/g, ' ').split(' ')
+    .map(w => (w.length === 1 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 function displayValue(field: CanonicalProfileField): string {
   if (field.value_number != null) {
     const n = Number(field.value_number);
+    // A year is not a quantity: "2,019" is wrong, "2019" is the value.
+    if (field.field_key === 'founded_year') return String(Math.trunc(n));
     const formatted = Number.isInteger(n) ? n.toLocaleString() : String(n);
     return field.unit === 'musd' ? `$${formatted}m` : formatted;
+  }
+  if (field.value_text && field.field_key === 'last_funding_type') {
+    return stageLabel(field.value_text);
   }
   return field.value_text ?? '—';
 }
