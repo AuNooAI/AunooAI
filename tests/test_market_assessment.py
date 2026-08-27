@@ -211,7 +211,7 @@ def test_a_vendor_announcement_with_no_independent_source_is_vendor_only():
         "product_launch", "Introducing Citations", voice="owned",
         source_type="vendor", key="owned:linkedin:7")])[0])
     assert dev["provenance"] == "vendor_source_only"
-    assert dev["provenance_label"] == "Vendor source only"
+    assert dev["provenance_label"] == "Vendor sources only"
 
 
 def test_a_vendor_announcement_plus_one_outside_report_is_independently_reported():
@@ -473,11 +473,11 @@ def test_the_renderer_renders_structured_developments_as_given():
     dev["rank"] = 1
     table = _render_moved_table([dev])
     assert "Crogl" in table and "Customer evidence" in table
-    assert "Vendor source only" in table
-    assert "Evidence beyond product availability" in table
+    assert "Vendor sources only" in table
+    assert "The customer is not named" in table
     listing = _render_developments([dev])
-    assert "Vendor source only" in listing
-    assert "1 observed source" in listing
+    assert "Vendor sources only" in listing
+    assert "1 source" in listing
 
 
 def test_the_renderer_labels_independent_reporting_as_given():

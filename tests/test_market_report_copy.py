@@ -287,7 +287,7 @@ def test_the_lead_answers_before_it_shows_evidence(conn, market):
     assert 'Funding and investor activity' in html
     assert 'collected records' in html and 'material development' in html
     # Every development names whose word it rests on.
-    assert ('Vendor source only' in html or 'Also reported independently' in html
+    assert ("Vendor sources only" in html or 'Also reported independently' in html
             or 'Reported by multiple independent sources' in html
             or 'No material development' in html)
     # The observation states, never a count of silence.

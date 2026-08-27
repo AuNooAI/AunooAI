@@ -354,6 +354,14 @@ tr.mm-teaser-row td { filter: blur(5px); user-select: none; pointer-events: none
            border-radius: 4px; background: #ecfdf5; color: #065f46;
            border: 1px solid #a7f3d0; }
 .mm-src { font-size: .74rem; color: #6b7280; }
+.mm-hz { position: relative; }
+.mm-hz .mm-hz-dot { cursor: default; }
+.mm-hz-tip { position: absolute; z-index: 5; background: #fff; border: 1px solid #e2e8f0;
+  border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.35;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .1); pointer-events: none; max-width: 19rem; }
+.mm-hz-tip table { border-collapse: collapse; margin-top: 4px; font-size: 11px; }
+.mm-hz-tip td { padding: 0 8px 0 0; }
+.mm-hz-tip .mm-num { text-align: right; }
 .mm-fold { margin: 10px 0; border-top: 1px solid #e5e7eb; }
 .mm-fold > summary { cursor: pointer; padding: 8px 0; font-size: .86rem; color: #334155; }
 .mm-fold > summary::marker { color: #94a3b8; }
@@ -730,8 +738,44 @@ _TIER_COLOUR = {"executors": "#0f766e", "innovators": "#b45309",
                 "established": "#1d4ed8", "emerging": "#6b7280"}
 
 
+def _horizon_tip(r: Dict[str, Any], tiers: Dict[str, Any], *, with_inputs: bool) -> str:
+    """The hover panel for one dot: name, position, tier, markers, movement,
+    and in the full view every reading behind it."""
+    tier = (tiers.get(r.get("tier")) or {}).get("label") or (r.get("tier") or "").capitalize()
+    out = [f'<strong>{esc(r["vendor"])}</strong>',
+           f'<div class="mm-src">scale {r["scale"]:g} · momentum {r["momentum"]:g} · {esc(tier)}</div>']
+    marks = []
+    if r.get("innovating"):
+        marks.append("innovating" + (f' (score {r["innovation"]:g})' if r.get("innovation") is not None else ""))
+    if r.get("hiring") and r.get("hiring_detail"):
+        d = r["hiring_detail"]
+        marks.append(f'hiring — {int(d["open_roles"])} open roles, {float(d["per_100"]):.0f} per 100 staff')
+    if r.get("funded"):
+        f = r["funded"]
+        marks.append(f'funded — {f.get("round") or "round not stated"}, {(f.get("date") or "")[:7]}')
+    if marks:
+        out.append("<div>" + "; ".join(esc(m) for m in marks) + "</div>")
+    sh = r.get("shift")
+    if sh and (abs(sh.get("scale", 0)) >= 1 or abs(sh.get("momentum", 0)) >= 1):
+        out.append(f'<div class="mm-src">since previous map: {sh["scale"]:+g} scale, '
+                   f'{sh["momentum"]:+g} momentum</div>')
+    if with_inputs and r.get("inputs"):
+        rows = "".join(
+            f'<tr><td>{esc(k.replace("_", " "))}</td><td class="mm-num">{float(v["value"]):g}</td>'
+            f'<td class="mm-num mm-src">p{float(v["percentile"]):.0f}</td></tr>'
+            for k, v in r["inputs"].items())
+        out.append(f'<table>{rows}</table>')
+        if r.get("multipliers"):
+            out.append('<div class="mm-src">analyst weights: ' + esc(", ".join(
+                f"{k} ×{v:g}" for k, v in r["multipliers"].items())) + "</div>")
+        if r.get("analyst_note"):
+            out.append(f'<div class="mm-src">note: {esc(r["analyst_note"])}</div>')
+    return "".join(out)
+
+
 def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
-                 cuts: Dict[str, Any]) -> str:
+                 cuts: Dict[str, Any], *, tiers: Optional[Dict[str, Any]] = None,
+                 with_inputs: bool = False) -> str:
     """Vendors on a semicircle. Distance from the base is the overall
     position (the mean of scale and momentum); the angle is the balance
     between them — scale-heavy to the left, momentum-heavy to the right,
@@ -802,9 +846,10 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     for r, x, y in dots:
         colour = _TIER_COLOUR.get(r["tier"], "#6b7280")
         shown = allowed is None or r["vendor"] in allowed
-        # The hover title names the vendor, so it is withheld with the label.
-        title = (f'<title>{esc(r["vendor"])}: scale {r["scale"]}, momentum {r["momentum"]}</title>'
-                 if shown else '')
+        # The hover panel names the vendor, so it is withheld with the label.
+        tip = (f' class="mm-hz-dot" data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
+               if shown else '')
+        parts.append(f'<g{tip}>')
         if r.get("innovating"):
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.5" fill="none" '
                          'stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>')
@@ -814,29 +859,72 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
         if r.get("funded"):
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="13.5" fill="none" '
                          'stroke="#1d4ed8" stroke-width="1"/>')
-        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85">'
-                     f'{title}</circle>')
+        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
         if not shown:
+            parts.append('</g>')
             continue
         width, height = 5.4 * len(r["vendor"]) + 2, 11
-        g = ring(r) + 2
-        candidates = [(x + g, y - 5, "start"), (x - g - width, y - 5, "end"),
-                      (x - width / 2, y - g - 12, "middle"), (x - width / 2, y + g + 2, "middle")]
-        for k in range(1, 6):
-            candidates += [(x + g, y - 5 + 12 * k, "start"), (x - g - width, y - 5 + 12 * k, "end"),
-                           (x + g, y - 5 - 12 * k, "start"), (x - g - width, y - 5 - 12 * k, "end")]
-        for bx, by, anchor in candidates:
-            if clear(bx, by, width, height):
-                break
+        bx, by, anchor, near = _label_spot(x, y, ring(r) + 2, width, height, clear)
         boxes.append((bx, by, width, height))
         tx = bx if anchor == "start" else bx + width if anchor == "end" else bx + width / 2
+        if not near:
+            # The label had to move away from its dot: a leader line says
+            # which dot it belongs to.
+            lx = bx if anchor == "start" else bx + width if anchor == "end" else bx + width / 2
+            ly = by + height / 2 if anchor != "middle" else (by + height if by < y else by)
+            parts.append(f'<line x1="{x:.1f}" y1="{y:.1f}" x2="{lx:.1f}" y2="{ly:.1f}" '
+                         'stroke="#cbd5e1" stroke-width=".8"/>')
         parts.append(f'<text x="{tx:.1f}" y="{by + 9:.1f}" text-anchor="{anchor}" '
                      f'font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
+        parts.append('</g>')
     parts.append("</svg>")
     return "".join(parts)
 
 
+def _label_spot(x: float, y: float, g: float, width: float, height: float, clear):
+    """Where a dot's label goes. Four spots beside the dot first; then rings
+    of spots further out in six directions, until one is clear of every dot
+    and every placed label. Returns (x, y_top, anchor, near) — ``near`` is
+    False when the label had to leave the dot's side."""
+    close = [(x + g, y - 5, "start"), (x - g - width, y - 5, "end"),
+             (x - width / 2, y - g - 12, "middle"), (x - width / 2, y + g + 2, "middle")]
+    for bx, by, anchor in close:
+        if clear(bx, by, width, height):
+            return bx, by, anchor, True
+    far = []
+    for k in range(1, 9):
+        d = 12 * k
+        far += [(x + g, y - 5 + d, "start"), (x - g - width, y - 5 + d, "end"),
+                (x + g, y - 5 - d, "start"), (x - g - width, y - 5 - d, "end"),
+                (x + g + d, y - 5, "start"), (x - g - width - d, y - 5, "end")]
+    for bx, by, anchor in far:
+        if clear(bx, by, width, height):
+            return bx, by, anchor, False
+    bx, by, anchor = far[-1]
+    return bx, by, anchor, False
+
+
 _HORIZON_SLOT = "<!--mm-horizon-slot-->"
+
+# The hover panel on the horizon. Each dot carries its own panel as HTML in
+# a data attribute, so the page needs no data beyond what it already shows;
+# a tap holds the panel open on a touch screen.
+_HORIZON_JS = """
+(function(){var box=document.querySelector('.mm-hz');if(!box)return;
+var tip=box.querySelector('.mm-hz-tip');var held=null;
+function show(g,e){tip.innerHTML=g.getAttribute('data-tip');tip.hidden=false;move(e);}
+function move(e){var r=box.getBoundingClientRect();var x=e.clientX-r.left+14,y=e.clientY-r.top+14;
+if(x+tip.offsetWidth>r.width)x=Math.max(0,e.clientX-r.left-tip.offsetWidth-14);
+if(y+tip.offsetHeight>r.height)y=Math.max(0,y-tip.offsetHeight-28);
+tip.style.left=x+'px';tip.style.top=y+'px';}
+[].forEach.call(box.querySelectorAll('.mm-hz-dot'),function(g){
+g.addEventListener('mouseenter',function(e){if(!held)show(g,e);});
+g.addEventListener('mousemove',function(e){if(!held)move(e);});
+g.addEventListener('mouseleave',function(){if(!held)tip.hidden=true;});
+g.addEventListener('click',function(e){e.stopPropagation();if(held===g){held=null;tip.hidden=true;}
+else{held=g;show(g,e);}});});
+document.addEventListener('click',function(){held=null;tip.hidden=true;});})();
+"""
 
 
 def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
@@ -855,10 +943,14 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     out.append(f'<p class="mm-src">{esc(horizon.get("what_it_is_not") or "")} '
                f'Computed {esc((horizon.get("computed_at") or "")[:10])} over the '
                f'last {horizon.get("days")} days.</p>')
-    out.append(_horizon_svg(rated, names_allowed, cfg.get("tiers") or {}))
+    full_view = allowed is None
+    out.append('<div class="mm-hz">'
+               + _horizon_svg(rated, names_allowed, cfg.get("tiers") or {},
+                              tiers=horizon.get("tiers") or {}, with_inputs=full_view)
+               + '<div class="mm-hz-tip" hidden></div></div>'
+               + f'<script>{_HORIZON_JS}</script>')
     acquired = horizon.get("acquired") or []
     innovating = [r for r in rated if r.get("innovating")]
-    full_view = allowed is None
 
     def fold(summary: str, inner: str) -> str:
         # The map is the page's opening picture; the lists behind it open on
@@ -1541,7 +1633,7 @@ def _dev_sources(dev: Dict[str, Any]) -> str:
     n = int(dev.get("source_count") or 0)
     if dev.get("provenance") == "measured":
         return "two LinkedIn readings"
-    return f'{n} observed source{"" if n == 1 else "s"}'
+    return f'{n} source{"" if n == 1 else "s"}'
 
 
 def _render_findings(findings: List[Dict[str, Any]],
@@ -1712,7 +1804,7 @@ def _render_hiring_block(devs: List[Dict[str, Any]]) -> str:
             f'<h3>{len(devs)} vendors with {massess_min_openings()} or more open '
             'roles observed</h3>'
             '<div class="n-byline">Job boards · observed this period · '
-            'Vendor source only</div>'
+            "Vendor sources only</div>"
             + "".join(rows) + "</article>")
 
 
@@ -2212,8 +2304,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     question = (market.get("question") or "").strip()
     scope_text = (market.get("market_scope_description") or "").strip()
     body.append('<div class="n-head"><div>'
-                f'<div class="n-kicker">Market monitor · {esc(period_txt)}</div>'
-                f'<h1>{esc(market["name"])}: market assessment</h1>'
+                # The publisher's line, then the period; the page is the
+                # rating, and it carries the publisher's name the way a
+                # named research product does.
+                f'<div class="n-kicker">Future-proof cybersecurity advisory · '
+                f'{esc(period_txt)}</div>'
+                f'<h1>Cyberfuturists {esc(market["name"])} Market Horizon</h1>'
                 + (f'<p class="n-sub"><strong>{esc(question[:400])}</strong></p>'
                    if question else "")
                 + f'<p class="n-sub">{esc(scope_text[:500]) + " " if scope_text else ""}'
@@ -2814,6 +2910,15 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         "Which sources we read, how much of the market each one reached, what "
         "every figure counts, and the records behind it.",
         anchor="mm-method"))
+    body.append(section_open("What an event type can and cannot tell you"))
+    body.append('<p>A product launch is a statement that something is available; it says '
+                'nothing about adoption, which this report reads only from customer evidence. '
+                'A funding round is capital raised, not revenue. A partnership is an agreement, '
+                'not sales. An acquisition is a change of owner, not of product. The '
+                '"why it matters" column therefore states only what the source itself says '
+                'about the event — the product, the amount, the partner, the buyer — and is '
+                'left empty when the source says nothing more than the headline.</p>')
+    body.append("</section>")
     if teaser:
         body.append(_teaser_open("Coverage figures"))
     body.append(section_open("How much of the market we checked"))
@@ -2974,7 +3079,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             'market say so. <a href="#mm-trial">Request a trial</a> to see '
             'all of it.</p>')
 
-    rendered = html_document(f'{market["name"]} — Market Monitor',
+    rendered = html_document(f'Cyberfuturists {market["name"]} Market Horizon',
                              "".join(body))
     if teaser:
         rendered = _apply_teasers(rendered)

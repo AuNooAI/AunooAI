@@ -79,21 +79,36 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
     dots.map(d => ({ x: d.x - ring(d.v), y: d.y - ring(d.v), w: 2 * ring(d.v), h: 2 * ring(d.v) }));
   const clear = (bx: number, by: number, bw: number, bh: number) =>
     !boxes.some(o => bx < o.x + o.w && o.x < bx + bw && by < o.y + o.h && o.y < by + bh);
+  // Four spots beside the dot first; then rings of spots further out in six
+  // directions. A label that had to leave the dot's side gets a leader line.
+  type Spot = { bx: number; by: number; anchor: 'start' | 'end' | 'middle' };
   const labels = dots.map(({ v, x, y }) => {
     const w = 5.4 * v.vendor.length + 2, h = 11, g = ring(v) + 2;
-    const candidates: { bx: number; by: number; anchor: 'start' | 'end' | 'middle' }[] = [
+    const close: Spot[] = [
       { bx: x + g, by: y - 5, anchor: 'start' }, { bx: x - g - w, by: y - 5, anchor: 'end' },
       { bx: x - w / 2, by: y - g - 12, anchor: 'middle' }, { bx: x - w / 2, by: y + g + 2, anchor: 'middle' },
     ];
-    for (let k = 1; k <= 5; k++) {
-      candidates.push({ bx: x + g, by: y - 5 + 12 * k, anchor: 'start' }, { bx: x - g - w, by: y - 5 + 12 * k, anchor: 'end' },
-                      { bx: x + g, by: y - 5 - 12 * k, anchor: 'start' }, { bx: x - g - w, by: y - 5 - 12 * k, anchor: 'end' });
+    const far: Spot[] = [];
+    for (let k = 1; k <= 8; k++) {
+      const d = 12 * k;
+      far.push({ bx: x + g, by: y - 5 + d, anchor: 'start' }, { bx: x - g - w, by: y - 5 + d, anchor: 'end' },
+               { bx: x + g, by: y - 5 - d, anchor: 'start' }, { bx: x - g - w, by: y - 5 - d, anchor: 'end' },
+               { bx: x + g + d, by: y - 5, anchor: 'start' }, { bx: x - g - w - d, by: y - 5, anchor: 'end' });
     }
-    let pick = candidates[candidates.length - 1];
-    for (const c of candidates) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
+    let pick: Spot | null = null, near = true;
+    for (const c of close) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
+    if (!pick) {
+      near = false;
+      for (const c of far) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
+      pick ??= far[far.length - 1];
+    }
     boxes.push({ x: pick.bx, y: pick.by, w, h });
     const tx = pick.anchor === 'start' ? pick.bx : pick.anchor === 'end' ? pick.bx + w : pick.bx + w / 2;
-    return { v, x, y, lx: tx, ly: pick.by + 9, anchor: pick.anchor };
+    const leader = near ? null : {
+      x2: tx,
+      y2: pick.anchor === 'middle' ? (pick.by < y ? pick.by + h : pick.by) : pick.by + h / 2,
+    };
+    return { v, x, y, lx: tx, ly: pick.by + 9, anchor: pick.anchor, leader };
   });
   return (
     <div className="relative">
@@ -132,11 +147,14 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
             <circle cx={from.x} cy={from.y} r={3} fill="none" stroke="#94a3b8" />
           </g>
         ))}
-        {labels.map(({ v, x, y, lx, ly, anchor }) => (
+        {labels.map(({ v, x, y, lx, ly, anchor, leader }) => (
           <g key={v.brand_id}
              onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
              onClick={() => onVendor?.(v.brand_id)}
              style={{ cursor: onVendor ? 'pointer' : 'default' }}>
+            {leader && (
+              <line x1={x} y1={y} x2={leader.x2} y2={leader.y2} stroke="#cbd5e1" strokeWidth={0.8} />
+            )}
             {v.innovating && (
               <circle cx={x} cy={y} r={8.5} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
             )}

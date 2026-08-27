@@ -644,7 +644,7 @@ PROVENANCE_STATES = ("vendor_source_only", "independently_reported",
                      "multiple_independent_sources", "measured")
 
 PROVENANCE_LABELS = {
-    "vendor_source_only": "Vendor source only",
+    "vendor_source_only": "Vendor sources only",
     "independently_reported": "Also reported independently",
     "multiple_independent_sources": "Reported by multiple independent sources",
     # A count read from a platform, not a statement by anyone. Used for
@@ -917,39 +917,170 @@ def _customer_named(dev: Dict[str, Any]) -> bool:
     return bool(reading.get("named"))
 
 
+# The stage strings above are stored on reviewed posts, so they stay as they
+# are; these are the same stages as clauses of a sentence about the customer.
+_NAMED_STAGE = {
+    "described in use": "it describes the product in use",
+    "evaluating it rather than running it": "it is evaluating the product, not yet running it",
+    "a published case study": "it is the subject of a published case study",
+    "an existing customer": "it is described as an existing customer",
+    "described as a customer": "it is described as a customer",
+}
+_UNNAMED_STAGE = {
+    "described in use": "the vendor describes the product in use there",
+    "evaluating it rather than running it": "the vendor says it is being evaluated, not yet run",
+    "a published case study": "the vendor has published a case study",
+    "an existing customer": "the vendor describes an existing customer",
+    "described as a customer": "the vendor describes a customer",
+}
+
+
 def customer_sentence(dev: Dict[str, Any]) -> str:
+    """One plain sentence: who the customer is, what stage, and whose words."""
     r = customer_reading(dev)
+    own_words = r.get("voice") == "in the customer's own words"
+    vendor_only = dev.get("provenance") == "vendor_source_only"
     if r["named"]:
-        return f"Named customer: {r['name']}, {r['voice']}, {r['stage']}."
-    return f"Unnamed customer: {r['stage']}, {r['voice']}."
+        stage = _NAMED_STAGE.get(r["stage"], _NAMED_STAGE["described as a customer"])
+        if own_words:
+            voice = ("in its own words, quoted in the vendor's post" if vendor_only
+                     else "in its own words")
+        else:
+            voice = "in the vendor's words"
+        return f"{r['name']} is named as a customer; {stage}, {voice}."
+    stage = _UNNAMED_STAGE.get(r["stage"], _UNNAMED_STAGE["described as a customer"])
+    return f"The customer is not named; {stage}."
+
+
+def _dev_vendor_name(dev: Dict[str, Any]) -> str:
+    for v in dev.get("vendors") or []:
+        if isinstance(v, dict):
+            name = v.get("vendor") or v.get("name") or v.get("display_name")
+            if name:
+                return str(name)
+    return "The vendor"
+
+
+# "Why it matters" says only what the source itself says about the event:
+# the product, the amount, the partner, the buyer. A sentence that would be
+# the same for every event of a type is a glossary entry, not a reason, and
+# it lives once in the Method section instead. When the source says nothing
+# more than the headline, the cell is empty.
+_LAUNCH_WORDS = re.compile(
+    r"\b(introduc\w*|launch\w*|announc\w*|releas\w*|unveil\w*|now available|"
+    r"general(?:ly)? availab\w*|debut\w*|roll\w* out|adds?|extends?|expands?|"
+    r"now (?:covers|supports|includes))\b", re.I)
+_PARTNER_WORDS = re.compile(
+    r"\b(partner\w*|integrat\w*|alliance|teams? up|collaborat\w*|joins forces)\b", re.I)
+_APPOINT_WORDS = re.compile(
+    r"\b(joins|joined|appointed|appoints|named|hired|hires|welcomes|promoted)\b", re.I)
+_MONEY = re.compile(r"([$€£])\s?(\d+(?:[.,]\d+)?)\s?(m|mm|million|b|bn|billion)\b", re.I)
+_ROUND = re.compile(r"\b(pre[- ]seed|seed|series\s+[a-h]|strategic)\b", re.I)
+_ACQUIRED_BY = re.compile(
+    r"\b(?:acquired by|acquisition by|bought by|to be acquired by|sold to)\s+"
+    r"([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,3})")
+_ACQUIRES = re.compile(
+    r"\b([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,3})\s+"
+    r"(?:acquires|has acquired|to acquire|buys|completes (?:the |its )?acquisition of)\b")
+_PAGE_CHANGED = re.compile(r"\bpage changed\b", re.I)
+
+
+def _sentences(text_value: str) -> List[str]:
+    out = []
+    for raw in re.split(r"(?<=[.!?])\s+|\n+", text_value or ""):
+        sent = re.sub(r"^[^A-Za-z0-9$€£\"'(]+", "", raw.strip())
+        if len(sent) < 12 or sent.lower().startswith("http"):
+            continue
+        out.append(sent)
+    return out
+
+
+def _clip(sent: str, limit: int = 150) -> str:
+    sent = sent.strip()
+    if len(sent) <= limit:
+        return sent if sent.endswith((".", "!", "?")) else sent + "."
+    cut = sent[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + "…"
+
+
+def _detail_sentence(dev: Dict[str, Any], pattern) -> str:
+    """The first sentence of the body that matches and is not the headline.
+    The headline is already the row's "material change"; repeating it as the
+    reason would say the same thing twice."""
+    headline = re.sub(r"\s+", " ", _title_of(dev) or "").strip().lower().rstrip(".!?")
+    for sent in _sentences(dev.get("summary") or ""):
+        plain = re.sub(r"\s+", " ", sent).lower().rstrip(".!?")
+        if not headline or (plain not in headline and headline not in plain):
+            if pattern.search(sent):
+                return _clip(sent)
+    return ""
+
+
+def _money(text_value: str) -> str:
+    m = _MONEY.search(text_value or "")
+    if not m:
+        return ""
+    sym, num, unit = m.group(1), m.group(2).replace(",", "."), m.group(3).lower()
+    return f"{sym}{num}{'B' if unit.startswith('b') else 'M'}"
+
+
+_HEADLINE_BUYER = re.compile(r"^([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,2})\b(?=.*\bacqui)", re.I)
+
+
+def _acquirer(text_value: str, vendor: str, headline: str = "") -> str:
+    m = _ACQUIRED_BY.search(text_value or "")
+    if m:
+        return m.group(1).strip()
+    for m in _ACQUIRES.finditer(text_value or ""):
+        name = m.group(1).strip()
+        if name.lower() != (vendor or "").lower():
+            return name
+    # "Cribl Advances ... with New AI SOC Acquisition": the buyer leads a
+    # headline about an acquisition when the vendor does not.
+    m = _HEADLINE_BUYER.match(headline or "")
+    if m and m.group(1).lower() != (vendor or "").lower() and "acqui" in (headline or "").lower():
+        return m.group(1).split(" ")[0]
+    return ""
 
 
 def why_it_matters(dev: Dict[str, Any]) -> str:
-    """The market consequence of the event, in one bounded sentence."""
+    """What the source says about the event, in one bounded sentence — or
+    nothing, when it says no more than the headline."""
     kind = dev["event_type"]
-    only_vendor = dev.get("provenance") == "vendor_source_only"
-    if kind == "acquisition":
-        return ("Consolidation: an existing company has bought its way into "
-                "the category rather than building.")
-    if kind == "market_exit":
-        return "One fewer independent vendor competes in this category."
-    if kind == "market_entry":
-        return "A company from outside the tracked set has started competing here."
-    if kind == "funding":
-        return "This provides additional capital for expansion."
+    text_value = _full_text(dev)
     if kind == "customer":
         return customer_sentence(dev)
-    if kind == "product_expansion":
-        if _RESPONSE.search(_full_text(dev)):
-            return "The product moves from investigation toward taking action."
-        return "An existing product now covers more than it did."
-    if kind == "product_launch":
-        return "A new product is on offer; availability, not adoption."
+    if kind in ("product_launch", "product_expansion"):
+        if _PAGE_CHANGED.search(text_value):
+            return ""
+        return _detail_sentence(dev, _LAUNCH_WORDS)
+    if kind == "funding":
+        amount, rnd = _money(text_value), _ROUND.search(text_value)
+        label = rnd.group(1).lower().replace("  ", " ") if rnd else ""
+        # "$16.5M in total funding" is the running total, not this round.
+        m = _MONEY.search(text_value or "")
+        after = text_value[m.end():m.end() + 40].lower() if m else ""
+        if amount and re.search(r"in total|total funding|total raised|to date|so far", after):
+            return f"{amount} raised in total, the vendor says."
+        if amount and label:
+            return f"A {amount} {label} round."
+        if amount:
+            return f"A {amount} round."
+        if label:
+            return f"A {label} round; the amount is not stated."
+        return ""
+    if kind == "acquisition":
+        buyer = _acquirer(text_value, _dev_vendor_name(dev), _title_of(dev))
+        return f"Bought by {buyer}." if buyer else ""
     if kind == "partnership":
-        return ("An agreement to work with another company; it shows intent, "
-                "not sales.")
+        # The headline names the partner; the body's next sentence usually
+        # says what the partnership is for, which is the part worth adding.
+        return (_detail_sentence(dev, _PARTNER_WORDS)
+                or _detail_sentence(dev, re.compile(r"\b(?:will|to|for|so that|enabl\w*|us\w*)\b", re.I)))
     if kind == "executive_appointment":
-        return "An observed change in who leads part of the company."
+        return _detail_sentence(dev, _APPOINT_WORDS)
+    if kind in ("market_exit", "market_entry"):
+        return ""
     if kind == "significant_hiring":
         n = (dev.get("attributes") or {}).get("openings")
         return (f"{n} open roles: " if n else "") + "an observed scaling signal."

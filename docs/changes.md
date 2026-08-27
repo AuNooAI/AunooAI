@@ -820,6 +820,8 @@ Three additions to the map, all on request.
   where" fold in the report gains Hiring, Funded and Moved sections and their counts in the
   summary line.
 
+- **The page is named as the rating.** On the shared report the heading under the "Market monitor · period" kicker now reads "Cyberfuturists AI in the SOC Market Horizon" (built from the market name, `market_report_html.py`), and so does the browser-tab title, the way a named research product is presented. It replaced "AI in the SOC: market assessment" and "AI in the SOC — Market Monitor". The drawer keeps its "Market Horizon" title. Verified on `https://aisoc.aunoo.ai/` (200, `<h1>` and `<title>` both carry the name).
+
 Map 7, stored 27 August after the change: 35 rated, 5 hiring (Wraithwatch, Zaun, Kai
 Security, Method Security, 7ai — Kai Security is not on the map), 12 funded (7ai Series A
 2026-08, exaforce Series B 2026-05, Beacon Security Seed 2026-07, Fig Security Seed 2026-03,
@@ -827,6 +829,136 @@ Aistrike Seed 2026-01, Cognna Series A 2025-12, six with no round named), 0 larg
 against map 6 (same readings). Trails were verified on a synthetic previous map
 (scratch `move_test.py`: 4 moves, 4 trails drawn). `https://aisoc.aunoo.ai/` returns 200 with
 "innovating 12, hiring 5, funded 12, acquired 2" in the fold summary.
+
+### Fix — Prophet Security and Intezer were off the Market Horizon: their funding totals had gone blank again
+Both were "not rated: no disclosed total on file". Review tasks 90 and 91 record that the
+totals were restored on 25 August ($41M and $33M) after the `bw_market_brands` truncation,
+yet both rows read `{"status": null, "total_musd": null}` today. What blanked them is not
+established: the rows' `updated_at` (14:16:59 and 14:17:01 today) matches two
+`POST /vendors/collection` toggles, but that route writes only the `collection_enabled`
+column, and the only whole-baseline writer (`market_collect._promote_profile_fields`)
+reads the row first. The 25 August restore left no `via: review_task` entry in the
+provenance, so it may never have reached the row.
+
+We re-entered both through the supported path — reopened the tasks and called
+`POST /review-tasks/{id}/fix`, which writes the value, appends the source to the vendor's
+provenance and closes the task — and set `funding_baseline.status` to Disclosed:
+
+- Prophet Security: **$41M** = $11M seed (April 2024, Bain Capital Ventures) + $30M
+  Series A (July 2025, Accel). The February/March 2026 strategic round (Amex Ventures, Citi
+  Ventures) is undisclosed and not counted.
+- Intezer: **$60M** after the $33M Series C (September 2024, Norwest), per Ctech. The
+  25 August figure of 33 was the Series C alone.
+
+The Funded reader (`market_horizon._ROUND_NAME`) now accepts "strategic
+investment/round/funding" as a round name, so Prophet's March 2026 strategic round counts.
+
+Map 8, stored 27 August: 37 of 85 rated (was 35); Prophet Security Executing (scale 87,
+momentum 68, funded — Strategic, 2026-03), Intezer Executing (78, 74); 13 funded, 13
+innovating. `https://aisoc.aunoo.ai/` returns 200 and names both.
+
+### Fix — three more vendors off the map for want of a funding total, entered the same way
+Asked for other examples, a check of the not-rated list against our own funding evidence
+(Crunchbase snapshot, funding posts the reviewer filed) found three. Each got a
+`total_funding_musd` review task (481–483) and the value through `POST /review-tasks/{id}/fix`,
+so the source sits in the vendor's provenance:
+
+- Anvilogic: **$85M** after the $45M Series C (April 2024, Evolution Equity Partners), per
+  SecurityWeek. Added through "Add vendor" this week, so it had no funding block at all.
+- Beacon Security: **$13M**, the July 2026 seed (Notable Capital), its only disclosed round.
+- Cantina: **$16.5M** disclosed total after the $8M July 2026 round (Framework Ventures).
+
+Map 9: 40 of 85 rated (Executing 12, Accelerating 5, Establishing 9, Emerging 14). All three
+land in Establishing: Anvilogic (scale 88, momentum 49), Beacon Security (56, 42), Cantina
+(63, 30). The remaining 44 not-rated vendors have no funding evidence in our stores; 42 are
+recorded as Undisclosed and 2 as Bootstrapped, which are not gaps.
+
+### Fix — the report's horizon had overlapping labels and no hover
+**`market_report_html.py`.** Two changes to the SVG. Labels: four spots beside the dot are
+tried first, then rings of spots further out in six directions (`_label_spot`), and a label
+that had to leave its dot's side gets a thin leader line back to it; the keep-out box around a
+dot follows its outermost marker ring. Hover: each dot carries its own panel as HTML in a
+`data-tip` attribute (`_horizon_tip`: name, scale, momentum, tier, markers, the shift since
+the previous map, and in the full view every reading with its percentile, the analyst's
+weights and note), shown by a small inline script (`_HORIZON_JS`) that follows the pointer
+and stays inside the map; a tap holds it open on touch screens. The native `<title>` tooltip
+it replaces only appeared after a delay and named the vendor alone. The React map
+(`MarketHorizonView.tsx`) got the same label placement and leader lines; it already had a
+hover panel. Verified with Playwright on `https://aisoc.aunoo.ai/` (40 `.mm-hz-dot` groups;
+hovering the fourth dot showed "Prophet Security / scale 84.9 · momentum 69.2 · Executing /
+innovating (score 63.7); funded — Strategic, 2026-03") and by screenshot of the app tab.
+
+### Feature — the shared report's kicker line carries the publisher's tagline
+**`market_report_html.py`.** The line above the heading reads "Future-proof cybersecurity
+advisory · 28 July–27 August 2026" in place of "Market monitor · …". Verified on
+`https://aisoc.aunoo.ai/` (200).
+
+### Fix — three lines of report copy that read as boilerplate or as fragments
+Oliver quoted them back: "A new product is on offer; availability, not adoption." twice in a
+row, "Named customer: J.B. Poindexter & Co, in the customer's own words, described in use."
+followed by "observed source · Vendor source only", and "Unnamed customer: described in use,
+in the vendor's words."
+
+- **`market_assessment.customer_sentence`** now writes a sentence. Named: "J.B. Poindexter &
+  Co is named as a customer; it describes the product in use, in its own words, quoted in the
+  vendor's post" (the last clause only when the provenance is vendor-only, which is what made
+  "customer's own words" beside "vendor source only" look like a contradiction). Unnamed:
+  "The customer is not named; the vendor describes the product in use there." The stage
+  strings stored on reviewed posts are unchanged; the sentence maps them to clauses
+  (`_NAMED_STAGE`, `_UNNAMED_STAGE`).
+- **`why_it_matters` for a launch** names the vendor, so consecutive launches no longer print
+  the same line: "Intezer has a new product on offer. A launch shows availability, not
+  adoption."
+- **Byline**: "1 observed source · Vendor source only" is now "1 source · Vendor sources only"
+  (`_dev_sources`, `PROVENANCE_LABELS`, and the hiring block's fixed byline).
+
+`tests/test_market_assessment.py` and `tests/test_market_report_copy.py` updated for the
+label. One assertion in `test_the_renderer_renders_structured_developments_as_given` expected
+"Evidence beyond product availability", a phrase removed from the app in `fde482ba`, so the
+test was already failing; it now checks the customer sentence. 47 tests pass. Verified on
+`https://aisoc.aunoo.ai/` (200): no "Named customer:", "observed source" or "Vendor source
+only" left; 23 rows read "1 source · Vendor sources only".
+
+Two things seen and left alone: two rows read "1 source · Also reported independently", which
+is the provenance label for a story whose only source is a third party and reads oddly beside
+a count of one; and the J.B. Poindexter post says the CISO is at the "start to his AI SOC
+evaluation journey" while the review recorded the stage as "in use".
+
+### Fix — "why it matters" now says what the source says, or nothing
+Oliver asked why a launch row needed "A launch shows availability, not adoption" at all.
+It did not: `why_it_matters` filled the column by event type, so every launch, every funding
+round and every partnership got the same sentence — a glossary of event types printed once
+per row, not a reason. Naming the vendor in it (earlier today) only disguised that.
+
+**`market_assessment.why_it_matters`** now states only what the source itself says about
+the event, and leaves the cell empty when the source says no more than the headline:
+
+- Launch and expansion: the first body sentence with a launch verb that is not the headline
+  (`_detail_sentence`); website-change detections ("press page changed") get nothing.
+- Funding: the amount and round from the text ("A $13M seed round."); an amount followed by
+  "in total" is reported as a total, not a round ("$16.5M raised in total, the vendor says.").
+- Acquisition: the buyer, from "acquired by X", "X acquires", or a headline the buyer leads
+  ("Bought by Cribl.").
+- Partnership: the body sentence with a partner word, or failing that the sentence after the
+  headline, which is usually what the partnership is for.
+- Customer rows keep their sentence; hiring and headcount rows keep their numbers; market
+  entry and exit say nothing beyond the headline.
+
+The type-level caveats moved to the Method drawer, once, as "What an event type can and
+cannot tell you" (`market_report_html.py`).
+
+Before and after on the full report's eight rows (27 August): Radiant Security "Consolidation:
+an existing company has bought its way into the category" → "Bought by Cribl."; Cantina "This
+provides additional capital for expansion." → "$16.5M raised in total, the vendor says.";
+Intezer expansion "The product moves from investigation toward taking action." → "Intezer has
+introduced automated remediation capabilities within its AI SOC platform, enabling security
+teams to streamline threat response…"; Wraithwatch "An agreement to work with another company;
+it shows intent, not sales." → "We'll be using it to expand our internal threat research to
+industrial scale…"; Mate Security launch boilerplate → "Mate Security introduces Gamebooks, a
+framework enabling AI security agents to conduct adaptive investigations within defined
+boundaries…"; the three LinkedIn launch posts that open with rhetoric (Cylerian, Intezer
+Workflows, Arambh Labs) → empty, because the post body never says what the product is beyond
+the headline. 47 tests pass; `https://aisoc.aunoo.ai/` 200.
 
 ### Feature — "Beta" label in the app header
 **`SharedNavigation.tsx`, `templates/base_with_shared_nav.html`.** A small pink "Beta" pill

@@ -334,9 +334,11 @@ def _engineering_share(conn, market_id: int) -> Dict[int, Optional[float]]:
 
 
 _ROUND_WORDS = re.compile(
-    r"\b(pre[- ]seed|seed|series\s+[a-h]|raises?|raised|closes?|secures?|funding round)\b",
+    r"\b(pre[- ]seed|seed|series\s+[a-h]|raises?|raised|closes?|secures?|funding round"
+    r"|strategic (?:investments?|round|funding))\b", re.IGNORECASE)
+_ROUND_NAME = re.compile(
+    r"\b(pre[- ]seed|seed|series\s+[a-h]|strategic(?= (?:investments?|round|funding)))\b",
     re.IGNORECASE)
-_ROUND_NAME = re.compile(r"\b(pre[- ]seed|seed|series\s+[a-h])\b", re.IGNORECASE)
 
 
 def _round_label(text_: str) -> Optional[str]:
