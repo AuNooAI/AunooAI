@@ -187,7 +187,7 @@ link adds about 40 per brand; wiley: `brands: []` because `bw_brands` has 0 rows
 logs a pre-existing "Bluesky credentials not found" from its collector.
 
 ### Propagation
-Social, coverage and shared-report work: bugfixing only, uncommitted at the time of writing. `MARKET_TRIAL_NOTIFY_EMAIL` is not set on bugfixing yet, so requests are stored but nobody is emailed. `entity_ingest.py`,
+Social, coverage and shared-report work: bugfixing only, uncommitted at the time of writing. `MARKET_TRIAL_NOTIFY_EMAIL=orochford@aunoo.ai` on bugfixing (`.env`, gitignored) since 15:16, verified end to end: a test request was stored, mailed (Resend id `c1ddbbb9…`) and marked `notified`, then deleted. The address is a stopgap: Resend on bugfixing is in test mode, sends from the default `onboarding@resend.dev`, and refuses any recipient but the account's own address (`oliver.rochford@aunoo.ai` got a 403). Once `aunoo.ai` is verified in Resend, set `RESEND_FROM_EMAIL` on that domain and point the variable back at the intended address. `entity_ingest.py`,
 `entity_scheduler.py` and `market_report_html.py` exist only on market tenants (wiley and
 wileytest do not have them). The `brand_watcher_monitor.py` hook is inert without
 `entity_flags.py`, so it was not copied to wiley or wileytest, whose copies of that file also
