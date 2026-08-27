@@ -6098,37 +6098,82 @@ async def get_perception_dimensions(
         if not brands:
             return {"days_back": days_back, "brands": []}
         topic_by_brand = {b[0]: f"Brand Monitoring {b[2]}" for b in brands}
-        brand_by_topic = {v: k for k, v in topic_by_brand.items()}
 
         sd, ed = _get_date_range(days_back)
 
-        # Media / social / community in one grouped pass over brand-topic articles.
+        # Media / social / community in one grouped pass. A brand's articles are
+        # found three ways and deduplicated per (brand, article):
+        #   1. bw_article_categories, the classifier's link. This is how every
+        #      other Brand Watcher view finds a brand's news, and on a market
+        #      monitor tenant it is the only link: vendor news sits under one
+        #      market topic, never under a per-brand topic.
+        #   2. The per-brand "Brand Monitoring <name>" topic, where social posts
+        #      land on classic brand tenants (social bypasses the classifier).
+        #   3. bw_entity_mentions, when the per-entity mention read is on. Its
+        #      sentiment belongs to the (post, brand) pair, so it wins over the
+        #      article-level column when both exist.
         # Source buckets are matched strictly (not the substring helper) so news
-        # sites like financetwitter.com don't land in the social bucket.
-        topic_keys = {f"_t{i}": t for i, t in enumerate(brand_by_topic)}
-        topic_in = ", ".join(f":{k}" for k in topic_keys)
+        # sites like financetwitter.com don't land in the social bucket. A
+        # vendor's own LinkedIn posts are its voice, not perception of it, so
+        # they fall into an "owned" bucket that no dimension reads.
+        topic_vals = ", ".join(f"(:_b{i}, :_t{i})" for i in range(len(brands)))
+        topic_params = {}
+        for i, b in enumerate(brands):
+            topic_params[f"_b{i}"] = b[0]
+            topic_params[f"_t{i}"] = topic_by_brand[b[0]]
+        # Tenants without Entity Intelligence have no entity_flags module and
+        # no bw_entity_mentions table; they read the first two links only.
+        try:
+            from app.services import entity_flags as _entity_flags
+            _mention_read = _entity_flags.mention_read()
+        except ImportError:
+            _mention_read = False
+        mention_link = ""
+        if _mention_read:
+            mention_link = """
+                UNION ALL
+                SELECT m.brand_id, m.article_uri, m.relevance, m.sentiment, 0
+                FROM bw_entity_mentions m
+                WHERE m.channel IN ('public_social', 'community', 'earned_news', 'employee')
+                  AND m.status <> 'false_positive'"""
         rows = conn.execute(text(f"""
-            SELECT a.topic,
-                   CASE
-                     WHEN LOWER(a.news_source) LIKE 'reddit%' OR LOWER(a.news_source) LIKE 'www.reddit%'
-                          OR LOWER(a.news_source) = 'xpoz:reddit' THEN 'community'
-                     WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
-                          OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
-                     WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
-                     ELSE 'media'
-                   END AS dim,
-                   a.sentiment, COUNT(*)
-            FROM articles a
-            WHERE a.publication_date >= :sd AND a.publication_date <= :ed
-              AND a.topic IN ({topic_in})
-              AND a.topic_alignment_score >= 0.4
+            WITH topic_map(brand_id, topic) AS (VALUES {topic_vals}),
+            linked AS (
+                SELECT bac.brand_id, bac.article_uri, bac.relevance_score AS relevance,
+                       NULL::text AS sentiment, 1 AS prio
+                FROM bw_article_categories bac
+                UNION ALL
+                SELECT tm.brand_id, a.uri, NULL::double precision, NULL::text, 2
+                FROM articles a JOIN topic_map tm ON tm.topic = a.topic
+                {mention_link}
+            ),
+            picked AS (
+                SELECT DISTINCT ON (l.brand_id, l.article_uri)
+                       l.brand_id,
+                       CASE
+                         WHEN LOWER(a.news_source) LIKE 'reddit%' OR LOWER(a.news_source) LIKE 'www.reddit%'
+                              OR LOWER(a.news_source) = 'xpoz:reddit' THEN 'community'
+                         WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
+                              OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
+                         WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
+                         WHEN LOWER(a.news_source) = 'linkedin' AND a.bias_source LIKE 'vendor:%' THEN 'owned'
+                         ELSE 'media'
+                       END AS dim,
+                       COALESCE(l.sentiment, a.sentiment) AS sentiment
+                FROM linked l
+                JOIN articles a ON a.uri = l.article_uri
+                WHERE a.publication_date >= :sd AND a.publication_date <= :ed
+                  AND COALESCE(l.relevance, a.topic_alignment_score) >= 0.4
+                ORDER BY l.brand_id, l.article_uri, l.prio
+            )
+            SELECT brand_id, dim, sentiment, COUNT(*)
+            FROM picked
             GROUP BY 1, 2, 3
-        """), {"sd": sd, "ed": ed, **topic_keys}).fetchall()
+        """), {"sd": sd, "ed": ed, **topic_params}).fetchall()
 
         counts = {}  # (brand_id, dim) -> [pos, neu, neg]
-        for topic, dim, sentiment, n in rows:
-            bid = brand_by_topic.get(topic)
-            if bid is None:
+        for bid, dim, sentiment, n in rows:
+            if dim == "owned":
                 continue
             c = counts.setdefault((bid, dim), [0, 0, 0])
             s = sentiment or ""

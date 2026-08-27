@@ -197,6 +197,7 @@ interface BrandWatcherTabProps {
 }
 
 type SubTab = 'dashboard' | 'overview' | 'analysis' | 'perception' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
+const BW_SUB_TABS: SubTab[] = ['dashboard', 'overview', 'analysis', 'perception', 'comparison', 'insights', 'articles', 'social', 'accounts', 'workforce', 'incidents', 'help'];
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -212,7 +213,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     setPrimary,
   } = useBrandWatcher();
 
-  const [activeTab, setActiveTab] = useState<SubTab>('dashboard');
+  // The open sub-tab survives a reload; module_config or a deploy would
+  // otherwise drop the reader back on the dashboard every time.
+  const [activeTab, setActiveTab] = useState<SubTab>(() => {
+    try {
+      const t = localStorage.getItem('bw_active_tab') as SubTab | null;
+      return t && BW_SUB_TABS.includes(t) ? t : 'dashboard';
+    } catch { return 'dashboard'; }
+  });
+  useEffect(() => { try { localStorage.setItem('bw_active_tab', activeTab); } catch { /* ignore */ } }, [activeTab]);
   const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
   const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
   // Each social lane picks its own network + is filtered/sorted independently (lane A / lane B).
@@ -558,6 +567,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [selectedCompetitor, setSelectedCompetitor] = useState<number | null>(null);
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
   const [compCategoryFilter, setCompCategoryFilter] = useState<string | null>(null);
+  const [compTopN, setCompTopN] = useState<number>(5);
   const [showCompCatDropdown, setShowCompCatDropdown] = useState(false);
 
   // Brand form state
@@ -1212,6 +1222,36 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const selectedBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
   // With no header selection, the "X only" social scope means the primary brand.
   const selectedBrand = selectedBrands[0] || brands.find(b => b.is_primary) || brands[0] || undefined;
+
+  // Comparison tab shows the selected (or primary) brands plus the top N by
+  // article volume. Every brand at once is unreadable on a tenant with dozens.
+  const compPinnedIds = new Set<number>(
+    config.selectedBrandIds.length ? config.selectedBrandIds : brands.filter(b => b.is_primary).map(b => b.id));
+  const pickTopN = <T extends { brand_id: number }>(rows: T[], volume: (r: T) => number): Set<number> => {
+    const keep = new Set<number>(compPinnedIds);
+    let added = 0;
+    for (const r of [...rows].sort((a, b) => volume(b) - volume(a))) {
+      if (added >= compTopN) break;
+      if (!keep.has(r.brand_id)) { keep.add(r.brand_id); added++; }
+    }
+    return keep;
+  };
+  const compShown = compTopN >= comparison.length
+    ? comparison
+    : (() => { const keep = pickTopN(comparison, c => c.total_articles); return comparison.filter(c => keep.has(c.brand_id)); })();
+  const sovShown = compTopN >= shareOfVoice.length
+    ? shareOfVoice
+    : (() => {
+      const keep = pickTopN(shareOfVoice, r => r.mention_count);
+      const shown = shareOfVoice.filter(r => keep.has(r.brand_id));
+      const rest = shareOfVoice.filter(r => !keep.has(r.brand_id));
+      if (rest.length) {
+        shown.push({ ...rest[0], brand_id: -1, brand_name: `Others (${rest.length})`, color: '#9ca3af',
+          mention_count: rest.reduce((n, r) => n + r.mention_count, 0),
+          percentage: rest.reduce((n, r) => n + r.percentage, 0) });
+      }
+      return shown;
+    })();
 
   // "Add to incident" from the Accounts side: opens the incident picker with the
   // stored profile as the pending evidence (backend snapshots it via get_stored).
@@ -5291,9 +5331,28 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           {exportingReport && (
             <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">4. Competitive Comparison</h2>
           )}
+          {!exportingReport && (comparison.length > 0 || shareOfVoice.length > 0) && (
+            <label className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+              title="Selected brands (or the primary brand) are always shown; the rest are the brands with the most articles in this window. Share of Voice folds the remainder into one Others slice.">
+              Show {compPinnedIds.size > 0 ? (config.selectedBrandIds.length ? 'selected' : 'primary') + ' + ' : ''}top
+              <select
+                value={compTopN}
+                onChange={e => setCompTopN(Number(e.target.value))}
+                className="px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs"
+              >
+                {(() => {
+                  const all = Math.max(comparison.length, shareOfVoice.length);
+                  return [3, 5, 8, 10, all].filter((n, i, arr) => n <= all && arr.indexOf(n) === i).map(n => (
+                    <option key={n} value={n}>{n === all ? `all (${n})` : n}</option>
+                  ));
+                })()}
+              </select>
+              by article volume
+            </label>
+          )}
           {/* Share of Voice — Pie Chart */}
-          {shareOfVoice.length > 0 && (() => {
-            const pieData = shareOfVoice.map(sov => ({
+          {sovShown.length > 0 && (() => {
+            const pieData = sovShown.map(sov => ({
               name: sov.brand_name,
               value: sov.mention_count,
               percentage: sov.percentage,
@@ -5337,9 +5396,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="flex-1 space-y-2">
-                    {shareOfVoice.map(sov => (
+                    {sovShown.map(sov => (
                       <button key={sov.brand_id}
-                        onClick={() => { updateConfig({ selectedBrandIds: [sov.brand_id], selectedCategories: [], page: 1 }); setActiveTab('articles'); }}
+                        onClick={() => { if (sov.brand_id < 0) return; updateConfig({ selectedBrandIds: [sov.brand_id], selectedCategories: [], page: 1 }); setActiveTab('articles'); }}
                         className="w-full flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors text-left"
                         title={`View ${sov.brand_name} articles`}>
                         <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sov.color || '#6b7280' }} />
@@ -5356,15 +5415,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           })()}
 
           {/* Category Breakdown by Brand — stacked bar chart with category dropdown */}
-          {comparison.length > 0 && (() => {
+          {compShown.length > 0 && (() => {
             // Collect all categories across all brands
             const allCatsSet = new Set<string>();
-            comparison.forEach(comp => {
+            compShown.forEach(comp => {
               Object.entries(comp.category_breakdown).forEach(([k, v]) => { if (v > 0) allCatsSet.add(k); });
             });
             const allCats = [...allCatsSet].sort((a, b) => {
-              const aTotal = comparison.reduce((sum, c) => sum + (c.category_breakdown[a] || 0), 0);
-              const bTotal = comparison.reduce((sum, c) => sum + (c.category_breakdown[b] || 0), 0);
+              const aTotal = compShown.reduce((sum, c) => sum + (c.category_breakdown[a] || 0), 0);
+              const bTotal = compShown.reduce((sum, c) => sum + (c.category_breakdown[b] || 0), 0);
               return bTotal - aTotal;
             });
 
@@ -5373,7 +5432,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
             const chartData = displayCats.map(cat => {
               const row: Record<string, string | number> = { category: CATEGORY_SHORT_NAMES[cat] || cat };
-              comparison.forEach(comp => {
+              compShown.forEach(comp => {
                 row[comp.brand_name] = comp.category_breakdown[cat] || 0;
               });
               return row;
@@ -5415,7 +5474,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                               >
                                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
                                 <span className="flex-1 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
-                                <span className="text-gray-400">{comparison.reduce((s, c) => s + (c.category_breakdown[cat] || 0), 0)}</span>
+                                <span className="text-gray-400">{compShown.reduce((s, c) => s + (c.category_breakdown[cat] || 0), 0)}</span>
                               </button>
                             ))}
                           </div>
@@ -5433,7 +5492,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     <YAxis type="category" dataKey="category" stroke="#9CA3AF" fontSize={11} width={85} tick={{ fill: '#9CA3AF' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#F3F4F6', fontSize: '12px' }} />
                     <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    {comparison.map(comp => (
+                    {compShown.map(comp => (
                       <Bar key={comp.brand_id} dataKey={comp.brand_name} fill={comp.color || '#6b7280'} radius={[0, 4, 4, 0]} />
                     ))}
                   </BarChart>
@@ -5443,7 +5502,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           })()}
 
           {/* Cross-brand comparison table */}
-          {comparison.length > 0 && (
+          {compShown.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 overflow-x-auto">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Category Comparison</h3>
               <table className="w-full text-sm">
@@ -5459,7 +5518,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {comparison.map(comp => {
+                  {compShown.map(comp => {
                     // Find which category this brand leads in
                     const maxCat = Object.entries(comp.category_breakdown).sort(([, a], [, b]) => b - a)[0]?.[0];
                     return (
@@ -5499,14 +5558,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           )}
 
           {/* Sentiment Summary — uses sentiment_breakdown from comparison API */}
-          {comparison.length > 0 && comparison.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
+          {compShown.length > 0 && compShown.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
             <div id="chart-brand-sentiment-summary" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment Summary by Brand</h3>
                 <ChartDownloadButton targetId="chart-brand-sentiment-summary" filename="sentiment-summary-by-brand" />
               </div>
               <div className="space-y-3">
-                {comparison.map(comp => {
+                {compShown.map(comp => {
                   // Normalize sentiment labels into 3 buckets
                   const sentCounts = { positive: 0, neutral: 0, negative: 0 };
                   for (const [label, count] of Object.entries(comp.sentiment_breakdown || {})) {
