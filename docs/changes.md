@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi, puts its citations after the sentence, and joins the shared news feed and the shared market report when approved; ATS job postings classify by department
+## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi, puts its citations after the sentence, and joins the shared news feed and the shared market report when approved; ATS job postings classify by department; an operator can exclude a matched page from a market
 
 ### Goal
 On wileytest, sharing an incident by email returned "Input should be a valid string; Input
@@ -154,6 +154,32 @@ briefing as an item (`guid market-briefing-N`, category `briefing`) linking to
 `report.html?view=briefing&id=N`. Before the withheld-vendor drop judges it, its description is
 cut to `safe_sentences` like the card — with the full first paragraph the drop removed the item
 itself, which is why the first live check of `feed.xml` showed 0 briefing items.
+
+### Feature — an operator verdict that takes a page out of a market for good
+The public feed for market 2 carried "Cyber AI (MSc)", a Queen's University Belfast course
+page (`bw_market_articles` 7702, `qub.ac.uk`), matched on the single phrase "security
+operations". Deleting the link would not have held: the term scan's upsert
+(`market_corpus.py:735`, `ON CONFLICT DO UPDATE`) would match the page again and put the row
+back. That upsert never writes `review_verdict`, so a verdict is where an exclusion survives.
+
+**`alembic/versions/mm_019_market_article_excluded_verdict.py`**. `ck_bw_market_articles_verdict`
+now also allows `excluded` (was signal, commentary, noise; mm_003). Downgrade turns `excluded`
+rows into `noise` before narrowing the check. Applied on bugfixing with `alembic upgrade mm_019`
+(the tree has two heads, `mm_018` and `auspex_snippets`, so `upgrade head` is not usable).
+
+**`app/services/market_corpus.py`** `articles()` — the WHERE now carries
+`COALESCE(ma.review_verdict, '') <> 'excluded'`, so the feed, the news river and the report all
+skip the row. No UI for setting it; it is a DB update: `UPDATE bw_market_articles SET
+review_verdict='excluded', review_kind='operator', review_model='operator', reviewed_at=NOW(),
+review_reason='…' WHERE id=…`. Row 7702 set that way today.
+
+Two things seen on the way, not changed: the corpus query shows `noise`-verdict rows (828 in
+market 2) in the feed and the river — the reviewer's verdict only feeds the report's counts —
+and 270 rows in market 2 matched on "security operations" alone, 167 of them LinkedIn.
+
+`tests/test_market_corpus_excluded.py` → 1 passed: an excluded row leaves `mcorp.articles`,
+and a rescan-style upsert leaves the verdict in place. Live after: `feed.xml`, `?view=news`
+and the report on aisoc each contain `qub.ac.uk` 0 times (were 4, 1, 0).
 
 ### Fix — approving a briefing refreshes the feed
 The News Feed page fetches its article list on load, on a filter change, and on the Refresh

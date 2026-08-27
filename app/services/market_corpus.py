@@ -1086,7 +1086,12 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
     # to be loosened first, or "give me 100 news items" silently returns the
     # news items that happened to be inside the first 100 rows of every kind.
     fetch = min(limit * 5, 2000) if classes else limit
-    where = ["ma.market_id = :m", "ma.score >= :ms"]
+    # An operator can take a matched page out of the market for good by
+    # setting review_verdict = 'excluded'. The term scan's upsert never
+    # touches the verdict, so the exclusion outlives every rescan — deleting
+    # the link would not, the next scan would match the page again.
+    where = ["ma.market_id = :m", "ma.score >= :ms",
+             "COALESCE(ma.review_verdict, '') <> 'excluded'"]
     params: Dict[str, Any] = {"m": market_id, "ms": min_score,
                               "lim": fetch, "off": offset}
     if days:
