@@ -104,6 +104,8 @@ NEWS_CSS = """
 .mm-news .n-story-sum { color:var(--n-muted); margin:6px 0 0; line-height:1.45; }
 .mm-news .n-byline { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;
                      color:var(--n-muted); font-size:12px; }
+.mm-news .n-why { margin-top:6px; color:var(--n-muted); font-size:11.5px;
+                  font-style:italic; }
 .mm-news .n-support { margin-top:9px; color:var(--n-muted); font-size:12px;
                       line-height:1.55; }
 .mm-news .n-support strong { color:var(--n-text); font-weight:500; }
@@ -321,13 +323,13 @@ def _corroboration(article: Dict[str, Any]) -> str:
     that is genuinely all this system has seen.
     """
     if article.get("article_class") not in ("vendor", "social"):
-        return "Third-party reporting"
+        return "Reported by somebody else"
     cluster = article.get("cluster")
     others = (cluster or {}).get("others") or []
     if any((o.get("article_class") not in ("vendor", "social")) for o in others):
         size = cluster["size"]
-        return f"Independently corroborated ({size} sources)"
-    return "Vendor source only"
+        return f"Confirmed by {size} separate sources"
+    return "Only the vendor has said this"
 
 
 _STORY_STOP = {
@@ -422,7 +424,7 @@ def _activity_row(vendor: Dict[str, Any]) -> str:
             '<td class="mm-num">' + shown + '</td>'
             '<td class="mm-num">' + str(vendor.get("posts") or 0) + '</td>'
             '<td class="mm-num">' + str(vendor.get("jobs") or 0) + '</td>'
-            '<td class="mm-num">' + str(vendor.get("articles") or 0)
+            '<td class="mm-num">' + str(vendor.get("earned") or 0)
             + '</td></tr>')
 
 
@@ -653,6 +655,24 @@ _THEME_COLOUR = {
 }
 
 
+def _day(value: Any) -> str:
+    """A date the way a person writes one, falling back to what we were given."""
+    raw = str(value)[:10]
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").strftime("%-d %b %Y")
+    except (ValueError, TypeError):
+        return raw
+
+
+def _clip(text_value: str, limit: int) -> str:
+    """Cut at a word, not through one. Slicing raw left "World Wide Technol"."""
+    text_value = (text_value or "").strip()
+    if len(text_value) <= limit:
+        return text_value
+    cut = text_value[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—-")
+    return (cut or text_value[:limit]) + "…"
+
+
 def _norm_words(text_value: str) -> str:
     """Text reduced to comparable words, for spotting a repeated sentence."""
     return re.sub(r"[^a-z0-9 ]", " ",
@@ -709,20 +729,21 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
         cohort = headcount.get("cohort") or 0
         total = headcount.get("registry_total") or 0
         cards.append(_metric_card(
-            "Observed headcount", f"{cohort} of {total} measured",
+            "Staff", f"counted at {cohort} of {total} vendors",
             f"{headcount.get('observed_market_headcount', 0):,}",
-            "Sum of current exact readings. Size bands are never counted.",
+            "Exact numbers only. A vendor listing a size range is left out.",
             # The weekly headcount series has two points and its own
             # thin-coverage flag, so there is nothing honest to draw.
-            nospark="No weekly series yet — most vendors have one reading."))
+            nospark="Most vendors have one reading so far, so there is no "
+                    "trend to show."))
 
     cards.append(_metric_card(
-        "Observed open roles",
-        "LinkedIn and vendor boards",
+        "Open roles", "LinkedIn and company job boards",
         f"{jobs_total:,}" if jobs_state != "unmeasured" else "—",
-        (f"{jobs_new} newly observed since the previous run"
-         if jobs_new else "No change reportable yet — most vendors have one run"),
-        nospark="Roles standing open now, not a 30-day flow."))
+        (f"{jobs_new} of them are new since the last check"
+         if jobs_new else "Most vendors have been checked once, so we cannot "
+                          "yet say what has changed"),
+        nospark="Roles open today, not roles posted this month."))
 
     if funding:
         cov = funding.get("coverage") or {}
@@ -730,19 +751,21 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
                         for r in (funding.get("stages") or [])
                         if (r.get("stage") or "") != "not stated")
         cards.append(_metric_card(
-            "Vendors with a funding stage", cov.get("label", ""),
+            "Vendors with a known funding stage", cov.get("label", ""),
             f"{disclosed:,}",
-            "Stage and investors from Crunchbase. Totals come from the "
-            "imported registry and are labelled separately.",
-            nospark="No round-level amounts or dates, so no 'largest raise'."))
+            "Stage and investors come from Crunchbase. The money totals "
+            "elsewhere in this report come from the vendor list instead, and "
+            "say so.",
+            nospark="Crunchbase gives us stages, not individual rounds, so we "
+                    "cannot name a largest raise."))
 
     cards.append(_metric_card(
-        "Earned mentions", "third parties only",
+        "Written about by others", "excludes the vendors' own posts",
         f"{earned:,}", earned_note,
         _spark([w.get("n") or 0 for w in weekly],
-               label="Matched items observed per week")
+               label="Articles and posts matched each week")
         or "",
-        nospark="" if weekly else "No weekly series."))
+        nospark="" if weekly else "Not enough weeks to chart."))
 
     return f'<section class="n-metrics">{"".join(cards)}</section>'
 
@@ -781,35 +804,63 @@ def _news_stories(findings: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
         # The event date where one was established, and never the observation
         # date dressed up as one.
         when = f.get("occurred_at")
-        when_txt = (str(when)[:10] if when else "date not established")
+        when_txt = (_day(when) if when else "date not established")
         sources = f.get("non_vendor_source_count") or 0
-        evidence = ("the vendor announced it; no independent source"
-                    if not sources
-                    else f"{sources} independent source"
-                    + ("s" if sources != 1 else ""))
+        if sources:
+            evidence = f"{sources} outside source" + ("s" if sources > 1 else "")
+        elif f.get("vendor_voiced") and f.get("self_reportable"):
+            # Nobody else can confirm that a company shipped its own product,
+            # so "no independent source" here reported a gap that does not
+            # exist. The vendor is the record. The byline already names it.
+            evidence = "the company's own announcement"
+        elif f.get("vendor_voiced"):
+            evidence = "the company's claim, nobody else has said it"
+        else:
+            evidence = "one source"
         out.append(f'<article class="n-story" data-theme="{esc(theme)}" '
                    f'style="--story:{colour}">')
+        vendor_names = [v.get("vendor", "") for v in (f.get("vendors") or [])]
+        # The extractor prefixes the vendor onto the title, and the byline
+        # directly below names it again. "Crogl: Crogl · 20 Aug" reads as a
+        # bug, so the prefix comes off when it is one of this finding's own
+        # vendors.
         headline = (f.get("headline") or "Untitled").strip()
+        for name in vendor_names:
+            if name and headline.lower().startswith(f"{name.lower()}:"):
+                headline = headline[len(name) + 1:].lstrip() or headline
+                break
         out.append(f'<div class="n-story-tag">{esc(theme)}</div>')
         out.append(f'<h3>{esc(headline)}</h3>')
         # A summary that repeats the headline is not a summary. These events
         # are extracted from a post whose first sentence became the title, so
         # the two are frequently the same words.
         summary = (f.get("why_it_matters") or f.get("summary") or "").strip()
-        # Compared after dropping the "Vendor: " prefix the extractor puts on a
-        # headline, since the summary never carries it — without that the two
-        # never look alike and the same sentence prints twice.
-        head_key = _norm_words(re.sub(r"^[^:]{1,40}:\s*", "", headline))
+        head_key = _norm_words(headline)
         sum_key = _norm_words(summary)
+        # `in`, not `startswith`. The title is often the post's *closing* line,
+        # so comparing only the openings let the same sentence print twice with
+        # three paragraphs between the copies.
         duplicate = bool(head_key) and (
-            sum_key.startswith(head_key[:60]) or head_key.startswith(sum_key[:60]))
+            head_key[:60] in sum_key or sum_key[:60] in head_key)
         if summary and not duplicate:
-            out.append(f'<p class="n-story-sum">{esc(summary[:320])}</p>')
-        vendors = ", ".join(v.get("vendor", "") for v in (f.get("vendors") or []))
-        bits = [b for b in (vendors, when_txt, evidence,
-                            f'{f.get("materiality", "")} materiality') if b]
+            out.append(f'<p class="n-story-sum">{esc(_clip(summary, 320))}</p>')
+        vendors = ", ".join(vendor_names)
+        bits = [b for b in (vendors, when_txt, evidence) if b]
         out.append('<div class="n-byline">'
                    + " · ".join(esc(b) for b in bits) + "</div>")
+        # Why it sits where it sits, in the rule's own words. "medium
+        # materiality" in the byline was a label with no content; the rule that
+        # produced it is a sentence a reader can argue with.
+        # Only where it says something. "a change in one vendor's position"
+        # printed under every card is furniture, not an explanation.
+        why = (f.get("materiality_reason") or "").strip()
+        if why in ("no rule ranks this type higher",
+                   "a change in one vendor's position",
+                   "hiring is a weak signal on its own"):
+            why = ""
+        if why:
+            out.append(f'<div class="n-why">Ranked {esc(f.get("materiality") or "")}'
+                       f' — {esc(why)}</div>')
         strongest = f.get("strongest_evidence") or {}
         uri = strongest.get("uri")
         if uri:
@@ -833,7 +884,7 @@ def _news_aside(*, movers: List[Dict[str, Any]], voices: Optional[Dict[str, Any]
     out = ['<aside class="n-aside">']
 
     out.append('<section class="n-card"><div class="n-card-title">'
-               '<h2>Headcount movers</h2><span class="n-updated">two readings'
+               '<h2>Who grew</h2><span class="n-updated">vendors measured twice'
                '</span></div>')
     if movers:
         for i, m in enumerate(movers[:5], 1):
@@ -847,34 +898,34 @@ def _news_aside(*, movers: List[Dict[str, Any]], voices: Optional[Dict[str, Any]
                        f' staff</div></div>'
                        f'<span class="n-row-val">{esc(val)}</span></div>')
     else:
-        out.append('<p class="n-empty">No vendor has two readings yet, so no '
-                   'movement can be reported. This fills as the next profile '
-                   'sweep lands.</p>')
+        out.append('<p class="n-empty">We have measured each vendor only once, so '
+                   'there is nothing to compare against yet. The next '
+                   'weekly reading gives us a first comparison.</p>')
     out.append("</section>")
 
     consistent = (voices or {}).get("consistent") or []
     breakout = (voices or {}).get("breakout") or []
     out.append('<section class="n-card"><div class="n-card-title">'
-               '<h2>Who is talking</h2><span class="n-updated">earned</span>'
+               '<h2>Who is talking</h2><span class="n-updated">outside voices</span>'
                '</div>')
     if consistent or breakout:
         for v in (consistent or breakout)[:4]:
             posts = int(v.get("posts") or 0)
-            label = ("posts regularly" if v in consistent
-                     else "one post that travelled")
+            label = ("posts about this market often" if v in consistent
+                     else "one post that got picked up")
             out.append(f'<div class="n-row"><span class="n-rank">·</span>'
                        f'<div><strong>@{esc(v.get("author", ""))}</strong>'
                        f'<div class="n-row-label">{esc(v.get("platform", ""))}'
                        f' · {esc(label)}</div></div>'
                        f'<span class="n-row-val">{posts}</span></div>')
     else:
-        out.append('<p class="n-empty">No third-party account posted about '
-                   'this market in the period.</p>')
+        out.append('<p class="n-empty">Nobody outside the vendors themselves posted '
+                   'about this market during the period.</p>')
     out.append("</section>")
 
     if notes:
         out.append('<section class="n-card"><div class="n-card-title">'
-                   '<h2>Read this first</h2></div>')
+                   '<h2>Worth knowing</h2></div>')
         for n in notes[:3]:
             out.append(f'<p class="n-empty">{esc(n)}</p>')
         out.append("</section>")
@@ -1080,8 +1131,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     earned = int(sov_block.get("earned_total") or 0)
     own_posts = int(sov_block.get("own_total") or 0)
     earned_note = (
-        f"Against {own_posts:,} the vendors published themselves"
-        if own_posts else "Third-party items only")
+        f"The vendors published {own_posts:,} posts themselves over the same "
+        "period" if own_posts else "Nothing from the vendors' own channels")
 
     jobs_total = int(((joblist or {}).get("meta") or {})
                      .get("pagination", {}).get("total") or 0)
@@ -1103,8 +1154,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append('<div class="n-head"><div>'
                 f'<div class="n-kicker">Market monitor · {esc(period_txt)}</div>'
                 f'<h1>{esc(market["name"])} briefing</h1>'
-                '<p class="n-sub">The hires, releases, announcements and '
-                'funding we observed, each with what backs it.</p></div>'
+                '<p class="n-sub">What the vendors in this market did over the '
+                'period, and where each of those came from.</p></div>'
                 f'<span class="n-period">Generated '
                 f'{generated.strftime("%d %B %Y")}</span></div>')
 
@@ -1113,8 +1164,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # to a record, and a synthesised summary would be the one thing that is not.
     question = (market.get("question") or "").strip()
     if question:
-        body.append('<section class="n-summary"><h2>The question this market '
-                    f'answers</h2><p>{esc(question[:700])}</p></section>')
+        body.append('<section class="n-summary"><h2>What we\'re tracking</h2>'
+                    f'<p>{esc(question[:700])}</p></section>')
 
     body.append(_news_metrics(
         headcount=headcount, jobs_total=jobs_total, jobs_new=jobs_new,
@@ -1150,10 +1201,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                         f'{esc(market["exclusion_criteria"])}</p>')
     else:
         body.append('<p class="mm-src">Market scope has not been defined for '
-                    'this market. Coverage below can include vendors or '
-                    "stories outside the tracked cohort's actual boundary — "
-                    'set a scope description to state that boundary '
-                    'explicitly.</p>')
+                    'this market, so what counts as being in it has never '
+                    'been written down. Some of what follows may be about '
+                    'companies or stories that do not belong here. Writing a '
+                    'scope description fixes that.</p>')
     body.append("</section>")
 
     # ================================================================
@@ -1162,9 +1213,9 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     changed_points: List[str] = []
     if formation and formation.get("vendors_in_scope"):
         changed_points.append(
-            f'This market remains young: {formation["founded_since_2023"]} of '
-            f'{formation["vendors_in_scope"]} vendors were founded in 2023 or '
-            'later.')
+            f'{formation["founded_since_2023"]} of the '
+            f'{formation["vendors_in_scope"]} vendors here were founded in '
+            '2023 or later, so this is a young market.')
     kind_n: Dict[str, int] = {}
     if sn and sn.get("signal_kinds"):
         kind_n = {k["kind"]: k["n"] for k in sn["signal_kinds"]}
@@ -1173,15 +1224,16 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                            ("partnership", "customer", "funding", "acquisition"))
         if launch_n or commercial_n:
             changed_points.append(
-                f'Vendor announcements are weighted toward product launches: '
-                f'{launch_n} of them, against {commercial_n} partnership, '
-                'customer, funding and acquisition claims combined.')
+                f'They talk about product far more than about business. We '
+                f'counted {launch_n} launch announcements against '
+                f'{commercial_n} covering partnerships, customers, funding and '
+                'acquisitions put together.')
     if hire_lead:
-        changed_points.append(f'Observed hiring is concentrated: {hire_lead}')
+        changed_points.append(f'Hiring is concentrated. {hire_lead}')
     if kind_n.get("acquisition") or any(k == "acquisition" for _, k in material_rows):
         changed_points.append(
-            'Recent coverage also includes at least one acquisition in the '
-            'category.')
+            'At least one company in this market was acquired during the '
+            'period.')
     if changed_points:
         body.append('<span id="mm-changed"></span>')
         body.append(section_open("What changed"))
@@ -1189,10 +1241,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
 
         if pc:
             labels_pc = {
-                "_coverage": "Matched coverage records", "launch": "Product launches",
+                "_coverage": "Articles and posts", "launch": "Product launches",
                 "partnership": "Partnerships", "customer": "Customer announcements",
                 "funding": "Funding announcements", "acquisition": "Acquisitions",
-                "hiring": "Executive-change posts", "_jobs": "Open roles observed",
+                "hiring": "Posts about people joining", "_jobs": "Open roles",
             }
             order_pc = ("_coverage", "launch", "partnership", "customer",
                        "funding", "acquisition", "hiring", "_jobs")
@@ -1202,10 +1254,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 if cur == 0 and prev == 0:
                     continue
                 if prev == 0:
-                    change = "no comparable prior-period reading"
+                    change = "nothing to compare against"
                 else:
                     d = cur - prev
-                    change = f'{"+" if d > 0 else ""}{d} vs previous period'
+                    change = f'{"+" if d > 0 else ""}{d}'
                 rows_pc.append(
                     f'<tr><td>{esc(labels_pc[key])}</td>'
                     f'<td class="mm-num">{cur}</td>'
@@ -1213,12 +1265,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                     f'<td class="mm-src">{esc(change)}</td></tr>')
             if rows_pc:
                 body.append(f'<h3>Compared with the previous {days} days</h3>')
-                body.append(f'<p class="mm-src">Current period '
-                           f'{esc(_fmt_range(*pc["current_range"]))} vs previous '
-                           f'{esc(_fmt_range(*pc["previous_range"]))}. A metric '
-                           'that could not exist before this market started '
-                           'tracking is marked rather than shown as a jump from '
-                           'zero.</p>')
+                body.append(f'<p class="mm-src">'
+                           f'{esc(_fmt_range(*pc["current_range"]))} against '
+                           f'{esc(_fmt_range(*pc["previous_range"]))}. Where we '
+                           'were not measuring something yet in the earlier '
+                           'period, we say so rather than show it as a rise '
+                           'from zero.</p>')
                 body.append('<table class="mm-table"><thead><tr><th>Metric</th>'
                            '<th class="mm-num">Current</th>'
                            '<th class="mm-num">Previous</th><th>Change</th>'
@@ -1233,27 +1285,28 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     corpus = overview.get("corpus") or {}
     body.append(section_open("Market snapshot"))
     body.append('<div class="mm-stats">')
-    body.append(_stat("Vendors identified",
+    body.append(_stat("Vendors in this market",
                       str(cov["registry"] - cov["excluded"]),
                       f'{cov["watching"]} currently monitored'))
-    body.append(_stat("Cumulative disclosed funding",
+    body.append(_stat("Money raised, where disclosed",
                       _money(fund["total_musd"]),
-                      f'Across {fund["disclosed"]} of '
-                      f'{fund["disclosed"] + fund["undisclosed"]} vendors'))
+                      f'{fund["disclosed"]} of '
+                      f'{fund["disclosed"] + fund["undisclosed"]} vendors have '
+                      'published a figure'))
     if formation and formation.get("vendors_in_scope"):
         body.append(_stat("Founded since 2023",
                           str(formation["founded_since_2023"]),
-                          f'Of {formation["vendors_in_scope"]} vendors with a '
-                          'known founding year'))
-    body.append(_stat("Matched coverage records",
+                          f'of the {formation["vendors_in_scope"]} whose '
+                          'founding year we know'))
+    body.append(_stat("Articles and posts collected",
                       str(corpus.get("total", 0)),
-                      f'During this {days}-day reporting period'))
+                      f'over the {days} days covered here'))
     body.append("</div></section>")
 
     # ================================================================
     # Material vendor moves — deduplicated, grouped by kind, before raw coverage
     # ================================================================
-    body.append(section_open("Material vendor moves"))
+    body.append(section_open("What the vendors did"))
     if not material_rows:
         body.append('<p class="mm-src">No development this period matched a '
                     'launch, partnership, customer, funding, acquisition or '
@@ -1281,12 +1334,19 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 headline = (a.get("review_reason")
                            if kind == "hiring" and a.get("review_reason")
                            else a.get("title")) or a["uri"]
+                # "3 sources · Only the vendor has said this" reads as a
+                # contradiction. It is not — those are three posts from the
+                # vendor about one thing — so the count says which it is.
+                vendor_only = corrob == "Only the vendor has said this"
+                noun = "vendor post" if vendor_only else "source"
+                count = (f'{sources} {noun}{"" if sources == 1 else "s"}'
+                         if not vendor_only or sources > 1 else "")
                 row_html.append(
                     f'<tr><td><a href="{esc(a["uri"])}">{esc(headline)}</a>'
                     f'<div class="mm-src">{esc(a.get("news_source") or "")}'
                     f' · {esc((a.get("published") or "")[:10])}'
-                    f' · {sources} source{"" if sources == 1 else "s"}'
-                    f' · {esc(corrob)}</div></td></tr>')
+                    + (f' · {count}' if count else "")
+                    + f' · {esc(corrob)}</div></td></tr>')
             body.append('<table class="mm-table"><tbody>'
                        + "".join(row_html) + "</tbody></table>")
     body.append("</section>")
@@ -1294,7 +1354,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     # Competitive signals — sentiment, headcount, hiring, Crunchbase
     # ================================================================
-    body.append(section_open("Competitive signals"))
+    body.append(section_open("How the market is moving"))
     any_signal = False
 
     sentiment_trend = corpus.get("sentiment_trend") or []
@@ -1305,23 +1365,24 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             (r["net_all"] for r in reversed(sentiment_trend) if r.get("net_all") is not None),
             None)
         body.append(_reading(latest_sentiment))
-        body.append('<p class="mm-src">Net-positive-minus-negative share of '
-                    "classified coverage, weekly. Not an average — sentiment "
-                    "has no numeric scale in this system, only a "
-                    "classification. A week is left blank rather than "
-                    "plotted at zero when too few articles were classified "
-                    "that week to call a direction.</p>")
+        body.append('<p class="mm-src">Each article is classed positive, '
+                    "negative or neutral. The line is the share that came out "
+                    "positive minus the share that came out negative, week by "
+                    "week. Where too few articles were classified in a week to "
+                    "call it either way, we leave the week blank instead of "
+                    "drawing a zero.</p>")
         vendor_points = sum(1 for r in sentiment_trend if r.get("net_vendor") is not None)
-        series = [("net_broad", "#475569", "The market broadly")]
+        series = [("net_broad", "#475569", "The market as a whole")]
         if vendor_points >= 3:
-            series.append(("net_vendor", "#30a46c", "Tracked vendors' own coverage"))
+            series.append(("net_vendor", "#30a46c", "Coverage of these vendors"))
         body.append(_line_chart(sentiment_trend, x_key="week", series=series))
         if vendor_points < 3:
-            body.append(f'<p class="mm-src">Vendor-attributed sentiment is not '
-                        f'shown: only {vendor_points} week'
-                        f'{"" if vendor_points == 1 else "s"} of tracked-vendor '
-                        'coverage cleared the confidence floor, too few to '
-                        'read as a line.</p>')
+            body.append(f'<p class="mm-src">We are not showing a separate '
+                        'line for the tracked vendors. Only '
+                        f'{vendor_points} week'
+                        f'{"" if vendor_points == 1 else "s"} had enough '
+                        'coverage about them to classify with confidence, '
+                        'which is not enough to draw.</p>')
 
     # The window is clipped to how long this market has existed (see
     # market_publish.headcount_trend) — a vendor snapshot cannot predate the
@@ -1332,37 +1393,36 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     if hc_with_data:
         any_signal = True
         body.append("<h3>Headcount change</h3>")
-        body.append('<p class="mm-src">Average percentage change from each '
-                    "vendor's own imported baseline. Using percentage change "
-                    "prevents the market line from rising simply because "
-                    "additional vendors were added. Each vendor uses its own "
-                    "first recorded observation as baseline — there is no "
-                    "single common baseline date across the market. Weeks "
-                    f'covering fewer than half of the {hc_trend["watching"]} '
-                    'actively monitored vendors should be treated as '
-                    'lower-confidence.</p>')
+        body.append('<p class="mm-src">How far each vendor has moved from '
+                    "its own first reading, averaged across the market. We use "
+                    "percentages so the line does not jump every time a vendor "
+                    "is added. Each vendor starts from the day we first read "
+                    "it, so there is no single start date. Trust a week less "
+                    "when it covers fewer than half of the "
+                    f'{hc_trend["watching"]} vendors we watch.</p>')
         if len(hc_with_data) == 1:
             only = hc_with_data[0]
             pct = only["avg_pct_vs_baseline"]
-            body.append(f'<p>Only one weekly reading exists so far: '
-                        f'{"+" if pct > 0 else ""}{pct}% vs baseline, week of '
-                        f'{esc(only["week"])}. A trend line needs at least two.</p>')
+            body.append(f'<p>We have one week of readings so far, the week '
+                        f'of {esc(only["week"])}, at '
+                        f'{"+" if pct > 0 else ""}{pct}% against where these '
+                        'vendors started. Two weeks makes a line.</p>')
         else:
             body.append(_line_chart(
                 hc_trend["points"], x_key="week",
-                series=[("avg_pct_vs_baseline", "#475569", "Avg % vs baseline")]))
+                series=[("avg_pct_vs_baseline", "#475569",
+                         "Average change since first reading")]))
 
     if hiring and hiring["openings"]:
         any_signal = True
-        body.append("<h3>Observed hiring</h3>")
-        body.append(f'<p>{hiring["openings"]} open roles were observed across '
+        body.append("<h3>Hiring</h3>")
+        body.append(f'<p>We found {hiring["openings"]} open roles across '
                     f'{len(hiring["by_vendor"])} vendors.</p>')
-        body.append('<p class="mm-src">The mix of engineering, product, sales '
-                    'and other roles can indicate where vendors are '
-                    'investing, but should not be treated as a direct measure '
-                    'of product maturity or commercial traction.</p>')
+        body.append('<p class="mm-src">What a company hires for says something '
+                    'about where it is spending. It does not say whether the '
+                    'product is good or whether anyone is buying it.</p>')
         if hire_lead:
-            body.append(f'<p>Hiring is concentrated: {hire_lead}</p>')
+            body.append(f'<p>Hiring is concentrated. {hire_lead}</p>')
         body.append(_coverage(hiring.get("coverage")))
         body.append(_bar_chart(hiring["by_function"], label_key="function",
                                value_key="openings"))
@@ -1432,7 +1492,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     # Audience and voice — activity, share of voice, and who is talking
     # ================================================================
-    body.append(section_open("Audience and voice"))
+    body.append(section_open("Who is being heard"))
     # Filtered on `activity_index`, not on the old `signals` key. That key was
     # removed from the overview payload when the posts+jobs sum was dropped, and
     # this filter kept reading it — so the list was empty on every report and
@@ -1444,24 +1504,22 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     if top:
         body.append("<h3>Most active vendors</h3>")
         body.append(
-            f'<p class="mm-src">Top {len(top)} by Activity Index. Each of the '
-            'three channels — LinkedIn posts published in the last '
-            f'{days} days, job listings currently observed, and articles '
-            f'matched to the vendor in the last {days} days — is converted to '
-            'a percentile against the vendors measured on all three, and the '
-            'three percentiles are averaged with equal weight. It measures '
-            'visibility and activity, not performance, quality or commercial '
-            'success. A vendor is scored only where all three channels were '
-            'measured for it.</p>')
+            f'<p class="mm-src">The {len(top)} busiest vendors. We rank each '
+            'one against the others on three things: LinkedIn posts in the '
+            f'last {days} days, roles open today, and articles about them by '
+            f'somebody else in the last {days} days. The score averages those '
+            'three ranks. It says how visible a vendor is, not how well it is '
+            'doing. A vendor only gets a score if we managed to measure all '
+            'three.</p>')
         if scored:
             body.append(_bar_chart(top, label_key="vendor",
                                    value_key="activity_index"))
         body.append(
             '<table class="mm-table"><thead><tr><th>Vendor</th>'
-            '<th class="mm-num">Activity Index</th>'
-            '<th class="mm-num">Owned posts</th>'
-            '<th class="mm-num">Observed jobs</th>'
-            '<th class="mm-num">Matched articles</th></tr></thead><tbody>'
+            '<th class="mm-num">Score</th>'
+            '<th class="mm-num">Own posts</th>'
+            '<th class="mm-num">Open roles</th>'
+            '<th class="mm-num">Written about</th></tr></thead><tbody>'
             + "".join(_activity_row(v) for v in top)
             + "</tbody></table>")
         # Named for what it counts. As `withheld` it shadowed the list of
@@ -1473,10 +1531,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         unscored = sum(1 for v in active if v.get("activity_index") is None)
         if unscored:
             body.append(
-                f'<p class="mm-src">{unscored} vendor(s) have no index: at '
-                'least one of their three channels was not measured. Scoring '
-                'them would have ranked a vendor we did not read below one we '
-                'read and found quiet.</p>')
+                f'<p class="mm-src">{unscored} vendors have no score, '
+                'because we could not measure at least one of the three '
+                'things. Scoring them anyway would put a vendor we failed to '
+                'read below one we read and found quiet.</p>')
 
     if sov and not sov.get("error") and sov.get("vendors"):
         earned_rows = sorted(
@@ -1484,10 +1542,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             key=lambda v: v.get("earned_share") or 0, reverse=True)
         if earned_rows:
             body.append("<h3>Share of voice</h3>")
-            body.append(f'<p class="mm-src">Of {sov["earned_total"]} mentions by '
-                        'somebody other than the vendor. A vendor\'s own posts '
-                        'are volume, not voice, and are counted separately '
-                        'below.</p>')
+            body.append(f'<p class="mm-src">How {sov["earned_total"]} '
+                        'mentions by people outside these companies were '
+                        "split between them. The vendors' own posts are "
+                        'counted separately, further down.</p>')
             body.append(_bar_chart(
                 [{"vendor": v["vendor"], "pct": round((v["earned_share"] or 0) * 100)}
                  for v in earned_rows],
@@ -1496,10 +1554,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         loud_rows = [v for v in sov.get("vendors") or []
                     if v.get("reactions_per_post") is not None]
         if loud_rows:
-            body.append("<h3>Who shouts loudest, and who is heard</h3>")
-            body.append('<p class="mm-src">Posts published vs. reactions per '
-                        'post — the two are not the same thing. Vendors with '
-                        'fewer than five measured posts are absent.</p>')
+            body.append("<h3>Posting a lot is not the same as landing</h3>")
+            body.append('<p class="mm-src">How much each vendor posts, next to '
+                        'how much response those posts get. A vendor we have '
+                        'seen fewer than five posts from is left out.</p>')
             loud_rows = sorted(loud_rows, key=lambda v: v["own_posts"], reverse=True)
             body.append('<table class="mm-table"><thead><tr><th>Vendor</th>'
                         '<th class="mm-num">Posts</th>'
@@ -1581,13 +1639,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         and not _spam_re.search(f"{a.get('title') or ''} {a.get('summary') or ''}")
     ]
     if discussion_rows:
-        body.append(section_open("Market discussion"))
-        body.append('<p class="mm-src">Practitioner and analyst commentary '
-                    "matched to the market's phrases — debate, scepticism "
-                    'and emerging terminology, not vendor-specific '
-                    'developments. A keyword filter removes obvious spam '
-                    '("for hire", job-seeking posts); it is a heuristic, '
-                    'not a verified relevance judgment.</p>')
+        body.append(section_open("What people are saying"))
+        body.append('<p class="mm-src">Practitioners and analysts arguing '
+                    'about where this market is going, rather than news about '
+                    'any one vendor. We strip out the obvious noise, like '
+                    'job-hunting posts, with a keyword filter. It is a rough '
+                    'filter and some noise gets through.</p>')
         body.append('<table class="mm-table"><tbody>'
                    + "".join(_coverage_row(a) for a in discussion_rows[:20])
                    + "</tbody></table>")
@@ -1634,29 +1691,29 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     # Monitoring coverage — how much of the market we have actually looked at
     # ================================================================
-    body.append(section_open("Monitoring coverage"))
+    body.append(section_open("How much of the market we checked"))
     registry_total = cov["registry"] - cov["excluded"]
     body.append('<table class="mm-table"><thead><tr><th>Coverage</th>'
                '<th class="mm-num">Vendors</th><th class="mm-num">%</th>'
                "</tr></thead><tbody>")
-    body.append(_pct_row("Actively monitored", cov["watching"], registry_total))
+    body.append(_pct_row("Being watched", cov["watching"], registry_total))
     body.append(_pct_row("Paused", cov["paused"], registry_total))
-    body.append(_pct_row("Any recorded observation", cov["observed"], registry_total))
+    body.append(_pct_row("We have seen something from", cov["observed"], registry_total))
     if formation and formation.get("announcement_coverage"):
         ac = formation["announcement_coverage"]
-        body.append(_pct_row("LinkedIn posts collected", ac["measured"], ac["total"]))
+        body.append(_pct_row("LinkedIn posts read", ac["measured"], ac["total"]))
     if funding and funding.get("coverage"):
         fc = funding["coverage"]
         body.append(_pct_row("Crunchbase profile read", fc["measured"], fc["total"]))
     if hiring and hiring.get("coverage"):
         hc = hiring["coverage"]
-        body.append(_pct_row("Job listings observed", hc["measured"], hc["total"]))
+        body.append(_pct_row("Job boards read", hc["measured"], hc["total"]))
     body.append("</tbody></table>"
-               '<p class="mm-src">No observed activity — '
-               f'{overview["quiet_vendors"]} of {registry_total} monitored '
-               'vendors — means no vendor posts, open roles or matched '
-               'coverage were observed from monitored sources this period. '
-               'It does not mean the vendor did nothing.</p>'
+               f'<p class="mm-src">{overview["quiet_vendors"]} of the '
+               f'{registry_total} vendors we watch showed nothing this period '
+               '— no posts, no open roles, nothing written about them in what '
+               'we collect. That means we saw nothing, not that they did '
+               'nothing.</p>'
                "</section>")
 
     # ================================================================
@@ -1664,29 +1721,29 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     body.append(section_open("About this report"))
     body.append(
-        "<p>Aunoo keeps a registry of vendors in this market and matches its "
-        "wider article collection against the market's own phrases, so "
-        "coverage can include material first collected for a different "
-        "tracked topic. Vendor announcements are classified by event type. "
-        "Company and funding data currently draw on sources including "
-        "LinkedIn and Crunchbase. Coverage varies by vendor and source; "
-        "where a panel above rests on part of the registry rather than all "
-        "of it, it states how many vendors are represented.</p>"
-        "<p><strong>Absence of an observed signal should not be "
-        "interpreted as evidence that no activity occurred</strong> — it "
-        "means monitored sources did not carry it. Where a count could mean "
-        "either \"checked, found none\" or \"not checked yet,\" this report "
-        "shows a dash for the second case, not a zero.</p>")
+        "<p>Aunoo keeps a list of the vendors in this market and matches "
+        "everything it collects against the phrases that define the market. "
+        "Some of what you see here was first collected for a different topic "
+        "and matched into this one. Company and funding details come from "
+        "LinkedIn and Crunchbase. How much we cover varies by vendor and by "
+        "source, so any panel above that rests on part of the list says how "
+        "many vendors it covers.</p>"
+        "<p><strong>Seeing nothing is not the same as nothing having "
+        "happened.</strong> It means the sources we watch did not carry it. "
+        "Where a count could mean either &ldquo;we looked and found "
+        "none&rdquo; or &ldquo;we have not looked yet&rdquo;, this report "
+        "shows a dash for the second, never a zero.</p>")
     body.append("</section>")
 
     # ================================================================
     # Raw coverage — collapsed, everything, for auditability
     # ================================================================
     if clustered:
-        body.append(section_open("Raw coverage"))
-        body.append(f'<details><summary>{len(articles)} matched records — '
-                    'includes market discussion and coverage below the '
-                    'material-development threshold</summary>')
+        body.append(section_open("Everything we collected"))
+        body.append(f'<details><summary>Everything we matched: '
+                    f'{len(articles)} articles and posts, including general '
+                    'discussion and anything too small to report above'
+                    '</summary>')
         body.append('<table class="mm-table"><tbody>'
                     + "".join(_coverage_row(a) for a in clustered)
                     + "</tbody></table></details>")
@@ -1703,17 +1760,17 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # labels and none of the collection state, so a reader who opened it a month
     # later had no way to tell what any of it had been measured against.
     body.append('<span id="mm-method"></span>')
-    body.append(section_open("How to read this report"))
+    body.append(section_open("Where the numbers come from"))
 
-    body.append("<h3>Where coverage comes from</h3>")
+    body.append("<h3>Which sources we use</h3>")
     body.append(
-        "<p>The platform something was published on and the provider we "
-        "collected it through are different things. Bright Data is a provider; "
-        "LinkedIn is a platform; Xpoz is a provider whose items carry their own "
-        "platform.</p>")
+        "<p>Where something was published and who we bought it from are two "
+        "different things. LinkedIn is a place things get published. Bright "
+        "Data and Xpoz are companies we buy the data through, and items from "
+        "Xpoz name the place they were published themselves.</p>")
     body.append('<table class="mm-table"><thead><tr>'
-                "<th>Content</th><th>Platform</th>"
-                "<th>Collected by</th><th>Whose voice</th>"
+                "<th>What</th><th>Published on</th>"
+                "<th>We get it from</th><th>Whose words</th>"
                 "</tr></thead><tbody>")
     for row in mmet.SOURCE_LEGEND:
         body.append(f'<tr><td>{esc(row["content"])}</td>'
@@ -1722,15 +1779,16 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                     f'<td>{esc(row["ownership"])}</td></tr>')
     body.append("</tbody></table>")
 
-    body.append("<h3>How much of the market was measured</h3>")
+    body.append("<h3>How much of the market each source covers</h3>")
     body.append(
-        "<p>&ldquo;Collected&rdquo; counts the vendors a source successfully ran "
-        "for, out of the vendors it <em>can</em> run for &mdash; a source needs "
-        "an identifier on file, so its denominator is not the whole registry. "
-        "A source with no configured vendors is reported as unconfigured "
-        "rather than as empty.</p>")
+        "<p>&ldquo;Checked&rdquo; counts the vendors we successfully read "
+        "from a source, out of the ones we <em>can</em> read from it. Those "
+        "are different numbers: a source needs something to look the company "
+        "up by, and not every vendor has one. Where we have nothing to look up "
+        "at all, we say the source is not set up rather than showing you a "
+        "zero.</p>")
     body.append('<table class="mm-table"><thead><tr>'
-                "<th>Source</th><th>State</th><th>Collected</th><th>Notes</th>"
+                "<th>Source</th><th>State</th><th>Checked</th><th>Notes</th>"
                 "</tr></thead><tbody>")
     for src in mmet.tracked_sources():
         try:
@@ -1741,14 +1799,17 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         cov = st["coverage"]
         reached = (f'{cov["successful"]}/{cov["eligible"]}'
                    if cov["eligible"] else "&mdash;")
+        # The reader-facing half of the state. The operator note behind it
+        # names internal fields and API quirks nobody outside can act on.
+        note = st.get("state_detail_public") or st.get("state_detail") or ""
         body.append(
             f'<tr><td>{esc(src)}</td>'
             f'<td>{esc(mmet.STATE_LABELS.get(st["state"], st["state"]))}</td>'
             f'<td>{reached}</td>'
-            f'<td>{esc(st["state_detail"] or "")}</td></tr>')
+            f'<td>{esc(note)}</td></tr>')
     body.append("</tbody></table>")
 
-    body.append("<h3>What the figures mean</h3>")
+    body.append("<h3>What each figure counts</h3>")
     # Definitions are pulled from the metric blocks the aggregates already
     # carry, so the report cannot define a metric differently from the API.
     seen_metrics = set()
@@ -1763,11 +1824,13 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             bits.append(f'out of {esc(meta["denominator"])}')
         if (meta.get("window") or {}).get("days"):
             bits.append(f'over the last {meta["window"]["days"]} days')
+        # The reader-facing note, and only one of the two: the label and the
+        # detail said the same thing twice ("some vendors checked — 82 of 83
+        # vendors collected").
+        note = meta.get("state_detail_public") or meta.get("state_detail")
         body.append(f'<p class="mm-src">{", ".join(bits)}. '
-                    f'State: {esc(meta["data_state_label"])}'
-                    + (f' &mdash; {esc(meta["state_detail"])}'
-                       if meta.get("state_detail") else "")
-                    + "</p>")
+                    + esc(note or meta["data_state_label"])
+                    + ".</p>")
         if meta.get("limitations"):
             body.append("<ul>" + "".join(
                 f"<li>{esc(l)}</li>" for l in meta["limitations"]) + "</ul>")
@@ -1793,10 +1856,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
              WHERE market_id = :m AND role <> 'excluded'
         """), {"m": market["id"]}).scalar() or 0
         body.append(
-            '<p class="mm-src">This is a shared view. It names '
-            f'{len(allowed_brand_ids)} of {total} monitored vendors, ranked by '
-            'observed activity; the rest are not included. Figures that cover '
-            'the whole market are labelled as such.</p>')
+            '<p class="mm-src">This is a shared view. It covers the '
+            f'{len(allowed_brand_ids)} most active of the {total} vendors we '
+            'watch, and leaves the rest out. Figures that cover the whole '
+            'market say so.</p>')
 
     rendered = html_document(f'{market["name"]} — Market Monitor',
                              "".join(body))

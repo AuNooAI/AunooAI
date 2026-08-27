@@ -18,10 +18,14 @@ Two things it deliberately does not do.
 established one, and the page says "date not established" rather than showing
 the collection time in a slot labelled as when it happened.
 
-**It does not promote a vendor's own announcement to a confirmed finding.** With
-every one of this market's 194 events resting on a single source, every finding
-is a watch item, and the page says so. That is the honest state of the data and
-not a rendering problem to be smoothed over.
+**It separates what a vendor can state about itself from what it merely claims.**
+A company announcing its own product, its own hire or its own rebrand is the
+authoritative source for that fact; there is nobody else to confirm it, and
+demanding a second source treats the primary record as a weakness. A company
+announcing that a named customer chose it, or that a round closed, is an
+interested party talking about somebody else who has not spoken yet. The first
+is a confirmed finding on the vendor's own word. The second stays a watch item
+until the other side, or a publisher, says the same thing.
 """
 
 from __future__ import annotations
@@ -76,14 +80,28 @@ def theme_of(event_type: Optional[str]) -> str:
 # between them is the interesting part:
 #
 #   dismissed     the event was rejected on review, or folded into another
-#   confirmed     a primary document. Nothing here produces one yet
+#   confirmed     a primary document, including the vendor's own announcement
+#                 of a fact about itself
 #   corroborated  two or more independent sources
-#   watch         one source, including the vendor itself
+#   watch         a claim about somebody else, so far only from the claimant
 #
-# A vendor's own announcement is a watch item, not a confirmed finding. It is
-# good evidence of what the vendor *said* and no evidence at all that anyone
-# else agrees.
+# The line between the last two is who the statement is about, not who made it.
 STATUSES = ("confirmed", "corroborated", "watch", "dismissed")
+
+# Facts a company is the authoritative source for. Nobody else can confirm that
+# Exaforce shipped a feature or hired a CRO, because Exaforce doing it *is* the
+# event — so "no independent source" on one of these describes the world, not a
+# gap in our evidence. Everything outside this set involves a second party (an
+# investor, a customer, an acquirer, a partner) who has not spoken, and there
+# the vendor is an interested witness rather than the record.
+#
+# Layoffs sit outside deliberately. A company is authoritative that it cut
+# staff, but the scale is the part that matters and the part it frames.
+SELF_REPORTABLE = frozenset({
+    "product_launch", "product_update", "certification", "integration",
+    "leadership_change", "office_opening", "rebrand", "brand_identity_change",
+    "hiring_spike", "headcount_change", "strategy_shift",
+})
 
 # Which evidence relationships count toward supporting a finding. The same set
 # entity_events.recompute_corroboration uses, named once here because I wrote
@@ -94,13 +112,19 @@ SUPPORTING = ("supports", "originates")
 _STATUS_RANK = {s: i for i, s in enumerate(STATUSES)}
 
 
-def status_of(event_status: str, corroboration: str) -> str:
+def status_of(event_status: str, corroboration: str, *,
+              event_type: Optional[str] = None,
+              vendor_voiced: bool = False) -> str:
     if event_status in ("rejected", "superseded"):
         return "dismissed"
     if corroboration == "primary_document":
         return "confirmed"
     if corroboration == "corroborated":
         return "corroborated"
+    # The vendor's own channel, on a fact the vendor owns. Calling that a watch
+    # item asks a company to corroborate its own product launch.
+    if vendor_voiced and (event_type or "").strip().lower() in SELF_REPORTABLE:
+        return "confirmed"
     return "watch"
 
 
@@ -176,6 +200,13 @@ def _sort_key(sort: str):
     event date falling back to when we first saw it, then the id. The id tie-break
     is what makes it total — without it two findings with identical everything
     else swap places between requests and the page appears to shuffle itself.
+
+    The evidence tier counts outside sources before it looks at the status
+    label. Once a vendor's own product announcement became "confirmed" — which
+    it should be, since nobody else can confirm it — ranking on the label alone
+    floated every routine launch post above a named US Air Force contract,
+    because the contract is a claim about somebody else and stays a watch item.
+    Outside interest is what the tier was for.
     """
     materiality_rank = {"high": 0, "medium": 1, "low": 2}
 
@@ -194,7 +225,11 @@ def _sort_key(sort: str):
     return lambda f: (
         0 if f["is_new_in_period"] else 1,
         materiality_rank.get(f["materiality"], 3),
-        _STATUS_RANK.get(f["status"], 9),
+        -(f.get("non_vendor_source_count") or 0),
+        # No tier on the status label itself. It no longer ranks how well
+        # supported a finding is — "confirmed" now covers a vendor's own
+        # product post — so within one materiality band the date decides, and
+        # the byline tells the reader where each item came from.
         _neg_stamp(f["occurred_at"] or f["first_observed_at"]),
         f["finding_id"],
     )
@@ -267,7 +302,14 @@ def findings(conn, market_id: int, *, days: Optional[int] = 30,
     for row in rows:
         ev = evidence.get(row["id"], {})
         vend = vendors.get(row["id"], [])
-        state = status_of(row["status"], row["corroboration"])
+        # Every supporting source is one of the vendor's own channels. Whether
+        # that is the record or only a claim depends on what the event is about,
+        # which is why the type goes in too.
+        vendor_voiced = bool(ev.get("sources")) and not ev.get(
+            "independent_sources")
+        state = status_of(row["status"], row["corroboration"],
+                          event_type=row["event_type"],
+                          vendor_voiced=vendor_voiced)
         # Stored materiality wins where somebody set it; otherwise derived, and
         # the reason travels either way so the page never shows a bare label.
         derived, why_material = materiality_of(
@@ -299,6 +341,12 @@ def findings(conn, market_id: int, *, days: Optional[int] = 30,
             "last_updated_at": row["last_observed_at"],
             "independent_source_count": ev.get("sources", 0),
             "non_vendor_source_count": ev.get("independent_sources", 0),
+            # Together these let a page say "announced by Exaforce" where the
+            # vendor is the record, and "not confirmed by the other side" where
+            # it is only the claimant, without re-deriving the rule.
+            "vendor_voiced": vendor_voiced,
+            "self_reportable": (row["event_type"] or "").strip().lower()
+            in SELF_REPORTABLE,
             "evidence_count": ev.get("items", 0),
             "source_platforms": ev.get("platforms", []),
             "strongest_evidence": ev.get("strongest"),
@@ -432,14 +480,17 @@ def _evidence_summary(conn, event_ids: List[int]) -> Dict[int, Dict[str, Any]]:
 
 def evidence(conn, market_id: int, finding_id: int) -> Dict[str, Any]:
     """Every record behind one finding, deduplicated by source."""
-    exists = conn.execute(text("""
-        SELECT 1 FROM bw_entity_events e
+    # The row, not a truthiness test on the type: an event with a null or empty
+    # event_type exists, and reading its type as "missing" would 404 it.
+    found = conn.execute(text("""
+        SELECT e.event_type FROM bw_entity_events e
           JOIN bw_entity_event_entities ee ON ee.event_id = e.id
           JOIN bw_market_brands mb ON mb.brand_id = ee.brand_id
          WHERE e.id = :f AND mb.market_id = :m LIMIT 1
-    """), {"f": finding_id, "m": market_id}).scalar()
-    if not exists:
+    """), {"f": finding_id, "m": market_id}).first()
+    if found is None:
         raise ValueError(f"finding {finding_id} is not in market {market_id}")
+    self_reportable = (found[0] or "").strip().lower() in SELF_REPORTABLE
 
     rows = [dict(r) for r in conn.execute(text("""
         SELECT ev.id, ev.evidence_type, ev.relationship, ev.independence_key,
@@ -469,12 +520,17 @@ def evidence(conn, market_id: int, finding_id: int) -> Dict[str, Any]:
             "evidence_count": len(rows),
             "independent_source_count": len(sources),
             "sources": sources,
-            "notes": ([
-                "Every record here comes from the vendor's own channels, so "
-                "this finding reports what the vendor said rather than what "
-                "anyone else confirmed."
-            ] if sources and all(s.startswith("owned:") for s in sources)
-                else []),
+            "notes": (
+                [] if not (sources and all(s.startswith("owned:")
+                                           for s in sources))
+                # The vendor is the source, and for its own product or its own
+                # hire that is the record rather than a shortfall.
+                else ["Announced by the vendor on its own channels, which is "
+                      "the primary record for something a company does itself."]
+                if self_reportable
+                else ["Every record here comes from the vendor's own channels. "
+                      "This is what the vendor said; the other party named in "
+                      "it has not said the same thing."]),
         },
     }
 
@@ -535,13 +591,15 @@ def _meta(conn, market_id: int, days: Optional[int], sort: str, total: int,
                        ("corroborated", "confirmed"))
     notes: List[str] = []
     if rows and not corroborated:
-        # The honest headline about this market's evidence: every event rests on
-        # one source, so nothing here is confirmed by anybody but the vendor.
+        # Nothing here has a second source. For a company's own product or hire
+        # that is normal; for a claim about a customer or an investor it means
+        # the other side has not spoken.
         notes.append(
-            "No finding in this period is independently corroborated. Every "
-            "one rests on a single source, usually the vendor's own "
-            "announcement, so each is a watch item rather than a confirmed "
-            "change.")
+            "Nobody outside the vendors has reported any of this. Where a "
+            "vendor is describing its own product or its own hire, its word is "
+            "the record. Where it names a customer, a partner or an investor, "
+            "treat it as one side of the story until someone else says the "
+            "same thing.")
     return {
         "metric": mmet.metric(
             "market_findings",

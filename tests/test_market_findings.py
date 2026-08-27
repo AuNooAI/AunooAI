@@ -501,3 +501,67 @@ def test_a_contradicting_record_does_not_support_a_finding(conn, market):
     finding = next(f for f in got['data'] if f['finding_id'] == eid)
     assert finding['independent_source_count'] == 1, 'the denial is not support'
     assert finding['has_contradiction'] is True
+
+
+# ---------------------------------------------------------------------------
+# Who the statement is about, not who made it (the self-reportable rule)
+# ---------------------------------------------------------------------------
+
+def test_a_vendor_is_the_record_for_its_own_product_launch():
+    """A company shipping its own product needs nobody's confirmation.
+
+    Treating that as a watch item asked Exaforce to corroborate Exaforce, and
+    printed "no independent source" as though our evidence were short. It is
+    not short — there is nobody else to ask.
+    """
+    assert mf.status_of('active', 'vendor_claim', event_type='product_launch',
+                        vendor_voiced=True) == 'confirmed'
+    assert mf.status_of('active', 'vendor_claim', event_type='leadership_change',
+                        vendor_voiced=True) == 'confirmed'
+
+
+def test_a_claim_about_somebody_else_stays_a_watch_item():
+    """The other party in a customer win or a round has not spoken yet."""
+    for kind in ('customer_win', 'partnership', 'funding_round', 'acquisition',
+                 'layoff'):
+        assert mf.status_of('active', 'vendor_claim', event_type=kind,
+                            vendor_voiced=True) == 'watch', kind
+
+
+def test_the_rule_needs_the_vendor_to_be_the_one_talking():
+    """An unattributed single source is not a vendor announcement.
+
+    Without this the rule would promote any lone source on a product-launch
+    event, including a blog nobody has vouched for.
+    """
+    assert mf.status_of('active', 'vendor_claim', event_type='product_launch',
+                        vendor_voiced=False) == 'watch'
+
+
+def test_a_rejected_event_is_dismissed_whoever_said_it():
+    assert mf.status_of('rejected', 'vendor_claim', event_type='product_launch',
+                        vendor_voiced=True) == 'dismissed'
+
+
+def test_vendor_announcements_do_not_bury_a_corroborated_finding(conn, market):
+    """Ordering ranks outside interest above the status label.
+
+    Once a self-announced launch became "confirmed", ranking on the status
+    label alone floated every routine vendor post above a named contract that
+    somebody else had reported. The evidence tier exists to surface outside
+    interest, so it counts outside sources first.
+    """
+    brand_id = _a_brand(conn, market)
+    now = datetime.now(timezone.utc)
+    own = _make_event(conn, brand_id, event_type='product_launch',
+                      title='Acme ships a thing', occurred_at=now,
+                      sources=('owned:vendor:acme',))
+    reported = _make_event(conn, brand_id, event_type='product_launch',
+                           title='Acme feature reviewed elsewhere',
+                           occurred_at=now - timedelta(days=1),
+                           sources=('domain:one.example', 'domain:two.example'))
+
+    got = mf.findings(conn, market, days=30, sort='recommended', page_size=500)
+    order = [f['finding_id'] for f in got['data']]
+    assert order.index(reported) < order.index(own), (
+        'two outside sources must outrank a vendor announcing itself')

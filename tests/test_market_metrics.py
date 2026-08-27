@@ -528,3 +528,135 @@ def test_the_threshold_is_a_real_floor_not_a_formality():
 
     assert mp.MIN_VENDORS_FOR_HEADCOUNT_AVERAGE >= 3, (
         'two numbers are not a market trend either')
+
+
+# ---------------------------------------------------------------------------
+# Activity Index (MM-21)
+# ---------------------------------------------------------------------------
+
+def _activity_rows(n: int = 6):
+    """A cohort where posts and jobs rank vendors in opposite orders.
+
+    Written this way so a test can tell a percentile average apart from a sum.
+    Vendor 1 leads on posts and trails on jobs; vendor n does the reverse.
+    """
+    return [{'brand_id': i, 'vendor': f'V{i}',
+             'posts': n - i, 'jobs': i * 10,
+             # `earned` is the channel the index scores. `articles` rides along
+             # because the row carries both: it counts everything matched to
+             # the vendor, most of which is the vendor's own posts.
+             'earned': i, 'articles': i * 40}
+            for i in range(1, n + 1)]
+
+
+def _all_healthy(rows):
+    return {int(r['brand_id']): {'posts': 'healthy', 'jobs': 'healthy',
+                                 'mentions': 'healthy'} for r in rows}
+
+
+@pytest.mark.parametrize('broken', ['failed', 'stale', 'never_collected',
+                                    'not_configured', 'collecting'])
+def test_mm21_one_unmeasured_channel_withholds_the_whole_index(broken):
+    """MM-21. A channel we did not measure may not be scored as a zero.
+
+    The failure this prevents: a vendor whose LinkedIn collection broke shows
+    zero posts, lands in the bottom percentile on that channel, and publishes
+    as one of the least active vendors in the market. The evidence for that
+    claim is a collector outage.
+    """
+    rows = _activity_rows()
+    health = _all_healthy(rows)
+    health[3]['jobs'] = broken
+
+    mmet.activity_index(rows, health)
+
+    hurt = next(r for r in rows if r['brand_id'] == 3)
+    assert hurt['activity_index'] is None
+    assert hurt['activity_percentiles'] is None
+    assert hurt['index_unavailable_because'].startswith(
+        'Partial activity — index unavailable')
+    # The state that caused it is named, so the reader is not left guessing
+    # which channel is missing.
+    assert mmet.STATE_LABELS.get(broken, broken) in \
+        hurt['index_unavailable_because']
+    # Every other vendor still scores. One broken vendor is not a broken market.
+    assert all(r['activity_index'] is not None
+               for r in rows if r['brand_id'] != 3)
+
+
+def test_mm21_an_unmeasured_vendor_is_out_of_the_cohort_not_a_zero_in_it():
+    """The withheld vendor must not drag the percentiles of everyone else.
+
+    If the unmeasured vendor stayed in the cohort with jobs treated as 0, every
+    other vendor's jobs percentile would rise, because they would all be beating
+    one more competitor. They did not beat anyone; we simply did not look.
+    """
+    clean = _activity_rows()
+    mmet.activity_index(clean, _all_healthy(clean))
+    before = {r['brand_id']: r['activity_percentiles']['jobs']
+              for r in clean if r['brand_id'] != 3}
+
+    holed = _activity_rows()
+    health = _all_healthy(holed)
+    health[3]['posts'] = 'failed'
+    mmet.activity_index(holed, health)
+    after = {r['brand_id']: r['activity_percentiles']['jobs']
+             for r in holed if r['brand_id'] != 3}
+
+    # Vendor 3 leaves the cohort entirely, so the remaining five are ranked
+    # against five, not against six with a fabricated zero among them.
+    assert before != after
+    assert all(v > 0 for v in after.values())
+
+
+def test_mm21_the_index_is_a_percentile_average_not_a_count_sum():
+    """A vendor with dozens of jobs must not outrank on job volume alone.
+
+    Raw counts run to single figures on posts and to dozens on jobs, so summing
+    them produces a jobs ranking wearing a broader name. Vendor 1 here has the
+    most posts and the fewest jobs; vendor 6 the reverse. Under a percentile
+    average their indexes differ only through the mentions channel.
+    """
+    rows = _activity_rows()
+    mmet.activity_index(rows, _all_healthy(rows))
+    by_id = {r['brand_id']: r for r in rows}
+
+    # Posts and jobs cancel: vendor 1 is top on posts and bottom on jobs.
+    assert by_id[1]['activity_percentiles']['posts'] == \
+        by_id[6]['activity_percentiles']['jobs']
+    # Mentions break the tie, and mentions rise with the id in this fixture.
+    assert by_id[6]['activity_index'] > by_id[1]['activity_index']
+    # A raw sum would have put vendor 6 ahead by roughly its job count alone;
+    # the index gap stays inside one channel's worth of percentile.
+    assert by_id[6]['activity_index'] - by_id[1]['activity_index'] <= 34
+
+
+def test_mm21_the_index_stays_inside_nought_to_a_hundred():
+    """The scale is 0 to 100 and both ends are approached, not touched.
+
+    A midrank percentile puts the top value in the middle of the ground it
+    occupies, so the busiest vendor in a cohort of twelve scores 96, not 100.
+    That is the point: 100 would mean it beat everyone including itself.
+    """
+    rows = _activity_rows(12)
+    mmet.activity_index(rows, _all_healthy(rows))
+    assert all(0 <= r['activity_index'] <= 100 for r in rows)
+
+    # Make one vendor the busiest on all three channels. It must then hold the
+    # highest index in the market, and still not reach 100.
+    top = max(rows, key=lambda r: r['earned'])
+    top['posts'] = 999
+    top['jobs'] = 999
+    mmet.activity_index(rows, _all_healthy(rows))
+    assert max(rows, key=lambda r: r['activity_index'])['brand_id'] == \
+        top['brand_id']
+    assert 90 <= top['activity_index'] < 100
+
+
+def test_mm21_every_channel_unmeasured_leaves_no_cohort_at_all():
+    """Nothing measured means nothing ranked, and no exception either."""
+    rows = _activity_rows(4)
+    health = {int(r['brand_id']): {'posts': 'failed', 'jobs': 'failed',
+                                   'mentions': 'failed'} for r in rows}
+    mmet.activity_index(rows, health)
+    assert all(r['activity_index'] is None for r in rows)

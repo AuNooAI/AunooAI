@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import os
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -150,14 +150,14 @@ STATES = ("observed_zero", "healthy", "not_configured", "never_collected",
 # Plain-language rendering, so the UI and the HTML report cannot describe the
 # same state in two different ways.
 STATE_LABELS: Dict[str, str] = {
-    "observed_zero": "none found",
-    "healthy": "measured",
-    "not_configured": "no source configured",
-    "never_collected": "never collected",
-    "collecting": "collecting now",
-    "partial": "partly collected",
-    "stale": "out of date",
-    "failed": "collection failed",
+    "observed_zero": "we looked and found none",
+    "healthy": "checked",
+    "not_configured": "not set up",
+    "never_collected": "never checked",
+    "collecting": "checking now",
+    "partial": "some vendors checked",
+    "stale": "last check is out of date",
+    "failed": "the check failed",
 }
 
 # Which states mean "this number is not a measurement". A caller rendering a
@@ -249,6 +249,11 @@ def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
     scheduled = (source not in sch.MANUAL_ONLY_SOURCES
                  and source not in sch.PAUSED_SOURCES)
 
+    # Bound before the chain, not inside one branch of it. Assigning a name
+    # only on the paths that have something to say leaves it unbound on every
+    # other path, and this function has seven.
+    public: Optional[str] = None
+
     if eligible == 0:
         # Nothing in this market can be collected from this source. Usually a
         # missing identifier, which is worth saying rather than reporting as a
@@ -265,21 +270,32 @@ def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
                   or "; ".join(reasons)
                   or (f"no vendor in this market has a "
                       f"{sch.REQUIRED_IDENTIFIER.get(source, 'required identifier')}"))
+        # The operator note above says why *we* have not wired this up. A
+        # shared report needs the reader-facing half of that, which is simply
+        # which source the figures beside it do not cover.
+        public = sch.MANUAL_ONLY_PUBLIC.get(source)
     elif in_flight and successful == 0:
         state, detail = "collecting", "a run is in progress"
     elif successful == 0 and latest and latest["status"] == "failed":
         state, detail = "failed", (latest.get("error_code")
                                    or latest.get("error") or "the last run failed")
+        # An error code is for whoever fixes it. A reader needs to know the
+        # figure beside it is missing this source, not why.
+        public = "the last check failed, so this source is missing here"
     elif successful == 0:
         state, detail = "never_collected", (
             "configured, but no run has succeeded yet")
+        public = "set up, but we have not managed a successful check yet"
     elif successful < eligible:
         state = "partial"
         detail = f"{successful} of {eligible} vendors collected"
+        public = f"we checked {successful} of the {eligible} vendors we can"
     elif is_stale:
         state = "stale"
         detail = (f"last successful collection "
                   f"{_ago(last_success)}, expected every {_every(cadence)}")
+        public = (f"we last checked {_ago(last_success)}, and we aim to check "
+                  f"every {_every(cadence)}")
     else:
         state, detail = "healthy", None
 
@@ -287,6 +303,9 @@ def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
         "source": source,
         "state": state,
         "state_detail": detail,
+        # Falls back to the operator note, so a source nobody has written a
+        # public line for still says something rather than nothing.
+        "state_detail_public": public or detail,
         "scheduled": scheduled,
         "coverage": {
             "registry_total": int(registry_total),
@@ -504,9 +523,15 @@ def activity_index(rows: List[Dict[str, Any]],
     cohort = {
         "posts": sorted(r["posts"] or 0 for r in measured),
         "jobs": sorted(r["jobs"] or 0 for r in measured),
-        MENTION_CHANNEL: sorted(r["articles"] or 0 for r in measured),
+        MENTION_CHANNEL: sorted(r["earned"] or 0 for r in measured),
     }
-    column = {"posts": "posts", "jobs": "jobs", MENTION_CHANNEL: "articles"}
+    # `earned`, not `articles`. `articles` counts everything matched to the
+    # vendor, and on the SOC Automation market 2516 of those 2531 rows are the
+    # vendor's own LinkedIn posts — so scoring this channel on `articles` fed
+    # the posts count in twice and presented the result as a third, independent
+    # channel. Coverage by somebody other than the vendor is the thing the
+    # channel is named after.
+    column = {"posts": "posts", "jobs": "jobs", MENTION_CHANNEL: "earned"}
     measured_ids = {int(r["brand_id"]) for r in measured}
 
     for row in rows:
@@ -533,16 +558,23 @@ def activity_index(rows: List[Dict[str, Any]],
 
 
 def _percentile(sorted_values: List[float], value: float) -> float:
-    """Fraction of the cohort at or below ``value``.
+    """Where this value sits in the cohort, with ties sharing their ground.
 
-    Ties share a percentile, so twenty vendors with no posts all rank equally
-    on that channel rather than being ordered by whatever the sort happened to
-    do. An empty cohort gives 0.0 — with nobody to compare against there is no
+    Midrank rather than "fraction at or below". A market where 81 of 84 vendors
+    earned no mentions at all is a real state, and "at or below" hands every
+    one of those 81 the 96th percentile on that channel — a near-top score for
+    having been mentioned by nobody. Averaging the two bounds puts a tied group
+    in the middle of the range it shares, so those 81 land near 50 and none of
+    them outranks the others on a tie.
+
+    An empty cohort gives 0.0 — with nobody to compare against there is no
     rank, and the caller has already withheld the index in that case.
     """
     if not sorted_values:
         return 0.0
-    return bisect_right(sorted_values, value) / len(sorted_values)
+    n = len(sorted_values)
+    return (bisect_left(sorted_values, value)
+            + bisect_right(sorted_values, value)) / 2 / n
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
@@ -628,6 +660,8 @@ def metric(metric_id: str, *, label: str, definition: str,
         "data_state_label": STATE_LABELS.get(data_state, data_state),
         "measured": data_state not in UNMEASURED,
         "state_detail": combined.get("state_detail"),
+        "state_detail_public": (combined.get("state_detail_public")
+                                or combined.get("state_detail")),
         "sources": sources,
         "coverage": (states[0]["coverage"] if len(states) == 1 else None),
         "freshness": (states[0]["freshness"] if len(states) == 1 else None),

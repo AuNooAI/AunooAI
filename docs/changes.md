@@ -2,6 +2,92 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 (report copy) — a vendor's own announcement is a record, not a gap
+
+### Goal
+The shared report read like a compliance notice. Every metric was prefixed "Observed",
+every caveat was a packed clause, and the story bylines told a reader that a company
+announcing its own product had "no independent source" — as though our evidence were
+short. It is not short. Nobody else can confirm that a company shipped its own product.
+
+### The evidence model now asks who a statement is about
+`app/services/market_findings.py`. `SELF_REPORTABLE` names the events a company is the
+authoritative source for: its own product, its own hire, its own rebrand, its own office,
+its own strategy. `status_of` takes two new keyword arguments — the event type and whether
+every supporting source was one of the vendor's own channels — and returns `confirmed`
+for that combination. Everything outside the set involves a second party who has not
+spoken (an investor, a customer, an acquirer, a partner), so it stays a watch item.
+
+This is 138 of the market's 198 events: 94 product launches and 44 hiring posts were all
+being reported as evidentially deficient. Layoffs sit outside the set deliberately — a
+company is authoritative that it cut staff, but the scale is the part that matters and
+the part it frames.
+
+**The ordering had to change with it.** `_sort_key` ranked on the status label, so as soon
+as self-announced launches became `confirmed` every routine vendor post floated above the
+US Air Force selecting Crogl, which is a claim about somebody else and stays a watch item.
+The recommended order now counts outside sources before anything else in that tier and no
+longer tiers on the status label at all; within a materiality band the date decides.
+Covered by `test_vendor_announcements_do_not_bury_a_corroborated_finding`.
+
+### Copy, everywhere
+`market_report_html.py`, `market_metrics.py`, `market_analysis.py`, `market_publish.py`,
+`market_lists.py`. Roughly forty strings. The pattern being removed: "Observed headcount"
+→ "Staff"; "Net-positive-minus-negative share of classified coverage" → "the share that
+came out positive minus the share that came out negative"; "Material vendor moves" → "What
+the vendors did"; "Absence of an observed signal should not be interpreted as evidence
+that no activity occurred" → "Seeing nothing is not the same as nothing having happened".
+Data-state labels went the same way: "partly collected" → "some vendors checked".
+
+Bylines dropped `medium materiality`, which was a label with no content, and dates became
+`22 Aug 2026` rather than `2026-08-22`. The materiality rule now prints only when it says
+something — "money or ownership changed hands" survives, "a change in one vendor's
+position" under every card does not.
+
+### Operator notes were shipping to customers
+`app/services/entity_scheduler.py`, `market_metrics.py`. The report's source table printed
+`ineligible_reason` verbatim, so a shared link carried "posted_by is a closed enum of
+poster types and is not the employer filter it looks like". `MANUAL_ONLY_PUBLIC` holds the
+reader-facing half — "we do not search Indeed on a schedule, so job counts here cover
+LinkedIn and the vendors' own careers pages only" — and `collection_state` returns it as
+`state_detail_public` alongside the operator note.
+
+`public` is bound before the branch chain, not inside one arm of it. Assigning it only on
+the paths with something to say would have left it unbound on the other five.
+
+### Three mechanical faults in the story cards
+Summaries were sliced at 320 characters mid-word ("delivered with World Wide Technol").
+`_clip` cuts at a space. Headlines carried a `Vendor: ` prefix the byline repeated
+underneath, so it comes off when it matches one of the finding's own vendors. And the
+duplicate-summary check compared openings only, while these titles are often the post's
+closing line — `in` rather than `startswith` catches it.
+
+### Two tests were testing copy, not behaviour
+`test_market_lists.py` pinned the phrases "one successful" and "By source"; 
+`test_market_entitlements.py` pinned "monitored vendors". All three failed on wording
+changes that altered nothing. They now assert the numbers that have to be disclosed. A
+disclosure test that breaks on a copy edit trains you to loosen it, which is how a real
+one gets loosened too.
+
+### Verification
+`pytest tests/test_market_*.py` — 212 passed, 3 failed, 10 skipped. The three failures are
+the pre-existing `pytest-asyncio` ones in `test_market_collection.py`, unchanged.
+Report regenerated live at each step: 96,585 bytes, HTTP 200, naming 6 of 86 registry
+names against an entitlement of 10, so the disclosure backstop is still live.
+`bugfixing.aunoo.ai.service` restarted four times; `bw_collection_runs` checked for
+stranded rows after each — none.
+
+### Also answered, not changed
+The weekly chart's last bar is the week starting 24 August, which is 3½ days old, so it
+reads at 41 against ~170 for a full week. Matching also runs behind publication — 1,200
+articles were matched into this market on 26 August alone, most with earlier publication
+dates — so the most recent bar keeps filling for days afterwards. The final bar
+under-reads structurally and always will. Marking a partial week as partial is the fix,
+and it is not done.
+
+### Propagation
+Canonical only. Not copied to wiley, wileytest or wbm — none of them runs Market Monitor.
+
 ## 2026-08-27 (shared report) — the sharing link opens on a news page, and its disclosure guard was dead
 
 ### Goal

@@ -18,6 +18,7 @@ import {
 import {
   getVendorDetail, setVendorIdentifier, startRun, type VendorDetail,
 } from '../../services/marketMonitorApi';
+import { MarketVendorBenchmark } from './MarketVendorBenchmark';
 import { MarketVendorProvenance } from './MarketVendorProvenance';
 
 /** Everything Bright Data can pull for one vendor on demand. A source with
@@ -234,6 +235,11 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
         brandId={brandId}
         baseline={v.baseline as unknown as Record<string, any>}
       />
+
+      {/* Where this vendor sits in its market. Below the resolved profile
+          because it only means anything once the reader knows what the
+          numbers being compared are. */}
+      <MarketVendorBenchmark marketId={marketId} brandId={brandId} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Headcount: LinkedIn readings only, workbook as a reference line. */}

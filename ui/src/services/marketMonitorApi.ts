@@ -1242,8 +1242,17 @@ export interface MarketOverview {
   };
   top_funded: { vendor: string; brand_id: number; musd: number | null;
                 last_round: string | null }[];
+  /** Ranked by Activity Index. A vendor whose index is null was not measured
+   *  on every channel, so it is listed without a rank rather than ranked low
+   *  on evidence we never collected. */
   most_active: { brand_id: number; vendor: string; posts: number;
-                 jobs: number; articles: number }[];
+                 jobs: number; articles: number; earned: number;
+                 activity_index: number | null;
+                 activity_percentiles: { posts: number; jobs: number;
+                                         mentions: number } | null;
+                 channel_states: Record<string, string>;
+                 index_unavailable_because: string | null }[];
+  activity_index: { scored: number; withheld: number; channels: string[] };
   quiet_vendors: number;
   corpus: CorpusSummary | Record<string, never>;
   last_runs: { source: string; status: string; records_received: number;
@@ -2112,4 +2121,64 @@ export async function getMarketGeography(
                           { credentials: 'include' });
   if (res.status === 404) return null;   // entity layer switched off
   return jsonOrThrow(res, 'market geography');
+}
+
+/** One vendor against its market on one metric (spec 4.16).
+ *
+ *  `vendor_value` is null when the vendor was not measured, which is not the
+ *  same as zero and must never be plotted as one — `vendor_unmeasured_because`
+ *  says which source is missing. `suppressed` means the market itself had too
+ *  few measured peers to compare against, so the aggregates are absent rather
+ *  than computed from a cohort too small to mean anything. */
+export interface VendorBenchmark {
+  metric: { key: string; label: string; unit: string;
+            window: 'period' | 'as_of'; as_of_note?: string };
+  vendor_id: number;
+  vendor: string | null;
+  vendor_value: number | null;
+  vendor_unmeasured_because: string | null;
+  eligible_count: number;
+  measured_count: number;
+  market_peer_count: number;
+  collection: { state: string; label?: string; [k: string]: any };
+  as_of: string | null;
+  top_peer_count: number;
+  top_label: string | null;
+  market_median: number | null;
+  market_average: number | null;
+  top_median: number | null;
+  top_average: number | null;
+  top_q1: number | null;
+  top_q3: number | null;
+  vendor_percentile: number | null;
+  delta_from_market_median: number | null;
+  percentage_delta_from_market_median: number | null;
+  delta_from_market_average: number | null;
+  delta_from_top_median: number | null;
+  percentage_delta_from_top_median: number | null;
+  suppressed: boolean;
+  degraded: boolean;
+  notes: string[];
+  /** Only present for a caller entitled to the whole market. */
+  cohort?: { brand_id: number; vendor: string | null; value: number }[];
+}
+
+export interface VendorBenchmarks {
+  market_id: number;
+  vendor_id: number;
+  vendor: string | null;
+  period_days: number;
+  cohort_named: boolean;
+  metrics: VendorBenchmark[];
+  note: string;
+}
+
+export async function getVendorBenchmarks(
+  marketId: number, brandId: number, days = 30, metrics?: string[],
+): Promise<VendorBenchmarks> {
+  const q = new URLSearchParams({ days: String(days) });
+  if (metrics?.length) q.set('metrics', metrics.join(','));
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/benchmarks?${q}`,
+    { credentials: 'include' }), 'vendor benchmarks');
 }

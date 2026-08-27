@@ -529,18 +529,17 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
     notes = []
     if duplicates:
         notes.append(
-            f"{duplicates} LinkedIn listing(s) were excluded as the same role "
-            "already published on the company's own board, which is the "
-            "primary source and carries a posting date.")
+            f"We dropped {duplicates} LinkedIn listings because the same "
+            "role was already on the company's own careers page. We count the "
+            "company's page, which gives us a posting date.")
     if single_run:
         notes.append(
-            f"{single_run} listing(s) belong to a vendor with only one "
-            "successful jobs run on file for that source, so no change can be "
-            "reported for them yet.")
+            f"{single_run} of these roles belong to a vendor we have only "
+            "checked once, so we cannot yet say whether they are new.")
     # Which source found what. Two sources with very different coverage read as
     # one number otherwise, and the LinkedIn half is the thin one.
     if len(by_source) > 1:
-        notes.append("By source: " + ", ".join(
+        notes.append("Where these came from: " + ", ".join(
             f"{n} from {k.replace('_', ' ')}"
             for k, n in sorted(by_source.items(), key=lambda kv: -kv[1])))
 

@@ -74,6 +74,17 @@ MANUAL_ONLY_REASONS: Dict[str, str] = {
     ),
 }
 
+# The same facts without the operator's working notes. A shared report is read
+# by somebody who does not run this system and cannot act on "posted_by is a
+# closed enum"; what they need is whether the number in front of them covers
+# this source, and it does not.
+MANUAL_ONLY_PUBLIC: Dict[str, str] = {
+    'pitchbook_company': 'we do not track PitchBook for these vendors',
+    'zoominfo_company': 'we do not track ZoomInfo for these vendors',
+    'indeed_jobs': ('we do not search Indeed on a schedule, so job counts here '
+                    'cover LinkedIn and the vendors\' own careers pages only'),
+}
+
 # Sources temporarily withheld from automatic dispatch, with the reason. These
 # are not manual-only by policy; they are broken and honest about it.
 #

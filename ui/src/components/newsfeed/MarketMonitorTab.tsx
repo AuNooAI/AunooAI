@@ -1050,6 +1050,13 @@ export function MarketMonitorTab() {
    *  voices, channel mix). Formation and funding describe the market's
    *  current state and never respond to this — see market_analysis.run. */
   const [periodDays, setPeriodDays] = useState(30);
+
+  /** Which channel the activity leaderboard is ranked by. 'index' is the
+   *  blended Activity Index; the others rank on one channel's raw count, which
+   *  is only honest because the table shows that count in its own column. */
+  const [activityRank, setActivityRank] =
+    useState<'index' | 'posts' | 'jobs' | 'earned'>('index');
+  const [activityShowAll, setActivityShowAll] = useState(false);
   const [headcountTrend, setHeadcountTrend] =
     useState<MarketHeadcountTrend | null>(null);
   const [fundingMomentum, setFundingMomentum] =
@@ -1836,28 +1843,86 @@ export function MarketMonitorTab() {
             })()}
           </div>
 
-          <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-              Most active vendors
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-              LinkedIn posts in the last {overview.period_days} days plus open
-              job listings and matched articles. Activity, not performance —
-              click a row to open that vendor's page.
-            </p>
-            <div className="max-h-[420px] overflow-y-auto">
-              <DataTable
-                rows={overview.most_active} rowKey={v => v.brand_id}
-                initialSort="articles" initialDir="desc"
-                onRowClick={v => openVendorPage(v.brand_id)}
-                columns={[
-                  { key: 'vendor', label: 'Vendor' },
-                  { key: 'posts', label: 'Posts', align: 'right' },
-                  { key: 'jobs', label: 'Jobs', align: 'right' },
-                  { key: 'articles', label: 'Articles', align: 'right' },
-                ]} />
-            </div>
-          </div>
+          {(() => {
+            const all = overview.most_active ?? [];
+            const scored = all.filter(v => v.activity_index !== null);
+            const withheld = all.length - scored.length;
+            // Ranking on the index can only order the vendors that have one.
+            // Ranking on a raw channel can order every vendor, because the
+            // count itself was measured even when a sibling channel was not.
+            const pool = activityRank === 'index' ? scored : all;
+            const key = activityRank === 'index' ? 'activity_index' : activityRank;
+            const ranked = [...pool].sort((a, b) =>
+              ((b as any)[key] ?? -1) - ((a as any)[key] ?? -1)
+              || (b.earned ?? 0) - (a.earned ?? 0)
+              || (a.vendor || '').localeCompare(b.vendor || ''));
+            const rows = activityShowAll ? ranked : ranked.slice(0, 10);
+            return (
+              <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                    Most active vendors
+                  </div>
+                  <select value={activityRank}
+                          onChange={e => setActivityRank(e.target.value as any)}
+                          className="text-xs border rounded-md px-2 py-1 bg-white hover:bg-slate-50 dark:bg-gray-800 dark:hover:bg-gray-700">
+                    <option value="index">Rank by overall activity</option>
+                    <option value="posts">Rank by owned posts</option>
+                    <option value="jobs">Rank by observed jobs</option>
+                    <option value="earned">Rank by earned mentions</option>
+                  </select>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
+                  The Activity Index scores three channels over the last{' '}
+                  {overview.period_days} days — posts the vendor published
+                  itself, job listings observed open, and coverage published
+                  by somebody other than the vendor. Each is converted to a
+                  percentile
+                  against the vendors measured on all three, then averaged with
+                  equal weight, so a vendor with dozens of open roles cannot
+                  outrank one on job count alone. It measures activity, not
+                  performance. Click a row to open that vendor's page.
+                </p>
+                <div className="max-h-[420px] overflow-y-auto">
+                  <DataTable
+                    rows={rows} rowKey={v => v.brand_id}
+                    onRowClick={v => openVendorPage(v.brand_id)}
+                    columns={[
+                      { key: 'vendor', label: 'Vendor' },
+                      { key: 'activity_index', label: 'Activity Index',
+                        align: 'right',
+                        render: v => v.activity_index === null ? (
+                          <span className="text-slate-400 dark:text-gray-500"
+                                title={v.index_unavailable_because ?? undefined}>
+                            Partial
+                          </span>
+                        ) : <span>{v.activity_index}</span> },
+                      { key: 'posts', label: 'Owned posts', align: 'right' },
+                      { key: 'jobs', label: 'Observed jobs', align: 'right' },
+                      { key: 'earned', label: 'Earned mentions', align: 'right' },
+                    ]} />
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <p className="text-xs text-slate-500 dark:text-gray-400">
+                    {withheld > 0
+                      ? `${withheld} of ${all.length} vendors are shown as
+                         Partial: at least one channel was not measured for
+                         them this period, so an index would rank them on
+                         evidence we do not have.`
+                      : `All ${all.length} vendors were measured on all three
+                         channels this period.`}
+                  </p>
+                  {ranked.length > 10 && (
+                    <button onClick={() => setActivityShowAll(v => !v)}
+                            className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+                      {activityShowAll ? 'Show top 10'
+                        : `Show all ${ranked.length}`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
             <div className="text-sm font-medium text-slate-800 dark:text-gray-100">Sentiment</div>

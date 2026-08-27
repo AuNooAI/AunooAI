@@ -423,6 +423,18 @@ async def create_market(payload: MarketCreate, session=Depends(verify_session_ap
     return await asyncio.to_thread(_work)
 
 
+# Declared above ``/markets/{market_id}``, and it has to stay there. FastAPI
+# matches routes in registration order, so with the parameterised route first
+# this literal path is read as a market id of "benchmark-metrics" and the
+# request fails validation instead of reaching this function.
+@router.get("/markets/benchmark-metrics")
+async def benchmark_metrics(session=Depends(verify_session_api)):
+    """What the Benchmark view can compare on, and on what clock."""
+    from app.services import market_benchmark as mbench
+    return {"metrics": mbench.available_metrics(),
+            "min_peers": mbench.MIN_PEERS, "top_n": mbench.TOP_N}
+
+
 @router.get("/markets/{market_id}")
 async def get_market(market_id: int, session=Depends(verify_session_api)):
     def _work():
@@ -2951,6 +2963,39 @@ async def vendor_detail(market_id: int, brand_id: int,
 # app/services/brightdata_linkedin.py's trigger_pitchbook/trigger_zoominfo
 # docstrings for why their URLs cannot be guessed the way Crunchbase's can.
 MANUAL_IDENTIFIER_KINDS = {"pitchbook_url", "zoominfo_url"}
+
+
+@router.get("/markets/{market_id}/vendors/{brand_id}/benchmarks")
+async def vendor_benchmarks(market_id: int, brand_id: int,
+                            days: int = 30, metrics: Optional[str] = None,
+                            session=Depends(verify_session_api)):
+    """One vendor against the measured market and the top of it (spec 4.16).
+
+    ``metrics`` is an optional comma-separated subset of
+    ``market_benchmark.METRICS``; without it every supported metric is
+    returned, which is what the comparison table needs.
+
+    The route requires a session, so the caller is always entitled to the whole
+    market and the Top-N members are named. The restricted path is the shared
+    report, which never reaches here.
+    """
+    from app.services import market_benchmark as mbench
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            keys = ([k.strip() for k in metrics.split(",") if k.strip()]
+                    if metrics else None)
+            return mbench.benchmarks(conn, market, brand_id,
+                                     days=max(1, min(int(days), 365)),
+                                     metric_keys=keys, include_cohort=True)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 class SetIdentifier(BaseModel):

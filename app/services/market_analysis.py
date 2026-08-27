@@ -1055,25 +1055,25 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         "unmeasured_total": unmeasured_total,
         "metric": mm.metric(
             "owned_post_volume",
-            label="Vendor posts observed",
+            label="Posts the vendors published themselves",
             definition=(
-                "Posts published by a monitored vendor's own LinkedIn account "
-                "in the selected period. A post the vendor reshared from "
-                "somebody else is counted separately and is not treated as the "
-                "vendor speaking."),
-            numerator="vendor-owned LinkedIn posts",
-            denominator="vendors whose post collection succeeded",
+                "Posts a vendor put out on its own LinkedIn account during the "
+                "period. If a vendor reshared somebody else's post, we count "
+                "that separately, because resharing is not the same as having "
+                "something to say."),
+            numerator="posts from the vendors' own LinkedIn accounts",
+            denominator="vendors whose posts we managed to collect",
             window={"days": days},
             collection=post_collection,
             value=own_total,
             limitations=[
-                "Covers LinkedIn only. A vendor active on another network reads "
-                "as quieter than it is.",
-                "Posts collected before reshare state was recorded are counted "
-                "as the vendor's own.",
-                "Earned coverage counts only what somebody other than the "
-                "vendor published. A post on the vendor's own site is reported "
-                "separately as owned, not as coverage of it.",
+                "LinkedIn only. A vendor that is busy on another network "
+                "will look quieter here than it is.",
+                "We only started recording whether a post was a reshare "
+                "part-way through. Older posts all count as the vendor's own.",
+                "When we say somebody wrote about a vendor, we mean somebody "
+                "other than the vendor. A post on the vendor's own site counts "
+                "as the vendor talking, not as coverage of it.",
             ]),
         "reactions_total": sum(r["reactions"] for r in rows),
         "earned_total": earned_total,

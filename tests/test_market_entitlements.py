@@ -192,7 +192,14 @@ def test_mm20_the_report_says_what_it_is_not_showing(conn, market):
     html = build_market_report(conn, dict(row), days=30,
                                allowed_brand_ids=allowed).decode()
     assert 'shared view' in html
-    assert 'monitored vendors' in html
+    # The two numbers, not the sentence around them: how many vendors this
+    # view covers and how many exist. Pinning the wording made a copy edit
+    # look like a disclosure regression.
+    assert f'{len(allowed)} most active' in html
+    total = conn.execute(text(
+        "SELECT COUNT(*) FROM bw_market_brands "
+        "WHERE market_id = :m AND role <> 'excluded'"), {'m': market}).scalar()
+    assert f'of the {total} vendors' in html
 
 
 def test_the_backstop_refuses_rather_than_redacting():

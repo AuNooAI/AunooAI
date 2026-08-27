@@ -25,7 +25,7 @@ from xml.sax.saxutils import escape
 
 from sqlalchemy import text
 
-from app.services.market_corpus import own_voice_sql
+from app.services.market_corpus import earned_sql, own_voice_sql
 
 # "The vendor is actually speaking". A reshare is the vendor
 # amplifying somebody else, so it is not an owned post.
@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 #: numbers is not a market trend. Sized to match the intent of
 #: market_analysis.MIN_POSTS_FOR_RATIO rather than to any statistical claim.
 MIN_VENDORS_FOR_HEADCOUNT_AVERAGE = 5
+
+#: What counts as a headcount reading, as one clause so that everything reading
+#: headcount applies the same rule. A LinkedIn profile may report a size band
+#: ("51-200") instead of a number, and the provider returns 0 for a company
+#: whose staff count it does not have. Neither is a measurement, so neither may
+#: reach any arithmetic. The benchmark in market_benchmark uses this same
+#: clause, because a vendor counted here and skipped there would put the
+#: benchmark and the market total permanently out of step.
+EXACT_HEADCOUNT = ("s.data->>\'employee_count\' ~ \'^[0-9]+$\' "
+                   "AND (s.data->>\'employee_count\')::numeric > 0")
 
 
 def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
@@ -554,7 +564,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
                                         'linkedin_company_profile')
     cadence = profile_state["freshness"]["expected_interval_seconds"]
 
-    rows = [dict(r) for r in conn.execute(text("""
+    rows = [dict(r) for r in conn.execute(text(f"""
         WITH readings AS (
             SELECT s.brand_id, s.observed_at,
                    (s.data->>'employee_count')::numeric AS headcount
@@ -564,8 +574,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
              WHERE s.snapshot_type = 'profile'
                -- Exact integers only. A band, a range or any other text is
                -- not a count and must not reach the arithmetic below.
-               AND s.data->>'employee_count' ~ '^[0-9]+$'
-               AND (s.data->>'employee_count')::numeric > 0
+               AND {EXACT_HEADCOUNT}
         ), ranked AS (
             SELECT brand_id, observed_at, headcount,
                    ROW_NUMBER() OVER (PARTITION BY brand_id
@@ -677,19 +686,20 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
         },
         "metric": mm.metric(
             "observed_market_headcount",
-            label="Observed market headcount",
+            label="Total staff across the market",
             definition=(
-                "The sum of the most recent exact employee counts read from "
-                "LinkedIn, across vendors whose reading is current. Size bands "
-                "are never counted as numbers and vendors without an exact "
-                "reading are excluded rather than counted as zero."),
-            numerator="latest exact employee counts",
-            denominator="vendors with a current LinkedIn profile reading",
+                "We add up the most recent employee count each vendor shows on "
+                "LinkedIn. Some companies publish a range instead of a number, "
+                "like 51-200. We leave those out rather than guess, and we "
+                "leave out vendors we have no reading for rather than count "
+                "them as zero."),
+            numerator="the latest exact employee count for each vendor",
+            denominator="vendors whose LinkedIn profile we have read recently",
             collection=profile_state,
             value=total,
             limitations=[
-                "Counts only vendors with an exact reading, so it is a floor "
-                "for the market rather than its true total.",
+                "This is a floor, not the real total. Vendors publishing a "
+                "range instead of a number are missing from it.",
                 "LinkedIn headcount is self-reported by each company.",
                 ("Movement needs two readings. %d of %d vendors have only one "
                  "so far." % (len(insufficient), len(rows))),
@@ -799,6 +809,9 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     """
     market_id = market["id"]
     since = f"(NOW() - INTERVAL '{int(days)} days')::text"
+    # Same rule as the posts list uses for `ownership=earned`, so the index
+    # channel and the drill-down a reader opens from it count the same set.
+    earned = earned_sql("a3", "bac3")
 
     coverage = _vendor_coverage(conn, market_id)
 
@@ -875,7 +888,19 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                   JOIN articles a2 ON a2.uri = bac2.article_uri
                  WHERE bac2.brand_id = b.id
                    AND COALESCE(a2.publication_date, a2.submission_date) >= {since}
-               ) AS articles
+               ) AS articles,
+               -- Coverage by somebody other than the vendor. Kept apart from
+               -- `articles` because `articles` counts everything matched to
+               -- the vendor, and on this market 2516 of 2531 of those are the
+               -- vendor's own LinkedIn posts. Scoring the Activity Index on
+               -- `articles` therefore weighted the posts channel twice and
+               -- called the result a third, independent channel.
+               (SELECT COUNT(*) FROM bw_article_categories bac3
+                  JOIN articles a3 ON a3.uri = bac3.article_uri
+                 WHERE bac3.brand_id = b.id
+                   AND {earned}
+                   AND COALESCE(a3.publication_date, a3.submission_date) >= {since}
+               ) AS earned
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
@@ -923,8 +948,11 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     # a restricted report's Top 10 would not be stable.
     activity.sort(key=lambda r: (r["activity_index"] is None,
                                  -(r["activity_index"] or 0),
-                                 -(r["articles"] or 0), -(r["posts"] or 0),
+                                 -(r["earned"] or 0), -(r["posts"] or 0),
                                  -(r["jobs"] or 0), r["vendor"] or ""))
+    # Quiet still means quiet on everything matched to the vendor, `articles`
+    # rather than `earned`: a vendor whose own posts are the only thing we saw
+    # is not a vendor we saw nothing from.
     quiet = [r for r in activity
              if not r["posts"] and not r["jobs"] and not r["articles"]]
 
