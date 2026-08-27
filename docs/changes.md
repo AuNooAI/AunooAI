@@ -2,6 +2,96 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 — perception scores find a brand's articles by its link; radar and comparison show fewer brands
+
+### Goal
+On bugfixing the Brand Watcher perception table read "no data" for 32 of 34 brands, the radar
+overlaid all 34, the comparison tab did the same, and the open sub-tab reset to the dashboard
+on every reload. Commit `67128fa5`, plus an unrelated briefing fix that was sitting in the tree
+(`89071fe9`).
+
+### Fix — `/perception` keyed on a topic that market-monitor tenants do not have
+**`app/routes/brand_watcher_routes.py`**. The endpoint found a brand's media, social and
+community items only under a topic named `Brand Monitoring <name>`. That is how classic brand
+tenants (wileytest, wbm) are laid out. On bugfixing the 86 `bw_brands` rows are the AI-SOC
+vendors the Market Monitor imported on 08-19; their news is collected under one topic,
+`Market Monitoring SOC Automation`, and linked to a brand through `bw_article_categories`,
+and the `<name> - Brand Watch` topics hold the vendor's own LinkedIn posts from
+`market_collect.py` (no sentiment, `topic_alignment_score` hard-set to 1.0). Only 7ai had a
+`Brand Monitoring` topic, from a manual add on 08-14, so only 7ai scored. Investor already
+used the classifier link, which is why Radiant Security had an investor score and nothing else.
+
+The query now unions three links and keeps one row per (brand, article) by priority:
+`bw_entity_mentions` (its sentiment belongs to the post–brand pair, so it wins), then
+`bw_article_categories` with `COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4`,
+then the brand topic. `news_source = 'linkedin'` with `bias_source LIKE 'vendor:%'` goes to an
+`owned` bucket that no dimension reads: a vendor's own posts are its voice, not perception of
+it. The `entity_flags` import is inside a try/except, because wiley and wileytest have no
+`app/services/entity_flags.py` and no `bw_entity_mentions` table; there the third branch is
+simply not added.
+
+Volume on bugfixing is small either way. After the relevance gate there are 31 scored items
+across all vendors in 90 days (21 news, 10 social), so most cells stay "no data" honestly.
+The "+679" and "+1001" in the pasted table were the score and the grey volume number glued
+together by copy-paste: +67 from 9 posts, +100 from 1 item.
+
+### Fix — social tab empty on bugfixing: a collection gap, not a display bug (no code change)
+`ENTITY_INTELLIGENCE_MENTION_READ=true` in bugfixing's `.env`, so the social tab reads
+`bw_entity_mentions`. That table holds 3,109 rows, of which 2,920 are the vendors' own LinkedIn
+posts; public social mentions total 26 (15 Bluesky, 10 X, 1 Reddit) across 80 vendors, all
+`pending`, none scored. There is no per-vendor social collection; the market topic collects
+by market keywords and a post rarely names a vendor. Left as is.
+
+### Feature — radar and comparison default to primary/selected + top N
+**`ui/src/components/newsfeed/BrandWatcherPerception.tsx`**: the default visible set is the
+primary brand (if one is flagged) plus the top N brands by scored volume, N selectable
+(3/5/8/10/all, default 5). Brand chips still add or remove; "reset" returns to the default; a
+new window or N resets the manual set. **`BrandWatcherTab.tsx`**: the comparison tab gets
+the same selector. `compShown` and `sovShown` are derived from the selected brand ids (or the
+primary) plus top N by `total_articles` / `mention_count`; Category Breakdown, the comparison
+table and the sentiment summary read `compShown`; Share of Voice folds the remainder into one
+"Others (n)" slice so percentages still sum to 100, and that slice has no drill-down. Pinned
+brands do not consume a top-N slot.
+
+### Fix — the Brand Watcher sub-tab reset on reload
+**`BrandWatcherTab.tsx`**: `activeTab` was `useState('dashboard')`. It now initialises from
+`localStorage['bw_active_tab']` (validated against `BW_SUB_TABS`) and writes back on change.
+
+### Note — "Dropzone shows as the default vendor"
+No brand has `is_primary` on bugfixing and the brand list sorts by name, so the code's own
+fallback is 7ai. The remaining source is `localStorage['brandWatcher_config'].selectedBrandIds`,
+which remembers a clicked brand across sessions. "All brands" in the header dropdown clears
+it. Not changed.
+
+### Fix (unrelated, `89071fe9`) — a briefing citation bracket with two IDs lost both
+**`app/services/market_briefing.py`**. `[A5, A11]` matched the stray-bracket pattern and was
+stripped whole (three brackets, eight valid IDs, in the 2026-08-17 SOC automation weekly).
+`_CITATION_RE` now accepts a comma-separated group; invented IDs drop individually and the
+rest are kept; dropped entries use the `check` key the report expects. Found uncommitted in
+the tree from earlier work and committed on its own.
+
+### Verification
+`EXPLAIN ANALYZE` of the new query on `test`: 56.5 ms. `/api/brand-watcher/perception?days_back=90`
+via a minted session cookie after restart — bugfixing: 34 brands, 9 with scores (was 2),
+e.g. Prophet Security media +75 from 8 items, Dropzone AI media +50 from 2; wileytest: 4
+brands, all five dimensions, Wiley media +32 from 351 articles; the old topic-only path
+counted 309 Wiley media articles in the same window and the new one 348, so the classifier
+link adds about 40 per brand; wiley: `brands: []` because `bw_brands` has 0 rows there.
+`npm run typecheck`: clean against baseline. Journals clean on all three after restart; wiley
+logs a pre-existing "Bluesky credentials not found" from its collector.
+
+### Propagation
+Backend block byte-identical on bugfixing, wiley, wileytest (diff checked). Built bundle
+(`index-Ctuc41qu.js`) rsynced with `--delete` to both tenants' `static/trend-convergence/`
+plus the six `*_react.html` templates; the only other `ui/src` change since their 08-24 sync
+was Market Monitor code already in that bundle. All three services restarted after a
+90-second in-flight check (0 LLM/collection lines). Not on wbm or the dedicated BW tenants.
+
+### Lessons
+- On bugfixing, a Brand Watcher view that keys on `Brand Monitoring <name>` topics finds
+  nothing. Check which link a view uses before suspecting collection or enrichment.
+- Code that imports `app/services/entity_flags` cannot be copied to wiley/wileytest as-is.
+
 ## 2026-08-27 — vendor feeds re-stamp their archives; the report loses its filler and gains a byline
 
 ### Goal
