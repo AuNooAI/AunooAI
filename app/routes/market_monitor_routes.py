@@ -1275,9 +1275,13 @@ async def market_report(
     days: int = Query(30, ge=1, le=365),
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
+    view: str = Query("report"),
     session=Depends(verify_session_optional),
 ):
     """The market as one self-contained HTML file.
+
+    ``view=news`` is the second page: every record in the period as a
+    time-ordered river of headlines, no analysis.
 
     Three ways in, in order: a valid signed link, a session, or a public
     market. Anything else is a 404 rather than a redirect — a redirect is what
@@ -1288,7 +1292,8 @@ async def market_report(
 
     from fastapi.responses import Response
 
-    from app.services.market_report_html import build_market_report
+    from app.services.market_report_html import (build_market_news_page,
+                                                 build_market_report)
 
     signed = bool(
         exp and token
@@ -1320,7 +1325,9 @@ async def market_report(
             # shared reader switching from 30 days to 7 loses the token and
             # lands on a 404 — and `days` is not part of what the token
             # signs, so changing the window is safe.
-            return build_market_report(
+            builder = (build_market_news_page if view == "news"
+                       else build_market_report)
+            return builder(
                 conn, market, days=days, allowed_brand_ids=allowed,
                 link_params=({"exp": exp, "token": token} if signed else {}))
         finally:

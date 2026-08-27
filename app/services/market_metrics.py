@@ -73,10 +73,11 @@ SOURCE_LEGEND: List[Dict[str, str]] = [
      "dataset": "LinkedIn jobs"},
     {"key": "indeed_jobs", "content": "Job listings (experimental)",
      "platform": "Indeed", "provider": "Bright Data",
-     "ownership": "vendor-associated; attribution unvalidated",
+     "ownership": "vendor-associated; we have not yet checked that every "
+                  "listing is the vendor's own",
      "dataset": "Indeed jobs"},
     {"key": "xpoz_social", "content": "Practitioner discussion",
-     "platform": "from item metadata", "provider": "Xpoz",
+     "platform": "named on each item", "provider": "Xpoz",
      "ownership": "third-party (earned)",
      "dataset": "social posts"},
     {"key": "bluesky", "content": "Practitioner discussion",
@@ -289,7 +290,8 @@ def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
     elif successful < eligible:
         state = "partial"
         detail = f"{successful} of {eligible} vendors collected"
-        public = f"we checked {successful} of the {eligible} vendors we can"
+        public = (f"we checked {successful} of the {eligible} vendors we have "
+                  "a way to look up")
     elif is_stale:
         state = "stale"
         detail = (f"last successful collection "

@@ -12,6 +12,7 @@ from sqlalchemy import text, select, update
 from app.database import Database, get_database_instance
 from app.database_models import t_rss_feeds, t_rss_feed_monitor_status
 from app.collectors.rss_collector import RSSCollector
+from app.collectors import rss_collector
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,26 @@ class RSSFeedMonitor:
             logger.info(f"Found {articles_count} articles from feed '{feed_name}'")
 
             if articles:
+                # A feed that has just re-stamped its whole archive hands us
+                # old posts with this week's date. Checked against the
+                # Wayback Machine only for URLs we do not hold yet and only
+                # when the feed shows a same-minute batch — see the note in
+                # rss_collector. Done before storing, so the stored date is
+                # the bounded one.
+                if rss_collector.restamp_check_enabled():
+                    try:
+                        fresh = [a for a in articles
+                                 if (a.get('url') or '').strip()
+                                 and not self.db.facade.article_exists(
+                                     (a['url'].strip(),))]
+                        fixed = await rss_collector.bound_restamped_dates(fresh)
+                        if fixed:
+                            logger.info("Feed '%s': %d re-stamped date(s) "
+                                        "bounded by first capture", feed_name, fixed)
+                    except Exception as check_error:              # noqa: BLE001
+                        logger.warning("re-stamp check skipped for '%s': %s",
+                                       feed_name, check_error)
+
                 # Store articles using database facade (same as keyword monitor)
                 for article in articles:
                     stored = await self._store_article(article, topic)

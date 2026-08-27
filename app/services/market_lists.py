@@ -539,8 +539,10 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
     # Which source found what. Two sources with very different coverage read as
     # one number otherwise, and the LinkedIn half is the thin one.
     if len(by_source) > 1:
+        names = {"ats_jobs": "the vendors' own careers pages",
+                 "linkedin_jobs": "LinkedIn", "indeed_jobs": "Indeed"}
         notes.append("Where these came from: " + ", ".join(
-            f"{n} from {k.replace('_', ' ')}"
+            f"{n} from {names.get(k, k.replace('_', ' '))}"
             for k, n in sorted(by_source.items(), key=lambda kv: -kv[1])))
 
     metric = mmet.metric(

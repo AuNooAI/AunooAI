@@ -24,12 +24,22 @@ BANNED_PATTERNS = [
     r"[Bb]ased on \d+ of \d+ [^.]* have\b",
     r"rapidly evolving",
     r"dynamic landscape",
+    r"dynamic market",
     r"increasingly competitive",
     r"shows? strong momentum",
+    r"gaining momentum",
     r"signals? strong traction",
+    r"strong traction",
     r"still building",
     r"started selling",
     r"states? a fact",
+    # A headline count of vendors "with no signal" said we observed them all
+    # and found nothing. The report now states an observation state per
+    # vendor instead, and never a count of silence.
+    r"[Vv]endors with no signal",
+    r"no signal",
+    # Crunchbase's proprietary scores are not market momentum.
+    r"[Ff]unding and momentum",
 ]
 
 
@@ -138,7 +148,10 @@ def test_a_delta_against_nothing_is_not_a_percentage():
 
     assert '%' not in _delta(5, 0)
     assert 'Up from none' in _delta(5, 0)
-    assert 'no comparison' in _delta(5, None)
+    # No earlier period at all: say so, and say since when, never a figure.
+    assert '%' not in _delta(5, None)
+    assert 'No earlier period' in _delta(5, None)
+    assert '19 August 2026' in _delta(5, None, since='19 August 2026')
     assert 'Unchanged' in _delta(5, 5)
     assert '+100%' in _delta(2, 1)
 
@@ -245,3 +258,38 @@ def test_the_nav_points_at_the_drawers_themselves(conn, market):
         assert f'href="#{anchor}"' in html, f'{anchor} is not in the nav'
         assert f'<details class="mm-drawer" id="{anchor}">' in html, (
             f'{anchor} must sit on the drawer, not on a marker beside it')
+
+
+# ---------------------------------------------------------------------------
+# Findings first: the order of the lead, and what is no longer on it
+# ---------------------------------------------------------------------------
+
+def test_the_lead_answers_before_it_shows_evidence(conn, market):
+    """What changed, who changed, what it says, then the developments — and
+    only then the drawers. A reader who stops after two screens has the
+    answer; the charts are evidence, not the argument."""
+    from sqlalchemy import text
+    from app.services.market_report_html import build_market_report
+
+    row = conn.execute(text(
+        "SELECT * FROM bw_markets WHERE id = :m"), {'m': market}).mappings().first()
+    html = build_market_report(conn, dict(row), days=30).decode()
+
+    order = [html.index(marker) for marker in (
+        '<h2>Executive assessment</h2>',
+        '<h2>Vendors showing material change</h2>',
+        '<h2>What this says about the market</h2>',
+        '<h2>Material market developments</h2>',
+        '<h2>Observed vendor activity</h2>',
+        '<details class="mm-drawer" id="mm-analysis">',
+    )]
+    assert order == sorted(order), 'the lead is out of order'
+    assert 'Funding and investor activity' in html
+    assert 'collected records' in html and 'material development' in html
+    # Every development names whose word it rests on.
+    assert ('Vendor source only' in html or 'Also reported independently' in html
+            or 'Reported by multiple independent sources' in html
+            or 'No material development' in html)
+    # The observation states, never a count of silence.
+    assert 'monitored, no material change observed' in html
+    assert 'with incomplete observation' in html or 'incomplete' in html

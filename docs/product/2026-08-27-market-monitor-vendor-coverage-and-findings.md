@@ -8,6 +8,7 @@ _2026-08-27 · Market Monitor (bugfixing tenant): Findings, Analysis, Collection
 - A vendor's own blog is now counted as the vendor's own voice, not as outside coverage.
 - Charts that had nothing to show no longer draw: a one-bar chart, a two-point trend, a benchmark of zeros.
 - The vendor map works again, vendor-page events stop warning on every row, and the Wire says which companies in a story are ones we track.
+- The shared report's figures now agree with each other (one count of open roles, one window for every "last 30 days" panel) and it stops comparing the period against one nothing was collecting in.
 
 ## Why it matters
 **Outside coverage was missing, not zero.** The market question is whether anyone other than the vendor is talking about it. The system had no step that connected a news article to the vendor it named, so every "earned mentions" figure, the mentions third of the Activity Index, and the vendor page's "External mentions" read 0 for almost every company. An analyst reading that would conclude the market is quiet. It is not: over the last 30 days, 21 articles by outsiders name 9 of these vendors, against 3 articles and 2 vendors the day before. Prophet Security's page went from 51 "external mentions" — all of them its own blog — to 1 real one. Who feels it: the analyst using the index to rank vendors, and anyone reading a vendor page.
@@ -33,5 +34,5 @@ This closes the gap between "we collect what the vendor says" and "we know what 
 - Matching is by reviewed keyword, so a post that says "the Dropzone thing" without the name is not credited. Two keywords collided today (a hashtag, a Korean given name) and were fixed by editing the keywords, which is the intended maintenance path.
 - Every finding in this period is still the vendor's own claim: findings are synthesised from evidence, and the outside coverage attributed today has not yet been synthesised into findings. The list will change as that runs.
 - The vendor page's Coverage panel is all-time; the market overview follows the period selector. The panel now says so, but the two numbers will differ.
-- Not built: the activity-map scatter, activity change versus the prior period and "fastest rising", because there is one period of data so far and those would be invented metrics.
+- The shared report no longer shows change against a period before collection began. Until 18 October 2026 the report says when collection started and that the period's figures are a floor; "Who moved" lists only changes measured twice inside the collection window (one so far: Dropzone AI's headcount, 77 to 78). The Crunchbase growth-against-attention chart is gone for the same reason: one reading of somebody else's growth score is not a measurement of momentum.
 - LinkedIn jobs returned listings for 16 of 83 vendors on its first successful run. Treat "no open roles" for the rest as unconfirmed until a second run agrees.

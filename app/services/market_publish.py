@@ -108,8 +108,7 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
             (SELECT s.data FROM bw_vendor_snapshots s
              WHERE s.brand_id = b.id AND s.snapshot_type = 'funding'
              ORDER BY s.observed_at DESC LIMIT 1) AS funding,
-            (SELECT COUNT(*) FROM bw_vendor_snapshots s
-             WHERE s.brand_id = b.id AND s.snapshot_type = 'job_posting') AS jobs,
+            0 AS jobs,
             (SELECT COUNT(*) FROM bw_article_categories bac
              WHERE bac.brand_id = b.id) AS articles,
             (SELECT MAX(s.observed_at) FROM bw_vendor_snapshots s
@@ -130,6 +129,23 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
               >= (NOW() - INTERVAL '30 days')::text
         GROUP BY 1
     """)).fetchall())
+
+    # Roles open now, from the same list a reader opens from the figure. This
+    # used to count every job_posting snapshot ever written for the vendor,
+    # so the registry said 7ai had 72 open roles while the hiring analysis on
+    # the same page said 32: five runs' worth of rows, LinkedIn and the
+    # careers page both counted, against one deduplicated present-now count.
+    from app.services import market_lists as _mlists
+    open_now: Dict[int, int] = {}
+    try:
+        _jobs = _mlists.jobs(conn, market_id, page_size=1, include_all=True)
+        for _row in _jobs.get("_all") or []:
+            if _row["status"] in ("currently_observed", "newly_observed",
+                                  "first_observation"):
+                open_now[int(_row["brand_id"])] = \
+                    open_now.get(int(_row["brand_id"]), 0) + 1
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("dataset: jobs list failed: %s", exc)
 
     idents = {}
     for brand_id, kind, value in conn.execute(text("""
@@ -177,7 +193,7 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
             "linkedin_url": ids.get("linkedin_company_url"),
             "crunchbase_url": ids.get("crunchbase_url"),
             "posts_30d": posts.get(r["id"], 0),
-            "open_jobs": r["jobs"],
+            "open_jobs": open_now.get(r["id"], 0),
             "articles_attributed": r["articles"],
             "last_observed": r["last_observed"].isoformat() if r["last_observed"] else None,
         })
@@ -536,19 +552,29 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
     """Who moved, across every metric that can state a change.
 
     Three metric families, and they do not all qualify at the same time.
-    Headcount needs two readings of the same vendor. Outside coverage needs the
-    period before this one, which we always have. Open roles need two
-    successful job runs for that vendor.
+    Headcount needs two readings of the same vendor. Outside coverage needs
+    the period before this one to have been one we were collecting in, which
+    a market created last week does not have. Open roles need two successful
+    job runs for that vendor.
 
     A metric that cannot state a change is named in ``unavailable`` with the
     reason, rather than left out. "No movers" and "we cannot measure movement"
     are different answers and the second one is the true one here.
     """
-    from app.services.market_analysis import _POST_BRANDS
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.market_analysis import _POST_BRANDS, collection_started
     from app.services.market_corpus import earned_sql, _iso_days_ago
 
     movers: List[Dict[str, Any]] = []
     unavailable: List[Dict[str, str]] = []
+
+    # "0 → 7 items, +7 from none" ranked six vendors as the market's fastest
+    # risers on a market eight days old. The earlier window was one nothing
+    # was collecting in, so the zero was never a measurement.
+    started = collection_started(conn, market["id"])
+    prev_window_start = datetime.now(timezone.utc) - timedelta(days=days * 2)
+    coverage_comparable = bool(started) and prev_window_start >= started
 
     # --- Headcount -----------------------------------------------------
     head = headcount_market(conn, market)
@@ -573,7 +599,7 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
     # --- Coverage by somebody other than the vendor --------------------
     # Both windows in one pass. Two calls to share_of_voice cannot express
     # "the period before this one" — its window is always "the last N days".
-    rows = conn.execute(text(f"""
+    rows = [] if not coverage_comparable else conn.execute(text(f"""
         WITH pb AS ({_POST_BRANDS})
         SELECT b.id AS brand_id, b.display_name AS vendor,
                COUNT(DISTINCT a.uri) FILTER (
@@ -591,6 +617,12 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
          GROUP BY 1, 2
     """), {"m": market["id"], "cur": _iso_days_ago(days),
            "prev": _iso_days_ago(days * 2)}).mappings().all()
+    if not coverage_comparable:
+        unavailable.append({
+            "metric": "Written about by others",
+            "reason": ("no earlier period to compare with yet"
+                       + (f' — collection began {started:%-d %B %Y}'
+                          if started else ""))})
     for row in rows:
         now_n, prev_n = int(row["now_n"] or 0), int(row["prev_n"] or 0)
         if now_n == prev_n:
@@ -638,7 +670,8 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
 
     movers.sort(key=lambda m: (-m["sort"], m["vendor"] or ""))
     return {"movers": movers[:limit], "unavailable": unavailable,
-            "window_days": days}
+            "window_days": days,
+            "collection_started": started.isoformat() if started else None}
 
 
 def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
@@ -1027,7 +1060,10 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     _jobs = _mlists.jobs(conn, market_id, page_size=1, include_all=True)
     _present: Dict[int, int] = {}
     for _row in _jobs.get("_all") or []:
-        if _row["status"] in ("currently_observed", "newly_observed"):
+        # `first_observation` is a listing seen on a vendor's only run so
+        # far. It is open now; it is only not yet known to be new.
+        if _row["status"] in ("currently_observed", "newly_observed",
+                              "first_observation"):
             _present[int(_row["brand_id"])] = \
                 _present.get(int(_row["brand_id"]), 0) + 1
     for _row in activity:

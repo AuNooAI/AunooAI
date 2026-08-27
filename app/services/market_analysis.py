@@ -25,6 +25,14 @@ from app.services.market_corpus import _iso_days_ago
 
 from app.services import entity_flags
 from app.services import market_metrics as mm
+# The findings-first layer: deduplicated material developments, vendor
+# observation states, candidate findings and synthesis. Kept in its own module
+# for size, and re-exported here so ``market_analysis.material_developments``
+# is the name callers reach for.
+from app.services.market_assessment import (  # noqa: F401
+    assess as assess_market, candidate_findings, distribution, is_noise,
+    market_synthesis, material_developments, source_coverage,
+    vendor_observation)
 from app.services.market_corpus import (earned_sql, own_voice_sql,
                                         vendor_domain_sql)
 
@@ -294,11 +302,13 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
                   FROM bw_vendor_snapshots s
                   JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                            AND mb.market_id = :m
+                                           AND mb.role <> 'excluded'
                  WHERE s.snapshot_type = 'funding'),
                (SELECT COUNT(DISTINCT i.brand_id)
                   FROM bw_vendor_identifiers i
                   JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
                                            AND mb.market_id = :m
+                                           AND mb.role <> 'excluded'
                  WHERE i.kind = 'crunchbase_url' AND i.valid_to IS NULL)
     """), {"m": market_id}).fetchone()
 
@@ -379,7 +389,9 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
                    (s.data->>'growth_score')::numeric AS growth_score,
                    LAG((s.data->>'heat_score')::numeric) OVER w AS prev_heat,
                    LAG((s.data->>'growth_score')::numeric) OVER w AS prev_growth,
-                   LAG(s.observed_at) OVER w AS prev_observed_at
+                   LAG(s.observed_at) OVER w AS prev_observed_at,
+                   s.data->>'name' AS cb_name,
+                   LAG(s.data->>'name') OVER w AS prev_cb_name
             FROM bw_vendor_snapshots s
             JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                      AND mb.market_id = :m AND mb.role <> 'excluded'
@@ -392,6 +404,11 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
                growth_score - prev_growth AS growth_delta
         FROM ordered
         WHERE prev_heat IS NOT NULL
+          -- Two readings of two different Crunchbase entities are not a
+          -- change. "Andesite" (heat 89) followed by "Andesite AI" (heat 5)
+          -- reported as attention falling 84 points, when what happened was
+          -- the lookup resolving to a different profile.
+          AND COALESCE(cb_name, '') = COALESCE(prev_cb_name, '')
           AND (heat_score IS DISTINCT FROM prev_heat
                OR growth_score IS DISTINCT FROM prev_growth)
         ORDER BY observed_at DESC LIMIT 50
@@ -640,7 +657,8 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
     }
 
 
-_DAYS_AWARE = {"signal_noise", "hiring", "share_of_voice"}
+_DAYS_AWARE = {"signal_noise", "hiring", "share_of_voice",
+               "material_developments", "observation"}
 
 
 def run(conn, market_id: int, name: str, *, days: Optional[int] = None
@@ -655,7 +673,12 @@ def run(conn, market_id: int, name: str, *, days: Optional[int] = None
     """
     fn = {"formation": formation, "signal_noise": signal_noise,
           "funding": funding, "hiring": hiring,
-          "share_of_voice": share_of_voice}.get(name)
+          "share_of_voice": share_of_voice,
+          # Not in ANALYSES: the Analysis view and the export bundle list
+          # that tuple, and these two are the report's lead rather than a
+          # panel. Reachable by name through the same endpoint.
+          "material_developments": material_developments,
+          "observation": vendor_observation}.get(name)
     if not fn:
         raise ValueError(f"unknown analysis: {name}")
     if name in _DAYS_AWARE:
@@ -1144,7 +1167,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
         # The post's own words. Title first: for a social item the title is
         # usually the post, and the summary is a truncation of it.
         quote = (row.get("title") or row.get("summary") or "").strip()
-        if not quote:
+        # A training log or a job hunt is not an outside voice on the market.
+        if not quote or is_noise(quote):
             continue
         out.append({
             "uri": row["uri"],
@@ -1532,8 +1556,42 @@ def career_moves(conn, market_id: int, *, days: Optional[int] = None,
     }
 
 
+def collection_started(conn, market_id: int):
+    """When we began collecting this market, as a timezone-aware datetime.
+
+    The earlier of the market's own creation and its first collection run
+    that succeeded. Anything dated before this was not observed as it
+    happened: it was either collected later as backlog (a LinkedIn post
+    carries its publication date whenever we fetch it) or not at all. A
+    figure for a window that starts before this date is a floor, and a
+    comparison between two such windows is not a comparison.
+    """
+    from datetime import datetime, timezone
+
+    row = conn.execute(text("""
+        SELECT LEAST(
+            (SELECT created_at FROM bw_markets WHERE id = :m),
+            (SELECT MIN(started_at) FROM bw_collection_runs
+              WHERE market_id = :m AND status = 'succeeded'))
+    """), {"m": market_id}).scalar()
+    if row is None:
+        return None
+    if isinstance(row, str):
+        row = datetime.fromisoformat(row)
+    if row.tzinfo is None:
+        row = row.replace(tzinfo=timezone.utc)
+    return row
+
+
 def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     """This reporting period against the immediately preceding one, same length.
+
+    ``comparable`` says whether the earlier window was one we were collecting
+    in. On a market created eight days ago the "previous 30 days" is a window
+    nothing was watching, and a table of "398 → 655" against it reads as a
+    rise that never happened. The counts are still returned, because they
+    are true counts of dated records; the caller decides not to show them as
+    a change.
 
     Deliberately narrow: only counts that are cheap and exact to bound by
     date — announcement-kind counts, job postings observed, and matched
@@ -1592,6 +1650,10 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
     all_keys = set(current) | set(previous)
     deltas = {k: current.get(k, 0) - previous.get(k, 0) for k in all_keys}
 
+    started = collection_started(conn, market_id)
+    comparable = bool(started) and prev_start_dt >= started
+    comparable_from = (started + timedelta(days=days * 2)) if started else None
+
     return {
         "days": days,
         "current_range": (curr_start[:10], curr_end[:10]),
@@ -1599,6 +1661,10 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
         "current": current,
         "previous": previous,
         "deltas": deltas,
+        "comparable": comparable,
+        "collection_started": started.isoformat() if started else None,
+        "comparable_from": (comparable_from.date().isoformat()
+                            if comparable_from else None),
     }
 
 

@@ -2,6 +2,265 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 — vendor feeds re-stamp their archives; the report loses its filler and gains a byline
+
+### Goal
+The findings-first report (entry below) showed Prophet Security's Series A as this period's
+funding event. The page is from 2025. Three things followed from chasing that: a collector
+fix, a copy pass over the whole report, and the Cyberfuturists/Aunoo branding.
+
+### Fix — the RSS collector read feed dates in local time
+**`app/collectors/rss_collector.py`**. `_parse_entry` converted feedparser's UTC
+`published_parsed` with `time.mktime`, which reads a struct as local time; on this CEST server
+every stored feed date was one to two hours early (Prophet's feed said 09:07 GMT, we stored
+08:07). Now `calendar.timegm`. Applies to every RSS feed on every tenant.
+
+### Fix — a feed that re-stamps old posts is checked against the Wayback Machine
+**`app/collectors/rss_collector.py`**, **`app/tasks/rss_feed_monitor.py`**. Prophet's blog
+feed dated 50 posts on 14 August 2026, 12 of them within one minute; Dropzone's did the same
+on 18 June and 1 July. The pages' own `datePublished` was rewritten with them, so nothing on
+the site tells the truth. The Wayback CDX index does: the Series A post was first captured
+2025-07-31, the launch post 2024-10-03, Dropzone's "6 key SOC challenges" 2024-10-04.
+
+`bound_restamped_dates()` runs in the feed monitor for URLs not yet stored, only when the
+feed shows a batch (`RSS_RESTAMP_MIN_ITEMS`=4 entries in one minute). Each is looked up once
+(`first_capture()`, `RSS_WAYBACK_TIMEOUT`=30 s — the index regularly takes 10–20 s, and a
+12 s limit turned every answer into "no capture"). A capture earlier than the feed date by
+more than `RSS_RESTAMP_TOLERANCE_DAYS`=2 replaces `published_date` and records
+`raw_data.date_source='wayback_first_capture'`, `date_precision='no_later_than'` and the
+feed's own date. No capture or a failed lookup leaves the feed date; three failed lookups in
+a row end the check for that poll. `RSS_RESTAMP_CHECK=0` switches it off. Same-minute
+batches are normal for wire feeds (GlobeNewswire: 577 rows), but those items are new and
+have no earlier capture, so nothing changes for them.
+
+**`scripts/repair_restamped_feed_dates.py`** applies the rule to rows already stored: articles
+on tracked vendor domains in same-minute batches. First pass: 90 lookups, 55 corrections (31
+Prophet, 24 Dropzone), logged to `docs/product/2026-08-27-restamped-feed-dates.csv`; the
+UPDATE then died on "SSL connection has been closed unexpectedly" because the candidate
+SELECT's transaction sat idle for 50 minutes of lookups. The script now commits before the
+lookups and writes on a fresh connection (`--from-csv` re-applies a logged pass); the 55
+were applied that way. A second pass over the rows still in a batch corrected 6 more
+(`…-pass2.csv`); Prophet's launch post timed out both times and was applied from its capture
+(2024-10-03) by hand. 62 dates corrected in all; the 30-day corpus went from 654 to 623
+records and the report from 50 to 43 developments.
+
+### Fix — a finding told paying readers what we failed to observe
+The concentration finding closed with "11 of 84 vendors could not be fully observed this
+period, so their absence from this list is not a finding." All 11 had their LinkedIn page
+read on 27 August; what was missing was the website fetch (never attempted for nine, failed
+for Imperum, no domain on file for Intezer). True only under the two-source rule, overstated
+as written, and not a sentence for the reader. Removed; the state counts stay on the side
+card.
+
+### Fix — the report said things to fill slots
+**`app/services/market_assessment.py`**, **`market_report_html.py`**. Every finding carried
+a coverage sentence whether or not coverage was partial, and where there was no denominator
+the slot got method text ("An acquisition none of them carried would not appear"). Coverage
+lines now exist only below `COMPLETE_COVERAGE_SHARE`=90% of the registry and say what the
+gap means to the reader. Finding bodies use the development's own first sentence. "Why it
+matters" is one sentence per kind and no longer repeats under every entry in the
+developments list. The Concentration paragraph says "spread rather than concentrated" unless
+a top-three share clears `CONCENTRATED_TOP3_SHARE`=50% (this market: 27–45%). The market-scope
+lecture, the hiring/sentiment/activity explanations, the Crunchbase caveats and the duplicate
+corpus listing in the method drawer are gone; the observation card names "LinkedIn page and
+website" rather than policy slugs; registry states are one word.
+
+### Fix — deduplication
+A VentureBeat article about GLM-5.3 attached to the Cribl acquisition on the Title-Case words
+"Advances" and "Acquisition" and pulled the event's date to 14 August. Names from a Title-Case
+headline count only if the body capitalises them too; a long unattributed record needs two
+shared names; an attached report cannot date the event or precede it by more than
+`ATTACH_LEAD_DAYS`=2; "alliance", "global", "enterprise" joined the generic words. A title cut
+mid-sentence ("…and it's where") falls back to the body's first full sentence, with
+initials ("J.B. Poindexter") no longer treated as sentence ends.
+
+### Feature — byline, dark bar, news river, Top voices tab
+"By the Cyberfuturists · made using Aunoo" in the header and footer, marks from
+`static/report-brand/` embedded as data URIs (`cyberfuturists-mark.png` cropped from the
+site banner; `aunoo-mark.png` is the site's touch icon); the header and footer bars are dark
+(`#0b1220`) because the Cyberfuturists mark is drawn for a dark ground. The RSS link, dropped
+in the rewrite, is back on the developments header for public markets. Hiring developments
+render as one block; the report's "Top voices" lists only accounts with three or more posts;
+chart labels size to their slot; funding stages read "Series A".
+
+**`report.html?view=news`** (`build_market_news_page`; `app/routes/market_monitor_routes.py`
+takes `view=report|news` on the same route; linked "News river" from the report's top bar
+and back via "Assessment"): every record matched in the period, newest first,
+grouped by day, one line each — time, source, headline — with "More:" links for the other
+outlets and accounts carrying the same story (`market_corpus.cluster`). Vendor and handle
+prefixes come off the headline because the source label already names them. No analysis on
+it. Builds in 0.5 s for 623 records / 612 stories.
+
+**`ui/src/components/newsfeed/MarketVoicesView.tsx`** (new), **`MarketMonitorTab.tsx`**,
+**`MarketAnalysisView.tsx`**: the Top voices table moves off the bottom of Analysis onto its
+own "Top voices" tab (same `/voices` call, period selector shared). `Panel` and
+`CoverageLine` are exported from the analysis view for it. `npm run typecheck` clean against
+the baseline; `./ui/deploy-react-ui.sh` run, templates carry `gather-NofwitTB.js`.
+
+### Verification
+`tests/test_rss_restamped_dates.py` (new, 5): timezone, batch detection, replacement with
+provenance, no lookup outside a batch, CDX key. `pytest tests/test_market_assessment.py
+tests/test_market_report_copy.py tests/test_rss_restamped_dates.py` — **52 passed**; with
+`tests/test_market_corpus_names.py` added, **73 passed** on the final rerun. Live
+lookup: `first_capture(...raises-30-million...)` → 2025-07-31 04:39:15 UTC. After the
+backfill the 30-day report has 43 developments and four findings; the funding finding is
+gone; `articles.publication_date` for the Series A page is 2025-07-31. Service restarted
+12:31 CEST with no run in flight; the live page carries the byline, the RSS link and none of
+the removed sentences. Final check: `report.html?days=30&view=report` 200 in 1.6 s,
+`view=news` 200 in 0.8 s (curl on :10004); "Top voices" is in the deployed
+`MarketMonitorTab-DsSIW6qo.js` chunk.
+
+### Propagation
+`rss_collector.py` and `rss_feed_monitor.py` copied to wiley and wileytest (both were
+byte-identical to ours before the change). Neither service was restarted — a restart there
+fires overdue observer agents — so the fix takes effect at their next restart. The report,
+assessment and news-river modules, the route change and the Top voices tab exist only on
+bugfixing: wiley and wileytest have no `market_monitor_routes.py`, so the rebuilt UI bundle
+and templates were not rsynced there.
+
+### Lessons
+- A site can rewrite every date it publishes, feed and page alike. The only outside record
+  of when a URL existed is an archive capture, and it is an upper bound, not the date.
+- Do not hold a read transaction open across an hour of HTTP calls; commit first.
+- A slot in a template that must always be filled will be filled with filler.
+
+## 2026-08-27 — the market report leads with findings, and the renderer stops deciding what is material
+
+### Goal
+The shared Market Monitor report (`/api/market-monitor/markets/{id}/report.html`) had honest
+denominators but still read as a monitoring dashboard saved to HTML: a feed of records,
+"Vendors with no signal: 61", a "Funding and momentum" panel built on Crunchbase's scores, and
+four rows for one acquisition. The spec for this session asked it to answer the market's
+question — what changed, which vendors changed, what kind of change dominates, what supports
+that, and where the evidence is thin — from the first two screens, with no LLM call and
+nothing hardcoded for market 2. Commit subject: "Lead the market report with findings, and
+move materiality out of the renderer".
+
+### Feature — `market_assessment.py`, the analysis the report used to do inline
+**`app/services/market_assessment.py`** (new, 1,783 lines; re-exported from
+`market_analysis` as `material_developments`, `vendor_observation`, `assess_market`, and
+reachable by name through `market_analysis.run("material_developments" | "observation")`).
+Four things, all deterministic, all from stored rows:
+
+**Material developments.** One entry per real-world event. Candidates come from four
+places: the stored entity events (`bw_entity_events`, read through `market_findings`), the
+matched corpus (`market_corpus.articles`), job listings (a vendor with at least
+`MARKET_MIN_OPENINGS_FOR_HIRING`=5 distinct open roles in the period becomes one "Hiring"
+development, never one per job function as the stored `hiring_spike` events were), and
+LinkedIn headcount readings that moved by at least `MARKET_MIN_HEADCOUNT_PCT`=10 between two
+readings. Eleven canonical types: acquisition, market exit, market entry, funding, customer
+evidence, product expansion, partnership, product launch, executive appointment, headcount
+change, hiring. A vendor's own post counts on the review pass's verdict and kind (a
+"welcome to the team" post only when the title names a senior role). A news or vendor-web
+page counts when its headline matches and it names a tracked vendor; acquisition, funding
+and exit words are also read from the body, product/customer/partnership words are not,
+because a vendor's "What is agentic security?" explainer mentions launching, deploying and
+partners and is none of them. Practitioner social and research never seed a development;
+they attach as evidence. A keyword noise filter drops job-seekers, course completions,
+freelance adverts, market-size reports and event promotion before any rule runs.
+
+**Deduplication.** Records merge when they are the same family of event, within 14 days,
+about a vendor in common (or one side attributed to nobody), and share a name — a
+counterparty or product, matched across capitalised and lower-case forms — or at least three
+subject words making up a quarter of both. Short records (a tweet, a reposted headline)
+merge on one shared name. Handles, hashtags, domains and possessives are stripped first, so
+"Cribl's" is "Cribl" and `@CIOInfluence` is not a subject. The old renderer rule (two shared
+words, any vendor) is gone.
+
+**Provenance.** From the evidence's independence keys: `vendor_source_only`,
+`independently_reported` (one outside source), `multiple_independent_sources`, and
+`measured` for headcount readings, which nobody reported. Three records from one publisher
+are one source. The labels never say "verified" or "corroborated".
+
+**Observation states.** Per vendor: `material_change`, `monitored_no_material_change`,
+`incomplete_coverage`, `paused`, `not_yet_collected`. "No material change" needs every
+required source (`MARKET_REQUIRED_OBSERVATION_SOURCES`, default `linkedin_company_post,
+vendor_web`) to be eligible, enabled, not failing and read within the period (or two of its
+own cadences). A paused vendor with nothing collected is paused; a vendor whose website
+collection never succeeded is incompletely observed. Neither is quiet.
+
+**Findings.** Seven templates, each with a declared requirement, capped at six: consolidation
+(any acquisition or exit), new capital (funding in the period — never its absence), product
+against customer evidence (only when vendor posts were read for at least
+`MARKET_FINDING_MIN_COVERAGE`=50% of eligible vendors, else an observed-mix finding that
+says what it counts), customer adoption, hiring concentration (≥10 roles, ≥2 vendors, top
+vendor ≥40%), concentration of change across the registry, and whose word the developments
+rest on. Every finding carries its evidence lines, links to the developments it rests on,
+and a coverage sentence.
+
+**Synthesis.** Market formation (the cohort is "young" only when the founding year is
+known for at least half the registry and at least half of those were founded in the
+current year minus three — computed, not "2023"), product against adoption, and
+concentration across hiring, vendor posts, disclosed funding and developments, each phrased
+as "observed activity is concentrated", never "the market is".
+
+**Source coverage.** Per source: eligible, configured, attempted, successfully collected,
+from `bw_entity_source_policies`, so a denominator says which of the four it is.
+
+### Feature — the report leads with the answer
+**`app/services/market_report_html.py`** (1,767 lines changed; 915 added, 973 removed).
+Order is now: the market's question, **Executive assessment** (numbered findings with
+evidence, development links and an amber coverage line), **Vendors showing material change**
+(Vendor · Material change · Evidence · Why it matters; the top `MARKET_MAIN_TABLE_LIMIT`=8 by
+importance, then independent reporting, then kind; the rest under "Other observed
+developments"), **What this says about the market**, then **Material market developments**
+("654 collected records → 50 material developments", each with kind, date, source count,
+provenance label, why-it-matters and every source link, social ones named by account) beside
+an **Observed vendor activity** card with the state counts. The evidence drawer holds the
+metric strip, scope, period comparison, snapshot, **Market formation**, **Funding and investor
+activity** (period funding and acquisition events first, then disclosed totals, stage mix
+and shared investors; Crunchbase Growth and Attention/Heat scores labelled as Crunchbase's
+own secondary data, and a score change only when the market has a comparable earlier
+period), hiring, headcount, vendor announcements, sentiment, who is heard, and discussion.
+The registry gains an Observation column and sorts by it. The method drawer's coverage table
+has the four columns above, and the "N of M vendors showed nothing this period" sentence is
+replaced by the state counts. Removed from the renderer: `_MATERIAL_PATTERNS`,
+`_material_kind`, `_merge_same_story`, `_corroboration`, the job-seeker regex, the
+theme-filtered stories list and the movers/quotes sidebar (quotes moved to the drawer).
+
+### Tests
+**`tests/test_market_assessment.py`** (new, 36 tests, no database): four records of one
+acquisition become one development with four evidence rows and multiple independent
+sources; two launches by one vendor in one week stay separate; an unattributed post cannot
+seed; job-seeker, course-completion and market-size posts are not developments; a reviewed
+vendor launch is; a web page needs its headline to say so; a junior welcome post is not an
+executive appointment; provenance labels for vendor-only and vendor-plus-outside cases and
+one-publisher-three-records; a paused vendor, a failed source, a never-collected source, a
+missing source and a stale read are each not "monitored, no change"; no market comparison
+below the coverage threshold; hiring concentration needs enough roles; absence of funding is
+never a finding; findings stay within six and carry coverage; no banned phrases; the
+renderer has none of the removed helpers and renders structured objects as given.
+**`tests/test_market_report_copy.py`**: banned patterns gain "no signal", "Funding and
+momentum", "gaining momentum", "strong traction", "dynamic market"; the three tests of the
+moved helpers are replaced by an order test on the live render (assessment before the table
+before synthesis before developments before the drawer, observation labels present).
+
+### Verification
+`pytest tests/test_market_assessment.py tests/test_market_report_copy.py
+tests/test_market_findings.py tests/test_market_metrics.py tests/test_market_corpus_names.py
+tests/test_market_lists.py` — **158 passed**. `pyflakes` clean on both service modules. Live
+30-day render for market 2: **1.0 s, 218 KB**, no LLM call; 654 collected records → 50
+developments across 25 vendors; the Cribl/Radiant acquisition is one development with 7
+observed sources (GlobeNewswire plus six social accounts); observation states 25 material
+change / 48 monitored, no change / 11 incomplete (all 11: `vendor_web` never collected) /
+0 paused. Findings generated: consolidation, new capital, product exceeds customer evidence
+(20 vs 7, 0 independently reported), 25 of 84 vendors changed, 44 of 50 developments on the
+vendor's word. Service restarted 11:25 CEST with no collection run in flight;
+`GET /api/market-monitor/markets/2/report.html?days=30` returns 200 with the new sections.
+
+### Propagation
+bugfixing only. No other tenant tree has `market_report_html.py` (checked wileytest, wiley,
+wbm, ibaset, pearson), so nothing to copy.
+
+### Lessons
+- The vendor-web collector's `publication_date` is not the page's publication date: Prophet
+  Security's Series A page (a 2024–25 round) carries 2026-08-14 and surfaces as a funding
+  development in the period. The report can only say what the stored date says; the fix is
+  in the collector, not here.
+- Candidates built from stored events carry `headline`, corpus rows carry `title`. The
+  first merge pass read only `title` and so matched on summaries alone; `_title_of` reads
+  both. Anything that tokenises "the record's text" must go through it.
+
 ## 2026-08-27 — news is attributed to vendors by name, and the Findings tab shows findings
 
 ### Goal
@@ -107,6 +366,78 @@ named companies as text ("Beacon Security · with Anthropic"); the "Last run per
 shows a manual-only source as "manual only · last run failed" in grey instead of a red
 failure from a run stranded on 2026-08-24.
 
+### Fix — the shared report stops inventing change on a market eight days old
+**`app/services/market_analysis.py`**, **`market_publish.py`**, **`market_report_html.py`**
+(uncommitted; same day, after the commit above). The report at
+`/api/market-monitor/markets/2/report.html?days=30` compared 28 July–27 August against
+28 June–28 July. The market was created on 19 August (`bw_markets.created_at`; first
+successful runs 19–20 August). Nothing was collecting in the earlier window, so "Articles
+and posts 655 vs 398", "+425% on the 30 days before (4 → 21)" in the metric strip, and a
+"Who moved" list ranking six vendors "+7 from none" were changes against a zero that was
+never a measurement.
+
+`market_analysis.collection_started()` is the one definition: the earlier of the market's
+creation and its first succeeded run. `period_comparison()` now returns `comparable`,
+`collection_started` and `comparable_from`; `market_movers()` returns coverage movers only
+when the earlier window was collected in, and otherwise names the reason and the date. The
+report reads the same flag for the metric-strip delta, the comparison table (now one
+sentence: when collection began, that this period's figures are a floor, and that the first
+comparison is available from 18 October 2026), and the Crunchbase score-change table. The
+"Growth vs. attention" scatter is gone: Crunchbase's growth score is its own rate-of-change
+claim read once per vendor, and a chart of it read as momentum this report had not measured.
+The headcount line now needs three weekly points, the floor `_spark` already applied; two
+points print as a sentence.
+
+**Andesite's "attention −84" was two Crunchbase entities.** The 20 August reading was
+"Andesite" (heat 89), the 24 August one "Andesite AI" (heat 5). `funding_momentum()` now
+emits a change only when consecutive readings carry the same Crunchbase `name`.
+
+**Figures that disagreed with each other on one page**, all now one measurement:
+- Registry "Open roles" counted every `job_posting` snapshot row ever written (7ai 72) while
+  the hiring analysis on the same page said 32. `build_dataset()` now uses the present-now
+  list from `market_lists.jobs`, as the overview does; the overview's own count now includes
+  `first_observation` (a listing on a vendor's only run so far is open now), which is what the
+  "Open roles" card and the jobs list already counted (149).
+- "Share of voice" and "Posting a lot is not the same as landing" were all-time (41
+  mentions, 7ai 70 posts) under a 30-day heading whose strip said 21 and 35. The windowable
+  analyses (`signal_noise`, `hiring`, `share_of_voice`) now run with the report's `days`, so
+  "What vendors are announcing" and the summary's launch counts are the period's too
+  (23 launches against 17 commercial, not 106 against 70 all-time).
+- "Articles and posts collected 2160 over the 30 days covered here" was the all-time total;
+  the period figure is 655. "64 of the 84 vendors" founded since 2023 now reads "of the 83
+  with a known founding year". Crunchbase coverage said "21 of 85" because its subqueries
+  counted the excluded vendor; now 20 of 84.
+
+**"Confirmed by 6 separate sources" was one tweet beside five vendor posts.**
+`_merge_same_story()` merged any two rows in a kind group on two shared words, so an Arambh
+Labs post absorbed two Imperum launches, a detections.ai post and an Axis Security tweet,
+and `_corroboration()` reported the cluster size as confirmation. Rows now merge only on a
+shared tracked vendor and three content words, and the corroboration line counts outside
+items only ("Also reported by 1 outside source"). "What the vendors did" also drops
+developments with no tracked vendor: a Palo Alto alliance and an e2e-assure maturity model
+sat under it because nothing asked whose development it was. "Executive changes" shows the
+post's title, not the reviewer's rationale ("New hire named and role specified").
+
+**Smaller prose fixes.** "+1 across the 1 vendor measured twice" → "Read twice for 1 of 84
+vendors so far. Too early for a market change." The sentiment reading and series use the
+latest complete week and say which ("the week of 10 Aug 2026"); the still-filling week had
+drawn a vendor-coverage point at +100. The finding headline rule from the Findings tab
+(`headlineOf`) is applied in the report too. "What changed" no longer repeats the summary
+paragraph. Metric definitions no longer end in a dangling "checked." "Everything we matched:
+60" says "The 60 most recent of 655". "About this report" states when collection began.
+A second pass on the prose: the subtitle "What the vendors in this market did over the
+period, and where each of those came from" ("those" had no noun, and the line repeated the
+kicker above it) is now built from the data: "We watched 84 vendors from 28 July–27 August
+2026. Each item below says whether the vendor announced it or somebody else reported it";
+the analysis drawer no longer promises "period against
+period"; "companies we collect against" is "companies we watch"; "material signal" in the
+registry is "latest development"; "see Material vendor moves above" pointed at a section
+that does not exist; "Crunchbase reads these scores" had the wrong agent (we read them);
+source slugs in the coverage table are the legend's names ("Company profiles and headcount
+(LinkedIn)"); "we checked 82 of the 83 vendors we can" finishes its clause; the jobs note
+names "the vendors' own careers pages" rather than "ats jobs" (`market_lists.py`); the
+Indeed legend row says what "attribution unvalidated" meant (`market_metrics.py`).
+
 ### Also in this commit — §4.16 vendor benchmark
 **`app/services/market_benchmark.py`** (new), routes `/markets/benchmark-metrics` and
 `/markets/{id}/vendors/{brand_id}/benchmarks`, **`MarketVendorBenchmark.tsx`**, tests
@@ -114,6 +445,17 @@ failure from a run stranded on 2026-08-24.
 not been committed.
 
 ### Verification
+- Report fix: the eight market suites (`test_market_report_copy`, `_lists`, `_metrics`,
+  `_entitlements`, `_findings`, `_corpus_names`, `_benchmark`, `_collection`) — 246 passed,
+  the same 3 pre-existing `test_market_collection.py` failures, re-run on the final tree
+  after the prose pass. New tests: merge needs a
+  shared vendor and three words; corroboration counts outside sources; junk headline falls
+  back to the body; `period_comparison.comparable` and the movers gate against the live
+  market. Re-rendered report checked in text and in headless Chromium: strip reads "No
+  earlier period to compare with yet; collection began 19 August 2026", "Who moved" holds
+  Dropzone AI 77 → 78 and two reasons, registry 7ai = 32 = hiring analysis, Activity Index
+  scored for 82 of 84 (the earlier "84 unscored" was the posts channel two minutes past its
+  24 h staleness window while run 954 was in flight).
 - `pytest tests/test_market_corpus_names.py` — 20 passed. `tests/test_entity_ingestion.py`
   with the two own-domain cases — 29 passed. Entity + market suites together — 188 passed.
 - Overview `earned` per vendor after the scan matches an independent SQL count row for row
@@ -128,8 +470,14 @@ not been committed.
 
 ### Propagation
 bugfixing only. The market monitor does not exist on wiley or wileytest (neither has
-`app/services/market_metrics.py`). Service restarted for the backend changes; the final
-UI-only rebuild needed no restart (templates auto-reload). Two data changes live only in the
+`app/services/market_metrics.py`). Service restarted for the backend changes (twice more
+for the report fix, both times with no collection run in flight); the final UI-only rebuild
+needed no restart (templates auto-reload). The report fix is in the working tree, not yet
+committed: `market_analysis.py`, `market_publish.py`, `market_report_html.py`,
+`market_metrics.py`, `market_lists.py`, the two test files and these two docs. The
+`templates/` and `static/trend-convergence/` modifications in the same tree are this
+morning's UI build outputs, and `app/routes/email_routes.py` (modified 24 August by another
+session) is not part of this work. Two data changes live only in the
 `test` database and are not in this commit: the `bw_brands` keyword edits and the entity-layer
 relabel/backfill. A clone from canonical gets the code and will produce the same rows on its
 first scan.

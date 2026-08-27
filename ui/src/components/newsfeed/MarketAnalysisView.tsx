@@ -16,9 +16,9 @@ import {
   ZAxis,
 } from 'recharts';
 import {
-  getAnalyses, getChannelMix, getJobPostings, getTopVoices,
+  getAnalyses, getChannelMix, getJobPostings,
   type ChannelMix, type Coverage, type JobPosting, type MarketAnalyses,
-  type TopVoices, type VoiceRow,
+  type VoiceRow,
 } from '../../services/marketMonitorApi';
 import { DataTable, type Column } from './DataTable';
 import { MarketThemesPanel } from './MarketThemesPanel';
@@ -51,7 +51,7 @@ function cc(isDark: boolean, light: string, dark: string): string {
   return isDark ? dark : light;
 }
 
-function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string }) {
+export function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string }) {
   // coverage.label is already a full clause ("81 of 83 vendors have a
   // founding year") — prefixing "Based on " onto it stacked two subjects in
   // one sentence and stopped parsing as English.
@@ -68,7 +68,7 @@ function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string })
   );
 }
 
-function Panel({ title, children, full }: {
+export function Panel({ title, children, full }: {
   title: string; children: React.ReactNode;
   /** Spans both grid columns — for a panel left alone in a 2-column row,
    *  either because its sibling collapsed into the "not enough data" strip
@@ -105,7 +105,6 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
   const [sortByShare, setSortByShare] = useState(false);
   const [jobs, setJobs] = useState<JobPosting[] | null>(null);
   const [showJobs, setShowJobs] = useState(false);
-  const [voices, setVoices] = useState<TopVoices | null>(null);
   const [mix, setMix] = useState<ChannelMix | null>(null);
   const [hiringCut, setHiringCut] =
     useState<'role' | 'function' | 'region' | 'seniority'>('role');
@@ -136,8 +135,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
 
   useEffect(() => {
     let live = true;
-    Promise.all([getTopVoices(marketId, days, 20), getChannelMix(marketId, days)])
-      .then(([v, m]) => { if (live) { setVoices(v); setMix(m); } })
+    getChannelMix(marketId, days)
+      .then(m => { if (live) setMix(m); })
       .catch(() => {});
     return () => { live = false; };
   }, [marketId, days]);
@@ -550,85 +549,6 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
             </Panel>
           )}
         </div>
-      )}
-
-      {/* ---- Top voices ---- */}
-      {sov && !sov.error && sov.vendors.length > 0 && (
-        <Panel title="Top voices">
-          {voices ? (
-            <>
-              <CoverageLine
-                coverage={voices.coverage}
-                note="Accounts posting about the market. Vendors' own company posts are excluded — they are counted as owned above." />
-              <DataTable
-                rows={voices.voices}
-                rowKey={v => `${v.platform}:${v.author}`}
-                initialSort="engagement" initialDir="desc"
-                columns={[
-                  { key: 'author', label: 'Account', groupable: false,
-                    // Opens every relevant post by this account. A ranked
-                    // handle whose posts cannot be read is an assertion.
-                    render: v => onRecords ? (
-                      <button
-                        onClick={e => { e.stopPropagation();
-                                        onRecords({
-                                          kind: 'voice',
-                                          title: `@${v.author}: posts about this market`,
-                                          author: v.author, days,
-                                          expectedTotal: v.posts,
-                                        }); }}
-                        className="text-sky-700 dark:text-sky-400 hover:underline">
-                        @{v.author}
-                      </button>
-                    ) : `@${v.author}` },
-                  { key: 'platform', label: 'Platform', groupable: true },
-                  // A ranked list of handles with no subject is a list of
-                  // strangers. What they talk about is the useful part.
-                  { key: 'about', label: 'Talking about', sortable: false,
-                    // Capped, or an account naming a dozen terms and
-                    // vendors pushes its row tall enough that the table
-                    // becomes an endless scroll instead of a scan.
-                    render: v => {
-                      const terms = v.terms.slice(0, 4);
-                      const vendors = v.vendors.slice(0, 3);
-                      const extra = (v.terms.length - terms.length)
-                        + (v.vendors.length - vendors.length);
-                      return (
-                        <span className="flex flex-wrap gap-1">
-                          {terms.length === 0 && vendors.length === 0 && (
-                            <span className="text-slate-400 dark:text-gray-500">—</span>)}
-                          {terms.map(t => (
-                            <span key={t.term}
-                                  className="text-xs px-1 py-0.5 rounded border
-                                             bg-slate-50 text-slate-600 dark:bg-gray-700 dark:text-gray-400">
-                              {t.term}
-                            </span>
-                          ))}
-                          {vendors.map(x => (
-                            <span key={x.vendor}
-                                  className="text-xs px-1 py-0.5 rounded border
-                                             bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
-                              {x.vendor}
-                            </span>
-                          ))}
-                          {extra > 0 && (
-                            <span className="text-xs text-slate-400 dark:text-gray-500">+{extra} more</span>
-                          )}
-                        </span>
-                      );
-                    } },
-                  { key: 'posts', label: 'Posts', align: 'right' },
-                  { key: 'engagement', label: 'Reactions', align: 'right' },
-                  { key: 'last_seen', label: 'Last seen', align: 'right',
-                    render: v => (v.last_seen ?? '').slice(0, 10) || '—' },
-                ]} />
-            </>
-          ) : (
-            <div className="py-10 text-center text-slate-400 dark:text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-            </div>
-          )}
-        </Panel>
       )}
 
       {/* ---- Funding ---- */}

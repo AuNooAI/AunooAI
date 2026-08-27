@@ -16,6 +16,7 @@ import {
 import { MarketVendorPage } from './MarketVendorPage';
 import { MarketGeographyMap } from './map/MarketGeographyMap';
 import { MarketAnalysisView } from './MarketAnalysisView';
+import { MarketVoicesView } from './MarketVoicesView';
 import { MarketFindingsView } from './MarketFindingsView';
 import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
@@ -64,7 +65,7 @@ import {
  * pipeline: health, sources, the raw corpus and event feed, and dataset
  * export — "what did we collect and is it working", a different question
  * from "what does the market show", with its own sub-navigation below. */
-type View = 'findings' | 'analysis' | 'collection' | 'briefings' | 'vendors';
+type View = 'findings' | 'analysis' | 'voices' | 'collection' | 'briefings' | 'vendors';
 type CollectionSubView = 'overview' | 'health' | 'coverage' | 'wire' | 'data' | 'sourcemap';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
@@ -1683,6 +1684,7 @@ export function MarketMonitorTab() {
           {([
             ['findings', 'Findings'],
             ['analysis', 'Analysis'],
+            ['voices', 'Top voices'],
             ['collection', 'Collection'],
             ['briefings', 'Reports'],
             ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
@@ -1695,7 +1697,7 @@ export function MarketMonitorTab() {
             </button>
           ))}
         </div>
-        {(view === 'findings' || view === 'analysis'
+        {(view === 'findings' || view === 'analysis' || view === 'voices'
           || (view === 'collection' && (collectionSubView === 'coverage' || collectionSubView === 'wire'))
          ) && (
           <div className="flex items-center gap-1.5 pb-1.5 pr-1"
@@ -2535,6 +2537,11 @@ export function MarketMonitorTab() {
           </div>
 
         </div>
+      )}
+
+      {view === 'voices' && marketId !== null && (
+        <MarketVoicesView marketId={marketId} days={periodDays}
+                          onRecords={setRecords} />
       )}
 
       {view === 'analysis' && marketId !== null && (

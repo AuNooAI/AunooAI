@@ -257,3 +257,38 @@ def test_scan_reports_the_name_pass_under_the_same_dry_run(conn, market):
     for key in ("vendors", "scanned", "matched", "attributed",
                 "already_linked", "without_context", "rejected"):
         assert key in out["vendor_names"]
+
+
+# ---------------------------------------------------------------------------
+# A change needs an earlier period we were collecting in
+# ---------------------------------------------------------------------------
+
+def test_a_period_before_collection_began_is_not_comparable(conn, market):
+    """A market created last week has no "previous 30 days". The counts are
+    still returned — they are counts of dated records — but the payload says
+    they cannot be read as a change, and since when."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import market_analysis as man
+    from app.services import market_publish as mp
+
+    started = man.collection_started(conn, market)
+    assert started is not None and started.tzinfo is not None
+    pc = man.period_comparison(conn, market, days=30)
+    expect = (datetime.now(timezone.utc) - timedelta(days=60)) >= started
+    assert pc["comparable"] is expect
+    assert pc["collection_started"] == started.isoformat()
+    assert pc["comparable_from"] == (started + timedelta(days=60)).date().isoformat()
+
+    m = dict(conn.execute(text("SELECT * FROM bw_markets WHERE id = :m"),
+                          {"m": market}).mappings().one())
+    movers = mp.market_movers(conn, m, days=30)
+    coverage_rows = [x for x in movers["movers"]
+                     if x["metric"] == "Written about by others"]
+    blocked = [u for u in movers["unavailable"]
+               if u["metric"] == "Written about by others"]
+    if pc["comparable"]:
+        assert not blocked
+    else:
+        assert not coverage_rows
+        assert blocked and "no earlier period" in blocked[0]["reason"]
