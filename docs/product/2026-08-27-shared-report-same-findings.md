@@ -40,6 +40,16 @@ _27 August 2026 · Market Monitor — the shared report link and aisoc.aunoo.ai_
   with the company name, and the list can be grouped by role (vendor, vendor staff,
   practitioner, analyst or press, reseller, promoter or bot).
 
+### Market Horizon: who is hiring, who just raised, who moved
+Two more badges join "innovating" on the map. **Hiring** marks the vendors with the most
+open roles for their size, and only when they have at least three roles open. **Funded**
+marks a funding round we can date in the last year, from the vendor's own announcement, a
+news story we matched, or Crunchbase. Both show as a ring on the dot and a list under the
+map, with the round and month beside each name. A vendor that moves ten or more points on
+either axis since the previous map gets a trail drawn from where it was, and a "Moved" list
+says by how much. The team can also record an acquisition or a closure straight from the
+Horizon tab, and the vendor drops off the map into the "Acquired and closed" list.
+
 ## Why it matters
 
 **Before**, a reader without a code could be told the opposite of what the data says. The
@@ -100,6 +110,10 @@ of the rest that have disclosed funding.
 - Reports: edit a generated briefing in markdown with a live preview; every earlier version
   is kept and can be restored.
 
+- Market Horizon: "hiring" and "funded" badges beside "innovating", each with a list under
+  the map; a trail on the map for any vendor that moved a long way since the last map; and a
+  form on the Horizon tab to mark a vendor acquired or closed.
+
 ## Demo / walkthrough
 
 Open `https://aisoc.aunoo.ai/` (the shared view) and the same market signed in with `?full=1`.
@@ -149,3 +163,10 @@ number.
 - Market Horizon rates only vendors with every input measured. On a market three weeks into
   collection that is one vendor; the map fills as readings accumulate. Names are ours, not
   Gartner's or Forrester's, and the page never calls itself a quadrant or a wave.
+- The Funded badge depends on what we can date. Six of the twelve funded vendors on AI in
+  the SOC have no round name, because the announcement did not give one; a round that no
+  source dated is not shown at all. The Crunchbase reading only counts a headline that names
+  the vendor and a round or an amount, so it will miss a quiet round.
+- Large-move trails compare against the map stored immediately before. Two maps computed on
+  the same day from the same readings show no movement; the trails become useful once maps
+  are computed weekly.

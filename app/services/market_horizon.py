@@ -25,8 +25,9 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -83,6 +84,19 @@ DEFAULT_CONFIG: Dict[str, Any] = {
                                   "label": "Engineering share of open roles"},
         },
     },
+    # Two more markers, read the same way as Innovating: a badge on the dot,
+    # never a region of the map. Hiring is the top third of the rated set by
+    # open roles per 100 staff, with at least a few roles open so a two-person
+    # shop with one vacancy does not lead the list. Funded is a round we can
+    # date inside the window, from the vendor's own post, a matched news
+    # event or the Crunchbase news list.
+    "markers": {
+        "hiring": {"top_fraction": 0.34, "min_open_roles": 3},
+        "funded": {"days": 365},
+    },
+    # A move of this many points on either axis since the previous map is
+    # drawn as a trail from the old position and listed under the map.
+    "movement": {"large_shift": 10},
 }
 
 STATUSES = ("active", "acquired", "closed")
@@ -232,6 +246,7 @@ def gather_inputs(conn, market: Dict[str, Any], cfg: Dict[str, Any]
             gap(bid, "jobs_per_head", "no headcount to divide the open roles by")
         else:
             put(bid, "jobs_per_head", round(jobs["values"][bid] / head * 100, 2))
+            put(bid, "jobs_open", float(jobs["values"][bid]))
 
     followers = _latest_snapshot_value(conn, market_id, "profile", "followers")
     for bid in eligible:
@@ -318,6 +333,100 @@ def _engineering_share(conn, market_id: int) -> Dict[int, Optional[float]]:
             for bid, n in totals.items()}
 
 
+_ROUND_WORDS = re.compile(
+    r"\b(pre[- ]seed|seed|series\s+[a-h]|raises?|raised|closes?|secures?|funding round)\b",
+    re.IGNORECASE)
+_ROUND_NAME = re.compile(r"\b(pre[- ]seed|seed|series\s+[a-h])\b", re.IGNORECASE)
+
+
+def _round_label(text_: str) -> Optional[str]:
+    m = _ROUND_NAME.search(text_ or "")
+    if not m:
+        return None
+    word = re.sub(r"\s+", " ", m.group(1)).lower()
+    return word.title() if word.startswith("series") else word.capitalize()
+
+
+def _funding_rounds(conn, market_id: int, days: int) -> Dict[int, Dict[str, Any]]:
+    """The latest dated funding round per vendor inside the window.
+
+    Three readings, in the order we trust them: the vendor's own post the
+    reviewer filed as funding, a funding event matched from the news, and
+    an item in the vendor's Crunchbase news list whose title reads as a
+    round. Whichever is latest wins, and it says where it came from.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    found: Dict[int, Dict[str, Any]] = {}
+
+    def offer(bid: int, date: Optional[str], title: str, source: str,
+              round_hint: Optional[str] = None) -> None:
+        if not date or date < since:
+            return
+        label = _round_label(title) or round_hint
+        # Latest wins; on the same day, the reading that names the round,
+        # then the one that puts an amount on it.
+        strength = (2 if label else 0) + (1 if re.search(r"[$€£]\s?\d", title or "") else 0)
+        cur = found.get(bid)
+        if cur and (cur["date"] > date or (cur["date"] == date and cur["_strength"] >= strength)):
+            return
+        found[bid] = {"date": date, "round": label, "title": (title or "")[:160],
+                      "source": source, "_strength": strength}
+
+    for bid, uri, title, date in conn.execute(text("""
+        SELECT DISTINCT bac.brand_id, ma.article_uri, a.title,
+               LEFT(COALESCE(a.publication_date, a.submission_date), 10)
+          FROM bw_market_articles ma
+          JOIN bw_article_categories bac ON bac.article_uri = ma.article_uri
+          JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id
+               AND mb.market_id = ma.market_id AND mb.role <> 'excluded'
+          JOIN articles a ON a.uri = ma.article_uri
+         WHERE ma.market_id = :m AND ma.review_verdict = 'signal'
+           AND LOWER(ma.review_kind) = 'funding'
+    """), {"m": market_id}).fetchall():
+        offer(int(bid), date, title or "", "own post")
+
+    for bid, title, date in conn.execute(text("""
+        SELECT ev.brand_id, e.title,
+               COALESCE(e.event_date, e.published_at::date, e.created_at::date)::text
+          FROM bw_market_events e
+          JOIN bw_event_vendors ev ON ev.event_id = e.id
+         WHERE e.market_id = :m AND e.event_type = 'funding_round'
+           AND e.status = 'active'
+    """), {"m": market_id}).fetchall():
+        offer(int(bid), date, title or "", "news event")
+
+    # The Crunchbase news list carries items about other companies too, so
+    # a title counts only when it names this vendor and either names the
+    # round or puts a dollar amount on it.
+    for bid, name, data in conn.execute(text("""
+        SELECT DISTINCT ON (s.brand_id) s.brand_id, b.display_name, s.data
+          FROM bw_vendor_snapshots s
+          JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+               AND mb.market_id = :m AND mb.role <> 'excluded'
+          JOIN bw_brands b ON b.id = s.brand_id
+         WHERE s.market_id = :m AND s.snapshot_type = 'funding'
+         ORDER BY s.brand_id, s.observed_at DESC
+    """), {"m": market_id}).fetchall():
+        if not isinstance(data, dict):
+            continue
+        hint = (data.get("last_funding_type") or "").replace("_", " ").title() or None
+        if hint and "unknown" in hint.lower():
+            hint = None
+        stem = re.sub(r"[^a-z0-9]", "", (name or "").split(" ")[0].lower())
+        for item in data.get("recent_news") or []:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title") or ""
+            if stem and stem not in re.sub(r"[^a-z0-9]", "", title.lower()):
+                continue
+            if _ROUND_WORDS.search(title) and (_ROUND_NAME.search(title)
+                                               or re.search(r"[$€£]\s?\d", title)):
+                offer(int(bid), (item.get("date") or "")[:10], title, "Crunchbase news", hint)
+    for f in found.values():
+        f.pop("_strength", None)
+    return found
+
+
 def load_controls(conn, market_id: int) -> Dict[int, Dict[str, Any]]:
     """Analyst controls per vendor: multipliers, note, status."""
     out: Dict[int, Dict[str, Any]] = {}
@@ -373,6 +482,7 @@ def acquisition_hints(conn, market_id: int, days: int = 120) -> List[Dict[str, A
           FROM bw_vendor_snapshots s
           JOIN bw_brands b ON b.id = s.brand_id
           JOIN bw_market_brands mb ON mb.brand_id = s.brand_id AND mb.market_id = :m
+               AND mb.role <> 'excluded'
          WHERE s.market_id = :m AND s.snapshot_type = 'funding'
            AND COALESCE(s.data->>'acquired_by', '') <> ''
          ORDER BY s.brand_id, s.observed_at DESC
@@ -391,6 +501,7 @@ def acquisition_hints(conn, market_id: int, days: int = 120) -> List[Dict[str, A
           JOIN articles a ON a.uri = bac.article_uri
           JOIN bw_brands b ON b.id = bac.brand_id
           JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id AND mb.market_id = :m
+               AND mb.role <> 'excluded'
           JOIN bw_market_articles ma ON ma.article_uri = a.uri AND ma.market_id = :m
          WHERE a.title ~* '\\macquir(es|ed|ing|ition)\\M'
            AND a.title ILIKE '%' || b.display_name || '%'
@@ -440,10 +551,17 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
 
     # An acquired or closed vendor is listed, not placed, and leaves the
     # cohort every percentile is ranked in.
+    # Listed whatever the vendor's role on the market: one excluded after
+    # being bought is still an acquisition the reader should see.
+    names = {int(r[0]): r[1] for r in conn.execute(text("""
+        SELECT mb.brand_id, b.display_name
+          FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m
+    """), {"m": int(market["id"])}).fetchall()}
     acquired = []
     for bid, ctl in controls.items():
-        if bid in eligible and ctl.get("status") in ("acquired", "closed"):
-            acquired.append({"brand_id": bid, "vendor": eligible[bid],
+        if bid in names and ctl.get("status") in ("acquired", "closed"):
+            acquired.append({"brand_id": bid, "vendor": names[bid],
                              "status": ctl["status"], "acquired_by": ctl.get("acquired_by"),
                              "status_date": ctl.get("status_date"),
                              "note": ctl.get("note")})
@@ -515,6 +633,7 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
                       "innovation": round(inum / iden, 1) if iden else None,
                       "innovation_inputs": inno_detail,
                       "innovating": False,
+                      "hiring": False, "hiring_detail": None, "funded": None,
                       "analyst_note": ctl.get("note"),
                       "multipliers": mult or None})
     # The Innovating marker: the top third by innovation score, and only
@@ -526,6 +645,44 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
     import math
     for r in scored[:int(math.ceil(len(rated) * top_fraction))]:
         r["innovating"] = True
+
+    # Hiring and Funded are read for every vendor still in the cohort, rated
+    # or not: a seed round is worth listing even when the vendor has no
+    # disclosed total to be rated on. The bar for Hiring is set by the rated
+    # set, so the not-rated vendors are measured against the same ruler.
+    markers_cfg = cfg.get("markers") or {}
+    hiring_cfg = markers_cfg.get("hiring") or {}
+    min_roles = float(hiring_cfg.get("min_open_roles") or 3)
+    ratios = sorted((values[b]["jobs_per_head"] for b in rated_ids
+                     if "jobs_per_head" in values.get(b, {})
+                     and values[b].get("jobs_open", 0) >= min_roles), reverse=True)
+    top_n = int(math.ceil(len(ratios) * float(hiring_cfg.get("top_fraction") or 0.34)))
+    hiring_bar = ratios[top_n - 1] if top_n and ratios else None
+    rounds = _funding_rounds(conn, int(market["id"]),
+                             int((markers_cfg.get("funded") or {}).get("days") or 365))
+    rated_by_id = {r["brand_id"]: r for r in rated}
+    hiring_list, funded_list = [], []
+    for bid, name in eligible.items():
+        if bid in out_of_cohort:
+            continue
+        v = values.get(bid, {})
+        is_hiring = (hiring_bar is not None and "jobs_per_head" in v
+                     and v.get("jobs_open", 0) >= min_roles and v["jobs_per_head"] >= hiring_bar)
+        hiring_detail = ({"open_roles": int(v["jobs_open"]), "per_100": v["jobs_per_head"]}
+                         if is_hiring else None)
+        funded = rounds.get(bid)
+        if bid in rated_by_id:
+            rated_by_id[bid]["hiring"] = is_hiring
+            rated_by_id[bid]["hiring_detail"] = hiring_detail
+            rated_by_id[bid]["funded"] = funded
+        if is_hiring:
+            hiring_list.append({"brand_id": bid, "vendor": name, "rated": bid in rated_by_id,
+                                **hiring_detail})
+        if funded:
+            funded_list.append({"brand_id": bid, "vendor": name, "rated": bid in rated_by_id,
+                                **funded})
+    hiring_list.sort(key=lambda h: (-h["per_100"], h["vendor"]))
+    funded_list.sort(key=lambda f: (f["date"], f["vendor"]), reverse=True)
     rated.sort(key=lambda r: (-(r["scale"] + r["momentum"]), r["vendor"]))
     not_rated.sort(key=lambda r: (len(r["missing"]), r["vendor"]))
     acquired.sort(key=lambda a: a["vendor"])
@@ -549,10 +706,14 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
         "not_rated": not_rated,
         "acquired": acquired,
         "innovating": [r["vendor"] for r in rated if r["innovating"]],
+        "markers": {"hiring": hiring_list, "funded": funded_list,
+                    "hiring_bar": hiring_bar, "min_open_roles": int(min_roles),
+                    "funded_days": int((markers_cfg.get("funded") or {}).get("days") or 365)},
         "acquisition_hints": hints,
         "counts": {"eligible": len(eligible), "rated": len(rated),
                    "not_rated": len(not_rated), "acquired": len(acquired),
-                   "innovating": sum(1 for r in rated if r["innovating"])},
+                   "innovating": sum(1 for r in rated if r["innovating"]),
+                   "hiring": len(hiring_list), "funded": len(funded_list)},
         "what_it_is_not": WHAT_IT_IS_NOT,
     }
 
@@ -601,10 +762,26 @@ def with_movement(current: Dict[str, Any], previous: Optional[Dict[str, Any]]
     """Each rated vendor's tier and axes last time, so the page can show what
     moved. A vendor rated now and not before is "new"."""
     before = {r["brand_id"]: r for r in (previous or {}).get("rated") or []}
+    large = float(((current.get("config") or {}).get("movement") or {}).get("large_shift") or 10)
+    moves = []
     for r in current.get("rated") or []:
         p = before.get(r["brand_id"])
         r["previous"] = ({"tier": p["tier"], "scale": p["scale"],
                           "momentum": p["momentum"]} if p else None)
         r["moved"] = bool(p and p["tier"] != r["tier"])
+        r["shift"] = None
+        r["big_move"] = False
+        if p:
+            ds = round(float(r["scale"]) - float(p["scale"]), 1)
+            dm = round(float(r["momentum"]) - float(p["momentum"]), 1)
+            r["shift"] = {"scale": ds, "momentum": dm}
+            if abs(ds) >= large or abs(dm) >= large:
+                r["big_move"] = True
+                moves.append({"brand_id": r["brand_id"], "vendor": r["vendor"],
+                              "scale": ds, "momentum": dm, "tier": r["tier"],
+                              "previous_tier": p["tier"]})
+    moves.sort(key=lambda m: -(abs(m["scale"]) + abs(m["momentum"])))
     current["previous_at"] = (previous or {}).get("computed_at")
+    current["moves"] = moves
+    current["large_shift"] = large
     return current

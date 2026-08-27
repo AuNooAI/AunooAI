@@ -753,7 +753,11 @@ fast it is moving, so those are the axes, and the page says so in one sentence.
   "acquire" and the vendor's name — as a notice on the tab for a person to confirm; nothing
   changes on its own. Radiant Security was marked acquired by Cribl (AI technology assets,
   19 August 2026) after it ranked as Executing on map 2; the hint had found the Cribl
-  headline. Kenzo Security (Crunchbase: acquired by Rapid7) is still an open hint.
+  headline. Kenzo Security was then marked acquired by Rapid7 (26 March 2026, the company's own
+  announcement; Crunchbase agrees). It had been excluded from the market, and the acquired
+  list only looked at eligible vendors, so it neither listed nor stopped hinting; the list now
+  covers every vendor on the market whatever its role, and hints skip excluded ones. Map 6:
+  2 acquired, 0 hints.
 - **The external view says nothing about what is missing.** The drawer blurb reads "Where
   35 of the market's 85 vendors sit today: how big they are, and how fast they are moving";
   the not-rated fold is full-view only; with every rated vendor named there are no "not
@@ -778,6 +782,51 @@ Establishing, 14 Emerging. A map of one is not useful, so `app/config/market_hor
 headcount change optional with the reason in the file: it still counts for every vendor that
 has two readings and does not keep the others off the map. Map 2, stored 27 August: 36 of 85
 rated, 11/5/6/14 by tier; 49 not rated, 47 of them for no disclosed funding total.
+
+### Feature — Market Horizon: Hiring and Funded markers, trails for large moves, and a place to record acquisitions and closures
+Three additions to the map, all on request.
+
+- **Two more markers beside Innovating** (`market_horizon.py`, `DEFAULT_CONFIG["markers"]`).
+  A marker is a ring on the dot and a list under the map, never a region. *Hiring* is the top
+  third of the rated set by open roles per 100 staff, and only with at least 3 roles open, so
+  a two-person shop with one vacancy does not lead the list; the bar is printed with the list
+  (22 per 100 on AI in the SOC today). *Funded* is a funding round we can date inside the
+  last 365 days, read from three places in order of trust: the vendor's own post the reviewer
+  filed as funding, a `funding_round` event matched from the news, or an item in the vendor's
+  Crunchbase news list. The Crunchbase reading is the loose one, so a title counts only when
+  it names the vendor and either names the round or puts a dollar amount on it — the first
+  pass took "Ayar Labs raises $500M" from Fig Security's page and a certification headline
+  from Andesite's. Both markers are read for every vendor in the cohort, rated or not, because
+  a seed round is worth listing even when the vendor has no disclosed total to be rated on;
+  the UI says "not on the map" beside those. Each rated row carries `hiring`,
+  `hiring_detail` and `funded`; the map carries `markers.hiring` and `markers.funded`.
+  `gather_inputs` now also keeps the raw `jobs_open` count beside `jobs_per_head`.
+- **Trails for large moves** (`with_movement`). A move of 10 or more points on either axis
+  since the previous map (`config.movement.large_shift`) is drawn as a grey trail from the old
+  position to the new, with an arrowhead, under the dots; a "Moved" list under the map gives
+  the change on each axis and the tier change if any; the hover panel and the tier lists show
+  the shift. Movement is computed when a map is read, against the map stored before it, so it
+  appears on the shared report without a recompute.
+- **"Acquired and closed" panel on the Horizon tab** (`MarketHorizonView.tsx`,
+  `AcquiredPanel`). The list of acquired and closed vendors now has a form: pick any vendor on
+  the market (watch and excluded roles included), acquired or closed (dead), acquirer, date,
+  note; "Save and recompute" writes the same per-vendor status the vendor page's controls do
+  (`PUT .../horizon-controls`, keeping the analyst's multipliers and note) and recomputes the
+  map. Each listed vendor has "mark active" to put it back in the cohort.
+- **Rings and labels** (`market_report_html.py`, `MarketHorizonView.tsx`). Innovating is the
+  dashed dark ring, Hiring a dotted amber ring, Funded a thin blue ring, so one dot can carry
+  all three; the legend under the map names each. A label's keep-out box follows the outermost
+  ring, and labels may now rise as well as drop when the first spots are taken. The "Who is
+  where" fold in the report gains Hiring, Funded and Moved sections and their counts in the
+  summary line.
+
+Map 7, stored 27 August after the change: 35 rated, 5 hiring (Wraithwatch, Zaun, Kai
+Security, Method Security, 7ai — Kai Security is not on the map), 12 funded (7ai Series A
+2026-08, exaforce Series B 2026-05, Beacon Security Seed 2026-07, Fig Security Seed 2026-03,
+Aistrike Seed 2026-01, Cognna Series A 2025-12, six with no round named), 0 large moves
+against map 6 (same readings). Trails were verified on a synthetic previous map
+(scratch `move_test.py`: 4 moves, 4 trails drawn). `https://aisoc.aunoo.ai/` returns 200 with
+"innovating 12, hiring 5, funded 12, acquired 2" in the fold summary.
 
 ### Feature — "Beta" label in the app header
 **`SharedNavigation.tsx`, `templates/base_with_shared_nav.html`.** A small pink "Beta" pill

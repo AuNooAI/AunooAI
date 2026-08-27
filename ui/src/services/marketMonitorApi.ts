@@ -1929,11 +1929,33 @@ export interface HorizonVendor {
   innovation: number | null;
   innovation_inputs: Record<string, { value: number; percentile: number; weight: number }>;
   innovating: boolean;
+  /** Hiring and Funded markers, beside Innovating; absent on maps stored before them. */
+  hiring?: boolean;
+  hiring_detail?: { open_roles: number; per_100: number } | null;
+  funded?: HorizonRound | null;
   /** The analyst's note and per-input multipliers, if any were set. */
   analyst_note: string | null;
   multipliers: Record<string, number> | null;
   previous: { tier: string; scale: number; momentum: number } | null;
   moved: boolean;
+  /** Change on each axis since the previous map, and whether it is a large one. */
+  shift?: { scale: number; momentum: number } | null;
+  big_move?: boolean;
+}
+export interface HorizonMove {
+  brand_id: number; vendor: string; scale: number; momentum: number;
+  tier: string; previous_tier: string;
+}
+export interface HorizonRound {
+  date: string; round: string | null; title: string;
+  source: 'own post' | 'news event' | 'Crunchbase news' | string;
+}
+export interface HorizonMarkers {
+  hiring: { brand_id: number; vendor: string; rated: boolean; open_roles: number; per_100: number }[];
+  funded: ({ brand_id: number; vendor: string; rated: boolean } & HorizonRound)[];
+  hiring_bar: number | null;
+  min_open_roles: number;
+  funded_days: number;
 }
 export interface HorizonAcquired {
   brand_id: number; vendor: string; status: 'acquired' | 'closed';
@@ -1970,9 +1992,14 @@ export interface MarketHorizon {
   not_rated: HorizonNotRated[];
   acquired: HorizonAcquired[];
   innovating: string[];
+  markers?: HorizonMarkers;
+  /** Large movers since the previous map, biggest first. */
+  moves?: HorizonMove[];
+  large_shift?: number;
   /** Vendors that look acquired but are not marked so; a person confirms. */
   acquisition_hints: { brand_id: number; vendor: string; why: string }[];
-  counts: { eligible: number; rated: number; not_rated: number; acquired: number; innovating: number };
+  counts: { eligible: number; rated: number; not_rated: number; acquired: number; innovating: number;
+            hiring?: number; funded?: number };
   what_it_is_not: string;
 }
 

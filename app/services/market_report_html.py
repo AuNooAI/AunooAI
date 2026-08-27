@@ -738,8 +738,8 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     balanced up the middle. The concentric arcs are the horizons. Names only
     where the viewer may see them; the dots give nothing away."""
     import math
-    w, h = 720, 440
-    cx, cy, radius = w / 2, h - 60, 330
+    w, h = 720, 452
+    cx, cy, radius = w / 2, h - 72, 330
     # The angle is the balance between the axes, scaled to the rated set's
     # own spread so the horizon is used whatever the market looks like: the
     # most lopsided vendor sits 80 degrees off the vertical.
@@ -755,6 +755,9 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
         return f'M {cx - d:.1f} {cy:.1f} A {d:.1f} {d:.1f} 0 0 1 {cx + d:.1f} {cy:.1f}'
     parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
              'aria-label="Market Horizon: position and balance">',
+             '<defs><marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" '
+             'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
+             '<path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>',
              f'<path d="{arc(1.0)} Z" fill="#f8fafc" stroke="#e2e8f0"/>']
     for frac in (0.25, 0.5, 0.75):
         parts.append(f'<path d="{arc(frac)}" fill="none" stroke="#cbd5e1" stroke-dasharray="4 4"/>')
@@ -764,13 +767,35 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
               f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Emerging — small, and not yet moving fast</text>',
               f'<text x="{cx - radius:.0f}" y="{cy + 30:.0f}" font-size="10" fill="#94a3b8">← scale-heavy</text>',
               f'<text x="{cx + radius:.0f}" y="{cy + 30:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">momentum-heavy →</text>',
-              f'<circle cx="{cx - 60:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
-              f'<text x="{cx - 50:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">ringed: innovating — top third by launches, corroborated launches, research and engineering hiring</text>']
+              # The legend for the three markers. Each is a ring style, so a
+              # dot can carry all three without a second glyph.
+              f'<circle cx="{cx - 250:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
+              f'<text x="{cx - 240:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">innovating — top third by product work</text>',
+              f'<circle cx="{cx - 30:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>',
+              f'<text x="{cx - 20:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">hiring — top third by open roles per head</text>',
+              f'<circle cx="{cx + 190:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#1d4ed8" stroke-width="1"/>',
+              f'<text x="{cx + 200:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">funded — a round in the last year</text>']
+    # A large move since the previous map is a trail from where the vendor
+    # was, drawn under the dots so it never hides one.
+    trails = [r for r in rated if r.get("big_move") and r.get("previous")]
+    for r in trails:
+        px, py = place(r["previous"])
+        x, y = place(r)
+        parts.append(f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
+                     'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
+        parts.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#94a3b8"/>')
+    if trails:
+        parts.append(f'<line x1="{cx - 250:.0f}" y1="{cy + 58:.0f}" x2="{cx - 232:.0f}" y2="{cy + 58:.0f}" '
+                     'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
+        parts.append(f'<text x="{cx - 226:.0f}" y="{cy + 61:.0f}" font-size="10" fill="#64748b">'
+                     'trail — moved 10 or more points on an axis since the previous map</text>')
     dots = [(r, *place(r)) for r in sorted(rated, key=lambda r: -(r["scale"] + r["momentum"]))]
     # Labels must not sit on another label or on any dot. Each label tries
     # right, left, above, below, then right at increasing drops, and takes
     # the first clear spot. Placed labels are boxes (x, y_top, w, h).
-    boxes: List[tuple] = [(x - 6, y - 6, 12, 12) for _, x, y in dots]
+    def ring(r: Dict[str, Any]) -> float:
+        return 14.0 if r.get("funded") else 11.5 if r.get("hiring") else 9.0 if r.get("innovating") else 6.0
+    boxes: List[tuple] = [(x - ring(r), y - ring(r), 2 * ring(r), 2 * ring(r)) for r, x, y in dots]
     def clear(bx: float, by: float, bw: float, bh: float) -> bool:
         return not any(bx < ox + ow and ox < bx + bw and by < oy + oh and oy < by + bh
                        for ox, oy, ow, oh in boxes)
@@ -783,15 +808,23 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
         if r.get("innovating"):
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.5" fill="none" '
                          'stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>')
+        if r.get("hiring"):
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" fill="none" '
+                         'stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>')
+        if r.get("funded"):
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="13.5" fill="none" '
+                         'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85">'
                      f'{title}</circle>')
         if not shown:
             continue
         width, height = 5.4 * len(r["vendor"]) + 2, 11
-        candidates = [(x + 8, y - 5, "start"), (x - 8 - width, y - 5, "end"),
-                      (x - width / 2, y - 18, "middle"), (x - width / 2, y + 8, "middle")]
-        candidates += [(x + 8, y - 5 + 12 * k, "start") for k in range(1, 6)]
-        candidates += [(x - 8 - width, y - 5 + 12 * k, "end") for k in range(1, 6)]
+        g = ring(r) + 2
+        candidates = [(x + g, y - 5, "start"), (x - g - width, y - 5, "end"),
+                      (x - width / 2, y - g - 12, "middle"), (x - width / 2, y + g + 2, "middle")]
+        for k in range(1, 6):
+            candidates += [(x + g, y - 5 + 12 * k, "start"), (x - g - width, y - 5 + 12 * k, "end"),
+                           (x + g, y - 5 - 12 * k, "start"), (x - g - width, y - 5 - 12 * k, "end")]
         for bx, by, anchor in candidates:
             if clear(bx, by, width, height):
                 break
@@ -846,6 +879,10 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
             name = esc(r["vendor"])
             if r.get("innovating"):
                 name += ' <span class="mm-src" title="innovating">◌</span>'
+            if r.get("hiring"):
+                name += ' <span class="mm-src" title="hiring">⚒</span>'
+            if r.get("funded"):
+                name += ' <span class="mm-src" title="funded">$</span>'
             if r.get("moved") and (r.get("previous") or {}).get("tier") != tier:
                 name += f' <span class="mm-src">(was {esc((r["previous"] or {}).get("tier", ""))})</span>'
             names.append(name)
@@ -864,6 +901,54 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                           'launches, corroborated launches, research posts and engineering '
                           'hiring; a marker across every tier</span></h3>')
         tiers_html.append(f'<p>{", ".join(inames)}</p>')
+    markers = horizon.get("markers") or {}
+    hiring = markers.get("hiring") or []
+    if hiring:
+        hnames = [f'{esc(h["vendor"])} <span class="mm-src">({h["open_roles"]} open roles, '
+                  f'{float(h["per_100"]):.0f} per 100 staff)</span>'
+                  for h in hiring if names_allowed is None or h["vendor"] in names_allowed]
+        hhidden = len(hiring) - len(hnames)
+        if hhidden:
+            hnames.append(f'{hhidden} vendor{"s" if hhidden > 1 else ""} not shown in this view')
+        tiers_html.append(f'<h3>Hiring <span class="mm-src">({len(hiring)}) — top third by open '
+                          f'roles per 100 staff, with at least {markers.get("min_open_roles", 3)} '
+                          'roles open; a marker across every tier</span></h3>')
+        tiers_html.append(f'<p>{", ".join(hnames)}</p>')
+    funded = markers.get("funded") or []
+    if funded:
+        fnames = []
+        for f in funded:
+            if names_allowed is not None and f["vendor"] not in names_allowed:
+                continue
+            what = f.get("round") or "round not stated"
+            fnames.append(f'{esc(f["vendor"])} <span class="mm-src">({esc(what)}, '
+                          f'{esc((f.get("date") or "")[:7])})</span>')
+        fhidden = len(funded) - len(fnames)
+        if fhidden:
+            fnames.append(f'{fhidden} vendor{"s" if fhidden > 1 else ""} not shown in this view')
+        tiers_html.append(f'<h3>Funded <span class="mm-src">({len(funded)}) — a round dated inside '
+                          f'the last {markers.get("funded_days", 365)} days, from the vendor\'s own '
+                          'post, a matched news event or the Crunchbase news list</span></h3>')
+        tiers_html.append(f'<p>{", ".join(fnames)}</p>')
+    moves = horizon.get("moves") or []
+    if moves:
+        mnames = []
+        for m in moves:
+            if names_allowed is not None and m["vendor"] not in names_allowed:
+                continue
+            bits = [f'{"+" if m[a] > 0 else ""}{m[a]:g} {a}' for a in ("scale", "momentum")
+                    if abs(m[a]) >= 1]
+            tier_bit = (f'; {esc((horizon.get("tiers") or {}).get(m["previous_tier"], {}).get("label", m["previous_tier"]))}'
+                        f' → {esc((horizon.get("tiers") or {}).get(m["tier"], {}).get("label", m["tier"]))}'
+                        if m["previous_tier"] != m["tier"] else "")
+            mnames.append(f'{esc(m["vendor"])} <span class="mm-src">({", ".join(bits)}{tier_bit})</span>')
+        mhidden = len(moves) - len(mnames)
+        if mhidden:
+            mnames.append(f'{mhidden} vendor{"s" if mhidden > 1 else ""} not shown in this view')
+        tiers_html.append(f'<h3>Moved <span class="mm-src">({len(moves)}) — {horizon.get("large_shift", 10):g} or '
+                          f'more points on an axis since the map of '
+                          f'{esc((horizon.get("previous_at") or "")[:10])}</span></h3>')
+        tiers_html.append(f'<p>{", ".join(mnames)}</p>')
     if acquired:
         tiers_html.append(f'<h3>Acquired <span class="mm-src">({len(acquired)}) — listed, not placed</span></h3>')
         tiers_html.append('<p>' + "; ".join(
@@ -875,6 +960,9 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
         for t in _TIER_ORDER)
     out.append(fold(f"Who is where — {esc(tier_summary)}"
                     + (f", innovating {len(innovating)}" if innovating else "")
+                    + (f", hiring {len(hiring)}" if hiring else "")
+                    + (f", funded {len(funded)}" if funded else "")
+                    + (f", moved {len(moves)}" if moves else "")
                     + (f", acquired {len(acquired)}" if acquired else ""),
                     "".join(tiers_html)))
 

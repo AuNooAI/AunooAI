@@ -11,8 +11,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import {
-  computeMarketHorizon, getMarketHorizon,
-  type HorizonVendor, type MarketHorizon,
+  computeMarketHorizon, getMarketHorizon, getHorizonControls, getVendors,
+  saveHorizonControls,
+  type HorizonVendor, type MarketHorizon, type Vendor,
 } from '../../services/marketMonitorApi';
 import { Panel } from './MarketAnalysisView';
 
@@ -44,22 +45,25 @@ function InputsTable({ v }: { v: HorizonVendor }) {
  * to the left, momentum-heavy to the right, balanced up the middle. The
  * concentric arcs are the horizons. Same geometry as the report's SVG.
  */
-function HorizonArc({ rated, onVendor }: {
-  rated: HorizonVendor[]; onVendor?: (brandId: number) => void;
+function HorizonArc({ rated, onVendor, largeShift = 10 }: {
+  rated: HorizonVendor[]; onVendor?: (brandId: number) => void; largeShift?: number;
 }) {
   const [hover, setHover] = useState<HorizonVendor | null>(null);
-  const W = 760, H = 464, cx = W / 2, cy = H - 64, R = 350;
+  const W = 760, H = 478, cx = W / 2, cy = H - 78, R = 350;
   // The angle is the balance between the axes, scaled to the rated set's own
   // spread so the horizon is used whatever the market looks like: the most
   // lopsided vendor sits 80 degrees off the vertical.
   const widest = Math.max(20, ...rated.map(v => Math.abs(v.scale - v.momentum)));
   const perPoint = 80 / widest;
-  const place = (v: HorizonVendor) => {
+  const place = (v: { scale: number; momentum: number }) => {
     const pos = (v.scale + v.momentum) / 2;
     const theta = (Math.PI / 180) * (90 + (v.scale - v.momentum) * perPoint);
     const d = R * pos / 100;
     return { x: cx + d * Math.cos(theta), y: cy - d * Math.sin(theta) };
   };
+  // A large move since the previous map: a trail from where the vendor was.
+  const trails = rated.filter(v => v.big_move && v.previous)
+    .map(v => ({ v, from: place(v.previous!), to: place(v) }));
   const arc = (f: number) => {
     const d = R * f;
     return `M ${cx - d} ${cy} A ${d} ${d} 0 0 1 ${cx + d} ${cy}`;
@@ -70,18 +74,21 @@ function HorizonArc({ rated, onVendor }: {
   const dots = [...rated]
     .sort((a, b) => (b.scale + b.momentum) - (a.scale + a.momentum))
     .map(v => ({ v, ...place(v) }));
+  const ring = (v: HorizonVendor) => v.funded ? 14 : v.hiring ? 11.5 : v.innovating ? 9 : 6;
   const boxes: { x: number; y: number; w: number; h: number }[] =
-    dots.map(d => ({ x: d.x - 6, y: d.y - 6, w: 12, h: 12 }));
+    dots.map(d => ({ x: d.x - ring(d.v), y: d.y - ring(d.v), w: 2 * ring(d.v), h: 2 * ring(d.v) }));
   const clear = (bx: number, by: number, bw: number, bh: number) =>
     !boxes.some(o => bx < o.x + o.w && o.x < bx + bw && by < o.y + o.h && o.y < by + bh);
   const labels = dots.map(({ v, x, y }) => {
-    const w = 5.4 * v.vendor.length + 2, h = 11;
+    const w = 5.4 * v.vendor.length + 2, h = 11, g = ring(v) + 2;
     const candidates: { bx: number; by: number; anchor: 'start' | 'end' | 'middle' }[] = [
-      { bx: x + 8, by: y - 5, anchor: 'start' }, { bx: x - 8 - w, by: y - 5, anchor: 'end' },
-      { bx: x - w / 2, by: y - 18, anchor: 'middle' }, { bx: x - w / 2, by: y + 8, anchor: 'middle' },
+      { bx: x + g, by: y - 5, anchor: 'start' }, { bx: x - g - w, by: y - 5, anchor: 'end' },
+      { bx: x - w / 2, by: y - g - 12, anchor: 'middle' }, { bx: x - w / 2, by: y + g + 2, anchor: 'middle' },
     ];
-    for (let k = 1; k <= 5; k++) candidates.push({ bx: x + 8, by: y - 5 + 12 * k, anchor: 'start' });
-    for (let k = 1; k <= 5; k++) candidates.push({ bx: x - 8 - w, by: y - 5 + 12 * k, anchor: 'end' });
+    for (let k = 1; k <= 5; k++) {
+      candidates.push({ bx: x + g, by: y - 5 + 12 * k, anchor: 'start' }, { bx: x - g - w, by: y - 5 + 12 * k, anchor: 'end' },
+                      { bx: x + g, by: y - 5 - 12 * k, anchor: 'start' }, { bx: x - g - w, by: y - 5 - 12 * k, anchor: 'end' });
+    }
     let pick = candidates[candidates.length - 1];
     for (const c of candidates) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
     boxes.push({ x: pick.bx, y: pick.by, w, h });
@@ -92,6 +99,11 @@ function HorizonArc({ rated, onVendor }: {
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
            aria-label="Market Horizon: position and balance">
+        <defs>
+          <marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
+          </marker>
+        </defs>
         <path d={`${arc(1)} Z`} fill="#f8fafc" stroke="#e2e8f0" className="dark:fill-gray-900" />
         {[0.25, 0.5, 0.75].map(f => (
           <path key={f} d={arc(f)} fill="none" stroke="#cbd5e1" strokeDasharray="4 4" />
@@ -102,8 +114,24 @@ function HorizonArc({ rated, onVendor }: {
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">Emerging — small, and not yet moving fast</text>
         <text x={cx - R} y={cy + 30} fontSize={10} fill="#94a3b8">← scale-heavy</text>
         <text x={cx + R} y={cy + 30} textAnchor="end" fontSize={10} fill="#94a3b8">momentum-heavy →</text>
-        <circle cx={cx - 60} cy={cy + 44} r={6} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
-        <text x={cx - 50} y={cy + 48} fontSize={10} fill="#64748b">ringed: innovating — top third by launches, corroborated launches, research and engineering hiring</text>
+        <circle cx={cx - 250} cy={cy + 44} r={6} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
+        <text x={cx - 240} y={cy + 48} fontSize={10} fill="#64748b">innovating — top third by product work</text>
+        <circle cx={cx - 30} cy={cy + 44} r={6} fill="none" stroke="#b45309" strokeWidth={1.6} strokeDasharray="1 2.2" />
+        <text x={cx - 20} y={cy + 48} fontSize={10} fill="#64748b">hiring — top third by open roles per head</text>
+        <circle cx={cx + 190} cy={cy + 44} r={6} fill="none" stroke="#1d4ed8" strokeWidth={1} />
+        <text x={cx + 200} y={cy + 48} fontSize={10} fill="#64748b">funded — a round in the last year</text>
+        {trails.length > 0 && (
+          <>
+            <line x1={cx - 250} y1={cy + 58} x2={cx - 232} y2={cy + 58} stroke="#94a3b8" strokeWidth={1.2} markerEnd="url(#mm-hz-arrow)" />
+            <text x={cx - 226} y={cy + 61} fontSize={10} fill="#64748b">trail — moved {largeShift} or more points on an axis since the previous map</text>
+          </>
+        )}
+        {trails.map(({ v, from, to }) => (
+          <g key={`trail-${v.brand_id}`}>
+            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#94a3b8" strokeWidth={1.2} markerEnd="url(#mm-hz-arrow)" />
+            <circle cx={from.x} cy={from.y} r={3} fill="none" stroke="#94a3b8" />
+          </g>
+        ))}
         {labels.map(({ v, x, y, lx, ly, anchor }) => (
           <g key={v.brand_id}
              onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
@@ -111,6 +139,12 @@ function HorizonArc({ rated, onVendor }: {
              style={{ cursor: onVendor ? 'pointer' : 'default' }}>
             {v.innovating && (
               <circle cx={x} cy={y} r={8.5} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
+            )}
+            {v.hiring && (
+              <circle cx={x} cy={y} r={11} fill="none" stroke="#b45309" strokeWidth={1.6} strokeDasharray="1 2.2" />
+            )}
+            {v.funded && (
+              <circle cx={x} cy={y} r={13.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
                     fill={TIER_COLOUR[v.tier] ?? '#6b7280'} fillOpacity={0.85} />
@@ -125,6 +159,22 @@ function HorizonArc({ rated, onVendor }: {
             scale {hover.scale} · momentum {hover.momentum} · {hover.tier}
             {hover.innovation != null && <> · innovation {hover.innovation}{hover.innovating ? ' (innovating)' : ''}</>}
           </div>
+          {hover.shift && (Math.abs(hover.shift.scale) >= 1 || Math.abs(hover.shift.momentum) >= 1) && (
+            <div className={hover.big_move ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-gray-400'}>
+              since previous map: {hover.shift.scale > 0 ? '+' : ''}{hover.shift.scale} scale,{' '}
+              {hover.shift.momentum > 0 ? '+' : ''}{hover.shift.momentum} momentum
+            </div>
+          )}
+          {(hover.hiring || hover.funded) && (
+            <div className="text-slate-600 dark:text-gray-300">
+              {hover.hiring && hover.hiring_detail && (
+                <div>hiring: {hover.hiring_detail.open_roles} open roles, {Math.round(hover.hiring_detail.per_100)} per 100 staff</div>
+              )}
+              {hover.funded && (
+                <div>funded: {hover.funded.round ?? 'round not stated'}, {hover.funded.date.slice(0, 7)} ({hover.funded.source})</div>
+              )}
+            </div>
+          )}
           <InputsTable v={hover} />
           {hover.multipliers && (
             <div className="mt-1 text-amber-700 dark:text-amber-400">
@@ -136,6 +186,161 @@ function HorizonArc({ rated, onVendor }: {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Acquired and closed vendors: listed under the map, never placed on it.
+ * The form here writes the same per-vendor status the vendor page's
+ * controls do, then recomputes, so a sale recorded here shows at once.
+ */
+function AcquiredPanel({ marketId, horizon, onVendor, onChanged }: {
+  marketId: number; horizon: MarketHorizon;
+  onVendor?: (brandId: number) => void; onChanged: () => Promise<void>;
+}) {
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [open, setOpen] = useState(false);
+  const [brandId, setBrandId] = useState<number | ''>('');
+  const [status, setStatus] = useState<'acquired' | 'closed'>('acquired');
+  const [by, setBy] = useState('');
+  const [date, setDate] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<number | 'new' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || vendors.length) return;
+    getVendors(marketId).then(setVendors).catch(e => setError(String(e.message ?? e)));
+  }, [open, marketId, vendors.length]);
+
+  const listed = new Set(horizon.acquired.map(a => a.brand_id));
+  const choices = vendors.filter(v => !listed.has(v.brand_id))
+    .sort((a, b) => a.display_name.localeCompare(b.display_name));
+
+  // Keep the analyst's multipliers and note when only the status changes.
+  const setStatusFor = async (bid: number, next: {
+    status: 'active' | 'acquired' | 'closed'; acquired_by?: string | null;
+    status_date?: string | null; note?: string | null;
+  }) => {
+    const cur = (await getHorizonControls(marketId, bid)).controls;
+    await saveHorizonControls(marketId, bid, {
+      ...cur,
+      status: next.status,
+      acquired_by: next.status === 'active' ? null : (next.acquired_by ?? cur.acquired_by),
+      status_date: next.status === 'active' ? null : (next.status_date ?? cur.status_date),
+      note: next.note === undefined ? cur.note : next.note,
+    });
+  };
+
+  const add = async () => {
+    if (brandId === '') return;
+    setBusy('new'); setError(null);
+    try {
+      await setStatusFor(brandId, {
+        status, acquired_by: status === 'acquired' ? (by.trim() || null) : null,
+        status_date: date || null, note: note.trim() || null,
+      });
+      await onChanged();
+      setBrandId(''); setBy(''); setDate(''); setNote(''); setOpen(false);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const reactivate = async (bid: number) => {
+    setBusy(bid); setError(null);
+    try {
+      await setStatusFor(bid, { status: 'active' });
+      await onChanged();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const input = 'text-xs px-2 py-1 rounded border bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200';
+  return (
+    <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
+          Acquired and closed ({horizon.acquired.length})
+        </span>
+        <span className="text-xs text-slate-500 dark:text-gray-400">— listed, not placed</span>
+        <button onClick={() => setOpen(o => !o)}
+                className="ml-auto text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50
+                           dark:bg-gray-800 dark:hover:bg-gray-700 dark:border-gray-600 dark:text-gray-200">
+          {open ? 'Cancel' : 'Mark a vendor acquired or closed'}
+        </button>
+      </div>
+      {horizon.acquired.length === 0 && !open && (
+        <div className="text-xs text-slate-400 mt-1">none recorded</div>
+      )}
+      {horizon.acquired.length > 0 && (
+        <ul className="text-sm mt-1 space-y-0.5">
+          {horizon.acquired.map(a => (
+            <li key={a.brand_id} className="flex flex-wrap items-baseline gap-1">
+              {onVendor ? (
+                <button onClick={() => onVendor(a.brand_id)}
+                        className="text-sky-700 dark:text-sky-400 hover:underline">{a.vendor}</button>
+              ) : a.vendor}
+              <span className="text-xs text-slate-500 dark:text-gray-400">
+                — {a.status === 'closed' ? 'closed' : a.acquired_by ? `acquired by ${a.acquired_by}` : 'acquired'}
+                {a.status_date ? `, ${a.status_date}` : ''}
+                {a.note ? ` · ${a.note}` : ''}
+              </span>
+              <button onClick={() => reactivate(a.brand_id)} disabled={busy !== null}
+                      className="text-xs text-slate-400 hover:text-slate-700 hover:underline disabled:opacity-50 dark:hover:text-gray-200"
+                      title="Put the vendor back in the rated cohort">
+                {busy === a.brand_id ? 'saving…' : 'mark active'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && (
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_auto_minmax(0,1fr)_auto_auto] gap-2 items-end">
+          <label className="text-xs text-slate-600 dark:text-gray-300">Vendor
+            <select className={`${input} block w-full mt-0.5`} value={brandId}
+                    onChange={e => setBrandId(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">{vendors.length ? 'choose…' : 'loading…'}</option>
+              {choices.map(v => (
+                <option key={v.brand_id} value={v.brand_id}>
+                  {v.display_name}{v.role !== 'vendor' ? ` (${v.role})` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-slate-600 dark:text-gray-300">Status
+            <select className={`${input} block mt-0.5`} value={status}
+                    onChange={e => setStatus(e.target.value as 'acquired' | 'closed')}>
+              <option value="acquired">acquired</option>
+              <option value="closed">closed (dead)</option>
+            </select>
+          </label>
+          <label className="text-xs text-slate-600 dark:text-gray-300">Acquired by
+            <input className={`${input} block w-full mt-0.5`} value={by} disabled={status !== 'acquired'}
+                   onChange={e => setBy(e.target.value)} placeholder="acquirer" />
+          </label>
+          <label className="text-xs text-slate-600 dark:text-gray-300">Date
+            <input type="date" className={`${input} block mt-0.5`} value={date}
+                   onChange={e => setDate(e.target.value)} />
+          </label>
+          <button onClick={add} disabled={brandId === '' || busy !== null}
+                  className="text-xs px-2.5 py-1.5 rounded-md border bg-slate-800 text-white hover:bg-slate-700
+                             disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900">
+            {busy === 'new' ? 'Saving…' : 'Save and recompute'}
+          </button>
+          <label className="text-xs text-slate-600 dark:text-gray-300 md:col-span-5">Note
+            <input className={`${input} block w-full mt-0.5`} value={note}
+                   onChange={e => setNote(e.target.value)} placeholder="what was bought, or how the closure is known" />
+          </label>
+        </div>
+      )}
+      {error && <div className="text-xs text-red-600 dark:text-red-400 mt-1">{error}</div>}
     </div>
   );
 }
@@ -217,7 +422,7 @@ export function MarketHorizonView({ marketId, onVendor }: {
         )}
 
         {horizon && horizon.rated.length > 0 && (
-          <HorizonArc rated={horizon.rated} onVendor={onVendor} />
+          <HorizonArc rated={horizon.rated} onVendor={onVendor} largeShift={horizon.large_shift ?? 10} />
         )}
 
         {horizon && (
@@ -251,10 +456,25 @@ export function MarketHorizonView({ marketId, onVendor }: {
                               moved from {r.previous.tier}
                             </span>
                           )}
+                          {r.big_move && r.shift && (
+                            <span className="text-xs text-amber-700 dark:text-amber-400"
+                                  title="A large move since the previous map">
+                              {r.shift.scale > 0 ? '▲' : r.shift.scale < 0 ? '▼' : ''}{Math.abs(r.shift.scale) >= 1 ? ` ${Math.abs(r.shift.scale)} scale ` : ''}
+                              {r.shift.momentum > 0 ? '▲' : r.shift.momentum < 0 ? '▼' : ''}{Math.abs(r.shift.momentum) >= 1 ? ` ${Math.abs(r.shift.momentum)} momentum` : ''}
+                            </span>
+                          )}
                           {!r.previous && horizon.previous_at && (
                             <span className="text-xs text-slate-400" title="Not rated on the previous map">new</span>
                           )}
                           {r.innovating && <span className="text-xs text-slate-500" title="innovating">◌</span>}
+                          {r.hiring && r.hiring_detail && (
+                            <span className="text-xs text-amber-700 dark:text-amber-400"
+                                  title={`${r.hiring_detail.open_roles} open roles, ${Math.round(r.hiring_detail.per_100)} per 100 staff`}>hiring</span>
+                          )}
+                          {r.funded && (
+                            <span className="text-xs text-blue-700 dark:text-blue-400"
+                                  title={`${r.funded.round ?? 'round not stated'}, ${r.funded.date} — ${r.funded.source}: ${r.funded.title}`}>funded</span>
+                          )}
                           {(r.analyst_note || r.multipliers) && (
                             <span className="text-xs text-amber-700 dark:text-amber-400"
                                   title={[r.multipliers ? 'weights ' + Object.entries(r.multipliers).map(([k, m]) => `${k} ×${m}`).join(', ') : '', r.analyst_note ?? ''].filter(Boolean).join(' — ')}>
@@ -281,26 +501,86 @@ export function MarketHorizonView({ marketId, onVendor }: {
           </div>
         )}
 
-        {horizon && horizon.acquired.length > 0 && (
-          <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
+        {horizon && (horizon.moves?.length ?? 0) > 0 && (
+          <div className="mt-4 border rounded-md p-3 border-amber-200 dark:border-amber-800">
             <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-              Acquired ({horizon.acquired.length})
-              <span className="text-xs font-normal text-slate-500 dark:text-gray-400"> — listed, not placed</span>
+              Moved ({horizon.moves!.length})
+              <span className="text-xs font-normal text-slate-500 dark:text-gray-400">
+                {' '}— {horizon.large_shift ?? 10} or more points on an axis since the map of {horizon.previous_at?.slice(0, 10)}
+              </span>
             </div>
             <ul className="text-sm mt-1 space-y-0.5">
-              {horizon.acquired.map(a => (
-                <li key={a.brand_id}>
+              {horizon.moves!.map(m => (
+                <li key={m.brand_id}>
                   {onVendor ? (
-                    <button onClick={() => onVendor(a.brand_id)}
-                            className="text-sky-700 dark:text-sky-400 hover:underline">{a.vendor}</button>
-                  ) : a.vendor}
-                  {a.acquired_by && <span className="text-slate-600 dark:text-gray-300"> — by {a.acquired_by}</span>}
-                  {a.status_date && <span className="text-xs text-slate-500 dark:text-gray-400">, {a.status_date}</span>}
-                  {a.note && <span className="text-xs text-slate-500 dark:text-gray-400"> · {a.note}</span>}
+                    <button onClick={() => onVendor(m.brand_id)}
+                            className="text-sky-700 dark:text-sky-400 hover:underline">{m.vendor}</button>
+                  ) : m.vendor}
+                  <span className="text-xs text-slate-500 dark:text-gray-400">
+                    {' '}— {[['scale', m.scale], ['momentum', m.momentum]].filter(([, d]) => Math.abs(d as number) >= 1)
+                      .map(([a, d]) => `${(d as number) > 0 ? '+' : ''}${d} ${a}`).join(', ')}
+                    {m.previous_tier !== m.tier ? `; ${horizon.tiers[m.previous_tier]?.label ?? m.previous_tier} → ${horizon.tiers[m.tier]?.label ?? m.tier}` : ''}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
+        )}
+
+        {horizon && (horizon.markers?.hiring.length ?? 0) > 0 && (
+          <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
+            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+              Hiring ({horizon.markers!.hiring.length})
+              <span className="text-xs font-normal text-slate-500 dark:text-gray-400">
+                {' '}— a marker across every tier: the top third of rated vendors by open roles per 100 staff,
+                with at least {horizon.markers!.min_open_roles} roles open
+                {horizon.markers!.hiring_bar != null ? ` (bar: ${Math.round(horizon.markers!.hiring_bar)} per 100)` : ''}
+              </span>
+            </div>
+            <ul className="text-sm mt-1 space-y-0.5">
+              {horizon.markers!.hiring.map(h => (
+                <li key={h.brand_id}>
+                  {onVendor ? (
+                    <button onClick={() => onVendor(h.brand_id)}
+                            className="text-sky-700 dark:text-sky-400 hover:underline">{h.vendor}</button>
+                  ) : h.vendor}
+                  <span className="text-xs text-slate-500 dark:text-gray-400">
+                    {' '}— {h.open_roles} open roles, {Math.round(h.per_100)} per 100 staff{h.rated ? '' : ' · not on the map'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {horizon && (horizon.markers?.funded.length ?? 0) > 0 && (
+          <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
+            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+              Funded ({horizon.markers!.funded.length})
+              <span className="text-xs font-normal text-slate-500 dark:text-gray-400">
+                {' '}— a round dated inside the last {horizon.markers!.funded_days} days, from the vendor's
+                own post, a matched news event or the Crunchbase news list
+              </span>
+            </div>
+            <ul className="text-sm mt-1 space-y-0.5">
+              {horizon.markers!.funded.map(f => (
+                <li key={f.brand_id}>
+                  {onVendor ? (
+                    <button onClick={() => onVendor(f.brand_id)}
+                            className="text-sky-700 dark:text-sky-400 hover:underline">{f.vendor}</button>
+                  ) : f.vendor}
+                  <span className="text-xs text-slate-500 dark:text-gray-400" title={f.title}>
+                    {' '}— {f.round ?? 'round not stated'}, {f.date} · {f.source}{f.rated ? '' : ' · not on the map'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {horizon && (
+          <AcquiredPanel marketId={marketId} horizon={horizon} onVendor={onVendor}
+                         onChanged={compute} />
         )}
 
         {horizon && horizon.acquisition_hints.length > 0 && (
