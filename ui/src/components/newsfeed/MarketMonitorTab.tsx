@@ -2261,10 +2261,28 @@ export function MarketMonitorTab() {
                 <>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={overview.corpus.by_week}>
+                    {/* Hatch for the bars that are still filling. Without it
+                        the newest bar reads as a collapse in coverage when it
+                        is really three and a half days of a seven-day week. */}
+                    <defs>
+                      <pattern id="mm-partial" width="6" height="6"
+                               patternUnits="userSpaceOnUse"
+                               patternTransform="rotate(45)">
+                        <rect width="6" height="6"
+                              fill={cc(isDark, '#cbd5e1', '#4b5563')} />
+                        <line x1="0" y1="0" x2="0" y2="6" strokeWidth="3"
+                              stroke={cc(isDark, '#94a3b8', '#6b7280')} />
+                      </pattern>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={cc(isDark, '#e2e8f0', '#374151')} />
                     <XAxis dataKey="week" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip />
+                    <Tooltip formatter={(v: any, _n: any, p: any) => [
+                      p?.payload?.partial
+                        ? `${v} so far — ${p.payload.partial_reason}`
+                        : v,
+                      'Articles',
+                    ]} />
                     {/* Clicking a week opens the articles it counted. A bar
                         that names a number without offering the rows behind it
                         is a dead end. */}
@@ -2278,11 +2296,20 @@ export function MarketMonitorTab() {
                            kind: 'coverage',
                            title: `Content observed, week of ${d?.week ?? ''}`,
                            week: d?.week, expectedTotal: d?.n,
-                         })} />
+                         })}>
+                      {overview.corpus.by_week.map((w) => (
+                        <Cell key={w.week}
+                              fill={w.partial ? 'url(#mm-partial)'
+                                              : cc(isDark, '#475569', '#9ca3af')} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="text-xs text-slate-400 text-center -mt-1 dark:text-gray-500">
                   Click a bar to open the articles.
+                  {overview.corpus.by_week.some(w => w.partial) && (
+                    <> Hatched bars are still filling and will rise.</>
+                  )}
                 </p>
                 </>
               )}

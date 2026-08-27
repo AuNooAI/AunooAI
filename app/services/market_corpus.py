@@ -491,6 +491,7 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         GROUP BY 1 ORDER BY 1
     """), {"m": market_id, "since": _iso_days_ago(max(days, 90))}
     ).mappings().all()
+    weekly = _mark_partial_weeks([dict(r) for r in by_week])
 
     domains = vendor_domains(conn, market_id)
     kinds: Dict[str, int] = {c: 0 for c in ARTICLE_CLASSES}
@@ -527,7 +528,7 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         "recent": recent,
         "top_terms": [dict(r) for r in top_terms],
         "top_sources": [dict(r) for r in top_sources],
-        "by_week": [dict(r) for r in by_week],
+        "by_week": weekly,
         # Same floor as by_week just above: a shorter selection would draw a
         # 1-2 point chart, which reads as broken rather than as "not much
         # history yet". Before this, sentiment_trend ignored `days` entirely
@@ -536,6 +537,47 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         "sentiment_trend": sentiment_trend(conn, market_id,
                                            weeks=max(days, 90) // 7),
     }
+
+
+def _mark_partial_weeks(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flag the week that has not finished, and say how much of it we have.
+
+    The last bar is always short and always looks like a collapse. The week
+    starting Monday 24 August read 41 against roughly 170 for a full week,
+    which is what three and a half days looks like — not a drop in coverage.
+
+    Two separate reasons the newest bar under-reads, and the chart has to admit
+    both. The week is not over, and matching runs behind publication: 1,200
+    articles were matched into one market on a single day, most of them
+    published earlier, so a recent week keeps filling for days after it ends.
+    That makes the most recent *complete* week provisional too.
+    """
+    if not rows:
+        return rows
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
+    # Monday of the current week, matching DATE_TRUNC('week') in the query.
+    this_monday = today - timedelta(days=today.weekday())
+    for row in rows:
+        try:
+            monday = datetime.strptime(row["week"], "%Y-%m-%d").date()
+        except (ValueError, TypeError, KeyError):
+            continue
+        if monday >= this_monday:
+            row["partial"] = True
+            row["days_covered"] = (today - monday).days + 1
+            row["partial_reason"] = (
+                f'{row["days_covered"]} of 7 days so far')
+        elif monday >= this_monday - timedelta(days=7):
+            # Finished, but too recent to have stopped filling.
+            row["partial"] = True
+            row["days_covered"] = 7
+            row["partial_reason"] = (
+                "still filling — we match articles for several days after "
+                "they are published")
+        else:
+            row["partial"] = False
+    return rows
 
 
 def sentiment_trend(conn, market_id: int, *, weeks: int = 26) -> List[Dict[str, Any]]:

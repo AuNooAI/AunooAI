@@ -1283,7 +1283,13 @@ export interface CorpusSummary {
   recent: number;
   top_terms: { term: string; n: number }[];
   top_sources: { source: string; n: number }[];
-  by_week: { week: string; n: number }[];
+  /** `partial` marks a bar that is still filling: the current week is not
+   *  over, and matching runs behind publication for several days after that.
+   *  Drawn hatched, never as a plain bar — the last bar always under-reads. */
+  by_week: {
+    week: string; n: number;
+    partial?: boolean; days_covered?: number; partial_reason?: string;
+  }[];
   collection_terms?: string[];
   context_terms?: string[];
   /** Weekly net-sentiment index (%positive minus %negative among classified

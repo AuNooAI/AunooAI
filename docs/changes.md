@@ -77,13 +77,29 @@ names against an entitlement of 10, so the disclosure backstop is still live.
 `bugfixing.aunoo.ai.service` restarted four times; `bw_collection_runs` checked for
 stranded rows after each — none.
 
+### The weekly chart marks the bars that are still filling
+`app/services/market_corpus.py`, `MarketMonitorTab.tsx`, `market_report_html.py`.
+`_mark_partial_weeks` flags a week two ways. The current week carries how many of its
+seven days we have (4 of 7 today). The week before it is flagged too, because matching
+runs behind publication — 1,200 articles were matched into this market on 26 August
+alone, most of them published earlier — so a week that has ended has not settled.
+
+The flag is computed on the server so the React chart and the HTML report cannot disagree
+about which weeks are provisional. The chart draws those bars hatched, and the tooltip
+reads "41 so far — 4 of 7 days so far". The report's sparkline drops them and says how
+many it held back; a sparkline has no room to hatch, and plotting a half-week draws a fall
+that is not there.
+
+Three tests in `tests/test_market_metrics.py` cover the current week, the still-filling
+previous week, and a malformed week label not taking the chart down with it.
+
 ### Also answered, not changed
 The weekly chart's last bar is the week starting 24 August, which is 3½ days old, so it
 reads at 41 against ~170 for a full week. Matching also runs behind publication — 1,200
 articles were matched into this market on 26 August alone, most with earlier publication
 dates — so the most recent bar keeps filling for days afterwards. The final bar
-under-reads structurally and always will. Marking a partial week as partial is the fix,
-and it is not done.
+under-reads structurally and always will. Marked as partial in the same session — see the
+weekly-chart section above.
 
 ### Propagation
 Canonical only. Not copied to wiley, wileytest or wbm — none of them runs Market Monitor.

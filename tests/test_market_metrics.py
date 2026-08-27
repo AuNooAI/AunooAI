@@ -660,3 +660,61 @@ def test_mm21_every_channel_unmeasured_leaves_no_cohort_at_all():
                                    'mentions': 'failed'} for r in rows}
     mmet.activity_index(rows, health)
     assert all(r['activity_index'] is None for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# The newest weekly bar is always short, and has to say so
+# ---------------------------------------------------------------------------
+
+def test_the_current_week_is_marked_partial():
+    """A week in progress is not a fall in coverage.
+
+    The week starting Monday 24 August read 41 against roughly 170 for a full
+    week. That is what three and a half days looks like. Drawn as a plain bar
+    it reads as a collapse.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.services.market_corpus import _mark_partial_weeks
+
+    today = datetime.now(timezone.utc).date()
+    monday = today - timedelta(days=today.weekday())
+    rows = _mark_partial_weeks([
+        {'week': (monday - timedelta(days=28)).isoformat(), 'n': 170},
+        {'week': (monday - timedelta(days=21)).isoformat(), 'n': 165},
+        {'week': (monday - timedelta(days=7)).isoformat(), 'n': 177},
+        {'week': monday.isoformat(), 'n': 41},
+    ])
+    current = rows[-1]
+    assert current['partial'] is True
+    assert current['days_covered'] == today.weekday() + 1
+    assert str(current['days_covered']) in current['partial_reason']
+
+    # Weeks old enough to have stopped filling are not flagged.
+    assert rows[0]['partial'] is False
+    assert rows[1]['partial'] is False
+
+
+def test_the_week_just_gone_is_still_filling():
+    """Matching runs behind publication, so a finished week keeps growing.
+
+    1,200 articles were matched into one market on a single day, most of them
+    published earlier. A week that ended two days ago has not settled.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.services.market_corpus import _mark_partial_weeks
+
+    today = datetime.now(timezone.utc).date()
+    monday = today - timedelta(days=today.weekday())
+    rows = _mark_partial_weeks([
+        {'week': (monday - timedelta(days=7)).isoformat(), 'n': 177},
+    ])
+    assert rows[0]['partial'] is True
+    assert rows[0]['days_covered'] == 7, 'the week itself was complete'
+    assert 'filling' in rows[0]['partial_reason']
+
+
+def test_marking_survives_a_row_with_no_usable_week():
+    """A malformed week label must not take the whole chart down."""
+    from app.services.market_corpus import _mark_partial_weeks
+    rows = _mark_partial_weeks([{'week': None, 'n': 3}, {'n': 4}])
+    assert len(rows) == 2

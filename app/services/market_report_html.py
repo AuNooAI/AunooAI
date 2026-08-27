@@ -702,9 +702,11 @@ def _spark(values: List[float], *, label: str) -> str:
 
 
 def _metric_card(label: str, hint: str, value: str, note: str,
-                 spark: str = "", nospark: str = "") -> str:
+                 spark: str = "", nospark: str = "", caption: str = "") -> str:
     body = spark or (f'<div class="n-nospark">{esc(nospark)}</div>'
                      if nospark else "")
+    if spark and caption:
+        body += f'<div class="n-nospark">{esc(caption)}</div>' 
     return (
         '<article class="n-metric">'
         f'<div class="n-metric-top"><span>{esc(label)}</span>'
@@ -759,13 +761,24 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
             nospark="Crunchbase gives us stages, not individual rounds, so we "
                     "cannot name a largest raise."))
 
+    # Weeks that are still filling are left out of the line rather than drawn
+    # as a fall. The newest bar always under-reads — the week is not over, and
+    # matching runs days behind publication — so plotting it draws a collapse
+    # that is not there.
+    settled = [w for w in weekly if not w.get("partial")]
+    dropped = len(weekly) - len(settled)
     cards.append(_metric_card(
         "Written about by others", "excludes the vendors' own posts",
         f"{earned:,}", earned_note,
-        _spark([w.get("n") or 0 for w in weekly],
-               label="Articles and posts matched each week")
+        _spark([w.get("n") or 0 for w in settled],
+               label="Articles and posts matched each week, completed weeks only")
         or "",
-        nospark="" if weekly else "Not enough weeks to chart."))
+        nospark=("The last week is still filling, so there is nothing "
+                 "settled to chart yet." if dropped and not settled
+                 else "" if settled else "Not enough weeks to chart."),
+        caption=(f"Completed weeks only. The most recent {dropped} "
+                 f"{'week is' if dropped == 1 else 'weeks are'} still filling "
+                 "and would read as a fall." if dropped else "")))
 
     return f'<section class="n-metrics">{"".join(cards)}</section>'
 
