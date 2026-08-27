@@ -161,6 +161,25 @@ cadence, not the market. The job list's meta now carries `reader_notes` (the ded
 where-from notes) beside the operator `notes`, and the report prints only `reader_notes`; the
 cards say "No market-wide change to report yet." and "Roles open today".
 
+### Ops — `aisoc.aunoo.ai` serves the SOC Automation dashboard under its own name
+Outside the repo: `/etc/nginx/sites-available/aisoc.aunoo.ai` (symlinked into `sites-enabled`)
+and a Let's Encrypt certificate at `/etc/letsencrypt/live/aisoc.aunoo.ai/` (expires
+2026-11-25, renews on the existing `certbot-renew.timer` by webroot). DNS already pointed the
+name at this host. First written as a 302 to the bugfixing URL; changed the same day to a
+proxy because the redirect put `bugfixing.aunoo.ai` in the address bar. The HTTPS block
+proxies exactly three paths to the bugfixing app on 10004: `/` →
+`/api/market-monitor/markets/2/report.html` (query string passed through, so `?days=7` and
+`&view=news` work), `/feed.xml` → the market feed (the page links to it relatively), and
+`/api/market-monitor/markets/2/trial-request` (the form posts by absolute path). Anything else
+302s to `/`. No session exists on this host, so the page is always the shared view. Verified:
+`/` 200 HTML with 2 teaser blocks and the form, `/?days=7&view=news` 200, `/feed.xml` 200
+`application/rss+xml`, bad trial POST 422 through the proxy, `/anything` → `/`, `http://` →
+`https://`. Trap met on the way: a server-level `return 301` runs before location matching, so
+the first certificate issuance failed with "tls: unrecognized name" — the challenge was
+redirected to HTTPS, where the catch-all rejects unknown names. The port-80 redirect lives in
+`location /` for that reason. This entry is the only record; a tenant cloned from canonical
+will not have the vhost.
+
 ### Fix — the Brand Watcher sub-tab reset on reload
 **`BrandWatcherTab.tsx`**: `activeTab` was `useState('dashboard')`. It now initialises from
 `localStorage['bw_active_tab']` (validated against `BW_SUB_TABS`) and writes back on change.
