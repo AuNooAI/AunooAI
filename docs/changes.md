@@ -960,6 +960,15 @@ boundaries…"; the three LinkedIn launch posts that open with rhetoric (Cyleria
 Workflows, Arambh Labs) → empty, because the post body never says what the product is beyond
 the headline. 47 tests pass; `https://aisoc.aunoo.ai/` 200.
 
+### Fix — "Conifers AI is missing": it was on the map, its label 60px away in another cluster
+Conifers AI was rated (Executing, scale 51, momentum 55) and its dot drawn, but the label
+placer had pushed the name down-left into the grey Emerging cluster with a leader line across
+other dots, so it read as one of theirs. `_label_spot` (report) and the React placer now try
+four diagonal spots touching the dot's ring before going further out, and the far rings step
+10px in eight directions, nearest first. In the app the label now sits beside its dot; on the
+public map it is closer, still with a leader line — the ten dots within 40px of the centre
+will not all get an adjacent label at this size. Verified by screenshots of both.
+
 ### Feature — "Beta" label in the app header
 **`SharedNavigation.tsx`, `templates/base_with_shared_nav.html`.** A small pink "Beta" pill
 beside AUNOOAI in the sidebar header, on both the React pages (Explore, Gather, Operations,

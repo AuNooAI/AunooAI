@@ -84,16 +84,23 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
   type Spot = { bx: number; by: number; anchor: 'start' | 'end' | 'middle' };
   const labels = dots.map(({ v, x, y }) => {
     const w = 5.4 * v.vendor.length + 2, h = 11, g = ring(v) + 2;
+    const d0 = g * 0.75;
     const close: Spot[] = [
       { bx: x + g, by: y - 5, anchor: 'start' }, { bx: x - g - w, by: y - 5, anchor: 'end' },
       { bx: x - w / 2, by: y - g - 12, anchor: 'middle' }, { bx: x - w / 2, by: y + g + 2, anchor: 'middle' },
+      // the four diagonals, still touching the dot's ring
+      { bx: x + d0, by: y - g - 8, anchor: 'start' }, { bx: x - d0 - w, by: y - g - 8, anchor: 'end' },
+      { bx: x + d0, by: y + d0, anchor: 'start' }, { bx: x - d0 - w, by: y + d0, anchor: 'end' },
     ];
+    // Further out: rings of spots in eight directions, nearest first.
     const far: Spot[] = [];
     for (let k = 1; k <= 8; k++) {
-      const d = 12 * k;
+      const d = 10 * k, e = d * 0.7;
       far.push({ bx: x + g, by: y - 5 + d, anchor: 'start' }, { bx: x - g - w, by: y - 5 + d, anchor: 'end' },
                { bx: x + g, by: y - 5 - d, anchor: 'start' }, { bx: x - g - w, by: y - 5 - d, anchor: 'end' },
-               { bx: x + g + d, by: y - 5, anchor: 'start' }, { bx: x - g - w - d, by: y - 5, anchor: 'end' });
+               { bx: x + g + d, by: y - 5, anchor: 'start' }, { bx: x - g - w - d, by: y - 5, anchor: 'end' },
+               { bx: x + g + e, by: y - 5 - e, anchor: 'start' }, { bx: x - g - w - e, by: y - 5 - e, anchor: 'end' },
+               { bx: x + g + e, by: y - 5 + e, anchor: 'start' }, { bx: x - g - w - e, by: y - 5 + e, anchor: 'end' });
     }
     let pick: Spot | null = null, near = true;
     for (const c of close) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }

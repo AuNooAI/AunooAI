@@ -886,17 +886,25 @@ def _label_spot(x: float, y: float, g: float, width: float, height: float, clear
     of spots further out in six directions, until one is clear of every dot
     and every placed label. Returns (x, y_top, anchor, near) — ``near`` is
     False when the label had to leave the dot's side."""
+    d0 = g * 0.75
     close = [(x + g, y - 5, "start"), (x - g - width, y - 5, "end"),
-             (x - width / 2, y - g - 12, "middle"), (x - width / 2, y + g + 2, "middle")]
+             (x - width / 2, y - g - 12, "middle"), (x - width / 2, y + g + 2, "middle"),
+             # the four diagonals, still touching the dot's ring
+             (x + d0, y - g - 8, "start"), (x - d0 - width, y - g - 8, "end"),
+             (x + d0, y + d0, "start"), (x - d0 - width, y + d0, "end")]
     for bx, by, anchor in close:
         if clear(bx, by, width, height):
             return bx, by, anchor, True
+    # Further out: rings of spots in eight directions, nearest first, so a
+    # displaced label stays as close to its dot as the crowd allows.
     far = []
     for k in range(1, 9):
-        d = 12 * k
+        d = 10 * k
         far += [(x + g, y - 5 + d, "start"), (x - g - width, y - 5 + d, "end"),
                 (x + g, y - 5 - d, "start"), (x - g - width, y - 5 - d, "end"),
-                (x + g + d, y - 5, "start"), (x - g - width - d, y - 5, "end")]
+                (x + g + d, y - 5, "start"), (x - g - width - d, y - 5, "end"),
+                (x + g + d * 0.7, y - 5 - d * 0.7, "start"), (x - g - width - d * 0.7, y - 5 - d * 0.7, "end"),
+                (x + g + d * 0.7, y - 5 + d * 0.7, "start"), (x - g - width - d * 0.7, y - 5 + d * 0.7, "end")]
     for bx, by, anchor in far:
         if clear(bx, by, width, height):
             return bx, by, anchor, False
