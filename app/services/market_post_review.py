@@ -37,6 +37,38 @@ logger = logging.getLogger(__name__)
 
 VERDICTS = ("signal", "commentary", "noise")
 
+CUSTOMER_SPEAKERS = ("customer", "vendor")
+CUSTOMER_STAGES = ("in_use", "evaluation", "case_study", "existing", "unclear")
+
+
+def _customer_of(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The customer object from one verdict, normalised, or None.
+
+    Only for kind "customer". A missing or malformed object is None rather
+    than a guess, so the report falls back to its own reading of the text.
+    """
+    if (str(item.get("kind") or "")).strip().lower() != "customer":
+        return None
+    raw = item.get("customer")
+    if not isinstance(raw, dict):
+        return None
+    name = raw.get("name")
+    name = (str(name).strip()[:120] or None) if name not in (None, "", "null") else None
+    speaker = str(raw.get("speaker") or "vendor").strip().lower()
+    stage = str(raw.get("stage") or "unclear").strip().lower()
+    if speaker not in CUSTOMER_SPEAKERS:
+        speaker = "vendor"
+    # Nobody unnamed can be quoted: "the customer's own words" needs a
+    # customer. A model that marks an anonymous account as the customer
+    # speaking is contradicting itself, and the vendor is the one talking.
+    if name is None:
+        speaker = "vendor"
+    return {
+        "name": name,
+        "speaker": speaker,
+        "stage": stage if stage in CUSTOMER_STAGES else "unclear",
+    }
+
 # Posts per model call. Small enough that one bad post cannot cost a whole
 # batch, large enough that the instructions are not re-sent per post. Reasoning
 # models silently truncate long batched JSON, so this stays well short of any
@@ -77,6 +109,20 @@ A hire is signal only when the post says someone has joined or been appointed.
 A customer is signal only when the customer is named or the deal is described.
 A launch is signal only when a specific product or capability is now available.
 
+For kind "customer" only, also give a "customer" object (the kind stays
+"customer"; the values below are not kinds):
+- "name": the organisation named as the customer, exactly as written, or null
+  when no organisation is named. A description is not a name: "a Fortune 500
+  retailer", "one of our customers", "three banks" and "multiple federal
+  agencies" are all null. A person's name is not an organisation. The vendor
+  itself, and a partner or reseller delivering the deal, are not the customer.
+- "speaker": "customer" when a named person from the customer is quoted or
+  presented speaking about it; otherwise "vendor".
+- "stage": "in_use" when the customer is running it; "evaluation" when they are
+  evaluating, piloting or trialling it; "case_study" when the post presents a
+  published case study or customer story; "existing" when it is a business
+  review or visit with a customer already using it; otherwise "unclear".
+
 Judge only what the text actually says. A post that gestures at a big claim
 without stating anything specific is noise, however important it sounds. Being
 written by a vendor does not by itself make a post noise, and a post being
@@ -84,7 +130,9 @@ enthusiastic does not make it signal. When a post is on the line between
 signal and commentary or between commentary and noise, choose the lower one.
 
 Reply with a JSON array, one object per post, in the same order, no prose:
-[{{"n": 1, "verdict": "signal", "kind": "launch", "reason": "<12 words or fewer>"}}]
+[{{"n": 1, "verdict": "signal", "kind": "launch", "reason": "<12 words or fewer>"}},
+ {{"n": 2, "verdict": "signal", "kind": "customer", "reason": "<12 words or fewer>",
+   "customer": {{"name": "Virgin Money", "speaker": "customer", "stage": "in_use"}}}}]
 
 Posts:
 {posts}"""
@@ -104,12 +152,16 @@ def _model() -> str:
 
 def candidates(conn, market_id: int, *, limit: int = 200,
                 days: Optional[int] = None,
-                redo: bool = False) -> List[Dict[str, Any]]:
+                redo: bool = False,
+                kinds: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Vendor posts for this market's vendors that have not been read yet.
 
     Selected from ``bw_article_categories`` rather than from the article's
     topic, because a post's topic is its own vendor's Brand Watch lane and
     those are not scoped to a market.
+
+    ``kinds`` narrows a ``redo`` to posts already given one of those kinds,
+    for re-reading one kind after its prompt gained a field.
     """
     # A reshare is not the vendor's claim, so classifying it as the vendor's
     # signal or noise is a category error — and it spends a model call to make
@@ -120,6 +172,9 @@ def candidates(conn, market_id: int, *, limit: int = 200,
     params: Dict[str, Any] = {"m": market_id, "lim": int(limit)}
     if not redo:
         where.append("(ma.review_verdict IS NULL OR ma.article_uri IS NULL)")
+    if kinds:
+        where.append("LOWER(ma.review_kind) = ANY(:kinds)")
+        params["kinds"] = [k.lower() for k in kinds]
     if days:
         from datetime import timedelta
 
@@ -209,6 +264,7 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
             "verdict": verdict,
             "kind": kind,
             "reason": (str(item.get("reason") or "").strip())[:400],
+            "customer": _customer_of({**item, "kind": kind}),
         })
     return out
 
@@ -223,32 +279,155 @@ def store(conn, market_id: int, verdicts: List[Dict[str, Any]],
     """
     written = 0
     for v in verdicts:
+        customer = v.get("customer")
         conn.execute(text("""
             INSERT INTO bw_market_articles
                 (market_id, article_uri, method, origin,
-                 review_verdict, review_kind, review_reason,
+                 review_verdict, review_kind, review_reason, review_customer,
                  review_model, reviewed_at)
             VALUES (:m, :uri, 'post_review', 'corpus',
-                    :verdict, :kind, :reason, :model, NOW())
+                    :verdict, :kind, :reason, CAST(:customer AS JSONB),
+                    :model, NOW())
             ON CONFLICT (market_id, article_uri) DO UPDATE SET
-                review_verdict = EXCLUDED.review_verdict,
-                review_kind    = EXCLUDED.review_kind,
-                review_reason  = EXCLUDED.review_reason,
-                review_model   = EXCLUDED.review_model,
-                reviewed_at    = NOW()
+                review_verdict  = EXCLUDED.review_verdict,
+                review_kind     = EXCLUDED.review_kind,
+                review_reason   = EXCLUDED.review_reason,
+                review_customer = EXCLUDED.review_customer,
+                review_model    = EXCLUDED.review_model,
+                reviewed_at     = NOW()
         """), {"m": market_id, "uri": v["uri"], "verdict": v["verdict"],
-               "kind": v["kind"], "reason": v["reason"], "model": model})
+               "kind": v["kind"], "reason": v["reason"], "model": model,
+               "customer": json.dumps(customer) if customer else None})
         written += 1
     return written
+
+
+CUSTOMER_PROMPT = """Each post below was published by a vendor in the {market} market and
+announces a customer. For each one, say what it tells a reader about that
+customer.
+
+- "name": the organisation named as the customer, exactly as written, or null
+  when no organisation is named. A description is not a name: "a Fortune 500
+  retailer", "one of our customers", "three banks" and "multiple federal
+  agencies" are all null. A person's name is not an organisation. The vendor
+  itself, and a partner or reseller delivering the deal, are not the customer.
+- "speaker": "customer" when a named person from the customer is quoted or
+  presented speaking about it; otherwise "vendor".
+- "stage": "in_use" when the customer is running it; "evaluation" when they are
+  evaluating, piloting or trialling it; "case_study" when the post presents a
+  published case study or customer story; "existing" when it is a business
+  review or visit with a customer already using it; otherwise "unclear".
+
+Judge only what the text actually says. Reply with a JSON array, one object per
+post, in the same order, no prose:
+[{{"n": 1, "name": "Virgin Money", "speaker": "customer", "stage": "in_use"}},
+ {{"n": 2, "name": null, "speaker": "vendor", "stage": "case_study"}}]
+
+Posts:
+{posts}"""
+
+
+def customer_candidates(conn, market_id: int, *, limit: int = 200,
+                        redo: bool = False) -> List[Dict[str, Any]]:
+    """Posts already judged "customer" that have no customer reading yet."""
+    where = ["ma.market_id = :m", "ma.review_kind = 'customer'"]
+    if not redo:
+        where.append("ma.review_customer IS NULL")
+    rows = conn.execute(text(f"""
+        SELECT DISTINCT ON (a.uri)
+               a.uri, a.title, a.summary, b.display_name AS vendor
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        JOIN bw_article_categories bac ON bac.article_uri = a.uri
+        JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id
+                                 AND mb.market_id = ma.market_id
+        JOIN bw_brands b ON b.id = bac.brand_id
+        WHERE {' AND '.join(where)}
+        ORDER BY a.uri
+        LIMIT :lim
+    """), {"m": market_id, "lim": int(limit)}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def _read_customers(market_name: str, posts: List[Dict[str, Any]],
+                          model: str) -> Dict[str, Dict[str, Any]]:
+    """One model call over one batch of customer posts. uri -> reading."""
+    import litellm
+
+    from app.ai_models import extract_json_response, resolve_litellm_call_params
+
+    prompt = CUSTOMER_PROMPT.format(market=market_name, posts=_render(posts))
+    response = await litellm.acompletion(
+        **resolve_litellm_call_params(model),
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=min(4096, 120 * len(posts) + 300),
+    )
+    parsed = extract_json_response((response.choices[0].message.content or "").strip())
+    if isinstance(parsed, dict):
+        parsed = parsed.get("results") or parsed.get("posts") or []
+    if not isinstance(parsed, list):
+        raise ValueError(f"model returned {type(parsed).__name__}, not a list")
+    out: Dict[str, Dict[str, Any]] = {}
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        try:
+            n = int(item.get("n"))
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= n <= len(posts):
+            continue
+        reading = _customer_of({"kind": "customer", "customer": item})
+        if reading:
+            out[posts[n - 1]["uri"]] = reading
+    return out
+
+
+async def read_customers(conn, market_id: int, market_name: str, *,
+                         limit: int = 200, batch: int = DEFAULT_BATCH,
+                         redo: bool = False) -> Dict[str, Any]:
+    """Fill in the customer reading for posts judged "customer" without one.
+
+    Separate from ``review`` on purpose. Re-running the review prompt over
+    posts it has already judged re-rolls the verdict — a redo over 29 customer
+    posts moved 11 of them to noise or another kind — and the verdict is meant
+    to be given once. This pass takes the verdict as given and asks only the
+    three customer questions.
+    """
+    model = _model()
+    posts = customer_candidates(conn, market_id, limit=limit, redo=redo)
+    result: Dict[str, Any] = {"model": model, "candidates": len(posts),
+                              "read": 0, "batches": 0, "failed_batches": 0}
+    for start in range(0, len(posts), batch):
+        chunk = posts[start:start + batch]
+        result["batches"] += 1
+        try:
+            readings = await _read_customers(market_name, chunk, model)
+        except Exception as exc:  # noqa: BLE001
+            result["failed_batches"] += 1
+            logger.warning("customer reading batch failed (%d posts): %s",
+                           len(chunk), exc)
+            continue
+        for uri, reading in readings.items():
+            conn.execute(text("""
+                UPDATE bw_market_articles
+                   SET review_customer = CAST(:customer AS JSONB)
+                 WHERE market_id = :m AND article_uri = :uri
+            """), {"m": market_id, "uri": uri, "customer": json.dumps(reading)})
+            result["read"] += 1
+        conn.commit()
+    return result
 
 
 async def review(conn, market_id: int, market_name: str, *,
                  limit: int = 200, batch: int = DEFAULT_BATCH,
                  days: Optional[int] = None, redo: bool = False,
+                 kinds: Optional[List[str]] = None,
                  dry_run: bool = False) -> Dict[str, Any]:
     """Read unreviewed vendor posts and record what each one is."""
     model = _model()
-    posts = candidates(conn, market_id, limit=limit, days=days, redo=redo)
+    posts = candidates(conn, market_id, limit=limit, days=days, redo=redo,
+                       kinds=kinds)
     result: Dict[str, Any] = {
         "model": model, "candidates": len(posts), "reviewed": 0,
         "batches": 0, "failed_batches": 0, "dry_run": dry_run,
@@ -281,4 +460,11 @@ async def review(conn, market_id: int, market_name: str, *,
         result["reviewed"] += store(conn, market_id, verdicts, model)
         conn.commit()
 
+    # Customer posts judged before the reading existed, or whose reading the
+    # model left out, get it here without their verdict being re-asked.
+    try:
+        result["customers"] = await read_customers(conn, market_id, market_name,
+                                                   limit=limit, batch=batch)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("customer reading pass failed: %s", exc)
     return result

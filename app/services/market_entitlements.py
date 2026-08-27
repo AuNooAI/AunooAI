@@ -239,6 +239,42 @@ def filter_rows(rows: Any, allowed: Optional[Sequence[int]],
     return rows
 
 
+# What a masked row is called. Deliberately not a name-shaped string, so the
+# backstop scan cannot match it and a reader cannot mistake it for a vendor.
+WITHHELD_LABEL = "a vendor not shown in this view"
+
+
+def mask_rows(rows: Any, allowed: Optional[Sequence[int]],
+              label: str = WITHHELD_LABEL) -> Any:
+    """Keep every row, but blank the names of vendors this viewer may not see.
+
+    For aggregates. ``filter_rows`` drops rows, which changes the totals a
+    finding is computed from: a shared view of ten vendors then reported the
+    hiring concentration of those ten as though it were the market's, and
+    printed "5 of 84 vendors" where the 5 counted the shown vendors and the 84
+    counted everyone. This keeps the counts whole and withholds only the
+    identity. The name keys become ``label`` and the row is marked
+    ``withheld`` so a caller can collapse such rows into one line.
+    """
+    if allowed is None:
+        return rows
+    allowed_ids = {int(b) for b in allowed}
+
+    if isinstance(rows, list):
+        return [mask_rows(r, allowed, label) for r in rows]
+    if isinstance(rows, dict):
+        out = {k: mask_rows(v, allowed, label) for k, v in rows.items()}
+        ident = next((rows[k] for k in _ID_KEYS
+                      if isinstance(rows.get(k), int)), None)
+        if ident is not None and int(ident) not in allowed_ids:
+            for k in _NAME_KEYS:
+                if k in out:
+                    out[k] = label
+            out["withheld"] = True
+        return out
+    return rows
+
+
 def drop_text_mentioning(rows: Any, withheld: Sequence[str]) -> Any:
     """Drop items whose own words name a withheld vendor.
 

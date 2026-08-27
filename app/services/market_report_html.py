@@ -49,7 +49,8 @@ NEWS_CSS = """
            overflow:hidden; background:var(--n-bg); color:var(--n-text); }
 .mm-news * { box-sizing:border-box; }
 /* Dark bar: the Cyberfuturists mark is drawn for a dark ground. */
-.mm-news .n-top { display:flex; align-items:center; gap:20px; padding:14px 18px;
+.mm-news .n-top { display:flex; align-items:center; gap:12px 20px; padding:14px 18px;
+                  flex-wrap:wrap;
                   background:#0b1220; color:#e6edf5; border-bottom:1px solid #1e293b; }
 .mm-news .n-brand { display:flex; align-items:center; gap:9px; font-weight:500;
                     white-space:nowrap; }
@@ -63,7 +64,10 @@ NEWS_CSS = """
                    background:#0b1220; color:#e6edf5; font-size:.82rem;
                    flex-wrap:wrap; }
 .mm-news .n-foot > span:last-child { color:#aab7c7; }
-.mm-news .n-jump { display:flex; gap:4px; flex:1; flex-wrap:wrap; }
+/* The section links take the whole second row: with the two brand marks, the
+   page links and the market name on the first, they never fit beside them
+   and were wrapping into a column. */
+.mm-news .n-jump { display:flex; gap:4px; flex:1 1 100%; order:10; flex-wrap:wrap; }
 .mm-news .n-jump a { border-radius:7px; padding:6px 10px; color:#aab7c7;
                      text-decoration:none; font-size:.82rem; }
 .mm-news .n-jump a:hover { background:#1e293b; color:#fff; }

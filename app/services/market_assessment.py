@@ -595,6 +595,11 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
     if cand.get("seed") and cand.get("headline_rank", 9) < dev.get("headline_rank", 9):
         dev["headline"], dev["summary"] = cand["headline"], cand.get("summary")
         dev["headline_rank"] = cand["headline_rank"]
+    # A reading the review pass made carries to the development it joins.
+    cand_customer = (cand.get("attributes") or {}).get("customer")
+    if cand_customer and not (dev.get("attributes") or {}).get("customer"):
+        dev["attributes"] = {**(dev.get("attributes") or {}),
+                             "customer": cand_customer}
     dev["merged_from"] = dev.get("merged_from", 0) + 1
 
 
@@ -681,6 +686,207 @@ def importance_of(event_type: str, provenance: str) -> str:
     return "low"
 
 
+# ---------------------------------------------------------------------------
+# Reading a customer-evidence item
+# ---------------------------------------------------------------------------
+#
+# Whether the customer is named, who is speaking, and what stage the account
+# describes. Who else reported it is the wrong test for a customer win: the
+# realistic corroboration is the customer saying it, and that almost never
+# reaches the press. So the sentence under a customer row is read off the item
+# rather than off the provenance.
+
+# An organisation name: capitalised words, allowing "of", "and", "&", "the"
+# inside ("University of Montana", "J.B. Poindexter & Co").
+_ORG = (r"(?P<org>[A-Z][\w&.'\u2019-]*(?:\s+(?:of|and|&|the|de|for)\s+)?"
+        r"(?:\s*[A-Z][\w&.'\u2019-]*(?:\s+(?:of|and|&|de)\s+)?){0,5})")
+_ROLE = (r"(?:CISO|CIO|CTO|CSO|CEO|CFO|VP|Vice\s+President|Head|Director|"
+         r"Manager|Engineer|Lead|Analyst|Officer|Architect)")
+_PERSON = r"[A-Z][a-z]+(?:\s+[A-Z]\.)?\s+[A-Z][\w'-]+"
+# (pattern, a person from the customer is attached to the name)
+_CUSTOMER_NAME_PATTERNS = [
+    # "John Barrow, CISO at J.B. Poindexter & Co"; "Department Manager ... at X"
+    (re.compile(_ROLE + r"[^.,;\n]{0,40}?\s+(?:at|of|from)\s+" + _ORG), True),
+    # "Michael Shannon from Guardant Health"; "Erik Wille at Cabinetworks Group"
+    (re.compile(_PERSON + r"\s+(?:from|at)\s+" + _ORG), True),
+    # "what METCLOUD (Ian Vickers) had to say"
+    (re.compile(r"\bwhat\s+" + _ORG + r"\s*(?:\([^)]*\))?\s+had\s+to\s+say"), True),
+    # "The Air Force selected Crogl"; "Spencer Fane LLP receives"
+    (re.compile(r"(?:^|[.!?]\s+|,\s+)(?:[Tt]he\s+)?" + _ORG
+                + r"\s+(?:selected|chose|picked|adopted|deployed|uses|relies\s+on|"
+                r"receives|receive|has\s+chosen|went\s+live|signed)\b"), False),
+    # "For the University of Montana, ..."; "the team at MediaMarktSaturn".
+    # Not "with Nadia Mejri, our Customer Success Director": a capitalised
+    # run followed by a comma and a job title is a person.
+    (re.compile(r"\b(?:[Ff]or|at|with|from|inside|within)\s+(?:the\s+)?" + _ORG
+                + r"(?!\s*,\s+(?:our|their|its|the|a|an)?\s*(?:[A-Z]\w*\s+){0,3}"
+                + _ROLE + r"\b)(?!\s*,\s+(?:our|my)\b)"
+                + r"(?=\s*[,.:;(]|\s+(?:had|has|have|is|was|uses|used|relies|"
+                r"chose|selected|during|receives|to)\b)"), False),
+]
+# Words that a capitalised run can be made of without naming anyone.
+_NOT_AN_ORG = {
+    "ai", "soc", "siem", "mdr", "xdr", "edr", "it", "the", "a", "an", "and",
+    "of", "our", "your", "we", "us", "read", "watch", "see", "hear", "new",
+    "customer", "customers", "case", "study", "ciso", "cio", "cto", "ceo",
+    "linkedin", "black", "hat", "usa", "rsa", "rsac", "q1", "q2", "q3", "q4",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december", "monday", "tuesday",
+    "wednesday", "thursday", "friday", "saturday", "sunday", "fortune",
+    "enterprise", "security", "operations", "center", "centre", "challenge",
+    "business", "review", "this", "that", "here", "why", "how", "what", "when",
+}
+_UNNAMED = re.compile(
+    r"\b(?:one|a|an|another)\s+(?:of\s+our\s+)?(?:new\s+|large\s+|major\s+|"
+    r"leading\s+|global\s+|regional\s+)?(?:customer|client|enterprise|"
+    r"organi[sz]ation|company|bank|retailer|firm|institution|university|"
+    r"hospital|agency|manufacturer|insurer)s?\b|\bFortune\s*\d+", re.I)
+_EVALUATION = re.compile(
+    r"\b(?:evaluat\w*|pilot\w*|proof[- ]of[- ]concept|POC|trial\w*|testing|"
+    r"bake-?off)\b", re.I)
+_CASE_STUDY = re.compile(
+    r"\bcase\s+stud(?:y|ies)|customer\s+stor(?:y|ies)|success\s+stor(?:y|ies)"
+    r"|read\s+the\s+(?:full\s+)?story\b", re.I)
+_IN_USE = re.compile(
+    r"\b(?:selected|chose|deployed|deploys|goes\s+live|went\s+live|relies\s+on|"
+    r"rely\s+on|uses|using|since\s+adding|handles|runs\s+on|in\s+production|"
+    r"scaling|dispositioning|anchor|adopted|rolled\s+out|protects|working\s+with"
+    r"|primary\s+SIEM)\b", re.I)
+_EXISTING = re.compile(r"\bbusiness\s+review|\bcustomer\s+visit|\bQBR\b", re.I)
+_CUSTOMER_SPEAKS = re.compile(
+    r"\bhear\s+directly\s+from|\bhad\s+to\s+say|\bin\s+(?:his|her|their)\s+"
+    r"(?:own\s+)?words|\bdescribes\b|\btold\s+us|\bshares?\s+how\s+(?:his|her|their)"
+    r"|\bspeaks?\s+about|\btalks?\s+about", re.I)
+
+
+def _vendor_aliases(dev: Dict[str, Any]) -> set:
+    out = set()
+    for v in dev.get("vendors") or []:
+        name = (v.get("vendor") or "").strip()
+        if not name:
+            continue
+        out.add(name.lower())
+        head = re.split(r"[\s(]", name)[0].lower()
+        if len(head) > 3:
+            out.add(head)
+    return out
+
+
+_ABBREVIATION = re.compile(r"(?:[A-Z]\.)+|(?:Inc|Ltd|Co|Corp|LLC|Pty|GmbH|Bros)\.")
+
+
+def _clean_org(raw: str, aliases: set) -> Optional[str]:
+    # The name pattern lets a word carry a period ("J.B.", "Co."), so it can
+    # run through the end of a sentence: "Cabinetworks Group. When". Stop at
+    # the first word that ends a sentence rather than abbreviates.
+    words = []
+    for w in re.sub(r"\s+", " ", raw).strip().split(" "):
+        if w.endswith(".") and not _ABBREVIATION.fullmatch(w):
+            words.append(w[:-1])
+            break
+        words.append(w)
+    org = " ".join(words).strip(" ,.;:()'\u2019")
+    org = re.sub(r"\s+(?:of|and|&|the|de|for)$", "", org)
+    if not org:
+        return None
+    words = org.split()
+    if len(words) > 6:
+        return None
+    low = org.lower()
+    if low in aliases or any(a and a in low.split() for a in aliases):
+        return None
+    if all(w.lower().strip("&.'") in _NOT_AN_ORG for w in words):
+        return None
+    return org
+
+
+_STAGE_TEXT = {
+    "in_use": "described in use",
+    "evaluation": "evaluating it rather than running it",
+    "case_study": "a published case study",
+    "existing": "an existing customer",
+    "unclear": "described as a customer",
+}
+
+
+def reading_from_review(stored: Dict[str, Any]) -> Dict[str, Any]:
+    """The reading the post review stored, in the shape the report uses.
+
+    The review pass read the whole post once with a model and recorded the
+    customer's name (or that there is none), who speaks and the stage. That is
+    the durable source; the rules below are the fallback for posts reviewed
+    before the field existed.
+    """
+    name = (stored.get("name") or "").strip() or None
+    speaker = (stored.get("speaker") or "vendor") if name else "vendor"
+    stage = stored.get("stage") or "unclear"
+    return {
+        "named": bool(name), "name": name,
+        "voice": ("in the customer's own words" if speaker == "customer"
+                  else "in the vendor's words"),
+        "stage": _STAGE_TEXT.get(stage, _STAGE_TEXT["unclear"]),
+        "source": "review",
+    }
+
+
+def customer_reading(dev: Dict[str, Any]) -> Dict[str, Any]:
+    """Named or unnamed, who speaks, and what stage, for one item.
+
+    From the review pass where it read the post; from the rules below where
+    it did not.
+    """
+    stored = (dev.get("attributes") or {}).get("customer")
+    if isinstance(stored, dict) and stored.get("source") == "review":
+        return stored
+    return _customer_reading_by_rules(dev)
+
+
+def _customer_reading_by_rules(dev: Dict[str, Any]) -> Dict[str, Any]:
+    text_value = _full_text(dev)
+    aliases = _vendor_aliases(dev)
+    name = None
+    person_attached = False
+    for pat, attached in _CUSTOMER_NAME_PATTERNS:
+        for m in pat.finditer(text_value):
+            org = _clean_org(m.group("org"), aliases)
+            if org:
+                name, person_attached = org, attached
+                break
+        if name:
+            break
+    if _EVALUATION.search(text_value):
+        stage = "evaluating it rather than running it"
+    elif _CASE_STUDY.search(text_value):
+        stage = "a published case study"
+    elif _EXISTING.search(text_value):
+        stage = "an existing customer"
+    elif _IN_USE.search(text_value):
+        stage = "described in use"
+    else:
+        stage = "described as a customer"
+    if name and (person_attached or _CUSTOMER_SPEAKS.search(text_value)):
+        voice = "in the customer's own words"
+    else:
+        voice = "in the vendor's words"
+    return {"named": bool(name), "name": name, "voice": voice, "stage": stage,
+            "unnamed_marker": bool(_UNNAMED.search(text_value)),
+            "source": "rules"}
+
+
+def _customer_named(dev: Dict[str, Any]) -> bool:
+    reading = (dev.get("attributes") or {}).get("customer")
+    if reading is None:
+        reading = customer_reading(dev)
+    return bool(reading.get("named"))
+
+
+def customer_sentence(dev: Dict[str, Any]) -> str:
+    r = customer_reading(dev)
+    if r["named"]:
+        return f"Named customer: {r['name']}, {r['voice']}, {r['stage']}."
+    return f"Unnamed customer: {r['stage']}, {r['voice']}."
+
+
 def why_it_matters(dev: Dict[str, Any]) -> str:
     """The market consequence of the event, in one bounded sentence."""
     kind = dev["event_type"]
@@ -695,9 +901,7 @@ def why_it_matters(dev: Dict[str, Any]) -> str:
     if kind == "funding":
         return "This provides additional capital for expansion."
     if kind == "customer":
-        return ("Evidence beyond product availability: a named customer or "
-                "deployment" + (", so far on the vendor's word only."
-                                if only_vendor else ", reported outside the vendor."))
+        return customer_sentence(dev)
     if kind == "product_expansion":
         if _RESPONSE.search(_full_text(dev)):
             return "The product moves from investigation toward taking action."
@@ -754,6 +958,8 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         "merged_records": int(dev.get("merged_from") or 0),
     }
     out["importance"] = importance_of(out["event_type"], provenance)
+    if out["event_type"] == "customer":
+        out["attributes"] = {**out["attributes"], "customer": customer_reading(dev)}
     out["why_it_matters"] = why_it_matters({**dev, "provenance": provenance})
     return out
 
@@ -834,6 +1040,14 @@ def _stored_candidates(conn, market_id: int, days: int
             break
         page += 1
 
+    # What the review pass read off each customer post, by post. A stored
+    # event holds its posts as evidence and the corpus path skips those, so
+    # the reading has to be picked up here or it is lost.
+    readings = {r[0]: r[1] for r in conn.execute(text("""
+        SELECT article_uri, review_customer FROM bw_market_articles
+         WHERE market_id = :m AND review_customer IS NOT NULL
+    """), {"m": market_id}).fetchall()}
+
     out: List[Dict[str, Any]] = []
     held: Set[str] = set()
     for f in rows:
@@ -872,6 +1086,12 @@ def _stored_candidates(conn, market_id: int, days: int
                 "source_type": ("vendor" if voice == "owned"
                                 else "social" if s.get("social") else "news"),
                 "key": s.get("key") or s.get("uri")})
+        if kind == "customer":
+            for e in evidence:
+                stored = readings.get(e.get("uri"))
+                if isinstance(stored, dict):
+                    attrs = {**attrs, "customer": reading_from_review(stored)}
+                    break
         stamp = f.get("occurred_at") or f.get("first_observed_at")
         out.append({
             "key": f"event:{f['finding_id']}",
@@ -935,6 +1155,9 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
             # it; nothing to add.
             continue
         if kind:
+            attrs: Dict[str, Any] = {}
+            if kind == "customer" and isinstance(row.get("review_customer"), dict):
+                attrs["customer"] = reading_from_review(row["review_customer"])
             cands.append({
                 "key": f"corpus:{row['uri']}",
                 "event_type": kind,
@@ -943,6 +1166,7 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "headline": headline_of(row),
                 "summary": row.get("summary") or "",
                 "evidence": [evidence],
+                "attributes": attrs,
                 "seed": True,
                 "seed_rank": 1 if klass == "news" else 3 if klass == "vendor" else 2,
                 "headline_rank": 0 if klass == "news" else 3,
@@ -1430,6 +1654,35 @@ def _first_sentence(dev: Dict[str, Any]) -> str:
     return _clip(first, 320)
 
 
+def _vendor_lines(rows: List[Dict[str, Any]], key: str, unit: str,
+                  limit: int = 4, singular: Optional[str] = None) -> List[str]:
+    """One evidence line per vendor, with withheld vendors collapsed into one.
+
+    A masked row (see ``market_entitlements.mask_rows``) carries the same
+    placeholder name as every other masked row, so printing them one per line
+    would read as the same vendor four times.
+    """
+    def _unit(n: int) -> str:
+        return singular if (singular and int(n) == 1) else unit
+
+    shown = rows[:limit]
+    lines = [f"{r['vendor']}: {r[key]} {_unit(r[key])}"
+             for r in shown if not r.get("withheld")]
+    hidden = [r for r in shown if r.get("withheld")]
+    if hidden:
+        total = sum(int(r.get(key) or 0) for r in hidden)
+        lines.append(f"{len(hidden)} vendor{'s' if len(hidden) != 1 else ''} "
+                     f"not shown in this view: {total} {_unit(total)}")
+    return lines
+
+
+def _alone(row: Dict[str, Any], share: float) -> str:
+    """'7ai alone 21%', or its masked form."""
+    if row.get("withheld"):
+        return f"the largest, not shown in this view, {_pct(share)}"
+    return f"{row['vendor']} alone {_pct(share)}"
+
+
 def _finding(ident: str, headline: str, body: str, *, evidence: List[str],
              coverage: str, developments: Sequence[Dict[str, Any]] = (),
              basis: str = "observed") -> Dict[str, Any]:
@@ -1456,6 +1709,10 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     devs: List[Dict[str, Any]] = list(inputs.get("developments") or [])
     dist = inputs.get("distribution") or distribution(devs)
+    # Every development, for counting only. In a shared view ``devs`` holds
+    # just the ones whose vendors may be named; the market's figures must not
+    # shrink with the reader's entitlement.
+    counted = inputs.get("counted_developments") or devs
     obs = inputs.get("observation") or {}
     hiring = inputs.get("hiring") or {}
     registry_total = int(inputs.get("registry_total") or 0)
@@ -1502,30 +1759,33 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     # market needs the vendors' own channels to have been read for most of
     # them; below that the comparison describes our collection, not the
     # market, and the observed-mix finding below is used instead.
+    # Counted over every development, named from the ones this reader may
+    # see: a shared view that counted only its ten vendors said customer
+    # evidence "keeps pace" where the market's figures say product activity
+    # exceeds it.
     product = _devs_of(devs, *PRODUCT_TYPES)
     customers = _devs_of(devs, "customer")
+    product_all = _devs_of(counted, *PRODUCT_TYPES)
+    customers_all = _devs_of(counted, "customer")
     post_share = _coverage_share(post_cov)
-    if (len(product) + len(customers) >= MIN_DEVELOPMENTS_FOR_MIX
+    if (len(product_all) + len(customers_all) >= MIN_DEVELOPMENTS_FOR_MIX
             and post_share is not None and post_share >= MIN_COVERAGE_SHARE):
-        indep = [d for d in customers
-                 if d["provenance"] != "vendor_source_only"]
-        if len(product) > 2 * len(customers):
+        named = [d for d in customers_all if _customer_named(d)]
+        if len(product_all) > 2 * len(customers_all):
             head = "Product activity still exceeds customer evidence."
-        elif len(customers) >= len(product):
+        elif len(customers_all) >= len(product_all):
             head = "Customer evidence keeps pace with product announcements."
         else:
             head = "Product announcements and customer evidence are close."
         out.append(_finding(
             "product_vs_customer", head,
-            f"Vendors made {len(product)} product launch or expansion "
-            f"announcement{'s' if len(product) != 1 else ''} against "
-            f"{len(customers)} customer or deployment announcement"
-            f"{'s' if len(customers) != 1 else ''} in the period"
-            + ((f", {len(indep)} of which "
-                f"{'has' if len(indep) == 1 else 'have'} been reported by "
-                "anyone other than the vendor." if indep else
-                ", none of which has been reported by anyone other than "
-                "the vendor.") if customers else ".")
+            f"Vendors made {len(product_all)} product launch or expansion "
+            f"announcement{'s' if len(product_all) != 1 else ''} against "
+            f"{len(customers_all)} customer or deployment announcement"
+            f"{'s' if len(customers_all) != 1 else ''} in the period"
+            + ((f", {len(named)} of which name"
+                f"{'s' if len(named) == 1 else ''} the customer." if named else
+                ", none of which names the customer.") if customers_all else ".")
             + " These count announcements, not sales.",
             evidence=[f"Product: {_name_list(product, 5)}"]
             + ([f"Customers: {_name_list(customers, 5)}"] if customers else []),
@@ -1554,13 +1814,13 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     # 4. Customer adoption on its own, when the comparison above was not made.
     if customers and not any(f["id"] == "product_vs_customer" for f in out):
-        indep = [d for d in customers if d["provenance"] != "vendor_source_only"]
+        named = [d for d in customers if _customer_named(d)]
         out.append(_finding(
             "adoption",
             f"Customer evidence observed for {_name_list(customers)}.",
             f"{len(customers)} customer or deployment announcement"
             f"{'s' if len(customers) != 1 else ''}, "
-            f"{len(indep)} of them reported by anyone other than the vendor.",
+            f"{len(named)} of them naming the customer.",
             evidence=[f'{d["headline"]} ({d["provenance_label"].lower()})'
                       for d in customers[:5]],
             coverage=_partial_posts_note(inputs),
@@ -1582,8 +1842,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
                 f"Of the {openings} open roles observed, {top['vendor']} "
                 f"accounts for {top['openings']} ({_pct(share)}), with "
                 f"{second['vendor']} the next largest at {second['openings']}.",
-                evidence=[f"{v['vendor']}: {v['openings']} open roles"
-                          for v in by_vendor[:4]],
+                evidence=_vendor_lines(by_vendor, "openings", "open roles"),
                 coverage=(f"Job listings exist for only {len(by_vendor)} of "
                           f"{registry_total} vendors, so this is an observed "
                           "hiring signal rather than a market-wide ranking."),
@@ -1599,13 +1858,13 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             "change_concentration",
             f"{dist['vendors_with_change']} of {registry_total} vendors showed "
             "material observed change.",
-            f"{len(devs)} developments in {days} days. The three most active "
+            f"{dist['total']} developments in {days} days. The three most active "
             f"vendors account for {_pct(dist['top3_share'])} of them "
             f"({top3_txt})."
             + (f" {quiet} vendors were watched and showed no material change."
                if quiet else ""),
-            evidence=[f"{v['vendor']}: {v['n']} development"
-                      f"{'s' if v['n'] != 1 else ''}" for v in dist["by_vendor"][:5]],
+            evidence=_vendor_lines(dist["by_vendor"], "n", "developments",
+                                   singular="development", limit=5),
             coverage="",
             developments=devs))
 
@@ -1623,7 +1882,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "Most developments were reported by somebody other than the vendor.")
         out.append(_finding(
             "corroboration", head,
-            f"{vendor_only} of {len(devs)} developments have only the "
+            f"{vendor_only} of {dist['total']} developments have only the "
             f"vendor's own announcement behind them; {indep} "
             f"{'was' if indep == 1 else 'were'} also reported by at least one "
             "outside source.",
@@ -1718,8 +1977,7 @@ def market_synthesis(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         top3 = sum(int(v["openings"]) for v in by_vendor[:3])
         measures.append((f"the three vendors hiring most hold "
                          f"{_pct(top3 / openings)} of {openings} open roles "
-                         f"({by_vendor[0]['vendor']} alone "
-                         f"{_pct(by_vendor[0]['openings'] / openings)})",
+                         f"({_alone(by_vendor[0], by_vendor[0]['openings'] / openings)})",
                          top3 / openings))
     sov = inputs.get("share_of_voice") or {}
     own_total = int(sov.get("own_total") or 0)
@@ -1780,8 +2038,11 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
     """Everything the report's lead needs, computed once.
 
     ``allowed_brand_ids`` restricts a shared view to the vendors it may name.
-    Applied before findings are generated, so a restricted reader's findings
-    are computed from what they may see rather than filtered after the fact.
+    Developments are filtered to those vendors before findings are generated,
+    because a development is a headline and a headline names its subject. The
+    market-wide aggregates (hiring, share of voice, funding) are kept whole and
+    only masked, so the shared view states the same finding as the full one
+    with the withheld vendors unnamed.
     """
     from app.services import market_analysis as man
     from app.services import market_entitlements as ent
@@ -1790,6 +2051,7 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
     market_id = market["id"]
     material = material_developments(conn, market_id, days, market=market)
     devs = material["developments"]
+    every_dev = devs
     if allowed_brand_ids is not None:
         allowed = {int(b) for b in allowed_brand_ids}
         devs = [d for d in devs if all(
@@ -1798,7 +2060,11 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
         material["developments"] = devs
         material["total"] = len(devs)
 
-    observation = vendor_observation(conn, market_id, days, developments=devs)
+    # The counts are the market's, whichever vendors this reader may see:
+    # "8 of 84 vendors showed change" counted the shown vendors against the
+    # whole registry. The per-vendor rows are then filtered for display.
+    observation = vendor_observation(conn, market_id, days,
+                                     developments=every_dev)
     if allowed_brand_ids is not None:
         observation["vendors"] = ent.filter_rows(
             observation["vendors"], allowed_brand_ids)
@@ -1814,11 +2080,13 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
     hiring = _safe(man.hiring, conn, market_id, days=days) or {}
     formation = _safe(man.formation, conn, market_id) or {}
     sov = _safe(man.share_of_voice, conn, market_id, days=days) or {}
+    # Masked, not filtered. Dropping the withheld vendors' rows changed the
+    # totals: the shared view of ten vendors reported 7ai at 58% of 55 roles
+    # and "5 of 84 vendors", where the whole market is 21% of 149 roles across
+    # 20 vendors. The counts stay whole; only the names are withheld.
     if allowed_brand_ids is not None:
-        hiring = ent.filter_rows(hiring, allowed_brand_ids) or {}
-        hiring["openings"] = sum(int(v.get("openings") or 0)
-                                 for v in hiring.get("by_vendor") or [])
-        sov = ent.filter_rows(sov, allowed_brand_ids) or {}
+        hiring = ent.mask_rows(hiring, allowed_brand_ids) or {}
+        sov = ent.mask_rows(sov, allowed_brand_ids) or {}
     post_collection = _safe(mmet.collection_state, conn, market_id,
                             "linkedin_company_post")
     jobs_collection = _safe(mmet.collection_state, conn, market_id,
@@ -1834,12 +2102,19 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
     for r in funding_by_vendor:
         r["musd"] = float(r["musd"]) if r["musd"] is not None else None
     if allowed_brand_ids is not None:
-        funding_by_vendor = ent.filter_rows(funding_by_vendor, allowed_brand_ids)
+        funding_by_vendor = ent.mask_rows(funding_by_vendor, allowed_brand_ids)
 
-    dist = distribution(devs)
+    dist = distribution(every_dev)
+    if allowed_brand_ids is not None:
+        shown = set(ent.vendor_names(conn, market_id, allowed_brand_ids).values())
+        for row in dist["by_vendor"]:
+            if row["vendor"] not in shown:
+                row["vendor"] = ent.WITHHELD_LABEL
+                row["withheld"] = True
     inputs = {
         "days": days,
         "developments": devs,
+        "counted_developments": every_dev,
         "distribution": dist,
         "observation": observation,
         "hiring": hiring,

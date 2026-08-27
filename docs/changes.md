@@ -180,6 +180,92 @@ redirected to HTTPS, where the catch-all rejects unknown names. The port-80 redi
 `location /` for that reason. This entry is the only record; a tenant cloned from canonical
 will not have the vhost.
 
+### Fix — the shared report stated findings the full report contradicts
+**`market_assessment.py`, `market_entitlements.py`**. The shared view (ten named vendors)
+said "Observed hiring is concentrated in a small number of vendors… 7ai accounts for 32
+(58%)" and "Job listings exist for only 5 of 84 vendors", where the market's data is 149
+roles across 20 vendors with 7ai at 21%, which the full view reports as "spread rather than
+concentrated". Root cause: `assess()` dropped the withheld vendors' rows from the hiring,
+share-of-voice and funding inputs with `ent.filter_rows` before computing findings, so every
+share and every numerator came from the ten shown vendors while the denominator (`registry_total`)
+stayed at 84. Developments had the same defect one step earlier: the filtered list fed
+`distribution()` and `vendor_observation()`, giving "8 of 84 vendors showed material change",
+"three vendors account for 53% of 19 developments", "38 of 19 developments have only the
+vendor's own announcement" and a product-vs-customer verdict that flipped between views
+("keeps pace" against "still exceeds").
+
+The aggregates are now computed over every vendor and only the names are withheld. New
+`ent.mask_rows()` keeps each row, replaces its name keys with `WITHHELD_LABEL` ("a vendor not
+shown in this view") and marks it `withheld`; `assess()` uses it for hiring, share of voice
+and funding, builds `distribution()` and the observation counts from every development
+(`counted_developments`), and masks the distribution's per-vendor names by the allowed name
+set. `candidate_findings` counts product/customer developments from the full list and names
+examples from the shown one; the change and corroboration findings use `dist["total"]`.
+`_vendor_lines()` collapses masked rows into one evidence line ("1 vendor not shown in this
+view: 3 developments") and `_alone()` handles a masked leader in the Concentration paragraph.
+The report's existing `drop_text_mentioning` and `assert_no_withheld` passes are unchanged;
+the label is not a vendor name, so neither trips on it. `assess()`'s docstring said the
+filtering was deliberate ("computed from what they may see"); that was the design that
+produced the wrong finding.
+
+### Fix — the customer-evidence row says what the post says, not a template
+**`market_post_review.py`, `market_assessment.py`, `market_corpus.py`, `market_monitor_routes.py`,
+`alembic/versions/mm_012_review_customer.py`**. Every "Customer evidence" row in the developments
+table carried the same "Why it matters" sentence: "Evidence beyond product availability: a named
+customer or deployment, so far on the vendor's word only." `why_it_matters()` is one fixed
+sentence per event kind, so it asserted a name where there was none (the post reviewer admits a
+customer that is "named *or the deal is described*", which lets "one customer handles 10,000+
+alerts" and "Fortune 500 Retail and Logistics" through) and appended a corroboration caveat
+that is true of nearly every customer win, since the realistic corroboration is the customer
+saying it and that rarely reaches the press. It also called an evaluation a deployment.
+
+The reading now comes from the step that already reads every vendor post once. The review
+prompt asks, for kind "customer", for a `customer` object: `name` (the organisation named as
+the customer, or null; a description such as "three banks" or "multiple federal agencies" is
+null; a person, the vendor and a delivering partner are not the customer), `speaker`
+(`customer` when a named person from the customer is quoted, else `vendor`) and `stage`
+(`in_use`, `evaluation`, `case_study`, `existing`, `unclear`). `_customer_of()` normalises it
+(an unnamed customer is always the vendor speaking) and `store()` writes it to the new
+`bw_market_articles.review_customer` JSONB column (mm_012). A second, focused pass
+`read_customers()` with its own `CUSTOMER_PROMPT` fills the column for posts already judged
+"customer" that have no reading; `review()` runs it after its own pass, so the scheduled job
+covers the backlog. It is separate on purpose: re-running the review prompt over the 29 customer
+posts on market 2 re-rolled the verdict and moved 11 of them to noise or another kind (the
+Fortune 500 case study and the METCLOUD testimonial became "noise", one came back with an
+invented kind "case_study"). Those 29 verdicts were restored by hand and the focused pass
+read all 29 in two batches with `bedrock-kimi-k2-5`. `candidates()`/`review()`/the route
+gained `kinds` to narrow a redo to one kind.
+
+On the report side `market_corpus` selects `review_customer`; `_corpus_candidates` and
+`_stored_candidates` (a stored event holds its posts as evidence and the corpus path skips
+those, so both paths are needed) put `reading_from_review()` under `attributes.customer`;
+`_merge_into` carries it to the development a post joins; `customer_reading()` uses the stored
+reading and falls back to the rule-based `_customer_reading_by_rules()` (five ordered
+name patterns, stage and speaker word lists) only for posts reviewed before the field existed.
+`customer_sentence()` prints "Named customer: Virgin Money, in the customer's own words,
+described in use." or "Unnamed customer: a published case study, in the vendor's words." The
+product-vs-customer and adoption findings count named customers ("7 customer or deployment
+announcements, 5 of which name the customer") instead of "none of which has been reported by
+anyone other than the vendor". Unnamed items stay in "Customer evidence", labelled, since an
+anonymous Fortune 500 case study still says the vendor has a customer at that size.
+
+### Fix — the report's top bar wrapped its section links into a column
+**`market_report_html.py` `NEWS_CSS`**. The bar holds two brand marks, six section links, the
+page links and the market name; at the report's ~875px content width they never fit on one
+line, and `.n-jump` (`flex:1; flex-wrap:wrap`) was squeezed until its six links stacked
+vertically. `.n-top` now wraps and `.n-jump` takes the whole second row (`flex:1 1 100%;
+order:10`). Checked at 1400px by screenshot: brand marks, News river, RSS and the market name
+on row one, the six links in a row beneath.
+
+### Fix — the sources legend names the social platforms and Glassdoor
+**`market_metrics.py` `SOURCE_LEGEND`**. The "Which sources we use" table said practitioner
+discussion came from a platform "named on each item". It now says X (Twitter), Reddit, TikTok
+and Instagram through Xpoz (the four the collector supports; this market's social topic reads
+X and Reddit), Bluesky read directly, and a new row for Glassdoor employee reviews through
+OpenWebNinja (the collector in `bw_official_sources.py`; 1 review on market 2 so far). The
+coverage table is driven by the scheduler's source list, not the legend, so the new row adds
+nothing there.
+
 ### Fix — the Brand Watcher sub-tab reset on reload
 **`BrandWatcherTab.tsx`**: `activeTab` was `useState('dashboard')`. It now initialises from
 `localStorage['bw_active_tab']` (validated against `BW_SUB_TABS`) and writes back on change.
@@ -222,6 +308,33 @@ figure does not appear in the shared page. With a session: 0 teaser blocks, no f
 afterwards); bad email → 422; market 999 → 404; journal logs "MARKET_TRIAL_NOTIFY_EMAIL is unset,
 so no mail was sent". Playwright screenshots of the three surfaces checked by eye.
 
+Customer rows: `alembic upgrade head` on bugfixing: mm_011 → mm_012, `review_customer` present.
+`read_customers(conn, 2, …, redo=True)`: 29 candidates, 29 read, 2 batches, 0 failed. The 29
+readings checked by hand against the posts: 18 named (Keplr, Australia Post, Lemonade ×2,
+The Air Force, CBTS, CyberMontana, Spencer Fane LLP ×3, University of Montana, Virgin Money,
+J.B. Poindexter & Co ×2, Cabinetworks Group, MediaMarktSaturn, Datadog, Invisible Technologies,
+Guardant Health, METCLOUD), 11 null, of which "Three banks", "multiple federal agencies" and the
+Fortune 500 case study are correctly null. `assess()` over 90 days: all 12 customer developments
+carry `attributes.customer.source == "review"` (before the stored-event path was wired, 2 of 12).
+After restart, the full view and `aisoc.aunoo.ai` print e.g. "Named customer: J.B. Poindexter &
+Co, in the customer's own words, described in use." and "Unnamed customer: a published case
+study, in the vendor's words."; the 30-day finding reads "7 customer or deployment announcements
+in the period, 5 of which name the customer". One model read disagrees with the rules' read:
+the Poindexter post ("the start to his AI SOC evaluation journey") is stored as `in_use`, which
+the merged event's other post ("4,407 investigations") supports.
+
+Same-findings fix: `assess()` run in-process for market 2 (30 days) with `allowed_brand_ids=None`
+and with the ten authorized ids: all four findings (consolidation, product_vs_customer,
+change_concentration, corroboration) and all three synthesis paragraphs are string-identical
+between the two, and `assert_no_withheld` over the shared findings, synthesis, observation and
+distribution is clean. After restart, the shared page, the `full=1` session page and
+`https://aisoc.aunoo.ai/` all read "Job listings exist for 20 of 84 vendors; funding is
+disclosed for 38 of 84", "spread rather than concentrated… 45% of 149 open roles (7ai alone
+21%)", "25 of 84 vendors showed material observed change", "38 of 42 developments", "15
+product… against 7 customer"; the shared page's evidence carries "1 vendor not shown in this
+view: 3 developments"; the legend shows the Xpoz platforms, Bluesky and the Glassdoor row on
+all three. Shared page still has 3 teaser blocks and the form; the full page 0 and none.
+
 Perception work: `EXPLAIN ANALYZE` of the new query on `test`: 56.5 ms. `/api/brand-watcher/perception?days_back=90`
 via a minted session cookie after restart — bugfixing: 34 brands, 9 with scores (was 2),
 e.g. Prophet Security media +75 from 8 items, Dropzone AI media +50 from 2; wileytest: 4
@@ -232,6 +345,11 @@ link adds about 40 per brand; wiley: `brands: []` because `bw_brands` has 0 rows
 logs a pre-existing "Bluesky credentials not found" from its collector.
 
 ### Propagation
+Customer reading: bugfixing only. mm_012 is applied on bugfixing's `test` DB; wiley and wileytest
+have no market layer (`market_post_review.py`, `market_assessment.py` do not exist there) and
+their alembic heads diverge, so neither the migration nor the code goes to them. Any market
+tenant cloned from canonical needs `alembic upgrade head`.
+
 Social, coverage and shared-report work: bugfixing only, uncommitted at the time of writing. `MARKET_TRIAL_NOTIFY_EMAIL=orochford@aunoo.ai` on bugfixing (`.env`, gitignored) since 15:16, verified end to end: a test request was stored, mailed (Resend id `c1ddbbb9…`) and marked `notified`, then deleted. The address is a stopgap: Resend on bugfixing is in test mode, sends from the default `onboarding@resend.dev`, and refuses any recipient but the account's own address (`oliver.rochford@aunoo.ai` got a 403). Once `aunoo.ai` is verified in Resend, set `RESEND_FROM_EMAIL` on that domain and point the variable back at the intended address. `entity_ingest.py`,
 `entity_scheduler.py` and `market_report_html.py` exist only on market tenants (wiley and
 wileytest do not have them). The `brand_watcher_monitor.py` hook is inert without

@@ -2175,6 +2175,8 @@ class PostReviewRequest(BaseModel):
     batch: int = Field(20, ge=1, le=50)
     days: Optional[int] = Field(None, ge=1, le=3650)
     redo: bool = False
+    # With redo: only posts already given one of these kinds.
+    kinds: Optional[List[str]] = None
     dry_run: bool = False
 
 
@@ -2200,7 +2202,7 @@ async def market_post_review(market_id: int, body: PostReviewRequest,
         return await mpr.review(
             conn, market_id, market["name"],
             limit=body.limit, batch=body.batch, days=body.days,
-            redo=body.redo, dry_run=body.dry_run)
+            redo=body.redo, kinds=body.kinds, dry_run=body.dry_run)
     finally:
         conn.close()
 
