@@ -101,6 +101,12 @@ class SocialProfileService:
             try:
                 user = ns.get_user(handle, fields=_USER_FIELDS.get(platform))
             except Exception as e:  # noqa: BLE001
+                # A rate limit is not "no such account". Say which it was, so a
+                # caller can wait and try again instead of recording a miss.
+                if "429" in str(e) or "Too Many Requests" in str(e):
+                    raise RuntimeError(
+                        f"xpoz rate limit (429) looking up {platform}/{handle}; "
+                        "try again in a minute") from e
                 logger.warning("xpoz get_user(%s/%s) failed: %s", platform, handle, e)
                 return None
             if user is None:
@@ -236,7 +242,8 @@ class SocialProfileService:
 
     # ---- enrichment (LLM summary + topics + brand context) ----------------
 
-    async def _summarize(self, ident: Dict, posts: List[Dict], brand: Optional[str]) -> Dict:
+    async def _summarize(self, ident: Dict, posts: List[Dict], brand: Optional[str],
+                         context: Optional[str] = None) -> Dict:
         try:
             from app.ai_models import LiteLLMModel
             model = LiteLLMModel.get_instance(os.getenv("SOCIAL_EVAL_MODEL", "bedrock-claude-haiku"))
@@ -245,13 +252,23 @@ class SocialProfileService:
         if not model:
             return {}
         sample = "\n".join(f"- {p['text'][:200]}" for p in posts[:12] if p.get("text")) or "(no post text available)"
-        brand_line = f'The account is being profiled in the context of the brand "{brand}". ' if brand else ""
+        # A market frames the account differently from a brand: the question
+        # is what part it plays in the market (vendor staff, customer, analyst,
+        # reseller, promoter, bot), not whether it likes one company.
+        if context and not brand:
+            brand_line = (f'The account is being profiled for the market "{context}". ')
+            relation = ("<1-2 sentences on this account's part in that market: vendor "
+                        "staff, customer or practitioner, analyst or press, reseller, "
+                        "promoter or bot, or 'No clear connection.'>")
+        else:
+            brand_line = f'The account is being profiled in the context of the brand "{brand}". ' if brand else ""
+            relation = "<1-2 sentences on this account's relationship to the brand, or 'No clear connection.' >"
         sys = (
             "You are a brand-monitoring analyst. Given a social account's bio and recent posts, "
             "produce a compact, factual profile. Respond with ONLY a JSON object: "
             '{"summary": "<2-3 sentence plain description of who this account is and what they post about>", '
             '"topics": ["<3-6 short topic tags>"], '
-            '"brand_context": "<1-2 sentences on this account\'s relationship to the brand, or \'No clear connection.\' >"}'
+            f'"brand_context": "{relation}"}}'
             " No prose outside the JSON."
         )
         usr = (f"{brand_line}ACCOUNT: @{ident.get('handle')} ({ident.get('platform')})\n"
@@ -301,7 +318,11 @@ class SocialProfileService:
     # ---- public API -------------------------------------------------------
 
     async def build_profile(self, db, platform: str, handle: str, brand: Optional[str] = None,
-                            max_posts: Optional[int] = None) -> Optional[Dict]:
+                            max_posts: Optional[int] = None,
+                            context: Optional[str] = None) -> Optional[Dict]:
+        """``brand`` frames the summary and scores post sentiment against it.
+        ``context`` frames the summary only (a market name, say) and costs no
+        per-post sentiment calls."""
         platform = (platform or "").lower()
         if platform not in _PLATFORMS:
             raise ValueError(f"Unsupported platform '{platform}'")
@@ -320,7 +341,7 @@ class SocialProfileService:
         ident.pop("connections", None)
         posts = ident.pop("posts", [])
         summary, sentiment = await asyncio.gather(
-            self._summarize(ident, posts, brand), self._sentiment(posts, brand))
+            self._summarize(ident, posts, brand, context), self._sentiment(posts, brand))
         by_id = sentiment.get("by_id", {})
         for p in posts:
             p["sentiment"] = by_id.get(p["id"])

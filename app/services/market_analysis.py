@@ -1216,7 +1216,16 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                  + SUM(COALESCE((a.social_meta->>'reposts')::numeric,
                                 (a.social_meta->>'shares')::numeric, 0))
                    AS engagement,
-               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen
+               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen,
+               -- The most recent post, so a row can be read at its source.
+               (ARRAY_AGG(COALESCE(a.url, a.uri)
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_url,
+               (ARRAY_AGG(a.title
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_title
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
@@ -1232,6 +1241,75 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         for key in ("likes", "comments", "reposts"):
             v[key] = int(v[key] or 0)
         v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
+        v["profile_url"] = profile_url(v["platform"], v["author"])
+        v["latest_post"] = {"url": v.pop("latest_url", None),
+                            "title": v.pop("latest_title", None)}
+
+    # How the whole population splits, not just the `limit` rows shown. A
+    # table where every row says "1 post" needs the reader told whether that
+    # is the table or the market.
+    accounts_total, accounts_multi = conn.execute(text(f"""
+        SELECT COUNT(*), COUNT(*) FILTER (WHERE posts > 1) FROM (
+            SELECT a.social_meta->>'author', COUNT(*) AS posts
+            FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri
+            WHERE ma.market_id = :m
+              AND a.social_meta->>'author' IS NOT NULL
+              AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+              {window}
+            GROUP BY 1) t
+    """), {k: v for k, v in params.items() if k != "lim"}).fetchone()
+
+    # The list has to include the accounts that keep posting even when their
+    # reactions are low. The engagement LIMIT above cut them: on one market the
+    # two accounts with three and four posts sat below twenty single posts
+    # that each drew more reactions, and the report said no account posted
+    # more than once or twice. So the repeat posters are fetched on their own
+    # and added to the list where the cut dropped them.
+    threshold = consistent_voice_min_posts()
+    have = {(v["author"], v["platform"]) for v in voices}
+    for r in conn.execute(text(f"""
+        SELECT a.social_meta->>'author' AS author,
+               COALESCE(a.social_meta->>'platform',
+                        SPLIT_PART(a.news_source, ':', 2),
+                        a.news_source) AS platform,
+               COUNT(*) AS posts,
+               SUM(COALESCE((a.social_meta->>'likes')::numeric, 0)) AS likes,
+               SUM(COALESCE((a.social_meta->>'comments')::numeric, 0)) AS comments,
+               SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)) AS reposts,
+               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen,
+               (ARRAY_AGG(COALESCE(a.url, a.uri)
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_url,
+               (ARRAY_AGG(a.title
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_title
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND a.social_meta IS NOT NULL
+          AND a.social_meta->>'author' IS NOT NULL
+          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          {window}
+        GROUP BY 1, 2
+        HAVING COUNT(*) >= :threshold
+        ORDER BY posts DESC, 4 DESC
+        LIMIT :lim
+    """), {**params, "threshold": threshold}).mappings().all():
+        if (r["author"], r["platform"]) in have:
+            continue
+        v = dict(r)
+        for key in ("likes", "comments", "reposts"):
+            v[key] = int(v[key] or 0)
+        v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
+        v["profile_url"] = profile_url(v["platform"], v["author"])
+        v["latest_post"] = {"url": v.pop("latest_url", None),
+                            "title": v.pop("latest_title", None)}
+        voices.append(v)
+        have.add((v["author"], v["platform"]))
 
     # Who each handle belongs to. Brand monitoring already keeps account
     # profiles in social_accounts — bio, reach, topics, brand-relative
@@ -1251,7 +1329,8 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             for r in conn.execute(text("""
                 SELECT platform, handle_canonical, id AS account_id, handle,
                        display_name, followers_count, summary, watchlisted,
-                       tags, bio, profile_url,
+                       tags, bio, profile_url, topics, verified, brand_context,
+                       avatar_url, posts_count, last_profiled_at,
                        last_profiled_at IS NOT NULL AS profiled
                   FROM social_accounts
                  WHERE (platform, handle_canonical) IN (
@@ -1277,8 +1356,19 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                 "profile_url": hit["profile_url"],
                 "watchlisted": bool(hit["watchlisted"]),
                 "tags": hit["tags"] or [],
+                "topics": hit["topics"] or [],
+                "verified": bool(hit["verified"]),
+                "posts_count": hit["posts_count"],
+                "avatar_url": hit["avatar_url"],
+                # The service stores it under the brand's name; for a market
+                # it is the account's part in the market.
+                "relation": hit["brand_context"],
+                "last_profiled_at": (str(hit["last_profiled_at"])
+                                     if hit["last_profiled_at"] else None),
                 "profiled": bool(hit["profiled"]),
             } if hit else None)
+            if v["account"] and v["account"].get("profile_url"):
+                v["profile_url"] = v["account"]["profile_url"]
 
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
@@ -1338,7 +1428,6 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
     # Two different questions, split rather than blended. `voices` stays as it
     # was so existing callers keep working; it is the union, still engagement-
     # ranked.
-    threshold = consistent_voice_min_posts()
     for v in voices:
         v["sample_of_one"] = int(v["posts"] or 0) <= 1
 
@@ -1357,10 +1446,34 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         "consistent": consistent,
         "breakout": breakout,
         "consistent_min_posts": threshold,
+        "accounts": int(accounts_total or 0),
+        "accounts_multi_post": int(accounts_multi or 0),
+        "profiled": sum(1 for v in voices
+                        if (v.get("account") or {}).get("profiled")),
         "days": days,
         "coverage": _coverage(with_author or 0, total or 0,
                               "practitioner posts name an author"),
     }
+
+
+_PROFILE_URLS = {
+    "twitter": "https://x.com/{h}",
+    "x": "https://x.com/{h}",
+    "bluesky": "https://bsky.app/profile/{h}",
+    "reddit": "https://www.reddit.com/user/{h}",
+    "tiktok": "https://www.tiktok.com/@{h}",
+    "instagram": "https://www.instagram.com/{h}",
+    "linkedin": "https://www.linkedin.com/in/{h}",
+}
+
+
+def profile_url(platform: Optional[str], handle: Optional[str]) -> Optional[str]:
+    """Where the account lives on its platform, from the handle alone."""
+    h = (handle or "").strip().lstrip("@")
+    tpl = _PROFILE_URLS.get((platform or "").lower())
+    if not h or not tpl or "/" in h or " " in h:
+        return None
+    return tpl.format(h=h)
 
 
 # ---------------------------------------------------------------------------

@@ -249,6 +249,90 @@ announcements, 5 of which name the customer") instead of "none of which has been
 anyone other than the vendor". Unnamed items stay in "Customer evidence", labelled, since an
 anonymous Fortune 500 case study still says the vendor has a customer at that size.
 
+### Ops — market 2 renamed "AI in the SOC"
+`bw_markets` row 2: `name` "SOC Automation" → "AI in the SOC", `slug` `soc-automation` →
+`ai-in-the-soc` (the slug is only used in CSV export filenames). Done by `UPDATE` on bugfixing's
+`test` DB; nothing in code carried the old name (the comments that mention it are history). The
+keyword groups "SOC Automation - Market Watch" and "SOC Automation - Social" keep their names,
+because `articles.topic` is the topic's name and renaming them would orphan every article.
+The page title, the nav, the footer and the feed title all read from the row.
+
+### Feature — "Is your company missing?" on the vendor registry
+**`market_report_html.py`, `market_monitor_routes.py`, `alembic/versions/mm_013_market_vendor_requests.py`**.
+A button at the top of the "Vendor registry" section links to a form (`_missing_panel`,
+rendered after the vendors drawer on both the full and the shared view): company, website,
+your email, and an optional line on what the company does. It posts to the new
+`POST /api/market-monitor/markets/{id}/vendor-request` (no session; 422 without a company
+name and a valid address; 404 for an unknown market; 429 after
+`TRIAL_REQUESTS_PER_IP_PER_DAY` requests from one address, counted across vendor and trial
+requests), which stores a row in `market_vendor_requests` (mm_013) and mails
+`MARKET_TRIAL_NOTIFY_EMAIL` the way a trial request does. The panel text says vendors are added
+on the evidence, not on request. Outside the repo: the `aisoc.aunoo.ai` vhost's trial-request
+location became `location ~ ^/api/market-monitor/markets/2/(trial-request|vendor-request)$`
+so the form posts through the proxy (`nginx -t` clean, reloaded).
+
+### Feature — Top voices carry the account profile, and link out
+**`market_analysis.py` (`top_voices`, `profile_url`), `market_voice_profiles.py` (new),
+`market_monitor_routes.py`, `social_profile_service.py`, `market_report_html.py` (`_voice_row`),
+`MarketVoicesView.tsx`, `marketMonitorApi.ts`.**
+
+The Top voices tab ranked handles and stopped there. The account with the most reactions on
+market 2 turned out to be a founder promoting their own AI tools (28,834 followers, 540,026
+posts, "no clear connection" to the market), and the table could not say so. Brand Watcher
+already builds account profiles from xpoz (bio, reach, an LLM summary, topics) and stores them
+in `social_accounts`; `top_voices` already read that table but nothing ever wrote to it from
+the market side.
+
+- `top_voices` now returns, per account: `profile_url` (the account's page on its platform,
+  from the handle: x.com, bsky.app, reddit.com/user, tiktok.com/@, instagram.com), `latest_post`
+  (URL and title of the most recent relevant post), and the stored profile under `account`
+  (display name, followers, verified, summary, topics, and `relation` — the profile's reading
+  of the account's part in this market). It also returns `accounts` and `accounts_multi_post`
+  for the whole period, so the page can say "122 accounts posted; 10 more than once" instead
+  of leaving a table of ones unexplained.
+- `SocialProfileService.build_profile` takes a `context` argument next to `brand`. A market is
+  not a brand: with `context` the summary prompt asks for the account's part in the market
+  (vendor staff, customer, analyst, reseller, promoter or bot, or no connection) and skips the
+  per-post brand-sentiment calls, so a profile costs two xpoz calls and one short model call.
+- `POST /markets/{id}/voices/profile` builds one profile; `POST /markets/{id}/voices/profile-all`
+  queues every unprofiled account on the list (`refresh: true` rebuilds all) as a background
+  task, `GET` the same path for progress. One job per market; a second start returns 409.
+- The job is sequential with a two-second pause and a 10/30/60 s back-off on a 429. The first
+  run used three workers and xpoz refused 28 of 50 accounts with 429 (the key is shared across
+  tenants); the error surfaced as anyio's "unhandled errors in a TaskGroup", so
+  `_root_message` unwraps the group before recording it. `_fetch_sync` now raises on a 429
+  instead of returning None, because a rate limit is not "no such account".
+- The tab: handle links to the platform page, the latest-post date links to the post, a "Who
+  they are" column shows the summary and market relation (or a Profile button), the row opens
+  a detail panel (avatar, bio, reach, topics, rebuild), and a header button profiles the
+  unprofiled ones with a progress line. Rows sort by posts, then reactions.
+- The public report's "Accounts posting repeatedly" table gains a Who column, a linked handle
+  and a linked latest post.
+
+### Fix — the report said no account posted more than twice while two had three and four
+**`market_analysis.py`.** `top_voices` cut to `limit` by engagement before splitting off the
+repeat posters, so on the report (`limit=20`) the two Bluesky accounts with four and three
+posts sat below twenty single posts with more reactions and the section read "No outside
+account posted about the market more than once or twice." The repeat posters (posts at or
+above `MARKET_CONSISTENT_VOICE_MIN_POSTS`, default 3) are now fetched on their own and added
+to the list, before the profile and subject lookups so they get those too.
+
+### Fix — 87 Bluesky posts had no author, though the handle is in the post URL
+Data repair on bugfixing's `test` DB, no code change. Bluesky posts collected before the
+collector wrote `social_meta` (the 20 August batch: 68 of market 2's 80) held a JSON `null`
+there, so `social_meta IS NOT NULL` passed and `->>'author'` did not; the voices list saw 13 of
+80 Bluesky posts. `UPDATE articles SET social_meta = {platform, author-from-URL}` for the 87
+such rows platform-wide. Likes and reposts are not in the URL and were left unset. Market 2
+went from 95 outside accounts to 145.
+
+### Fix — one customer reading per development, not the first post's
+**`market_assessment.py`.** A development built from two posts about one customer took the
+reading of whichever post came first. Agreed rule, in `combine_customer_readings`: the most
+recent post decides the stage; the customer is named if any post names them; it is in the
+customer's own words if any post quotes them. `reading_from_review` keeps the post date as
+`as_of` for the comparison; `_stored_candidates` combines every evidence post's reading
+instead of stopping at the first; `_merge_into` combines rather than keeps.
+
 ### Fix — the report's top bar wrapped its section links into a column
 **`market_report_html.py` `NEWS_CSS`**. The bar holds two brand marks, six section links, the
 page links and the market name; at the report's ~875px content width they never fit on one
@@ -308,6 +392,29 @@ figure does not appear in the shared page. With a session: 0 teaser blocks, no f
 afterwards); bad email → 422; market 999 → 404; journal logs "MARKET_TRIAL_NOTIFY_EMAIL is unset,
 so no mail was sent". Playwright screenshots of the three surfaces checked by eye.
 
+Top voices: `top_voices(conn, 2, days=30, limit=20)` in-process returns 23 rows (20 by
+engagement plus the three repeat posters polsia 9, arc-codex.com 4, opsmatters.com 3, all
+with profiles and subjects). `GET /markets/2/voices?days=30&limit=50` after restart: 122
+accounts, 10 multi-post, 51 rows, 51 profiled. `POST …/voices/profile-all` → 202 with the job
+state; a second POST → 409; `platform: linkedin` → 400 "cannot be profiled"; no session → 401.
+First run (3 workers): 50 queued, 20 built, 29 failed, 28 of them xpoz 429s, one hung on its
+last account. Paced run: 31 queued (20 already profiled skipped), 31 built, 0 failed,
+14:40:40–14:45:01 UTC. Bluesky backfill: 87 rows updated; market 2's outside accounts 95 → 145
+(all time), 122 in 30 days. `https://aisoc.aunoo.ai/` "Accounts posting repeatedly" table: three
+rows, each with a linked handle, a Who cell (name, followers, summary) and a linked latest post;
+before the fix the section read "No outside account posted about the market more than once or
+twice". Playwright screenshot of the tab: profiles, links, "All shown accounts profiled".
+Merge rule: `assess()` over 90 days lists 12 customer developments, all `source: review`, each
+with `as_of`; the Poindexter one reads "described in use in the customer's own words" as of
+2026-08-13 (both posts say in use).
+
+Rename and missing-company form: after restart, `https://aisoc.aunoo.ai/` has 0 occurrences of
+"SOC Automation" and 5 of "AI in the SOC" (title, nav, footer, panel text); `feed.xml` title
+"AI in the SOC — Market Monitor"; one "Is your company missing?" button and the form. POST
+through the proxy: bad email → 422; a test row → 201 `{"ok": true, "id": 1}`, stored with
+`notified = true`, Resend id `04c75b88…` received; the test row was deleted afterwards.
+`alembic upgrade head`: mm_012 → mm_013.
+
 Customer rows: `alembic upgrade head` on bugfixing: mm_011 → mm_012, `review_customer` present.
 `read_customers(conn, 2, …, redo=True)`: 29 candidates, 29 read, 2 batches, 0 failed. The 29
 readings checked by hand against the posts: 18 named (Keplr, Australia Post, Lemonade ×2,
@@ -345,7 +452,11 @@ link adds about 40 per brand; wiley: `brands: []` because `bw_brands` has 0 rows
 logs a pre-existing "Bluesky credentials not found" from its collector.
 
 ### Propagation
-Customer reading: bugfixing only. mm_012 is applied on bugfixing's `test` DB; wiley and wileytest
+Top voices profiles, the repeat-poster fix, the Bluesky author backfill and the merge rule:
+bugfixing only. The UI bundle is rebuilt on bugfixing; wiley and wileytest have neither the new
+bundle nor the backend and do not run Market Monitor. The backfill is a data change on
+bugfixing's `test` DB and would need re-running on any tenant with pre-collector-fix Bluesky
+rows. Customer reading and vendor requests: bugfixing only. mm_012 and mm_013 are applied on bugfixing's `test` DB; wiley and wileytest
 have no market layer (`market_post_review.py`, `market_assessment.py` do not exist there) and
 their alembic heads diverge, so neither the migration nor the code goes to them. Any market
 tenant cloned from canonical needs `alembic upgrade head`.

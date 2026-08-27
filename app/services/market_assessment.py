@@ -595,11 +595,14 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
     if cand.get("seed") and cand.get("headline_rank", 9) < dev.get("headline_rank", 9):
         dev["headline"], dev["summary"] = cand["headline"], cand.get("summary")
         dev["headline_rank"] = cand["headline_rank"]
-    # A reading the review pass made carries to the development it joins.
+    # A reading the review pass made carries to the development it joins;
+    # two readings combine (latest stage, named if any, quoted if any).
     cand_customer = (cand.get("attributes") or {}).get("customer")
-    if cand_customer and not (dev.get("attributes") or {}).get("customer"):
+    if cand_customer:
         dev["attributes"] = {**(dev.get("attributes") or {}),
-                             "customer": cand_customer}
+                             "customer": combine_customer_readings(
+                                 (dev.get("attributes") or {}).get("customer"),
+                                 cand_customer)}
     dev["merged_from"] = dev.get("merged_from", 0) + 1
 
 
@@ -809,13 +812,15 @@ _STAGE_TEXT = {
 }
 
 
-def reading_from_review(stored: Dict[str, Any]) -> Dict[str, Any]:
+def reading_from_review(stored: Dict[str, Any],
+                        as_of: Optional[str] = None) -> Dict[str, Any]:
     """The reading the post review stored, in the shape the report uses.
 
     The review pass read the whole post once with a model and recorded the
     customer's name (or that there is none), who speaks and the stage. That is
     the durable source; the rules below are the fallback for posts reviewed
-    before the field existed.
+    before the field existed. ``as_of`` is the post's date, kept so that when
+    two posts about one customer merge, the later one's stage wins.
     """
     name = (stored.get("name") or "").strip() or None
     speaker = (stored.get("speaker") or "vendor") if name else "vendor"
@@ -825,7 +830,39 @@ def reading_from_review(stored: Dict[str, Any]) -> Dict[str, Any]:
         "voice": ("in the customer's own words" if speaker == "customer"
                   else "in the vendor's words"),
         "stage": _STAGE_TEXT.get(stage, _STAGE_TEXT["unclear"]),
+        "as_of": (as_of or "")[:10] or None,
         "source": "review",
+    }
+
+
+def combine_customer_readings(a: Optional[Dict[str, Any]],
+                              b: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """One reading for a development built from more than one post.
+
+    The rule: the most recent post decides the stage, because a customer
+    described as evaluating in June and in use in August is in use. The
+    customer is named if any post names them. It is in the customer's own
+    words if any post quotes them. Taking whichever post happened to come
+    first was one model's call on one post; this is every post read together.
+    """
+    if not a:
+        return b
+    if not b:
+        return a
+    later, earlier = (b, a) if (b.get("as_of") or "") >= (a.get("as_of") or "") else (a, b)
+    named = [r for r in (later, earlier) if r.get("named")]
+    voices = {r.get("voice") for r in (a, b)}
+    return {
+        "named": bool(named),
+        "name": named[0].get("name") if named else None,
+        "voice": ("in the customer's own words"
+                  if "in the customer's own words" in voices
+                  else later.get("voice") or earlier.get("voice")),
+        "stage": later.get("stage") or earlier.get("stage"),
+        "as_of": later.get("as_of") or earlier.get("as_of"),
+        "source": ("review" if a.get("source") == "review"
+                   and b.get("source") == "review" else
+                   (later.get("source") or earlier.get("source"))),
     }
 
 
@@ -1043,9 +1080,12 @@ def _stored_candidates(conn, market_id: int, days: int
     # What the review pass read off each customer post, by post. A stored
     # event holds its posts as evidence and the corpus path skips those, so
     # the reading has to be picked up here or it is lost.
-    readings = {r[0]: r[1] for r in conn.execute(text("""
-        SELECT article_uri, review_customer FROM bw_market_articles
-         WHERE market_id = :m AND review_customer IS NOT NULL
+    readings = {r[0]: (r[1], r[2]) for r in conn.execute(text("""
+        SELECT ma.article_uri, ma.review_customer,
+               COALESCE(a.publication_date, a.submission_date)
+          FROM bw_market_articles ma
+          LEFT JOIN articles a ON a.uri = ma.article_uri
+         WHERE ma.market_id = :m AND ma.review_customer IS NOT NULL
     """), {"m": market_id}).fetchall()}
 
     out: List[Dict[str, Any]] = []
@@ -1087,11 +1127,14 @@ def _stored_candidates(conn, market_id: int, days: int
                                 else "social" if s.get("social") else "news"),
                 "key": s.get("key") or s.get("uri")})
         if kind == "customer":
+            combined = None
             for e in evidence:
-                stored = readings.get(e.get("uri"))
+                stored, when = readings.get(e.get("uri")) or (None, None)
                 if isinstance(stored, dict):
-                    attrs = {**attrs, "customer": reading_from_review(stored)}
-                    break
+                    combined = combine_customer_readings(
+                        combined, reading_from_review(stored, as_of=str(when or "")))
+            if combined:
+                attrs = {**attrs, "customer": combined}
         stamp = f.get("occurred_at") or f.get("first_observed_at")
         out.append({
             "key": f"event:{f['finding_id']}",
@@ -1157,7 +1200,8 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
         if kind:
             attrs: Dict[str, Any] = {}
             if kind == "customer" and isinstance(row.get("review_customer"), dict):
-                attrs["customer"] = reading_from_review(row["review_customer"])
+                attrs["customer"] = reading_from_review(
+                    row["review_customer"], as_of=str(row.get("published") or ""))
             cands.append({
                 "key": f"corpus:{row['uri']}",
                 "event_type": kind,

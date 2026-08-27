@@ -1440,6 +1440,97 @@ async def market_trial_request(market_id: int, body: TrialRequest, request: Requ
     return await asyncio.to_thread(_work)
 
 
+class VendorRequest(BaseModel):
+    company: str = Field(..., min_length=1, max_length=200)
+    website: Optional[str] = Field(None, max_length=300)
+    email: str = Field(..., min_length=3, max_length=254)
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+def _notify_vendor_request(market: Dict[str, Any], row_id: int, company: str,
+                           website: Optional[str], email: str,
+                           note: Optional[str]) -> bool:
+    """Same handling as a trial request: stored first, mailed second."""
+    import html as _html
+
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("vendor request %s stored; MARKET_TRIAL_NOTIFY_EMAIL is unset, "
+                    "so no mail was sent", row_id)
+        return False
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            logger.warning("vendor request %s stored; email service not configured", row_id)
+            return False
+        lines = [f"Company: {company}", f"Website: {website or '-'}",
+                 f"Contact: {email}", f"Note: {note or '-'}",
+                 f"Market: {market['name']} (id {market['id']})",
+                 f"Request id: {row_id}"]
+        html_body = "<p>" + "<br>".join(_html.escape(l) for l in lines) + "</p>"
+        return bool(svc.send_email(
+            to, f"Missing vendor: {company} — {market['name']}",
+            html_body, "\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001 — never fail the request over mail
+        logger.warning("vendor request %s stored; notification failed: %s", row_id, exc)
+        return False
+
+
+@router.post("/markets/{market_id}/vendor-request", status_code=201)
+async def market_vendor_request(market_id: int, body: VendorRequest, request: Request):
+    """A reader says their company belongs on this market's list.
+
+    No session, like the trial request, and the same limits: the market has
+    to exist, the address has to look like one, and one address gets a small
+    number of requests a day (shared with trial requests).
+    """
+    company = body.company.strip()
+    website = (body.website or "").strip()[:300] or None
+    email = body.email.strip().lower()
+    note = (body.note or "").strip() or None
+    if not company or not _TRIAL_EMAIL_RE.match(email):
+        raise HTTPException(status_code=422,
+                            detail="A company name and a valid email address are required")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else None)) or None
+    agent = (request.headers.get("user-agent") or "")[:400]
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if ip:
+                recent = conn.execute(text("""
+                    SELECT (SELECT COUNT(*) FROM market_vendor_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                         + (SELECT COUNT(*) FROM market_trial_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                """), {"ip": ip}).scalar() or 0
+                if recent >= TRIAL_REQUESTS_PER_IP_PER_DAY:
+                    raise HTTPException(status_code=429,
+                                        detail="Too many requests from this address today")
+            row_id = conn.execute(text("""
+                INSERT INTO market_vendor_requests
+                    (market_id, company, website, email, note, ip, user_agent)
+                VALUES (:m, :c, :w, :e, :n, :ip, :ua)
+                RETURNING id
+            """), {"m": market_id, "c": company, "w": website, "e": email,
+                   "n": note, "ip": ip, "ua": agent}).scalar()
+            conn.commit()
+            if _notify_vendor_request(market, row_id, company, website, email, note):
+                conn.execute(text("UPDATE market_vendor_requests SET notified = true "
+                                  "WHERE id = :i"), {"i": row_id})
+                conn.commit()
+            return {"ok": True, "id": int(row_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 @router.get("/markets/{market_id}/export.zip")
 async def market_export_bundle(market_id: int,
                                session=Depends(verify_session)):
@@ -2000,6 +2091,81 @@ async def market_voices(market_id: int,
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+class VoiceProfileRequest(BaseModel):
+    author: str = Field(..., min_length=1, max_length=200)
+    platform: str = Field(..., min_length=1, max_length=40)
+
+
+class VoiceProfileAllRequest(BaseModel):
+    days: Optional[int] = Field(None, ge=1, le=3650)
+    limit: int = Field(50, ge=1, le=200)
+    refresh: bool = False
+
+
+@router.post("/markets/{market_id}/voices/profile")
+async def market_voice_profile(market_id: int, body: VoiceProfileRequest,
+                               session=Depends(verify_session_api)):
+    """Build one voice's account profile, framed by this market.
+
+    The same profile brand monitoring builds from the Accounts tab, stored in
+    the same ``social_accounts`` row, so the two never disagree about a handle.
+    """
+    from app.services import market_voice_profiles as mvp
+
+    conn = _conn()
+    try:
+        market = await asyncio.to_thread(_load_market, conn, market_id)
+    finally:
+        conn.close()
+    try:
+        prof = await mvp.profile_one(get_database_instance(), body.platform,
+                                     body.author, market["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not prof:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {body.platform} account found for @{body.author}")
+    return prof
+
+
+@router.post("/markets/{market_id}/voices/profile-all", status_code=202)
+async def market_voice_profile_all(market_id: int, body: VoiceProfileAllRequest,
+                                   session=Depends(verify_session_api)):
+    """Profile every voice on the list that has no profile yet.
+
+    Runs in the background; poll the GET for progress. ``refresh`` rebuilds
+    the ones already profiled too.
+    """
+    from app.services import market_analysis as man
+    from app.services import market_voice_profiles as mvp
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, man.top_voices(conn, market_id, days=body.days,
+                                          limit=body.limit)
+        finally:
+            conn.close()
+
+    market, voices = await asyncio.to_thread(_work)
+    try:
+        return mvp.start_many(get_database_instance(), market_id, market["name"],
+                              voices.get("voices") or [], refresh=body.refresh)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get("/markets/{market_id}/voices/profile-all")
+async def market_voice_profile_status(market_id: int,
+                                      session=Depends(verify_session_api)):
+    from app.services import market_voice_profiles as mvp
+    return mvp.status(market_id)
 
 
 @router.get("/markets/{market_id}/channel-mix")

@@ -721,6 +721,37 @@ def _day(value: Any) -> str:
         return raw
 
 
+def _voice_row(v: Dict[str, Any]) -> str:
+    """One account in the voices table: linked handle, who they are if we
+    have profiled them, and a link to their latest relevant post."""
+    handle = f'@{esc(v["author"])}'
+    if v.get("profile_url"):
+        handle = f'<a href="{esc(v["profile_url"])}">{handle}</a>'
+    acct = v.get("account") or {}
+    if acct.get("profiled"):
+        bits = []
+        if acct.get("display_name"):
+            bits.append(esc(acct["display_name"]))
+        if acct.get("followers") is not None:
+            bits.append(f'{int(acct["followers"]):,} followers')
+        who = " · ".join(bits)
+        if acct.get("summary"):
+            who += f'<div class="mm-src">{esc(_clip(acct["summary"], 160))}</div>'
+    else:
+        who = '<span class="mm-src">not profiled</span>'
+    latest = v.get("latest_post") or {}
+    if latest.get("url"):
+        latest_cell = (f'<a href="{esc(latest["url"])}">'
+                       f'{esc((v.get("last_seen") or "")[:10] or "post")}</a>')
+    else:
+        latest_cell = esc((v.get("last_seen") or "")[:10])
+    return (f'<tr><td>{handle}</td><td>{who}</td>'
+            f'<td>{esc(v["platform"])}</td>'
+            f'<td class="mm-num">{v["posts"]}</td>'
+            f'<td class="mm-num">{v["engagement"]}</td>'
+            f'<td class="mm-src">{latest_cell}</td></tr>')
+
+
 def _clip(text_value: str, limit: int) -> str:
     """Cut at a word, not through one. Slicing raw left "World Wide Technol"."""
     text_value = (text_value or "").strip()
@@ -1028,6 +1059,54 @@ def _apply_teasers(rendered: str) -> str:
                 "</div></div></div>")
     return re.sub(re.escape(_TEASER_START) + r"\[(.*?)\](.*?)" + re.escape(_TEASER_END),
                   _wrap, rendered, flags=re.S)
+
+
+_MISSING_JS = """
+(function(){var f=document.getElementById('mm-missing-form');if(!f)return;
+var m=document.getElementById('mm-missing-msg');var el=f.elements;
+f.addEventListener('submit',function(e){e.preventDefault();
+var b=f.querySelector('button');b.disabled=true;m.className='mm-trial-msg';
+m.textContent='Sending…';
+var d={company:el['company'].value,website:el['website'].value,
+email:el['email'].value,note:el['note'].value};
+fetch(f.getAttribute('data-endpoint'),{method:'POST',
+headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+.then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+.then(function(x){if(x.ok){f.reset();
+m.textContent='Thanks. We will look at '+d.company+' and reply at '+d.email+'.';}
+else{b.disabled=false;m.className='mm-trial-msg err';
+m.textContent=(x.j&&x.j.detail&&typeof x.j.detail==='string')?x.j.detail:'Could not send the request.';}})
+.catch(function(){b.disabled=false;m.className='mm-trial-msg err';
+m.textContent='Could not send the request from this copy of the page.';});});})();
+"""
+
+
+def _missing_panel(market_id: int, market_name: str) -> str:
+    """"Is your company missing?" — a vendor asks to be on the list."""
+    return (
+        '<section class="mm-trial" id="mm-missing">'
+        "<h2>Is your company missing?</h2>"
+        f"<p>If your company competes in {esc(market_name)} and is not on "
+        "the list above, tell us and we will look at it. We add vendors on "
+        "the evidence, not on request, so a website we can read helps.</p>"
+        '<form id="mm-missing-form" data-endpoint='
+        f'"/api/market-monitor/markets/{int(market_id)}/vendor-request">'
+        '<div><label for="mm-missing-company">Company</label>'
+        '<input id="mm-missing-company" name="company" required maxlength="200" '
+        'autocomplete="organization"></div>'
+        '<div><label for="mm-missing-website">Website</label>'
+        '<input id="mm-missing-website" name="website" maxlength="300" '
+        'autocomplete="url" placeholder="https://"></div>'
+        '<div><label for="mm-missing-email">Your email</label>'
+        '<input id="mm-missing-email" name="email" type="email" required '
+        'maxlength="254" autocomplete="email"></div>'
+        '<div><label for="mm-missing-note">What you do (optional)</label>'
+        '<input id="mm-missing-note" name="note" maxlength="2000"></div>'
+        '<div><button type="submit" class="mm-btn">Tell us</button></div>'
+        '<div class="mm-trial-msg" id="mm-missing-msg" role="status"></div>'
+        "</form>"
+        f"<script>{_MISSING_JS}</script>"
+        "</section>")
 
 
 def _trial_panel(market_id: int) -> str:
@@ -2157,14 +2236,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                     f'{(voices or {}).get("consistent_min_posts", 3)} posts in '
                     "the period. The vendors' own accounts are left out.</p>")
         body.append('<table class="mm-table"><thead><tr><th>Account</th>'
-                    '<th>Platform</th><th class="mm-num">Posts</th>'
-                    '<th class="mm-num">Reactions</th><th>Last seen</th>'
+                    '<th>Who</th><th>Platform</th><th class="mm-num">Posts</th>'
+                    '<th class="mm-num">Reactions</th><th>Latest post</th>'
                     "</tr></thead><tbody>" + "".join(
-            f'<tr><td>@{esc(v["author"])}</td><td>{esc(v["platform"])}</td>'
-            f'<td class="mm-num">{v["posts"]}</td>'
-            f'<td class="mm-num">{v["engagement"]}</td>'
-            f'<td class="mm-src">{esc((v.get("last_seen") or "")[:10])}</td></tr>'
-            for v in consistent[:20]) + "</tbody></table>")
+            _voice_row(v) for v in consistent[:20]) + "</tbody></table>")
     elif voices and voices.get("voices"):
         body.append('<p class="mm-src">No outside account posted about the '
                     'market more than once or twice in the period.</p>')
@@ -2226,6 +2301,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         "roles.",
         anchor="mm-registry"))
     body.append(section_open("Vendor registry"))
+    body.append('<p><a class="mm-btn" href="#mm-missing">Is your company missing?</a></p>')
     body.append('<p class="mm-src">Sorted by observation state, then by the '
                 "date of each vendor's latest development, then by name."
                 + (f' {left_out} vendor{"" if left_out == 1 else "s"} on the '
@@ -2277,6 +2353,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # How this was measured
     # ================================================================
     body.append(_drawer_close())
+    body.append(_missing_panel(market["id"], market["name"]))
     body.append(_drawer_open(
         "How this was measured",
         "Which sources we read, how much of the market each one reached, what "

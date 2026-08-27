@@ -14,6 +14,7 @@ company or an event that is not in the sample, because a title it invented
 would have no cluster to belong to.
 """
 
+import os
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -25,9 +26,10 @@ logger = logging.getLogger(__name__)
 # a list, not a set of themes.
 MIN_ARTICLES_FOR_THEMES = 8
 
-# Matches market_briefing's default: cheap enough to run per-narration
-# without a sign-off, per the project's cost-conscious model guidance.
-DEFAULT_MODEL = "gpt-5.4-mini"
+# Matches market_briefing's default: Kimi K2.5, cheap enough to run
+# per-narration without a sign-off and off the gpt-5.4-mini alias that lands
+# on Haiku. Override per tenant with MARKET_THEMES_MODEL.
+DEFAULT_MODEL = os.getenv("MARKET_THEMES_MODEL", "bedrock-kimi-k2-5")
 
 
 def _k_for(n: int) -> int:

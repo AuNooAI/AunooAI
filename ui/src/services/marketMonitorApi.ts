@@ -1765,16 +1765,63 @@ export interface ShareOfVoice {
   coverage: Coverage;
 }
 
+/** The stored account profile behind a handle, when one has been built.
+ *  Shared with Brand Watcher's Accounts tab: one social_accounts row. */
+export interface VoiceAccount {
+  account_id: number;
+  handle: string;
+  handle_canonical: string;
+  display_name: string | null;
+  followers: number | null;
+  posts_count: number | null;
+  summary: string | null;
+  bio: string | null;
+  profile_url: string | null;
+  avatar_url: string | null;
+  verified: boolean;
+  watchlisted: boolean;
+  tags: string[];
+  topics: string[];
+  /** The account's part in this market, as the profile read it. */
+  relation: string | null;
+  last_profiled_at: string | null;
+  profiled: boolean;
+}
+
+export interface Voice {
+  author: string; platform: string; posts: number; likes: number;
+  comments: number; reposts: number; engagement: number; last_seen: string;
+  /** What this account talks about, and whom it talks about. */
+  terms: { term: string; n: number }[];
+  vendors: { vendor: string; n: number }[];
+  /** The account's page on its platform. */
+  profile_url: string | null;
+  latest_post: { url: string | null; title: string | null };
+  /** Null when we have seen the handle post but never profiled it. */
+  account: VoiceAccount | null;
+  sample_of_one: boolean;
+}
+
 export interface TopVoices {
-  voices: {
-    author: string; platform: string; posts: number; likes: number;
-    comments: number; reposts: number; engagement: number; last_seen: string;
-    /** What this account talks about, and whom it talks about. */
-    terms: { term: string; n: number }[];
-    vendors: { vendor: string; n: number }[];
-  }[];
+  voices: Voice[];
+  consistent: Voice[];
+  breakout: Voice[];
+  consistent_min_posts: number;
+  /** Accounts in the period, all of them, not just the rows returned. */
+  accounts: number;
+  accounts_multi_post: number;
+  /** How many of the returned rows carry a profile. */
+  profiled: number;
   days: number | null;
   coverage: Coverage;
+}
+
+export interface VoiceProfileJob {
+  state: 'idle' | 'running' | 'done';
+  market_id: number;
+  total?: number; done?: number; built?: number; failed?: number;
+  skipped?: number; errors?: string[];
+  started_at?: string; finished_at?: string | null;
 }
 
 export interface ChannelMix {
@@ -1817,6 +1864,31 @@ export async function getTopVoices(
   if (days) q.set('days', String(days));
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices?${q}`,
     { credentials: 'include' }), 'Failed to load voices');
+}
+
+export async function profileVoice(
+  marketId: number, platform: string, author: string,
+): Promise<Record<string, unknown>> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices/profile`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, author }),
+  }), 'Failed to profile account');
+}
+
+export async function profileAllVoices(
+  marketId: number, opts: { days?: number; limit?: number; refresh?: boolean } = {},
+): Promise<VoiceProfileJob> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices/profile-all`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  }), 'Failed to start profiling');
+}
+
+export async function getVoiceProfileJob(marketId: number): Promise<VoiceProfileJob> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices/profile-all`,
+    { credentials: 'include' }), 'Failed to read profiling status');
 }
 
 export async function getChannelMix(

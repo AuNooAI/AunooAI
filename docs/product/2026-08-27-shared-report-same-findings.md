@@ -10,6 +10,15 @@ _27 August 2026 · Market Monitor — the shared report link and aisoc.aunoo.ai_
   Instagram through Xpoz; Bluesky directly) and adds Glassdoor employee reviews.
 - Each customer-evidence row now says whether the customer is named, whether the customer or
   the vendor is speaking, and whether it is a deployment, an evaluation or a case study.
+- The market is now called "AI in the SOC".
+- An "Is your company missing?" button on the vendor list lets a vendor we do not track ask
+  to be looked at: company, website and a contact address.
+- Top voices now says who each account is. Every account links to its page on X, Bluesky or
+  Reddit and to its latest post about the market. One click builds the same account profile
+  Brand Watcher uses (who they are, reach, what they post about, and their part in this market),
+  and one button profiles the whole list.
+- The report's list of accounts that keep posting about the market no longer misses the ones
+  with few reactions.
 
 ## Why it matters
 
@@ -33,19 +42,39 @@ customer's own words, described in use" or "Unnamed customer: a published case s
 vendor's words". The "who else reported it" caveat is gone from customer rows: customer wins
 are almost never reported by anyone but the vendor, so the caveat separated nothing.
 
+**Top voices.** Before, the tab was a list of handles ranked by reactions. The account at
+the top of the AI in the SOC market had one post and 28 reactions; the profile shows it is a
+founder promoting their own AI tools with no part in the market. An analyst had to leave the
+product to learn that. Now the profile sits on the row, with links to the account and its
+latest post, and the tab tells the reader that 122 accounts posted in the month and only 10
+posted more than once, so a table of single posts reads as what the market is, not as a
+broken table.
+
 ## Release notes (copy-ready)
 
 - Shared market reports state the same findings as the full report. Vendors not included in
   the shared view are counted but not named.
 - The sources table lists the social platforms and Glassdoor.
+- "SOC Automation" is now "AI in the SOC".
+- Vendors not on the list can ask to be added from the report itself.
 - Customer-evidence rows say whether the customer is named, who is speaking, and whether it
   is in use, under evaluation or a case study.
+
+- Top voices: each account links to its platform page and its latest post; a "Profile" button
+  (or "Profile the N unprofiled") builds the account profile, with a "Who they are" column and
+  a detail panel.
+- The report's "Accounts posting repeatedly" table now includes accounts with few reactions,
+  and links each one.
 
 ## Demo / walkthrough
 
 Open `https://aisoc.aunoo.ai/` (the shared view) and the same market signed in with `?full=1`.
 The Concentration paragraph and the four findings read the same on both. Under "Where the
 numbers come from", the legend lists X, Reddit, TikTok, Instagram, Bluesky and Glassdoor.
+
+Top voices: Explore → Market Monitor → Top voices. Click "Profile the N unprofiled" and
+watch the progress line; click a row's "Who they are" text for the full profile; the @handle
+and the latest-post date open the platform in a new tab.
 
 ## Positioning notes
 
@@ -69,3 +98,10 @@ number.
   vendors' items only, since those are headlines and a headline names its subject.
 - This market's social topic reads X and Reddit; TikTok and Instagram are supported by the
   collector but not turned on for it. Glassdoor has one review on this market so far.
+- Profiles are built on request, never on a schedule. Each costs two xpoz calls and one short
+  model call, and xpoz rate-limits the shared key, so the bulk button works through the list
+  one account at a time (about ten seconds each).
+- A vendor's own X account (SentinelOne appears on market 2) counts as an outside voice; only
+  the vendors' LinkedIn company posts are excluded. Not changed.
+- Most accounts have a single post because the social pull is capped per platform per run
+  (`XPOZ_MAX_RESULTS`, default 25). Raising it costs money; not changed.

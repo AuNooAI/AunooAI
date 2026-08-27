@@ -19,6 +19,7 @@ this codebase.
 """
 
 import json
+import os
 import logging
 import re
 from calendar import monthrange
@@ -42,7 +43,12 @@ MIN_ITEMS_FOR_PROSE = 6
 # each, and the facts block says so when the true count is bigger.
 MAX_FACTS_PER_SECTION = 80
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+# Kimi K2.5 writes the briefing. The old default, gpt-5.4-mini, is a yaml
+# alias that lands on Bedrock Haiku 4.5 on every tenant; kimi beat Haiku on
+# the enrichment benchmark (07-20) at about half the price, and the project
+# rule is to avoid Haiku unless nothing cheaper does the job. Override per
+# tenant with MARKET_BRIEFING_MODEL.
+DEFAULT_MODEL = os.getenv("MARKET_BRIEFING_MODEL", "bedrock-kimi-k2-5")
 
 
 def month_bounds(year: int, month: int) -> Tuple[date, date, str]:
@@ -323,7 +329,11 @@ citation ID, each in the exact form [A3] or [C7] — a single capital letter
 followed by digits, nothing else inside the brackets. When a sentence you
 write is supported by one specific fact from either of those two sections,
 put its exact ID immediately after the sentence, copied verbatim from the
-list. Never invent an ID, never cite the same fact for an unrelated claim,
+list. The ID follows the sentence's full stop, never leads the sentence —
+the fact lines below start with their ID only so you can find it. Right:
+"Arambh Labs launched Armor Detect, a detection engineering agent. [A2]"
+Wrong: "[A2] Arambh Labs launched Armor Detect, a detection engineering
+agent." Never invent an ID, never cite the same fact for an unrelated claim,
 and never write a bracket for anything else — HEADCOUNT, OPEN JOB LISTINGS,
 NEW TO THE REGISTRY and every other section have no IDs and get no brackets
 at all, not even a descriptive one like [headcount data]. A sentence drawn
@@ -445,6 +455,54 @@ def _citation_garbage(content: str, facts: Dict[str, Any]) -> bool:
     return bad / len(tokens) > 0.5
 
 
+# One or more citation brackets at the start of a line, after any markdown
+# bullet or heading marker. Only the line start is unambiguous: mid-paragraph,
+# "X. [A3] Y." is the correct form (A3 cites X), so a bracket after a full
+# stop is never touched.
+_LEADING_CITES_RE = re.compile(
+    r"(?P<lead>^[ \t]*(?:[-*#>]+[ \t]+)?)"
+    r"(?P<cites>(?:\[\s*" + _CITATION_GROUP + r"\s*\][ \t]*)+)"
+    r"(?=\S)",
+    re.MULTILINE)
+# Where the sentence those brackets belong to ends: a terminator followed by
+# whitespace or the end of the line. A closing quote after the terminator
+# stays with the sentence.
+_SENTENCE_END_RE = re.compile(r"[.!?][\"'”’)]*(?=[ \t]|$)", re.MULTILINE)
+
+
+def move_leading_citations(content: str) -> str:
+    """Move a citation that leads its sentence to the end of that sentence.
+
+    The prompt asks for the ID after the sentence, and the fact list shows
+    each ID at the front of its line; Kimi copies the fact-list position
+    ("[A2] Arambh Labs launched…") often enough that the report reads as a
+    numbered list. Every ID still resolves either way, so this is a layout
+    fix, and it only moves a bracket when the sentence has a visible end on
+    the same line — a heading or a fragment is left alone. A bracket that
+    opens a sentence mid-paragraph is left where it is, because from the
+    text alone it is indistinguishable from one closing the sentence before.
+    """
+    out: List[str] = []
+    pos = 0
+    for m in _LEADING_CITES_RE.finditer(content):
+        if m.start() < pos:
+            continue
+        line_end = content.find("\n", m.end())
+        if line_end == -1:
+            line_end = len(content)
+        end = _SENTENCE_END_RE.search(content, m.end(), line_end)
+        if not end:
+            continue
+        ids = [f"[{cid}]" for cid in _CITE_ID_RE.findall(m.group("cites"))]
+        out.append(content[pos:m.start()])
+        out.append(m.group("lead"))
+        out.append(content[m.end():end.end()])
+        out.append(" " + " ".join(ids))
+        pos = end.end()
+    out.append(content[pos:])
+    return "".join(out)
+
+
 def resolve_citations(content: str, facts: Dict[str, Any]
                       ) -> Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Validate inline [A3]/[C7] citations and append a References section.
@@ -478,7 +536,7 @@ def resolve_citations(content: str, facts: Dict[str, Any]
             return ""
         return "[" + ", ".join(kept) + "]"
 
-    resolved = _CITATION_RE.sub(_replace, content)
+    resolved = _CITATION_RE.sub(_replace, move_leading_citations(content))
 
     def _strip_stray(match: "re.Match") -> str:
         token = match.group(0)
