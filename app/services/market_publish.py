@@ -998,7 +998,7 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                -- ever seen for the vendor regardless of period, so the sort
                -- mixed a period figure (posts) with an all-time one (articles)
                -- under one combined "signals" score.
-               (SELECT COUNT(*) FROM bw_article_categories bac2
+               (SELECT COUNT(DISTINCT a2.uri) FROM bw_article_categories bac2
                   JOIN articles a2 ON a2.uri = bac2.article_uri
                  WHERE bac2.brand_id = b.id
                    AND COALESCE(a2.publication_date, a2.submission_date) >= {since}
@@ -1009,7 +1009,10 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                -- vendor's own LinkedIn posts. Scoring the Activity Index on
                -- `articles` therefore weighted the posts channel twice and
                -- called the result a third, independent channel.
-               (SELECT COUNT(*) FROM bw_article_categories bac3
+               -- DISTINCT because a row here is (article, vendor, category)
+               -- and Brand Watcher's classifier writes one per category, so a
+               -- story filed under two headings counted as two stories.
+               (SELECT COUNT(DISTINCT a3.uri) FROM bw_article_categories bac3
                   JOIN articles a3 ON a3.uri = bac3.article_uri
                  WHERE bac3.brand_id = b.id
                    AND {earned}

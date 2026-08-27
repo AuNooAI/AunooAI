@@ -2,6 +2,44 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 (shared report) — the news page is the report; the working is behind a disclosure
+
+### Goal
+The news page was one screen, then thirteen sections of analysis, registry and methodology
+followed it. That made the briefing look like an introduction to a second document.
+
+### Three named drawers
+`app/services/market_report_html.py`. `_drawer_open` / `_drawer_close` wrap everything
+below the news page in three collapsed `<details>`: **The analysis behind this**, **Every
+vendor we watch**, **How this was measured**. Nothing was removed — a reader checking a
+number still gets every table.
+
+`<details>` rather than a scripted toggle, because it opens with the keyboard, prints
+open, is found by the browser's own in-page search, and works in a file saved to disk with
+scripting off. Each summary says what the drawer holds; "More" on a closed drawer is a
+reason not to open it.
+
+**The id sits on the `<details>`, not on a marker beside it.** An anchor landing just
+outside a closed drawer scrolls the reader to a shut door. A small script walks up from
+the click target opening any `<details>` ancestor, then jumps — so the nav (Overview /
+News / Analysis / Vendors / Method) opens the right drawer and lands inside it.
+
+### Verification
+A reader sees **122 lines before opening anything**, against 845 before. The rendered HTML
+was parsed with `html.parser`: no mismatched tags, nothing left unclosed — an unbalanced
+drawer would have swallowed every section after it. No drawer ships `open`.
+
+`pytest tests/test_market_*.py` — 223 passed, 3 failed (the pre-existing `pytest-asyncio`
+failures), 10 skipped. Two new tests: one parses the whole document and asserts the
+drawers are closed and balanced, one asserts each nav anchor resolves to the drawer
+element itself.
+
+Live: shared 104,304 bytes, operator 130,993 bytes, both HTTP 200. The disclosure backstop
+still holds at 6 of 86 registry names against an entitlement of 10.
+
+### Propagation
+Canonical only. No other tenant runs Market Monitor.
+
 ## 2026-08-27 (shared report) — the news page is the mockup now
 
 ### Goal

@@ -9,6 +9,14 @@ A market monitor needs the other question: which articles are *about this
 category*, whoever they name. That is a match against the market's own phrases
 ("SOC automation", "agentic SOC", "SOAR platform"), not against a company.
 
+It needs the first question answered too, and for a while it assumed Brand
+Watcher was answering it. It was not: Brand Watcher's classifier had attributed
+28 articles across 84 vendors in total, so every per-vendor "earned coverage"
+figure in the market monitor was read from a store that was empty by
+construction. :func:`attribute_vendors` now runs inside :func:`scan` and links
+each article that names a vendor to that vendor, so "who was mentioned" and
+"what is this about" are answered in the same pass over the same corpus.
+
 Everything here reads articles that were already collected, analysed and paid
 for. It calls no provider and collects nothing.
 
@@ -324,6 +332,241 @@ def market_topic_name(market: Dict[str, Any]) -> str:
     return topic or f"Market Monitoring {market.get('name')}"
 
 
+# ---------------------------------------------------------------------------
+# Which vendor an article names
+# ---------------------------------------------------------------------------
+
+#: ``bw_article_categories.classification_method`` for a row written here, so
+#: a reader can tell a name match from Brand Watcher's LLM classification and
+#: from a manual backfill, and so a re-run can find its own rows.
+NAME_MATCH_METHOD = "market_name_match"
+
+#: ``bw_market_articles.method`` for an article that reached the market corpus
+#: only because it named a vendor, not because it used a market phrase.
+NAME_MATCH_CORPUS_METHOD = "vendor_name"
+
+
+def _strip_parenthetical(name: str) -> str:
+    """"Variance (was Intrinsic)" -> "Variance"; "Strike48 (A Devo company)"
+    -> "Strike48". The bracketed part is a note to the operator, not a name
+    anyone would print in an article."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", name or "").strip()
+
+
+def vendor_name_terms(conn, market_id: int) -> List[Dict[str, Any]]:
+    """The names each vendor in the market can be recognised by.
+
+    ``bw_brands.brand_keywords`` and ``product_keywords`` are the reviewed
+    alias table the spec asks for — an operator wrote "Cantina security" for
+    Cantina and "Variance security" for Variance precisely because the bare
+    word matches restaurants and statistics. They are used as written. Only a
+    vendor with no keyword at all falls back to its display name, with any
+    bracketed note stripped.
+
+    Excluded vendors are left out: an article naming an out-of-scope company
+    is not this market's coverage. ``config.news_keyword_excludes`` is carried
+    through so the per-brand negative list Brand Watcher honours is honoured
+    here too.
+    """
+    rows = conn.execute(text("""
+        SELECT b.id, b.display_name, b.brand_keywords, b.product_keywords,
+               b.config
+          FROM bw_market_brands mb
+          JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+         ORDER BY b.id
+    """), {"m": market_id}).fetchall()
+    out: List[Dict[str, Any]] = []
+    for brand_id, display_name, brand_kw, product_kw, cfg in rows:
+        terms: List[str] = []
+        for source in (brand_kw, product_kw):
+            for kw in (source or []) if isinstance(source, list) else []:
+                t = str(kw or "").strip()
+                if t and t.lower() not in {x.lower() for x in terms}:
+                    terms.append(t)
+        if not terms:
+            fallback = _strip_parenthetical(display_name)
+            if fallback:
+                terms.append(fallback)
+        cfg = cfg if isinstance(cfg, dict) else {}
+        excludes = [str(x).strip() for x in (cfg.get("news_keyword_excludes") or [])
+                    if str(x).strip()]
+        if terms:
+            out.append({"brand_id": int(brand_id), "vendor": display_name,
+                        "terms": terms, "excludes": excludes})
+    return out
+
+
+def market_qualifier(conn, market_id: int) -> Optional[str]:
+    """The one word the market's collection was qualified with ("security").
+
+    Set at collection setup, in ``config.collection.qualifier``, to keep a
+    vendor-name search from returning the wrong company. It does the same job
+    here, on the corpus side.
+    """
+    cfg = conn.execute(text(
+        "SELECT config FROM bw_markets WHERE id = :m"), {"m": market_id}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    q = ((cfg.get("collection") or {}).get("qualifier") or "").strip()
+    return q or None
+
+
+def context_patterns(conn, market_id: int) -> List[re.Pattern]:
+    """What an article has to contain, besides a vendor's name, to count.
+
+    A name on its own is not enough. Measured over ninety days of this corpus,
+    "Joon" matched a K-drama cast list and a BTS story, "Andesite" matched a
+    mining assay, and none of them was about the company. Requiring the market
+    qualifier ("security") or one of the market's own phrases in the same text
+    removed every one of those and kept every vendor article checked, because
+    an article about a SOC-automation company that never says "security" does
+    not exist in practice. The rule is cheap and an operator can read it off
+    the match: the vendor's name plus the market's word.
+    """
+    terms: List[str] = []
+    q = market_qualifier(conn, market_id)
+    if q:
+        terms.append(q)
+    terms.extend(corpus_terms(conn, market_id))
+    _, py_terms = compile_terms(terms)
+    return [pattern for _, pattern in py_terms]
+
+
+def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
+                 ) -> List[Tuple[Dict[str, Any], str]]:
+    """``[(vendor, term that matched)]`` for one article's text.
+
+    Uses Brand Watcher's ``_mentions`` so the two paths agree on what a name
+    match is: word-boundaried, and tolerant of a keyword that starts or ends
+    with a non-word character ("7ai", "Secure.com").
+    """
+    from app.routes.brand_watcher_routes import _mentions
+
+    hits: List[Tuple[Dict[str, Any], str]] = []
+    for vendor in vendors:
+        if any(_mentions(text_content, x) for x in vendor["excludes"]):
+            continue
+        for term in vendor["terms"]:
+            if _mentions(text_content, term):
+                hits.append((vendor, term))
+                break
+    return hits
+
+
+def attribute_vendors(conn, market_id: int, *,
+                      topic_name: Optional[str] = None,
+                      days: Optional[int] = None,
+                      limit: int = DEFAULT_LIMIT,
+                      dry_run: bool = False) -> Dict[str, Any]:
+    """Link every article that names a vendor to that vendor.
+
+    Writes one ``bw_article_categories`` row per (article, vendor), never a
+    second one for a pair any method has already linked — the overview and
+    the benchmark count rows, and a second category on the same article would
+    count one story twice. The article is also entered in
+    ``bw_market_articles`` when the phrase scan did not already put it there,
+    so the coverage feed and the post review see it.
+
+    Reads titles and summaries. Writes nothing when ``dry_run``.
+    """
+    vendors = vendor_name_terms(conn, market_id)
+    if not vendors:
+        return {"vendors": 0, "scanned": 0, "matched": 0, "attributed": 0,
+                "already_linked": 0, "without_context": 0, "samples": []}
+
+    pg_pattern, _ = compile_terms(
+        [t for v in vendors for t in v["terms"]])
+    contexts = context_patterns(conn, market_id)
+
+    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat"]
+    params: Dict[str, Any] = {"pat": pg_pattern, "lim": int(limit)}
+    if days:
+        where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
+        params["since"] = _iso_days_ago(days)
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary, a.topic, a.news_source,
+               COALESCE(a.publication_date, a.submission_date) AS published
+          FROM articles a
+         WHERE {' AND '.join(where)}
+         ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+         LIMIT :lim
+    """), params).mappings().all()
+
+    from app.services.market_collect import _categorize
+
+    topic = topic_name or ""
+    matched = attributed = already = without_context = corpus_added = 0
+    samples: List[Dict[str, Any]] = []
+    per_vendor: Dict[str, int] = {}
+    for row in rows:
+        content = f"{row['title'] or ''} {row['summary'] or ''}"
+        hits = _vendor_hits(content, vendors)
+        if not hits:
+            continue
+        if contexts and not any(p.search(content) for p in contexts):
+            without_context += 1
+            continue
+        matched += 1
+        in_title = False
+        for vendor, term in hits:
+            per_vendor[vendor["vendor"]] = per_vendor.get(vendor["vendor"], 0) + 1
+            from app.routes.brand_watcher_routes import _mentions
+            in_title = in_title or _mentions(row["title"] or "", term)
+            if len(samples) < 25:
+                samples.append({"uri": row["uri"], "title": row["title"],
+                                "source": row["news_source"],
+                                "published": row["published"],
+                                "vendor": vendor["vendor"], "term": term})
+            if dry_run:
+                continue
+            cats = _categorize(row["title"] or "", row["summary"] or "")
+            category = cats[0] if cats else "Media & Advertising"
+            wrote = conn.execute(text("""
+                INSERT INTO bw_article_categories
+                    (article_uri, brand_id, category, classification_method,
+                     confidence)
+                SELECT :uri, :bid, :cat, :method, 1.0
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM bw_article_categories x
+                      WHERE x.article_uri = :uri AND x.brand_id = :bid)
+            """), {"uri": row["uri"], "bid": vendor["brand_id"],
+                   "cat": category, "method": NAME_MATCH_METHOD}).rowcount
+            if wrote:
+                attributed += 1
+            else:
+                already += 1
+        if dry_run:
+            continue
+        origin = "collected" if (topic and row["topic"] == topic) else "corpus"
+        # A name in the headline is the story's subject, the same weight the
+        # phrase scan gives a phrase in the headline.
+        score = TITLE_WEIGHT if in_title else BODY_WEIGHT
+        corpus_added += conn.execute(text("""
+            INSERT INTO bw_market_articles
+                (market_id, article_uri, matched_terms, title_terms,
+                 body_terms, score, method, origin)
+            VALUES (:m, :uri, '{}', :tt, :bt, :score, :method, :origin)
+            ON CONFLICT (market_id, article_uri) DO NOTHING
+        """), {"m": market_id, "uri": row["uri"],
+               "tt": 1 if in_title else 0, "bt": 0 if in_title else 1,
+               "score": score, "method": NAME_MATCH_CORPUS_METHOD,
+               "origin": origin}).rowcount
+
+    return {
+        "vendors": len(vendors),
+        "scanned": len(rows),
+        "matched": matched,
+        "attributed": attributed,
+        "already_linked": already,
+        "without_context": without_context,
+        "corpus_added": corpus_added,
+        "truncated": len(rows) >= int(limit),
+        "dry_run": dry_run,
+        "by_vendor": dict(sorted(per_vendor.items(), key=lambda kv: -kv[1])),
+        "samples": samples,
+    }
+
+
 def scan(conn, market_id: int, *,
          terms: Optional[Sequence[str]] = None,
          topic_name: Optional[str] = None,
@@ -422,6 +665,11 @@ def scan(conn, market_id: int, *,
         else:
             updated += 1
 
+    # Same window, same limit, same dry-run: an article that names a vendor is
+    # this market's coverage whether or not it used a market phrase.
+    names = attribute_vendors(conn, market_id, topic_name=topic_name,
+                              days=days, limit=limit, dry_run=dry_run)
+
     return {
         "terms": len(terms),
         "scanned": len(rows),
@@ -435,6 +683,7 @@ def scan(conn, market_id: int, *,
         "truncated": len(rows) >= int(limit),
         "dry_run": dry_run,
         "samples": samples,
+        "vendor_names": names,
     }
 
 

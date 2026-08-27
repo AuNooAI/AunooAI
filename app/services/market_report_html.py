@@ -168,6 +168,22 @@ NEWS_CSS = """
 .mm-news .n-quote { margin:5px 0 0; line-height:1.45; font-size:13px; }
 .mm-news .n-quote a { color:inherit; text-decoration:none; }
 .mm-news .n-quote a:hover { text-decoration:underline; }
+/* The drawers holding the working behind the page. Outside .mm-news, because
+   they wrap the report's own sections and inherit that styling. */
+.mm-drawer { max-width:1180px; margin:0 auto 10px; border:1px solid #e5e7eb;
+             border-radius:10px; background:#fff; }
+.mm-drawer > summary { list-style:none; cursor:pointer; padding:15px 20px;
+                       display:flex; flex-direction:column; gap:3px; }
+.mm-drawer > summary::-webkit-details-marker { display:none; }
+.mm-drawer > summary::after { content:"Show"; position:absolute; right:24px;
+                              font-size:12px; color:#6b7280; }
+.mm-drawer[open] > summary::after { content:"Hide"; }
+.mm-drawer > summary { position:relative; }
+.mm-drawer > summary:hover .mm-drawer-t { color:#2563eb; }
+.mm-drawer-t { font-size:15px; font-weight:500; color:#111827; }
+.mm-drawer-b { font-size:12.5px; color:#6b7280; max-width:70ch; }
+.mm-drawer-body { padding:0 8px 8px; }
+@media print { .mm-drawer > summary::after { content:""; } }
 .mm-news .n-empty { color:var(--n-muted); font-size:13px; padding:14px 0; }
 @media (max-width:850px) {
   .mm-news .n-jump { display:none; }
@@ -1099,6 +1115,15 @@ var t=b.getAttribute('data-theme');
 f.forEach(function(o){o.setAttribute('aria-pressed',String(o===b));});
 s.forEach(function(a){a.hidden=(t!=='all'&&a.getAttribute('data-theme')!==t);});
 });});
+// A link to an anchor inside a closed <details> does not scroll, because the
+// target is not laid out. Open the drawer first, then let the jump happen.
+function open_for(hash){if(!hash)return;var t=document.getElementById(
+hash.slice(1));while(t){if(t.tagName==='DETAILS')t.open=true;t=t.parentElement;}}
+[].slice.call(document.querySelectorAll('a[href^="#"]')).forEach(function(a){
+a.addEventListener('click',function(){open_for(a.getAttribute('href'));
+setTimeout(function(){var t=document.getElementById(
+a.getAttribute('href').slice(1));if(t)t.scrollIntoView();},0);});});
+if(location.hash)open_for(location.hash);
 var v=[].slice.call(r.querySelectorAll('.n-views button'));
 v.forEach(function(b){b.addEventListener('click',function(){
 r.setAttribute('data-view',b.getAttribute('data-view'));
@@ -1118,6 +1143,28 @@ def _relink(params: Dict[str, Any], **overrides: Any) -> str:
 
     merged = {k: v for k, v in {**params, **overrides}.items() if v is not None}
     return esc(urlencode(merged))
+
+
+def _drawer_open(title: str, blurb: str, anchor: str = "") -> str:
+    """A collapsed section of the report, named by what is inside it.
+
+    ``<details>`` rather than a scripted toggle: it opens with the keyboard,
+    prints open, is found by the browser's own in-page search, and works in a
+    file saved to disk with scripting off. The summary says what the drawer
+    holds, because "More" on a closed drawer is a reason not to open it.
+    """
+    # The id goes on the <details>, not on a marker before it. An anchor
+    # landing just outside a closed drawer scrolls to a shut door; on the
+    # element itself, the script walking up from the target opens it.
+    ident = f' id="{esc(anchor)}"' if anchor else ""
+    return (f'<details class="mm-drawer"{ident}><summary>'
+            f'<span class="mm-drawer-t">{esc(title)}</span>'
+            f'<span class="mm-drawer-b">{esc(blurb)}</span>'
+            f'</summary><div class="mm-drawer-body">')
+
+
+def _drawer_close() -> str:
+    return "</div></details>"
 
 
 def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
@@ -1375,9 +1422,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<span>Aunoo AI</span></span>'
                 '<nav class="n-jump" aria-label="Jump to section">'
                 '<a href="#mm-overview">Overview</a>'
-                '<a href="#mm-changed">Findings</a>'
                 '<a href="#mm-news">News</a>'
-                '<a href="#mm-registry">Vendors</a></nav>'
+                '<a href="#mm-analysis">Analysis</a>'
+                '<a href="#mm-registry">Vendors</a>'
+                '<a href="#mm-method">Method</a></nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 
     body.append('<main class="n-main"><span id="mm-overview"></span>')
@@ -1450,6 +1498,19 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                             notes=notes, days=days))
     body.append("</div></main></div>")
     body.append(f"<script>{_NEWS_JS}</script>")
+
+    # ================================================================
+    # Everything below is the working behind the page above, and it is
+    # collapsed. Thirteen sections of analysis, registry and methodology after
+    # a one-screen briefing made the briefing look like an introduction to a
+    # second document. Nothing is removed — a reader checking a number still
+    # gets every table, and the nav opens the right drawer and jumps to it.
+    # ================================================================
+    body.append(_drawer_open(
+        "The analysis behind this",
+        "Where each figure on the page above came from, period against period, "
+        "and what the market said in its own words.",
+        anchor="mm-analysis"))
 
     # ---- Market scope
     body.append(section_open("Market scope"))
@@ -1891,7 +1952,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     registry_rows = [r for r in dataset if r.get("role") != "excluded"]
     registry_rows.sort(key=lambda r: last_material.get(r["vendor"], ""), reverse=True)
-    body.append('<span id="mm-registry"></span>')
+    body.append(_drawer_close())
+    body.append(_drawer_open(
+        "Every vendor we watch",
+        "The whole list, with country, founding year, staff, funding and open "
+        "roles for each.",
+        anchor="mm-registry"))
     body.append(section_open("Vendor registry"))
     body.append('<p class="mm-src">Sorted by most recent material signal '
                'this period, then by name.</p>')
@@ -1927,6 +1993,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     # Monitoring coverage — how much of the market we have actually looked at
     # ================================================================
+    body.append(_drawer_close())
+    body.append(_drawer_open(
+        "How this was measured",
+        "Which sources we read, how much of the market each one covers, what "
+        "every figure counts, and the full list of records behind it.",
+        anchor="mm-method"))
     body.append(section_open("How much of the market we checked"))
     registry_total = cov["registry"] - cov["excluded"]
     body.append('<table class="mm-table"><thead><tr><th>Coverage</th>'
@@ -1995,7 +2067,6 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # it was that the file carried none of the definitions, none of the source
     # labels and none of the collection state, so a reader who opened it a month
     # later had no way to tell what any of it had been measured against.
-    body.append('<span id="mm-method"></span>')
     body.append(section_open("Where the numbers come from"))
 
     body.append("<h3>Which sources we use</h3>")
@@ -2081,6 +2152,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         "<strong>Unreviewed</strong> means nothing has classified it yet, and "
         "is not a judgement about the post.</p>")
     body.append("</section>")
+
+    body.append(_drawer_close())
 
     # What this view covers, said on the page rather than left to be inferred
     # from a short table.

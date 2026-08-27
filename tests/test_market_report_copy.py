@@ -151,3 +151,97 @@ def test_period_links_keep_the_signed_token():
     assert 'exp=123' in out and 'token=abc' in out and 'days=7' in out
     # An operator with a session has no token, and the link must still work.
     assert _relink({}, days=90) == 'days=90'
+
+
+# ---------------------------------------------------------------------------
+# The working sits behind a disclosure, and stays reachable
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def conn():
+    from app.database import get_database_instance
+
+    c = get_database_instance()._temp_get_connection()
+    try:
+        yield c
+    finally:
+        c.rollback()
+        c.close()
+
+
+@pytest.fixture()
+def market(conn):
+    from sqlalchemy import text
+
+    row = conn.execute(text(
+        "SELECT id FROM bw_markets ORDER BY id LIMIT 1")).scalar()
+    if row is None:
+        pytest.skip('no market in this database')
+    return int(row)
+
+
+def test_every_drawer_is_closed_and_none_is_left_open(conn, market):
+    """Thirteen sections after a one-screen briefing made the briefing look
+    like an introduction to a second document. They are collapsed now, and an
+    unbalanced drawer would swallow everything after it.
+    """
+    from html.parser import HTMLParser
+    from sqlalchemy import text
+    from app.services.market_report_html import build_market_report
+
+    row = conn.execute(text(
+        "SELECT * FROM bw_markets WHERE id = :m"), {'m': market}).mappings().first()
+    html = build_market_report(conn, dict(row), days=30).decode()
+
+    void = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+            'link', 'meta', 'source', 'track', 'wbr'}
+
+    class Check(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack, self.bad = [], []
+
+        def handle_starttag(self, tag, attrs):
+            if tag not in void:
+                self.stack.append(tag)
+
+        def handle_endtag(self, tag):
+            if tag in void:
+                return
+            if not self.stack or self.stack[-1] != tag:
+                self.bad.append(tag)
+                if tag in self.stack:
+                    del self.stack[self.stack.index(tag):]
+                return
+            self.stack.pop()
+
+    check = Check()
+    check.feed(html)
+    assert not check.bad, f'mismatched tags: {check.bad[:3]}'
+    assert not check.stack, f'never closed: {check.stack[:3]}'
+
+    # Collapsed, not merely styled small. `<details open>` on any of these
+    # would put the whole report back on one page.
+    assert '<details class="mm-drawer" id="mm-analysis">' in html
+    assert '<details class="mm-drawer" id="mm-registry">' in html
+    assert '<details class="mm-drawer" id="mm-method">' in html
+    assert 'mm-drawer" open' not in html and 'mm-drawer open' not in html
+
+
+def test_the_nav_points_at_the_drawers_themselves(conn, market):
+    """An anchor landing just outside a closed drawer scrolls to a shut door.
+
+    The id has to be on the <details>, so the script walking up from the click
+    target finds it and opens it.
+    """
+    from sqlalchemy import text
+    from app.services.market_report_html import build_market_report
+
+    row = conn.execute(text(
+        "SELECT * FROM bw_markets WHERE id = :m"), {'m': market}).mappings().first()
+    html = build_market_report(conn, dict(row), days=30).decode()
+
+    for anchor in ('mm-analysis', 'mm-registry', 'mm-method'):
+        assert f'href="#{anchor}"' in html, f'{anchor} is not in the nav'
+        assert f'<details class="mm-drawer" id="{anchor}">' in html, (
+            f'{anchor} must sit on the drawer, not on a marker beside it')
