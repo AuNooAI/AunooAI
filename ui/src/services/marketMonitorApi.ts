@@ -2188,3 +2188,87 @@ export async function getVendorBenchmarks(
     `${BASE}/markets/${marketId}/vendors/${brandId}/benchmarks?${q}`,
     { credentials: 'include' }), 'vendor benchmarks');
 }
+
+// ---------------------------------------------------------------------------
+// Findings (spec §4.2): deduplicated market changes with their evidence
+// ---------------------------------------------------------------------------
+
+export interface FindingVendor {
+  brand_id: number;
+  vendor: string;
+  relation: string;
+}
+
+export interface FindingEvidence {
+  excerpt: string | null;
+  uri: string | null;
+  [k: string]: unknown;
+}
+
+export interface MarketFinding {
+  finding_id: number;
+  headline: string;
+  summary: string | null;
+  why_it_matters: string | null;
+  materiality: 'high' | 'medium' | 'low';
+  materiality_reason: string | null;
+  finding_type: string;
+  finding_subtype: string | null;
+  theme: string;
+  /** confirmed, corroborated, watch or dismissed. */
+  status: string;
+  /** vendor_claim, single_source, corroborated … — who is saying this. */
+  corroboration: string;
+  confidence: number | null;
+  review_state: string;
+  vendors: FindingVendor[];
+  occurred_at: string | null;
+  date_precision: string;
+  first_observed_at: string | null;
+  last_updated_at: string | null;
+  independent_source_count: number;
+  non_vendor_source_count: number;
+  vendor_voiced: boolean;
+  self_reportable: boolean;
+  evidence_count: number;
+  source_platforms: string[];
+  strongest_evidence: FindingEvidence | null;
+  has_contradiction: boolean;
+  limitations: string[];
+  attributes: Record<string, unknown>;
+  is_new_in_period: boolean;
+}
+
+export interface MarketFindings {
+  data: MarketFinding[];
+  /** The few that deserve attention now; never a low-materiality watch item. */
+  executive: MarketFinding[];
+  by_theme: Record<string, MarketFinding[]>;
+  watch_items: MarketFinding[];
+  meta: {
+    metric: MetricMeta;
+    pagination?: { page?: number; page_size?: number; total?: number; [k: string]: unknown };
+    synthesis?: { state: string; detail: string | null; evidence_items?: number };
+    counts?: Record<string, unknown>;
+    themes?: string[];
+    [k: string]: unknown;
+  };
+}
+
+export async function getMarketFindings(
+  marketId: number,
+  opts: { days?: number; theme?: string; status?: string; materiality?: string;
+          sort?: string; page?: number; pageSize?: number } = {},
+): Promise<MarketFindings> {
+  const params = new URLSearchParams();
+  if (opts.days) params.set('days', String(opts.days));
+  if (opts.theme) params.set('theme', opts.theme);
+  if (opts.status) params.set('status', opts.status);
+  if (opts.materiality) params.set('materiality', opts.materiality);
+  if (opts.sort) params.set('sort', opts.sort);
+  if (opts.page) params.set('page', String(opts.page));
+  if (opts.pageSize) params.set('page_size', String(opts.pageSize));
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/findings?${params}`,
+      { credentials: 'include' }), 'Failed to load findings');
+}

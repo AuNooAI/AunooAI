@@ -229,15 +229,29 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
             No events extracted yet.
           </p>
         ) : (
+          <>
+          <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
+            {events.filter(e => corroborationNote(e.corroboration, e.sources).tone === 'good').length}
+            {' '}of {events.length} confirmed by someone other than the vendor.
+          </p>
           <ul className="space-y-3">
+            {/* The icon follows the note's tone. A vendor announcing its own
+                news is the normal way to learn of it and the note calls that
+                neutral, so it gets no icon; an amber triangle on every row was
+                a warning that warned of nothing. The shield marks an outside
+                account, the triangle a record with no source at all. */}
             {events.slice(0, 12).map(event => {
               const note = corroborationNote(event.corroboration, event.sources);
               return (
                 <li key={event.id} className="text-sm">
                   <div className="flex items-start gap-2">
-                    {event.corroboration === 'vendor_claim'
-                      ? <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
-                      : <ShieldCheck className="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" />}
+                    {note.tone === 'good'
+                      ? <ShieldCheck className="w-4 h-4 mt-0.5 text-emerald-600 shrink-0" />
+                      : note.tone === 'warn'
+                        ? <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
+                        : <span className="w-4 h-4 mt-0.5 shrink-0 flex items-center justify-center">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-gray-600" />
+                          </span>}
                     <div className="min-w-0">
                       <div className="text-slate-800 truncate dark:text-gray-100">
                         {event.title}
@@ -253,12 +267,13 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
               );
             })}
           </ul>
+          </>
         )}
       </Panel>
 
       <Panel
         title="Coverage"
-        hint="The vendor's own posts are counted apart from what other people said."
+        hint="All time, not the period selected on the market page. The vendor's own posts and its own website are counted apart from what other people said."
       >
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
           <Stat label="Own posts" value={split.owned} />

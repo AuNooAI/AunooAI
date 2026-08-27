@@ -2,6 +2,147 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 — news is attributed to vendors by name, and the Findings tab shows findings
+
+### Goal
+An end-to-end review of the market monitor asked two questions: does collection work, and
+how could the data be presented better. Collection works for everything the vendor publishes
+about itself and did not work for anything anyone else says about it. The first fix below
+is the one every other number depended on; the rest are the presentation items the review
+listed, in the order it ranked them.
+
+Commit: "Attribute news to vendors by name, and put the findings on the Findings tab".
+
+### Fix — the corpus scan links articles to the vendors they name
+**`app/services/market_corpus.py`**. `scan()` matched the market's phrases ("SOC automation",
+"agentic SOC") and never a vendor's name. Its docstring said Brand Watcher answered the
+name question. Brand Watcher's classifier had attributed **28 articles across 84 vendors, all
+time**, so every per-vendor "earned coverage" figure — the Activity Index mentions channel,
+the earned-mentions benchmark, the vendor page's "External mentions" — was read from a
+store that was empty by construction.
+
+`attribute_vendors()` now runs inside `scan()` on the same window. A vendor is recognised by
+its reviewed keywords (`bw_brands.brand_keywords` and `product_keywords`; an operator had
+already written "Cantina security" and "Variance security" there because the bare words
+collide) and by its display name only when it has none. Each match writes one
+`bw_article_categories` row (`classification_method='market_name_match'`, never a second
+row for a pair any method already linked), enters the article in `bw_market_articles`
+(`method='vendor_name'`) so the coverage feed and post review see it, and links it into
+the entity layer inside a savepoint so an entity fault cannot abort the scan.
+
+A third-party page also has to carry the market's qualifier (`config.collection.qualifier`,
+"security" here) or one of its phrases. Two exemptions, both measured rather than guessed: a
+name with a digit or a dot in it ("7ai", "Secure.com") cannot be a dictionary word, and a
+page on a tracked vendor's own domain is about a vendor by definition. The first version
+applied the gate everywhere and turned away 14 real vendor articles (blogs that talk about
+the product and never say "security"); with the exemptions it turns away exactly three over
+90 days — a K-drama cast list and a BTS story for "Joon", a mining assay for "Andesite".
+What the rule rejects is returned under `rejected` so an operator can check it.
+
+Vendor LinkedIn posts are skipped (they are attributed at landing by the account they came
+from). Result over the whole 212k-article corpus: **196 scanned, 190 matched, 181 new links
+across 26 vendors, 104 articles added to the market corpus, 7.1 s**. A second run wrote 0.
+
+### Fix — the entity layer called a vendor's own blog outside coverage
+**`app/services/entity_ingest.py`**. `classify_source` reads only the source name and
+`bias_source`, and a vendor's blog carries neither, so it was `earned_news` for the vendor
+whose blog it is. **148 links across 14 vendors** were companies writing about themselves
+counted as outside coverage; Prophet Security's page showed 51 "external mentions", all its
+own blog. The channel is now decided per entity (`_channel_for`): a page on the entity's
+own domain is `owned_web` for that entity, and still earned coverage for any other vendor
+it names. The 148 existing links and their mentions were relabelled in place; the 107
+attributions made before the entity link existed were backfilled with
+`entity_ingest.link_content(..., attribution_method='keyword')`.
+
+### Config — two reviewed keywords that matched the wrong thing
+`bw_brands.brand_keywords`: `AISOC` → `["AISOC.cloud", "AISOC CORE", "AISOC security"]`
+(the bare word matched the #AISOC hashtag on four Twitter posts and a paper titled "A
+Fusion-Based AISOC"; the company's own posts use the first two forms, 10 and 4 times, and
+neither appears anywhere else in the corpus). `Joon` → `["Joon AI", "joon.co", "Joon
+security"]` (Joon has no posts in the corpus; every "Joon" hit was someone else). The 7 wrong
+links and their entity mentions were removed and the scan re-run: nothing for either vendor.
+
+### Fix — overview counts one story once
+**`app/services/market_publish.py`** (committed earlier today by the peer session's sweep):
+`articles` and `earned` used `COUNT(*)` over `bw_article_categories`, which holds one row per
+category, so a story filed under two headings counted twice. Now `COUNT(DISTINCT uri)`.
+
+### Feature — the Findings tab lists findings
+**`ui/src/components/newsfeed/MarketFindingsView.tsx`** (new), **`MarketMonitorTab.tsx`**,
+**`marketMonitorApi.ts`**. `/markets/{id}/findings` had carried deduplicated, evidence-backed
+changes since the findings service shipped and no component called it; the tab named
+Findings rendered the analysis dashboard. The new view lists the findings grouped by theme,
+each with who said it ("The vendor's own claim" / "Reported by N outside sources"),
+materiality (Material / Notable / Minor), date, expandable body and strongest-evidence link;
+filters by theme, materiality and "only findings someone other than the vendor reported". A
+strip under the count line reads the overview and brief the tab already loads: posts the
+vendors published, articles about them by somebody else, open roles observed, headcount
+moves with two readings, vendors with nothing observed. A headline that is not one ("Kamal
+Shah: Prophet Security's Post", "Full announcement: https://…") falls back to the first
+sentence of the body.
+
+The dashboard is now the **Analysis** tab. The "Summary" paragraph is gone: it was the
+topic-level signal narrative and named AWS, Anthropic, CyberRisk Alliance and ANY.RUN as this
+market's key actors, none of them a tracked vendor. Export buttons render on both tabs.
+
+### Fix — panels stop drawing what they cannot support
+**`MarketMonitorTab.tsx`**: headcount change with fewer than three movers is a one-line list,
+not a one-bar chart on a 0–1 axis; the market-wide headcount line needs three weeks read by
+at least half the roster (it had two, and its own caption called both untrustworthy); a
+"By network" card with nothing tagged is one line, not three "not enough" notices.
+**`MarketVendorBenchmark.tsx`**: a metric where the vendor, the market median and the top-20
+median are all zero collapses to one sentence; "busier than N%" is now "larger than" for
+headcount, "better funded than" for funding, "ahead of" for flows.
+
+### Fix — smaller presentation faults
+**`MarketVendorProvenance.tsx`**: the amber triangle on every vendor-page event (a warning that
+warned of nothing) follows the note's tone — no icon for a vendor's own announcement, shield
+for an outside account, triangle only for no source; a count line says how many events
+someone other than the vendor confirmed; the Coverage panel says it is all-time.
+**`map/MarketGeographyMap.tsx`**: OpenStreetMap tiles, because CARTO's basemaps now stamp "API
+KEY REQUIRED" across every tile without a key; dark mode inverts the tile pane in CSS.
+**`MarketMonitorTab.tsx`**: the Sub-category column hides when every listed vendor shares one
+value (it read "SOC Automation" 83 times); Wire cards show tracked vendors as chips and other
+named companies as text ("Beacon Security · with Anthropic"); the "Last run per source" panel
+shows a manual-only source as "manual only · last run failed" in grey instead of a red
+failure from a run stranded on 2026-08-24.
+
+### Also in this commit — §4.16 vendor benchmark
+**`app/services/market_benchmark.py`** (new), routes `/markets/benchmark-metrics` and
+`/markets/{id}/vendors/{brand_id}/benchmarks`, **`MarketVendorBenchmark.tsx`**, tests
+`tests/test_market_benchmark.py` (18). Built in the previous session against the spec; it had
+not been committed.
+
+### Verification
+- `pytest tests/test_market_corpus_names.py` — 20 passed. `tests/test_entity_ingestion.py`
+  with the two own-domain cases — 29 passed. Entity + market suites together — 188 passed.
+- Overview `earned` per vendor after the scan matches an independent SQL count row for row
+  (Radiant Security 7, Intezer 4, Crogl 3, 7ai 2, Embed Security 1, Prophet Security 1).
+  30-day earned coverage: 3 articles on 2 vendors before, 21 on 9 after the keyword fix.
+- Prophet Security vendor page: 92 own posts, 1 external mention (was 51). 7ai: 10 external
+  mentions all-time, 2 in the overview's 30 days.
+- `npm run typecheck` clean against the 246-error baseline; `./ui/deploy-react-ui.sh` built;
+  every changed view screenshotted with headless Chromium on the live page.
+- Three pre-existing failures in `tests/test_market_collection.py` remain (confirmed
+  pre-existing by stashing; not touched).
+
+### Propagation
+bugfixing only. The market monitor does not exist on wiley or wileytest (neither has
+`app/services/market_metrics.py`). Service restarted for the backend changes; the final
+UI-only rebuild needed no restart (templates auto-reload). Two data changes live only in the
+`test` database and are not in this commit: the `bw_brands` keyword edits and the entity-layer
+relabel/backfill. A clone from canonical gets the code and will produce the same rows on its
+first scan.
+
+### Lessons
+- A number that reads "0" across 82 of 84 vendors is a store nobody writes to, not a quiet
+  market. Check the writer before the reader.
+- Two stores that answer the same question (`bw_article_categories` for the overview,
+  `bw_entity_mentions` for the vendor page) must be written together or they drift; spec
+  MM-16 applies across layers, not only within one.
+- A context gate tuned on false positives alone over-rejects. Measure both sides: what it
+  turns away that is real, not only what it lets through that is not.
+
 ## 2026-08-27 — the sharing link became a news page, and a dead safety control turned up under it
 
 ### Goal

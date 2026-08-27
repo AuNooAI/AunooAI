@@ -412,16 +412,21 @@ def market_qualifier(conn, market_id: int) -> Optional[str]:
 
 
 def context_patterns(conn, market_id: int) -> List[re.Pattern]:
-    """What an article has to contain, besides a vendor's name, to count.
+    """What a third-party article has to contain, besides a vendor's name.
 
     A name on its own is not enough. Measured over ninety days of this corpus,
     "Joon" matched a K-drama cast list and a BTS story, "Andesite" matched a
     mining assay, and none of them was about the company. Requiring the market
     qualifier ("security") or one of the market's own phrases in the same text
-    removed every one of those and kept every vendor article checked, because
-    an article about a SOC-automation company that never says "security" does
-    not exist in practice. The rule is cheap and an operator can read it off
-    the match: the vendor's name plus the market's word.
+    removed all three.
+
+    It also removed fourteen articles that were about the vendor — its own blog
+    posts, which talk about the product and never say "security", and a
+    practitioner thanking "7AI" for a sponsorship. So the requirement is not
+    applied everywhere: see :func:`attribute_vendors` for the two cases where
+    the name is taken as it stands. The rule stays one an operator can read off
+    the match — the vendor's name, plus the market's word, unless the name
+    could not be anything else or the page is the vendor's own.
     """
     terms: List[str] = []
     q = market_qualifier(conn, market_id)
@@ -430,6 +435,18 @@ def context_patterns(conn, market_id: int) -> List[re.Pattern]:
     terms.extend(corpus_terms(conn, market_id))
     _, py_terms = compile_terms(terms)
     return [pattern for _, pattern in py_terms]
+
+
+def _distinctive(term: str) -> bool:
+    """Whether a name could be nothing but a name.
+
+    A token with a digit or a dot in it ("7ai", "Secure.com", "Strike48") is
+    not a word in any language, so it needs no context to be believed. A bare
+    word — "Joon", "Andesite", "Alpha Level" — does, because the corpus has
+    shown it will match something else.
+    """
+    t = (term or "").strip()
+    return bool(t) and any(ch.isdigit() or ch == "." for ch in t)
 
 
 def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
@@ -453,6 +470,44 @@ def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
     return hits
 
 
+def _link_entity(conn, uri: str, brand_id: int, term: str) -> None:
+    """Tell the entity layer about a link the market just made.
+
+    The vendor page's "External mentions" reads ``bw_entity_mentions``; the
+    market overview's "earned" reads ``bw_article_categories``. The entity
+    layer's own backlog matcher consults ``bw_article_categories`` when it
+    first examines an article, so a fresh attribution reaches both stores —
+    but it examines each article once, and 1,704 of them had already been
+    examined and found to name nobody before this pass existed. Linking here
+    keeps the two counts in step instead of leaving the vendor page reading 0
+    while the overview reads 2 for the same vendor and the same articles.
+
+    A fault in the entity layer must not undo an attribution, so the link is
+    written inside a savepoint and rolled back to it on failure. Catching the
+    exception alone is not enough: Postgres aborts the whole transaction on an
+    error, and the scan's own writes would be lost with it at commit.
+    """
+    from app.services import entity_flags
+
+    if not entity_flags.enabled():
+        return
+    conn.execute(text("SAVEPOINT market_entity_link"))
+    try:
+        from app.services import entity_ingest
+
+        # "keyword" is the entity layer's name for a reviewed brand keyword
+        # found in the text, which is what this is.
+        entity_ingest.link_content(conn, uri, candidates=[{
+            "brand_id": brand_id, "term": term,
+            "attribution_method": "keyword",
+            "mention_type": "explicit_name",
+        }])
+        conn.execute(text("RELEASE SAVEPOINT market_entity_link"))
+    except Exception:                                           # noqa: BLE001
+        conn.execute(text("ROLLBACK TO SAVEPOINT market_entity_link"))
+        logger.exception("entity link failed for %s / brand %s", uri, brand_id)
+
+
 def attribute_vendors(conn, market_id: int, *,
                       topic_name: Optional[str] = None,
                       days: Optional[int] = None,
@@ -467,18 +522,28 @@ def attribute_vendors(conn, market_id: int, *,
     ``bw_market_articles`` when the phrase scan did not already put it there,
     so the coverage feed and the post review see it.
 
+    A third-party article must also carry the market's qualifier or one of
+    its phrases (:func:`context_patterns`), unless the name is one that could
+    not be a word (:func:`_distinctive`) or the page is on a tracked vendor's
+    own domain. Everything the rule turns away is returned under ``rejected``.
+
     Reads titles and summaries. Writes nothing when ``dry_run``.
     """
     vendors = vendor_name_terms(conn, market_id)
     if not vendors:
         return {"vendors": 0, "scanned": 0, "matched": 0, "attributed": 0,
-                "already_linked": 0, "without_context": 0, "samples": []}
+                "already_linked": 0, "without_context": 0, "corpus_added": 0,
+                "samples": [], "rejected": []}
 
     pg_pattern, _ = compile_terms(
         [t for v in vendors for t in v["terms"]])
     contexts = context_patterns(conn, market_id)
 
-    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat"]
+    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat",
+             # A vendor's LinkedIn post is attributed when it lands, by the
+             # account it came from, which is exact. Re-reading it here would
+             # only re-find the vendor's name in the vendor's own words.
+             "COALESCE(a.bias_source, '') <> 'vendor:linkedin'"]
     params: Dict[str, Any] = {"pat": pg_pattern, "lim": int(limit)}
     if days:
         where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
@@ -492,25 +557,43 @@ def attribute_vendors(conn, market_id: int, *,
          LIMIT :lim
     """), params).mappings().all()
 
+    from app.routes.brand_watcher_routes import _mentions
     from app.services.market_collect import _categorize
 
+    domains = vendor_domains(conn, market_id)
     topic = topic_name or ""
     matched = attributed = already = without_context = corpus_added = 0
     samples: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
     per_vendor: Dict[str, int] = {}
     for row in rows:
         content = f"{row['title'] or ''} {row['summary'] or ''}"
         hits = _vendor_hits(content, vendors)
         if not hits:
             continue
-        if contexts and not any(p.search(content) for p in contexts):
-            without_context += 1
+        # The context requirement, and the two cases it does not apply to: a
+        # page on a tracked vendor's own site is about a vendor by definition,
+        # and a name with a digit or a dot in it cannot be a dictionary word.
+        host = _host(row["uri"])
+        own_site = bool(host) and any(host == d or host.endswith("." + d)
+                                      for d in domains)
+        in_context = own_site or not contexts or \
+            any(p.search(content) for p in contexts)
+        kept = [(v, t) for v, t in hits if in_context or _distinctive(t)]
+        for v, t in hits:
+            if (v, t) not in kept:
+                without_context += 1
+                if len(rejected) < 25:
+                    rejected.append({"uri": row["uri"], "title": row["title"],
+                                     "source": row["news_source"],
+                                     "vendor": v["vendor"], "term": t})
+        hits = kept
+        if not hits:
             continue
         matched += 1
         in_title = False
         for vendor, term in hits:
             per_vendor[vendor["vendor"]] = per_vendor.get(vendor["vendor"], 0) + 1
-            from app.routes.brand_watcher_routes import _mentions
             in_title = in_title or _mentions(row["title"] or "", term)
             if len(samples) < 25:
                 samples.append({"uri": row["uri"], "title": row["title"],
@@ -533,6 +616,7 @@ def attribute_vendors(conn, market_id: int, *,
                    "cat": category, "method": NAME_MATCH_METHOD}).rowcount
             if wrote:
                 attributed += 1
+                _link_entity(conn, row["uri"], vendor["brand_id"], term)
             else:
                 already += 1
         if dry_run:
@@ -564,6 +648,9 @@ def attribute_vendors(conn, market_id: int, *,
         "dry_run": dry_run,
         "by_vendor": dict(sorted(per_vendor.items(), key=lambda kv: -kv[1])),
         "samples": samples,
+        # What the context rule turned away, so an operator can see whether
+        # it is turning away the right things.
+        "rejected": rejected,
     }
 
 

@@ -16,6 +16,7 @@ import {
 import { MarketVendorPage } from './MarketVendorPage';
 import { MarketGeographyMap } from './map/MarketGeographyMap';
 import { MarketAnalysisView } from './MarketAnalysisView';
+import { MarketFindingsView } from './MarketFindingsView';
 import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
@@ -63,7 +64,7 @@ import {
  * pipeline: health, sources, the raw corpus and event feed, and dataset
  * export — "what did we collect and is it working", a different question
  * from "what does the market show", with its own sub-navigation below. */
-type View = 'findings' | 'collection' | 'briefings' | 'vendors';
+type View = 'findings' | 'analysis' | 'collection' | 'briefings' | 'vendors';
 type CollectionSubView = 'overview' | 'health' | 'coverage' | 'wire' | 'data' | 'sourcemap';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
@@ -707,8 +708,11 @@ function TimelineTooltip({ active, payload }: any) {
  *  a count and a significance are not something a reader can check without
  *  seeing what they were computed from. Vendor badges on each article pivot
  *  to that vendor's page, the same as Coverage already does. */
-function WireEventCard({ event: e, onVendor }: {
+function WireEventCard({ event: e, onVendor, vendorIds }: {
   event: TimelineEvent; onVendor: (brandId: number) => void;
+  /** display name (lower-cased) → brand id for the market's vendors, so a
+   *  card can say which of the companies it names are the ones we track. */
+  vendorIds?: Map<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   const [articles, setArticles] = useState<WireArticle[] | null>(null);
@@ -726,12 +730,37 @@ function WireEventCard({ event: e, onVendor }: {
   }
 
   const hasArticles = (e.article_uris?.length ?? 0) > 0;
+  // The extractor names every company in the story. A customer, an acquirer
+  // or a rival outside the registry sat beside a tracked vendor with nothing
+  // to tell them apart; the tracked ones are chips, the rest plain text.
+  const named = Array.isArray(e.entities)
+    ? (e.entities as unknown[]).filter((n): n is string => typeof n === 'string') : [];
+  const tracked = named.filter(n => vendorIds?.has(n.toLowerCase()));
+  const others = named.filter(n => !vendorIds?.has(n.toLowerCase()));
 
   return (
     <li className="border rounded-lg p-3 bg-white dark:bg-gray-800">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-slate-800 dark:text-gray-100">{e.title}</div>
+          {named.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 mt-1">
+              {tracked.map(n => (
+                <button key={n} onClick={() => onVendor(vendorIds!.get(n.toLowerCase())!)}
+                        className="text-xs px-1.5 py-0.5 rounded border
+                                   bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100
+                                   dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                  {n}
+                </button>
+              ))}
+              {others.length > 0 && (
+                <span className="text-xs text-slate-500 dark:text-gray-400">
+                  {tracked.length ? 'with ' : ''}{others.join(', ')}
+                  {tracked.length === 0 && ' — not a tracked vendor'}
+                </span>
+              )}
+            </div>
+          )}
           {e.description && (
             <p className="text-sm text-slate-600 mt-1 dark:text-gray-400">{e.description}</p>
           )}
@@ -1068,7 +1097,13 @@ export function MarketMonitorTab() {
   const headcountConfidence = useMemo(() => {
     const withData = headcountTrend?.points
       ?.filter(p => p.avg_pct_vs_baseline !== null) ?? [];
-    return { ok: withData.length > 1, withData };
+    // Two points make a line but not a trend, and the panel's own caption
+    // called both of them the least trustworthy points on it. A week counts
+    // when at least half the watched vendors were read as of that week, and
+    // it takes three of those before a line is drawn.
+    const watching = headcountTrend?.watching ?? 0;
+    const solid = withData.filter(p => watching > 0 && p.n_vendors * 2 >= watching);
+    return { ok: solid.length >= 3, withData, solid };
   }, [headcountTrend]);
   const momentumConfidence = useMemo(() => {
     const withData = fundingMomentum?.by_month
@@ -1083,8 +1118,9 @@ export function MarketMonitorTab() {
         id: 'headcount-trend',
         title: 'Headcount, market-wide',
         why: "Average % change against each vendor's own baseline, by week.",
-        need: total ? `${headcountConfidence.withData.length} of ${total} weeks read`
-                     : 'loading, or no readings yet',
+        need: total
+          ? `${headcountConfidence.solid.length} of ${total} weeks read by at least half the vendors; three needed`
+          : 'loading, or no readings yet',
       });
     }
     if (!momentumConfidence.ok) {
@@ -1250,6 +1286,15 @@ export function MarketMonitorTab() {
     });
   }, [vendors, search, fundingFilter, foundedFilter]);
 
+  // The sub-category column is hidden when every listed vendor shares one
+  // value. On a single-segment market it read "SOC Automation" 84 times.
+  const vendorIds = useMemo(() => new Map(
+    (vendors ?? []).map(v => [v.display_name.toLowerCase(), v.brand_id])), [vendors]);
+  const showSubCategory = useMemo(() => {
+    const values = new Set(shown.map(v => v.baseline?.taxonomy?.sub_category ?? '—'));
+    return values.size > 1;
+  }, [shown]);
+
   // The Coverage view is the only consumer of the matched corpus, so it loads
   // on demand rather than on every market switch.
   const inCollectionCoverage = view === 'collection' && collectionSubView === 'coverage';
@@ -1320,9 +1365,9 @@ export function MarketMonitorTab() {
   // also wants funding momentum, for its "featured" funding-moves list, so
   // it shares this fetch rather than triggering a second one.
   useEffect(() => {
-    if (marketId === null || (view !== 'findings' && !inCollectionCoverage)) return;
+    if (marketId === null || (view !== 'analysis' && !inCollectionCoverage)) return;
     let live = true;
-    if (view === 'findings') {
+    if (view === 'analysis') {
       getHeadcountTrend(marketId, 26)
         .then(r => { if (live) setHeadcountTrend(r); })
         .catch(e => { if (live) setError(String(e.message ?? e)); });
@@ -1637,6 +1682,7 @@ export function MarketMonitorTab() {
         <div className="flex gap-1">
           {([
             ['findings', 'Findings'],
+            ['analysis', 'Analysis'],
             ['collection', 'Collection'],
             ['briefings', 'Reports'],
             ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
@@ -1649,11 +1695,11 @@ export function MarketMonitorTab() {
             </button>
           ))}
         </div>
-        {(view === 'findings'
+        {(view === 'findings' || view === 'analysis'
           || (view === 'collection' && (collectionSubView === 'coverage' || collectionSubView === 'wire'))
          ) && (
           <div className="flex items-center gap-1.5 pb-1.5 pr-1"
-               title="Shared by Findings and Collection's Coverage and Wire sub-views. Founding years and current funding/stage data are always all-time, regardless of this setting.">
+               title="Shared by Findings, Analysis and Collection's Coverage and Wire sub-views. Founding years and current funding/stage data are always all-time, regardless of this setting.">
             <span className="text-xs text-slate-500 dark:text-gray-400">Period</span>
             <select value={periodDays}
                     onChange={e => setPeriodDays(Number(e.target.value))}
@@ -1751,9 +1797,9 @@ export function MarketMonitorTab() {
         </div>
       )}
 
-      {/* ---- Pulse: the one-look state of the market ---- */}
-      {view === 'findings' && overview && (
-        <div className="space-y-4">
+      {/* ---- Exports and sharing, on both reading tabs ---- */}
+      {(view === 'findings' || view === 'analysis') && overview && (
+        <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-slate-600 dark:text-gray-400">
               {pulse
@@ -1784,23 +1830,24 @@ export function MarketMonitorTab() {
             </button>
           </div>
           {shareLink && (
-            <p className="text-xs text-slate-600 -mt-2 break-all dark:text-gray-400">
+            <p className="text-xs text-slate-600 break-all dark:text-gray-400">
               <span className="text-slate-500 dark:text-gray-400">Shareable report link: </span>
               {shareLink}
             </p>
           )}
+        </div>
+      )}
 
-          {pulse?.standing_summary && (
-            <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-              <div className="text-sm font-medium text-slate-800 mb-1 dark:text-gray-100">
-                Summary
-              </div>
-              <p className="text-sm text-slate-700 whitespace-pre-line dark:text-gray-300">
-                {pulse.standing_summary}
-              </p>
-            </div>
-          )}
+      {/* ---- Findings: the list ---- */}
+      {view === 'findings' && marketId !== null && (
+        <MarketFindingsView marketId={marketId} days={periodDays}
+                            onVendor={openVendorPage}
+                            overview={overview} pulse={pulse} />
+      )}
 
+      {/* ---- Pulse: the one-look state of the market ---- */}
+      {view === 'analysis' && overview && (
+        <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label="Vendors watched"
                   value={`${overview.coverage.watching} of ${overview.coverage.vendors}`}
@@ -2084,6 +2131,26 @@ export function MarketMonitorTab() {
                             ${pulse.headcount_insufficient} awaiting a second one`
                          : ''}.
                 </p>
+              ) : pulse.headcount_movers.length < 3 ? (
+                // Fewer than three movers is a short list, not a distribution.
+                // A bar chart of one bar on a 0-1 axis is a number wearing a
+                // chart; the number is shown as itself.
+                <ul className="text-sm space-y-1">
+                  {pulse.headcount_movers.map(m => (
+                    <li key={m.brand_id} className="flex items-center gap-2">
+                      <button onClick={() => openVendorPage(m.brand_id)}
+                              className="text-slate-800 hover:underline dark:text-gray-100">
+                        {m.vendor}
+                      </button>
+                      <span className={`tabular-nums font-medium ${deltaTextClass(m.delta)}`}>
+                        {m.delta > 0 ? '+' : ''}{m.delta} staff ({m.pct > 0 ? '+' : ''}{m.pct}%)
+                      </span>
+                      <span className="text-xs text-slate-400 dark:text-gray-500">
+                        {m.previous} → {m.latest}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={pulse.headcount_movers.slice(0, 8)}
@@ -2417,7 +2484,7 @@ export function MarketMonitorTab() {
             ) : (
               <ol className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
                 {pulse.events.map(e => (
-                  <WireEventCard key={e.id} event={e} onVendor={openVendorPage} />
+                  <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds} />
                 ))}
               </ol>
             )}
@@ -2470,7 +2537,7 @@ export function MarketMonitorTab() {
         </div>
       )}
 
-      {view === 'findings' && marketId !== null && (
+      {view === 'analysis' && marketId !== null && (
         <MarketAnalysisView marketId={marketId} onVendor={openVendorPage}
                             onRecords={setRecords}
                             days={periodDays}
@@ -2595,7 +2662,14 @@ export function MarketMonitorTab() {
                     State of the most recent run, not a 30-day history.
                   </p>
                   <div className="divide-y max-h-[320px] overflow-y-auto pr-1">
-                    {overview.last_runs.map(r => (
+                    {overview.last_runs.map(r => {
+                      // A source nobody schedules is not broken because its
+                      // last hand-run failed months ago. Indeed, PitchBook and
+                      // ZoomInfo read as three red rows here on the strength
+                      // of runs stranded on 2026-08-24.
+                      const manualOnly = collectionState?.sources
+                        .some(cs => cs.source === r.source && !cs.scheduled) ?? false;
+                      return (
                       <div key={r.source}
                            className="flex items-center justify-between py-1.5 text-sm">
                         <span className="text-slate-700 dark:text-gray-300">{r.source}</span>
@@ -2603,6 +2677,12 @@ export function MarketMonitorTab() {
                           <span className="text-slate-500 tabular-nums dark:text-gray-400">
                             {r.records_received} records
                           </span>
+                          {manualOnly && r.status !== 'succeeded' ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded border text-slate-500 border-slate-200 dark:text-gray-400 dark:border-gray-700"
+                                  title={r.error ?? undefined}>
+                              manual only · last run {r.status}
+                            </span>
+                          ) : (
                           <span className={`text-xs px-1.5 py-0.5 rounded border ${
                             r.status === 'succeeded'
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
@@ -2611,9 +2691,11 @@ export function MarketMonitorTab() {
                               : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'}`}>
                             {r.status}
                           </span>
+                          )}
                         </span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -2720,9 +2802,9 @@ export function MarketMonitorTab() {
               <p className="text-xs text-slate-500 -mt-1 dark:text-gray-400">
                 Career moves and Crunchbase score changes for this market are
                 on the{' '}
-                <button onClick={() => setView('findings')}
+                <button onClick={() => setView('analysis')}
                         className="underline hover:text-slate-700 dark:hover:text-gray-300">
-                  Findings tab
+                  Analysis tab
                 </button>
                 {' '}— not repeated here to avoid showing the same two lists twice.
               </p>
@@ -2733,13 +2815,26 @@ export function MarketMonitorTab() {
                 </div>
                 <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
                   &quot;Most discussed&quot; and &quot;most shared&quot; only
-                  count posts tagged to a specific vendor. That tagging barely
-                  reaches practitioner posts on Twitter, Reddit or Bluesky
-                  today — a real gap in the data, not a quiet market. Where a
-                  network shows nothing here, that is what it means.
+                  count posts tagged to a specific vendor. A post is tagged
+                  when it names the vendor by one of its reviewed keywords, so
+                  a practitioner writing &quot;the Dropzone thing&quot; is not
+                  counted. Where a network shows nothing here, nobody named a
+                  vendor on it in this period.
                 </p>
+                {/* A network with nothing tagged gets one line, not a card
+                    that says "not enough" three times. */}
+                {leaderboards.networks.some(n => !n.most_discussed.length && !n.most_shared.length && !n.top_posts.length) && (
+                  <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
+                    Nothing tagged to a vendor yet on{' '}
+                    {leaderboards.networks
+                      .filter(n => !n.most_discussed.length && !n.most_shared.length && !n.top_posts.length)
+                      .map(n => n.platform[0].toUpperCase() + n.platform.slice(1)).join(', ')}.
+                  </p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {leaderboards.networks.map(n => (
+                  {leaderboards.networks
+                    .filter(n => n.most_discussed.length || n.most_shared.length || n.top_posts.length)
+                    .map(n => (
                     <div key={n.platform} className="border rounded-lg p-3 bg-white dark:bg-gray-800">
                       <div className="text-sm font-medium text-slate-800 capitalize mb-1.5 dark:text-gray-100">
                         {n.platform}
@@ -3267,7 +3362,7 @@ export function MarketMonitorTab() {
             <>
             <ol className="space-y-2">
               {events.map(e => (
-                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} />
+                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds} />
               ))}
             </ol>
             {events.length >= 50 && (
@@ -3426,7 +3521,8 @@ export function MarketMonitorTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 dark:bg-gray-700 dark:text-gray-400">
                 <tr>
-                  {['Vendor', 'Sub-category', 'Country', 'Founded', 'LinkedIn headcount',
+                  {['Vendor', ...(showSubCategory ? ['Sub-category'] : []),
+                    'Country', 'Founded', 'LinkedIn headcount',
                     'Funding', 'Links', 'Collecting', 'Brand'].map(h => (
                     <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                   ))}
@@ -3444,8 +3540,10 @@ export function MarketMonitorTab() {
                         <span className="text-xs text-slate-500 dark:text-gray-400">out of scope</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap dark:text-gray-400">
-                      {v.baseline?.taxonomy?.sub_category ?? '—'}</td>
+                    {showSubCategory && (
+                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap dark:text-gray-400">
+                        {v.baseline?.taxonomy?.sub_category ?? '—'}</td>
+                    )}
                     <td className="px-3 py-2 text-slate-600 whitespace-nowrap dark:text-gray-400">
                       {v.baseline?.hq_country ?? '—'}</td>
                     <td className="px-3 py-2 text-slate-600 dark:text-gray-400">

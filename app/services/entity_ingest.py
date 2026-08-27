@@ -66,8 +66,9 @@ def link_content(conn, article_uri: str,
         return {'article_uri': article_uri, 'links': 0, 'mentions': 0,
                 'status': 'missing'}
 
-    platform, channel = classify_source(article['news_source'],
-                                        article['bias_source'])
+    platform, article_channel = classify_source(article['news_source'],
+                                                article['bias_source'])
+    channel = article_channel
     result = {'article_uri': article_uri, 'platform': platform,
               'channel': channel, 'links': 0, 'mentions': 0,
               'brands': [], 'status': 'ok'}
@@ -88,9 +89,18 @@ def link_content(conn, article_uri: str,
         result['status'] = 'skipped: social lanes disabled'
         return result
 
-    owned = channel in _OWNED_CHANNELS
+    host = _host_of(article_uri)
     for candidate in candidates:
         brand_id = int(candidate['brand_id'])
+        # The channel is decided per entity, not per article. classify_source
+        # reads only the source name and bias_source, and a vendor's own blog
+        # carries neither, so it came through as earned_news: 148 links across
+        # 14 vendors were companies writing about themselves counted as outside
+        # coverage, and Prophet Security's page showed 51 "external mentions"
+        # of which 51 were its own blog. A page on the entity's own domain is
+        # owned_web for that entity — and still earned coverage for any other
+        # vendor it names, which is why this sits inside the loop.
+        channel, owned = _channel_for(conn, brand_id, host, article_channel)
         relationship = candidate.get('relationship') or (
             'owned' if owned else 'mentions')
         link_id = entity_content.link_content(
@@ -146,6 +156,47 @@ def link_content(conn, article_uri: str,
         if mention_id:
             result['mentions'] += 1
     return result
+
+
+def _host_of(uri: str) -> str:
+    from urllib.parse import urlparse
+
+    try:
+        host = (urlparse(uri or '').hostname or '').lower()
+    except ValueError:
+        return ''
+    return host[4:] if host.startswith('www.') else host
+
+
+def _own_domain(conn, brand_id: int, host: str) -> bool:
+    """Whether ``host`` is one of this entity's registered domains."""
+    if not host:
+        return False
+    rows = conn.execute(text("""
+        SELECT lower(normalized_value) FROM bw_vendor_identifiers
+         WHERE brand_id = :b AND kind = 'domain' AND valid_to IS NULL
+    """), {'b': brand_id}).fetchall()
+    for (domain,) in rows:
+        d = (domain or '').strip().lstrip('.')
+        if d.startswith('www.'):
+            d = d[4:]
+        if d and (host == d or host.endswith('.' + d)):
+            return True
+    return False
+
+
+def _channel_for(conn, brand_id: int, host: str, article_channel: str):
+    """``(channel, owned)`` for one entity's link to one article.
+
+    The article-level channel stands unless the page is on the entity's own
+    domain, in which case it is the entity's own web content whatever the
+    source name says.
+    """
+    if article_channel in _OWNED_CHANNELS:
+        return article_channel, True
+    if _own_domain(conn, brand_id, host):
+        return 'owned_web', True
+    return article_channel, False
 
 
 def _is_company_speaking(article) -> bool:
