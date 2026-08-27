@@ -1605,7 +1605,7 @@ export interface BriefingSummary {
   status: 'draft' | 'approved' | 'rejected';
   /** "fallback" means the model returned nothing usable and the stored text is
    *  the assembled evidence rather than written prose. */
-  generation: 'generated' | 'fallback';
+  generation: 'generated' | 'fallback' | 'edited';
   model_used: string | null;
   created_at: string;
   updated_at: string;
@@ -1650,6 +1650,47 @@ export async function generateBriefing(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(wireBody),
   }), 'Briefing generation failed');
+}
+
+export interface BriefingRevision {
+  id: number; title: string | null; generation: string | null;
+  reason: string; saved_by: string | null; saved_at: string; length: number;
+}
+
+/** Replace the briefing's text with a person's; the previous text is kept. */
+export async function editBriefing(
+  marketId: number, briefingId: number, body: { report_content: string; title?: string | null },
+): Promise<BriefingDetail> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }), 'Could not save the briefing');
+}
+
+export async function getBriefingRevisions(
+  marketId: number, briefingId: number,
+): Promise<{ revisions: BriefingRevision[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/revisions`,
+      { credentials: 'include' }), 'Could not load the history');
+}
+
+export async function getBriefingRevision(
+  marketId: number, briefingId: number, revisionId: number,
+): Promise<BriefingRevision & { report_content: string }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/revisions/${revisionId}`,
+      { credentials: 'include' }), 'Could not load the revision');
+}
+
+export async function restoreBriefingRevision(
+  marketId: number, briefingId: number, revisionId: number,
+): Promise<BriefingDetail> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/revisions/${revisionId}/restore`,
+      { method: 'POST', credentials: 'include' }), 'Could not restore the revision');
 }
 
 export async function setBriefingStatus(

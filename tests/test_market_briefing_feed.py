@@ -134,3 +134,78 @@ def test_approving_puts_the_briefing_in_the_feed_and_rejecting_takes_it_out(conn
 def test_syncing_an_unknown_briefing_does_nothing(conn, briefing):
     market, _ = briefing
     assert mbr.sync_feed_entry(conn, market, 999999, commit=False) is None
+
+
+# --- The briefing on the shared report ---------------------------------------
+
+def test_the_summary_skips_a_plain_text_subtitle():
+    text_ = ("Aunoo | Market Briefing\n\nWeek of 17–23 August 2026: AI-SOC Market Briefing\n\n"
+             "## 1. What Happened\n\nFour vendors announced new capabilities. [A2]\n")
+    assert mbr.feed_summary(text_) == "Four vendors announced new capabilities."
+
+
+def test_safe_sentences_drop_the_sentence_naming_a_withheld_vendor_whole():
+    s = ("Four vendors announced new AI SOC capabilities. Arambh Labs launched Armor Detect. "
+         "System Two Security made its enterprise tier available. Intezer added workflows.")
+    out = mbr.safe_sentences(s, ["Arambh Labs", "Intezer"])
+    assert out == ("Four vendors announced new AI SOC capabilities. "
+                   "System Two Security made its enterprise tier available.")
+    assert mbr.safe_sentences(s, []) == s
+    # Word boundary: "Joon" must not match "Joone" but must match "Joon."
+    assert mbr.safe_sentences("Joone rose. Joon fell.", ["Joon"]) == "Joone rose."
+
+
+def test_a_shared_reader_gets_the_card_and_never_the_text(conn, briefing):
+    """The shared report withholds most vendors and refuses a page that names
+    one, so the briefing text — which names them all — must not be there,
+    blurred or otherwise. Only the card."""
+    from app.services import market_entitlements as ent
+    from app.services.market_report_html import build_market_briefing_page
+
+    market, bid = briefing
+    conn.execute(text("UPDATE bw_market_briefings SET status='approved' WHERE id=:i"), {"i": bid})
+    allowed = ent.authorized_brand_ids(conn, market["id"], 1)
+    withheld = ent.withheld_names(conn, market["id"], allowed)
+    if not withheld:
+        pytest.skip("market has one vendor; nothing is withheld")
+
+    page = build_market_briefing_page(conn, market, briefing_id=bid,
+                                      allowed_brand_ids=allowed).decode()
+    assert 'id="mm-briefing"' in page
+    assert "References" not in page and 'class="refs"' not in page
+    assert "Request a trial" in page
+
+    full = build_market_briefing_page(conn, market, briefing_id=bid).decode()
+    assert "Read the briefing" not in full          # it *is* the briefing
+    assert "<h1>" in full and "mm-briefing" not in full
+
+
+def test_a_draft_is_never_served_on_the_report_even_by_id(conn, briefing):
+    from app.services.market_report_html import build_market_briefing_page
+
+    market, bid = briefing
+    conn.execute(text("UPDATE bw_market_briefings SET status='draft' WHERE id=:i"), {"i": bid})
+    page = build_market_briefing_page(conn, market, briefing_id=bid).decode()
+    assert "No approved briefing yet" in page
+
+
+def test_a_shared_feed_keeps_the_briefing_item_with_a_safe_description(conn, briefing):
+    from app.services import market_entitlements as ent
+    from app.services import market_publish as mp
+
+    import re
+
+    market, bid = briefing
+    # set_status stamps updated_at, and the feed sorts on it; an approval
+    # dated weeks ago would fall past the feed's item cut.
+    conn.execute(text("UPDATE bw_market_briefings SET status='approved', "
+                      "updated_at=NOW() WHERE id=:i"), {"i": bid})
+    allowed = ent.authorized_brand_ids(conn, market["id"], 1)
+    withheld = ent.withheld_names(conn, market["id"], allowed)
+    if not withheld:
+        pytest.skip("market has one vendor; nothing is withheld")
+    xml = mp.build_feed(conn, market, base_url="https://example.test",
+                        allowed_brand_ids=allowed).decode()
+    assert f"market-briefing-{bid}" in xml
+    for name in withheld:
+        assert not re.search(rf"(?<!\w){re.escape(name)}(?!\w)", xml, re.IGNORECASE), name

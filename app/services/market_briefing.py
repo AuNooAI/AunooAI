@@ -689,6 +689,101 @@ def set_status(conn, market_id: int, briefing_id: int, status: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Editing by hand
+# ---------------------------------------------------------------------------
+#
+# The model writes the first draft; a person may rewrite it. The text that
+# was there before each save goes to ``bw_market_briefing_revisions``, so the
+# model's original and every edit survive and any of them can be restored.
+# An edited briefing is marked ``generation = 'edited'`` — a reader can then
+# tell a model's sentence from a person's — and if it is approved, its feed
+# item is refreshed so the feed summary follows the new text.
+
+def _snapshot(conn, briefing: Dict[str, Any], *, reason: str,
+              saved_by: Optional[str]) -> int:
+    return int(conn.execute(text("""
+        INSERT INTO bw_market_briefing_revisions
+            (briefing_id, market_id, title, report_content, generation, reason, saved_by)
+        VALUES (:b, :m, :t, :c, :g, :r, :by)
+        RETURNING id
+    """), {"b": briefing["id"], "m": briefing["market_id"], "t": briefing.get("title"),
+           "c": briefing.get("report_content") or "", "g": briefing.get("generation"),
+           "r": reason, "by": saved_by}).scalar())
+
+
+def save_edit(conn, market: Dict[str, Any], briefing_id: int, *, content: str,
+              title: Optional[str] = None, saved_by: Optional[str] = None,
+              reason: str = "edit", generation: str = "edited"
+              ) -> Optional[Dict[str, Any]]:
+    """Replace the briefing's text with a person's, keeping what was there.
+
+    Returns the updated briefing, or None if it does not exist. The lint is
+    rerun on the new text (advisory, never blocking); citations are left as
+    written, because a person editing is the reviewer.
+    """
+    briefing = get(conn, market["id"], briefing_id)
+    if not briefing:
+        return None
+    content = (content or "").replace("\r\n", "\n").strip()
+    if not content:
+        raise ValueError("The briefing text cannot be empty")
+    if content == (briefing.get("report_content") or "").strip() and \
+            (title is None or title == briefing.get("title")):
+        return briefing
+    _snapshot(conn, briefing, reason="before " + reason, saved_by=saved_by)
+    try:
+        from app.services.report_lint import lint_outbound
+        lint = lint_outbound(content, kind="html", context="briefing edit") or []
+    except Exception as exc:  # noqa: BLE001 — advisory
+        logger.debug("briefing edit lint failed: %s", exc)
+        lint = []
+    conn.execute(text("""
+        UPDATE bw_market_briefings
+           SET report_content = :c, title = COALESCE(:t, title),
+               generation = :g, lint = CAST(:l AS JSONB), updated_at = NOW()
+         WHERE market_id = :m AND id = :i
+    """), {"c": content, "t": (title or "").strip()[:300] or None,
+           "g": generation if generation in ("generated", "fallback", "edited") else "edited",
+           "l": json.dumps(lint), "m": market["id"], "i": briefing_id})
+    conn.commit()
+    if briefing.get("status") == "approved":
+        sync_feed_entry(conn, market, briefing_id)
+    return get(conn, market["id"], briefing_id)
+
+
+def revisions(conn, market_id: int, briefing_id: int) -> List[Dict[str, Any]]:
+    """Every previous text, newest first, without the text itself."""
+    return [dict(r) for r in conn.execute(text("""
+        SELECT id, title, generation, reason, saved_by, saved_at,
+               LENGTH(report_content) AS length
+          FROM bw_market_briefing_revisions
+         WHERE market_id = :m AND briefing_id = :b
+         ORDER BY saved_at DESC, id DESC
+    """), {"m": market_id, "b": briefing_id}).mappings().all()]
+
+
+def revision(conn, market_id: int, briefing_id: int, revision_id: int
+             ) -> Optional[Dict[str, Any]]:
+    row = conn.execute(text("""
+        SELECT * FROM bw_market_briefing_revisions
+         WHERE market_id = :m AND briefing_id = :b AND id = :r
+    """), {"m": market_id, "b": briefing_id, "r": revision_id}).mappings().first()
+    return dict(row) if row else None
+
+
+def restore(conn, market: Dict[str, Any], briefing_id: int, revision_id: int,
+            saved_by: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Put an earlier text back. The current text is kept as a revision."""
+    rev = revision(conn, market["id"], briefing_id, revision_id)
+    if not rev:
+        return None
+    # Putting the model's own text back makes it the model's text again.
+    return save_edit(conn, market, briefing_id, content=rev["report_content"],
+                     title=rev.get("title"), saved_by=saved_by, reason="restore",
+                     generation=rev.get("generation") or "edited")
+
+
+# ---------------------------------------------------------------------------
 # The approved briefing as a news-feed item
 # ---------------------------------------------------------------------------
 #
@@ -743,6 +838,11 @@ def feed_summary(content: str, limit: int = FEED_SUMMARY_LIMIT) -> str:
         joined = _CITATION_RE.sub("", joined)
         joined = re.sub(r"\s+([.,;:!?])", r"\1", joined)
         joined = re.sub(r"\s{2,}", " ", joined).strip()
+        # A subtitle written as plain text — "Week of 17–23 August 2026:
+        # AI-SOC Market Briefing" — has no sentence end and is short. Skip it
+        # the way a marked heading is skipped.
+        if len(joined) < 120 and not re.search(r"[.!?]", joined):
+            continue
         if len(joined) <= limit:
             return joined
         cut = joined[:limit]
@@ -838,10 +938,70 @@ def sync_feed_entry(conn, market: Dict[str, Any], briefing_id: int,
 # ---------------------------------------------------------------------------
 
 def render_page(market: Dict[str, Any], briefing: Dict[str, Any]) -> str:
-    """The briefing as one self-contained HTML page: the report with each
-    citation linked to its source, and the References list under it."""
-    import markdown as _markdown
+    """The briefing as one self-contained HTML page."""
     from app.services.html_report_common import esc, html_document
+
+    status = briefing.get("status") or "draft"
+    head = (f'<p class="eyebrow">{esc(market.get("name", ""))} · '
+            f'{esc(briefing.get("period_label", ""))} · {esc(status)}</p>')
+    return html_document(briefing.get("title") or market.get("name", "Briefing"),
+                         head + render_body(briefing))
+
+
+# ---------------------------------------------------------------------------
+# The approved briefing on the shared market report
+# ---------------------------------------------------------------------------
+#
+# The shared report (a public market, or a signed link) withholds most vendors
+# and refuses to serve a page that names one of them — it raises rather than
+# redacts (market_entitlements.assert_no_withheld). A briefing names every
+# vendor, so the shared view gets a card: the title, the period, and only the
+# summary sentences that name no withheld vendor. The text itself is for a
+# reader with a session.
+
+def approved_listing(conn, market_id: int, limit: int = 12) -> List[Dict[str, Any]]:
+    return [dict(r) for r in conn.execute(text("""
+        SELECT id, period_label, period_start, period_end, title, updated_at,
+               (facts->>'item_count')::int AS item_count
+        FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved'
+        ORDER BY period_start DESC LIMIT :lim
+    """), {"m": market_id, "lim": limit}).mappings().all()]
+
+
+def latest_approved(conn, market_id: int) -> Optional[Dict[str, Any]]:
+    row = conn.execute(text("""
+        SELECT * FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved'
+        ORDER BY period_start DESC LIMIT 1
+    """), {"m": market_id}).mappings().first()
+    return dict(row) if row else None
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(])")
+
+
+def safe_sentences(summary: str, withheld: List[str]) -> str:
+    """The sentences of ``summary`` that name no withheld vendor.
+
+    Dropped whole, never redacted, the way the shared news river drops a
+    headline that names a withheld vendor. Matched on word boundaries, case
+    folded, the same test the page-level check applies afterwards.
+    """
+    if not withheld:
+        return summary
+    patterns = [re.compile(rf"(?<!\w){re.escape(n)}(?!\w)", re.IGNORECASE)
+                for n in withheld if n and n.strip()]
+    kept = [s for s in _SENTENCE_SPLIT_RE.split(summary or "")
+            if s.strip() and not any(p.search(s) for p in patterns)]
+    return " ".join(kept)
+
+
+def render_body(briefing: Dict[str, Any]) -> str:
+    """The briefing text as HTML: markdown rendered, each citation linked to
+    its source, and a References list of the IDs actually cited."""
+    import markdown as _markdown
+    from app.services.html_report_common import esc
 
     facts = briefing.get("facts") or {}
     if isinstance(facts, str):
@@ -851,9 +1011,8 @@ def render_page(market: Dict[str, Any], briefing: Dict[str, Any]) -> str:
             facts = {}
     index = facts.get("citation_index") or {}
 
-    content = briefing.get("report_content") or ""
-    body = _markdown.markdown(content, extensions=["tables"])
-
+    body = _markdown.markdown(briefing.get("report_content") or "",
+                              extensions=["tables"])
     seen: List[str] = []
 
     def _link(match: "re.Match[str]") -> str:
@@ -870,22 +1029,15 @@ def render_page(market: Dict[str, Any], briefing: Dict[str, Any]) -> str:
         return "[" + ", ".join(parts) + "]"
 
     body = _CITATION_RE.sub(_link, body)
-
-    refs = ""
-    if seen:
-        items = []
-        for cid in seen:
-            ref = index[cid]
-            label = " — ".join(p for p in (ref.get("vendor"), ref.get("title")) if p)
-            uri = ref.get("uri") or ""
-            items.append(
-                f'<li><strong>{cid}</strong> {esc(label)}'
-                + (f' <a href="{esc(uri)}" target="_blank" rel="noreferrer">'
-                   f'{esc(uri)}</a>' if uri else "") + "</li>")
-        refs = "<h2>References</h2><ol class=\"refs\">" + "".join(items) + "</ol>"
-
-    status = briefing.get("status") or "draft"
-    head = (f'<p class="eyebrow">{esc(market.get("name", ""))} · '
-            f'{esc(briefing.get("period_label", ""))} · {esc(status)}</p>')
-    return html_document(briefing.get("title") or market.get("name", "Briefing"),
-                         head + body + refs)
+    if not seen:
+        return body
+    items = []
+    for cid in seen:
+        ref = index[cid]
+        label = " — ".join(p for p in (ref.get("vendor"), ref.get("title")) if p)
+        uri = ref.get("uri") or ""
+        items.append(
+            f'<li><strong>{cid}</strong> {esc(label)}'
+            + (f' <a href="{esc(uri)}" target="_blank" rel="noreferrer">'
+               f'{esc(uri)}</a>' if uri else "") + "</li>")
+    return body + '<h2>References</h2><ol class="refs">' + "".join(items) + "</ol>"

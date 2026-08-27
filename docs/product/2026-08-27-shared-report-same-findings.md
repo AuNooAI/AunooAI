@@ -19,6 +19,10 @@ _27 August 2026 · Market Monitor — the shared report link and aisoc.aunoo.ai_
   and one button profiles the whole list.
 - The report's list of accounts that keep posting about the market no longer misses the ones
   with few reactions.
+- Market briefings can be edited. On the Reports tab, Edit opens the report as markdown with
+  a live preview; Save keeps the model's original and every earlier version in a History
+  you can view and restore. An edited report says so, and if it was already approved its
+  news-feed item follows the new text.
 - Market Horizon marks the vendors doing the most product work as "innovating" — a ring on
   the dot, across every tier — from launches, confirmed launches, research posts and
   engineering hiring. Acquired vendors are listed with the acquirer, not placed on the map.
@@ -92,6 +96,9 @@ of the rest that have disclosed funding.
 
 - Market Horizon: a scale-against-momentum map of rated vendors in four tiers, with the
   weights shown and the unrated vendors listed with the reading each one lacks.
+
+- Reports: edit a generated briefing in markdown with a live preview; every earlier version
+  is kept and can be restored.
 
 ## Demo / walkthrough
 

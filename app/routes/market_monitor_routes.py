@@ -1277,6 +1277,7 @@ async def market_report(
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
     view: str = Query("report"),
+    id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
 ):
@@ -1301,7 +1302,8 @@ async def market_report(
 
     from fastapi.responses import Response
 
-    from app.services.market_report_html import (build_market_news_page,
+    from app.services.market_report_html import (build_market_briefing_page,
+                                                 build_market_news_page,
                                                  build_market_report)
 
     signed = bool(
@@ -1336,12 +1338,17 @@ async def market_report(
             # shared reader switching from 30 days to 7 loses the token and
             # lands on a 404 — and `days` is not part of what the token
             # signs, so changing the window is safe.
+            params = ({"exp": exp, "token": token} if signed
+                      else ({"full": 1} if full_view else {}))
+            if view == "briefing":
+                return build_market_briefing_page(
+                    conn, market, briefing_id=id, days=days,
+                    allowed_brand_ids=allowed, link_params=params)
             builder = (build_market_news_page if view == "news"
                        else build_market_report)
             return builder(
                 conn, market, days=days, allowed_brand_ids=allowed,
-                link_params=({"exp": exp, "token": token} if signed
-                             else ({"full": 1} if full_view else {})))
+                link_params=params)
         finally:
             conn.close()
 
@@ -1727,6 +1734,111 @@ async def market_briefing_status(market_id: int, briefing_id: int,
             feed = mbr.sync_feed_entry(conn, market, briefing_id)
             return {"ok": True, "id": briefing_id, "status": body.status,
                     "feed": feed}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class BriefingEdit(BaseModel):
+    report_content: str = Field(..., min_length=1, max_length=200_000)
+    title: Optional[str] = Field(None, max_length=300)
+
+
+def _session_user(session) -> Optional[str]:
+    """The person's name for an audit column. The session's ``user`` is a
+    dict on this stack, so take its username or email, never its repr."""
+    if not isinstance(session, dict):
+        return None
+    user = session.get("user")
+    if isinstance(user, dict):
+        for key in ("username", "email", "name"):
+            if user.get(key):
+                return str(user[key])[:120]
+    for key in ("username", "email"):
+        if session.get(key):
+            return str(session[key])[:120]
+    return str(user)[:120] if isinstance(user, str) and user else None
+
+
+@router.put("/markets/{market_id}/briefings/{briefing_id}")
+async def market_briefing_edit(market_id: int, briefing_id: int, body: BriefingEdit,
+                               session=Depends(verify_session_api)):
+    """Replace the briefing's text with a person's. The previous text is
+    kept as a revision; an approved briefing's feed item follows the edit."""
+    from app.services import market_briefing as mbr
+    by = _session_user(session)
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                row = mbr.save_edit(conn, market, briefing_id,
+                                    content=body.report_content, title=body.title,
+                                    saved_by=by)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            if not row:
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return row
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}/revisions")
+async def market_briefing_revisions(market_id: int, briefing_id: int,
+                                    session=Depends(verify_session_api)):
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            if not mbr.get(conn, market_id, briefing_id):
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return {"revisions": mbr.revisions(conn, market_id, briefing_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}/revisions/{revision_id}")
+async def market_briefing_revision(market_id: int, briefing_id: int, revision_id: int,
+                                   session=Depends(verify_session_api)):
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            row = mbr.revision(conn, market_id, briefing_id, revision_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="Revision not found")
+            return row
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/briefings/{briefing_id}/revisions/{revision_id}/restore")
+async def market_briefing_restore(market_id: int, briefing_id: int, revision_id: int,
+                                  session=Depends(verify_session_api)):
+    from app.services import market_briefing as mbr
+    by = _session_user(session)
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            row = mbr.restore(conn, market, briefing_id, revision_id, saved_by=by)
+            if not row:
+                raise HTTPException(status_code=404, detail="Revision not found")
+            return row
         finally:
             conn.close()
 

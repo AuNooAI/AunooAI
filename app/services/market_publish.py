@@ -327,6 +327,30 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                 "categories": ["event", e["event_type"], e["significance"]],
             })
 
+    if kind in ("all", "articles", "briefings"):
+        # An approved briefing is an item too. It links to its own page on
+        # the report, and its description is the briefing's opening
+        # paragraph; the withheld-vendor drop below applies to it like any
+        # other item, so a shared subscriber sees it only if that paragraph
+        # names nobody it may not see.
+        from app.services import market_briefing as mbr
+        for b in mbr.approved_listing(conn, market_id, limit=limit):
+            stamp = _parse_stamp(b.get("updated_at"))
+            full = mbr.get(conn, market_id, int(b["id"])) or {}
+            items.append({
+                "stamp": stamp or datetime.now(timezone.utc),
+                "dated": stamp is not None,
+                "title": b.get("title") or f"{market['name']} — {b.get('period_label', '')}",
+                "link": (f"{site}/api/market-monitor/markets/{market_id}"
+                         f"/report.html?view=briefing&id={b['id']}"),
+                "guid": f"market-briefing-{b['id']}",
+                "permalink": False,
+                "description": mbr.feed_summary(full.get("report_content") or "")
+                               or b.get("title") or "",
+                "source": "Aunoo Market Monitor",
+                "categories": ["briefing", str(b.get("period_label") or "")],
+            })
+
     items.sort(key=lambda i: i["stamp"], reverse=True)
     items = items[:limit]
 
@@ -355,6 +379,15 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                 blob = " ".join(str(v) for v in item.values() if v is not None)
                 return bool(pattern.search(blob))
 
+            # A briefing item is ours, not an article about one vendor: its
+            # description is cut to the sentences naming nobody withheld, the
+            # same card a shared reader gets on the report, and then it is
+            # judged like every other item.
+            from app.services import market_briefing as mbr
+            for it in items:
+                if str(it.get("guid", "")).startswith("market-briefing-"):
+                    it["description"] = (mbr.safe_sentences(it["description"], withheld)
+                                         or it["title"])
             items = [it for it in items if not _mentions(it)]
 
     parts = [

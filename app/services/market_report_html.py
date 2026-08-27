@@ -1827,6 +1827,98 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     return rendered.encode("utf-8")
 
 
+def _render_briefing_card(conn, market: Dict[str, Any], *, withheld: List[str],
+                          restricted: bool, link_params: Dict[str, Any],
+                          briefing: Optional[Dict[str, Any]] = None) -> str:
+    """The latest approved briefing as one block, or nothing when there is
+    none. Never the text: the shared view may not name most vendors, and the
+    page-level check would refuse the page."""
+    from app.services import market_briefing as mbr
+
+    briefing = briefing or mbr.latest_approved(conn, market["id"])
+    if not briefing:
+        return ""
+    summary = mbr.safe_sentences(
+        mbr.feed_summary(briefing.get("report_content") or ""), withheld)
+    approved = briefing.get("updated_at")
+    when = (approved.strftime("%d %B %Y") if hasattr(approved, "strftime")
+            else str(approved or "")[:10])
+    if restricted:
+        cta = ('<p class="n-distil">The briefing itself is part of the trial. '
+               '<a class="mm-btn" href="#mm-trial">Request a trial</a></p>')
+    else:
+        cta = (f'<p><a class="mm-btn" href="?{_relink(link_params, view="briefing", id=briefing["id"])}">'
+               'Read the briefing</a></p>')
+    return ('<section class="n-block" id="mm-briefing">'
+            '<div class="n-sec-head"><h2>Weekly briefing</h2>'
+            f'<span class="n-updated">{esc(briefing.get("period_label", ""))}'
+            f' · approved {esc(when)}</span></div>'
+            f'<h3>{esc(briefing.get("title", ""))}</h3>'
+            + (f'<p>{esc(summary)}</p>' if summary else "")
+            + cta + "</section>")
+
+
+def build_market_briefing_page(conn, market: Dict[str, Any], *,
+                               briefing_id: Optional[int] = None,
+                               days: int = 30,
+                               allowed_brand_ids: Optional[List[int]] = None,
+                               link_params: Optional[Dict[str, Any]] = None
+                               ) -> bytes:
+    """``?view=briefing``: one approved briefing in full for a reader with a
+    session; for a shared reader, the card only. A draft is never served here,
+    whoever asks — approval is what makes a briefing part of the report."""
+    from app.services import market_briefing as mbr
+    from app.services import market_entitlements as ent
+
+    link_params = dict(link_params or {})
+    withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
+    restricted = allowed_brand_ids is not None
+    briefing = (mbr.get(conn, market["id"], briefing_id) if briefing_id
+                else mbr.latest_approved(conn, market["id"]))
+    if not briefing or briefing.get("status") != "approved":
+        briefing = None
+
+    nav = ('<div class="n-top">' + _brand_line()
+           + '<nav class="n-pages" aria-label="Pages">'
+           f'<a href="?{_relink(link_params, days=days)}">Assessment</a>'
+           f'<a href="?{_relink(link_params, days=days, view="news")}">News</a>'
+           '</nav>'
+           f'<span class="n-market">{esc(market["name"])}</span></div>')
+    if not briefing:
+        main = ('<main class="n-river"><div class="n-head"><div>'
+                f'<h1>{esc(market["name"])}: briefing</h1>'
+                '<p class="n-sub">No approved briefing yet.</p></div></div></main>')
+    elif restricted:
+        main = ('<main class="n-river">'
+                + _render_briefing_card(conn, market, withheld=withheld,
+                                        restricted=True, link_params=link_params,
+                                        briefing=briefing)
+                + '<p class="n-distil"><a href="?' + _relink(link_params, days=days)
+                + '#mm-trial">Request a trial on the assessment page</a></p></main>')
+    else:
+        others = [b for b in mbr.approved_listing(conn, market["id"])
+                  if b["id"] != briefing["id"]]
+        more = ""
+        if others:
+            more = ('<h2>Earlier briefings</h2><ul>' + "".join(
+                f'<li><a href="?{_relink(link_params, view="briefing", id=b["id"])}">'
+                f'{esc(b.get("title") or b.get("period_label", ""))}</a></li>'
+                for b in others) + "</ul>")
+        main = ('<main class="n-river"><div class="n-head"><div>'
+                f'<div class="n-kicker">Market monitor · '
+                f'{esc(briefing.get("period_label", ""))}</div>'
+                f'<h1>{esc(briefing.get("title", ""))}</h1></div></div>'
+                + mbr.render_body(briefing) + more + "</main>")
+    body = (f"<style>{EXTRA_CSS}{NEWS_CSS}</style>" '<div class="mm-news">'
+            + nav + main
+            + '<div class="n-foot">' + _brand_line()
+            + f'<span>{esc(market["name"])}</span></div></div>')
+    rendered = html_document(f'{market["name"]} — briefing', body)
+    ent.assert_no_withheld(rendered, withheld,
+                           context=f'market {market["id"]} briefing page')
+    return rendered.encode("utf-8")
+
+
 def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                         allowed_brand_ids: Optional[List[int]] = None,
                         link_params: Optional[Dict[str, Any]] = None
@@ -2075,6 +2167,13 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 'findings</span></div>')
     body.append(_render_findings(assessment["findings"], devs_by_id))
     body.append("</section>")
+
+    # 1b. The latest approved briefing. The card names the period and gives
+    # the summary sentences this reader may see; the text is behind the link
+    # for a reader with a session, and behind the trial for anyone else.
+    body.append(_render_briefing_card(conn, market, withheld=withheld,
+                                      restricted=teaser,
+                                      link_params=link_params))
 
     # 2. Vendors showing material change
     main_devs = assessment["main_developments"]

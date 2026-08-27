@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi, puts its citations after the sentence, and joins the shared news feed when approved; ATS job postings classify by department
+## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi, puts its citations after the sentence, and joins the shared news feed and the shared market report when approved; ATS job postings classify by department
 
 ### Goal
 On wileytest, sharing an incident by email returned "Input should be a valid string; Input
@@ -123,6 +123,38 @@ links each cited ID and lists only the ones with a source, an approve→approve�
 against the real database inside a rolled-back transaction (row appears once, updates in place,
 disappears), and a missing briefing returns None.
 
+### Feature — the approved briefing on the shared market report (aisoc.aunoo.ai)
+`https://aisoc.aunoo.ai/` is nginx in front of `GET /api/market-monitor/markets/2/report.html`
+(`/etc/nginx/sites-available/aisoc.aunoo.ai`), the public view of market 2, and nothing on
+that page, its news view or `feed.xml` mentioned briefings. Putting the briefing there runs into
+the page's own rule: a public or signed-link reader may see only the top 10 vendors
+(`MARKET_PUBLIC_VENDOR_LIMIT`), and `market_entitlements.assert_no_withheld` refuses to serve a
+page naming any other — "raises rather than redacting". A briefing names every vendor, so the
+public view cannot carry the text, blurred or not.
+
+**`app/services/market_briefing.py`** (uncommitted). `approved_listing`, `latest_approved`,
+`safe_sentences(summary, withheld)` — the summary's sentences that name no withheld vendor,
+dropped whole the way the news river drops a headline, matched on the same word boundary the
+page check uses. `render_body` is the briefing text as HTML with linked citations and the
+References list, split out of `render_page` so the report can embed it. `feed_summary` now
+skips a plain-text subtitle line ("Week of 17–23 August 2026: AI-SOC Market Briefing"), which
+the regenerated briefing 7 has and which was becoming the summary.
+
+**`app/services/market_report_html.py`** (uncommitted). `_render_briefing_card` after the
+Executive assessment: title, period, approval date, the safe sentences, and either "Read the
+briefing" (session) or "The briefing itself is part of the trial" with the trial button
+(shared). Omitted when no briefing is approved. `build_market_briefing_page` serves
+`?view=briefing[&id=N]` under the report's access rules: the full text with an "Earlier
+briefings" list for a session, the card only for a shared reader, "No approved briefing yet"
+for a draft whoever asks. Both pass through `assert_no_withheld`.
+
+**`app/routes/market_monitor_routes.py`** (uncommitted). `report.html` takes `view=briefing`
+and `id`. **`app/services/market_publish.py`** (uncommitted). `feed.xml` carries each approved
+briefing as an item (`guid market-briefing-N`, category `briefing`) linking to
+`report.html?view=briefing&id=N`. Before the withheld-vendor drop judges it, its description is
+cut to `safe_sentences` like the card — with the full first paragraph the drop removed the item
+itself, which is why the first live check of `feed.xml` showed 0 briefing items.
+
 ### Fix — approving a briefing refreshes the feed
 The News Feed page fetches its article list on load, on a filter change, and on the Refresh
 button (`ui/src/hooks/useNewsFeed.ts:291-298`, `NewsFeedPage.tsx:692`); nothing else. The
@@ -190,10 +222,20 @@ Armor Detect…". After restart: the page answers 307 → `/login` with no sessi
 status routes still 401. No briefing is approved yet, so the feed has no row; approving briefing
 7 in the Reports tab is what puts the first one in.
 
+Shared report, in-process with the public entitlement (limit 10, 10 allowed): the card renders
+"Eight vendors announced new or expanded capabilities." and the trial button; the full view
+renders "Read the briefing". `?view=briefing` shared: card only, 0 References; session: 39
+References, 118 citation links. `feed.xml` shared and full: 1 briefing item. `tests/
+test_market_briefing_feed.py` → 11 passed (five new: the shared feed keeps the item with no withheld name, subtitle skipped, safe-sentence drop with
+the word-boundary case, shared reader gets card never text, a draft is never served by id);
+`test_market_report_copy.py` still passes against the card. Live after restart:
+`https://aisoc.aunoo.ai/?days=30` carries the card, `?view=briefing` answers 200 with no
+References, `feed.xml` has the item.
+
 ### Propagation
 Share fix: bugfixing, wiley, wileytest (whole file); wbm, abm (patched, running); ibaset, pbm,
 bwtemplate (patched, stopped). Briefing changes: bugfixing only — `market_briefing.py` and
-`market_themes.py` exist on no other tenant. bugfixing restarted four times for them; no job was
+`market_themes.py` exist on no other tenant. bugfixing restarted six times for them; no job was
 running any time (the `running` rows in `bw_tracker_runs` and `bw_collection_runs` all predate
 the previous boot). The feed item and page are bugfixing only for the same reason: wiley and
 wileytest have neither file.
@@ -575,6 +617,33 @@ in this view". Verified in-process with the backstop on, then on `https://aisoc.
 blurred in the teaser). Lesson: any new list of vendor names on the report needs the mask, and
 the backstop is doing its job — it turned a leak into an outage, which is the right way round.
 
+### Feature — market briefings can be edited by hand, with every earlier text kept
+**`market_briefing.py` (`save_edit`, `revisions`, `revision`, `restore`), `market_monitor_routes.py`,
+`alembic/versions/mm_017_briefing_revisions.py`, `mm_018_briefing_generation_edited.py`,
+`MarketBriefingsView.tsx`, `marketMonitorApi.ts`.**
+
+The Reports tab could generate, approve and reject a briefing but not change a word of it.
+Now:
+
+- **Edit** on an open briefing turns the report area into a markdown editor: title, a
+  monospace textarea, and a live preview beside it rendered by the same `renderMarkdown` the
+  reader sees, so citations like `[A3]` stay linked to the evidence. Save or Cancel.
+- **Every previous text is kept.** `bw_market_briefing_revisions` (mm_017) gets a row with
+  the text that was there before each save — the model's original first — with who saved it,
+  when, and why (`before edit`, `before restore`). **History** lists them, newest first, with
+  view and restore; restoring keeps the current text as a revision too. Restoring the
+  model's own text makes the briefing `generated` again.
+- An edited briefing is `generation = 'edited'` and the header says "edited by hand", so a
+  reader can tell a person's sentence from the model's. mm_018 widens the check constraint
+  from mm_004, which allowed only `generated` and `fallback` — the first save failed on it.
+- Saving reruns `lint_outbound` on the new text (advisory) and, if the briefing is approved,
+  `sync_feed_entry`, so the feed item's summary follows the edit. Saving the same text is a
+  no-op: no revision, no change. Empty text is refused (422).
+- Routes: `PUT /markets/{id}/briefings/{bid}` (`report_content`, optional `title`),
+  `GET …/revisions`, `GET …/revisions/{rid}`, `POST …/revisions/{rid}/restore`; all need a
+  session. `_session_user` takes the username out of the session's user dict — the first
+  save stored the dict's repr in `saved_by`.
+
 ### Feature — Market Horizon: every rated vendor on a map of scale against momentum
 **`market_horizon.py` (new), `alembic/versions/mm_015_market_horizon.py`, `market_monitor_routes.py`,
 `market_report_html.py` (`_horizon_section`, `_horizon_svg`), `MarketHorizonView.tsx` (new),
@@ -782,6 +851,16 @@ figure does not appear in the shared page. With a session: 0 teaser blocks, no f
 …/trial-request`: 201 `{"ok": true, "id": 1}` and a row with the forwarded IP (test row deleted
 afterwards); bad email → 422; market 999 → 404; journal logs "MARKET_TRIAL_NOTIFY_EMAIL is unset,
 so no mail was sent". Playwright screenshots of the three surfaces checked by eye.
+
+Briefing editor, on draft briefing 4 (Week of 2026-08-10) through the API: `PUT` with an
+appended line and "(edited)" in the title → 200, `generation: edited`, 15,068 chars; history
+shows revision 3 "before edit, admin, generated, 15,032"; `POST …/revisions/3/restore` → 200,
+`generated`, original title, 15,031 chars (a trailing newline stripped); history then holds
+"before restore" and "before edit"; saving the same text again → 200 with no new revision;
+empty text → 422; unknown briefing → 404; no session → 401. The first `PUT` was a 500 on the
+generation check constraint (fixed by mm_018), and the first `saved_by` was the user dict's
+repr (fixed; the two test rows corrected by UPDATE). Playwright screenshots of the editor
+and the history panel checked by eye. Briefing 4 ends the test as it began.
 
 Controls and marker: `alembic upgrade head` applied mm_016. `PUT
 /markets/2/vendors/91/horizon-controls` (Radiant Security: acquired, Cribl, 2026-08-19, note)

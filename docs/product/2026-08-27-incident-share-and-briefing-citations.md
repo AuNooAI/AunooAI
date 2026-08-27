@@ -10,6 +10,9 @@ _2026-08-27 · Incident sharing (Explore), Market Monitor briefings, News Feed_
   sees a briefing in the same format.
 - An approved market briefing appears in the shared news feed as an item of its own, and opens
   as a page with every citation linked to its source. The feed refreshes as soon as you approve.
+- The shared market report (aisoc.aunoo.ai) shows the latest approved briefing: a card with its
+  opening line for public readers, the whole text and earlier briefings for a logged-in reader.
+  The RSS feed carries it too.
 - Vendors whose jobs come from their own careers page (Greenhouse, Lever) now show which
   teams they are hiring for. Before, every one of those roles was "not stated".
 
@@ -38,6 +41,13 @@ briefing's opening paragraph as its summary. Clicking it opens the briefing as a
 the briefing, or regenerating it, takes it out of the feed again, so only text somebody has read
 and approved is ever in there. Felt by everyone who reads the feed rather than the Reports tab.
 
+**Briefing on the shared report.** The public report is a trial teaser: it names ten vendors
+and deliberately keeps the rest back. A briefing names them all, so the public page shows a
+card — the week, the approval date, and the summary sentences that name nobody held back —
+with the trial button under it. A logged-in reader opens the full briefing from the same card.
+Felt by prospects reading aisoc.aunoo.ai and by the analyst who no longer has to send the
+briefing separately.
+
 **Hiring charts.** Dropzone AI showed 11 open roles, all "not stated". Its postings come from
 its Greenhouse careers page, which names the department differently from LinkedIn, and the
 hiring analysis only read the LinkedIn field. Now both are read, so Dropzone shows 6
@@ -52,6 +62,8 @@ reading the hiring section of a market report or a vendor page.
 - Improved: market briefing citations follow the sentence they support.
 - New: an approved market briefing appears in the news feed and opens as a page with linked
   sources. Rejecting or regenerating it removes it from the feed. The feed refreshes on approval.
+- New: the shared market report and its RSS feed carry the latest approved briefing; public
+  readers see a card, logged-in readers the whole text.
 - Fixed: job postings collected from a vendor's own careers page showed as "not stated" on the
   hiring charts instead of their department.
 
@@ -75,6 +87,9 @@ quietly stopped being true.
   line-start cases are corrected automatically; the rest rely on the prompt.
 - The 2026-08-17 weekly was regenerated three times today and is in draft. It still needs an
   approve or reject, and approving it is what puts the first briefing into the feed.
+- On the public report the briefing is a card, not the text. That is the report's own rule
+  (ten vendors in public, the rest in the trial), not a gap; a briefing sentence that names a
+  held-back vendor is dropped from the card whole.
 - The briefing page needs a login. A feed shared by link to someone outside the site will show
   the briefing item, but the link behind it lands on the login page.
 - The feed item is stored like an article, so the AI agents that watch a topic can see it. One

@@ -11,8 +11,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, Play } from 'lucide-react';
-import {
+import { AlertTriangle, CheckCircle2, Download, FileText, History, Loader2, Pencil, Play, Save, X } from 'lucide-react';
+import { getBriefingRevision, type BriefingRevision, restoreBriefingRevision, getBriefingRevisions, editBriefing,
   generateBriefing, getBriefing, getBriefings, setBriefingStatus,
   type BriefingDetail, type BriefingSummary,
 } from '../../services/marketMonitorApi';
@@ -176,6 +176,14 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Editing by hand: the draft text and title, the history drawer, and the
+  // revision being previewed. The previous text is always kept server-side.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [draftTitle, setDraftTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState<BriefingRevision[] | null>(null);
+  const [preview, setPreview] = useState<{ id: number; content: string } | null>(null);
   const [periodKind, setPeriodKind] = useState<PeriodKind>('month');
   const options = periodOptions(periodKind);
   // The most recent complete period of the chosen kind, matching what
@@ -196,6 +204,7 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
            [periodKind]);
 
   async function openBriefing(id: number) {
+    setEditing(false); setHistory(null); setPreview(null);
     setShowFacts(false);
     try {
       setOpen(await getBriefing(marketId, id));
@@ -217,6 +226,74 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
       if (r.id) openBriefing(r.id);
     } catch (e: any) {
       setNote(`Could not write it: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEdit() {
+    if (!open) return;
+    setDraft(open.report_content || '');
+    setDraftTitle(open.title || '');
+    setEditing(true); setShowFacts(false); setNote(null); setError(null);
+  }
+
+  async function saveEdit() {
+    if (!open) return;
+    setSaving(true); setError(null);
+    try {
+      const updated = await editBriefing(marketId, open.id, {
+        report_content: draft, title: draftTitle.trim() || null,
+      });
+      setOpen(updated);
+      setEditing(false);
+      setHistory(null);
+      setNote(updated.status === 'approved'
+        ? 'Saved. The feed item follows the new text.'
+        : 'Saved. The previous text is kept in the history.');
+      setList(prev => prev?.map(b => b.id === updated.id
+        ? { ...b, title: updated.title, generation: updated.generation, updated_at: updated.updated_at }
+        : b) ?? prev);
+      onFeedChanged?.();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadHistory() {
+    if (!open) return;
+    if (history) { setHistory(null); setPreview(null); return; }
+    try {
+      setHistory((await getBriefingRevisions(marketId, open.id)).revisions);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+
+  async function previewRevision(id: number) {
+    if (!open) return;
+    if (preview?.id === id) { setPreview(null); return; }
+    try {
+      const r = await getBriefingRevision(marketId, open.id, id);
+      setPreview({ id, content: r.report_content });
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+
+  async function restoreRevision(id: number) {
+    if (!open) return;
+    if (!window.confirm('Put this earlier text back? The current text is kept in the history.')) return;
+    setBusy(true); setError(null);
+    try {
+      const updated = await restoreBriefingRevision(marketId, open.id, id);
+      setOpen(updated); setHistory(null); setPreview(null);
+      setNote('Restored. The text that was there is kept in the history.');
+      onFeedChanged?.();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
     } finally {
       setBusy(false);
     }
@@ -344,8 +421,23 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                   STATUS_TONE[open.status]}`}>{open.status}</span>
                 <span className="text-xs text-slate-500 dark:text-gray-400">
                   {open.model_used} · {open.article_uris.length} sources
+                  {open.generation === 'edited' && ' · edited by hand'}
                 </span>
                 <div className="flex-1" />
+                {!editing && (
+                  <button onClick={startEdit}
+                          className="text-xs px-2 py-1 border rounded hover:bg-slate-50
+                                     inline-flex items-center gap-1 dark:hover:bg-gray-700">
+                    <Pencil className="w-3 h-3" /> Edit
+                  </button>
+                )}
+                {!editing && (
+                  <button onClick={loadHistory}
+                          className="text-xs px-2 py-1 border rounded hover:bg-slate-50
+                                     inline-flex items-center gap-1 dark:hover:bg-gray-700">
+                    <History className="w-3 h-3" /> History
+                  </button>
+                )}
                 <button onClick={downloadReport}
                         className="text-xs px-2 py-1 border rounded hover:bg-slate-50
                                    inline-flex items-center gap-1 dark:hover:bg-gray-700">
@@ -394,7 +486,89 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                 </div>
               )}
 
-              {showFacts ? (
+              {editing && (
+                <div className="mb-3">
+                  <input value={draftTitle} onChange={e => setDraftTitle(e.target.value)}
+                         placeholder="Title" maxLength={300}
+                         className="w-full text-sm font-medium px-2 py-1 mb-2 rounded border
+                                    bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-slate-500 mb-1 dark:text-gray-400">
+                        Markdown. Citations like [A3] stay linked to the evidence.
+                      </div>
+                      <textarea value={draft} onChange={e => setDraft(e.target.value)}
+                                spellCheck rows={28}
+                                className="w-full font-mono text-xs leading-5 px-2 py-2 rounded border
+                                           bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-1 dark:text-gray-400">Preview</div>
+                      <div className="mm-prose text-sm text-slate-700 dark:text-gray-300 border rounded p-3
+                                      max-h-[38rem] overflow-y-auto dark:border-gray-700"
+                           dangerouslySetInnerHTML={{
+                             __html: renderMarkdown(draft, open.facts?.citation_index),
+                           }} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button onClick={saveEdit} disabled={saving || !draft.trim()}
+                            className="text-xs px-2.5 py-1.5 border rounded bg-white hover:bg-emerald-50
+                                       text-emerald-700 border-emerald-200 disabled:opacity-50
+                                       inline-flex items-center gap-1 dark:bg-gray-800 dark:text-emerald-400 dark:border-emerald-800">
+                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
+                    </button>
+                    <button onClick={() => setEditing(false)} disabled={saving}
+                            className="text-xs px-2.5 py-1.5 border rounded hover:bg-slate-50
+                                       inline-flex items-center gap-1 dark:hover:bg-gray-700">
+                      <X className="w-3 h-3" /> Cancel
+                    </button>
+                    <span className="text-xs text-slate-500 dark:text-gray-400">
+                      The previous text is kept and can be restored from History.
+                      {open.status === 'approved' && ' This briefing is approved: saving updates its feed item.'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {history && !editing && (
+                <div className="mb-3 border rounded p-3 dark:border-gray-700">
+                  <div className="text-xs font-medium text-slate-700 mb-1 dark:text-gray-200">
+                    History — every earlier text, newest first
+                  </div>
+                  {history.length === 0 ? (
+                    <div className="text-xs text-slate-500 dark:text-gray-400">No earlier text: this is the model's draft as written.</div>
+                  ) : (
+                    <ul className="text-xs space-y-1">
+                      {history.map(r => (
+                        <li key={r.id} className="flex flex-wrap items-center gap-2">
+                          <span className="text-slate-600 dark:text-gray-300">
+                            {r.saved_at.slice(0, 16).replace('T', ' ')}
+                          </span>
+                          <span className="text-slate-500 dark:text-gray-400">
+                            {r.reason}{r.saved_by ? ` by ${r.saved_by}` : ''} · {r.generation ?? '—'} · {r.length.toLocaleString()} chars
+                          </span>
+                          <button onClick={() => previewRevision(r.id)}
+                                  className="underline text-sky-700 dark:text-sky-400">
+                            {preview?.id === r.id ? 'hide' : 'view'}
+                          </button>
+                          <button onClick={() => restoreRevision(r.id)} disabled={busy}
+                                  className="underline text-amber-700 dark:text-amber-400">restore</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {preview && (
+                    <div className="mm-prose text-sm text-slate-700 dark:text-gray-300 border-t mt-2 pt-2
+                                    max-h-[24rem] overflow-y-auto dark:border-gray-700"
+                         dangerouslySetInnerHTML={{
+                           __html: renderMarkdown(preview.content, open.facts?.citation_index),
+                         }} />
+                  )}
+                </div>
+              )}
+
+              {editing ? null : showFacts ? (
                 <pre className="text-xs bg-slate-50 border rounded p-3
                                 overflow-x-auto whitespace-pre-wrap dark:bg-gray-700">
                   {JSON.stringify(open.facts, null, 1)}
