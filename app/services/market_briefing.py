@@ -401,15 +401,26 @@ def quiet_briefing(facts: Dict[str, Any], period_label: str) -> str:
             "conclusion from, so this briefing records the count and stops.\n")
 
 
-_CITATION_RE = re.compile(r"\[([AC]\d+)\]")
+# One citation ID, used to pull the IDs back out of a bracket that holds
+# several.
+_CITE_ID_RE = re.compile(r"[AC]\d+")
+
+# A citation bracket: one ID, or several separated by commas. The prompt asks
+# for one ID per bracket, but a model that has two facts for a sentence writes
+# "[A5, A11]" anyway, and that used to fall through to _STRAY_BRACKET_RE and
+# take both references down with it (three brackets, eight valid IDs, in the
+# 2026-08-17 SOC automation weekly).
+_CITATION_GROUP = r"[AC]\d+(?:\s*,\s*[AC]\d+)*"
+_CITATION_RE = re.compile(r"\[\s*(" + _CITATION_GROUP + r")\s*\]")
 
 # A bracket the model wrote that is not a real citation ID — e.g.
 # "[headcount data]" instead of an [A3]/[C7] it was told those two sections
 # alone carry. The negative lookahead excludes anything shaped like a real
-# ID so this never touches a valid [A3]; the lookahead on "(" excludes a
-# markdown link, in case one is ever written even though this renderer
-# doesn't support that syntax.
-_STRAY_BRACKET_RE = re.compile(r"\[(?!\s*[AC]\d+\s*\])[^\[\]\n]{1,40}\](?!\()")
+# ID so this never touches a valid [A3] or [A5, A11]; the lookahead on "("
+# excludes a markdown link, in case one is ever written even though this
+# renderer doesn't support that syntax.
+_STRAY_BRACKET_RE = re.compile(
+    r"\[(?!\s*" + _CITATION_GROUP + r"\s*\])[^\[\]\n]{1,40}\](?!\()")
 
 
 def _citation_garbage(content: str, facts: Dict[str, Any]) -> bool:
@@ -423,7 +434,8 @@ def _citation_garbage(content: str, facts: Dict[str, Any]) -> bool:
     reader cannot make sense of.
     """
     index = facts.get("citation_index") or {}
-    tokens = _CITATION_RE.findall(content)
+    tokens = [cid for group in _CITATION_RE.findall(content)
+              for cid in _CITE_ID_RE.findall(group)]
     strays = _STRAY_BRACKET_RE.findall(content)
     if len(strays) >= 3 and len(strays) > len(tokens):
         return True
@@ -449,23 +461,29 @@ def resolve_citations(content: str, facts: Dict[str, Any]
     dropped: List[Dict[str, Any]] = []
 
     def _replace(match: "re.Match") -> str:
-        cite_id = match.group(1)
-        if cite_id not in index:
-            logger.warning("dropped hallucinated citation %s", cite_id)
-            dropped.append({"kind": "citation",
-                            "detail": f"dropped hallucinated citation [{cite_id}]"})
+        cite_ids = _CITE_ID_RE.findall(match.group(1))
+        kept: List[str] = []
+        for cite_id in cite_ids:
+            if cite_id not in index:
+                logger.warning("dropped hallucinated citation %s", cite_id)
+                dropped.append({"check": "citation",
+                                "detail": f"dropped hallucinated citation [{cite_id}]"})
+                continue
+            kept.append(cite_id)
+            if cite_id not in seen:
+                seen.append(cite_id)
+                references.append({"cite_id": cite_id, **index[cite_id]})
+        # Every ID in the bracket was invented — drop the bracket with them.
+        if not kept:
             return ""
-        if cite_id not in seen:
-            seen.append(cite_id)
-            references.append({"cite_id": cite_id, **index[cite_id]})
-        return match.group(0)
+        return "[" + ", ".join(kept) + "]"
 
     resolved = _CITATION_RE.sub(_replace, content)
 
     def _strip_stray(match: "re.Match") -> str:
         token = match.group(0)
         logger.warning("dropped non-citation bracket %s", token)
-        dropped.append({"kind": "citation",
+        dropped.append({"check": "citation",
                         "detail": f"dropped non-citation bracket {token}"})
         return ""
 
