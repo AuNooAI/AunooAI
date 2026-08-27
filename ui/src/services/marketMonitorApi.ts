@@ -1876,6 +1876,53 @@ export async function getTopVoices(
     { credentials: 'include' }), 'Failed to load voices');
 }
 
+// Market Horizon: scale against momentum, one dot per rated vendor.
+export interface HorizonInput {
+  value: number; percentile: number; weight: number; axis: 'scale' | 'momentum';
+}
+export interface HorizonVendor {
+  brand_id: number; vendor: string; scale: number; momentum: number;
+  tier: 'executors' | 'innovators' | 'established' | 'emerging';
+  inputs: Record<string, HorizonInput>;
+  previous: { tier: string; scale: number; momentum: number } | null;
+  moved: boolean;
+}
+export interface HorizonNotRated {
+  brand_id: number; vendor: string;
+  missing: { key: string; label: string; reason: string }[];
+}
+export interface MarketHorizon {
+  id?: number;
+  market_id: number;
+  market: string | null;
+  computed_at: string;
+  previous_at: string | null;
+  days: number;
+  config: {
+    days: number; customer_days: number;
+    inputs: Record<string, { axis: 'scale' | 'momentum'; weight: number; label: string;
+                             note?: string; optional?: boolean }>;
+    tiers: { scale_cut: number; momentum_cut: number };
+  };
+  tiers: Record<string, { label: string; means: string; count: number }>;
+  rated: HorizonVendor[];
+  not_rated: HorizonNotRated[];
+  counts: { eligible: number; rated: number; not_rated: number };
+  what_it_is_not: string;
+}
+
+export async function getMarketHorizon(marketId: number): Promise<MarketHorizon | null> {
+  const res = await fetch(`${BASE}/markets/${marketId}/horizon`, { credentials: 'include' });
+  if (res.status === 404) return null;
+  return jsonOrThrow(res, 'Failed to load Market Horizon');
+}
+
+export async function computeMarketHorizon(marketId: number): Promise<MarketHorizon> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/horizon/compute`, {
+    method: 'POST', credentials: 'include',
+  }), 'Failed to compute Market Horizon');
+}
+
 export async function profileVoice(
   marketId: number, platform: string, author: string,
 ): Promise<Record<string, unknown>> {

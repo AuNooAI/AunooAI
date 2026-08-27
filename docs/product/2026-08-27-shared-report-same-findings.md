@@ -19,6 +19,11 @@ _27 August 2026 · Market Monitor — the shared report link and aisoc.aunoo.ai_
   and one button profiles the whole list.
 - The report's list of accounts that keep posting about the market no longer misses the ones
   with few reactions.
+- Market Horizon: a map of every rated vendor by scale (headcount, funding, followers,
+  customer evidence) against momentum (headcount change, hiring, launches, coverage), in four
+  tiers — Executors, Innovators, Established, Emerging. A vendor is on the map only when every
+  reading behind it was collected; the rest are listed with what is missing. The weights are
+  printed under the chart. It is in Market Monitor and in the report.
 - A vendor seen posting about the market that we do not yet track is filed automatically in
   the "Is your company missing?" queue, with its account and what it posts about, for the
   same review a reader's request gets.
@@ -56,6 +61,14 @@ latest post, and the tab tells the reader that 122 accounts posted in the month 
 posted more than once, so a table of single posts reads as what the market is, not as a
 broken table.
 
+**Market Horizon.** Buyers ask for "the quadrant". What we can build from collected data is
+a map of size against movement, and that is what this is, said plainly on the page: it does
+not rate product quality or strategy. The honesty is in the gate — a vendor without a
+disclosed funding total or a second headcount reading is not plotted at zero, it is listed as
+not yet rated with the reason — and in the weights being visible. On AI in the SOC today that
+gate passes one vendor; the second weekly headcount reading, due within a week, will pass most
+of the rest that have disclosed funding.
+
 ## Release notes (copy-ready)
 
 - Shared market reports state the same findings as the full report. Vendors not included in
@@ -72,6 +85,9 @@ broken table.
 - The report's "Accounts posting repeatedly" table now includes accounts with few reactions,
   and links each one.
 
+- Market Horizon: a scale-against-momentum map of rated vendors in four tiers, with the
+  weights shown and the unrated vendors listed with the reading each one lacks.
+
 ## Demo / walkthrough
 
 Open `https://aisoc.aunoo.ai/` (the shared view) and the same market signed in with `?full=1`.
@@ -81,6 +97,10 @@ numbers come from", the legend lists X, Reddit, TikTok, Instagram, Bluesky and G
 Top voices: Explore → Market Monitor → Top voices. Click "Profile the N unprofiled" and
 watch the progress line; click a row's "Who they are" text for the full profile; the @handle
 and the latest-post date open the platform in a new tab.
+
+Market Horizon: Explore → Market Monitor → Market Horizon → "Recompute from today's
+readings". Hover a dot for every input behind it; click a name for the vendor page. In the
+report it is the "Market Horizon" drawer above the vendor registry.
 
 ## Positioning notes
 
@@ -114,3 +134,6 @@ number.
   deciding.
 - Most accounts have a single post because the social pull is capped per platform per run
   (`XPOZ_MAX_RESULTS`, default 25). Raising it costs money; not changed.
+- Market Horizon rates only vendors with every input measured. On a market three weeks into
+  collection that is one vendor; the map fills as readings accumulate. Names are ours, not
+  Gartner's or Forrester's, and the page never calls itself a quadrant or a wave.

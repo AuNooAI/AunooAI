@@ -2169,6 +2169,58 @@ async def market_voice_profile_all(market_id: int, body: VoiceProfileAllRequest,
         raise HTTPException(status_code=409, detail=str(exc))
 
 
+@router.get("/markets/{market_id}/horizon")
+async def market_horizon(market_id: int, session=Depends(verify_session_api)):
+    """The latest stored Market Horizon, with movement against the one before.
+
+    404 until a map has been computed; the page offers the compute button.
+    """
+    from app.services import market_horizon as mh
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            stored = mh.latest(conn, market_id, n=2)
+            if not stored:
+                raise HTTPException(status_code=404,
+                                    detail="No Market Horizon computed yet")
+            return mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/horizon/compute", status_code=201)
+async def market_horizon_compute(market_id: int,
+                                 session=Depends(verify_session_api)):
+    """Compute the map from today's readings, store it, and return it."""
+    from app.services import market_horizon as mh
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            previous = mh.latest(conn, market_id, n=1)
+            result = mh.compute(conn, market)
+            result["id"] = mh.store(conn, result)
+            return mh.with_movement(result, previous[0] if previous else None)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/horizon/config")
+async def market_horizon_config(market_id: int,
+                                session=Depends(verify_session_api)):
+    """The weights, window and cut-offs in force, and where to change them."""
+    from app.services import market_horizon as mh
+    return {"config": mh.load_config(), "path": mh.config_path(),
+            "tiers": mh.TIERS, "what_it_is_not": mh.WHAT_IT_IS_NOT}
+
+
 @router.get("/markets/{market_id}/voices/profile-all")
 async def market_voice_profile_status(market_id: int,
                                       session=Depends(verify_session_api)):

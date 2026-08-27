@@ -490,6 +490,76 @@ in this view". Verified in-process with the backstop on, then on `https://aisoc.
 blurred in the teaser). Lesson: any new list of vendor names on the report needs the mask, and
 the backstop is doing its job — it turned a leak into an outage, which is the right way round.
 
+### Feature — Market Horizon: every rated vendor on a map of scale against momentum
+**`market_horizon.py` (new), `alembic/versions/mm_015_market_horizon.py`, `market_monitor_routes.py`,
+`market_report_html.py` (`_horizon_section`, `_horizon_svg`), `MarketHorizonView.tsx` (new),
+`MarketMonitorTab.tsx`, `marketMonitorApi.ts`.**
+
+A rating built only from readings we collect, and honest about what that can carry. Not a
+Magic Quadrant or a Wave: those have an analyst's judgement axis (vision, strategy) that no
+collected number stands in for. What the readings do carry is how big a vendor is and how
+fast it is moving, so those are the axes, and the page says so in one sentence.
+
+- **Inputs.** Scale: LinkedIn headcount (latest fresh reading), disclosed funding total,
+  LinkedIn followers, customer evidence over 12 months weighted 3/2/1 (named customer in
+  their own words / named in the vendor's words / unnamed). Momentum: headcount change in the
+  period, open roles per 100 staff, launches and partnerships in the period, earned mentions,
+  own posts, and Crunchbase's growth score (optional, secondary). Headcount, headcount change,
+  posts, mentions, jobs and funding come from `market_benchmark.metric_values`, so measured
+  and unmeasured are decided the same way the vendor page's benchmark decides them.
+- **The gate.** A vendor is rated only when every required input was measured. A missing
+  funding total is not zero funding; a vendor nobody read is not a vendor that did nothing.
+  The unrated list names the missing reading for each vendor, grouped, which is also the
+  collection to-do.
+- **Ranking.** Each input is a percentile rank among the rated vendors (ties share the
+  middle), never an absolute score, because headcount, funding and attention are skewed. An
+  axis is the weighted mean of its inputs. Tiers by cut-off (default 50 on each axis):
+  Executors (high/high), Innovators (high momentum, lower scale), Established (high scale,
+  low momentum), Emerging (low/low). Weights, window and cut-offs are `DEFAULT_CONFIG`, laid
+  over by `app/config/market_horizon.json` if present (`MARKET_HORIZON_CONFIG` overrides the
+  path); the page prints them.
+- **Storage and movement.** `bw_market_horizon` (mm_015) keeps one row per computation
+  (config and result as JSON). `with_movement` marks each rated vendor's previous tier and
+  axes, so the page shows "moved from emerging" and "new".
+- **Routes.** `GET /markets/{id}/horizon` (latest stored with movement; 404 until one is
+  computed), `POST /markets/{id}/horizon/compute` (compute, store, return; session required),
+  `GET /markets/{id}/horizon/config`.
+- **Tab.** "Market Horizon" in Market Monitor: recharts scatter with the cut lines and tier
+  corners, tooltip with every input and its percentile, click a dot or a name for the vendor
+  page, tier lists with movement, the not-rated list grouped by missing reading, the weights
+  table, and a compute button.
+- **The picture is a horizon, not a quadrant.** A first version drew a 2×2 scatter with cut
+  lines, which read as a Magic Quadrant. Now: vendors sit on a semicircle. Distance from the
+  base is the overall position (the mean of scale and momentum); the angle is the balance —
+  scale-heavy to the left (Established), momentum-heavy to the right (Innovators), balanced up
+  the middle (Executors); Emerging sit near the base. Three concentric dashed arcs are the
+  horizons. Same geometry in the tab (`HorizonArc`, plain SVG, hover shows every input) and
+  the report (`_horizon_svg`); labels are nudged down when they would sit on one already
+  placed. Tier membership is still decided by the axis cut-offs, not by the drawing.
+- **Report.** A "Market Horizon" drawer before the vendor registry, with an SVG horizon,
+  tier lists, the not-rated summary and the weights. In the shared view the dots are drawn
+  but only entitled vendors are labelled; the rest read "N vendors not shown in this view";
+  the per-vendor not-rated list is full-view only. The nav gains "Horizon".
+
+**First map on AI in the SOC, strictly gated: 1 of 85 rated** (Dropzone AI), because 84 lack
+a second headcount reading inside the 90-day window — profile collection on this market began
+on 19 August and polls weekly, so the second reading arrives within a week. 47 also lack a
+disclosed funding total. A provisional computation with headcount change optional (not
+stored) rated 36: 11 Executors (7ai, exaforce, Dropzone AI, Qevlar, Crogl, Radiant Security,
+Legion Security, Twine Security, Andesite, Command Zero, Conifers AI), 5 Innovators, 6
+Established, 14 Emerging. A map of one is not useful, so `app/config/market_horizon.json` (new, committed) marks
+headcount change optional with the reason in the file: it still counts for every vendor that
+has two readings and does not keep the others off the map. Map 2, stored 27 August: 36 of 85
+rated, 11/5/6/14 by tier; 49 not rated, 47 of them for no disclosed funding total.
+
+### Feature — "Beta" label in the app header
+**`SharedNavigation.tsx`, `templates/base_with_shared_nav.html`.** A small pink "Beta" pill
+beside AUNOOAI in the sidebar header, on both the React pages (Explore, Gather, Operations,
+PAM, Submit) and the Jinja pages that use the shared nav (Settings, Analytics, Config, Prompt
+Manager, Create Topic). Hover text: "Beta: features and data are still being tuned".
+`Sidebar.tsx` also carries the logo but nothing imports it, so it was left alone. Verified by
+screenshot on `/explore` and `/analytics` after rebuild and restart.
+
 ### Fix — vendor page profile table: "Founded 2,019" and "series_c"
 **`MarketVendorProvenance.tsx`.** `displayValue` formatted every integer with a thousands
 separator, so the founding year read "2,019" (the header above it already said "founded
@@ -580,6 +650,19 @@ figure does not appear in the shared page. With a session: 0 teaser blocks, no f
 …/trial-request`: 201 `{"ok": true, "id": 1}` and a row with the forwarded IP (test row deleted
 afterwards); bad email → 422; market 999 → 404; journal logs "MARKET_TRIAL_NOTIFY_EMAIL is unset,
 so no mail was sent". Playwright screenshots of the three surfaces checked by eye.
+
+Market Horizon, second incident of the day, same backstop: the first arc drawing put a
+`<title>` with the vendor name on every dot, including the ones the shared view withholds, so
+`aisoc.aunoo.ai` was a 500 for about two minutes (DisclosureError naming 28 vendors) until the
+title was gated on entitlement like the label. Same lesson as the investor rows: any new
+place a vendor name is printed on the report needs the mask.
+
+Market Horizon: `alembic upgrade head` applied mm_015. `compute()` in-process: 85 eligible, 1
+rated, 84 not rated (missing by input: headcount change 84, funding 47, headcount 4,
+followers 3, jobs per head 4). `POST /markets/2/horizon/compute` → 201, stored as row 1;
+`GET …/horizon` → the same map (404 before the first compute; no session → 401). Full report
+has the `mm-horizon` drawer with the SVG and weights; `aisoc.aunoo.ai` → 200 with the section
+present and names withheld outside the entitled ten. Playwright screenshot of the tab.
 
 Top voices: `top_voices(conn, 2, days=30, limit=20)` in-process returns 23 rows (20 by
 engagement plus the three repeat posters polsia 9, arc-codex.com 4, opsmatters.com 3, all

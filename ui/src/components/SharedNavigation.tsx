@@ -64,7 +64,15 @@ export function SharedNavigation({ currentPage, onTopicEditorClick, dedicatedMod
     <div className="w-64 shrink-0 bg-white dark:bg-[#232326] shadow-lg flex flex-col border-r border-gray-200 dark:border-[#35353a] overflow-y-auto">
       {/* Logo/Brand */}
       <div className="p-6 border-b border-gray-200 dark:border-[#35353a]">
-        <h2 className="text-lg font-semibold text-pink-500 tracking-wide">AUNOOAI</h2>
+        <h2 className="text-lg font-semibold text-pink-500 tracking-wide flex items-center gap-2">
+          AUNOOAI
+          <span title="Beta: features and data are still being tuned"
+                className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded
+                           bg-pink-50 text-pink-600 border border-pink-200
+                           dark:bg-pink-900/30 dark:text-pink-300 dark:border-pink-800">
+            Beta
+          </span>
+        </h2>
         {dedicated === true && (
           <div className="text-xs text-gray-500 dark:text-[#a09fa6] tracking-wide mt-0.5">Brand Watcher</div>
         )}

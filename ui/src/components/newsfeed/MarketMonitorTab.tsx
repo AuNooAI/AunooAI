@@ -17,6 +17,7 @@ import { MarketVendorPage } from './MarketVendorPage';
 import { MarketGeographyMap } from './map/MarketGeographyMap';
 import { MarketAnalysisView } from './MarketAnalysisView';
 import { MarketVoicesView } from './MarketVoicesView';
+import { MarketHorizonView } from './MarketHorizonView';
 import { MarketFindingsView } from './MarketFindingsView';
 import { MarketBriefingsView } from './MarketBriefingsView';
 import { DataTable } from './DataTable';
@@ -65,7 +66,7 @@ import {
  * pipeline: health, sources, the raw corpus and event feed, and dataset
  * export — "what did we collect and is it working", a different question
  * from "what does the market show", with its own sub-navigation below. */
-type View = 'findings' | 'analysis' | 'voices' | 'collection' | 'briefings' | 'vendors';
+type View = 'findings' | 'analysis' | 'voices' | 'horizon' | 'collection' | 'briefings' | 'vendors';
 type CollectionSubView = 'overview' | 'health' | 'coverage' | 'wire' | 'data' | 'sourcemap';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
@@ -1685,6 +1686,7 @@ export function MarketMonitorTab() {
             ['findings', 'Findings'],
             ['analysis', 'Analysis'],
             ['voices', 'Top voices'],
+            ['horizon', 'Market Horizon'],
             ['collection', 'Collection'],
             ['briefings', 'Reports'],
             ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
@@ -2542,6 +2544,10 @@ export function MarketMonitorTab() {
       {view === 'voices' && marketId !== null && (
         <MarketVoicesView marketId={marketId} days={periodDays}
                           onRecords={setRecords} />
+      )}
+
+      {view === 'horizon' && marketId !== null && (
+        <MarketHorizonView marketId={marketId} onVendor={openVendorPage} />
       )}
 
       {view === 'analysis' && marketId !== null && (

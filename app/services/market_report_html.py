@@ -721,6 +721,130 @@ def _day(value: Any) -> str:
         return raw
 
 
+_TIER_ORDER = ("executors", "innovators", "established", "emerging")
+_TIER_COLOUR = {"executors": "#0f766e", "innovators": "#b45309",
+                "established": "#1d4ed8", "emerging": "#6b7280"}
+
+
+def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
+                 cuts: Dict[str, Any]) -> str:
+    """Vendors on a semicircle. Distance from the base is the overall
+    position (the mean of scale and momentum); the angle is the balance
+    between them — scale-heavy to the left, momentum-heavy to the right,
+    balanced up the middle. The concentric arcs are the horizons. Names only
+    where the viewer may see them; the dots give nothing away."""
+    import math
+    w, h = 720, 420
+    cx, cy, radius = w / 2, h - 40, 330
+    # The angle is the balance between the axes, scaled to the rated set's
+    # own spread so the horizon is used whatever the market looks like: the
+    # most lopsided vendor sits 80 degrees off the vertical.
+    widest = max([abs(float(r["scale"]) - float(r["momentum"])) for r in rated] + [20.0])
+    per_point = 80.0 / widest
+    def place(r: Dict[str, Any]):
+        pos = (float(r["scale"]) + float(r["momentum"])) / 2
+        theta = math.radians(90 + (float(r["scale"]) - float(r["momentum"])) * per_point)
+        d = radius * pos / 100
+        return cx + d * math.cos(theta), cy - d * math.sin(theta)
+    def arc(frac: float) -> str:
+        d = radius * frac
+        return f'M {cx - d:.1f} {cy:.1f} A {d:.1f} {d:.1f} 0 0 1 {cx + d:.1f} {cy:.1f}'
+    parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
+             'aria-label="Market Horizon: position and balance">',
+             f'<path d="{arc(1.0)} Z" fill="#f8fafc" stroke="#e2e8f0"/>']
+    for frac, name in ((0.25, "horizon 1"), (0.5, "horizon 2"), (0.75, "horizon 3")):
+        parts.append(f'<path d="{arc(frac)}" fill="none" stroke="#cbd5e1" stroke-dasharray="4 4"/>')
+        parts.append(f'<text x="{cx + radius*frac + 4:.1f}" y="{cy - 4:.1f}" font-size="9" fill="#94a3b8">{name}</text>')
+    parts += [f'<text x="{cx:.0f}" y="{cy - radius - 12:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Executors — growing, and already large</text>',
+              f'<text x="{cx - radius + 4:.0f}" y="{cy - 60:.0f}" font-size="11" fill="#64748b">Established</text>',
+              f'<text x="{cx + radius - 4:.0f}" y="{cy - 60:.0f}" text-anchor="end" font-size="11" fill="#64748b">Innovators</text>',
+              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Emerging — near the base</text>',
+              f'<text x="{cx - radius:.0f}" y="{cy + 30:.0f}" font-size="10" fill="#94a3b8">← scale-heavy</text>',
+              f'<text x="{cx + radius:.0f}" y="{cy + 30:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">momentum-heavy →</text>']
+    placed: List[tuple] = []
+    for r in sorted(rated, key=lambda r: -(r["scale"] + r["momentum"])):
+        x, y = place(r)
+        colour = _TIER_COLOUR.get(r["tier"], "#6b7280")
+        shown = allowed is None or r["vendor"] in allowed
+        # The hover title names the vendor, so it is withheld with the label.
+        title = (f'<title>{esc(r["vendor"])}: scale {r["scale"]}, momentum {r["momentum"]}</title>'
+                 if shown else '')
+        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85">'
+                     f'{title}</circle>')
+        if shown:
+            # Nudge a label down when it would sit on one already placed.
+            lx, ly, width = x + 7, y + 4, 5.5 * len(r["vendor"]) + 4
+            for _ in range(4):
+                if any(abs(ly - py) < 11 and lx < px + pw and px < lx + width
+                       for px, py, pw in placed):
+                    ly += 11
+                else:
+                    break
+            placed.append((lx, ly, width))
+            parts.append(f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set]) -> str:
+    """The map, the tiers, the not-rated list and the weights, in that order."""
+    cfg = horizon.get("config") or {}
+    rated = horizon.get("rated") or []
+    not_rated = horizon.get("not_rated") or []
+    out = [section_open("Market Horizon")]
+    out.append(f'<p class="mm-src">{esc(horizon.get("what_it_is_not") or "")} '
+               f'Computed {esc((horizon.get("computed_at") or "")[:10])} over the '
+               f'last {horizon.get("days")} days.</p>')
+    out.append(_horizon_svg(rated, allowed, cfg.get("tiers") or {}))
+    for tier in _TIER_ORDER:
+        info = (horizon.get("tiers") or {}).get(tier) or {}
+        rows = [r for r in rated if r["tier"] == tier]
+        if not rows:
+            continue
+        shown = [r for r in rows if allowed is None or r["vendor"] in allowed]
+        hidden = len(rows) - len(shown)
+        names = [f'{esc(r["vendor"])}' + (" ↑" if r.get("moved") and (r.get("previous") or {}).get("tier") in ("emerging", "established") and tier in ("innovators", "executors") else "")
+                 for r in shown]
+        if hidden:
+            names.append(f'{hidden} vendor{"s" if hidden > 1 else ""} not shown in this view')
+        out.append(f'<h3>{esc(info.get("label") or tier.capitalize())} '
+                   f'<span class="mm-src">({len(rows)}) — {esc(info.get("means") or "")}</span></h3>')
+        out.append(f'<p>{", ".join(names)}</p>')
+    if not_rated:
+        by_reason: Dict[str, int] = {}
+        for nr in not_rated:
+            for g in nr.get("missing") or []:
+                by_reason[g["label"]] = by_reason.get(g["label"], 0) + 1
+        reasons = "; ".join(f"{n} lack {esc(label.lower())}" for label, n in
+                            sorted(by_reason.items(), key=lambda kv: -kv[1]))
+        out.append(f'<h3>Not rated <span class="mm-src">({len(not_rated)})</span></h3>')
+        out.append(f'<p class="mm-src">A vendor is rated only when every input was '
+                   f'measured. {reasons}.</p>')
+        if allowed is None:
+            out.append('<p class="mm-src">' + "; ".join(
+                f'{esc(nr["vendor"])}: ' + ", ".join(esc(g["label"].lower()) for g in nr["missing"])
+                for nr in not_rated) + '</p>')
+    inputs = cfg.get("inputs") or {}
+    out.append('<h3>Weights</h3><table class="mm-table"><thead><tr><th>Input</th>'
+               '<th>Axis</th><th class="mm-num">Weight</th></tr></thead><tbody>'
+               + "".join(f'<tr><td>{esc(v.get("label") or k)}'
+                         + (f' <span class="mm-src">{esc(v["note"])}</span>' if v.get("note") else "")
+                         + (' <span class="mm-src">(optional)</span>' if v.get("optional") else "")
+                         + f'</td><td>{esc(v.get("axis") or "")}</td>'
+                         f'<td class="mm-num">{float(v.get("weight") or 0):.2f}</td></tr>'
+                         for k, v in inputs.items())
+               + "</tbody></table>")
+    out.append('<p class="mm-src">Each input is a percentile rank among the rated '
+               'vendors; an axis is the weighted mean of its inputs. On the map, distance '
+               'from the base is the mean of the two axes and the angle is their balance. '
+               f'A vendor at or above {cfg.get("tiers", {}).get("scale_cut", 50)} on scale '
+               f'and {cfg.get("tiers", {}).get("momentum_cut", 50)} on momentum is an '
+               'Executor; high on one only is Established (scale) or an Innovator '
+               '(momentum); below both is Emerging.</p>')
+    out.append("</section>")
+    return "".join(out)
+
+
 def _mask_names(names: List[str], allowed: Optional[set]) -> List[str]:
     """The names the viewer may see, plus a count for the rest."""
     if allowed is None:
@@ -1799,6 +1923,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<a href="#mm-moved">Who moved</a>'
                 '<a href="#mm-developments">Developments</a>'
                 '<a href="#mm-analysis">Evidence</a>'
+                '<a href="#mm-horizon">Horizon</a>'
                 '<a href="#mm-registry">Vendors</a>'
                 '<a href="#mm-method">Method</a></nav>'
                 '<nav class="n-pages" aria-label="Pages">'
@@ -2320,6 +2445,25 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     if teaser:
         body.append(_TEASER_END)
     body.append(_drawer_close())
+
+    # ---- Market Horizon: the latest stored map, or nothing
+    try:
+        from app.services import market_horizon as mh
+        stored = mh.latest(conn, market["id"], n=2)
+    except Exception as exc:  # noqa: BLE001 — the report stands without it
+        logger.warning("market horizon unavailable: %s", exc)
+        stored = []
+    if stored:
+        horizon = mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
+        body.append(_drawer_open(
+            "Market Horizon",
+            f"{horizon['counts']['rated']} of {horizon['counts']['eligible']} "
+            "vendors on a map of scale against momentum, from the readings "
+            "we collect. The rest are listed with the reading they lack.",
+            anchor="mm-horizon"))
+        body.append(_horizon_section(horizon, allowed_names))
+        body.append(_drawer_close())
+
     body.append(_drawer_open(
         "The vendors we track",
         f"{len(registry_rows)} companies we watch, with each one's "
