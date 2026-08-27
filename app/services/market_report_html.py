@@ -129,22 +129,35 @@ NEWS_CSS = """
 .mm-news .n-note { color:var(--n-muted); font-size:11px; margin-top:16px; }
 /* Period selector, view switch and the RSS link. */
 .mm-news .n-periods { display:flex; gap:4px; align-items:center; }
-.mm-news .n-periods a { font-size:12px; padding:4px 8px; border-radius:7px;
-                        color:var(--n-muted); text-decoration:none; }
-.mm-news .n-periods a[aria-current="page"] { background:var(--n-accent-soft);
-                                             color:var(--n-accent); }
+.mm-news .n-periods { justify-content:flex-end; margin-bottom:6px; }
+.mm-news .n-periods a { font-size:13px; padding:6px 11px; border-radius:8px;
+                        color:var(--n-text); text-decoration:none;
+                        border:1px solid var(--n-line); background:#fff;
+                        white-space:nowrap; }
+.mm-news .n-periods a:hover { border-color:var(--n-accent);
+                              color:var(--n-accent); }
+.mm-news .n-periods a[aria-current="page"] { background:var(--n-accent);
+                                             border-color:var(--n-accent);
+                                             color:#fff; }
 .mm-news .n-sec-actions { display:flex; align-items:center; gap:10px;
                           flex-wrap:wrap; }
+/* Sized and coloured like controls. At 12px muted-on-white these were present
+   in the markup and invisible on the page, which is the same as absent. */
 .mm-news .n-views { display:flex; border:1px solid var(--n-line);
-                    border-radius:7px; overflow:hidden; }
-.mm-news .n-views button { font-size:12px; padding:5px 9px; border:0;
-                           background:transparent; color:var(--n-muted);
-                           cursor:pointer; font-family:inherit; }
-.mm-news .n-views button[aria-pressed="true"] { background:var(--n-accent-soft);
-                                                color:var(--n-accent); }
-.mm-news .n-rss { font-size:12px; color:var(--n-muted); text-decoration:none;
-                  border:1px solid var(--n-line); border-radius:7px;
-                  padding:5px 9px; }
+                    border-radius:8px; overflow:hidden; background:#fff; }
+.mm-news .n-views button { font-size:13px; padding:7px 13px; border:0;
+                           background:transparent; color:var(--n-text);
+                           cursor:pointer; font-family:inherit; font-weight:500;
+                           white-space:nowrap; }
+.mm-news .n-views button + button { border-left:1px solid var(--n-line); }
+.mm-news .n-views button:hover { background:var(--n-accent-soft); }
+.mm-news .n-views button[aria-pressed="true"] { background:var(--n-accent);
+                                                color:#fff; }
+.mm-news .n-rss { display:inline-flex; align-items:center; gap:6px;
+                  font-size:13px; font-weight:500; color:var(--n-text);
+                  text-decoration:none; border:1px solid var(--n-line);
+                  border-radius:8px; padding:7px 12px; background:#fff; }
+.mm-news .n-rss svg { width:13px; height:13px; }
 .mm-news .n-rss:hover { color:var(--n-accent); border-color:var(--n-accent); }
 /* Headlines and River strip the page back without reordering it, so a reader
    scanning for one item is looking at the same list in the same order. */
@@ -817,24 +830,21 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
         head_delta = (
             f'{net:+d} across the {len(moved)} '
             f'vendor{"" if len(moved) == 1 else "s"} measured twice'
-            if moved else
-            "Nothing to compare yet — almost every vendor has one reading")
+            if moved else "Too early to show a change")
         cards.append(_metric_card(
             "Staff", f"counted at {cohort} of {total} vendors",
             f"{headcount.get('observed_market_headcount', 0):,}",
             head_delta,
             # The weekly headcount series has two points and its own
             # thin-coverage flag, so there is nothing honest to draw.
-            nospark="Most vendors have one reading so far, so there is no "
-                    "trend to show."))
+            nospark="Too early for a trend line."))
 
     cards.append(_metric_card(
         "Open roles", "LinkedIn and company job boards",
         f"{jobs_total:,}" if jobs_state != "unmeasured" else "—",
-        (f"{jobs_new} of them are new since the last check"
-         if jobs_new else "Most vendors have been checked once, so we cannot "
-                          "yet say what has changed"),
-        nospark="Roles open today, not roles posted this month."))
+        (f"{jobs_new} of them posted since we last looked"
+         if jobs_new else "Too early to say how many are new"),
+        nospark="Roles open today, not roles advertised this month."))
 
     if funding:
         cov = funding.get("coverage") or {}
@@ -844,11 +854,8 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
         cards.append(_metric_card(
             "Vendors with a known funding stage", cov.get("label", ""),
             f"{disclosed:,}",
-            "Stage and investors come from Crunchbase. The money totals "
-            "elsewhere in this report come from the vendor list instead, and "
-            "say so.",
-            nospark="Crunchbase gives us stages, not individual rounds, so we "
-                    "cannot name a largest raise."))
+            "Funding stage and investors, from Crunchbase.",
+            nospark="Stages only. No round sizes, so no largest raise."))
 
     # Weeks that are still filling are left out of the line rather than drawn
     # as a fall. The newest bar always under-reads — the week is not over, and
@@ -864,12 +871,10 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
         _spark([w.get("n") or 0 for w in settled],
                label="Articles and posts matched each week, completed weeks only")
         or "",
-        nospark=("The last week is still filling, so there is nothing "
-                 "settled to chart yet." if dropped and not settled
+        nospark=("Not enough completed weeks to chart." if dropped and not settled
                  else "" if settled else "Not enough weeks to chart."),
-        caption=(f"Completed weeks only. The most recent {dropped} "
-                 f"{'week is' if dropped == 1 else 'weeks are'} still filling "
-                 "and would read as a fall." if dropped else "")))
+        caption=("Completed weeks only. This week and last are still "
+                 "coming in." if dropped else "")))
 
     return f'<section class="n-metrics">{"".join(cards)}</section>'
 
@@ -1039,8 +1044,7 @@ def _news_stories(findings: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
 
 
 def _news_aside(*, movers: Optional[Dict[str, Any]],
-                highlights: List[Dict[str, Any]],
-                notes: List[str], days: int) -> str:
+                highlights: List[Dict[str, Any]], days: int) -> str:
     """Movers and social highlights, with an explicit empty state for each.
 
     Both are frequently empty in a young market, and an empty panel that says
@@ -1065,8 +1069,7 @@ def _news_aside(*, movers: Optional[Dict[str, Any]],
                        f'<span class="n-row-val">{esc(m.get("value") or "")}'
                        '</span></div>')
     else:
-        out.append('<p class="n-empty">Nothing moved enough to report across '
-                   'staff, coverage or open roles.</p>')
+        out.append('<p class="n-empty">Nothing moved this period.</p>')
     for b in blocked:
         out.append(f'<p class="n-note">{esc(b.get("metric") or "")}: '
                    f'{esc(b.get("reason") or "")}.</p>')
@@ -1089,16 +1092,9 @@ def _news_aside(*, movers: Optional[Dict[str, Any]],
                        f'<div class="n-social-meta">{esc(meta)}</div>'
                        f'<p class="n-quote">{body}</p></div>')
     else:
-        out.append('<p class="n-empty">Nobody outside the vendors posted about '
-                   'this market during the period.</p>')
+        out.append('<p class="n-empty">No outside discussion this '
+                   'period.</p>')
     out.append("</section>")
-
-    if notes:
-        out.append('<section class="n-card"><div class="n-card-title">'
-                   '<h2>Worth knowing</h2></div>')
-        for n in notes[:3]:
-            out.append(f'<p class="n-empty">{esc(n)}</p>')
-        out.append("</section>")
 
     out.append("</aside>")
     return "".join(out)
@@ -1481,21 +1477,26 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         # A feed reader carries no session, so the RSS link is only real on a
         # market that serves anonymously. Offering it otherwise hands a shared
         # reader a link that 404s.
+        # The glyph drawn inline. The mockup used an icon font, and this file
+        # is not allowed to fetch anything.
         rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
-               'title="Subscribe in a feed reader">RSS</a>')
+               'title="Subscribe in a feed reader">'
+               '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+               'stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+               '<path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/>'
+               '<circle cx="5" cy="19" r="1" fill="currentColor"/></svg>'
+               '<span>RSS</span></a>')
     body.append('<div class="n-sec-head"><h2>Market news</h2>'
                 f'<div class="n-sec-actions"><div class="n-views" '
                 f'role="group" aria-label="News density">{views}</div>{rss}'
                 f'<span class="n-updated">{esc(period_txt)}</span>'
                 '</div></div>')
+    for note in ((findings or {}).get("meta") or {}).get("notes") or []:
+        body.append(f'<p class="n-note">{esc(note)}</p>')
     body.append(_news_stories(findings))
     body.append("</section>")
 
-    notes = list(jobs_notes)
-    if findings:
-        notes = ((findings.get("meta") or {}).get("notes") or []) + notes
-    body.append(_news_aside(movers=movers, highlights=highlights,
-                            notes=notes, days=days))
+    body.append(_news_aside(movers=movers, highlights=highlights, days=days))
     body.append("</div></main></div>")
     body.append(f"<script>{_NEWS_JS}</script>")
 
@@ -1950,17 +1951,39 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     # The registry — sorted by most recent material signal
     # ================================================================
-    registry_rows = [r for r in dataset if r.get("role") != "excluded"]
+    # Only vendors we actually watch and have read something for. A name we
+    # carry but never collect against is a row of dashes: it pads the count,
+    # implies coverage we do not have, and cannot be checked by the reader.
+    # Two rules, and both have to hold — collection turned on, and at least one
+    # thing observed.
+    def _tracked(r: Dict[str, Any]) -> bool:
+        # `collecting`, not `collection_enabled` — build_dataset renames it,
+        # and reading the DB column name here would have made every vendor
+        # fail the test and emptied the table.
+        if r.get("role") == "excluded" or not r.get("collecting"):
+            return False
+        if r.get("last_observed"):
+            return True
+        return any(int(r.get(k) or 0) for k in
+                   ("articles_attributed", "open_jobs", "posts_30d"))
+
+    candidates = [r for r in dataset if r.get("role") != "excluded"]
+    registry_rows = [r for r in candidates if _tracked(r)]
+    left_out = len(candidates) - len(registry_rows)
     registry_rows.sort(key=lambda r: last_material.get(r["vendor"], ""), reverse=True)
     body.append(_drawer_close())
     body.append(_drawer_open(
-        "Every vendor we watch",
-        "The whole list, with country, founding year, staff, funding and open "
-        "roles for each.",
+        "The vendors we track",
+        f"{len(registry_rows)} companies we collect against, with country, "
+        "founding year, staff, funding and open roles for each.",
         anchor="mm-registry"))
     body.append(section_open("Vendor registry"))
     body.append('<p class="mm-src">Sorted by most recent material signal '
-               'this period, then by name.</p>')
+               'this period, then by name.'
+               + (f' {left_out} vendor{"" if left_out == 1 else "s"} on the '
+                  'list are not shown, because collection is off for them or '
+                  'we have never read anything about them.' if left_out else "")
+               + '</p>')
     body.append('<table class="mm-table"><thead><tr>'
                 "<th>Vendor</th><th>Country</th><th>Founded</th>"
                 '<th class="mm-num">LinkedIn headcount</th>'
@@ -2115,6 +2138,13 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             f'<td>{reached}</td>'
             f'<td>{esc(note)}</td></tr>')
     body.append("</tbody></table>")
+
+    # The collection caveats a reader cannot act on, kept out of the news page
+    # and put where somebody checking a number would look for them.
+    if jobs_notes:
+        body.append("<h3>How the job figures were assembled</h3>")
+        body.append("<ul>" + "".join(f"<li>{esc(n)}</li>"
+                                     for n in jobs_notes) + "</ul>")
 
     body.append("<h3>What each figure counts</h3>")
     # Definitions are pulled from the metric blocks the aggregates already

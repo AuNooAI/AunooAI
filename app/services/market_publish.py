@@ -567,11 +567,8 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
         })
     if not head.get("movers"):
         short = len(head.get("insufficient_history") or [])
-        unavailable.append({
-            "metric": "Staff",
-            "reason": (f"{short} vendors have only one reading, so there is "
-                       "nothing to compare against yet" if short
-                       else "no vendor has two readings yet")})
+        unavailable.append({"metric": "Staff",
+                            "reason": "too early to show a change"})
 
     # --- Coverage by somebody other than the vendor --------------------
     # Both windows in one pass. Two calls to share_of_voice cannot express
@@ -636,9 +633,8 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
         if not fresh:
             unavailable.append({
                 "metric": "Open roles",
-                "reason": ("no vendor has been checked twice yet"
-                           if not comparable
-                           else "no new roles since the last check")})
+                "reason": ("too early to show a change" if not comparable
+                           else "unchanged")})
 
     movers.sort(key=lambda m: (-m["sort"], m["vendor"] or ""))
     return {"movers": movers[:limit], "unavailable": unavailable,

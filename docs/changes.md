@@ -2,296 +2,159 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-27 (shared report) — the news page is the report; the working is behind a disclosure
+## 2026-08-27 — the sharing link became a news page, and a dead safety control turned up under it
 
 ### Goal
-The news page was one screen, then thirteen sections of analysis, registry and methodology
-followed it. That made the briefing look like an introduction to a second document.
+The shared market link opened on a report written for the person who runs Aunoo. The reader
+is whoever they send it to: a buyer, an analyst, somebody watching this market. A design
+mockup for that page arrived, and rebuilding against it surfaced both a copy problem and a
+security one.
 
-### Three named drawers
-`app/services/market_report_html.py`. `_drawer_open` / `_drawer_close` wrap everything
-below the news page in three collapsed `<details>`: **The analysis behind this**, **Every
-vendor we watch**, **How this was measured**. Nothing was removed — a reader checking a
-number still gets every table.
+### Incident — the disclosure backstop was doing nothing (`f3cda964`)
+`build_market_report` sets `withheld` to the vendor names a shared page must never contain.
+Five hundred lines later an unrelated block reused the name:
 
-`<details>` rather than a scripted toggle, because it opens with the keyboard, prints
-open, is found by the browser's own in-page search, and works in a file saved to disk with
-scripting off. Each summary says what the drawer holds; "More" on a closed drawer is a
-reason not to open it.
+```python
+withheld = sum(1 for v in active if v.get("activity_index") is None)
+```
 
-**The id sits on the `<details>`, not on a marker beside it.** An anchor landing just
-outside a closed drawer scrolls the reader to a shut door. A small script walks up from
-the click target opening any `<details>` ancestor, then jumps — so the nav (Overview /
-News / Analysis / Vendors / Method) opens the right drawer and lands inside it.
+By the time `ent.assert_no_withheld(rendered, withheld)` ran it held an **integer**. At `0`
+its `if not withheld: return` fired and the check did nothing; non-zero it would have raised
+`TypeError`. This is the only check that does not depend on having remembered every section,
+and it was off on every shared report where the activity table rendered.
+
+**Blast radius: none.** The row and text filters were unaffected throughout, and the live
+shared report still named 10 of 84. That is also why nobody caught it — those filters kept
+the output clean, so `test_mm20_the_report_names_only_authorized_vendors` passed while the
+guard behind it was dead. Renamed to `unscored`, and a test now wraps the backstop and
+asserts it is handed the name *list*. Verified both ways: reintroducing the shadowing fails
+with "the backstop was handed int, not the name list".
+
+### A vendor is the record for its own product launch (`2d7a51c0`)
+`market_findings.py`. Every story carried "the vendor announced it; no independent source",
+which reads as a gap in our evidence. It is not a gap — nobody outside Exaforce can confirm
+that Exaforce shipped a feature. That framing sat on **138 of this market's 198 events** (94
+product launches, 44 hiring posts).
+
+`SELF_REPORTABLE` names the facts a company is authoritative about: its own product, hire,
+rebrand, office, strategy. `status_of` takes the event type and whether every supporting
+source was the vendor's own channel, and returns `confirmed` for that pair. A customer win,
+a round or an acquisition involves a second party who has not spoken, so those stay watch
+items. Layoffs sit outside deliberately — a company is authoritative that it cut staff, but
+the scale is the part that matters and the part it frames.
+
+**The ordering had to move with it.** `_sort_key` tiered on the status label, so as soon as
+self-announced launches became `confirmed`, every routine vendor post floated above the US
+Air Force selecting Crogl. The recommended order now counts outside sources first and no
+longer tiers on the label at all.
+
+### Copy, roughly forty strings across five modules (`2d7a51c0`, plus this session's tail)
+"Observed headcount" → "Staff". "Net-positive-minus-negative share of classified coverage" →
+"the share that came out positive minus the share that came out negative". "Material vendor
+moves" → "What the vendors did". Data-state labels went the same way: "partly collected" →
+"some vendors checked".
+
+A second pass caught the same fault in a different place: caveats written from the
+collector's point of view. "Most vendors have been checked once, so we cannot yet say what
+has changed" became "Too early to say how many are new". The reader needs to know a number
+is partial; they do not need to know it is because a collector has one successful run on
+file.
+
+**Operator notes were shipping to customers.** The source table printed `ineligible_reason`
+verbatim, so a shared link carried "posted_by is a closed enum of poster types and is not
+the employer filter it looks like". `entity_scheduler.MANUAL_ONLY_PUBLIC` holds the
+reader-facing half, returned as `state_detail_public`. `public` is bound before the branch
+chain, not inside one arm of it — assigning it only on the paths with something to say would
+have left it unbound on the other five.
+
+### The weekly chart marks the bars that are still filling (`a70e62e4`)
+`market_corpus._mark_partial_weeks`. The last bar read 41 against roughly 170 for a full
+week and looked like coverage collapsing. It is three and a half days of a seven-day week.
+Two reasons the newest bars under-read: the current week is not over, and matching runs
+behind publication — 1,200 articles were matched into this market on 26 August alone, most
+published earlier — so the week before it has not settled either.
+
+Flagged on the server so the React chart and the HTML report cannot disagree. The chart
+draws those bars hatched with the tooltip saying how much of the week it has; the report's
+sparkline drops them and says how many it held back, because a sparkline has no room to
+hatch.
+
+### The mockup's missing parts (`3e2686f2`)
+- **Evidence lists.** `_evidence_summary` now aggregates the supporting rows themselves,
+  deduplicated by independence key. Rendered as the mockup's `More:` and `Social:`.
+  **The split is whose voice, not whether the record carries social metadata** — a vendor
+  announcing on LinkedIn has social metadata, so splitting on that filed the company's own
+  statement under "Social" beside practitioner chatter.
+- **Deltas.** `share_of_voice` gained `until_days_ago`, so it answers for the period before
+  this one. `_delta` refuses a percentage off a base of zero and says "Up from none".
+- **In summary.** The counted facts from "What changed", hoisted and reused. Generated prose
+  would be the only thing on the page not traceable to a record.
+- **Reading controls.** Top News / Headlines / River are three densities of one list in one
+  order, switched in CSS. The period is three links carrying the signed token, since `days`
+  is not part of what the token signs. RSS points at the existing `feed.xml` and renders only
+  where the market serves anonymously.
+- **Sidebar.** `market_movers` ranks across staff, coverage and open roles, naming any family
+  that cannot state a change. `social_highlights` returns the posts that travelled furthest
+  with their text, because a quote is a post and `top_voices` ranks accounts.
+
+### The briefing is the report (`02a6ccbd`)
+Thirteen sections followed the one-screen news page, which made the briefing read as an
+introduction to a second document. They now sit in three collapsed `<details>`: **The
+analysis behind this**, **The vendors we track**, **How this was measured**. Nothing is
+removed. The page opens on **122 lines instead of 845**.
+
+`<details>` rather than a scripted toggle: it opens with the keyboard, prints open, is found
+by the browser's own in-page search, and works in a file saved to disk with scripting off.
+**The id goes on the `<details>` itself** — an anchor landing just outside a closed drawer
+scrolls the reader to a shut door, so a short script walks up from the click target opening
+any `<details>` ancestor before the jump.
+
+### The registry shows only vendors we collect against (uncommitted at time of writing)
+`market_report_html.py`. The vendor table dumped every non-excluded name. It now requires
+collection to be enabled *and* something actually observed, and states how many were left
+out. **Today that removes nothing** — all 84 vendors are enabled and have at least one
+observation — so this is a rule made explicit, not a visible change. The drawer no longer
+says "the whole list".
+
+Job-collection caveats ("we dropped 39 LinkedIn listings…", "97 from ats jobs") moved off
+the news page into the method drawer. They are things a reader cannot act on.
 
 ### Verification
-A reader sees **122 lines before opening anything**, against 845 before. The rendered HTML
-was parsed with `html.parser`: no mismatched tags, nothing left unclosed — an unbalanced
-drawer would have swallowed every section after it. No drawer ships `open`.
+`pytest tests/test_market_*.py` — **243 passed, 3 failed, 10 skipped**. The three failures
+are the pre-existing `pytest-asyncio` ones in `test_market_collection.py`, unchanged all
+session. Note the pass count rose from 223 to 243 partway through: another session added
+tests to this tree while this work was running.
 
-`pytest tests/test_market_*.py` — 223 passed, 3 failed (the pre-existing `pytest-asyncio`
-failures), 10 skipped. Two new tests: one parses the whole document and asserts the
-drawers are closed and balanced, one asserts each nav anchor resolves to the drawer
-element itself.
+The rendered document was parsed with `html.parser` — no mismatched tags, nothing unclosed.
+An unbalanced drawer would have swallowed every section after it and the page would still
+have looked fine until somebody clicked.
 
-Live: shared 104,304 bytes, operator 130,993 bytes, both HTTP 200. The disclosure backstop
-still holds at 6 of 86 registry names against an entitlement of 10.
-
-### Propagation
-Canonical only. No other tenant runs Market Monitor.
-
-## 2026-08-27 (shared report) — the news page is the mockup now
-
-### Goal
-The shared report opened on a news page that was the mockup's shape without its parts. Five
-things the design had were missing, and the biggest was that a story offered one link when
-the system was holding several.
-
-### Every record behind a story, not just the strongest
-`market_findings.py`, `market_report_html.py`. `_evidence_summary` now aggregates the
-supporting rows themselves — URI, title, source, whether the item is social — deduplicated
-by independence key, so three items from one publisher appear once. The page renders them
-as the mockup's `More:` and `Social:` lists.
-
-**The split is whose voice, not whether the item carries social metadata.** A vendor
-announcing a product on LinkedIn has social metadata, so splitting on that filed the
-company's own statement under "Social" beside practitioner chatter — which said the
-announcement was somebody talking about it. Records (the vendor's own, plus any
-publisher's) go in one list; outside social discussion goes in the other.
-
-Labels are what a person would click. "the company's LinkedIn post", not "linkedin". A
-repeated label takes the record's title instead, since two links both reading "LinkedIn"
-tell a reader nothing about which to open.
-
-### Deltas that are real, and honest silence where they are not
-`market_analysis.share_of_voice` gained `until_days_ago`, so it can answer for the period
-before this one rather than only "the last N days". Outside coverage now reads
-**"+100% on the 30 days before (1 → 2)"**.
-
-Staff cannot state a market delta — 83 of 84 vendors have one reading — so the card says
-what actually moved: "+1 across the 1 vendor measured twice". `_delta` refuses a
-percentage off a base of zero and says "Up from none" instead.
-
-### In summary
-The mockup opens with a paragraph of market commentary. This one is the counted facts from
-"What changed", hoisted above the news page and reused: founding years, launch
-announcements against commercial ones, hiring concentration. Generated prose would be the
-only thing on the page that does not trace to a record.
-
-### Reading controls
-Top News / Headlines / River are three densities of the same list in the same order,
-switched by a `data-view` attribute in CSS, so nothing is reordered or dropped between
-them. The reporting period is three links (7 / 30 / 90) rather than a control, since the
-file has no server behind it; `_relink` carries the signed token through, because `days`
-is not part of what the token signs. RSS points at the existing `feed.xml` and is only
-rendered for a market that serves anonymously — offering it otherwise hands a shared
-reader a link that 404s.
-
-### The sidebar
-`market_publish.market_movers` ranks across three metric families: staff, outside
-coverage, open roles. A family that cannot state a change is named with the reason rather
-than left out — today "Open roles: no new roles since the last check". `market_analysis
-.social_highlights` returns the individual posts that travelled furthest with their text,
-because a quote is a post and not an account; `top_voices` ranks accounts and has no
-sentence to show.
-
-### Verification
-`pytest tests/test_market_*.py` — 221 passed, 3 failed (the pre-existing `pytest-asyncio`
-failures), 10 skipped. Six new tests in `test_market_report_copy.py` cover the voice split,
-duplicate labels, held-but-unlinked records, zero-base deltas and token-carrying links.
-
-Live: report 101,578 bytes, HTTP 200. The 7-day period link followed end to end returns
-200 and re-renders as "20 August–27 August 2026". `feed.xml?days=30` returns 200. The
-disclosure backstop still holds — 6 of 86 registry names against an entitlement of 10.
+Live: shared report HTTP 200, operator HTTP 200. The 7-day period link followed end to end
+returns 200 and re-renders as "20 August–27 August 2026". `feed.xml?days=30` returns 200.
+Disclosure backstop still holds — 6 of 86 registry names against an entitlement of 10.
 
 ### What the data cannot support yet
-- **Funding has no delta.** Crunchbase gives stages, not round amounts or dates, so there
-  is no "$163M, 5 verified events" and no largest raise.
-- **Open roles has no delta.** Most vendors have one successful jobs run, so newness is
-  unknowable for them.
-- **Every finding has exactly one source**, so `More:` never lists two records on this
-  market today. The rendering is built for several and shows what exists.
+- **Funding has no delta.** Crunchbase gives stages, not round amounts or dates. No
+  "$163M across 5 events" and no largest raise.
+- **Open roles has no delta.** Most vendors have one successful jobs run.
+- **Findings mostly have one source each**, so `More:` rarely lists two records. The
+  rendering handles several; there are few.
 
 ### Propagation
 Canonical only. No other tenant runs Market Monitor.
 
-## 2026-08-27 (report copy) — a vendor's own announcement is a record, not a gap
-
-### Goal
-The shared report read like a compliance notice. Every metric was prefixed "Observed",
-every caveat was a packed clause, and the story bylines told a reader that a company
-announcing its own product had "no independent source" — as though our evidence were
-short. It is not short. Nobody else can confirm that a company shipped its own product.
-
-### The evidence model now asks who a statement is about
-`app/services/market_findings.py`. `SELF_REPORTABLE` names the events a company is the
-authoritative source for: its own product, its own hire, its own rebrand, its own office,
-its own strategy. `status_of` takes two new keyword arguments — the event type and whether
-every supporting source was one of the vendor's own channels — and returns `confirmed`
-for that combination. Everything outside the set involves a second party who has not
-spoken (an investor, a customer, an acquirer, a partner), so it stays a watch item.
-
-This is 138 of the market's 198 events: 94 product launches and 44 hiring posts were all
-being reported as evidentially deficient. Layoffs sit outside the set deliberately — a
-company is authoritative that it cut staff, but the scale is the part that matters and
-the part it frames.
-
-**The ordering had to change with it.** `_sort_key` ranked on the status label, so as soon
-as self-announced launches became `confirmed` every routine vendor post floated above the
-US Air Force selecting Crogl, which is a claim about somebody else and stays a watch item.
-The recommended order now counts outside sources before anything else in that tier and no
-longer tiers on the status label at all; within a materiality band the date decides.
-Covered by `test_vendor_announcements_do_not_bury_a_corroborated_finding`.
-
-### Copy, everywhere
-`market_report_html.py`, `market_metrics.py`, `market_analysis.py`, `market_publish.py`,
-`market_lists.py`. Roughly forty strings. The pattern being removed: "Observed headcount"
-→ "Staff"; "Net-positive-minus-negative share of classified coverage" → "the share that
-came out positive minus the share that came out negative"; "Material vendor moves" → "What
-the vendors did"; "Absence of an observed signal should not be interpreted as evidence
-that no activity occurred" → "Seeing nothing is not the same as nothing having happened".
-Data-state labels went the same way: "partly collected" → "some vendors checked".
-
-Bylines dropped `medium materiality`, which was a label with no content, and dates became
-`22 Aug 2026` rather than `2026-08-22`. The materiality rule now prints only when it says
-something — "money or ownership changed hands" survives, "a change in one vendor's
-position" under every card does not.
-
-### Operator notes were shipping to customers
-`app/services/entity_scheduler.py`, `market_metrics.py`. The report's source table printed
-`ineligible_reason` verbatim, so a shared link carried "posted_by is a closed enum of
-poster types and is not the employer filter it looks like". `MANUAL_ONLY_PUBLIC` holds the
-reader-facing half — "we do not search Indeed on a schedule, so job counts here cover
-LinkedIn and the vendors' own careers pages only" — and `collection_state` returns it as
-`state_detail_public` alongside the operator note.
-
-`public` is bound before the branch chain, not inside one arm of it. Assigning it only on
-the paths with something to say would have left it unbound on the other five.
-
-### Three mechanical faults in the story cards
-Summaries were sliced at 320 characters mid-word ("delivered with World Wide Technol").
-`_clip` cuts at a space. Headlines carried a `Vendor: ` prefix the byline repeated
-underneath, so it comes off when it matches one of the finding's own vendors. And the
-duplicate-summary check compared openings only, while these titles are often the post's
-closing line — `in` rather than `startswith` catches it.
-
-### Two tests were testing copy, not behaviour
-`test_market_lists.py` pinned the phrases "one successful" and "By source"; 
-`test_market_entitlements.py` pinned "monitored vendors". All three failed on wording
-changes that altered nothing. They now assert the numbers that have to be disclosed. A
-disclosure test that breaks on a copy edit trains you to loosen it, which is how a real
-one gets loosened too.
-
-### Verification
-`pytest tests/test_market_*.py` — 212 passed, 3 failed, 10 skipped. The three failures are
-the pre-existing `pytest-asyncio` ones in `test_market_collection.py`, unchanged.
-Report regenerated live at each step: 96,585 bytes, HTTP 200, naming 6 of 86 registry
-names against an entitlement of 10, so the disclosure backstop is still live.
-`bugfixing.aunoo.ai.service` restarted four times; `bw_collection_runs` checked for
-stranded rows after each — none.
-
-### The weekly chart marks the bars that are still filling
-`app/services/market_corpus.py`, `MarketMonitorTab.tsx`, `market_report_html.py`.
-`_mark_partial_weeks` flags a week two ways. The current week carries how many of its
-seven days we have (4 of 7 today). The week before it is flagged too, because matching
-runs behind publication — 1,200 articles were matched into this market on 26 August
-alone, most of them published earlier — so a week that has ended has not settled.
-
-The flag is computed on the server so the React chart and the HTML report cannot disagree
-about which weeks are provisional. The chart draws those bars hatched, and the tooltip
-reads "41 so far — 4 of 7 days so far". The report's sparkline drops them and says how
-many it held back; a sparkline has no room to hatch, and plotting a half-week draws a fall
-that is not there.
-
-Three tests in `tests/test_market_metrics.py` cover the current week, the still-filling
-previous week, and a malformed week label not taking the chart down with it.
-
-### Also answered, not changed
-The weekly chart's last bar is the week starting 24 August, which is 3½ days old, so it
-reads at 41 against ~170 for a full week. Matching also runs behind publication — 1,200
-articles were matched into this market on 26 August alone, most with earlier publication
-dates — so the most recent bar keeps filling for days afterwards. The final bar
-under-reads structurally and always will. Marked as partial in the same session — see the
-weekly-chart section above.
-
-### Propagation
-Canonical only. Not copied to wiley, wileytest or wbm — none of them runs Market Monitor.
-
-## 2026-08-27 (shared report) — the sharing link opens on a news page, and its disclosure guard was dead
-
-### Goal
-A design mockup for the shared market link: a news page rather than a report. Metric cards with
-their denominators, stories with what backs each one, a sidebar of movers and voices.
-
-### `market_report_html` — the news lead
-`NEWS_CSS` and four renderers, every rule scoped under `.mm-news`. That scoping is load-bearing:
-`html_document` and `BASE_CSS` are shared with the consensus and horizons reports, and an unscoped
-rule would restyle all three. Verified both still import and that `mm-news` appears in neither the
-shared shell nor `BASE_CSS`.
-
-The detailed sections below are unchanged and still carry the methodology appendix. This is the
-scannable front, not a replacement for the evidence.
-
-**Stories are findings**, which is what made the mockup buildable at all: a finding already has a
-theme (the tag), a headline, a corroboration state (the byline) and evidence (the link). The byline
-carries evidence state rather than a source name, because that is what a reader of a shared report
-most needs and least has: "the vendor announced it; no independent source".
-
-**Nothing is drawn that is not there.** `_spark` refuses fewer than four points, so the headcount
-series — two weekly points carrying its own `thin_coverage` flag — gets a sentence instead of a
-line. Movers and voices have explicit empty states. There is no generated summary paragraph: the
-"In summary" block in the mockup became the market's own question, because everything else on the
-page traces to a record and a synthesised paragraph would be the one thing that does not.
-
-### The disclosure backstop was silently disabled
-Building this surfaced it. `build_market_report` sets `withheld = ent.withheld_names(...)` at the
-top — the vendor names a shared page must not contain — and a later block reused the same name:
-`withheld = sum(1 for v in active if v.get("activity_index") is None)`.
-
-By the time `ent.assert_no_withheld(rendered, withheld)` ran it held an **integer**. When that count
-was `0` the backstop's `if not withheld: return` fired and **the check did nothing**; when it was
-non-zero it raised `TypeError`. So the fail-closed guard described yesterday as "the only check that
-does not depend on having remembered every section" was off on every shared report where the
-activity table rendered with all indices present.
-
-Renamed to `unscored`. The row and text filters were unaffected throughout, and the live shared
-report still names 10 of 84 vendors — no disclosure occurred.
-
-**Why the existing test missed it.** `test_mm20_the_report_names_only_authorized_vendors` asserts on
-the rendered HTML. The row and text filters were doing their job, so the output was clean and the
-test passed while the guard behind it was dead. Testing an outcome does not test the guard that
-protects it. `test_the_report_backstop_is_actually_armed` now wraps `assert_no_withheld` and asserts
-it is handed the name *list*; reintroducing the shadowing fails it with "the backstop was handed
-int, not the name list", and the fix passes it. Verified both ways.
-
-### Two more caught by reading the output
-**A window mismatch of my own making.** The strip is labelled "last 30 days" and read
-`analyses["share_of_voice"]`, which `man.run(...)` builds without `days` — all-time. It quoted 4
-earned mentions against 2,088 owned posts under a 30-day heading. The strip now fetches its own
-windowed copy, leaving the sections below untouched: 2 earned against 531 owned.
-
-**A summary that repeated its headline.** These events are extracted from a post whose first
-sentence became the title, so the two are often the same words, and the card printed the sentence
-twice. Compared after stripping the `Vendor: ` prefix the extractor adds to a headline but not to a
-summary — without that they never look alike and the duplicate survives.
-
-### Verification
-- Market suites: **227 passed**, plus the 3 pre-existing `pytest-asyncio` failures.
-- Live: anonymous sharing link 98,868 bytes naming **10 of 84** vendors; operator view 125,683 bytes
-  naming 84 of 84. Both carry the news lead and the methodology appendix.
-- `BASE_CSS` and the shared shell contain no `mm-news` rules; `consensus_html` and `horizons_html`
-  import clean.
-- Restart gated on in-flight work.
-
-### Propagation
-Canonical only. Market Monitor exists on no other tenant.
-
 ### Lessons
-- **A test on the output does not test the guard.** The disclosure backstop was dead for a day
-  behind a passing test, because two independent filters upstream were keeping the output clean. If
-  a check exists to catch what the other layers miss, assert that it *ran*.
-- Reusing a variable name across 500 lines of one function is enough to disable a security control
-  without changing a line of its logic.
+- **A test on the outcome does not test the safeguard protecting it.** `test_mm20` asserted
+  the report named only authorized vendors and passed for a day while the backstop behind it
+  was disabled. Test the guard, not only the result.
+- **Never rebind a name that a security check reads.** The shadowing was 500 lines from the
+  assignment and both uses looked reasonable in isolation.
+- **Bind a variable before a branch chain, not inside one arm of it.** Seven branches, two
+  assignments, five `UnboundLocalError`s waiting.
+- **Do not pin copy in a test.** Three assertions matched phrases like "one successful" and
+  "By source"; all failed on edits that changed no behaviour. A disclosure test that breaks
+  on a copy edit trains you to loosen it, which is how a real one gets loosened.
+
 
 ## 2026-08-26 (headcount average) — a market average computed from one vendor
 
