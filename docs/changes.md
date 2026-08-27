@@ -425,6 +425,42 @@ the market side.
 - The public report's "Accounts posting repeatedly" table gains a Who column, a linked handle
   and a linked latest post.
 
+### Feature — vendors' own accounts stay in Top voices, tagged as vendor
+**`social_profile_service.py`, `market_voice_profiles.py`, `market_analysis.py`
+(`_tracked_vendor_names`, `_vendor_tag`), `market_monitor_routes.py`, `market_report_html.py`,
+`MarketVoicesView.tsx`, `marketMonitorApi.ts`.**
+
+Only vendors' LinkedIn company posts were excluded from Top voices; a vendor's own X account
+(SentinelOne on market 2) ranked as an outside voice with nothing to say so. Decision: keep
+them, tag them.
+
+- When a profile is built for a market, the model step also returns a fixed `role` (vendor,
+  vendor_staff, practitioner, analyst_or_press, reseller, promoter_or_bot, unrelated) and the
+  `organisation` the account is or works for. Stored in `social_accounts.metadata` as
+  `market_role` / `market_org` / `market` (merged into the JSON, so the entity layer's keys
+  there survive). No schema change.
+- `SocialProfileService.reread` re-runs the model step over a stored profile's bio and sample
+  posts, with no platform call, so profiles built before roles existed get one for the price
+  of one short model call. `POST …/voices/profile-all` takes `mode: "reread"` for that.
+- `top_voices` sets `vendor_tag` on each row: from the profile's role (vendor → "vendor",
+  vendor_staff → "vendor staff", with the organisation, and `tracked: true` when it matches a
+  vendor on the market by name or alias from `bw_vendor_identifiers`); where there is no role
+  yet, from the handle or display name matching a tracked vendor (exact, or vendor name plus
+  a short suffix such as DropzoneAI). A profile that read the account as anything else is
+  trusted over the name match.
+- The tab shows an amber badge beside the handle and a groupable Role column, so the list
+  splits into vendors and everyone else; the report's Who cell leads with "Vendor (org)".
+- A vendor's own account is recorded on the vendor's profile: `link_vendor_accounts` writes a
+  live `bw_vendor_identifiers` row of kind `social_account` (`twitter:dropzoneai`, display
+  value the profile URL, provenance `top_voices`) for each voice tagged "vendor" whose
+  organisation is a vendor tracked on the market. It runs at the end of every profiling job
+  and after a single build; insert-unless-exists. Guard: "vendor" means the company's own
+  account only when the handle or display name carries the company name; a founder posting
+  under their own name (@onuroktay for SOCNova) is tagged "vendor staff" and not recorded.
+  The vendor page lists the row under identifiers with an @ icon; the badge reads
+  "· on profile" once recorded.
+- The report's note under the table no longer claims vendors' own accounts are left out.
+
 ### Fix — the report said no account posted more than twice while two had three and four
 **`market_analysis.py`.** `top_voices` cut to `limit` by engagement before splitting off the
 repeat posters, so on the report (`limit=20`) the two Bluesky accounts with four and three
@@ -520,6 +556,17 @@ last account. Paced run: 31 queued (20 already profiled skipped), 31 built, 0 fa
 rows, each with a linked handle, a Who cell (name, followers, summary) and a linked latest post;
 before the fix the section read "No outside account posted about the market more than once or
 twice". Playwright screenshot of the tab: profiles, links, "All shown accounts profiled".
+Vendor tag: reread job over the 51 stored profiles, 51 built, 0 failed, 15:06:59–15:11 UTC
+(model step only). Roles: 17 unrelated, 13 vendor, 8 practitioner, 5 analyst/press, 4
+promoter/bot, 4 vendor staff. `GET /markets/2/voices?days=30&limit=50`: 17 of 51 rows carry
+`vendor_tag` (13 vendor, 4 vendor staff; SentinelOne, Palo Alto Networks, Sophos, Microsoft
+among them, none tracked on this market). `link_vendor_accounts(db, 2)` recorded 2
+`social_account` identifiers: Dropzone AI `twitter:dropzoneai` (name match) and Secure.com
+`reddit:secure_com_official` (profile); a first run also recorded @onuroktay for SOCNova,
+which led to the own-account guard, and that row was deleted. `GET /markets/2/vendors/92`
+lists `('social_account', 'https://x.com/DropzoneAI')`. `aisoc.aunoo.ai` Who cell for polsia
+reads "Vendor (Polsia) · Polsia · … followers".
+
 Merge rule: `assess()` over 90 days lists 12 customer developments, all `source: review`, each
 with `as_of`; the Poindexter one reads "described in use in the customer's own words" as of
 2026-08-13 (both posts say in use).

@@ -19,6 +19,9 @@ _27 August 2026 · Market Monitor — the shared report link and aisoc.aunoo.ai_
   and one button profiles the whole list.
 - The report's list of accounts that keep posting about the market no longer misses the ones
   with few reactions.
+- Vendors' own social accounts, and their staff, stay in Top voices but carry a "vendor" tag
+  with the company name, and the list can be grouped by role (vendor, vendor staff,
+  practitioner, analyst or press, reseller, promoter or bot).
 
 ## Why it matters
 
@@ -101,7 +104,8 @@ number.
 - Profiles are built on request, never on a schedule. Each costs two xpoz calls and one short
   model call, and xpoz rate-limits the shared key, so the bulk button works through the list
   one account at a time (about ten seconds each).
-- A vendor's own X account (SentinelOne appears on market 2) counts as an outside voice; only
-  the vendors' LinkedIn company posts are excluded. Not changed.
+- A vendor's own X account (SentinelOne appears on market 2) stays on the list, now tagged
+  "vendor · SentinelOne". The tag comes from the profile's reading; an account with no profile
+  is tagged only if its handle matches a vendor we track.
 - Most accounts have a single post because the social pull is capped per platform per run
   (`XPOZ_MAX_RESULTS`, default 25). Raising it costs money; not changed.

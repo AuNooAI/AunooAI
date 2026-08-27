@@ -728,17 +728,22 @@ def _voice_row(v: Dict[str, Any]) -> str:
     if v.get("profile_url"):
         handle = f'<a href="{esc(v["profile_url"])}">{handle}</a>'
     acct = v.get("account") or {}
+    tag = v.get("vendor_tag") or {}
+    prefix = ""
+    if tag:
+        prefix = (f'<strong>{esc(tag["label"].capitalize())}</strong>'
+                  + (f' ({esc(tag["org"])})' if tag.get("org") else "") + " · ")
     if acct.get("profiled"):
         bits = []
         if acct.get("display_name"):
             bits.append(esc(acct["display_name"]))
         if acct.get("followers") is not None:
             bits.append(f'{int(acct["followers"]):,} followers')
-        who = " · ".join(bits)
+        who = prefix + " · ".join(bits)
         if acct.get("summary"):
             who += f'<div class="mm-src">{esc(_clip(acct["summary"], 160))}</div>'
     else:
-        who = '<span class="mm-src">not profiled</span>'
+        who = prefix + '<span class="mm-src">not profiled</span>'
     latest = v.get("latest_post") or {}
     if latest.get("url"):
         latest_cell = (f'<a href="{esc(latest["url"])}">'
@@ -2234,7 +2239,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("<h3>Accounts posting repeatedly about the market</h3>")
         body.append(f'<p class="mm-src">Accounts with at least '
                     f'{(voices or {}).get("consistent_min_posts", 3)} posts in '
-                    "the period. The vendors' own accounts are left out.</p>")
+                    "the period. Vendors' LinkedIn company posts are counted "
+                    "elsewhere; a vendor's own account here is marked as one.</p>")
         body.append('<table class="mm-table"><thead><tr><th>Account</th>'
                     '<th>Who</th><th>Platform</th><th class="mm-num">Posts</th>'
                     '<th class="mm-num">Reactions</th><th>Latest post</th>'

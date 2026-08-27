@@ -27,6 +27,34 @@ const PLATFORM_LABEL: Record<string, string> = {
   instagram: 'Instagram', linkedin: 'LinkedIn',
 };
 const PROFILABLE = new Set(['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok']);
+const ROLE_LABEL: Record<string, string> = {
+  vendor: 'vendor', vendor_staff: 'vendor staff', practitioner: 'practitioner',
+  analyst_or_press: 'analyst / press', reseller: 'reseller',
+  promoter_or_bot: 'promoter / bot', unrelated: 'unrelated',
+};
+
+function roleOf(v: Voice): string {
+  if (v.vendor_tag) return v.vendor_tag.label;
+  const r = v.account?.role;
+  if (r) return ROLE_LABEL[r] ?? r;
+  return v.account?.profiled ? 'not read' : 'not profiled';
+}
+
+/** A vendor's own account, or their staff, kept on the list and marked. */
+function VendorBadge({ tag }: { tag: NonNullable<Voice['vendor_tag']> }) {
+  return (
+    <span
+      title={tag.org
+        ? `${tag.label}: ${tag.org}${tag.tracked ? ' (a vendor we track)' : ''}`
+          + (tag.linked ? '; this account is recorded on the vendor profile' : '')
+        : tag.label}
+      className="inline-flex items-center text-[10px] uppercase tracking-wide px-1 py-0.5 rounded
+                 bg-amber-50 text-amber-800 border border-amber-200
+                 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800">
+      {tag.label}{tag.org ? ` · ${tag.org}` : ''}{tag.linked ? ' · on profile' : ''}
+    </span>
+  );
+}
 
 function platformLabel(p: string): string {
   return PLATFORM_LABEL[p] ?? p;
@@ -141,7 +169,7 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
             <>
               <CoverageLine
                 coverage={voices.coverage}
-                note="Accounts posting about the market. Vendors' own company posts are excluded — they are counted under Analysis." />
+                note="Accounts posting about the market. Vendors' LinkedIn company posts are counted under Analysis, not here; a vendor's own X, Bluesky or Reddit account stays on this list and is tagged." />
               <p className="text-xs text-slate-500 dark:text-gray-400 mb-2">
                 {voices.accounts} accounts posted in the period; {voices.accounts_multi_post} of
                 them more than once. Sorted by posts, then reactions, so a single post that
@@ -226,6 +254,7 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                               @{v.author}<ExternalLink className="w-3 h-3 opacity-60" />
                             </a>
                           ) : <span>@{v.author}</span>}
+                          {v.vendor_tag && <VendorBadge tag={v.vendor_tag} />}
                         </div>
                         {v.account?.profiled && (
                           <div className="text-xs text-slate-500 dark:text-gray-400">
@@ -241,6 +270,15 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                   { key: 'platform', label: 'Platform', groupable: true,
                     value: v => platformLabel(v.platform),
                     render: v => platformLabel(v.platform) },
+                  // Who is speaking, in one word, so the list can be grouped
+                  // into vendors and everyone else.
+                  { key: 'role', label: 'Role', groupable: true,
+                    value: roleOf,
+                    render: v => (
+                      <span className={v.vendor_tag ? 'text-amber-800 dark:text-amber-300' : 'text-slate-600 dark:text-gray-300'}>
+                        {roleOf(v)}
+                      </span>
+                    ) },
                   { key: 'who', label: 'Who they are', sortable: false,
                     render: v => v.account?.profiled ? (
                       <button
@@ -384,6 +422,7 @@ function VoiceDetail({ voice, busy, onClose, onRebuild, onPosts }: {
               <span className="text-sm text-slate-500">@{voice.author} on {platformLabel(voice.platform)}</span>
             )}
             {a?.verified && <span className="text-xs text-slate-500">verified</span>}
+            {voice.vendor_tag && <VendorBadge tag={voice.vendor_tag} />}
           </div>
           {a?.profiled ? (
             <>

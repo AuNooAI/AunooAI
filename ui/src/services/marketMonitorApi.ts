@@ -1784,6 +1784,11 @@ export interface VoiceAccount {
   topics: string[];
   /** The account's part in this market, as the profile read it. */
   relation: string | null;
+  /** One of vendor, vendor_staff, practitioner, analyst_or_press, reseller,
+   *  promoter_or_bot, unrelated — or null for a profile built before roles. */
+  role: string | null;
+  /** The company the account is or works for, when the profile named one. */
+  org: string | null;
   last_profiled_at: string | null;
   profiled: boolean;
 }
@@ -1799,6 +1804,11 @@ export interface Voice {
   latest_post: { url: string | null; title: string | null };
   /** Null when we have seen the handle post but never profiled it. */
   account: VoiceAccount | null;
+  /** Set when the account is a vendor's own or a vendor's staff — from the
+   *  profile's role, or from the handle matching a tracked vendor. Kept on
+   *  the list, tagged. */
+  vendor_tag: { label: string; org: string | null; brand_id: number | null;
+                tracked: boolean; linked: boolean; source: string } | null;
   sample_of_one: boolean;
 }
 

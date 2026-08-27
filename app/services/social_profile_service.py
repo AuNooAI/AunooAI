@@ -22,6 +22,10 @@ from sqlalchemy import text as sql_text
 logger = logging.getLogger(__name__)
 
 _PLATFORMS = ("twitter", "reddit", "instagram", "tiktok", "bluesky")
+# The part an account plays in a market, when profiled for one. Stored in
+# social_accounts.metadata as market_role / market_org / market.
+MARKET_ROLES = ("vendor", "vendor_staff", "practitioner", "analyst_or_press",
+                "reseller", "promoter_or_bot", "unrelated")
 _HAS_POST_HISTORY = {"twitter", "instagram", "tiktok", "bluesky"}  # reddit: none via xpoz
 _BSKY_API = "https://public.api.bsky.app/xrpc"  # bluesky is NOT xpoz — use its public API
 
@@ -255,11 +259,20 @@ class SocialProfileService:
         # A market frames the account differently from a brand: the question
         # is what part it plays in the market (vendor staff, customer, analyst,
         # reseller, promoter, bot), not whether it likes one company.
+        role_fields = ""
         if context and not brand:
             brand_line = (f'The account is being profiled for the market "{context}". ')
             relation = ("<1-2 sentences on this account's part in that market: vendor "
                         "staff, customer or practitioner, analyst or press, reseller, "
                         "promoter or bot, or 'No clear connection.'>")
+            # A fixed label beside the prose, so the reading can be tagged
+            # and grouped without parsing a sentence.
+            role_fields = (
+                ', "role": "<exactly one of: vendor (the company\'s own account), '
+                'vendor_staff (a person employed by or founding a vendor), practitioner '
+                '(works in a security team or is a customer), analyst_or_press, reseller, '
+                'promoter_or_bot, unrelated>", '
+                '"organisation": "<the company the account is or works for, or null>"')
         else:
             brand_line = f'The account is being profiled in the context of the brand "{brand}". ' if brand else ""
             relation = "<1-2 sentences on this account's relationship to the brand, or 'No clear connection.' >"
@@ -268,7 +281,7 @@ class SocialProfileService:
             "produce a compact, factual profile. Respond with ONLY a JSON object: "
             '{"summary": "<2-3 sentence plain description of who this account is and what they post about>", '
             '"topics": ["<3-6 short topic tags>"], '
-            f'"brand_context": "{relation}"}}'
+            f'"brand_context": "{relation}"{role_fields}}}'
             " No prose outside the JSON."
         )
         usr = (f"{brand_line}ACCOUNT: @{ident.get('handle')} ({ident.get('platform')})\n"
@@ -282,8 +295,15 @@ class SocialProfileService:
             topics = obj.get("topics") or []
             if isinstance(topics, str):
                 topics = [topics]
-            return {"summary": obj.get("summary"), "topics": topics[:8],
-                    "brand_context": obj.get("brand_context")}
+            out = {"summary": obj.get("summary"), "topics": topics[:8],
+                   "brand_context": obj.get("brand_context")}
+            if role_fields:
+                role = str(obj.get("role") or "").strip().lower().replace(" ", "_")
+                out["role"] = role if role in MARKET_ROLES else None
+                org = obj.get("organisation")
+                out["organisation"] = (str(org).strip()[:120]
+                                       if org and str(org).strip().lower() not in ("null", "none", "") else None)
+            return out
         except Exception as e:  # noqa: BLE001
             logger.debug("profile summarize failed: %s", e)
             return {}
@@ -355,25 +375,67 @@ class SocialProfileService:
             "brand_context": summary.get("brand_context"),
             "sample_posts": top[:12],
             "last_profiled_at": _now(),
+            "metadata": self._market_meta(summary, context),
         }
         return self._upsert(db, row)
+
+    @staticmethod
+    def _market_meta(summary: Dict, context: Optional[str]) -> Dict:
+        if not context:
+            return {}
+        return {"market_role": summary.get("role"),
+                "market_org": summary.get("organisation"),
+                "market": context, "market_read_at": _now()}
+
+    async def reread(self, db, platform: str, handle: str, context: str) -> Optional[Dict]:
+        """Run the model step again over the stored bio and sample posts.
+
+        No platform call: for adding the market role to profiles built before
+        it existed, at the cost of one short model call each."""
+        stored = self.get_stored(db, platform, handle)
+        if not stored:
+            return None
+        ident = {"handle": stored.get("handle"), "platform": platform,
+                 "display_name": stored.get("display_name"), "bio": stored.get("bio")}
+        posts = [p for p in (stored.get("sample_posts") or []) if isinstance(p, dict)]
+        summary = await self._summarize(ident, posts, None, context)
+        if not summary:
+            return None
+        conn = db._temp_get_connection()
+        conn.execute(sql_text("""
+            UPDATE social_accounts
+               SET summary = :summary, topics = CAST(:topics AS jsonb),
+                   brand_context = :brand_context,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb)
+             WHERE id = :id
+        """), {"summary": summary.get("summary"), "topics": json.dumps(summary.get("topics") or []),
+               "brand_context": summary.get("brand_context"),
+               "metadata": json.dumps(self._market_meta(summary, context)), "id": stored["id"]})
+        try:
+            conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        return self.get_stored(db, platform, handle)
 
     def _upsert(self, db, row: Dict) -> Dict:
         conn = db._temp_get_connection()
         params = dict(row)
         for k in ("topics", "post_sentiment", "sample_posts"):
             params[k] = json.dumps(params.get(k)) if params.get(k) is not None else None
+        params["metadata"] = json.dumps(params.get("metadata") or {})
         params.setdefault("created_at", _now())
         conn.execute(sql_text("""
             INSERT INTO social_accounts
               (platform, handle, handle_canonical, display_name, avatar_url, bio, profile_url,
                verified, followers_count, following_count, posts_count, account_created_at,
-               topics, post_sentiment, summary, brand_context, sample_posts, last_profiled_at, created_at)
+               topics, post_sentiment, summary, brand_context, sample_posts, last_profiled_at, created_at,
+               metadata)
             VALUES
               (:platform, :handle, :handle_canonical, :display_name, :avatar_url, :bio, :profile_url,
                :verified, :followers_count, :following_count, :posts_count, :account_created_at,
                CAST(:topics AS jsonb), CAST(:post_sentiment AS jsonb), :summary, :brand_context,
-               CAST(:sample_posts AS jsonb), :last_profiled_at, :created_at)
+               CAST(:sample_posts AS jsonb), :last_profiled_at, :created_at,
+               CAST(:metadata AS jsonb))
             ON CONFLICT (platform, handle_canonical) DO UPDATE SET
                handle=EXCLUDED.handle, display_name=EXCLUDED.display_name, avatar_url=EXCLUDED.avatar_url,
                bio=EXCLUDED.bio, profile_url=EXCLUDED.profile_url, verified=EXCLUDED.verified,
@@ -381,7 +443,9 @@ class SocialProfileService:
                posts_count=EXCLUDED.posts_count, account_created_at=EXCLUDED.account_created_at,
                topics=EXCLUDED.topics, post_sentiment=EXCLUDED.post_sentiment, summary=EXCLUDED.summary,
                brand_context=EXCLUDED.brand_context, sample_posts=EXCLUDED.sample_posts,
-               last_profiled_at=EXCLUDED.last_profiled_at
+               last_profiled_at=EXCLUDED.last_profiled_at,
+               -- merged, not replaced: the entity layer keeps its own keys here
+               metadata=COALESCE(social_accounts.metadata, '{}'::jsonb) || EXCLUDED.metadata
         """), params)
         try:
             conn.commit()
@@ -392,7 +456,7 @@ class SocialProfileService:
     _SELECT = ("id, platform, handle, handle_canonical, display_name, avatar_url, bio, profile_url, "
                "verified, followers_count, following_count, posts_count, account_created_at, topics, "
                "post_sentiment, summary, brand_context, sample_posts, tags, annotation, last_profiled_at, "
-               "watchlisted")
+               "watchlisted, metadata")
 
     def _row_to_dict(self, r) -> Dict:
         keys = [c.strip() for c in self._SELECT.split(",")]

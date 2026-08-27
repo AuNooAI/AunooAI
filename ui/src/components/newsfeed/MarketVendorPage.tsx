@@ -11,7 +11,7 @@ import {
   CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip,
   XAxis, YAxis,
 } from 'recharts';
-import {
+import { AtSign,
   AlertTriangle, ArrowLeft, Briefcase, Check, ExternalLink, FileText, Globe,
   Linkedin, Loader2, Plus, RefreshCw, ToggleLeft, ToggleRight,
 } from 'lucide-react';
@@ -40,6 +40,8 @@ const SEVERITY_TONE: Record<string, string> = {
 
 const KIND_ICON: Record<string, typeof Globe> = {
   website_url: Globe, domain: Globe,
+  // Recorded from Top voices when a profiled account reads as the vendor's own.
+  social_account: AtSign,
   linkedin_company_url: Linkedin, crunchbase_url: FileText,
   pitchbook_url: FileText, zoominfo_url: FileText,
 };

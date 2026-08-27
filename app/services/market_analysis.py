@@ -1331,6 +1331,8 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                        display_name, followers_count, summary, watchlisted,
                        tags, bio, profile_url, topics, verified, brand_context,
                        avatar_url, posts_count, last_profiled_at,
+                       metadata->>'market_role' AS role,
+                       metadata->>'market_org' AS org,
                        last_profiled_at IS NOT NULL AS profiled
                   FROM social_accounts
                  WHERE (platform, handle_canonical) IN (
@@ -1363,12 +1365,23 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                 # The service stores it under the brand's name; for a market
                 # it is the account's part in the market.
                 "relation": hit["brand_context"],
+                "role": hit["role"],
+                "org": hit["org"],
                 "last_profiled_at": (str(hit["last_profiled_at"])
                                      if hit["last_profiled_at"] else None),
                 "profiled": bool(hit["profiled"]),
             } if hit else None)
             if v["account"] and v["account"].get("profile_url"):
                 v["profile_url"] = v["account"]["profile_url"]
+
+    # Vendors' own accounts stay on the list — a vendor posting about the
+    # market is part of the conversation — but are tagged, so a reader does
+    # not take a company's marketing for an outside voice. The tag comes from
+    # the profile's role reading where there is one, and from the handle or
+    # display name matching a tracked vendor where there is not.
+    tracked = _tracked_vendor_names(conn, market_id)
+    for v in voices:
+        v["vendor_tag"] = _vendor_tag(v, tracked)
 
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
@@ -1454,6 +1467,100 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         "coverage": _coverage(with_author or 0, total or 0,
                               "practitioner posts name an author"),
     }
+
+
+def _norm_name(value: Optional[str]) -> str:
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+SOCIAL_IDENTIFIER_KIND = "social_account"
+
+
+def _tracked_vendor_names(conn, market_id: int) -> Dict[str, Dict[str, Any]]:
+    """normalised name or alias -> {brand_id, display}, for this market's
+    vendors; plus, under ``"_linked"``, the social accounts already recorded
+    on a vendor profile (``platform:handle`` -> brand_id)."""
+    out: Dict[str, Any] = {}
+    for brand_id, name, display in conn.execute(text("""
+        SELECT b.id, b.name, b.display_name
+          FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+        UNION
+        SELECT b.id, vi.normalized_value, b.display_name
+          FROM bw_vendor_identifiers vi
+          JOIN bw_brands b ON b.id = vi.brand_id
+          JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+         WHERE vi.kind IN ('alias', 'former_name') AND vi.valid_to IS NULL
+    """), {"m": market_id}).fetchall():
+        for key in (name, display):
+            k = _norm_name(key)
+            if len(k) >= 4:
+                out[k] = {"brand_id": brand_id, "display": display}
+    out["_linked"] = {
+        r[0]: r[1] for r in conn.execute(text("""
+            SELECT vi.normalized_value, vi.brand_id
+              FROM bw_vendor_identifiers vi
+              JOIN bw_market_brands mb ON mb.brand_id = vi.brand_id
+                   AND mb.market_id = :m
+             WHERE vi.kind = :k AND vi.valid_to IS NULL
+        """), {"m": market_id, "k": SOCIAL_IDENTIFIER_KIND}).fetchall()}
+    return out
+
+
+def social_identifier(platform: Optional[str], handle: Optional[str]) -> str:
+    """The value recorded on a vendor profile for one of its social accounts."""
+    return f"{(platform or '').lower()}:{(handle or '').strip().lstrip('@').lower()}"
+
+
+def _vendor_tag(v: Dict[str, Any], tracked: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    acct = v.get("account") or {}
+    role = acct.get("role")
+    linked_to = (tracked.get("_linked") or {}).get(
+        social_identifier(v.get("platform"), v.get("author")))
+    names = {k: x for k, x in tracked.items() if k != "_linked"}
+
+    def _tag(label: str, hit: Optional[Dict[str, Any]], org: Optional[str], source: str):
+        return {"label": label,
+                "org": hit["display"] if hit else org,
+                "brand_id": hit["brand_id"] if hit else linked_to,
+                "tracked": bool(hit or linked_to),
+                # Recorded on the vendor's profile already (or just now).
+                "linked": linked_to is not None,
+                "source": source}
+
+    if role in ("vendor", "vendor_staff"):
+        org = acct.get("org")
+        hit = names.get(_norm_name(org)) if org else None
+        label = "vendor" if role == "vendor" else "vendor staff"
+        # The company's own account carries its name in the handle or the
+        # display name. A founder posting under their own name is the vendor
+        # speaking, but not the vendor's account, and must not be recorded on
+        # the vendor profile as one.
+        if label == "vendor":
+            org_key = _norm_name(hit["display"] if hit else org)
+            carries = org_key and len(org_key) >= 4 and any(
+                org_key in _norm_name(c) for c in (v.get("author"), acct.get("display_name")))
+            if not carries:
+                label = "vendor staff"
+        return _tag(label, hit, org, "profile")
+    if role:
+        # The profile read the account and it is not a vendor. Trust it.
+        return None
+    for candidate in (v.get("author"), acct.get("display_name")):
+        k = _norm_name(candidate)
+        if not k:
+            continue
+        hit = names.get(k)
+        if not hit:
+            # "dropzoneai" for "Dropzone", "torq_io" for "Torq": the handle
+            # begins with the vendor's name and adds a suffix.
+            for key, x in names.items():
+                if len(key) >= 5 and k.startswith(key) and len(k) - len(key) <= 4:
+                    hit = x
+                    break
+        if hit:
+            return _tag("vendor", hit, None, "name")
+    return None
 
 
 _PROFILE_URLS = {

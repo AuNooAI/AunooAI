@@ -91,9 +91,54 @@ async def _build_with_retry(db, platform: str, handle: str, market_name: str):
     return None
 
 
+async def reread_one(db, platform: str, handle: str, market_name: str) -> Optional[Dict[str, Any]]:
+    """Re-run the model step over a stored profile, no platform call."""
+    from app.services.social_profile_service import SocialProfileService
+    return await SocialProfileService().reread(db, platform.lower(), handle, market_name)
+
+
+def link_vendor_accounts(db, market_id: int, days: Optional[int] = None) -> Dict[str, Any]:
+    """Record each tagged vendor account on that vendor's profile.
+
+    A voice read as a vendor's own account (not staff), whose organisation is
+    a vendor we track on this market, becomes a ``social_account`` identifier
+    on that vendor: ``twitter:sentinelone`` with the profile URL as its
+    display value. Insert-unless-exists, so re-running adds nothing twice; a
+    handle already live on another vendor is left alone.
+    """
+    from app.services import market_analysis as man
+    from app.services.market_import import _upsert_identifier
+    conn = db._temp_get_connection()
+    voices = man.top_voices(conn, market_id, days=days, limit=200)
+    added = 0
+    for v in voices.get("voices") or []:
+        tag = v.get("vendor_tag") or {}
+        if tag.get("label") != "vendor" or not tag.get("brand_id") or tag.get("linked"):
+            continue
+        acct = v.get("account") or {}
+        _upsert_identifier(
+            conn, brand_id=int(tag["brand_id"]), kind=man.SOCIAL_IDENTIFIER_KIND,
+            normalized=man.social_identifier(v.get("platform"), v.get("author")),
+            display=v.get("profile_url") or f"@{v.get('author')}",
+            external_id=str(acct["account_id"]) if acct.get("account_id") else None,
+            provenance={"source": "top_voices", "how": tag.get("source"),
+                        "market_id": market_id, "at": _now()})
+        added += 1
+    try:
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"linked": added}
+
+
 def start_many(db, market_id: int, market_name: str, voices: List[Dict[str, Any]],
-               *, refresh: bool = False, concurrency: int = 1) -> Dict[str, Any]:
+               *, refresh: bool = False, mode: str = "build",
+               concurrency: int = 1) -> Dict[str, Any]:
     """Queue profiles for every voice that lacks one (or all, with refresh).
+
+    ``mode="reread"`` re-runs the model step over profiles already stored
+    (bio and sample posts), for adding the market role without paying for
+    the platform fetch again; it skips accounts with no profile.
 
     Returns the job status straight away. Raises RuntimeError if a job for the
     market is still running.
@@ -108,7 +153,11 @@ def start_many(db, market_id: int, market_name: str, voices: List[Dict[str, Any]
         if platform not in PROFILABLE:
             skipped += 1
             continue
-        if account.get("profiled") and not refresh:
+        if mode == "reread":
+            if not account.get("profiled") or (account.get("role") and not refresh):
+                skipped += 1
+                continue
+        elif account.get("profiled") and not refresh:
             skipped += 1
             continue
         todo.append((platform, v.get("author")))
@@ -116,24 +165,27 @@ def start_many(db, market_id: int, market_name: str, voices: List[Dict[str, Any]
         "state": "running" if todo else "done",
         "market_id": market_id,
         "total": len(todo), "done": 0, "built": 0, "failed": 0,
-        "skipped": skipped, "errors": [],
+        "skipped": skipped, "errors": [], "mode": mode,
         "started_at": _now(), "finished_at": None if todo else _now(),
     }
     _JOBS[market_id] = job
     if todo:
         job["task"] = asyncio.create_task(
-            _run(db, job, market_name, todo, concurrency))
+            _run(db, job, market_name, todo, concurrency, mode))
     return status(market_id)
 
 
 async def _run(db, job: Dict[str, Any], market_name: str,
-               todo: List[tuple], concurrency: int) -> None:
+               todo: List[tuple], concurrency: int, mode: str = "build") -> None:
     sem = asyncio.Semaphore(max(1, concurrency))
 
     async def one(platform: str, handle: str) -> None:
         async with sem:
             try:
-                prof = await _build_with_retry(db, platform, handle, market_name)
+                if mode == "reread":
+                    prof = await reread_one(db, platform, handle, market_name)
+                else:
+                    prof = await _build_with_retry(db, platform, handle, market_name)
                 if prof:
                     job["built"] += 1
                 else:
@@ -149,6 +201,11 @@ async def _run(db, job: Dict[str, Any], market_name: str,
 
     try:
         await asyncio.gather(*(one(p, h) for p, h in todo))
+        try:
+            job["linked"] = (await asyncio.to_thread(
+                link_vendor_accounts, db, job["market_id"]))["linked"]
+        except Exception as exc:  # noqa: BLE001 — the profiles stand without the link
+            logger.warning("linking vendor accounts failed: %s", exc)
     finally:
         job["state"] = "done"
         job["finished_at"] = _now()

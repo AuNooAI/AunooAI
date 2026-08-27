@@ -2102,6 +2102,9 @@ class VoiceProfileAllRequest(BaseModel):
     days: Optional[int] = Field(None, ge=1, le=3650)
     limit: int = Field(50, ge=1, le=200)
     refresh: bool = False
+    # "build" fetches from the platform; "reread" re-runs the model step over
+    # stored profiles only (adds the market role to older profiles cheaply).
+    mode: str = Field("build", pattern="^(build|reread)$")
 
 
 @router.post("/markets/{market_id}/voices/profile")
@@ -2130,6 +2133,10 @@ async def market_voice_profile(market_id: int, body: VoiceProfileRequest,
         raise HTTPException(
             status_code=404,
             detail=f"No {body.platform} account found for @{body.author}")
+    try:
+        await asyncio.to_thread(mvp.link_vendor_accounts, get_database_instance(), market_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("linking vendor accounts failed: %s", exc)
     return prof
 
 
@@ -2156,7 +2163,8 @@ async def market_voice_profile_all(market_id: int, body: VoiceProfileAllRequest,
     market, voices = await asyncio.to_thread(_work)
     try:
         return mvp.start_many(get_database_instance(), market_id, market["name"],
-                              voices.get("voices") or [], refresh=body.refresh)
+                              voices.get("voices") or [], refresh=body.refresh,
+                              mode=body.mode)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
