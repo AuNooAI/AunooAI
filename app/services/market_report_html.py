@@ -721,6 +721,17 @@ def _day(value: Any) -> str:
         return raw
 
 
+def _mask_names(names: List[str], allowed: Optional[set]) -> List[str]:
+    """The names the viewer may see, plus a count for the rest."""
+    if allowed is None:
+        return list(names)
+    shown = [n for n in names if n in allowed]
+    hidden = len(names) - len(shown)
+    if hidden:
+        shown.append(f"{hidden} vendor{'s' if hidden > 1 else ''} not shown in this view")
+    return shown
+
+
 def _voice_row(v: Dict[str, Any]) -> str:
     """One account in the voices table: linked handle, who they are if we
     have profiled them, and a link to their latest relevant post."""
@@ -1714,6 +1725,15 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         voices = ent.filter_rows(voices, allowed_brand_ids, allowed_names)
         dataset = ent.filter_rows(dataset, allowed_brand_ids, allowed_names)
         articles = ent.drop_text_mentioning(articles, withheld)
+        # An investor row lists the vendors it backs as a plain list of
+        # names, which filter_rows cannot see. The first overlap on market 2
+        # (one investor behind two vendors outside the ten) named both and
+        # tripped the fail-closed check, so the whole page was a 500. Keep
+        # the fact — this investor backs N vendors — and withhold the names.
+        if funding and funding.get("shared_investors"):
+            funding["shared_investors"] = [
+                {**i, "backing": _mask_names(i.get("backing") or [], allowed_names)}
+                for i in funding["shared_investors"]]
         if joblist:
             joblist["data"] = ent.filter_rows(joblist.get("data") or [],
                                               allowed_brand_ids, allowed_names)

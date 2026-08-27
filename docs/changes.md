@@ -471,6 +471,20 @@ them, tag them.
   `MARKET_TRIAL_NOTIFY_EMAIL` lists what was queued. Accounts the profile read as having no
   clear connection to the market are skipped.
 
+### Incident — the shared report was a 500 for about twenty minutes
+**`market_report_html.py` (`_mask_names`).** Adding Anvilogic brought its Crunchbase record
+with investors, and Evolution Equity Partners then backed two vendors on market 2 (Anvilogic,
+Backline AI), neither in the ten a shared reader may see. The "Investors backing more than one
+vendor" panel had never had a row before; its `backing` field is a plain list of names, which
+`filter_rows` cannot see, so the names reached the page and the fail-closed
+`assert_no_withheld` refused it: every `report.html` request without a session, which is
+`aisoc.aunoo.ai`, returned 500 from 18:19 to about 18:40 CEST. The fix keeps the fact and
+withholds the names: `_mask_names` leaves the allowed names and appends "N vendors not shown
+in this view". Verified in-process with the backstop on, then on `https://aisoc.aunoo.ai/`
+(200; the row reads "Evolution Equity Partners — 2 vendors not shown in this view", digits
+blurred in the teaser). Lesson: any new list of vendor names on the report needs the mask, and
+the backstop is doing its job — it turned a leak into an outage, which is the right way round.
+
 ### Fix — the report said no account posted more than twice while two had three and four
 **`market_analysis.py`.** `top_voices` cut to `limit` by engagement before splitting off the
 repeat posters, so on the report (`limit=20`) the two Bluesky accounts with four and three
