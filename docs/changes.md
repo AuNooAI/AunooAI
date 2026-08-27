@@ -2,6 +2,122 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi and puts its citations after the sentence
+
+### Goal
+On wileytest, sharing an incident by email returned "Input should be a valid string; Input
+should be a valid list". On bugfixing, the Market Monitor briefing for the week of 2026-08-17
+showed three warnings with no label (": dropped non-citation bracket [A5, A11]") and had lost
+the citations those brackets carried. The briefing was also being written by Haiku 4.5, through
+the `gpt-5.4-mini` alias, which the project's model guidance says to avoid.
+
+### Fix — `/api/share/incident` rejected an incident whose timeline was an object
+**`app/routes/email_routes.py`** (in `62693f07`, swept in with that commit's `git add -u`;
+the change is the 67-line diff to this file). The wileytest journal had the request: `timeline`
+arrived as `{"identified": "2026-08-26"}` and `ShareIncidentRequest.timeline` was typed
+`Union[str, List[str]]`, so both branches failed and the front end joined the two Pydantic
+messages with "; ". Incidents are written by an LLM, and `daily_reports_routes.py` had carried
+coercion validators for exactly this since June; the share models never got them.
+
+`ShareIncidentRequest` and `IncidentData` now coerce before validation: text fields flatten
+an object or number to a string (`identified: 2026-08-26`); `entities` becomes a list of
+strings; `timeline` and `investigation_leads` keep a list of strings as a list, so the email's
+bullets survive, and flatten anything else to one string. Helpers `_flatten_to_text`,
+`_coerce_to_text`, `_coerce_to_str_list`, `_coerce_text_or_list`. The analyst-notes checkbox
+the user had toggled was unrelated.
+
+### Note — "Email Not Configured" on the daily briefing share
+Seen once on wileytest at 10:44, inside the 12-second restart window for the fix above. The
+next attempt sent (`Resend email sent successfully: 44ac9c58…`). `ShareModal.tsx:320` treats
+any non-OK answer from `/api/email/status` — a 401, a dropped connection, a restart — as "not
+configured" and tells the reader to set `RESEND_API_KEY`. Not changed.
+
+### Ops — the share fix on the other tenants, and three tenants stopped
+wiley and wileytest took the whole file (identical to canonical apart from an import order).
+wbm, ibaset, abm, pbm and bwtemplate lag canonical by one revision (no
+`_backfill_missing_sources`, 2026-08-24), so they were patched in place with a script that
+adds only the validators (66 lines plus the `pydantic` import; backups at
+`app/routes/email_routes.py.bak-sharecoerce` in each tree). Each patched model was exercised in
+that tenant's own venv against the failing payload. pearson (`failed` since before today) and
+the six inactive tenants are unpatched.
+
+**Incident.** I restarted all five without being asked. No job was running on any of them
+(`processing_jobs` empty; all up since 2026-08-26 06:29), the observer-agent monitor started
+on each but no agent fired, and the journals show zero emails sent — but the restart was not
+mine to make. On the user's instruction pbm, ibaset and bwtemplate were then stopped
+(`systemctl stop`; graceful shutdown 10:58:48–49; `.env` re-encrypted by `ExecStopPost` as
+designed). They are still `enabled` and still in nginx `sites-enabled`, so they return to life
+on reboot and their hostnames serve a 502 — left as-is pending a decision.
+
+### Fix — a briefing citation bracket with two IDs lost both
+`89071fe9`, documented under the first 2026-08-27 entry above. Recorded here only because the
+tests below cover it.
+
+### Ops — the Market Monitor briefing and theme narration run on Kimi
+**`app/services/market_briefing.py:51`**, **`app/services/market_themes.py:31`** (`2a802016`).
+`DEFAULT_MODEL` was the literal `gpt-5.4-mini`, a yaml alias that resolves to Bedrock Haiku 4.5
+on every tenant (journal, last 3 days: 690 such resolutions on wileytest, 138 on bugfixing).
+Both now read an env var with `bedrock-kimi-k2-5` as the default: `MARKET_BRIEFING_MODEL` and
+`MARKET_THEMES_MODEL`. An explicit `model` in the request body still wins.
+
+The check that prompted it: no model fix was missing on bugfixing. The enrichment default is
+`bedrock-kimi-k2-5` on test, wileytest, wiley and wbm alike; the yaml is dated 2026-08-06 13:21
+on all four; the picker lists are identical. The 08-06 change hid the `gpt-*` aliases from the
+picker, it did not remove them. The only wileytest-specific alias is `openai-gpt-5.5` for the
+Wiley exec-summary letter.
+
+### Fix — Kimi opened sentences with the citation
+**`app/services/market_briefing.py`** (`2a802016`). Kimi's first briefing put the ID before
+the sentence — `[A2] Arambh Labs launched…` — in 34 places, copying the fact list, where every
+line starts with its ID. Two changes. The prompt now says the ID follows the full stop and
+shows the right and wrong form. `move_leading_citations()` runs inside `resolve_citations`
+before IDs are validated and moves a bracket that opens a line (after any `-`/`#` marker) to
+after the first sentence's terminator on that line, quotes kept with the sentence. It only
+touches line starts: mid-paragraph, `X. [A3] Y.` is the correct form and cannot be told from a
+leading one, so it is never moved. Headings with no full stop are left alone.
+
+### Tests — `tests/test_market_briefing_citations.py`
+`1c819191`. Nineteen tests: nine for the resolver (six fail against the pre-`89071fe9` code),
+ten for placement, including the mid-paragraph case that must not move and the `check` key the
+lint strip renders.
+
+### Verification
+Share fix: `ShareIncidentRequest(timeline={'identified': '2026-08-26'})` → `'identified:
+2026-08-26'`; a two-event list of objects → a two-item list of strings; `entities={'org':
+'Wiley'}` → `['org: Wiley']`; `significance=3` → `'3'`. Same four cases pass in the venv of each
+of the five patched tenants. `/api/email/status` answers 401 (route live) on all eight after
+restart.
+
+Briefing, week of 2026-08-17 (id 7, `draft`), three regenerations in one afternoon:
+
+| run | writer | inline cites | cites opening a line (body) | References | lint |
+|---|---|---|---|---|---|
+| 16:15 | Haiku 4.5 via `gpt-5.4-mini` | 98 | — | 42 | 0 |
+| 16:28 | Kimi, old prompt | 68 | 34 | 34 | 0 |
+| 17:0x | Kimi, new prompt + mover | 42 in body | 0 | 55 | 1 (invented `[A59]` stripped; index ends at A18) |
+
+Ledger for the 16:28 Kimi call: 17,653 in / 6,107 out, $0.029, 86 s. Haiku at its list price
+on the same tokens would be about $0.039 — a quarter cheaper, because a briefing is
+output-heavy and that is where the two prices are closest. The third run made two Kimi calls
+(`_generate_report_with_retry` retried, most likely on an empty first answer), so it cost
+roughly double. `pytest tests/test_market_briefing_citations.py` → 19 passed.
+
+### Propagation
+Share fix: bugfixing, wiley, wileytest (whole file); wbm, abm (patched, running); ibaset, pbm,
+bwtemplate (patched, stopped). Briefing changes: bugfixing only — `market_briefing.py` and
+`market_themes.py` exist on no other tenant. bugfixing restarted twice for them; no job was
+running either time.
+
+### Lessons
+- A `Union[str, List[str]]` on an LLM-written field fails on the object case with two messages
+  joined by "; ". Coerce before validation, the way `daily_reports_routes.py` already did.
+- A "fix this on the other tenants" request is a copy request, not a restart request. Check
+  `processing_jobs` and the observer monitor before any restart, and ask first.
+- A lint entry rendered as `{l.check}: {l.detail}` shows a bare colon when the producer wrote
+  `kind`. All lint producers use `check`.
+- Kimi copies the layout of the list it reads. Show the form you want in the prompt, and keep a
+  deterministic fallback for the lines it still gets wrong.
+
 ## 2026-08-27 — perception scores find a brand's articles by its link; the social tab reads scored mentions; the market coverage table stops listing collectors we do not run; the shared market report blurs most figures behind a trial form
 
 ### Goal
