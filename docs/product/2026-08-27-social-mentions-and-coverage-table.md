@@ -25,7 +25,7 @@ Who feels it: analysts using the Social tab on market sites; anyone reading a sh
 - Market report: attempt counts now include successful checks; the hiring coverage row is labelled by what it counts.
 
 ## Demo / walkthrough
-- Open a market report link without being logged in (or a public market's report). Read the lead, then open "The evidence behind this": the first sections are readable, the rest blurred with a "Request a trial" card. The form sits just above the drawers.
+- Open the market report's plain URL (the one you would paste to someone) — logged in or not, it is the shared view. The app's own Report button opens the full one. Read the lead, then open "The evidence behind this": the first sections are readable, the rest blurred with a "Request a trial" card. The form sits just above the drawers.
 - Brand Watcher → Social. Scope "selected brands" shows the brands chosen in the header; "+ competitors" shows every vendor. Leave "Min relevance" on ≥0.4 for on-brand posts.
 - Market Monitor → open a market → Report (HTML) → expand "How this was measured" → "How much of the market we checked".
 
@@ -33,6 +33,7 @@ Who feels it: analysts using the Social tab on market sites; anyone reading a sh
 None that change the story. This closes a gap between what we collected and what we showed, on the customer site where the market layer runs.
 
 ## Limits and what's next
+- The lead of the shared view (assessment, who moved, developments and their records) is still shown in full; only the evidence drawers, most of the registry and the coverage tables are blurred.
 - The blur is a teaser, not a paywall: numbers are removed from the blurred text, but bar heights in the blurred charts and the prose still exist in the page source.
 - Trial requests are stored in `market_trial_requests`. Nobody is emailed until `MARKET_TRIAL_NOTIFY_EMAIL` is set on the customer site.
 - The form checks that the email looks like one; it does not reject personal mail domains.

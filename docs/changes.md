@@ -134,13 +134,32 @@ of them and the header selection no longer pins. Labels read "Show top N". Rebui
 (`BrandWatcherTab-BI4ObE27.js`, entry `newsfeed-BP-jSDZj.js`) and copied to wiley and
 wileytest with the templates; all three restarted.
 
-### Feature — `report.html?preview=shared`
-**`app/routes/market_monitor_routes.py`**. A session always gets the full report, which is why
-the blurred view was invisible to the operator who asked for it. `preview=shared` lowers the
-entitlement to the shared tier for that request only; access is still decided by the real
-session. Verified: without it 0 teaser blocks, with it 2 and the form. The attempt-stamp
-backfill was run afterwards (284 rows), so the coverage table now reads attempted = collected
-for every source.
+### Fix — the plain report URL is the shared view for everyone; `full=1` is the operator's
+**`app/routes/market_monitor_routes.py`, `ui/src/services/marketMonitorApi.ts`**. A session
+used to get the whole market at the plain URL, so the operator who asked for the blurred view
+kept seeing everything and could not tell what a pasted link showed. Now the plain URL renders
+the shared view (vendor cap, blur, trial form) whoever opens it; the whole market needs
+`full=1` *and* a session, and the app's "Report (HTML)" button adds it. Access is unchanged —
+session, signed token or public flag still decide whether the page opens at all. `full=1` is
+carried through the period and news-river links via `link_params`; without a session it is
+ignored. The short-lived `preview=shared` switch is gone. The attempt-stamp backfill was run
+(284 rows), so the coverage table reads attempted = collected for every source.
+
+### Fix — news river and RSS reachable from the report at any width
+**`market_report_html.py`**. "News river" sat inside the jump nav, which the CSS hides below
+850px, so a half-width window had no way to the river. Page links now sit in their own
+`.n-pages` nav beside the market name, never hidden, and the RSS link (public markets only;
+a feed reader has no session) is there too on both pages — it was only in the "Material market
+developments" header before, which is why it was hard to find.
+
+### Fix — operator coverage notes no longer printed for the customer
+**`market_lists.py`, `market_report_html.py`**. The report said "50 of these roles belong to a
+vendor we have only checked once, so we cannot yet say whether they are new", and the stat
+cards said "Read twice for 1 of 84 vendors so far. Too early for a market change." / "Too early
+for a trend line." / "Too early to say how many are new". Those describe our collection
+cadence, not the market. The job list's meta now carries `reader_notes` (the dedup and
+where-from notes) beside the operator `notes`, and the report prints only `reader_notes`; the
+cards say "No market-wide change to report yet." and "Roles open today".
 
 ### Fix — the Brand Watcher sub-tab reset on reload
 **`BrandWatcherTab.tsx`**: `activeTab` was `useState('dashboard')`. It now initialises from
@@ -168,6 +187,13 @@ eight rows (was eleven), the "Not read for this market" sentence names Indeed, P
 ZoomInfo, no Paused row, hiring row reads "Have job listings we have seen 20 / 84". `py_compile`
 clean on all four files. Journal after restart shows only the pre-existing "NewsData.io API key
 not found".
+
+Report follow-ups (later): with a session, plain URL → 2 teaser blocks + form, `full=1` →
+0 and 0 with `full=1` carried on the river and period links; without a session `full=1` still
+gives the shared view; every variant has the `.n-pages` nav and the RSS link; "checked once"
+and "Too early" appear 0 times; cards read "No market-wide change to report yet." and "Roles
+open today". Bundle `MarketMonitorTab-CV7VXO5q.js` / entry `newsfeed--XscFT13.js` copied to
+wiley and wileytest; all three restarted clean.
 
 Shared report: `report.html?days=30` without a session on bugfixing → 200, two `.mm-teaser`
 blocks (Funding…What people are saying; coverage tables), 8 blurred registry rows, one form, no

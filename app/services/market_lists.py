@@ -46,7 +46,8 @@ _OWN_VOICE = own_voice_sql("a")
 def envelope(rows: List[Dict[str, Any]], *, total: int, page: int,
              page_size: int, sort: str, filters: Dict[str, Any],
              metric: Optional[Dict[str, Any]] = None,
-             notes: Optional[List[str]] = None) -> Dict[str, Any]:
+             notes: Optional[List[str]] = None,
+             reader_notes: Optional[List[str]] = None) -> Dict[str, Any]:
     """The response shape every list shares.
 
     One shape rather than each endpoint inventing its own, so a UI table
@@ -71,6 +72,11 @@ def envelope(rows: List[Dict[str, Any]], *, total: int, page: int,
             "applied_filters": {k: v for k, v in filters.items()
                                if v is not None and v != ""},
             "notes": notes or [],
+            # The subset a customer may read. ``notes`` can say how often we
+            # have checked a vendor; that is for the operator, and the shared
+            # report prints only these.
+            "reader_notes": (reader_notes if reader_notes is not None
+                             else (notes or [])),
         },
     }
 
@@ -527,12 +533,16 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
         by_source[row["source"]] = by_source.get(row["source"], 0) + 1
 
     notes = []
+    reader_notes = []
     if duplicates:
-        notes.append(
-            f"We dropped {duplicates} LinkedIn listings because the same "
-            "role was already on the company's own careers page. We count the "
-            "company's page, which gives us a posting date.")
+        note = (f"We dropped {duplicates} LinkedIn listings because the same "
+                "role was already on the company's own careers page. We count the "
+                "company's page, which gives us a posting date.")
+        notes.append(note)
+        reader_notes.append(note)
     if single_run:
+        # Operator only. A reader does not need to know our collection
+        # cadence, and "we have only checked once" reads as an apology.
         notes.append(
             f"{single_run} of these roles belong to a vendor we have only "
             "checked once, so we cannot yet say whether they are new.")
@@ -541,9 +551,11 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
     if len(by_source) > 1:
         names = {"ats_jobs": "the vendors' own careers pages",
                  "linkedin_jobs": "LinkedIn", "indeed_jobs": "Indeed"}
-        notes.append("Where these came from: " + ", ".join(
+        note = "Where these came from: " + ", ".join(
             f"{n} from {names.get(k, k.replace('_', ' '))}"
-            for k, n in sorted(by_source.items(), key=lambda kv: -kv[1])))
+            for k, n in sorted(by_source.items(), key=lambda kv: -kv[1]))
+        notes.append(note)
+        reader_notes.append(note)
 
     metric = mmet.metric(
         "observed_job_listings",
@@ -576,7 +588,7 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
 
     result = envelope(out[offset:offset + size], total=total,
                       page=max(1, page), page_size=size, sort=sort,
-                      metric=metric, notes=notes,
+                      metric=metric, notes=notes, reader_notes=reader_notes,
                       filters={"brand_id": brand_id, "status": status,
                                "source": source})
     if include_all:

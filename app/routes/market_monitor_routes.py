@@ -1277,14 +1277,17 @@ async def market_report(
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
     view: str = Query("report"),
-    preview: Optional[str] = Query(None, description="'shared': render what a reader without a login gets, even with a session"),
+    full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
 ):
     """The market as one self-contained HTML file.
 
-    ``preview=shared`` lets a logged-in operator see the shared view — the
-    vendor cap, the blur and the trial form — without logging out. Access
-    is still decided by the real session; only the entitlement is lowered.
+    The plain URL is the shared view for everybody, session or not: the
+    vendor cap, the blur and the trial form. That is the URL people paste,
+    and an operator looking at it sees what the recipient will see. The
+    whole market needs ``full=1`` *and* a session; the app's own Report
+    button adds it. Access is still decided by the session, token or
+    public flag — ``full`` only chooses how much of it is rendered.
 
     ``view=news`` is the second page: every record in the period as a
     time-ordered river of headlines, no analysis.
@@ -1318,9 +1321,10 @@ async def market_report(
             # is the account holder, so neither gets the whole roster: this
             # report used to name all 84 vendors to anybody with the URL, and
             # because is_public was true it needed no token at all.
+            full_view = bool(session) and full == 1
             entitlement = ent.resolve(
-                session=None if preview == "shared" else session,
-                signed_link=signed or (preview == "shared" and bool(session)),
+                session=session if full_view else None,
+                signed_link=signed or bool(session),
                 market_is_public=bool(market.get("is_public")))
             allowed = ent.authorized_brand_ids(
                 conn, market_id, entitlement.vendor_limit)
@@ -1336,7 +1340,8 @@ async def market_report(
                        else build_market_report)
             return builder(
                 conn, market, days=days, allowed_brand_ids=allowed,
-                link_params=({"exp": exp, "token": token} if signed else {}))
+                link_params=({"exp": exp, "token": token} if signed
+                             else ({"full": 1} if full_view else {})))
         finally:
             conn.close()
 

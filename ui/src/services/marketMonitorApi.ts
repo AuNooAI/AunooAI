@@ -1570,10 +1570,12 @@ export async function getDrilldown(
 // Report and bundle
 // ============================================================================
 
-/** The whole market as one self-contained HTML file. Needs a session, or a
- *  signed link from getReportLink(). */
+/** The whole market as one self-contained HTML file. `full=1` with the
+ *  session renders every vendor and figure; the same URL without it is the
+ *  shared view (vendor cap, blurred evidence, trial form) for anybody,
+ *  which is what a pasted link shows. Signed links come from getReportLink(). */
 export function reportUrl(marketId: number, days = 30): string {
-  return `${BASE}/markets/${marketId}/report.html?days=${days}`;
+  return `${BASE}/markets/${marketId}/report.html?days=${days}&full=1`;
 }
 
 /** Every dataset in one zip: nine CSVs, market.json, and a README. */

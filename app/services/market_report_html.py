@@ -69,6 +69,11 @@ NEWS_CSS = """
 .mm-news .n-jump a:hover { background:#1e293b; color:#fff; }
 .mm-news .n-market { color:#aab7c7; white-space:nowrap; font-size:.85rem; }
 .mm-news .n-jump-page { border:1px solid #334155; }
+/* Page links and the feed: never hidden, whatever the width. */
+.mm-news .n-pages { display:flex; align-items:center; gap:6px; margin-left:auto; }
+.mm-news .n-pages a { border-radius:7px; padding:6px 10px; color:#aab7c7;
+                      border:1px solid #334155; font-size:.82rem; white-space:nowrap; }
+.mm-news .n-pages a:hover { background:#1e293b; color:#fff; }
 /* The news river: a time, a source, a headline, and the other outlets. */
 .mm-news .n-river { padding:24px; }
 .mm-news .n-day { font-size:13px; font-weight:500; letter-spacing:.04em;
@@ -238,7 +243,6 @@ NEWS_CSS = """
 .mm-news .n-empty { color:var(--n-muted); font-size:13px; padding:14px 0; }
 @media (max-width:850px) {
   .mm-news .n-jump { display:none; }
-  .mm-news .n-market { margin-left:auto; }
   .mm-news .n-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .mm-news .n-grid { grid-template-columns:1fr; }
 }
@@ -806,25 +810,22 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
         # A market total needs one reading per vendor; a market *change* needs
         # two of the same vendor, and 83 of 84 have one. So the delta states
         # what actually moved rather than a market figure it cannot support.
-        moved = [m for m in ((movers or {}).get("movers") or [])
-                 if m.get("metric") == "Staff"]
-        head_delta = (
-            f'Read twice for {len(moved)} of {total} vendors so far. '
-            'Too early for a market change.'
-            if moved else "Too early to show a change")
+        # How often we have read each vendor is our business, not the
+        # reader's. Until two readings cover the market there is no change
+        # to report, and that is all the card says.
+        head_delta = "No market-wide change to report yet."
         cards.append(_metric_card(
             "Staff", f"counted at {cohort} of {total} vendors",
             f"{headcount.get('observed_market_headcount', 0):,}",
             head_delta,
             # The weekly headcount series has two points and its own
             # thin-coverage flag, so there is nothing honest to draw.
-            nospark="Too early for a trend line."))
+            nospark=""))
 
     cards.append(_metric_card(
         "Open roles", "LinkedIn and company job boards",
         f"{jobs_total:,}" if jobs_state != "unmeasured" else "—",
-        (f"{jobs_new} of them posted since we last looked"
-         if jobs_new else "Too early to say how many are new"),
+        (f"{jobs_new} of them newly posted" if jobs_new else "Roles open today"),
         nospark="Roles open today, not roles advertised this month."))
 
     if funding:
@@ -1489,9 +1490,9 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
                'title="Subscribe in a feed reader">RSS</a>')
     body = [f"<style>{EXTRA_CSS}{NEWS_CSS}</style>", '<div class="mm-news">',
             '<div class="n-top">' + _brand_line()
-            + '<nav class="n-jump" aria-label="Pages">'
-            f'<a class="n-jump-page" href="?{_relink(link_params, days=days)}">'
-            'Assessment</a></nav>'
+            + '<nav class="n-pages" aria-label="Pages">'
+            f'<a href="?{_relink(link_params, days=days)}">Assessment</a>'
+            f'{rss}</nav>'
             f'<span class="n-market">{esc(market["name"])}</span></div>',
             '<main class="n-river">',
             '<div class="n-head"><div>'
@@ -1675,7 +1676,9 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     jobs_total = int(((joblist or {}).get("meta") or {})
                      .get("pagination", {}).get("total") or 0)
     jobs_meta = ((joblist or {}).get("meta") or {}).get("metric") or {}
-    jobs_notes = ((joblist or {}).get("meta") or {}).get("notes") or []
+    # reader_notes, not notes: the operator notes say how often we have
+    # checked a vendor, which is not something a customer needs to read.
+    jobs_notes = ((joblist or {}).get("meta") or {}).get("reader_notes") or []
 
     # ================================================================
     # The lead
@@ -1689,9 +1692,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<a href="#mm-developments">Developments</a>'
                 '<a href="#mm-analysis">Evidence</a>'
                 '<a href="#mm-registry">Vendors</a>'
-                '<a href="#mm-method">Method</a>'
-                f'<a class="n-jump-page" href="?{_relink(link_params, days=days, view="news")}">'
-                'News river</a></nav>'
+                '<a href="#mm-method">Method</a></nav>'
+                '<nav class="n-pages" aria-label="Pages">'
+                f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
+                + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
+                   if market.get("is_public") else "")
+                + '</nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 
     body.append('<main class="n-main"><span id="mm-overview"></span>')
