@@ -74,3 +74,80 @@ def test_report_labels_every_coverage_chart_with_its_denominator():
     html = _render_sample_report()
     for div in re.findall(r'<div class="mm-cover[^"]*">([^<]*)</div>', html):
         assert re.search(r"\d", div), f"coverage label has no denominator: {div!r}"
+
+
+# ---------------------------------------------------------------------------
+# The mockup's parts, and the rules that keep them honest
+# ---------------------------------------------------------------------------
+
+def test_a_vendors_own_announcement_is_a_record_not_social_chatter():
+    """The split is whose voice, not whether the item has social metadata.
+
+    A vendor announcing a product on LinkedIn carries social metadata, so
+    splitting on that filed the company's own statement under "Social" beside
+    practitioner chatter — which said the announcement was somebody talking
+    about it.
+    """
+    from app.services.market_report_html import _story_evidence
+
+    html = _story_evidence({'supporting': [
+        {'uri': 'https://linkedin.test/post', 'title': 'Acme ships',
+         'source': 'linkedin', 'social': True, 'voice': 'owned'},
+    ]})
+    assert 'Social:' not in html
+    assert "the company&#x27;s LinkedIn post" in html
+
+
+def test_outside_discussion_is_separated_from_the_records():
+    from app.services.market_report_html import _story_evidence
+
+    html = _story_evidence({'supporting': [
+        {'uri': 'https://sw.test/a', 'title': 'Acme ships',
+         'source': 'securityweek.com', 'social': False, 'voice': 'independent'},
+        {'uri': 'https://bsky.test/b', 'title': 'thoughts',
+         'source': 'bluesky', 'social': True, 'voice': 'independent'},
+    ]})
+    assert '<strong>More:</strong>' in html and 'securityweek.com' in html
+    assert '<strong>Social:</strong>' in html and 'Bluesky' in html
+
+
+def test_two_links_from_one_platform_do_not_both_read_the_same():
+    """Two links labelled "LinkedIn" tell a reader nothing about which to open."""
+    from app.services.market_report_html import _story_evidence
+
+    html = _story_evidence({'supporting': [
+        {'uri': 'https://l.test/1', 'title': 'First announcement here',
+         'source': 'linkedin', 'social': True, 'voice': 'owned'},
+        {'uri': 'https://l.test/2', 'title': 'A second and different post',
+         'source': 'linkedin', 'social': True, 'voice': 'owned'},
+    ]})
+    assert html.count("the company&#x27;s LinkedIn post") == 1
+    assert 'A second and different post' in html
+
+
+def test_records_held_without_a_link_are_admitted_not_hidden():
+    from app.services.market_report_html import _story_evidence
+    html = _story_evidence({'supporting': [], 'evidence_count': 3})
+    assert '3 records held, none with a public link' in html
+    assert _story_evidence({'supporting': [], 'evidence_count': 0}) == ''
+
+
+def test_a_delta_against_nothing_is_not_a_percentage():
+    """Dividing by a zero base produces a number that means nothing."""
+    from app.services.market_report_html import _delta
+
+    assert '%' not in _delta(5, 0)
+    assert 'Up from none' in _delta(5, 0)
+    assert 'no comparison' in _delta(5, None)
+    assert 'Unchanged' in _delta(5, 5)
+    assert '+100%' in _delta(2, 1)
+
+
+def test_period_links_keep_the_signed_token():
+    """A shared reader switching windows must not lose the token and 404."""
+    from app.services.market_report_html import _relink
+
+    out = _relink({'exp': 123, 'token': 'abc'}, days=7)
+    assert 'exp=123' in out and 'token=abc' in out and 'days=7' in out
+    # An operator with a session has no token, and the link must still work.
+    assert _relink({}, days=90) == 'days=90'

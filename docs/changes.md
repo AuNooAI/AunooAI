@@ -2,6 +2,81 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-27 (shared report) — the news page is the mockup now
+
+### Goal
+The shared report opened on a news page that was the mockup's shape without its parts. Five
+things the design had were missing, and the biggest was that a story offered one link when
+the system was holding several.
+
+### Every record behind a story, not just the strongest
+`market_findings.py`, `market_report_html.py`. `_evidence_summary` now aggregates the
+supporting rows themselves — URI, title, source, whether the item is social — deduplicated
+by independence key, so three items from one publisher appear once. The page renders them
+as the mockup's `More:` and `Social:` lists.
+
+**The split is whose voice, not whether the item carries social metadata.** A vendor
+announcing a product on LinkedIn has social metadata, so splitting on that filed the
+company's own statement under "Social" beside practitioner chatter — which said the
+announcement was somebody talking about it. Records (the vendor's own, plus any
+publisher's) go in one list; outside social discussion goes in the other.
+
+Labels are what a person would click. "the company's LinkedIn post", not "linkedin". A
+repeated label takes the record's title instead, since two links both reading "LinkedIn"
+tell a reader nothing about which to open.
+
+### Deltas that are real, and honest silence where they are not
+`market_analysis.share_of_voice` gained `until_days_ago`, so it can answer for the period
+before this one rather than only "the last N days". Outside coverage now reads
+**"+100% on the 30 days before (1 → 2)"**.
+
+Staff cannot state a market delta — 83 of 84 vendors have one reading — so the card says
+what actually moved: "+1 across the 1 vendor measured twice". `_delta` refuses a
+percentage off a base of zero and says "Up from none" instead.
+
+### In summary
+The mockup opens with a paragraph of market commentary. This one is the counted facts from
+"What changed", hoisted above the news page and reused: founding years, launch
+announcements against commercial ones, hiring concentration. Generated prose would be the
+only thing on the page that does not trace to a record.
+
+### Reading controls
+Top News / Headlines / River are three densities of the same list in the same order,
+switched by a `data-view` attribute in CSS, so nothing is reordered or dropped between
+them. The reporting period is three links (7 / 30 / 90) rather than a control, since the
+file has no server behind it; `_relink` carries the signed token through, because `days`
+is not part of what the token signs. RSS points at the existing `feed.xml` and is only
+rendered for a market that serves anonymously — offering it otherwise hands a shared
+reader a link that 404s.
+
+### The sidebar
+`market_publish.market_movers` ranks across three metric families: staff, outside
+coverage, open roles. A family that cannot state a change is named with the reason rather
+than left out — today "Open roles: no new roles since the last check". `market_analysis
+.social_highlights` returns the individual posts that travelled furthest with their text,
+because a quote is a post and not an account; `top_voices` ranks accounts and has no
+sentence to show.
+
+### Verification
+`pytest tests/test_market_*.py` — 221 passed, 3 failed (the pre-existing `pytest-asyncio`
+failures), 10 skipped. Six new tests in `test_market_report_copy.py` cover the voice split,
+duplicate labels, held-but-unlinked records, zero-base deltas and token-carrying links.
+
+Live: report 101,578 bytes, HTTP 200. The 7-day period link followed end to end returns
+200 and re-renders as "20 August–27 August 2026". `feed.xml?days=30` returns 200. The
+disclosure backstop still holds — 6 of 86 registry names against an entitlement of 10.
+
+### What the data cannot support yet
+- **Funding has no delta.** Crunchbase gives stages, not round amounts or dates, so there
+  is no "$163M, 5 verified events" and no largest raise.
+- **Open roles has no delta.** Most vendors have one successful jobs run, so newness is
+  unknowable for them.
+- **Every finding has exactly one source**, so `More:` never lists two records on this
+  market today. The rendering is built for several and shows what exists.
+
+### Propagation
+Canonical only. No other tenant runs Market Monitor.
+
 ## 2026-08-27 (report copy) — a vendor's own announcement is a record, not a gap
 
 ### Goal

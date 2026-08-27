@@ -1316,8 +1316,13 @@ async def market_report(
                            surface="report.html",
                            viewer=(session or {}).get("user")
                            if isinstance(session, dict) else None)
-            return build_market_report(conn, market, days=days,
-                                       allowed_brand_ids=allowed)
+            # The signed pair travels with every period link. Without it a
+            # shared reader switching from 30 days to 7 loses the token and
+            # lands on a 404 — and `days` is not part of what the token
+            # signs, so changing the window is safe.
+            return build_market_report(
+                conn, market, days=days, allowed_brand_ids=allowed,
+                link_params=({"exp": exp, "token": token} if signed else {}))
         finally:
             conn.close()
 

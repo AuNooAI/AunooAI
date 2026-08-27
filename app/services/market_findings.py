@@ -345,6 +345,7 @@ def findings(conn, market_id: int, *, days: Optional[int] = 30,
             # vendor is the record, and "not confirmed by the other side" where
             # it is only the claimant, without re-deriving the rule.
             "vendor_voiced": vendor_voiced,
+            "supporting": ev.get("supporting") or [],
             "self_reportable": (row["event_type"] or "").strip().lower()
             in SELF_REPORTABLE,
             "evidence_count": ev.get("items", 0),
@@ -454,8 +455,22 @@ def _evidence_summary(conn, event_ids: List[int]) -> Dict[int, Dict[str, Any]]:
                (ARRAY_AGG(ev.excerpt ORDER BY LENGTH(COALESCE(ev.excerpt, ''))
                           DESC))[1] AS strongest_excerpt,
                (ARRAY_AGG(ev.article_uri ORDER BY
-                          LENGTH(COALESCE(ev.excerpt, '')) DESC))[1] AS strongest_uri
+                          LENGTH(COALESCE(ev.excerpt, '')) DESC))[1] AS strongest_uri,
+               -- Every supporting record, not only the strongest. A page that
+               -- offers one link out of five holds four the reader cannot see.
+               -- One row per source key, so three items from one publisher
+               -- appear once rather than three times.
+               JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
+                   'uri', ev.article_uri,
+                   'key', ev.independence_key,
+                   'title', a.title,
+                   'source', COALESCE(NULLIF(SPLIT_PART(a.news_source, ':', 2), ''),
+                                      a.news_source),
+                   'social', (a.social_meta IS NOT NULL)
+               )) FILTER (WHERE ev.relationship = ANY(:supporting)
+                            AND ev.article_uri IS NOT NULL) AS supporting_rows
           FROM bw_entity_event_evidence ev
+          LEFT JOIN articles a ON a.uri = ev.article_uri
          WHERE ev.event_id = ANY(:ids)
          GROUP BY ev.event_id
     """), {"ids": event_ids,
@@ -474,8 +489,37 @@ def _evidence_summary(conn, event_ids: List[int]) -> Dict[int, Dict[str, Any]]:
                            "uri": row["strongest_uri"]}
                           if row["strongest_excerpt"] or row["strongest_uri"]
                           else None),
+            "supporting": _dedupe_supporting(row["supporting_rows"]),
         }
     return out
+
+
+def _dedupe_supporting(rows) -> List[Dict[str, Any]]:
+    """One entry per source key, labelled by whose voice it is.
+
+    ``JSONB_AGG(DISTINCT ...)`` deduplicates whole objects, so two records from
+    the same publisher with different titles both survive it. The key is what
+    decides independence everywhere else, so it decides here too.
+    """
+    seen: Dict[str, Dict[str, Any]] = {}
+    for row in (rows or []):
+        key = row.get("key") or row.get("uri") or ""
+        if key in seen:
+            continue
+        owned = str(key).startswith("owned:")
+        primary = str(key).startswith(("official:", "filing:", "sec:"))
+        seen[key] = {
+            "uri": row.get("uri"),
+            "title": (row.get("title") or "").strip(),
+            "source": (row.get("source") or "").strip(),
+            "social": bool(row.get("social")),
+            "voice": "primary" if primary else "owned" if owned else "independent",
+        }
+    # Independent sources first, then primary documents, then the vendor's own
+    # channels — the order a reader would want to click in.
+    rank = {"independent": 0, "primary": 1, "owned": 2}
+    return sorted(seen.values(), key=lambda r: (rank.get(r["voice"], 3),
+                                                r["source"], r["title"]))
 
 
 def evidence(conn, market_id: int, finding_id: int) -> Dict[str, Any]:

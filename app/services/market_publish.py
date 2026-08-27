@@ -531,6 +531,120 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
     }
 
 
+def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
+                  limit: int = 6) -> Dict[str, Any]:
+    """Who moved, across every metric that can state a change.
+
+    Three metric families, and they do not all qualify at the same time.
+    Headcount needs two readings of the same vendor. Outside coverage needs the
+    period before this one, which we always have. Open roles need two
+    successful job runs for that vendor.
+
+    A metric that cannot state a change is named in ``unavailable`` with the
+    reason, rather than left out. "No movers" and "we cannot measure movement"
+    are different answers and the second one is the true one here.
+    """
+    from app.services.market_analysis import _POST_BRANDS
+    from app.services.market_corpus import earned_sql, _iso_days_ago
+
+    movers: List[Dict[str, Any]] = []
+    unavailable: List[Dict[str, str]] = []
+
+    # --- Headcount -----------------------------------------------------
+    head = headcount_market(conn, market)
+    for m in (head.get("movers") or []):
+        pct = m.get("pct")
+        movers.append({
+            "vendor": m.get("vendor"), "brand_id": m.get("brand_id"),
+            "metric": "Staff",
+            "value": (f'{pct:+.1f}%' if isinstance(pct, (int, float))
+                      else f'{m.get("delta", 0):+.0f}'),
+            "sort": abs(pct if isinstance(pct, (int, float)) else 0),
+            "detail": f'{int(m.get("previous", 0))} → {int(m.get("latest", 0))}',
+            # The numbers as numbers. A caller wanting the net change should
+            # not have to parse them back out of the label.
+            "from": int(m.get("previous", 0)), "to": int(m.get("latest", 0)),
+        })
+    if not head.get("movers"):
+        short = len(head.get("insufficient_history") or [])
+        unavailable.append({
+            "metric": "Staff",
+            "reason": (f"{short} vendors have only one reading, so there is "
+                       "nothing to compare against yet" if short
+                       else "no vendor has two readings yet")})
+
+    # --- Coverage by somebody other than the vendor --------------------
+    # Both windows in one pass. Two calls to share_of_voice cannot express
+    # "the period before this one" — its window is always "the last N days".
+    rows = conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.publication_date, a.submission_date) >= :cur
+                     AND {earned_sql("a", "bac", ":m")}) AS now_n,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.publication_date, a.submission_date) >= :prev
+                     AND COALESCE(a.publication_date, a.submission_date) < :cur
+                     AND {earned_sql("a", "bac", ":m")}) AS prev_n
+          FROM bw_market_brands bmb
+          JOIN bw_brands b ON b.id = bmb.brand_id
+          LEFT JOIN pb bac ON bac.brand_id = b.id
+          LEFT JOIN articles a ON a.uri = bac.article_uri
+         WHERE bmb.market_id = :m AND bmb.role <> 'excluded'
+         GROUP BY 1, 2
+    """), {"m": market["id"], "cur": _iso_days_ago(days),
+           "prev": _iso_days_ago(days * 2)}).mappings().all()
+    for row in rows:
+        now_n, prev_n = int(row["now_n"] or 0), int(row["prev_n"] or 0)
+        if now_n == prev_n:
+            continue
+        delta = now_n - prev_n
+        # A percentage off a base of zero is not a percentage. Where the vendor
+        # had no coverage last period the honest statement is the count.
+        value = (f'{(delta / prev_n) * 100:+.0f}%' if prev_n
+                 else f'{delta:+d} from none')
+        movers.append({
+            "vendor": row["vendor"], "brand_id": row["brand_id"],
+            "metric": "Written about by others",
+            "value": value, "sort": abs(delta),
+            "detail": f'{prev_n} → {now_n} items',
+            "from": prev_n, "to": now_n})
+
+    # --- Open roles ----------------------------------------------------
+    from app.services import market_lists as ml
+    try:
+        # market_id, not the market dict, and there is no `days` here: a job
+        # listing is a stock of what is open now, so it has no window.
+        jobs = ml.jobs(conn, market["id"], include_all=True)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("movers: jobs list failed: %s", exc)
+        jobs = None
+    if jobs:
+        fresh: Dict[str, int] = {}
+        comparable = 0
+        for row in jobs.get("data") or []:
+            if row.get("runs_covering_vendor", 0) >= 2:
+                comparable += 1
+                if row.get("status") == "newly_observed":
+                    fresh[row.get("vendor") or ""] = fresh.get(
+                        row.get("vendor") or "", 0) + 1
+        for vendor, n in fresh.items():
+            movers.append({"vendor": vendor, "brand_id": None,
+                           "metric": "Open roles", "value": f"+{n}",
+                           "sort": n, "detail": "new since the last check",
+                           "from": None, "to": None})
+        if not fresh:
+            unavailable.append({
+                "metric": "Open roles",
+                "reason": ("no vendor has been checked twice yet"
+                           if not comparable
+                           else "no new roles since the last check")})
+
+    movers.sort(key=lambda m: (-m["sort"], m["vendor"] or ""))
+    return {"movers": movers[:limit], "unavailable": unavailable,
+            "window_days": days}
+
+
 def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
     """Observed market headcount, and the vendors that moved.
 

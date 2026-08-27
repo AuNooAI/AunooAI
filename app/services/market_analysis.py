@@ -834,14 +834,24 @@ def job_postings(conn, market_id: int,
 MIN_EARNED_FOR_SHARE = 20
 
 
-def share_of_voice(conn, market_id: int, days: Optional[int] = None
-                   ) -> Dict[str, Any]:
-    """Coverage per vendor, split by who produced it."""
+def share_of_voice(conn, market_id: int, days: Optional[int] = None,
+                   until_days_ago: Optional[int] = None) -> Dict[str, Any]:
+    """Coverage per vendor, split by who produced it.
+
+    ``until_days_ago`` closes the window at the top as well as the bottom, so
+    the same function can answer for the period before this one. Without it a
+    caller wanting "the previous 30 days" has to write the query again, and two
+    copies of a window definition drift.
+    """
     window = ""
     params: Dict[str, Any] = {"m": market_id}
     if days:
         window = ("AND COALESCE(a.publication_date, a.submission_date) >= :since")
         params["since"] = _iso_days_ago(days)
+    if until_days_ago:
+        window += (" AND COALESCE(a.publication_date, a.submission_date)"
+                   " < :until")
+        params["until"] = _iso_days_ago(until_days_ago)
 
     rows = [dict(r) for r in conn.execute(text(f"""
         WITH pb AS ({_POST_BRANDS})
@@ -1085,6 +1095,66 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         "coverage": _coverage(len([r for r in rows if r["total"]]), in_scope,
                               "vendors appear in any coverage"),
     }
+
+
+def social_highlights(conn, market_id: int, days: Optional[int] = None,
+                      limit: int = 3) -> List[Dict[str, Any]]:
+    """The individual posts that travelled furthest, with what they said.
+
+    ``top_voices`` ranks accounts. This ranks posts, because a quote is a post
+    and not an account — the sidebar needs the sentence somebody wrote, not a
+    handle and a total.
+
+    Vendors' own LinkedIn posts are excluded on the same rule the rest of the
+    report uses: a company promoting itself is volume, and this panel is about
+    who else is talking.
+    """
+    window = ""
+    params: Dict[str, Any] = {"m": market_id, "lim": limit}
+    if days:
+        window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
+        params["since"] = _iso_days_ago(days)
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary,
+               a.social_meta->>'author' AS author,
+               COALESCE(a.social_meta->>'platform',
+                        SPLIT_PART(a.news_source, ':', 2),
+                        a.news_source) AS platform,
+               COALESCE((a.social_meta->>'likes')::numeric, 0)
+                 + COALESCE((a.social_meta->>'comments')::numeric, 0)
+                 + COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)
+                 AS engagement,
+               COALESCE(a.publication_date, a.submission_date) AS published
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND a.social_meta IS NOT NULL
+          AND a.social_meta->>'author' IS NOT NULL
+          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          {window}
+        ORDER BY engagement DESC,
+                 COALESCE(a.publication_date, a.submission_date) DESC
+        LIMIT :lim
+    """), params).mappings().all()]
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        # The post's own words. Title first: for a social item the title is
+        # usually the post, and the summary is a truncation of it.
+        quote = (row.get("title") or row.get("summary") or "").strip()
+        if not quote:
+            continue
+        out.append({
+            "uri": row["uri"],
+            "author": row["author"],
+            "platform": row["platform"],
+            "engagement": int(row["engagement"] or 0),
+            "published": row["published"],
+            "quote": quote,
+        })
+    return out
 
 
 def top_voices(conn, market_id: int, days: Optional[int] = None,

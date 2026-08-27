@@ -127,6 +127,47 @@ NEWS_CSS = """
                       font-variant-numeric:tabular-nums; }
 .mm-news .n-row-label { font-size:12px; color:var(--n-muted); margin-top:2px; }
 .mm-news .n-note { color:var(--n-muted); font-size:11px; margin-top:16px; }
+/* Period selector, view switch and the RSS link. */
+.mm-news .n-periods { display:flex; gap:4px; align-items:center; }
+.mm-news .n-periods a { font-size:12px; padding:4px 8px; border-radius:7px;
+                        color:var(--n-muted); text-decoration:none; }
+.mm-news .n-periods a[aria-current="page"] { background:var(--n-accent-soft);
+                                             color:var(--n-accent); }
+.mm-news .n-sec-actions { display:flex; align-items:center; gap:10px;
+                          flex-wrap:wrap; }
+.mm-news .n-views { display:flex; border:1px solid var(--n-line);
+                    border-radius:7px; overflow:hidden; }
+.mm-news .n-views button { font-size:12px; padding:5px 9px; border:0;
+                           background:transparent; color:var(--n-muted);
+                           cursor:pointer; font-family:inherit; }
+.mm-news .n-views button[aria-pressed="true"] { background:var(--n-accent-soft);
+                                                color:var(--n-accent); }
+.mm-news .n-rss { font-size:12px; color:var(--n-muted); text-decoration:none;
+                  border:1px solid var(--n-line); border-radius:7px;
+                  padding:5px 9px; }
+.mm-news .n-rss:hover { color:var(--n-accent); border-color:var(--n-accent); }
+/* Headlines and River strip the page back without reordering it, so a reader
+   scanning for one item is looking at the same list in the same order. */
+.mm-news[data-view="headlines"] .n-story-sum,
+.mm-news[data-view="headlines"] .n-support,
+.mm-news[data-view="headlines"] .n-why,
+.mm-news[data-view="river"] .n-story-sum,
+.mm-news[data-view="river"] .n-support,
+.mm-news[data-view="river"] .n-why { display:none; }
+.mm-news[data-view="headlines"] .n-story { padding:9px 0; }
+.mm-news[data-view="headlines"] .n-story h3 { font-size:15px; }
+.mm-news[data-view="headlines"] .n-story-tag { margin-bottom:3px; }
+.mm-news[data-view="headlines"] .n-byline { margin-top:4px; }
+.mm-news[data-view="river"] .n-story { padding:11px 0; }
+.mm-news[data-view="river"] .n-story h3 { font-size:15px; }
+.mm-news[data-view="river"] .n-story-tag { display:none; }
+/* Social highlights: a quote, not a row. */
+.mm-news .n-social { padding:11px 0; border-bottom:1px solid var(--n-line); }
+.mm-news .n-social:last-of-type { border-bottom:0; }
+.mm-news .n-social-meta { color:var(--n-muted); font-size:11.5px; }
+.mm-news .n-quote { margin:5px 0 0; line-height:1.45; font-size:13px; }
+.mm-news .n-quote a { color:inherit; text-decoration:none; }
+.mm-news .n-quote a:hover { text-decoration:underline; }
 .mm-news .n-empty { color:var(--n-muted); font-size:13px; padding:14px 0; }
 @media (max-width:850px) {
   .mm-news .n-jump { display:none; }
@@ -715,10 +756,31 @@ def _metric_card(label: str, hint: str, value: str, note: str,
         f'<div class="n-delta">{esc(note)}</div>{body}</article>')
 
 
+def _delta(now: float, prev: Optional[float], *, unit: str = "",
+           period: str = "the period before") -> str:
+    """A change, or why there is not one.
+
+    Percentages off a base of zero are not percentages, and a comparison
+    against a period we were not measuring in is not a comparison. Both come
+    back as a sentence rather than a number pretending to be one.
+    """
+    if prev is None:
+        return f"Nothing measured in {period}, so no comparison"
+    delta = now - prev
+    if not delta:
+        return f"Unchanged on {period}"
+    if not prev:
+        return f"Up from none in {period}"
+    return (f'{(delta / prev) * 100:+.0f}% on {period} '
+            f'({prev:,.0f} → {now:,.0f}{unit})')
+
+
 def _news_metrics(*, headcount: Optional[Dict[str, Any]],
                   jobs_total: int, jobs_new: int, jobs_state: str,
                   funding: Optional[Dict[str, Any]],
                   earned: int, earned_note: str,
+                  earned_prev: Optional[int],
+                  movers: Optional[Dict[str, Any]],
                   weekly: List[Dict[str, Any]]) -> str:
     """The four figures at the top, each with its own denominator.
 
@@ -730,10 +792,21 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
     if headcount:
         cohort = headcount.get("cohort") or 0
         total = headcount.get("registry_total") or 0
+        # A market total needs one reading per vendor; a market *change* needs
+        # two of the same vendor, and 83 of 84 have one. So the delta states
+        # what actually moved rather than a market figure it cannot support.
+        moved = [m for m in ((movers or {}).get("movers") or [])
+                 if m.get("metric") == "Staff"]
+        net = sum((m.get("to") or 0) - (m.get("from") or 0) for m in moved)
+        head_delta = (
+            f'{net:+d} across the {len(moved)} '
+            f'vendor{"" if len(moved) == 1 else "s"} measured twice'
+            if moved else
+            "Nothing to compare yet — almost every vendor has one reading")
         cards.append(_metric_card(
             "Staff", f"counted at {cohort} of {total} vendors",
             f"{headcount.get('observed_market_headcount', 0):,}",
-            "Exact numbers only. A vendor listing a size range is left out.",
+            head_delta,
             # The weekly headcount series has two points and its own
             # thin-coverage flag, so there is nothing honest to draw.
             nospark="Most vendors have one reading so far, so there is no "
@@ -769,7 +842,9 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
     dropped = len(weekly) - len(settled)
     cards.append(_metric_card(
         "Written about by others", "excludes the vendors' own posts",
-        f"{earned:,}", earned_note,
+        f"{earned:,}",
+        _delta(earned, earned_prev, period="the 30 days before")
+        + (f". {earned_note}" if earned_note else ""),
         _spark([w.get("n") or 0 for w in settled],
                label="Articles and posts matched each week, completed weeks only")
         or "",
@@ -781,6 +856,74 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
                  "and would read as a fall." if dropped else "")))
 
     return f'<section class="n-metrics">{"".join(cards)}</section>'
+
+
+_PLATFORM_NAMES = {"linkedin": "LinkedIn", "twitter": "X", "x": "X",
+                   "bluesky": "Bluesky", "reddit": "Reddit",
+                   "mastodon": "Mastodon"}
+
+
+def _evidence_label(row: Dict[str, Any], seen: set) -> str:
+    """A link somebody would click, not "linkedin" and not "source 2".
+
+    The vendor's own announcement is named as that. A publisher is named by
+    its masthead. A repeated label takes the record's title instead, because
+    two links both reading "LinkedIn" tell a reader nothing about which to
+    open.
+    """
+    source = (row.get("source") or "").strip()
+    title = (row.get("title") or "").strip()
+    platform = _PLATFORM_NAMES.get(source.lower(), source)
+
+    if row.get("voice") == "owned":
+        label = (f"the company's {platform} post" if platform
+                 else "the company's own announcement")
+    elif row.get("voice") == "primary":
+        label = f"a filing on {platform}" if platform else "a primary document"
+    else:
+        label = platform or "an outside report"
+
+    if label.lower() in seen and title:
+        label = _clip(title, 60)
+    seen.add(label.lower())
+    return label
+
+
+def _story_evidence(f: Dict[str, Any]) -> str:
+    """Every record behind a finding, split into records and discussion.
+
+    The split is *whose voice*, not whether the item carries social metadata.
+    A vendor announcing a product on LinkedIn is the announcement — filing it
+    under "Social" beside practitioner chatter said the company's own statement
+    was somebody talking about it.
+    """
+    rows = [r for r in (f.get("supporting") or []) if r.get("uri")]
+    if not rows:
+        held = int(f.get("evidence_count") or 0)
+        if not held:
+            return ""
+        return ('<div class="n-support"><strong>Evidence:</strong> '
+                f'{held} record{"" if held == 1 else "s"} held, none with a '
+                'public link</div>')
+
+    seen: set = set()
+    records = [r for r in rows if r.get("voice") == "owned" or not r.get("social")]
+    discussion = [r for r in rows if r not in records]
+
+    def links(items):
+        return ", ".join(f'<a href="{esc(r["uri"])}">'
+                         f'{esc(_evidence_label(r, seen))}</a>' for r in items)
+
+    out = ['<div class="n-support">']
+    if records:
+        # "Evidence" when there is one record and nothing to add to it;
+        # "More" when the list actually continues past the byline.
+        label = "Evidence" if len(records) == 1 and not discussion else "More"
+        out.append(f"<div><strong>{label}:</strong> {links(records)}</div>")
+    if discussion:
+        out.append(f"<div><strong>Social:</strong> {links(discussion)}</div>")
+    out.append("</div>")
+    return "".join(out)
 
 
 def _news_stories(findings: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
@@ -874,66 +1017,64 @@ def _news_stories(findings: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
         if why:
             out.append(f'<div class="n-why">Ranked {esc(f.get("materiality") or "")}'
                        f' — {esc(why)}</div>')
-        strongest = f.get("strongest_evidence") or {}
-        uri = strongest.get("uri")
-        if uri:
-            out.append('<div class="n-support"><strong>Evidence:</strong> '
-                       f'<a href="{esc(uri)}">the record behind this</a></div>')
-        elif f.get("evidence_count"):
-            out.append(f'<div class="n-support"><strong>Evidence:</strong> '
-                       f'{int(f["evidence_count"])} record(s) held, no public '
-                       'link</div>')
+        out.append(_story_evidence(f))
         out.append("</article>")
     return "".join(out)
 
 
-def _news_aside(*, movers: List[Dict[str, Any]], voices: Optional[Dict[str, Any]],
-                notes: List[str]) -> str:
-    """Movers and voices, with an explicit empty state for each.
+def _news_aside(*, movers: Optional[Dict[str, Any]],
+                highlights: List[Dict[str, Any]],
+                notes: List[str], days: int) -> str:
+    """Movers and social highlights, with an explicit empty state for each.
 
     Both are frequently empty in a young market, and an empty panel that says
-    nothing reads as a broken page rather than a quiet one.
+    nothing reads as a broken page rather than a quiet one. Where a metric
+    cannot state a change at all, it is named with the reason — "no movers" and
+    "we cannot measure movement" are different answers.
     """
     out = ['<aside class="n-aside">']
 
+    rows = (movers or {}).get("movers") or []
+    blocked = (movers or {}).get("unavailable") or []
     out.append('<section class="n-card"><div class="n-card-title">'
-               '<h2>Who grew</h2><span class="n-updated">vendors measured twice'
-               '</span></div>')
-    if movers:
-        for i, m in enumerate(movers[:5], 1):
-            pct = m.get("pct")
-            val = (f'{pct:+.1f}%' if isinstance(pct, (int, float))
-                   else f'{m.get("delta", 0):+.0f}')
+               f'<h2>Who moved</h2><span class="n-updated">{days}d</span>'
+               '</div>')
+    if rows:
+        for i, m in enumerate(rows[:6], 1):
             out.append(f'<div class="n-row"><span class="n-rank">{i}</span>'
-                       f'<div><strong>{esc(m.get("vendor", ""))}</strong>'
-                       f'<div class="n-row-label">'
-                       f'{int(m.get("previous", 0))} → {int(m.get("latest", 0))}'
-                       f' staff</div></div>'
-                       f'<span class="n-row-val">{esc(val)}</span></div>')
+                       f'<div><strong>{esc(m.get("vendor") or "")}</strong>'
+                       f'<div class="n-row-label">{esc(m.get("metric") or "")}'
+                       + (f' · {esc(m["detail"])}' if m.get("detail") else "")
+                       + '</div></div>'
+                       f'<span class="n-row-val">{esc(m.get("value") or "")}'
+                       '</span></div>')
     else:
-        out.append('<p class="n-empty">We have measured each vendor only once, so '
-                   'there is nothing to compare against yet. The next '
-                   'weekly reading gives us a first comparison.</p>')
+        out.append('<p class="n-empty">Nothing moved enough to report across '
+                   'staff, coverage or open roles.</p>')
+    for b in blocked:
+        out.append(f'<p class="n-note">{esc(b.get("metric") or "")}: '
+                   f'{esc(b.get("reason") or "")}.</p>')
     out.append("</section>")
 
-    consistent = (voices or {}).get("consistent") or []
-    breakout = (voices or {}).get("breakout") or []
     out.append('<section class="n-card"><div class="n-card-title">'
-               '<h2>Who is talking</h2><span class="n-updated">outside voices</span>'
-               '</div>')
-    if consistent or breakout:
-        for v in (consistent or breakout)[:4]:
-            posts = int(v.get("posts") or 0)
-            label = ("posts about this market often" if v in consistent
-                     else "one post that got picked up")
-            out.append(f'<div class="n-row"><span class="n-rank">·</span>'
-                       f'<div><strong>@{esc(v.get("author", ""))}</strong>'
-                       f'<div class="n-row-label">{esc(v.get("platform", ""))}'
-                       f' · {esc(label)}</div></div>'
-                       f'<span class="n-row-val">{posts}</span></div>')
+               '<h2>Social highlights</h2>'
+               '<span class="n-updated">outside voices</span></div>')
+    if highlights:
+        for h in highlights[:3]:
+            meta = " · ".join(x for x in (
+                f'@{h.get("author")}' if h.get("author") else "",
+                h.get("platform") or "",
+                (f'{h["engagement"]:,} reactions, comments and reposts'
+                 if h.get("engagement") else "no measured response")) if x)
+            quote = _clip(h.get("quote") or "", 190)
+            body = (f'<a href="{esc(h["uri"])}">&ldquo;{esc(quote)}&rdquo;</a>'
+                    if h.get("uri") else f'&ldquo;{esc(quote)}&rdquo;')
+            out.append('<div class="n-social">'
+                       f'<div class="n-social-meta">{esc(meta)}</div>'
+                       f'<p class="n-quote">{body}</p></div>')
     else:
-        out.append('<p class="n-empty">Nobody outside the vendors themselves posted '
-                   'about this market during the period.</p>')
+        out.append('<p class="n-empty">Nobody outside the vendors posted about '
+                   'this market during the period.</p>')
     out.append("</section>")
 
     if notes:
@@ -957,12 +1098,31 @@ f.forEach(function(b){b.addEventListener('click',function(){
 var t=b.getAttribute('data-theme');
 f.forEach(function(o){o.setAttribute('aria-pressed',String(o===b));});
 s.forEach(function(a){a.hidden=(t!=='all'&&a.getAttribute('data-theme')!==t);});
+});});
+var v=[].slice.call(r.querySelectorAll('.n-views button'));
+v.forEach(function(b){b.addEventListener('click',function(){
+r.setAttribute('data-view',b.getAttribute('data-view'));
+v.forEach(function(o){o.setAttribute('aria-pressed',String(o===b));});
 });});})();
 """
 
 
+def _relink(params: Dict[str, Any], **overrides: Any) -> str:
+    """The current query string with some values replaced.
+
+    The period links have to carry the signed token through, or a shared
+    reader switching from 30 days to 7 lands on a 404. `days` is not part of
+    what the token signs, so only the window changes.
+    """
+    from urllib.parse import urlencode
+
+    merged = {k: v for k, v in {**params, **overrides}.items() if v is not None}
+    return esc(urlencode(merged))
+
+
 def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
-                        allowed_brand_ids: Optional[List[int]] = None
+                        allowed_brand_ids: Optional[List[int]] = None,
+                        link_params: Optional[Dict[str, Any]] = None
                         ) -> bytes:
     """One market, one file, no external requests.
 
@@ -1018,6 +1178,32 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     except Exception as exc:  # noqa: BLE001 — the report still stands without it
         logger.warning("top voices failed: %s", exc)
         voices = None
+
+    # The sidebar's three panels, each its own failure. A market with no social
+    # corpus should lose the quotes panel and keep the movers, not the page.
+    try:
+        highlights = man.social_highlights(conn, market["id"], days=days,
+                                           limit=3)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("social highlights failed: %s", exc)
+        highlights = []
+    try:
+        movers = mp.market_movers(conn, market, days=days)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("market movers failed: %s", exc)
+        movers = None
+    # The same window, one period back, for the metric strip's delta.
+    try:
+        earned_prev = int(man.share_of_voice(
+            conn, market["id"], days=days * 2,
+            until_days_ago=days).get("earned_total") or 0)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("previous-period share of voice failed: %s", exc)
+        earned_prev = None
+
+    # Carried through every period link so a shared reader switching windows
+    # keeps the signed token. Empty for an operator opening it with a session.
+    link_params = dict(link_params or {})
 
     # Fetched once, up front — "What changed", "Material vendor moves",
     # "Market discussion", the registry sort and "Raw coverage" all read the
@@ -1153,76 +1339,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     jobs_new = 0
     jobs_notes = ((joblist or {}).get("meta") or {}).get("notes") or []
 
-    body.append('<div class="mm-news">')
-    body.append('<div class="n-top">'
-                '<span class="n-brand"><span class="n-logo">A</span>'
-                '<span>Aunoo AI</span></span>'
-                '<nav class="n-jump" aria-label="Jump to section">'
-                '<a href="#mm-changed">What changed</a>'
-                '<a href="#mm-registry">Vendors</a>'
-                '<a href="#mm-method">How to read this</a></nav>'
-                f'<span class="n-market">{esc(market["name"])}</span></div>')
-
-    body.append('<main class="n-main">')
-    body.append('<div class="n-head"><div>'
-                f'<div class="n-kicker">Market monitor · {esc(period_txt)}</div>'
-                f'<h1>{esc(market["name"])} briefing</h1>'
-                '<p class="n-sub">What the vendors in this market did over the '
-                'period, and where each of those came from.</p></div>'
-                f'<span class="n-period">Generated '
-                f'{generated.strftime("%d %B %Y")}</span></div>')
-
-    # The market's own question, where one is set. Deliberately not a generated
-    # paragraph of market commentary: everything else on this page is traceable
-    # to a record, and a synthesised summary would be the one thing that is not.
-    question = (market.get("question") or "").strip()
-    if question:
-        body.append('<section class="n-summary"><h2>What we\'re tracking</h2>'
-                    f'<p>{esc(question[:700])}</p></section>')
-
-    body.append(_news_metrics(
-        headcount=headcount, jobs_total=jobs_total, jobs_new=jobs_new,
-        jobs_state=(jobs_meta.get("data_state") or "healthy"),
-        funding=funding, earned=earned, earned_note=earned_note,
-        weekly=((overview.get("corpus") or {}).get("by_week") or [])))
-
-    body.append('<div class="n-grid"><section>')
-    body.append('<div class="n-sec-head"><h2>What we observed</h2>'
-                f'<span class="n-updated">{esc(period_txt)}</span></div>')
-    body.append(_news_stories(findings))
-    body.append("</section>")
-
-    notes = list(jobs_notes)
-    if findings:
-        notes = ((findings.get("meta") or {}).get("notes") or []) + notes
-    body.append(_news_aside(
-        movers=(headcount or {}).get("movers") or [],
-        voices=voices, notes=notes))
-    body.append("</div></main></div>")
-    body.append(f"<script>{_NEWS_JS}</script>")
-
-    # ---- Market scope
-    body.append(section_open("Market scope"))
-    scope_text = market.get("market_scope_description")
-    if scope_text:
-        body.append(f'<p>{esc(scope_text)}</p>')
-        if market.get("inclusion_criteria"):
-            body.append(f'<p><strong>Included:</strong> '
-                        f'{esc(market["inclusion_criteria"])}</p>')
-        if market.get("exclusion_criteria"):
-            body.append(f'<p><strong>Excluded:</strong> '
-                        f'{esc(market["exclusion_criteria"])}</p>')
-    else:
-        body.append('<p class="mm-src">Market scope has not been defined for '
-                    'this market, so what counts as being in it has never '
-                    'been written down. Some of what follows may be about '
-                    'companies or stories that do not belong here. Writing a '
-                    'scope description fixes that.</p>')
-    body.append("</section>")
-
-    # ================================================================
-    # What changed — the primary analytical section
-    # ================================================================
+    # Computed here rather than at the "What changed" section below, because
+    # the news page's summary is these same sentences. They are counted facts
+    # with their denominators, not generated commentary — which is the only
+    # kind of summary this page can carry, since everything else on it traces
+    # to a record.
     changed_points: List[str] = []
     if formation and formation.get("vendors_in_scope"):
         changed_points.append(
@@ -1247,6 +1368,108 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         changed_points.append(
             'At least one company in this market was acquired during the '
             'period.')
+
+    body.append('<div class="mm-news" data-view="top">')
+    body.append('<div class="n-top">'
+                '<span class="n-brand"><span class="n-logo">A</span>'
+                '<span>Aunoo AI</span></span>'
+                '<nav class="n-jump" aria-label="Jump to section">'
+                '<a href="#mm-overview">Overview</a>'
+                '<a href="#mm-changed">Findings</a>'
+                '<a href="#mm-news">News</a>'
+                '<a href="#mm-registry">Vendors</a></nav>'
+                f'<span class="n-market">{esc(market["name"])}</span></div>')
+
+    body.append('<main class="n-main"><span id="mm-overview"></span>')
+    # The reporting period as links, not a control. `days` is a query parameter
+    # and the signed token covers (market, expiry) only, so the same link works
+    # at any window — which is what makes three anchors possible in a file that
+    # has no server behind it.
+    periods = "".join(
+        f'<a href="?{_relink(link_params, days=d)}"'
+        + (' aria-current="page"' if d == days else "")
+        + f'>{d} days</a>' for d in (7, 30, 90))
+    body.append('<div class="n-head"><div>'
+                f'<div class="n-kicker">Market monitor · {esc(period_txt)}</div>'
+                f'<h1>{esc(market["name"])} briefing</h1>'
+                '<p class="n-sub">What the vendors in this market did over the '
+                'period, and where each of those came from.</p></div>'
+                f'<div><nav class="n-periods" aria-label="Reporting period">'
+                f'{periods}</nav>'
+                f'<div class="n-period">Generated '
+                f'{generated.strftime("%d %B %Y, %H:%M UTC")}</div></div></div>')
+
+    # The summary is the counted facts from "What changed", not prose about
+    # them. Everything else on this page traces to a record, and a synthesised
+    # paragraph would be the one thing that does not.
+    question = (market.get("question") or "").strip()
+    if changed_points or question:
+        body.append('<section class="n-summary"><h2>In summary</h2>')
+        if changed_points:
+            body.append("<p>" + " ".join(changed_points) + "</p>")
+        if question:
+            body.append('<p class="n-note">What we are tracking: '
+                        f'{esc(question[:700])}</p>')
+        body.append("</section>")
+
+    body.append(_news_metrics(
+        headcount=headcount, jobs_total=jobs_total, jobs_new=jobs_new,
+        jobs_state=(jobs_meta.get("data_state") or "healthy"),
+        funding=funding, earned=earned, earned_note=earned_note,
+        earned_prev=earned_prev, movers=movers,
+        weekly=((overview.get("corpus") or {}).get("by_week") or [])))
+
+    body.append('<div class="n-grid"><section><span id="mm-news"></span>')
+    # Three densities of the same list in the same order. Nothing is reordered
+    # or dropped between them — a reader scanning for one item finds it in the
+    # same place — so the switch is CSS and needs no second copy of the feed.
+    views = "".join(
+        f'<button type="button" data-view="{k}" '
+        f'aria-pressed="{"true" if k == "top" else "false"}">{label}</button>'
+        for k, label in (("top", "Top News"), ("headlines", "Headlines"),
+                         ("river", "River")))
+    rss = ""
+    if market.get("is_public"):
+        # A feed reader carries no session, so the RSS link is only real on a
+        # market that serves anonymously. Offering it otherwise hands a shared
+        # reader a link that 404s.
+        rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
+               'title="Subscribe in a feed reader">RSS</a>')
+    body.append('<div class="n-sec-head"><h2>Market news</h2>'
+                f'<div class="n-sec-actions"><div class="n-views" '
+                f'role="group" aria-label="News density">{views}</div>{rss}'
+                f'<span class="n-updated">{esc(period_txt)}</span>'
+                '</div></div>')
+    body.append(_news_stories(findings))
+    body.append("</section>")
+
+    notes = list(jobs_notes)
+    if findings:
+        notes = ((findings.get("meta") or {}).get("notes") or []) + notes
+    body.append(_news_aside(movers=movers, highlights=highlights,
+                            notes=notes, days=days))
+    body.append("</div></main></div>")
+    body.append(f"<script>{_NEWS_JS}</script>")
+
+    # ---- Market scope
+    body.append(section_open("Market scope"))
+    scope_text = market.get("market_scope_description")
+    if scope_text:
+        body.append(f'<p>{esc(scope_text)}</p>')
+        if market.get("inclusion_criteria"):
+            body.append(f'<p><strong>Included:</strong> '
+                        f'{esc(market["inclusion_criteria"])}</p>')
+        if market.get("exclusion_criteria"):
+            body.append(f'<p><strong>Excluded:</strong> '
+                        f'{esc(market["exclusion_criteria"])}</p>')
+    else:
+        body.append('<p class="mm-src">Market scope has not been defined for '
+                    'this market, so what counts as being in it has never '
+                    'been written down. Some of what follows may be about '
+                    'companies or stories that do not belong here. Writing a '
+                    'scope description fixes that.</p>')
+    body.append("</section>")
+
     if changed_points:
         body.append('<span id="mm-changed"></span>')
         body.append(section_open("What changed"))
