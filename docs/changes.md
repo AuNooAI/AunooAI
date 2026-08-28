@@ -44,11 +44,51 @@ landed on one. The "Who is where" fold now says "… Emerging 6; accelerating 6,
 holding 8, innovating 14 …" and lists each band's vendors after the stages, fastest first
 (JSONB returns the keys in its own order, so the order is fixed in code).
 
+### Fix — a moved label is visibly joined to its dot
+The user read the map as "dots and labels misaligned". The labels were where the placer put
+them; the leader line from a moved label to its dot was light grey at 0.8 px and vanished at
+the report's width, so about half the labels looked adrift. **`market_report_html.py`** and
+**`MarketHorizonView.tsx`**: leaders are slate (#64748b) at 1 px with a 1.8 px dot at the
+label end, in both maps.
+
+### Fix — the map is readable: dots spread apart, cluster labels fanned, numbers where nothing fits
+After the leader-line fix the user still found the map hard to read, and asked for a proper
+look. Measured on map 10: 12 pairs of vendors were under 12 px apart (four of them — Backline
+AI, PRE Security, Opnova, Cotool — within 7 px of each other, drawing as one dot); one
+cluster held 15 of the 40 vendors; 12 labels needed a leader line, two of them 141 px long;
+the labels needed 18% of the map's area. Six changes, in both
+**`market_report_html.py`** and **`horizonLabels.ts`/`MarketHorizonView.tsx`**:
+
+1. **Dots spread apart** (`_spread`, `spreadDots`): any two dots closer than 13 px are
+   nudged apart, each moved at most 10 px from where its scores put it. Trails point at the
+   nudged position.
+2. **Marker rings slimmed**: funded r 10.5, hiring 9, innovating 7.5 (were 13.5/11/8.5).
+3. **Cluster labels fanned** (pass zero of the placer): dots linked within 22 px, three or
+   more, are a cluster. A member whose name fits beside it, pointing away from the cluster,
+   keeps it; the rest are fanned around the cluster's centre in the order of their angle, so
+   leader lines are short (45 px at most) and never cross. The placer's candidate check was
+   refactored into `assess(i, px, py, ux, uy, near)` to serve both the fan and the search.
+4. **Numbers where nothing fits** (pass three): a label whose leader would exceed 60 px
+   becomes a bold number beside the dot, with a "Numbered: 1 Embed Security · 2 Backline AI"
+   key under the legend; the canvas grows 20 px for it. On map 10 two dots are numbered.
+5. **One dot colour** (slate #475569): the stage is the angle, so four stage colours were
+   noise. The marker rings keep their colours. `_TIER_COLOUR`/`TIER_COLOUR` still colour the
+   stage lists.
+6. **Wider report map**: 900 × 532 viewBox, radius 400 (was 720 × 452, radius 330).
+
+Also, the drawer's intro line now reads "Where 40 of the market's 85 vendors are placed
+today, based on how active they are, how they are growing and how fast they are moving",
+the user's wording, in place of "sit today: how big they are, and how fast they are moving".
+
+Result on map 10: no dot overlaps another; 30 of 40 names sit beside their dot; 8 have a
+leader of 45 px or less; 2 are numbered. Screenshots after deploy saved as
+`horizon-report.png` and `horizon-app.png`.
+
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 3 tests: stage by scale only, band by momentum
 only, descriptions carry the cuts and names) + `tests/test_market_report_copy.py` 14 pass;
 `tests/test_market_assessment.py` unchanged, 33 pass. `npm run typecheck` clean at the
-246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-ClocuXoA.js` (last build); 0 job lines in the
+246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-CP2Nb_sC.js` (last build); 0 job lines in the
 journal before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names;
 `POST /markets/2/horizon/compute` 201. Screenshots of both maps after deploy, saved as
 `horizon-app.png` and `horizon-report.png` in the tree root (untracked), checked by eye.

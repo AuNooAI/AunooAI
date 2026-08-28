@@ -785,8 +785,8 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     the base mark the stage cuts; dashed arcs mark the band cuts. Names
     only where the viewer may see them; the dots give nothing away."""
     from app.services.market_horizon import band_cuts, band_info, stage_cuts, tier_info
-    w, h = 720, 452
-    cx, cy, radius = w / 2, h - 72, 330
+    w, h = 900, 532
+    cx, cy, radius = w / 2, h - 72, 400
     cuts = cuts or {}
     def angle(scale: float) -> float:
         return math.radians(180 - 1.8 * max(0.0, min(100.0, scale)))
@@ -828,7 +828,11 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                      f'{esc(stage_names.get(key) or key)}</textPath></text>')
     # Each band name sits on its arc at the top, or failing a clear spot
     # there, at the nearest angle to the top that is clear of dots.
-    placed = [place(r) for r in rated]
+    # Dots closer than 13 px are nudged apart so each is visible; the
+    # nudge is capped at 10 px from where the scores put the dot.
+    order = sorted(rated, key=lambda r: -(r["scale"] + r["momentum"]))
+    spread = dict(zip((r["brand_id"] for r in order), _spread([place(r) for r in order])))
+    placed = [spread[r["brand_id"]] for r in rated]
     band_marks, band_text = [], []
     for key, frac in (("holding", b1 / 100), ("growing", b2 / 100), ("accelerating", 1.0)):
         word = (band_names.get(key) or key).lower()
@@ -863,7 +867,7 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     trails = [r for r in rated if r.get("big_move") and r.get("previous")]
     for r in trails:
         px, py = place(r["previous"])
-        x, y = place(r)
+        x, y = spread[r["brand_id"]]
         parts.append(f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
                      'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
         parts.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#94a3b8"/>')
@@ -872,9 +876,9 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                      'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
         parts.append(f'<text x="{cx - 226:.0f}" y="{cy + 61:.0f}" font-size="10" fill="#64748b">'
                      'trail — moved 10 or more points on an axis since the previous map</text>')
-    dots = [(r, *place(r)) for r in sorted(rated, key=lambda r: -(r["scale"] + r["momentum"]))]
+    dots = [(r, *spread[r["brand_id"]]) for r in order]
     def ring(r: Dict[str, Any]) -> float:
-        return 14.0 if r.get("funded") else 11.5 if r.get("hiring") else 9.0 if r.get("innovating") else 6.0
+        return 10.5 if r.get("funded") else 9.0 if r.get("hiring") else 7.5 if r.get("innovating") else 6.0
     shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
     # The axis captions under the base are obstacles too, so a label that
     # drops below the base cannot land on them.
@@ -886,8 +890,9 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) * 1.1 if s else 0.0)
                           for (r, x, y), s in zip(dots, shown)], 12.0, w, cy + 26,
                          obstacles=band_marks + captions)
+    key: List[tuple] = []
     for (r, x, y), is_shown, spot in zip(dots, shown, spots):
-        colour = _TIER_COLOUR.get(r["tier"], "#6b7280")
+        colour = "#475569"
         # The hover panel names the vendor, so it is withheld with the label.
         tip = (f' class="mm-hz-dot" data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
                if is_shown else '')
@@ -897,24 +902,67 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
             # which dot it belongs to. Drawn first, so it sits under the dot.
             (x1, y1), (x2, y2) = spot["leader"]
             parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                         'stroke="#cbd5e1" stroke-width=".8"/>')
+                         'stroke="#64748b" stroke-width="1"/>'
+                         f'<circle cx="{x2:.1f}" cy="{y2:.1f}" r="1.8" fill="#64748b"/>')
         if r.get("innovating"):
-            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.5" fill="none" '
-                         'stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>')
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="7.5" fill="none" '
+                         'stroke="#0f172a" stroke-width="1.1" stroke-dasharray="2 2"/>')
         if r.get("hiring"):
-            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" fill="none" '
-                         'stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>')
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" fill="none" '
+                         'stroke="#b45309" stroke-width="1.4" stroke-dasharray="1 2.2"/>')
         if r.get("funded"):
-            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="13.5" fill="none" '
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="10.5" fill="none" '
                          'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
-        if spot is not None:
+        if spot is not None and spot.get("number"):
+            key.append((spot["number"], f'{spot["number"]} {esc(r["vendor"])}'))
+            parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
+                         f'font-size="10" font-weight="600" fill="#0f172a">{spot["number"]}</text>')
+        elif spot is not None:
             parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
                          f'font-size="11" fill="#0f172a">{esc(r["vendor"])}</text>')
         parts.append('</g>')
     parts += band_text
+    if key:
+        # The numbered dots: their names, where the crowd left no room. The
+        # canvas grows a line to hold them.
+        parts.append(f'<text x="{cx - radius:.0f}" y="{cy + 76:.0f}" font-size="10" fill="#64748b">'
+                     f'Numbered: {" · ".join(t for _, t in sorted(key))}</text>')
+        parts[0] = parts[0].replace(f'viewBox="0 0 {w} {h}"', f'viewBox="0 0 {w} {h + 20}"', 1)
     parts.append("</svg>")
     return "".join(parts)
+
+
+def _spread(points: List[tuple], min_gap: float = 13.0, max_move: float = 10.0) -> List[tuple]:
+    """Nudge dots apart until no two are closer than ``min_gap``, each moved
+    at most ``max_move`` from where its scores put it. Vendors with all but
+    the same scores would otherwise draw as one dot."""
+    pos = [[x, y] for x, y in points]
+    n = len(pos)
+    for _ in range(40):
+        moved = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx, dy = pos[j][0] - pos[i][0], pos[j][1] - pos[i][1]
+                d = math.hypot(dx, dy)
+                if d >= min_gap:
+                    continue
+                if d < 1e-6:
+                    dx, dy, d = 1.0, 0.0, 1.0
+                push = (min_gap - d) / 2
+                pos[i][0] -= dx / d * push
+                pos[i][1] -= dy / d * push
+                pos[j][0] += dx / d * push
+                pos[j][1] += dy / d * push
+                moved = True
+        for k, (ox, oy) in enumerate(points):
+            mx, my = pos[k][0] - ox, pos[k][1] - oy
+            m = math.hypot(mx, my)
+            if m > max_move:
+                pos[k] = [ox + mx / m * max_move, oy + my / m * max_move]
+        if not moved:
+            break
+    return [(x, y) for x, y in pos]
 
 
 def _seg_hits_box(x1: float, y1: float, x2: float, y2: float,
@@ -1020,10 +1068,11 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
              if dots[i][3] > 0]
     out: List[Optional[dict]] = [None] * n
 
-    def candidate(i: int, step: int, ux: float, uy: float) -> Optional[dict]:
+    def assess(i: int, px: float, py: float, ux: float, uy: float, near: bool) -> Optional[dict]:
+        """The label for dot ``i`` whose box touches point ``(px, py)`` from
+        direction ``(ux, uy)``; ``near`` when it sits beside the dot with no
+        leader line. None if it leaves the canvas."""
         x, y, g, w = dots[i]
-        d = g + 2 + step
-        px, py = x + d * ux, y + d * uy
         bx = px - w / 2 + ux * w / 2
         by = py - height / 2 + uy * height / 2
         if bx < 0 or bx + w > width or by < 0 or by + height > max_y:
@@ -1039,8 +1088,11 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
         hits += sum(10 for ox, oy, ow, oh in labels
                     if bx - 3 < ox + ow and ox < bx + w + 3 and by - 2 < oy + oh and oy < by + height + 2)
         hits += sum(6 for seg in leaders if _seg_hits_box(*seg, bx, by, w, height))
-        sx, sy = x + (g + 1) * ux, y + (g + 1) * uy
-        if step > 0:
+        # The leader line runs from the dot's ring towards the label.
+        lx, ly = px - x, py - y
+        ln = math.hypot(lx, ly) or 1.0
+        sx, sy = x + (g + 1) * lx / ln, y + (g + 1) * ly / ln
+        if not near:
             hits += sum(2 for k, (ox, oy, _, _) in enumerate(dots) if k != i
                         and math.hypot(sx - ox, sy - oy) >= 6.0 and _seg_near_point(sx, sy, px, py, ox, oy) < 6.0)
             hits += sum(6 for ox, oy, ow, oh in labels if _seg_hits_box(sx, sy, px, py, ox, oy, ow, oh))
@@ -1048,7 +1100,12 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
         anchor = "start" if ux > 0.35 else "end" if ux < -0.35 else "middle"
         return {"bx": bx, "by": by, "anchor": anchor,
                 "tx": bx if anchor == "start" else bx + w if anchor == "end" else bx + w / 2,
-                "leader": None if step == 0 else ((sx, sy), (px, py)), "hits": hits}
+                "leader": None if near else ((sx, sy), (px, py)), "hits": hits}
+
+    def candidate(i: int, step: int, ux: float, uy: float) -> Optional[dict]:
+        x, y, g, _ = dots[i]
+        d = g + 2 + step
+        return assess(i, x + d * ux, y + d * uy, ux, uy, step == 0)
 
     def take(i: int, spot: dict) -> None:
         labels.append((spot["bx"], spot["by"], dots[i][3], height))
@@ -1057,8 +1114,64 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
             leaders.append((x1, y1, x2, y2))
         out[i] = spot
 
+    # Pass zero: clusters. Dots linked within 22 px, three or more of them,
+    # get their labels fanned around the cluster in the order of their
+    # angle from its centre, so the leader lines are short and never cross.
+    parent = list(range(n))
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i in range(n):
+        for j in range(i + 1, n):
+            if math.hypot(dots[i][0] - dots[j][0], dots[i][1] - dots[j][1]) < 22:
+                parent[find(i)] = find(j)
+    groups: Dict[int, List[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    for members in sorted(groups.values(), key=len, reverse=True):
+        labelled = [i for i in members if dots[i][3] > 0]
+        if len(labelled) < 3:
+            continue
+        mx = sum(dots[i][0] for i in members) / len(members)
+        my = sum(dots[i][1] for i in members) / len(members)
+        rr0 = max(math.hypot(dots[i][0] - mx, dots[i][1] - my) + dots[i][2] for i in members) + 8
+        by_angle = sorted(labelled, key=lambda i: math.atan2(dots[i][1] - my, dots[i][0] - mx))
+        # A member whose name fits beside it, pointing away from the
+        # cluster, keeps it; the fan is for the rest.
+        for i in by_angle:
+            th = math.atan2(dots[i][1] - my, dots[i][0] - mx)
+            for ux, uy in sorted(_LABEL_DIRS, key=lambda u: -(u[0] * math.cos(th) + u[1] * math.sin(th))):
+                if ux * math.cos(th) + uy * math.sin(th) < 0.5:
+                    break
+                c = candidate(i, 0, ux, uy)
+                if c is not None and c["hits"] == 0:
+                    take(i, c)
+                    break
+        for i in by_angle:
+            if out[i] is not None:
+                continue
+            th = math.atan2(dots[i][1] - my, dots[i][0] - mx)
+            pick = None
+            for extra in (0, 12, 24, 36):
+                for dth in (0.0, 0.16, -0.16, 0.32, -0.32):
+                    ux, uy = math.cos(th + dth), math.sin(th + dth)
+                    c = assess(i, mx + (rr0 + extra) * ux, my + (rr0 + extra) * uy, ux, uy, False)
+                    if c is not None and c["hits"] == 0:
+                        (sx, sy), (px, py) = c["leader"]
+                        if math.hypot(px - sx, py - sy) <= 45:
+                            pick = c
+                        break
+                if pick:
+                    break
+            if pick:
+                take(i, pick)
+
     # Pass one: beside the dot, sideways before up or down.
     for i in order:
+        if out[i] is not None:
+            continue
         for ux, uy in sorted(_LABEL_DIRS, key=lambda u: abs(u[1])):
             c = candidate(i, 0, ux, uy)
             if c is not None and c["hits"] == 0:
@@ -1093,6 +1206,30 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
                 break
         assert best is not None
         take(i, best)
+    # Pass three: a label whose leader line would be longer than 60 px is
+    # replaced by a number beside the dot, and the name goes in a key.
+    number = 0
+    for i in order:
+        spot = out[i]
+        if not spot or not spot["leader"]:
+            continue
+        (sx, sy), (px, py) = spot["leader"]
+        if math.hypot(px - sx, py - sy) <= 60:
+            continue
+        x, y, g, w = dots[i]
+        dots[i] = (x, y, g, 14.0)
+        pick = None
+        for ux, uy in sorted(_LABEL_DIRS, key=lambda u: abs(u[1])):
+            c = candidate(i, 0, ux, uy)
+            if c is not None and c["hits"] == 0:
+                pick = c
+                break
+        dots[i] = (x, y, g, w)
+        if pick is None:
+            continue
+        number += 1
+        labels.append((pick["bx"], pick["by"], 14.0, height))
+        out[i] = {**pick, "number": number}
     return out
 
 
@@ -2547,8 +2684,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append(_drawer_open(
             "Market Horizon",
             f"Where {horizon['counts']['rated']} of the market's "
-            f"{horizon['counts']['eligible']} vendors sit today: how big they "
-            "are, and how fast they are moving.",
+            f"{horizon['counts']['eligible']} vendors are placed today, based on "
+            "how active they are, how they are growing and how fast they are moving.",
             anchor="mm-horizon", opened=True))
         # The horizon names every rated vendor in the shared view too — the
         # placement is the public draw; each vendor's inputs and the

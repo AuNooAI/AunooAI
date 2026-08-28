@@ -16,7 +16,7 @@ import {
   type HorizonVendor, type MarketHorizon, type Vendor,
 } from '../../services/marketMonitorApi';
 import { Panel } from './MarketAnalysisView';
-import { labelSpots, labelWidth } from './horizonLabels';
+import { labelSpots, labelWidth, spreadDots } from './horizonLabels';
 import type { HorizonCuts } from '../../services/marketMonitorApi';
 
 const TIER_ORDER = ['executors', 'innovators', 'established', 'emerging'] as const;
@@ -63,19 +63,22 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
   const [b1, b2] = [...(cuts.band_cuts ?? [33, 67])].sort((a, b) => a - b);
   const edges = [0, c1, c2, c3, 100];
   const stageKeys = ['emerging', 'established', 'innovators', 'executors'];
+  // Dots closer than 13 px are nudged apart so each is visible; the nudge
+  // is capped at 10 px from where the scores put the dot.
+  const ordered = [...rated].sort((a, b) => (b.scale + b.momentum) - (a.scale + a.momentum));
+  const spreadPos = spreadDots(ordered.map(v => place(v)));
+  const spread = new Map(ordered.map((v, i) => [v.brand_id, spreadPos[i]]));
   // A large move since the previous map: a trail from where the vendor was.
   const trails = rated.filter(v => v.big_move && v.previous)
-    .map(v => ({ v, from: place(v.previous!), to: place(v) }));
+    .map(v => ({ v, from: place(v.previous!), to: spread.get(v.brand_id)! }));
   const arc = (f: number) => {
     const d = R * f;
     return `M ${cx - d} ${cy} A ${d} ${d} 0 0 1 ${cx + d} ${cy}`;
   };
   // Labels must not sit on another label, on any dot or on a leader line;
   // see horizonLabels.ts. Labels stay above the axis captions.
-  const dots = [...rated]
-    .sort((a, b) => (b.scale + b.momentum) - (a.scale + a.momentum))
-    .map(v => ({ v, ...place(v) }));
-  const ring = (v: HorizonVendor) => v.funded ? 14 : v.hiring ? 11.5 : v.innovating ? 9 : 6;
+  const dots = ordered.map(v => ({ v, ...spread.get(v.brand_id)! }));
+  const ring = (v: HorizonVendor) => v.funded ? 10.5 : v.hiring ? 9 : v.innovating ? 7.5 : 6;
   // The band names sit on the centre line inside each arc, drawn after the
   // dots with a halo; the vendor labels keep off them.
   // Each sits on its arc at the top, or failing a clear spot there, at the
@@ -105,11 +108,14 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
                            12, W, cy + 26, [...bandMarks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })), ...captions]);
   const labels = dots.map(({ v, x, y }, i) => {
     const s = spots[i]!;
-    return { v, x, y, lx: s.tx, ly: s.by + 10, anchor: s.anchor, leader: s.leader };
+    return { v, x, y, lx: s.tx, ly: s.by + 10, anchor: s.anchor, leader: s.leader, number: s.number };
   });
+  // The numbered dots: their names, where the crowd left no room.
+  const key = labels.filter(l => l.number).sort((a, b) => a.number! - b.number!).map(l => `${l.number} ${l.v.vendor}`);
+  const svgH = key.length ? H + 20 : H;
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
+      <svg viewBox={`0 0 ${W} ${svgH}`} className="w-full max-w-[760px]" role="img"
            aria-label="Market Horizon: position and balance">
         <defs>
           <marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -151,28 +157,38 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
             <circle cx={from.x} cy={from.y} r={3} fill="none" stroke="#94a3b8" />
           </g>
         ))}
-        {labels.map(({ v, x, y, lx, ly, anchor, leader }) => (
+        {labels.map(({ v, x, y, lx, ly, anchor, leader, number }) => (
           <g key={v.brand_id}
              onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
              onClick={() => onVendor?.(v.brand_id)}
              style={{ cursor: onVendor ? 'pointer' : 'default' }}>
             {leader && (
-              <line x1={leader.x1} y1={leader.y1} x2={leader.x2} y2={leader.y2} stroke="#cbd5e1" strokeWidth={0.8} />
+              <>
+                <line x1={leader.x1} y1={leader.y1} x2={leader.x2} y2={leader.y2} stroke="#64748b" strokeWidth={1} />
+                <circle cx={leader.x2} cy={leader.y2} r={1.8} fill="#64748b" />
+              </>
             )}
             {v.innovating && (
-              <circle cx={x} cy={y} r={8.5} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
+              <circle cx={x} cy={y} r={7.5} fill="none" stroke="#0f172a" strokeWidth={1.1} strokeDasharray="2 2" />
             )}
             {v.hiring && (
-              <circle cx={x} cy={y} r={11} fill="none" stroke="#b45309" strokeWidth={1.6} strokeDasharray="1 2.2" />
+              <circle cx={x} cy={y} r={9} fill="none" stroke="#b45309" strokeWidth={1.4} strokeDasharray="1 2.2" />
             )}
             {v.funded && (
-              <circle cx={x} cy={y} r={13.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
+              <circle cx={x} cy={y} r={10.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
-                    fill={TIER_COLOUR[v.tier] ?? '#6b7280'} fillOpacity={0.85} />
-            <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
+                    fill="#475569" fillOpacity={0.9} />
+            {number ? (
+              <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fontWeight={600} fill="#0f172a" className="dark:fill-gray-200">{number}</text>
+            ) : (
+              <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
+            )}
           </g>
         ))}
+        {key.length > 0 && (
+          <text x={cx - R} y={cy + 76} fontSize={10} fill="#64748b">Numbered: {key.join(' · ')}</text>
+        )}
         {bandMarks.map(b => (
           <text key={b.key} x={b.cx} y={b.y + 10} textAnchor="middle" fontSize={11} fontWeight={500} fill="#64748b"
                 paintOrder="stroke" stroke="#f8fafc" strokeWidth={4} className="dark:stroke-gray-900">{b.word}</text>

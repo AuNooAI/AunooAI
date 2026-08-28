@@ -9,6 +9,9 @@ export type LabelDot = { x: number; y: number; ring: number; width: number };
 export type LabelSpot = {
   bx: number; by: number; tx: number; anchor: 'start' | 'end' | 'middle';
   hits: number; leader: { x1: number; y1: number; x2: number; y2: number } | null;
+  /** Set when the crowd left no room for the name: the dot shows this
+   *  number and the name goes in a key under the map. */
+  number?: number;
 };
 
 /** About how wide the label is at 10px in a sans-serif face, from the
@@ -22,6 +25,36 @@ export function labelWidth(text: string): number {
     else total += 5.8;
   }
   return total;
+}
+
+/**
+ * Nudge dots apart until no two are closer than `minGap`, each moved at most
+ * `maxMove` from where its scores put it. Vendors with all but the same
+ * scores would otherwise draw as one dot.
+ */
+export function spreadDots(points: { x: number; y: number }[], minGap = 13, maxMove = 10): { x: number; y: number }[] {
+  const pos = points.map(p => ({ x: p.x, y: p.y }));
+  const n = pos.length;
+  for (let round = 0; round < 40; round++) {
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = pos[j].x - pos[i].x, dy = pos[j].y - pos[i].y, d = Math.hypot(dx, dy);
+        if (d >= minGap) continue;
+        if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
+        const push = (minGap - d) / 2;
+        pos[i].x -= dx / d * push; pos[i].y -= dy / d * push;
+        pos[j].x += dx / d * push; pos[j].y += dy / d * push;
+        moved = true;
+      }
+    }
+    for (let k = 0; k < n; k++) {
+      const mx = pos[k].x - points[k].x, my = pos[k].y - points[k].y, m = Math.hypot(mx, my);
+      if (m > maxMove) pos[k] = { x: points[k].x + mx / m * maxMove, y: points[k].y + my / m * maxMove };
+    }
+    if (!moved) break;
+  }
+  return pos;
 }
 
 /** Does the segment cross the box? Liang–Barsky clipping. */
@@ -100,10 +133,10 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
     .sort((a, b) => (crowd[b] - crowd[a]) || (dots[a].y - dots[b].y) || (dots[a].x - dots[b].x));
   const out: (LabelSpot | null)[] = dots.map(() => null);
 
-  const candidate = (i: number, step: number, ux: number, uy: number): LabelSpot | null => {
+  /** The label for dot `i` whose box touches point (px, py) from direction
+   *  (ux, uy); `near` when it sits beside the dot with no leader line. */
+  const assess = (i: number, px: number, py: number, ux: number, uy: number, near: boolean): LabelSpot | null => {
     const { x, y, ring: g, width: w } = dots[i];
-    const d = g + 2 + step;
-    const px = x + d * ux, py = y + d * uy;
     const bx = px - w / 2 + ux * w / 2, by = py - height / 2 + uy * height / 2;
     if (bx < 0 || bx + w > width || by < 0 || by + height > maxY) return null;
     // Overlap, weighted: text over text or over a dot is the worst (10), a
@@ -123,8 +156,10 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
       if (bx - 3 < l.x + l.w && l.x < bx + w + 3 && by - 2 < l.y + l.h && l.y < by + height + 2) hits += 10;
     }
     for (const s of leaders) if (segHitsBox(s.x1, s.y1, s.x2, s.y2, bx, by, w, height)) hits += 6;
-    const sx = x + (g + 1) * ux, sy = y + (g + 1) * uy;
-    if (step > 0) {
+    // The leader line runs from the dot's ring towards the label.
+    const lx = px - x, ly = py - y, ln = Math.hypot(lx, ly) || 1;
+    const sx = x + (g + 1) * lx / ln, sy = y + (g + 1) * ly / ln;
+    if (!near) {
       for (let k = 0; k < n; k++) {
         if (k === i) continue;
         const o = dots[k];
@@ -137,8 +172,13 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
     return {
       bx, by, anchor, hits,
       tx: anchor === 'start' ? bx : anchor === 'end' ? bx + w : bx + w / 2,
-      leader: step === 0 ? null : { x1: sx, y1: sy, x2: px, y2: py },
+      leader: near ? null : { x1: sx, y1: sy, x2: px, y2: py },
     };
+  };
+  const candidate = (i: number, step: number, ux: number, uy: number): LabelSpot | null => {
+    const { x, y, ring: g } = dots[i];
+    const d = g + 2 + step;
+    return assess(i, x + d * ux, y + d * uy, ux, uy, step === 0);
   };
   const take = (i: number, spot: LabelSpot) => {
     labels.push({ x: spot.bx, y: spot.by, w: dots[i].width, h: height });
@@ -146,9 +186,61 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
     out[i] = spot;
   };
 
-  // Pass one: beside the dot, sideways before up or down.
+  // Pass zero: clusters. Dots linked within 22 px, three or more of them,
+  // get their labels fanned around the cluster in the order of their angle
+  // from its centre, so the leader lines are short and never cross. A
+  // member whose name fits beside it, pointing away from the cluster,
+  // keeps it; the fan is for the rest.
+  const parent = dots.map((_, i) => i);
+  const find = (i: number) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (Math.hypot(dots[i].x - dots[j].x, dots[i].y - dots[j].y) < 22) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) { const r = find(i); groups.set(r, [...(groups.get(r) ?? []), i]); }
   const sideways = [...DIRS].sort((a, b) => Math.abs(a[1]) - Math.abs(b[1]));
+  for (const members of [...groups.values()].sort((a, b) => b.length - a.length)) {
+    const labelled = members.filter(i => dots[i].width > 0);
+    if (labelled.length < 3) continue;
+    const mx = members.reduce((s, i) => s + dots[i].x, 0) / members.length;
+    const my = members.reduce((s, i) => s + dots[i].y, 0) / members.length;
+    const rr0 = Math.max(...members.map(i => Math.hypot(dots[i].x - mx, dots[i].y - my) + dots[i].ring)) + 8;
+    const angleOf = (i: number) => Math.atan2(dots[i].y - my, dots[i].x - mx);
+    const byAngle = [...labelled].sort((a, b) => angleOf(a) - angleOf(b));
+    for (const i of byAngle) {
+      const th = angleOf(i);
+      const outward = [...DIRS].sort((a, b) =>
+        (b[0] * Math.cos(th) + b[1] * Math.sin(th)) - (a[0] * Math.cos(th) + a[1] * Math.sin(th)));
+      for (const [ux, uy] of outward) {
+        if (ux * Math.cos(th) + uy * Math.sin(th) < 0.5) break;
+        const c = candidate(i, 0, ux, uy);
+        if (c && c.hits === 0) { take(i, c); break; }
+      }
+    }
+    for (const i of byAngle) {
+      if (out[i]) continue;
+      const th = angleOf(i);
+      let pick: LabelSpot | null = null;
+      for (const extra of [0, 12, 24, 36]) {
+        for (const dth of [0, 0.16, -0.16, 0.32, -0.32]) {
+          const ux = Math.cos(th + dth), uy = Math.sin(th + dth);
+          const c = assess(i, mx + (rr0 + extra) * ux, my + (rr0 + extra) * uy, ux, uy, false);
+          if (c && c.hits === 0) {
+            if (c.leader && Math.hypot(c.leader.x2 - c.leader.x1, c.leader.y2 - c.leader.y1) <= 45) pick = c;
+            break;
+          }
+        }
+        if (pick) break;
+      }
+      if (pick) take(i, pick);
+    }
+  }
+
+  // Pass one: beside the dot, sideways before up or down.
   for (const i of order) {
+    if (out[i]) continue;
     for (const [ux, uy] of sideways) {
       const c = candidate(i, 0, ux, uy);
       if (c && c.hits === 0) { take(i, c); break; }
@@ -180,6 +272,26 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
       if (bestCost <= step + 3) break;
     }
     if (best) take(i, best);
+  }
+  // Pass three: a label whose leader line would be longer than 60 px is
+  // replaced by a number beside the dot, and the name goes in a key.
+  let number = 0;
+  for (const i of order) {
+    const spot = out[i];
+    if (!spot || !spot.leader) continue;
+    if (Math.hypot(spot.leader.x2 - spot.leader.x1, spot.leader.y2 - spot.leader.y1) <= 60) continue;
+    const saved = dots[i].width;
+    dots[i] = { ...dots[i], width: 14 };
+    let pick: LabelSpot | null = null;
+    for (const [ux, uy] of sideways) {
+      const c = candidate(i, 0, ux, uy);
+      if (c && c.hits === 0) { pick = c; break; }
+    }
+    dots[i] = { ...dots[i], width: saved };
+    if (!pick) continue;
+    number += 1;
+    labels.push({ x: pick.bx, y: pick.by, w: 14, h: height });
+    out[i] = { ...pick, number };
   }
   return out;
 }
