@@ -181,13 +181,13 @@ sites). Writers that used `func.now()`/`current_timestamp` were already right an
 unchanged. `publication_date` is not touched: it is the article's own date and has its own
 shapes.
 
-**Backfill — not run.** `scripts/backfill_submission_date.sql` rewrites the 3,618 odd rows
-with `(submission_date::timestamptz)::text` (every one parses; checked with a `SELECT` before
-writing the script), turns the 2,221 empty strings into NULL, and does the same for 23 naive
-rows in `raw_articles`, in one transaction with counts before and after. The auto-mode
-permission classifier blocked the `UPDATE` twice, so the rows are still mixed until someone
-runs it: `psql … -f scripts/backfill_submission_date.sql`. Until then, same-day text
-comparisons on rows older than this deploy are still wrong in the way described above.
+**Backfill — run 2026-08-28 14:40 on bugfixing.** `scripts/backfill_submission_date.sql`
+rewrote the 3,618 odd `articles` rows with `(submission_date::timestamptz)::text` and 23 naive
+rows in `raw_articles`, in one transaction. After: 211,076 rows in the stored shape, 2,221
+NULL (they were NULL already; the empty-string step touched 0 rows), nothing else. The
+`max()` check that started this now returns `2026-08-28 14:25:28+02`, the last article saved,
+and the 24-hour count reads 915. The first attempt was blocked by the auto-mode permission
+classifier; the user asked for the run and it went through as a plain `psql -f`.
 
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 4 tests: stage by scale only, band by momentum
