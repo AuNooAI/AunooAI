@@ -187,7 +187,12 @@ rows in `raw_articles`, in one transaction. After: 211,076 rows in the stored sh
 NULL (they were NULL already; the empty-string step touched 0 rows), nothing else. The
 `max()` check that started this now returns `2026-08-28 14:25:28+02`, the last article saved,
 and the 24-hour count reads 915. The first attempt was blocked by the auto-mode permission
-classifier; the user asked for the run and it went through as a plain `psql -f`.
+classifier; the user asked for the run and it went through as a plain `psql -f`. **wileytest, 2026-08-28 14:45:** the same script, after a read-only count and a parse check
+(525 odd `articles` rows, 3,264 odd `raw_articles` rows, all parsing): 724,965 article rows
+now share the shape, none NULL; newest `2026-08-28 14:25:00+02`, 24-hour count 4,823.
+wileytest still runs the old writers, so its Market Monitor and Brand Watch official-source
+collectors will keep writing `T…Z` rows until `app/utils/timestamps.py` and the seven edited
+files are copied there.
 
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 4 tests: stage by scale only, band by momentum
