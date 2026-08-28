@@ -890,7 +890,6 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) * 1.1 if s else 0.0)
                           for (r, x, y), s in zip(dots, shown)], 12.0, w, cy + 26,
                          obstacles=band_marks + captions)
-    key: List[tuple] = []
     for (r, x, y), is_shown, spot in zip(dots, shown, spots):
         colour = "#475569"
         # The hover panel names the vendor, so it is withheld with the label.
@@ -914,21 +913,11 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="10.5" fill="none" '
                          'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
-        if spot is not None and spot.get("number"):
-            key.append((spot["number"], f'{spot["number"]} {esc(r["vendor"])}'))
-            parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
-                         f'font-size="10" font-weight="600" fill="#0f172a">{spot["number"]}</text>')
-        elif spot is not None:
+        if spot is not None:
             parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
                          f'font-size="11" fill="#0f172a">{esc(r["vendor"])}</text>')
         parts.append('</g>')
     parts += band_text
-    if key:
-        # The numbered dots: their names, where the crowd left no room. The
-        # canvas grows a line to hold them.
-        parts.append(f'<text x="{cx - radius:.0f}" y="{cy + 76:.0f}" font-size="10" fill="#64748b">'
-                     f'Numbered: {" · ".join(t for _, t in sorted(key))}</text>')
-        parts[0] = parts[0].replace(f'viewBox="0 0 {w} {h}"', f'viewBox="0 0 {w} {h + 20}"', 1)
     parts.append("</svg>")
     return "".join(parts)
 
@@ -1160,7 +1149,7 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
                     c = assess(i, mx + (rr0 + extra) * ux, my + (rr0 + extra) * uy, ux, uy, False)
                     if c is not None and c["hits"] == 0:
                         (sx, sy), (px, py) = c["leader"]
-                        if math.hypot(px - sx, py - sy) <= 45:
+                        if math.hypot(px - sx, py - sy) <= 70:
                             pick = c
                         break
                 if pick:
@@ -1206,30 +1195,6 @@ def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
                 break
         assert best is not None
         take(i, best)
-    # Pass three: a label whose leader line would be longer than 60 px is
-    # replaced by a number beside the dot, and the name goes in a key.
-    number = 0
-    for i in order:
-        spot = out[i]
-        if not spot or not spot["leader"]:
-            continue
-        (sx, sy), (px, py) = spot["leader"]
-        if math.hypot(px - sx, py - sy) <= 60:
-            continue
-        x, y, g, w = dots[i]
-        dots[i] = (x, y, g, 14.0)
-        pick = None
-        for ux, uy in sorted(_LABEL_DIRS, key=lambda u: abs(u[1])):
-            c = candidate(i, 0, ux, uy)
-            if c is not None and c["hits"] == 0:
-                pick = c
-                break
-        dots[i] = (x, y, g, w)
-        if pick is None:
-            continue
-        number += 1
-        labels.append((pick["bx"], pick["by"], 14.0, height))
-        out[i] = {**pick, "number": number}
     return out
 
 

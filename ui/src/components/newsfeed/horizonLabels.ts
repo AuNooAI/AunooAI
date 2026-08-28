@@ -9,9 +9,6 @@ export type LabelDot = { x: number; y: number; ring: number; width: number };
 export type LabelSpot = {
   bx: number; by: number; tx: number; anchor: 'start' | 'end' | 'middle';
   hits: number; leader: { x1: number; y1: number; x2: number; y2: number } | null;
-  /** Set when the crowd left no room for the name: the dot shows this
-   *  number and the name goes in a key under the map. */
-  number?: number;
 };
 
 /** About how wide the label is at 10px in a sans-serif face, from the
@@ -228,7 +225,7 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
           const ux = Math.cos(th + dth), uy = Math.sin(th + dth);
           const c = assess(i, mx + (rr0 + extra) * ux, my + (rr0 + extra) * uy, ux, uy, false);
           if (c && c.hits === 0) {
-            if (c.leader && Math.hypot(c.leader.x2 - c.leader.x1, c.leader.y2 - c.leader.y1) <= 45) pick = c;
+            if (c.leader && Math.hypot(c.leader.x2 - c.leader.x1, c.leader.y2 - c.leader.y1) <= 70) pick = c;
             break;
           }
         }
@@ -272,26 +269,6 @@ export function labelSpots(dots: LabelDot[], height: number, width: number, maxY
       if (bestCost <= step + 3) break;
     }
     if (best) take(i, best);
-  }
-  // Pass three: a label whose leader line would be longer than 60 px is
-  // replaced by a number beside the dot, and the name goes in a key.
-  let number = 0;
-  for (const i of order) {
-    const spot = out[i];
-    if (!spot || !spot.leader) continue;
-    if (Math.hypot(spot.leader.x2 - spot.leader.x1, spot.leader.y2 - spot.leader.y1) <= 60) continue;
-    const saved = dots[i].width;
-    dots[i] = { ...dots[i], width: 14 };
-    let pick: LabelSpot | null = null;
-    for (const [ux, uy] of sideways) {
-      const c = candidate(i, 0, ux, uy);
-      if (c && c.hits === 0) { pick = c; break; }
-    }
-    dots[i] = { ...dots[i], width: saved };
-    if (!pick) continue;
-    number += 1;
-    labels.push({ x: pick.bx, y: pick.by, w: 14, h: height });
-    out[i] = { ...pick, number };
   }
   return out;
 }

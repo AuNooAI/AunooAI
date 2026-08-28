@@ -68,9 +68,11 @@ the labels needed 18% of the map's area. Six changes, in both
    keeps it; the rest are fanned around the cluster's centre in the order of their angle, so
    leader lines are short (45 px at most) and never cross. The placer's candidate check was
    refactored into `assess(i, px, py, ux, uy, near)` to serve both the fan and the search.
-4. **Numbers where nothing fits** (pass three): a label whose leader would exceed 60 px
-   becomes a bold number beside the dot, with a "Numbered: 1 Embed Security · 2 Backline AI"
-   key under the legend; the canvas grows 20 px for it. On map 10 two dots are numbered.
+4. **Numbers where nothing fits — built, then removed the same day.** A label whose leader
+   would exceed 60 px became a number beside the dot with a key under the legend. The user
+   wants names on the map, not numbers, so the pass is gone; the fan's leader cap went from
+   45 px to 70 px instead, and the two labels concerned (Embed Security, Backline AI) take a
+   leader line.
 5. **One dot colour** (slate #475569): the stage is the angle, so four stage colours were
    noise. The marker rings keep their colours. `_TIER_COLOUR`/`TIER_COLOUR` still colour the
    stage lists.
@@ -80,15 +82,15 @@ Also, the drawer's intro line now reads "Where 40 of the market's 85 vendors are
 today, based on how active they are, how they are growing and how fast they are moving",
 the user's wording, in place of "sit today: how big they are, and how fast they are moving".
 
-Result on map 10: no dot overlaps another; 30 of 40 names sit beside their dot; 8 have a
-leader of 45 px or less; 2 are numbered. Screenshots after deploy saved as
+Result on map 10: no dot overlaps another; 30 of 40 names sit beside their dot; 10 have a
+leader line, the longest about 100 px (Embed Security). Screenshots after deploy saved as
 `horizon-report.png` and `horizon-app.png`.
 
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 3 tests: stage by scale only, band by momentum
 only, descriptions carry the cuts and names) + `tests/test_market_report_copy.py` 14 pass;
 `tests/test_market_assessment.py` unchanged, 33 pass. `npm run typecheck` clean at the
-246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-CP2Nb_sC.js` (last build); 0 job lines in the
+246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-DJItUgsH.js` (last build); 0 job lines in the
 journal before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names;
 `POST /markets/2/horizon/compute` 201. Screenshots of both maps after deploy, saved as
 `horizon-app.png` and `horizon-report.png` in the tree root (untracked), checked by eye.

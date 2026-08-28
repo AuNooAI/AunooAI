@@ -108,14 +108,11 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
                            12, W, cy + 26, [...bandMarks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })), ...captions]);
   const labels = dots.map(({ v, x, y }, i) => {
     const s = spots[i]!;
-    return { v, x, y, lx: s.tx, ly: s.by + 10, anchor: s.anchor, leader: s.leader, number: s.number };
+    return { v, x, y, lx: s.tx, ly: s.by + 10, anchor: s.anchor, leader: s.leader };
   });
-  // The numbered dots: their names, where the crowd left no room.
-  const key = labels.filter(l => l.number).sort((a, b) => a.number! - b.number!).map(l => `${l.number} ${l.v.vendor}`);
-  const svgH = key.length ? H + 20 : H;
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${svgH}`} className="w-full max-w-[760px]" role="img"
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
            aria-label="Market Horizon: position and balance">
         <defs>
           <marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -157,7 +154,7 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
             <circle cx={from.x} cy={from.y} r={3} fill="none" stroke="#94a3b8" />
           </g>
         ))}
-        {labels.map(({ v, x, y, lx, ly, anchor, leader, number }) => (
+        {labels.map(({ v, x, y, lx, ly, anchor, leader }) => (
           <g key={v.brand_id}
              onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
              onClick={() => onVendor?.(v.brand_id)}
@@ -179,16 +176,9 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
                     fill="#475569" fillOpacity={0.9} />
-            {number ? (
-              <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fontWeight={600} fill="#0f172a" className="dark:fill-gray-200">{number}</text>
-            ) : (
-              <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
-            )}
+            <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>
         ))}
-        {key.length > 0 && (
-          <text x={cx - R} y={cy + 76} fontSize={10} fill="#64748b">Numbered: {key.join(' · ')}</text>
-        )}
         {bandMarks.map(b => (
           <text key={b.key} x={b.cx} y={b.y + 10} textAnchor="middle" fontSize={11} fontWeight={500} fill="#64748b"
                 paintOrder="stroke" stroke="#f8fafc" strokeWidth={4} className="dark:stroke-gray-900">{b.word}</text>
