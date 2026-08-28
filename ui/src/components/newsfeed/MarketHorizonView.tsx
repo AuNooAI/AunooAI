@@ -16,6 +16,8 @@ import {
   type HorizonVendor, type MarketHorizon, type Vendor,
 } from '../../services/marketMonitorApi';
 import { Panel } from './MarketAnalysisView';
+import { labelSpots, labelWidth } from './horizonLabels';
+import type { HorizonCuts } from '../../services/marketMonitorApi';
 
 const TIER_ORDER = ['executors', 'innovators', 'established', 'emerging'] as const;
 const TIER_COLOUR: Record<string, string> = {
@@ -40,27 +42,27 @@ function InputsTable({ v }: { v: HorizonVendor }) {
 }
 
 /**
- * The horizon. Distance from the base is the overall position (the mean of
- * scale and momentum); the angle is the balance between them — scale-heavy
- * to the left, momentum-heavy to the right, balanced up the middle. The
- * concentric arcs are the horizons. Same geometry as the report's SVG.
+ * The horizon. The angle is the stage, by scale: the smallest vendors on the
+ * left, the largest on the right, so a vendor's life runs left to right. The
+ * distance from the base is momentum: the outer band is accelerating, the
+ * inner band holding. Same geometry as the report's SVG.
  */
-function HorizonArc({ rated, onVendor, largeShift = 10 }: {
+function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNames }: {
   rated: HorizonVendor[]; onVendor?: (brandId: number) => void; largeShift?: number;
+  cuts: HorizonCuts; stageNames: Record<string, string>; bandNames: Record<string, string>;
 }) {
   const [hover, setHover] = useState<HorizonVendor | null>(null);
   const W = 760, H = 478, cx = W / 2, cy = H - 78, R = 350;
-  // The angle is the balance between the axes, scaled to the rated set's own
-  // spread so the horizon is used whatever the market looks like: the most
-  // lopsided vendor sits 80 degrees off the vertical.
-  const widest = Math.max(20, ...rated.map(v => Math.abs(v.scale - v.momentum)));
-  const perPoint = 80 / widest;
+  const clamp = (n: number) => Math.max(0, Math.min(100, n));
+  const angle = (scale: number) => (Math.PI / 180) * (180 - 1.8 * clamp(scale));
   const place = (v: { scale: number; momentum: number }) => {
-    const pos = (v.scale + v.momentum) / 2;
-    const theta = (Math.PI / 180) * (90 + (v.scale - v.momentum) * perPoint);
-    const d = R * pos / 100;
+    const theta = angle(v.scale), d = R * clamp(v.momentum) / 100;
     return { x: cx + d * Math.cos(theta), y: cy - d * Math.sin(theta) };
   };
+  const [c1, c2, c3] = [...(cuts.stage_cuts ?? [25, 50, 75])].sort((a, b) => a - b);
+  const [b1, b2] = [...(cuts.band_cuts ?? [33, 67])].sort((a, b) => a - b);
+  const edges = [0, c1, c2, c3, 100];
+  const stageKeys = ['emerging', 'established', 'innovators', 'executors'];
   // A large move since the previous map: a trail from where the vendor was.
   const trails = rated.filter(v => v.big_move && v.previous)
     .map(v => ({ v, from: place(v.previous!), to: place(v) }));
@@ -68,54 +70,34 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
     const d = R * f;
     return `M ${cx - d} ${cy} A ${d} ${d} 0 0 1 ${cx + d} ${cy}`;
   };
-  // Labels must not sit on another label or on any dot. Each label tries
-  // right, left, above, below, then right and left at increasing drops, and
-  // takes the first clear spot.
+  // Labels must not sit on another label, on any dot or on a leader line;
+  // see horizonLabels.ts. Labels stay above the axis captions.
   const dots = [...rated]
     .sort((a, b) => (b.scale + b.momentum) - (a.scale + a.momentum))
     .map(v => ({ v, ...place(v) }));
   const ring = (v: HorizonVendor) => v.funded ? 14 : v.hiring ? 11.5 : v.innovating ? 9 : 6;
-  const boxes: { x: number; y: number; w: number; h: number }[] =
-    dots.map(d => ({ x: d.x - ring(d.v), y: d.y - ring(d.v), w: 2 * ring(d.v), h: 2 * ring(d.v) }));
-  const clear = (bx: number, by: number, bw: number, bh: number) =>
-    !boxes.some(o => bx < o.x + o.w && o.x < bx + bw && by < o.y + o.h && o.y < by + bh);
-  // Four spots beside the dot first; then rings of spots further out in six
-  // directions. A label that had to leave the dot's side gets a leader line.
-  type Spot = { bx: number; by: number; anchor: 'start' | 'end' | 'middle' };
-  const labels = dots.map(({ v, x, y }) => {
-    const w = 5.4 * v.vendor.length + 2, h = 11, g = ring(v) + 2;
-    const d0 = g * 0.75;
-    const close: Spot[] = [
-      { bx: x + g, by: y - 5, anchor: 'start' }, { bx: x - g - w, by: y - 5, anchor: 'end' },
-      { bx: x - w / 2, by: y - g - 12, anchor: 'middle' }, { bx: x - w / 2, by: y + g + 2, anchor: 'middle' },
-      // the four diagonals, still touching the dot's ring
-      { bx: x + d0, by: y - g - 8, anchor: 'start' }, { bx: x - d0 - w, by: y - g - 8, anchor: 'end' },
-      { bx: x + d0, by: y + d0, anchor: 'start' }, { bx: x - d0 - w, by: y + d0, anchor: 'end' },
-    ];
-    // Further out: rings of spots in eight directions, nearest first.
-    const far: Spot[] = [];
-    for (let k = 1; k <= 8; k++) {
-      const d = 10 * k, e = d * 0.7;
-      far.push({ bx: x + g, by: y - 5 + d, anchor: 'start' }, { bx: x - g - w, by: y - 5 + d, anchor: 'end' },
-               { bx: x + g, by: y - 5 - d, anchor: 'start' }, { bx: x - g - w, by: y - 5 - d, anchor: 'end' },
-               { bx: x + g + d, by: y - 5, anchor: 'start' }, { bx: x - g - w - d, by: y - 5, anchor: 'end' },
-               { bx: x + g + e, by: y - 5 - e, anchor: 'start' }, { bx: x - g - w - e, by: y - 5 - e, anchor: 'end' },
-               { bx: x + g + e, by: y - 5 + e, anchor: 'start' }, { bx: x - g - w - e, by: y - 5 + e, anchor: 'end' });
-    }
-    let pick: Spot | null = null, near = true;
-    for (const c of close) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
-    if (!pick) {
-      near = false;
-      for (const c of far) { if (clear(c.bx, c.by, w, h)) { pick = c; break; } }
-      pick ??= far[far.length - 1];
-    }
-    boxes.push({ x: pick.bx, y: pick.by, w, h });
-    const tx = pick.anchor === 'start' ? pick.bx : pick.anchor === 'end' ? pick.bx + w : pick.bx + w / 2;
-    const leader = near ? null : {
-      x2: tx,
-      y2: pick.anchor === 'middle' ? (pick.by < y ? pick.by + h : pick.by) : pick.by + h / 2,
-    };
-    return { v, x, y, lx: tx, ly: pick.by + 9, anchor: pick.anchor, leader };
+  // The band names sit on the centre line inside each arc, drawn after the
+  // dots with a halo; the vendor labels keep off them.
+  // Each sits on its arc at the top, or failing a clear spot there, at the
+  // nearest angle to the top that is clear of dots.
+  const bandMarks = ([['holding', b1 / 100], ['growing', b2 / 100], ['accelerating', 1]] as [string, number][])
+    .map(([key, f]) => {
+      const word = (bandNames[key] ?? key).toLowerCase(), bw = labelWidth(word);
+      let best = { px: cx, py: cy - R * f + 6 }, bestGap = -1;
+      for (const deg of [90, 100, 80, 110, 70, 120, 60, 130, 50]) {
+        const t = deg * Math.PI / 180;
+        const px = cx + (R * f - 6) * Math.cos(t), py = cy - (R * f - 6) * Math.sin(t);
+        const gap = Math.min(999, ...dots.map(d => Math.hypot(px - d.x, py - d.y)));
+        if (gap > bestGap) { best = { px, py }; bestGap = gap; }
+        if (gap >= 28) break;
+      }
+      return { key, word, cx: best.px, x: best.px - bw / 2, y: best.py - 5.5, w: bw, h: 11 };
+    });
+  const spots = labelSpots(dots.map(d => ({ x: d.x, y: d.y, ring: ring(d.v), width: labelWidth(d.v.vendor) })),
+                           11, W, cy + 26, bandMarks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })));
+  const labels = dots.map(({ v, x, y }, i) => {
+    const s = spots[i]!;
+    return { v, x, y, lx: s.tx, ly: s.by + 9, anchor: s.anchor, leader: s.leader };
   });
   return (
     <div className="relative">
@@ -127,15 +109,22 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
           </marker>
         </defs>
         <path d={`${arc(1)} Z`} fill="#f8fafc" stroke="#e2e8f0" className="dark:fill-gray-900" />
-        {[0.25, 0.5, 0.75].map(f => (
+        {[b1 / 100, b2 / 100].map(f => (
           <path key={f} d={arc(f)} fill="none" stroke="#cbd5e1" strokeDasharray="4 4" />
         ))}
-        <text x={cx} y={cy - R - 12} textAnchor="middle" fontSize={11} fill="#64748b">Executing — growing, and already large</text>
-        <text x={cx - R + 4} y={cy - 60} fontSize={11} fill="#64748b">Establishing</text>
-        <text x={cx + R - 4} y={cy - 60} textAnchor="end" fontSize={11} fill="#64748b">Accelerating</text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">Emerging — small, and not yet moving fast</text>
-        <text x={cx - R} y={cy + 30} fontSize={10} fill="#94a3b8">← scale-heavy</text>
-        <text x={cx + R} y={cy + 30} textAnchor="end" fontSize={10} fill="#94a3b8">momentum-heavy →</text>
+        {[c1, c2, c3].map(c => {
+          const t = angle(c);
+          return <line key={c} x1={cx} y1={cy} x2={cx + R * Math.cos(t)} y2={cy - R * Math.sin(t)} stroke="#cbd5e1" strokeDasharray="4 4" />;
+        })}
+        <path id="mm-hz-rim" d={`M ${cx - R - 9} ${cy} A ${R + 9} ${R + 9} 0 0 1 ${cx + R + 9} ${cy}`} fill="none" stroke="none" />
+        {stageKeys.map((key, k) => (
+          <text key={key} fontSize={11} fill="#64748b">
+            <textPath href="#mm-hz-rim" startOffset={`${(edges[k] + edges[k + 1]) / 2}%`} textAnchor="middle">{stageNames[key] ?? key}</textPath>
+          </text>
+        ))}
+        <text x={cx - R} y={cy + 16} fontSize={10} fill="#94a3b8">← smaller by scale</text>
+        <text x={cx + R} y={cy + 16} textAnchor="end" fontSize={10} fill="#94a3b8">larger by scale →</text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={10} fill="#94a3b8">further from the base = more momentum</text>
         <circle cx={cx - 250} cy={cy + 44} r={6} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
         <text x={cx - 240} y={cy + 48} fontSize={10} fill="#64748b">innovating — top third by product work</text>
         <circle cx={cx - 30} cy={cy + 44} r={6} fill="none" stroke="#b45309" strokeWidth={1.6} strokeDasharray="1 2.2" />
@@ -160,7 +149,7 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
              onClick={() => onVendor?.(v.brand_id)}
              style={{ cursor: onVendor ? 'pointer' : 'default' }}>
             {leader && (
-              <line x1={x} y1={y} x2={leader.x2} y2={leader.y2} stroke="#cbd5e1" strokeWidth={0.8} />
+              <line x1={leader.x1} y1={leader.y1} x2={leader.x2} y2={leader.y2} stroke="#cbd5e1" strokeWidth={0.8} />
             )}
             {v.innovating && (
               <circle cx={x} cy={y} r={8.5} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
@@ -176,12 +165,16 @@ function HorizonArc({ rated, onVendor, largeShift = 10 }: {
             <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>
         ))}
+        {bandMarks.map(b => (
+          <text key={b.key} x={b.cx} y={b.y + 9} textAnchor="middle" fontSize={10} fill="#94a3b8"
+                paintOrder="stroke" stroke="#f8fafc" strokeWidth={4} className="dark:stroke-gray-900">{b.word}</text>
+        ))}
       </svg>
       {hover && (
         <div className="absolute top-2 right-2 bg-white dark:bg-gray-800 border rounded shadow p-2 text-xs max-w-[18rem] pointer-events-none">
           <div className="font-medium text-slate-800 dark:text-gray-100">{hover.vendor}</div>
           <div className="text-slate-500 dark:text-gray-400">
-            scale {hover.scale} · momentum {hover.momentum} · {hover.tier}
+            scale {hover.scale} · momentum {hover.momentum} · {stageNames[hover.tier] ?? hover.tier}{hover.band ? ` · ${hover.band}` : ''}
             {hover.innovation != null && <> · innovation {hover.innovation}{hover.innovating ? ' (innovating)' : ''}</>}
           </div>
           {hover.shift && (Math.abs(hover.shift.scale) >= 1 || Math.abs(hover.shift.momentum) >= 1) && (
@@ -415,7 +408,9 @@ export function MarketHorizonView({ marketId, onVendor }: {
     return <div className="py-10 text-center text-slate-400"><Loader2 className="w-4 h-4 animate-spin mx-auto" /></div>;
   }
 
-  const cuts = horizon?.config.tiers ?? { scale_cut: 50, momentum_cut: 50 };
+  const cuts: HorizonCuts = horizon?.config.tiers ?? { stage_cuts: [25, 50, 75], band_cuts: [33, 67] };
+  const stageCuts = [...(cuts.stage_cuts ?? [25, 50, 75])].sort((a, b) => a - b);
+  const bandCuts = [...(cuts.band_cuts ?? [33, 67])].sort((a, b) => a - b);
 
   return (
     <div className="space-y-4">
@@ -447,7 +442,10 @@ export function MarketHorizonView({ marketId, onVendor }: {
         )}
 
         {horizon && horizon.rated.length > 0 && (
-          <HorizonArc rated={horizon.rated} onVendor={onVendor} largeShift={horizon.large_shift ?? 10} />
+          <HorizonArc rated={horizon.rated} onVendor={onVendor} largeShift={horizon.large_shift ?? 10}
+                      cuts={cuts}
+                      stageNames={Object.fromEntries(Object.entries(horizon.tiers).map(([k, v]) => [k, v.label]))}
+                      bandNames={Object.fromEntries(Object.entries(horizon.bands ?? {}).map(([k, v]) => [k, v.label]))} />
         )}
 
         {horizon && (
@@ -648,11 +646,11 @@ export function MarketHorizonView({ marketId, onVendor }: {
             <div className="text-sm font-medium text-slate-800 dark:text-gray-100">Weights</div>
             <p className="text-xs text-slate-500 dark:text-gray-400">
               Each input is a percentile rank among the rated vendors; an axis is the weighted mean
-              of its inputs. On the map, distance from the base is the mean of the two axes and the
-              angle is their balance. At or above {cuts.scale_cut} on scale and {cuts.momentum_cut} on
-              momentum is Executing; high on one only is Establishing (scale) or Accelerating
-              (momentum); below both is Emerging. Edit <code>app/config/market_horizon.json</code> to
-              change them.
+              of its inputs. On the map, the angle is the stage, by scale: Emerging under {stageCuts[0]},
+              Building from {stageCuts[0]}, Scaling from {stageCuts[1]}, Executing from {stageCuts[2]}, left to
+              right. The distance from the base is momentum: holding under {bandCuts[0]}, growing from{' '}
+              {bandCuts[0]}, accelerating from {bandCuts[1]}. A vendor moves right as it grows and outward as
+              it speeds up. Edit <code>app/config/market_horizon.json</code> to change the cuts.
             </p>
             <table className="mt-1 text-xs">
               <tbody>

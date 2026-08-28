@@ -18,6 +18,7 @@ fields on the objects this module receives, never decisions it makes.
 """
 
 import base64
+import math
 import logging
 import os
 import re
@@ -742,8 +743,9 @@ def _horizon_tip(r: Dict[str, Any], tiers: Dict[str, Any], *, with_inputs: bool)
     """The hover panel for one dot: name, position, tier, markers, movement,
     and in the full view every reading behind it."""
     tier = (tiers.get(r.get("tier")) or {}).get("label") or (r.get("tier") or "").capitalize()
+    band = f' · {esc(str(r["band"]))}' if r.get("band") else ""
     out = [f'<strong>{esc(r["vendor"])}</strong>',
-           f'<div class="mm-src">scale {r["scale"]:g} · momentum {r["momentum"]:g} · {esc(tier)}</div>']
+           f'<div class="mm-src">scale {r["scale"]:g} · momentum {r["momentum"]:g} · {esc(tier)}{band}</div>']
     marks = []
     if r.get("innovating"):
         marks.append("innovating" + (f' (score {r["innovation"]:g})' if r.get("innovation") is not None else ""))
@@ -775,50 +777,86 @@ def _horizon_tip(r: Dict[str, Any], tiers: Dict[str, Any], *, with_inputs: bool)
 
 def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                  cuts: Dict[str, Any], *, tiers: Optional[Dict[str, Any]] = None,
-                 with_inputs: bool = False) -> str:
-    """Vendors on a semicircle. Distance from the base is the overall
-    position (the mean of scale and momentum); the angle is the balance
-    between them — scale-heavy to the left, momentum-heavy to the right,
-    balanced up the middle. The concentric arcs are the horizons. Names only
-    where the viewer may see them; the dots give nothing away."""
-    import math
+                 bands: Optional[Dict[str, Any]] = None, with_inputs: bool = False) -> str:
+    """Vendors on a semicircle. The angle is the stage, by scale: the
+    smallest vendors on the left, the largest on the right, so a vendor's
+    life runs left to right. The distance from the base is momentum: the
+    outer band is accelerating, the inner band holding. Dashed lines from
+    the base mark the stage cuts; dashed arcs mark the band cuts. Names
+    only where the viewer may see them; the dots give nothing away."""
+    from app.services.market_horizon import band_cuts, band_info, stage_cuts, tier_info
     w, h = 720, 452
     cx, cy, radius = w / 2, h - 72, 330
-    # The angle is the balance between the axes, scaled to the rated set's
-    # own spread so the horizon is used whatever the market looks like: the
-    # most lopsided vendor sits 80 degrees off the vertical.
-    widest = max([abs(float(r["scale"]) - float(r["momentum"])) for r in rated] + [20.0])
-    per_point = 80.0 / widest
+    cuts = cuts or {}
+    def angle(scale: float) -> float:
+        return math.radians(180 - 1.8 * max(0.0, min(100.0, scale)))
     def place(r: Dict[str, Any]):
-        pos = (float(r["scale"]) + float(r["momentum"])) / 2
-        theta = math.radians(90 + (float(r["scale"]) - float(r["momentum"])) * per_point)
-        d = radius * pos / 100
+        theta = angle(float(r["scale"]))
+        d = radius * max(0.0, min(100.0, float(r["momentum"]))) / 100
         return cx + d * math.cos(theta), cy - d * math.sin(theta)
     def arc(frac: float) -> str:
         d = radius * frac
         return f'M {cx - d:.1f} {cy:.1f} A {d:.1f} {d:.1f} 0 0 1 {cx + d:.1f} {cy:.1f}'
+    stage_names = {k: v["label"] for k, v in (tiers or tier_info(cuts)).items()}
+    band_names = {k: v["label"] for k, v in (bands or band_info(cuts)).items()}
     parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
              'aria-label="Market Horizon: position and balance">',
              '<defs><marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" '
              'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
              '<path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>',
              f'<path d="{arc(1.0)} Z" fill="#f8fafc" stroke="#e2e8f0"/>']
-    for frac in (0.25, 0.5, 0.75):
+    # The band cuts are arcs; the stage cuts are lines from the base.
+    b1, b2 = band_cuts(cuts)
+    for frac in (b1 / 100, b2 / 100):
         parts.append(f'<path d="{arc(frac)}" fill="none" stroke="#cbd5e1" stroke-dasharray="4 4"/>')
-    parts += [f'<text x="{cx:.0f}" y="{cy - radius - 12:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Executing — growing, and already large</text>',
-              f'<text x="{cx - radius + 4:.0f}" y="{cy - 60:.0f}" font-size="11" fill="#64748b">Establishing</text>',
-              f'<text x="{cx + radius - 4:.0f}" y="{cy - 60:.0f}" text-anchor="end" font-size="11" fill="#64748b">Accelerating</text>',
-              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">Emerging — small, and not yet moving fast</text>',
-              f'<text x="{cx - radius:.0f}" y="{cy + 30:.0f}" font-size="10" fill="#94a3b8">← scale-heavy</text>',
-              f'<text x="{cx + radius:.0f}" y="{cy + 30:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">momentum-heavy →</text>',
+    c1, c2, c3 = stage_cuts(cuts)
+    for cut in (c1, c2, c3):
+        t = angle(cut)
+        parts.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{cx + radius * math.cos(t):.1f}" '
+                     f'y2="{cy - radius * math.sin(t):.1f}" stroke="#cbd5e1" stroke-dasharray="4 4"/>')
+    # Stage names run along the rim, each centred on its sector. Band names
+    # go on the centre line just inside each arc; they are drawn after the
+    # dots, with a halo, and the vendor labels keep off them.
+    rim = radius + 9
+    parts.append(f'<path id="mm-hz-rim" d="M {cx - rim:.1f} {cy:.1f} A {rim:.1f} {rim:.1f} 0 0 1 '
+                 f'{cx + rim:.1f} {cy:.1f}" fill="none" stroke="none"/>')
+    edges = [0.0, c1, c2, c3, 100.0]
+    for k, key in enumerate(("emerging", "established", "innovators", "executors")):
+        parts.append(f'<text font-size="11" fill="#64748b"><textPath href="#mm-hz-rim" '
+                     f'startOffset="{(edges[k] + edges[k + 1]) / 2:.1f}%" text-anchor="middle">'
+                     f'{esc(stage_names.get(key) or key)}</textPath></text>')
+    # Each band name sits on its arc at the top, or failing a clear spot
+    # there, at the nearest angle to the top that is clear of dots.
+    placed = [place(r) for r in rated]
+    band_marks, band_text = [], []
+    for key, frac in (("holding", b1 / 100), ("growing", b2 / 100), ("accelerating", 1.0)):
+        word = (band_names.get(key) or key).lower()
+        bw = _label_width(word)
+        best, best_gap = None, -1.0
+        for deg in (90, 100, 80, 110, 70, 120, 60, 130, 50):
+            t = math.radians(deg)
+            px, py = cx + (radius * frac - 6) * math.cos(t), cy - (radius * frac - 6) * math.sin(t)
+            gap = min([math.hypot(px - x, py - y) for x, y in placed] + [999.0])
+            if gap > best_gap:
+                best, best_gap = (px, py), gap
+            if gap >= 28:
+                break
+        px, py = best
+        band_marks.append((px - bw / 2, py - 5.5, bw, 11.0))
+        band_text.append(f'<text x="{px:.0f}" y="{py + 3.5:.0f}" text-anchor="middle" '
+                         'font-size="10" fill="#94a3b8" paint-order="stroke" stroke="#f8fafc" '
+                         f'stroke-width="4">{esc(word)}</text>')
+    parts += [f'<text x="{cx - radius:.0f}" y="{cy + 16:.0f}" font-size="10" fill="#94a3b8">← smaller by scale</text>',
+              f'<text x="{cx + radius:.0f}" y="{cy + 16:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">larger by scale →</text>',
+              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="10" fill="#94a3b8">further from the base = more momentum</text>',
               # The legend for the three markers. Each is a ring style, so a
               # dot can carry all three without a second glyph.
-              f'<circle cx="{cx - 250:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
-              f'<text x="{cx - 240:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">innovating — top third by product work</text>',
-              f'<circle cx="{cx - 30:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>',
-              f'<text x="{cx - 20:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">hiring — top third by open roles per head</text>',
-              f'<circle cx="{cx + 190:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#1d4ed8" stroke-width="1"/>',
-              f'<text x="{cx + 200:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">funded — a round in the last year</text>']
+              f'<circle cx="{cx - 268:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
+              f'<text x="{cx - 258:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">innovating — top third by product work</text>',
+              f'<circle cx="{cx - 52:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>',
+              f'<text x="{cx - 42:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">hiring — top third by open roles per head</text>',
+              f'<circle cx="{cx + 166:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#1d4ed8" stroke-width="1"/>',
+              f'<text x="{cx + 176:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">funded — a round in the last year</text>']
     # A large move since the previous map is a trail from where the vendor
     # was, drawn under the dots so it never hides one.
     trails = [r for r in rated if r.get("big_move") and r.get("previous")]
@@ -834,22 +872,24 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
         parts.append(f'<text x="{cx - 226:.0f}" y="{cy + 61:.0f}" font-size="10" fill="#64748b">'
                      'trail — moved 10 or more points on an axis since the previous map</text>')
     dots = [(r, *place(r)) for r in sorted(rated, key=lambda r: -(r["scale"] + r["momentum"]))]
-    # Labels must not sit on another label or on any dot. Each label tries
-    # right, left, above, below, then right at increasing drops, and takes
-    # the first clear spot. Placed labels are boxes (x, y_top, w, h).
     def ring(r: Dict[str, Any]) -> float:
         return 14.0 if r.get("funded") else 11.5 if r.get("hiring") else 9.0 if r.get("innovating") else 6.0
-    boxes: List[tuple] = [(x - ring(r), y - ring(r), 2 * ring(r), 2 * ring(r)) for r, x, y in dots]
-    def clear(bx: float, by: float, bw: float, bh: float) -> bool:
-        return not any(bx < ox + ow and ox < bx + bw and by < oy + oh and oy < by + bh
-                       for ox, oy, ow, oh in boxes)
-    for r, x, y in dots:
+    shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
+    spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) if s else 0.0)
+                          for (r, x, y), s in zip(dots, shown)], 11.0, w, cy + 26,
+                         obstacles=band_marks)
+    for (r, x, y), is_shown, spot in zip(dots, shown, spots):
         colour = _TIER_COLOUR.get(r["tier"], "#6b7280")
-        shown = allowed is None or r["vendor"] in allowed
         # The hover panel names the vendor, so it is withheld with the label.
         tip = (f' class="mm-hz-dot" data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
-               if shown else '')
+               if is_shown else '')
         parts.append(f'<g{tip}>')
+        if spot is not None and spot["leader"]:
+            # The label had to move away from its dot: a leader line says
+            # which dot it belongs to. Drawn first, so it sits under the dot.
+            (x1, y1), (x2, y2) = spot["leader"]
+            parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                         'stroke="#cbd5e1" stroke-width=".8"/>')
         if r.get("innovating"):
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.5" fill="none" '
                          'stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>')
@@ -860,56 +900,192 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="13.5" fill="none" '
                          'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
-        if not shown:
-            parts.append('</g>')
-            continue
-        width, height = 5.4 * len(r["vendor"]) + 2, 11
-        bx, by, anchor, near = _label_spot(x, y, ring(r) + 2, width, height, clear)
-        boxes.append((bx, by, width, height))
-        tx = bx if anchor == "start" else bx + width if anchor == "end" else bx + width / 2
-        if not near:
-            # The label had to move away from its dot: a leader line says
-            # which dot it belongs to.
-            lx = bx if anchor == "start" else bx + width if anchor == "end" else bx + width / 2
-            ly = by + height / 2 if anchor != "middle" else (by + height if by < y else by)
-            parts.append(f'<line x1="{x:.1f}" y1="{y:.1f}" x2="{lx:.1f}" y2="{ly:.1f}" '
-                         'stroke="#cbd5e1" stroke-width=".8"/>')
-        parts.append(f'<text x="{tx:.1f}" y="{by + 9:.1f}" text-anchor="{anchor}" '
-                     f'font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
+        if spot is not None:
+            parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 9:.1f}" text-anchor="{spot["anchor"]}" '
+                         f'font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
         parts.append('</g>')
+    parts += band_text
     parts.append("</svg>")
     return "".join(parts)
 
 
-def _label_spot(x: float, y: float, g: float, width: float, height: float, clear):
-    """Where a dot's label goes. Four spots beside the dot first; then rings
-    of spots further out in six directions, until one is clear of every dot
-    and every placed label. Returns (x, y_top, anchor, near) — ``near`` is
-    False when the label had to leave the dot's side."""
-    d0 = g * 0.75
-    close = [(x + g, y - 5, "start"), (x - g - width, y - 5, "end"),
-             (x - width / 2, y - g - 12, "middle"), (x - width / 2, y + g + 2, "middle"),
-             # the four diagonals, still touching the dot's ring
-             (x + d0, y - g - 8, "start"), (x - d0 - width, y - g - 8, "end"),
-             (x + d0, y + d0, "start"), (x - d0 - width, y + d0, "end")]
-    for bx, by, anchor in close:
-        if clear(bx, by, width, height):
-            return bx, by, anchor, True
-    # Further out: rings of spots in eight directions, nearest first, so a
-    # displaced label stays as close to its dot as the crowd allows.
-    far = []
-    for k in range(1, 9):
-        d = 10 * k
-        far += [(x + g, y - 5 + d, "start"), (x - g - width, y - 5 + d, "end"),
-                (x + g, y - 5 - d, "start"), (x - g - width, y - 5 - d, "end"),
-                (x + g + d, y - 5, "start"), (x - g - width - d, y - 5, "end"),
-                (x + g + d * 0.7, y - 5 - d * 0.7, "start"), (x - g - width - d * 0.7, y - 5 - d * 0.7, "end"),
-                (x + g + d * 0.7, y - 5 + d * 0.7, "start"), (x - g - width - d * 0.7, y - 5 + d * 0.7, "end")]
-    for bx, by, anchor in far:
-        if clear(bx, by, width, height):
-            return bx, by, anchor, False
-    bx, by, anchor = far[-1]
-    return bx, by, anchor, False
+def _seg_hits_box(x1: float, y1: float, x2: float, y2: float,
+                  bx: float, by: float, bw: float, bh: float) -> bool:
+    """Does the segment cross the box? Liang–Barsky clipping."""
+    dx, dy = x2 - x1, y2 - y1
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x1 - bx), (dx, bx + bw - x1), (-dy, y1 - by), (dy, by + bh - y1)):
+        if p == 0:
+            if q < 0:
+                return False
+            continue
+        t = q / p
+        if p < 0:
+            if t > t1:
+                return False
+            t0 = max(t0, t)
+        else:
+            if t < t0:
+                return False
+            t1 = min(t1, t)
+    return t0 <= t1
+
+
+def _segs_cross(a: tuple, b: tuple) -> bool:
+    """Do two segments (x1, y1, x2, y2) cross?"""
+    def side(px, py, qx, qy, rx, ry):
+        return (qx - px) * (ry - py) - (qy - py) * (rx - px)
+    d1 = side(b[0], b[1], b[2], b[3], a[0], a[1])
+    d2 = side(b[0], b[1], b[2], b[3], a[2], a[3])
+    d3 = side(a[0], a[1], a[2], a[3], b[0], b[1])
+    d4 = side(a[0], a[1], a[2], a[3], b[2], b[3])
+    return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+
+def _seg_near_point(x1: float, y1: float, x2: float, y2: float, px: float, py: float) -> float:
+    """How far the point is from the nearest point of the segment."""
+    dx, dy = x2 - x1, y2 - y1
+    l2 = dx * dx + dy * dy
+    t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / l2))
+    return math.hypot(x1 + t * dx - px, y1 + t * dy - py)
+
+
+def _box_hits_ring(bx: float, by: float, bw: float, bh: float, cx: float, cy: float, r: float) -> bool:
+    """Does the box overlap the circle?"""
+    nx = max(bx, min(cx, bx + bw))
+    ny = max(by, min(cy, by + bh))
+    return math.hypot(nx - cx, ny - cy) < r
+
+
+def _label_width(text: str) -> float:
+    """About how wide the label is at 10px in a sans-serif face, from the
+    letters in it. Slightly generous, so a wider face still fits."""
+    total = 4.0
+    for ch in text:
+        if ch in "iljtfr .'-,":
+            total += 3.0
+        elif ch in "mwMW":
+            total += 8.5
+        elif ch.isupper() or ch.isdigit():
+            total += 7.0
+        else:
+            total += 5.8
+    return total
+
+
+# Twenty-four directions a label can sit in, starting beside the dot and
+# going round; and the distances it can stand off, nearest first.
+_LABEL_DIRS = [(math.cos(math.radians(a)), math.sin(math.radians(a))) for a in range(0, 360, 15)]
+_LABEL_STEPS = [0, 8, 16, 24, 34, 46, 60, 76, 94, 115, 140]
+
+
+def _label_spots(dots: List[tuple], height: float, width: float, max_y: float,
+                 obstacles: Optional[List[tuple]] = None) -> List[Optional[dict]]:
+    """Where every dot's label goes, so no label sits on a dot, another
+    label or a leader line, and no leader line crosses one either.
+
+    ``dots`` is ``[(x, y, ring, label_width)]``; a zero label width is a dot
+    with no label (it still keeps labels off itself). ``width`` and ``max_y``
+    bound the labels on the right and below. Returns one entry per dot,
+    ``None`` for the unlabelled, else a dict: ``bx``/``by`` the label box's
+    top-left, ``tx`` the text anchor x, ``anchor``, ``hits`` (what it still
+    overlaps, weighted — 0 unless the crowd left no room; text over text
+    weighs most, a label brushing a ring least), and
+    ``leader`` — ``None`` when the label touches its dot, else the line from
+    the dot's ring to the label.
+
+    Two passes. First, every label that fits beside its own dot takes that
+    spot, most crowded dots first, so nothing later can take it. Then the
+    labels that did not fit move out on a leader line, nearest clear spot
+    first, preferring the side that faces away from the dot's neighbours so
+    a crowd's labels fan outwards instead of across each other.
+    """
+    n = len(dots)
+    # ``obstacles`` are boxes (x, y_top, w, h) already on the map that a
+    # label must keep off, such as the band names.
+    labels: List[tuple] = list(obstacles or [])
+    leaders: List[tuple] = []
+    def neighbours(i: int) -> List[int]:
+        xi, yi = dots[i][0], dots[i][1]
+        return [j for j in range(n) if j != i and abs(dots[j][0] - xi) < 48 and abs(dots[j][1] - yi) < 48]
+    order = [i for i in sorted(range(n), key=lambda i: (-len(neighbours(i)), dots[i][1], dots[i][0]))
+             if dots[i][3] > 0]
+    out: List[Optional[dict]] = [None] * n
+
+    def candidate(i: int, step: int, ux: float, uy: float) -> Optional[dict]:
+        x, y, g, w = dots[i]
+        d = g + 2 + step
+        px, py = x + d * ux, y + d * uy
+        bx = px - w / 2 + ux * w / 2
+        by = py - height / 2 + uy * height / 2
+        if bx < 0 or bx + w > width or by < 0 or by + height > max_y:
+            return None
+        # Overlap, weighted: text over text or over a dot is the worst
+        # (10), a label under a leader line or a leader line over text next
+        # (6), a leader line through a dot's core (2), a label brushing a
+        # marker ring or two leader lines crossing (1). A leader line may
+        # pass under a marker ring; the dot itself is drawn over it.
+        hits = sum(10 if _box_hits_ring(bx, by, w, height, ox, oy, 6.0) else 1
+                   for k, (ox, oy, r, _) in enumerate(dots) if k != i
+                   and _box_hits_ring(bx - 2, by - 1, w + 4, height + 2, ox, oy, r))
+        hits += sum(10 for ox, oy, ow, oh in labels
+                    if bx - 3 < ox + ow and ox < bx + w + 3 and by - 2 < oy + oh and oy < by + height + 2)
+        hits += sum(6 for seg in leaders if _seg_hits_box(*seg, bx, by, w, height))
+        sx, sy = x + (g + 1) * ux, y + (g + 1) * uy
+        if step > 0:
+            hits += sum(2 for k, (ox, oy, _, _) in enumerate(dots) if k != i
+                        and math.hypot(sx - ox, sy - oy) >= 6.0 and _seg_near_point(sx, sy, px, py, ox, oy) < 6.0)
+            hits += sum(6 for ox, oy, ow, oh in labels if _seg_hits_box(sx, sy, px, py, ox, oy, ow, oh))
+            hits += sum(1 for seg in leaders if _segs_cross((sx, sy, px, py), seg))
+        anchor = "start" if ux > 0.35 else "end" if ux < -0.35 else "middle"
+        return {"bx": bx, "by": by, "anchor": anchor,
+                "tx": bx if anchor == "start" else bx + w if anchor == "end" else bx + w / 2,
+                "leader": None if step == 0 else ((sx, sy), (px, py)), "hits": hits}
+
+    def take(i: int, spot: dict) -> None:
+        labels.append((spot["bx"], spot["by"], dots[i][3], height))
+        if spot["leader"]:
+            (x1, y1), (x2, y2) = spot["leader"]
+            leaders.append((x1, y1, x2, y2))
+        out[i] = spot
+
+    # Pass one: beside the dot, sideways before up or down.
+    for i in order:
+        for ux, uy in sorted(_LABEL_DIRS, key=lambda u: abs(u[1])):
+            c = candidate(i, 0, ux, uy)
+            if c is not None and c["hits"] == 0:
+                take(i, c)
+                break
+    # Pass two: out on a leader line.
+    for i in order:
+        if out[i] is not None:
+            continue
+        x, y = dots[i][0], dots[i][1]
+        nb = neighbours(i)
+        away = None
+        if nb:
+            mx = sum(dots[j][0] for j in nb) / len(nb)
+            my = sum(dots[j][1] for j in nb) / len(nb)
+            norm = math.hypot(x - mx, y - my)
+            if norm > 0.5:
+                away = ((x - mx) / norm, (y - my) / norm)
+        # A spot's price is its distance plus what it overlaps; one point of
+        # overlap costs the same as forty pixels of leader line, so a label
+        # goes a long way round to avoid text but not to avoid a ring's edge.
+        best, best_cost = None, float("inf")
+        for step in _LABEL_STEPS:
+            for ux, uy in _LABEL_DIRS:
+                cost = step + 3 * abs(uy) + (0 if away is None else 12 * (1 - (ux * away[0] + uy * away[1])))
+                if cost >= best_cost:
+                    continue
+                c = candidate(i, step, ux, uy)
+                if c is not None and cost + 40 * c["hits"] < best_cost:
+                    best, best_cost = c, cost + 40 * c["hits"]
+            if best_cost <= step + 3:
+                break
+        assert best is not None
+        take(i, best)
+    return out
 
 
 _HORIZON_SLOT = "<!--mm-horizon-slot-->"
@@ -954,7 +1130,8 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     full_view = allowed is None
     out.append('<div class="mm-hz">'
                + _horizon_svg(rated, names_allowed, cfg.get("tiers") or {},
-                              tiers=horizon.get("tiers") or {}, with_inputs=full_view)
+                              tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
+                              with_inputs=full_view)
                + '<div class="mm-hz-tip" hidden></div></div>'
                + f'<script>{_HORIZON_JS}</script>')
     acquired = horizon.get("acquired") or []
@@ -1110,13 +1287,16 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                          f'<td class="mm-num">{float(v.get("weight") or 0):.2f}</td></tr>'
                          for k, v in ordered)
                + "</tbody></table>")
+    from app.services.market_horizon import band_cuts, stage_cuts
+    c1, c2, c3 = stage_cuts(cfg.get("tiers") or {})
+    b1, b2 = band_cuts(cfg.get("tiers") or {})
     weights += ('<p class="mm-src">Each input is a percentile rank among the rated '
-                'vendors; an axis is the weighted mean of its inputs. On the map, distance '
-                'from the base is the mean of the two axes and the angle is their balance. '
-                f'A vendor at or above {cfg.get("tiers", {}).get("scale_cut", 50)} on scale '
-                f'and {cfg.get("tiers", {}).get("momentum_cut", 50)} on momentum is '
-                'Executing; high on one only is Establishing (scale) or Accelerating '
-                '(momentum); below both is Emerging.</p>')
+                'vendors; an axis is the weighted mean of its inputs. On the map, the angle '
+                'is the stage, by scale: Emerging under '
+                f'{c1:g}, Building from {c1:g}, Scaling from {c2:g}, Executing from {c3:g}, '
+                'left to right. The distance from the base is momentum: holding under '
+                f'{b1:g}, growing from {b1:g}, accelerating from {b2:g}. A vendor moves right '
+                'as it grows and outward as it speeds up.</p>')
     out.append(fold("How the map is computed — weights and rules", weights))
     out.append("</section>")
     return "".join(out)
@@ -1530,7 +1710,7 @@ def _trial_panel(market_id: int) -> str:
     """The request form. One per page; the blurred blocks link to it."""
     return (
         '<section class="mm-trial" id="mm-trial">'
-        "<h2>Get the full report and the data behind it</h2>"
+        "<h2>Get the full report and data</h2>"
         "<p>This shared view shows part of the market. A trial gives you the "
         "whole of it: every vendor and every figure, an RSS feed, an MCP "
         "server for your own tools, CSV export of the data, and a weekly "
@@ -2317,7 +2497,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 # named research product does.
                 f'<div class="n-kicker">Future-proof cybersecurity advisory · '
                 f'{esc(period_txt)}</div>'
-                f'<h1>Cyberfuturists {esc(market["name"])} Market Horizon</h1>'
+                f'<h1>{esc(market["name"])} Market Horizon</h1>'
                 + (f'<p class="n-sub"><strong>{esc(question[:400])}</strong></p>'
                    if question else "")
                 + f'<p class="n-sub">{esc(scope_text[:500]) + " " if scope_text else ""}'
@@ -2425,7 +2605,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # The evidence behind the conclusions, collapsed
     # ================================================================
     body.append(_drawer_open(
-        "The evidence behind this",
+        "Evidence",
         "The figures the assessment rests on: formation, funding and "
         "investors, hiring, headcount, the vendors' own announcements, "
         "sentiment, and who is talking.",
@@ -2854,7 +3034,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append(_drawer_close())
 
     body.append(_drawer_open(
-        "The vendors we track",
+        "Tracked vendors",
         f"{len(registry_rows)} companies we watch, with each one's "
         "observation state, country, founding year, staff, funding and open "
         "roles.",
@@ -3087,7 +3267,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             'market say so. <a href="#mm-trial">Request a trial</a> to see '
             'all of it.</p>')
 
-    rendered = html_document(f'Cyberfuturists {market["name"]} Market Horizon',
+    rendered = html_document(f'{market["name"]} Market Horizon',
                              "".join(body))
     if teaser:
         rendered = _apply_teasers(rendered)

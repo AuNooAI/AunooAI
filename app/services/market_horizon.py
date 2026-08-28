@@ -67,9 +67,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "cb_growth": {"axis": "momentum", "weight": 0.10, "optional": True,
                       "label": "Crunchbase growth score (secondary)"},
     },
-    # A vendor at or above the cut on an axis is "high" on it. Fifty is the
-    # median of the rated set, so the four tiers start out roughly even.
-    "tiers": {"scale_cut": 50, "momentum_cut": 50},
+    # The stage is the scale score cut into four: Emerging, Building,
+    # Scaling, Executing. The band is the momentum score cut into three:
+    # holding, growing, accelerating. On the map the stage is the angle
+    # (left to right) and the band is the distance from the base.
+    "tiers": {"stage_cuts": [25, 50, 75], "band_cuts": [33, 67]},
     # Innovating is a marker across every tier, not a region of the map: the
     # top third of rated vendors by this score, from what we can read of
     # product work. Patents, code activity and release notes are not held.
@@ -101,19 +103,56 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 STATUSES = ("active", "acquired", "closed")
 
+# The stages, largest first. The keys are older than the names and stay as
+# they are, because stored maps carry them; a vendor moves through them in
+# the order emerging, established, innovators, executors as its scale grows.
 TIERS: Dict[str, Dict[str, str]] = {
     "executors": {"label": "Executing",
-                  "means": "growing, and already large"},
-    "innovators": {"label": "Accelerating",
-                   "means": "growing fast from a smaller base"},
-    "established": {"label": "Establishing",
-                    "means": "large, with little change in the period"},
+                  "means": "the largest vendors: scale of {c3} and over"},
+    "innovators": {"label": "Scaling",
+                   "means": "scale from {c2} to {c3}"},
+    "established": {"label": "Building",
+                    "means": "scale from {c1} to {c2}"},
     "emerging": {"label": "Emerging",
-                 "means": "small, and not yet moving fast"},
+                 "means": "the smallest vendors: scale under {c1}"},
     # Not a region: an acquired vendor is listed, not placed.
     "acquired": {"label": "Acquired",
                  "means": "bought, so no longer rated as an independent vendor"},
 }
+STAGE_ORDER = ("emerging", "established", "innovators", "executors")
+
+# The momentum bands, fastest first: the distance from the base on the map.
+BANDS: Dict[str, Dict[str, str]] = {
+    "accelerating": {"label": "Accelerating", "means": "momentum of {b2} and over"},
+    "growing": {"label": "Growing", "means": "momentum from {b1} to {b2}"},
+    "holding": {"label": "Holding", "means": "momentum under {b1}"},
+}
+
+
+def stage_cuts(cuts: Dict[str, Any]) -> List[float]:
+    """The three scale scores that separate the four stages."""
+    raw = cuts.get("stage_cuts") or [25, 50, 75]
+    return sorted(float(c) for c in raw)[:3]
+
+
+def band_cuts(cuts: Dict[str, Any]) -> List[float]:
+    """The two momentum scores that separate the three bands."""
+    raw = cuts.get("band_cuts") or [33, 67]
+    return sorted(float(c) for c in raw)[:2]
+
+
+def tier_info(cuts: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    """The stages with their cut scores written into the descriptions."""
+    c1, c2, c3 = stage_cuts(cuts)
+    fmt = {"c1": f"{c1:g}", "c2": f"{c2:g}", "c3": f"{c3:g}"}
+    return {t: {**info, "means": info["means"].format(**fmt)} for t, info in TIERS.items()}
+
+
+def band_info(cuts: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    """The bands with their cut scores written into the descriptions."""
+    b1, b2 = band_cuts(cuts)
+    fmt = {"b1": f"{b1:g}", "b2": f"{b2:g}"}
+    return {b: {**info, "means": info["means"].format(**fmt)} for b, info in BANDS.items()}
 
 WHAT_IT_IS_NOT = ("A map of scale against momentum from readings we collect. "
                   "It does not rate product quality, customer satisfaction "
@@ -532,15 +571,26 @@ def _percentile(value: float, others: List[float]) -> float:
 
 
 def _tier(scale: float, momentum: float, cuts: Dict[str, Any]) -> str:
-    high_scale = scale >= float(cuts.get("scale_cut", 50))
-    high_momentum = momentum >= float(cuts.get("momentum_cut", 50))
-    if high_scale and high_momentum:
+    """The stage: where the scale score falls between the cuts. Momentum
+    plays no part; it is the band."""
+    c1, c2, c3 = stage_cuts(cuts)
+    if scale >= c3:
         return "executors"
-    if high_momentum:
+    if scale >= c2:
         return "innovators"
-    if high_scale:
+    if scale >= c1:
         return "established"
     return "emerging"
+
+
+def _band(momentum: float, cuts: Dict[str, Any]) -> str:
+    """The band: where the momentum score falls between the cuts."""
+    b1, b2 = band_cuts(cuts)
+    if momentum >= b2:
+        return "accelerating"
+    if momentum >= b1:
+        return "growing"
+    return "holding"
 
 
 def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
@@ -631,6 +681,7 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
         rated.append({"brand_id": bid, "vendor": eligible[bid],
                       "scale": scale, "momentum": momentum,
                       "tier": _tier(scale, momentum, cfg["tiers"]),
+                      "band": _band(momentum, cfg["tiers"]),
                       "inputs": detail,
                       "innovation": round(inum / iden, 1) if iden else None,
                       "innovation_inputs": inno_detail,
@@ -703,7 +754,9 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
         "computed_at": _now(),
         "days": int(cfg.get("days") or 90),
         "config": cfg,
-        "tiers": {t: {**TIERS[t], "count": tier_counts[t]} for t in TIERS},
+        "tiers": {t: {**info, "count": tier_counts[t]} for t, info in tier_info(cfg["tiers"]).items()},
+        "bands": {b: {**info, "count": sum(1 for r in rated if r["band"] == b)}
+                  for b, info in band_info(cfg["tiers"]).items()},
         "rated": rated,
         "not_rated": not_rated,
         "acquired": acquired,
@@ -768,7 +821,7 @@ def with_movement(current: Dict[str, Any], previous: Optional[Dict[str, Any]]
     moves = []
     for r in current.get("rated") or []:
         p = before.get(r["brand_id"])
-        r["previous"] = ({"tier": p["tier"], "scale": p["scale"],
+        r["previous"] = ({"tier": p["tier"], "band": p.get("band"), "scale": p["scale"],
                           "momentum": p["momentum"]} if p else None)
         r["moved"] = bool(p and p["tier"] != r["tier"])
         r["shift"] = None

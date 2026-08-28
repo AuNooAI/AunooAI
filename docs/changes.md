@@ -2,6 +2,106 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; labels no longer overlap; shorter titles on the shared market report
+
+### Feature — the map shows how a vendor travels
+The four tiers were a 2×2 cut of scale and momentum at 50/50, so "Accelerating" and
+"Establishing" were opposite sides of the map, not stages, and a vendor had no path across it.
+The user asked for a life cycle a vendor can move along, a better word than "Establishing",
+and for acceleration to be read off the layer of the semicircle.
+
+**`app/services/market_horizon.py`.** The stage is now the scale score cut in four
+(`tiers.stage_cuts`, default 25/50/75): Emerging, Building, Scaling, Executing. The band is
+the momentum score cut in three (`tiers.band_cuts`, default 33/67): holding, growing,
+accelerating. `_tier` reads scale only; new `_band` reads momentum only; every rated vendor
+carries `band`; the result carries `bands` with counts alongside `tiers`. The descriptions
+(`tier_info`, `band_info`) print the cuts. The tier keys (`emerging`, `established`,
+`innovators`, `executors`) are unchanged so stored maps and the movement comparison still
+work; `established` now means Building and `innovators` means Scaling, and a comment says so.
+`with_movement` carries the previous band.
+
+**`app/services/market_report_html.py`** (`_horizon_svg`) and
+**`ui/src/components/newsfeed/MarketHorizonView.tsx`**, the same geometry: the angle is the
+scale score, left (0) to right (100); the distance from the base is the momentum score.
+Dashed lines from the base mark the stage cuts, dashed arcs the band cuts. Stage names run
+along the rim on a `textPath`, centred on their sector; band names sit on their arc at the
+top, or at the nearest clear angle when a dot is there, drawn after the dots with a halo, and
+the vendor-label placer keeps off them (`obstacles`). The hover panel names the band. The
+Method text and the Weights paragraph in the app describe the new reading.
+`marketMonitorApi.ts`: `HorizonCuts`, `HorizonVendor.band`, `MarketHorizon.bands`.
+
+Under the new rule the AI in the SOC map (map 10, computed 2026-08-28 after deploy) has
+Executing 7, Scaling 14, Building 13, Emerging 6, and accelerating 6, growing 26, holding 8.
+The scores did not change, so the Moved list is empty.
+
+### Verification
+`tests/test_market_horizon_stages.py` (new, 3 tests: stage by scale only, band by momentum
+only, descriptions carry the cuts and names) + `tests/test_market_report_copy.py` 14 pass;
+`tests/test_market_assessment.py` unchanged, 33 pass. `npm run typecheck` clean at the
+246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-CvdHESCD.js`; 0 job lines in the
+journal before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names;
+`POST /markets/2/horizon/compute` 201. Screenshots of both maps after deploy, saved as
+`horizon-app.png` and `horizon-report.png` in the tree root (untracked), checked by eye.
+
+### Propagation
+bugfixing only, uncommitted. The stored map must be recomputed on any tenant that gets this
+code, because the tier of every stored vendor was cut by the old rule.
+
+
+### Fix — every label on the Market Horizon map gets a clear spot
+The 2026-08-27 placer put each label in the first free box it found, checked only against
+dots and other labels, and drew a leader line without checking what that line crossed. On the
+AI in the SOC map (40 rated vendors, 15 of them within a 55×66 px patch in the centre) the
+result was labels on dots, labels on each other, and leader lines through the crowd. The user
+sent a screenshot of the app view showing all three.
+
+**`app/services/market_report_html.py`** (`_label_spots`, `_label_width`, `_seg_hits_box`,
+`_segs_cross`, `_seg_near_point`, `_box_hits_ring`; replaces `_label_spot`) and
+**`ui/src/components/newsfeed/horizonLabels.ts`** (new, the same code in TypeScript; used by
+`MarketHorizonView.tsx`). Both place labels the same way:
+
+- Two passes. First, every label that fits beside its own dot takes that spot, most crowded
+  dots first, so a later label cannot take it. Then the labels that did not fit move out on a
+  leader line, trying 24 directions at 11 distances up to 140 px, preferring the side that
+  faces away from the dot's neighbours so a crowd's labels fan outwards.
+- What counts as a clash, weighted: text over text or over a dot's core, 10; a label under a
+  leader line or a leader line over text, 6; a leader line through a dot's core, 2; a label
+  brushing a marker ring or two leader lines crossing, 1. One point costs the same as 40 px
+  of leader line, so a label goes a long way round to avoid text but not to avoid a ring edge.
+  A leader line may pass under a marker ring, because the dot is drawn over it.
+- Rings are circles, not squares, in the checks. The old square boxes made a dot sitting inside
+  a neighbour's funded ring (Artemis/Daylight, Beacon/Cognna) impossible to lead out of.
+- Label width comes from the letters (`_label_width`: narrow letters 3 px, capitals 7, m/w
+  8.5, the rest 5.8, plus 4), not from 5.4 × length. Measured in a headless browser with the
+  report's font stack, the real width per character ranged 4.6–6.5 px ("Aistrike" to
+  "Command Zero"); the flat estimate let "Nebulock" and "Opnova" touch.
+- Labels stay above the axis captions (`max_y` = base line + 26 px).
+
+### Verification
+`_label_spots` on the stored map 9 (40 rated): 0 labels overlap text or a dot; 4 labels carry
+a non-zero clash score, all leader lines passing under a marker ring or brushing one
+(Beacon Security, Embed Security, Nebulock, Opnova). Screenshots of the report SVG and of the
+app view after deploy, both checked by eye. `tests/test_market_report_copy.py` +
+`tests/test_market_assessment.py` 47 pass. `npm run typecheck` clean at the 246-error
+baseline. `./ui/deploy-react-ui.sh` → `newsfeed-CwhCXOsw.js`; service restarted with 0 job
+lines in the last 3 minutes of the journal; `https://aisoc.aunoo.ai/` 200.
+
+### Propagation
+bugfixing only, uncommitted. The report renderer and the React view both need to travel
+together if the Market Monitor is ever copied to another tenant; today it lives only here.
+
+
+### Fix — the page name drops the publisher
+**`market_report_html.py`.** The heading and browser-tab title read "AI in the SOC Market
+Horizon", without the "Cyberfuturists" prefix added yesterday; the publisher's name stays in
+the top bar and the byline. Verified on `https://aisoc.aunoo.ai/` (200, `<h1>` and `<title>`).
+
+### Fix — three titles cut to the noun
+**`market_report_html.py`.** "The evidence behind this" → "Evidence"; "The vendors we track"
+→ "Tracked vendors"; the trial box heading "Get the full report and the data behind it" →
+"Get the full report and data". Nav links and anchors unchanged. `tests/test_market_report_copy.py`
+11 pass; `https://aisoc.aunoo.ai/` 200 with the new titles.
+
 ## 2026-08-27 — sharing an incident by email no longer fails on an AI-written timeline; the market briefing is written by Kimi, puts its citations after the sentence, and joins the shared news feed and the shared market report when approved; ATS job postings classify by department; an operator can exclude a matched page from a market
 
 ### Goal

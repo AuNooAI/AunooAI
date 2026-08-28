@@ -1921,9 +1921,14 @@ export async function getTopVoices(
 export interface HorizonInput {
   value: number; percentile: number; weight: number; axis: 'scale' | 'momentum';
 }
+/** The stage cuts (scale scores, three of them) and band cuts (momentum scores, two). */
+export type HorizonCuts = { stage_cuts?: number[]; band_cuts?: number[] };
+
 export interface HorizonVendor {
   brand_id: number; vendor: string; scale: number; momentum: number;
   tier: 'executors' | 'innovators' | 'established' | 'emerging';
+  /** The momentum band: accelerating, growing or holding. */
+  band?: 'accelerating' | 'growing' | 'holding';
   inputs: Record<string, HorizonInput>;
   /** Product-work score beside the axes, and the top-third marker. */
   innovation: number | null;
@@ -1985,9 +1990,11 @@ export interface MarketHorizon {
     days: number; customer_days: number;
     inputs: Record<string, { axis: 'scale' | 'momentum'; weight: number; label: string;
                              note?: string; optional?: boolean }>;
-    tiers: { scale_cut: number; momentum_cut: number };
+    tiers: HorizonCuts;
   };
   tiers: Record<string, { label: string; means: string; count: number }>;
+  /** The momentum bands — accelerating, growing, holding — with counts. */
+  bands?: Record<string, { label: string; means: string; count: number }>;
   rated: HorizonVendor[];
   not_rated: HorizonNotRated[];
   acquired: HorizonAcquired[];
