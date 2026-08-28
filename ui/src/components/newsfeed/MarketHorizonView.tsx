@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Blocks, ChartNoAxesCombined, Loader2, RefreshCw, Sprout, Target } from 'lucide-react';
 import {
   computeMarketHorizon, getMarketHorizon, getHorizonControls, getVendors,
   saveHorizonControls,
@@ -20,6 +20,19 @@ import { labelSpots, labelWidth, spreadDots } from './horizonLabels';
 import type { HorizonCuts } from '../../services/marketMonitorApi';
 
 const TIER_ORDER = ['executors', 'innovators', 'established', 'emerging'] as const;
+// One icon per stage: a sprout, building blocks, a rising chart, a target.
+const STAGE_ICON: Record<string, typeof Sprout> = {
+  emerging: Sprout, established: Blocks, innovators: ChartNoAxesCombined, executors: Target,
+};
+function StageIcon({ stage, cx, cy, size = 16 }: { stage: string; cx: number; cy: number; size?: number }) {
+  const Icon = STAGE_ICON[stage] ?? Sprout;
+  return <Icon x={cx - size / 2} y={cy - size / 2} width={size} height={size} stroke="#334155" strokeWidth={2} className="dark:stroke-gray-300" />;
+}
+// The three markers a reader can highlight, with the colour of their ring.
+type MarkerKey = 'innovating' | 'hiring' | 'funded';
+const MARKERS: { key: MarkerKey; colour: string }[] = [
+  { key: 'innovating', colour: '#0f172a' }, { key: 'hiring', colour: '#b45309' }, { key: 'funded', colour: '#1d4ed8' },
+];
 const TIER_COLOUR: Record<string, string> = {
   executors: '#0f766e', innovators: '#b45309', established: '#1d4ed8', emerging: '#6b7280',
 };
@@ -47,9 +60,10 @@ function InputsTable({ v }: { v: HorizonVendor }) {
  * distance from the base is momentum: the outer band is accelerating, the
  * inner band holding. Same geometry as the report's SVG.
  */
-function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNames }: {
+function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNames, highlight = null }: {
   rated: HorizonVendor[]; onVendor?: (brandId: number) => void; largeShift?: number;
   cuts: HorizonCuts; stageNames: Record<string, string>; bandNames: Record<string, string>;
+  highlight?: MarkerKey | null;
 }) {
   const [hover, setHover] = useState<HorizonVendor | null>(null);
   const W = 760, H = 478, cx = W / 2, cy = H - 78, R = 350;
@@ -128,11 +142,17 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
           return <line key={c} x1={cx} y1={cy} x2={cx + R * Math.cos(t)} y2={cy - R * Math.sin(t)} stroke="#cbd5e1" strokeDasharray="4 4" />;
         })}
         <path id="mm-hz-rim" d={`M ${cx - R - 9} ${cy} A ${R + 9} ${R + 9} 0 0 1 ${cx + R + 9} ${cy}`} fill="none" stroke="none" />
-        {stageKeys.map((key, k) => (
-          <text key={key} fontSize={13} fontWeight={600} fill="#334155" letterSpacing={0.3} className="dark:fill-gray-300">
-            <textPath href="#mm-hz-rim" startOffset={`${(edges[k] + edges[k + 1]) / 2}%`} textAnchor="middle">{stageNames[key] ?? key}</textPath>
-          </text>
-        ))}
+        {stageKeys.map((key, k) => {
+          const t = angle((edges[k] + edges[k + 1]) / 2);
+          return (
+            <g key={key}>
+              <text fontSize={13} fontWeight={600} fill="#334155" letterSpacing={0.3} className="dark:fill-gray-300">
+                <textPath href="#mm-hz-rim" startOffset={`${(edges[k] + edges[k + 1]) / 2}%`} textAnchor="middle">{stageNames[key] ?? key}</textPath>
+              </text>
+              <StageIcon stage={key} cx={cx + (R + 32) * Math.cos(t)} cy={cy - (R + 32) * Math.sin(t)} />
+            </g>
+          );
+        })}
         <text x={cx - R} y={cy + 16} fontSize={11} fill="#64748b">← smaller by scale</text>
         <text x={cx + R} y={cy + 16} textAnchor="end" fontSize={11} fill="#64748b">larger by scale →</text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">further from the base = more momentum</text>
@@ -154,8 +174,11 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
             <circle cx={from.x} cy={from.y} r={3} fill="none" stroke="#94a3b8" />
           </g>
         ))}
-        {labels.map(({ v, x, y, lx, ly, anchor, leader }) => (
-          <g key={v.brand_id}
+        {labels.map(({ v, x, y, lx, ly, anchor, leader }) => {
+          const on = !!highlight && !!v[highlight];
+          const hl = on ? MARKERS.find(m => m.key === highlight)!.colour : undefined;
+          return (
+          <g key={v.brand_id} opacity={highlight && !on ? 0.3 : 1}
              onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
              onClick={() => onVendor?.(v.brand_id)}
              style={{ cursor: onVendor ? 'pointer' : 'default' }}>
@@ -175,49 +198,208 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
               <circle cx={x} cy={y} r={10.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
-                    fill="#475569" fillOpacity={0.9} />
-            <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
+                    fill={hl ?? '#475569'} fillOpacity={hl ? 1 : 0.9} />
+            <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fontWeight={on ? 600 : 400}
+                  fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>
-        ))}
+          );
+        })}
         {bandMarks.map(b => (
           <text key={b.key} x={b.cx} y={b.y + 10} textAnchor="middle" fontSize={11} fontWeight={500} fill="#64748b"
                 paintOrder="stroke" stroke="#f8fafc" strokeWidth={4} className="dark:stroke-gray-900">{b.word}</text>
         ))}
       </svg>
-      {hover && (
-        <div className="absolute top-2 right-2 bg-white dark:bg-gray-800 border rounded shadow p-2 text-xs max-w-[18rem] pointer-events-none">
-          <div className="font-medium text-slate-800 dark:text-gray-100">{hover.vendor}</div>
-          <div className="text-slate-500 dark:text-gray-400">
-            scale {hover.scale} · momentum {hover.momentum} · {stageNames[hover.tier] ?? hover.tier}{hover.band ? ` · ${hover.band}` : ''}
-            {hover.innovation != null && <> · innovation {hover.innovation}{hover.innovating ? ' (innovating)' : ''}</>}
-          </div>
-          {hover.shift && (Math.abs(hover.shift.scale) >= 1 || Math.abs(hover.shift.momentum) >= 1) && (
-            <div className={hover.big_move ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-gray-400'}>
-              since previous map: {hover.shift.scale > 0 ? '+' : ''}{hover.shift.scale} scale,{' '}
-              {hover.shift.momentum > 0 ? '+' : ''}{hover.shift.momentum} momentum
-            </div>
-          )}
-          {(hover.hiring || hover.funded) && (
-            <div className="text-slate-600 dark:text-gray-300">
-              {hover.hiring && hover.hiring_detail && (
-                <div>hiring: {hover.hiring_detail.open_roles} open roles, {Math.round(hover.hiring_detail.per_100)} per 100 staff</div>
-              )}
-              {hover.funded && (
-                <div>funded: {hover.funded.round ?? 'round not stated'}, {hover.funded.date.slice(0, 7)} ({hover.funded.source})</div>
-              )}
-            </div>
-          )}
-          <InputsTable v={hover} />
-          {hover.multipliers && (
-            <div className="mt-1 text-amber-700 dark:text-amber-400">
-              analyst weights: {Object.entries(hover.multipliers).map(([k, m]) => `${k} ×${m}`).join(', ')}
-            </div>
-          )}
-          {hover.analyst_note && (
-            <div className="mt-1 text-slate-600 dark:text-gray-300">note: {hover.analyst_note}</div>
-          )}
-        </div>
+      <HoverPanel hover={hover} stageNames={stageNames} />
+    </div>
+  );
+}
+
+/** The panel beside the map for the dot under the pointer: the scores,
+ * the stage and band, the markers and any analyst weights or note. */
+function HoverPanel({ hover, stageNames }: { hover: HorizonVendor | null; stageNames: Record<string, string> }) {
+  if (!hover) return null;
+  return (
+    <div className="absolute top-2 right-2 bg-white dark:bg-gray-800 border rounded shadow p-2 text-xs max-w-[18rem] pointer-events-none">
+      <div className="font-medium text-slate-800 dark:text-gray-100">{hover.vendor}</div>
+      <div className="text-slate-500 dark:text-gray-400">
+    scale {hover.scale} · momentum {hover.momentum} · {stageNames[hover.tier] ?? hover.tier}{hover.band ? ` · ${hover.band}` : ''}
+    {hover.innovation != null && <> · innovation {hover.innovation}{hover.innovating ? ' (innovating)' : ''}</>}
+      </div>
+      {hover.shift && (Math.abs(hover.shift.scale) >= 1 || Math.abs(hover.shift.momentum) >= 1) && (
+    <div className={hover.big_move ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-gray-400'}>
+      since previous map: {hover.shift.scale > 0 ? '+' : ''}{hover.shift.scale} scale,{' '}
+      {hover.shift.momentum > 0 ? '+' : ''}{hover.shift.momentum} momentum
+    </div>
       )}
+      {(hover.hiring || hover.funded) && (
+    <div className="text-slate-600 dark:text-gray-300">
+      {hover.hiring && hover.hiring_detail && (
+        <div>hiring: {hover.hiring_detail.open_roles} open roles, {Math.round(hover.hiring_detail.per_100)} per 100 staff</div>
+      )}
+      {hover.funded && (
+        <div>funded: {hover.funded.round ?? 'round not stated'}, {hover.funded.date.slice(0, 7)} ({hover.funded.source})</div>
+      )}
+    </div>
+      )}
+      <InputsTable v={hover} />
+      {hover.multipliers && (
+    <div className="mt-1 text-amber-700 dark:text-amber-400">
+      analyst weights: {Object.entries(hover.multipliers).map(([k, m]) => `${k} ×${m}`).join(', ')}
+    </div>
+      )}
+      {hover.analyst_note && (
+    <div className="mt-1 text-slate-600 dark:text-gray-300">note: {hover.analyst_note}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The same vendors on plain axes: scale left to right, momentum bottom to
+ * top. The stage cuts are vertical lines and the band cuts horizontal
+ * ones. Same dots, rings, labels and hover as the arc; mirrors
+ * `_horizon_grid_svg` in app/services/market_report_html.py.
+ */
+function HorizonGrid({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNames, highlight = null }: {
+  rated: HorizonVendor[]; onVendor?: (brandId: number) => void; largeShift?: number;
+  cuts: HorizonCuts; stageNames: Record<string, string>; bandNames: Record<string, string>;
+  highlight?: MarkerKey | null;
+}) {
+  const [hover, setHover] = useState<HorizonVendor | null>(null);
+  const W = 760, H = 480, x0 = 50, x1 = 716, y0 = 34, y1 = 406;
+  const clamp = (n: number) => Math.max(0, Math.min(100, n));
+  // The momentum axis starts at a floor below the lowest dot (a multiple of
+  // 5, at least 3 below it, never above 20), so the plot is not a fifth
+  // empty when nobody is near zero. The tick names the floor.
+  const lows = rated.map(v => v.momentum).concat(rated.filter(v => v.big_move && v.previous).map(v => v.previous!.momentum));
+  const floor = lows.length ? Math.max(0, Math.min(20, 5 * Math.floor((Math.min(...lows) - 3) / 5))) : 0;
+  const sx = (s: number) => x0 + (x1 - x0) * clamp(s) / 100;
+  const sy = (m: number) => y1 - (y1 - y0) * (clamp(m) - floor) / (100 - floor);
+  const place = (v: { scale: number; momentum: number }) => ({ x: sx(v.scale), y: sy(v.momentum) });
+  const [c1, c2, c3] = [...(cuts.stage_cuts ?? [25, 50, 75])].sort((a, b) => a - b);
+  const [b1, b2] = [...(cuts.band_cuts ?? [33, 67])].sort((a, b) => a - b);
+  const edges = [0, c1, c2, c3, 100];
+  const stageKeys = ['emerging', 'established', 'innovators', 'executors'];
+  const ordered = [...rated].sort((a, b) => (b.scale + b.momentum) - (a.scale + a.momentum));
+  const spreadPos = spreadDots(ordered.map(v => place(v)));
+  const spread = new Map(ordered.map((v, i) => [v.brand_id, spreadPos[i]]));
+  const trails = rated.filter(v => v.big_move && v.previous)
+    .map(v => ({ v, from: place(v.previous!), to: spread.get(v.brand_id)! }));
+  const dots = ordered.map(v => ({ v, ...spread.get(v.brand_id)! }));
+  const ring = (v: HorizonVendor) => v.funded ? 10.5 : v.hiring ? 9 : v.innovating ? 7.5 : 6;
+  // Band names inside their rows at the right edge, drawn after the dots.
+  const bandMarks = ([['holding', b1], ['growing', b2], ['accelerating', 100]] as [string, number][])
+    .map(([key, top]) => {
+      const word = (bandNames[key] ?? key).toLowerCase(), bw = labelWidth(word) * 1.1;
+      const px = x1 - 8, py = sy(top) + 8;
+      return { key, word, px, x: px - bw, y: py - 6, w: bw, h: 12 };
+    });
+  // Labels stay inside the plot: the gutters around it are obstacles.
+  const gutters = [
+    { x: 0, y: 0, w: x0 - 2, h: H }, { x: 0, y: 0, w: W, h: y0 - 2 }, { x: 0, y: y1 + 2, w: W, h: H - y1 },
+  ];
+  const spots = labelSpots(dots.map(d => ({ x: d.x, y: d.y, ring: ring(d.v), width: labelWidth(d.v.vendor) * 1.1 })),
+                           12, x1 + 2, y1 + 2, [...bandMarks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })), ...gutters]);
+  const labels = dots.map(({ v, x, y }, i) => {
+    const s = spots[i]!;
+    return { v, x, y, lx: s.tx, ly: s.by + 10, anchor: s.anchor, leader: s.leader };
+  });
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
+           aria-label="Market Horizon: scale against momentum">
+        <defs>
+          <marker id="mm-hz-arrow-grid" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
+          </marker>
+        </defs>
+        <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill="#f8fafc" className="dark:fill-gray-900" />
+        {([[floor, b1], [b2, 100]] as [number, number][]).map(([lo, hi]) => (
+          <rect key={lo} x={x0} y={sy(hi)} width={x1 - x0} height={sy(lo) - sy(hi)} fill="#eef2f6" className="dark:fill-gray-800" />
+        ))}
+        {[b1, b2].map(cut => (
+          <line key={cut} x1={x0} y1={sy(cut)} x2={x1} y2={sy(cut)} stroke="#cbd5e1" strokeDasharray="4 4" />
+        ))}
+        {[c1, c2, c3].map(cut => (
+          <line key={cut} x1={sx(cut)} y1={y0} x2={sx(cut)} y2={y1} stroke="#cbd5e1" strokeDasharray="4 4" />
+        ))}
+        <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill="none" stroke="#e2e8f0" />
+        {stageKeys.map((key, k) => {
+          const name = stageNames[key] ?? key, mx = (sx(edges[k]) + sx(edges[k + 1])) / 2;
+          return (
+            <g key={key}>
+              <text x={mx + 10} y={y0 - 11} textAnchor="middle"
+                    fontSize={13} fontWeight={600} fill="#334155" letterSpacing={0.3} className="dark:fill-gray-300">
+                {name}
+              </text>
+              <StageIcon stage={key} cx={mx + 10 - labelWidth(name) * 0.68 - 14} cy={y0 - 15.5} />
+            </g>
+          );
+        })}
+        {[0, c1, c2, c3, 100].map(v => (
+          <text key={v} x={sx(v)} y={y1 + 13} textAnchor="middle" fontSize={10} fill="#94a3b8">{v}</text>
+        ))}
+        {[floor, b1, b2, 100].map(v => (
+          <text key={v} x={x0 - 7} y={sy(v) + 3.5} textAnchor="end" fontSize={10} fill="#94a3b8">{v}</text>
+        ))}
+        <text x={x0} y={y1 + 30} fontSize={11} fill="#64748b">← smaller by scale</text>
+        <text x={x1} y={y1 + 30} textAnchor="end" fontSize={11} fill="#64748b">larger by scale →</text>
+        <text x={13} y={(y0 + y1) / 2} textAnchor="middle" fontSize={11} fill="#64748b"
+              transform={`rotate(-90 13 ${(y0 + y1) / 2})`}>more momentum →</text>
+        <circle cx={x0 + 20} cy={y1 + 50} r={6} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
+        <text x={x0 + 30} y={y1 + 54} fontSize={10} fill="#64748b">innovating — top third by product work</text>
+        <circle cx={x0 + 244} cy={y1 + 50} r={6} fill="none" stroke="#b45309" strokeWidth={1.6} strokeDasharray="1 2.2" />
+        <text x={x0 + 254} y={y1 + 54} fontSize={10} fill="#64748b">hiring — top third by open roles per head</text>
+        <circle cx={x0 + 486} cy={y1 + 50} r={6} fill="none" stroke="#1d4ed8" strokeWidth={1} />
+        <text x={x0 + 496} y={y1 + 54} fontSize={10} fill="#64748b">funded — a round in the last year</text>
+        {trails.length > 0 && (
+          <>
+            <line x1={x0 + 38} y1={y1 + 64} x2={x0 + 56} y2={y1 + 64} stroke="#94a3b8" strokeWidth={1.2} markerEnd="url(#mm-hz-arrow-grid)" />
+            <text x={x0 + 62} y={y1 + 67} fontSize={10} fill="#64748b">trail — moved {largeShift} or more points on an axis since the previous map</text>
+          </>
+        )}
+        {trails.map(({ v, from, to }) => (
+          <g key={`trail-${v.brand_id}`}>
+            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#94a3b8" strokeWidth={1.2} markerEnd="url(#mm-hz-arrow-grid)" />
+            <circle cx={from.x} cy={from.y} r={3} fill="none" stroke="#94a3b8" />
+          </g>
+        ))}
+        {labels.map(({ v, x, y, lx, ly, anchor, leader }) => {
+          const on = !!highlight && !!v[highlight];
+          const hl = on ? MARKERS.find(m => m.key === highlight)!.colour : undefined;
+          return (
+          <g key={v.brand_id} opacity={highlight && !on ? 0.3 : 1}
+             onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}
+             onClick={() => onVendor?.(v.brand_id)}
+             style={{ cursor: onVendor ? 'pointer' : 'default' }}>
+            {leader && (
+              <>
+                <line x1={leader.x1} y1={leader.y1} x2={leader.x2} y2={leader.y2} stroke="#64748b" strokeWidth={1} />
+                <circle cx={leader.x2} cy={leader.y2} r={1.8} fill="#64748b" />
+              </>
+            )}
+            {v.innovating && (
+              <circle cx={x} cy={y} r={7.5} fill="none" stroke="#0f172a" strokeWidth={1.1} strokeDasharray="2 2" />
+            )}
+            {v.hiring && (
+              <circle cx={x} cy={y} r={9} fill="none" stroke="#b45309" strokeWidth={1.4} strokeDasharray="1 2.2" />
+            )}
+            {v.funded && (
+              <circle cx={x} cy={y} r={10.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
+            )}
+            <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
+                    fill={hl ?? '#475569'} fillOpacity={hl ? 1 : 0.9} />
+            <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fontWeight={on ? 600 : 400}
+                  fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
+          </g>
+          );
+        })}
+        {bandMarks.map(b => (
+          <text key={b.key} x={b.px} y={b.y + 10} textAnchor="end" fontSize={11} fontWeight={500} fill="#64748b"
+                paintOrder="stroke" stroke="#f8fafc" strokeWidth={4} className="dark:stroke-gray-900">{b.word}</text>
+        ))}
+      </svg>
+      <HoverPanel hover={hover} stageNames={stageNames} />
     </div>
   );
 }
@@ -384,6 +566,16 @@ export function MarketHorizonView({ marketId, onVendor }: {
   const [horizon, setHorizon] = useState<MarketHorizon | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [computing, setComputing] = useState(false);
+  // Two shapes of the same map: the arc reads as a life cycle, the grid as
+  // a chart with scale across and momentum up. The choice is remembered.
+  const [view, setView] = useState<'arc' | 'grid'>(() => {
+    try { return localStorage.getItem('mm-horizon-view') === 'grid' ? 'grid' : 'arc'; } catch { return 'arc'; }
+  });
+  const [highlight, setHighlight] = useState<MarkerKey | null>(null);
+  const pickView = (v: 'arc' | 'grid') => {
+    setView(v);
+    try { localStorage.setItem('mm-horizon-view', v); } catch { /* private mode */ }
+  };
 
   useEffect(() => {
     let live = true;
@@ -456,10 +648,44 @@ export function MarketHorizonView({ marketId, onVendor }: {
         )}
 
         {horizon && horizon.rated.length > 0 && (
-          <HorizonArc rated={horizon.rated} onVendor={onVendor} largeShift={horizon.large_shift ?? 10}
-                      cuts={cuts}
-                      stageNames={Object.fromEntries(Object.entries(horizon.tiers).map(([k, v]) => [k, v.label]))}
-                      bandNames={Object.fromEntries(Object.entries(horizon.bands ?? {}).map(([k, v]) => [k, v.label]))} />
+          <>
+            <div className="flex gap-1 mb-2" role="tablist" aria-label="Map shape">
+              {(['arc', 'grid'] as const).map(v => (
+                <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)}
+                        className={`text-xs px-2.5 py-1 rounded-full border ${view === v
+                          ? 'bg-slate-700 border-slate-700 text-white dark:bg-gray-200 dark:border-gray-200 dark:text-gray-900'
+                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300'}`}>
+                  {v === 'arc' ? 'Arc' : 'Grid'}
+                </button>
+              ))}
+              <span className="ml-3 text-[11px] text-slate-500 dark:text-gray-400 self-center">Highlight</span>
+              {MARKERS.map(m => {
+                const n = horizon.rated.filter(r => !!r[m.key]).length;
+                const on = highlight === m.key;
+                return (
+                  <button key={m.key} type="button" aria-pressed={on} onClick={() => setHighlight(on ? null : m.key)}
+                          style={on ? { background: m.colour, borderColor: m.colour } : undefined}
+                          className={`text-[11px] px-2 py-0.5 rounded-full border ${on ? 'text-white'
+                            : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300'}`}>
+                    {m.key} <b className="font-semibold">{n}</b>
+                  </button>
+                );
+              })}
+            </div>
+            {view === 'arc' ? (
+              <HorizonArc rated={horizon.rated} onVendor={onVendor} largeShift={horizon.large_shift ?? 10}
+                          highlight={highlight}
+                          cuts={cuts}
+                          stageNames={Object.fromEntries(Object.entries(horizon.tiers).map(([k, v]) => [k, v.label]))}
+                          bandNames={Object.fromEntries(Object.entries(horizon.bands ?? {}).map(([k, v]) => [k, v.label]))} />
+            ) : (
+              <HorizonGrid rated={horizon.rated} onVendor={onVendor} largeShift={horizon.large_shift ?? 10}
+                           highlight={highlight}
+                           cuts={cuts}
+                           stageNames={Object.fromEntries(Object.entries(horizon.tiers).map(([k, v]) => [k, v.label]))}
+                           bandNames={Object.fromEntries(Object.entries(horizon.bands ?? {}).map(([k, v]) => [k, v.label]))} />
+            )}
+          </>
         )}
 
         {horizon && (

@@ -357,6 +357,16 @@ tr.mm-teaser-row td { filter: blur(5px); user-select: none; pointer-events: none
 .mm-src { font-size: .74rem; color: #6b7280; }
 .mm-hz { position: relative; }
 .mm-hz .mm-hz-dot { cursor: default; }
+.mm-hz-switch { display: flex; gap: 4px; margin: 0 0 6px; }
+.mm-hz-switch button { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid #cbd5e1;
+  border-radius: 999px; background: #fff; color: #475569; cursor: pointer; }
+.mm-hz-switch button[aria-selected="true"] { background: #334155; border-color: #334155; color: #fff; }
+.mm-hz-chips { display: inline-flex; gap: 4px; align-items: center; margin-left: 14px; font-size: 11px; color: #64748b; }
+.mm-hz-chips button b { font-weight: 600; }
+.mm-hz-chips button[aria-pressed="true"] { background: var(--mm-hl); border-color: var(--mm-hl); color: #fff; }
+.mm-hz-pt.mm-dim { opacity: .3; }
+.mm-hz-pt.mm-on .mm-core { fill: var(--mm-hl); fill-opacity: 1; }
+.mm-hz-pt.mm-on .mm-lbl { font-weight: 600; }
 .mm-hz-tip { position: absolute; z-index: 5; background: #fff; border: 1px solid #e2e8f0;
   border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.35;
   box-shadow: 0 2px 8px rgba(15, 23, 42, .1); pointer-events: none; max-width: 19rem; }
@@ -783,7 +793,10 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     life runs left to right. The distance from the base is momentum: the
     outer band is accelerating, the inner band holding. Dashed lines from
     the base mark the stage cuts; dashed arcs mark the band cuts. Names
-    only where the viewer may see them; the dots give nothing away."""
+    only where the viewer may see them; the dots give nothing away.
+
+    The grid in ``_horizon_grid_svg`` plots the same two scores on plain
+    axes; the report offers both and the reader picks."""
     from app.services.market_horizon import band_cuts, band_info, stage_cuts, tier_info
     w, h = 900, 532
     cx, cy, radius = w / 2, h - 72, 400
@@ -801,9 +814,7 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     band_names = {k: v["label"] for k, v in (bands or band_info(cuts)).items()}
     parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
              'aria-label="Market Horizon: position and balance">',
-             '<defs><marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" '
-             'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
-             '<path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>',
+             _horizon_arrow_def("mm-hz-arrow"),
              f'<path d="{arc(1.0)} Z" fill="#f8fafc" stroke="#e2e8f0"/>']
     # The band cuts are arcs; the stage cuts are lines from the base.
     b1, b2 = band_cuts(cuts)
@@ -821,11 +832,13 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     parts.append(f'<path id="mm-hz-rim" d="M {cx - rim:.1f} {cy:.1f} A {rim:.1f} {rim:.1f} 0 0 1 '
                  f'{cx + rim:.1f} {cy:.1f}" fill="none" stroke="none"/>')
     edges = [0.0, c1, c2, c3, 100.0]
-    for k, key in enumerate(("emerging", "established", "innovators", "executors")):
+    for k, key in enumerate(_STAGE_KEYS):
         parts.append(f'<text font-size="13" font-weight="600" fill="#334155" letter-spacing=".3">'
                      f'<textPath href="#mm-hz-rim" '
                      f'startOffset="{(edges[k] + edges[k + 1]) / 2:.1f}%" text-anchor="middle">'
                      f'{esc(stage_names.get(key) or key)}</textPath></text>')
+        t = angle((edges[k] + edges[k + 1]) / 2)
+        parts.append(_stage_icon(key, cx + (radius + 34) * math.cos(t), cy - (radius + 34) * math.sin(t)))
     # Each band name sits on its arc at the top, or failing a clear spot
     # there, at the nearest angle to the top that is clear of dots.
     # Dots closer than 13 px are nudged apart so each is visible; the
@@ -848,38 +861,10 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                 break
         px, py = best
         band_marks.append((px - bw / 2, py - 6, bw, 12.0))
-        band_text.append(f'<text x="{px:.0f}" y="{py + 4:.0f}" text-anchor="middle" '
-                         'font-size="11" font-weight="500" fill="#64748b" paint-order="stroke" '
-                         f'stroke="#f8fafc" stroke-width="4">{esc(word)}</text>')
+        band_text.append(_halo_text(px, py + 4, word))
     parts += [f'<text x="{cx - radius:.0f}" y="{cy + 16:.0f}" font-size="11" fill="#64748b">← smaller by scale</text>',
               f'<text x="{cx + radius:.0f}" y="{cy + 16:.0f}" text-anchor="end" font-size="11" fill="#64748b">larger by scale →</text>',
-              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">further from the base = more momentum</text>',
-              # The legend for the three markers. Each is a ring style, so a
-              # dot can carry all three without a second glyph.
-              f'<circle cx="{cx - 268:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
-              f'<text x="{cx - 258:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">innovating — top third by product work</text>',
-              f'<circle cx="{cx - 52:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>',
-              f'<text x="{cx - 42:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">hiring — top third by open roles per head</text>',
-              f'<circle cx="{cx + 166:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#1d4ed8" stroke-width="1"/>',
-              f'<text x="{cx + 176:.0f}" y="{cy + 48:.0f}" font-size="10" fill="#64748b">funded — a round in the last year</text>']
-    # A large move since the previous map is a trail from where the vendor
-    # was, drawn under the dots so it never hides one.
-    trails = [r for r in rated if r.get("big_move") and r.get("previous")]
-    for r in trails:
-        px, py = place(r["previous"])
-        x, y = spread[r["brand_id"]]
-        parts.append(f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
-                     'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
-        parts.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#94a3b8"/>')
-    if trails:
-        parts.append(f'<line x1="{cx - 250:.0f}" y1="{cy + 58:.0f}" x2="{cx - 232:.0f}" y2="{cy + 58:.0f}" '
-                     'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
-        parts.append(f'<text x="{cx - 226:.0f}" y="{cy + 61:.0f}" font-size="10" fill="#64748b">'
-                     'trail — moved 10 or more points on an axis since the previous map</text>')
-    dots = [(r, *spread[r["brand_id"]]) for r in order]
-    def ring(r: Dict[str, Any]) -> float:
-        return 10.5 if r.get("funded") else 9.0 if r.get("hiring") else 7.5 if r.get("innovating") else 6.0
-    shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
+              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">further from the base = more momentum</text>']
     # The axis captions under the base are obstacles too, so a label that
     # drops below the base cannot land on them.
     captions = [(cx - radius, cy + 6, _label_width("← smaller by scale") * 1.1, 12.0),
@@ -887,15 +872,111 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                  _label_width("larger by scale →") * 1.1, 12.0),
                 (cx - _label_width("further from the base = more momentum") * 0.55, cy + 6,
                  _label_width("further from the base = more momentum") * 1.1, 12.0)]
+    trails, dots_svg = _horizon_dot_layer(rated, allowed, order, spread, place,
+                                          obstacles=band_marks + captions, width=w, max_y=cy + 26,
+                                          tiers=tiers, with_inputs=with_inputs, arrow="mm-hz-arrow")
+    parts += _horizon_legend(cx - 268, cy + 44, bool(trails))
+    parts += trails + dots_svg + band_text
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+_STAGE_KEYS = ("emerging", "established", "innovators", "executors")
+
+# One icon per stage (the designer's picks, from the Lucide set: a sprout,
+# building blocks, a rising chart, a target), drawn as inline paths so the
+# report needs no icon font. Stroke and size come from `_stage_icon`.
+_STAGE_ICONS = {
+    "emerging": '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/>'
+                '<path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/>'
+                '<path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/>',
+    "established": '<rect width="7" height="7" x="14" y="3" rx="1"/>'
+                   '<path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/>',
+    "innovators": '<path d="M12 16v5"/><path d="M16 14v7"/><path d="M20 10v11"/>'
+                  '<path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15"/>'
+                  '<path d="M4 18v3"/><path d="M8 14v7"/>',
+    "executors": '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+}
+
+# The three markers a reader can highlight, with the colour of their ring.
+_MARKER_COLOURS = (("innovating", "#0f172a"), ("hiring", "#b45309"), ("funded", "#1d4ed8"))
+
+
+def _stage_icon(key: str, cx: float, cy: float, size: float = 16) -> str:
+    """The stage's icon centred on (cx, cy)."""
+    return (f'<svg x="{cx - size / 2:.1f}" y="{cy - size / 2:.1f}" width="{size:g}" height="{size:g}" '
+            'viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round">{_STAGE_ICONS[key]}</svg>')
+
+
+def _horizon_arrow_def(marker_id: str) -> str:
+    return (f'<defs><marker id="{marker_id}" viewBox="0 0 6 6" refX="5" refY="3" '
+            'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
+            '<path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>')
+
+
+def _halo_text(x: float, y: float, word: str, anchor: str = "middle") -> str:
+    """A band name: small grey text with a light halo so it reads over
+    gridlines and dots alike."""
+    return (f'<text x="{x:.0f}" y="{y:.0f}" text-anchor="{anchor}" '
+            'font-size="11" font-weight="500" fill="#64748b" paint-order="stroke" '
+            f'stroke="#f8fafc" stroke-width="4">{esc(word)}</text>')
+
+
+def _horizon_legend(left: float, y: float, has_trails: bool) -> List[str]:
+    """The legend for the three markers. Each is a ring style, so a dot can
+    carry all three without a second glyph. ``left`` is the first ring's
+    centre; the row is 700 px wide."""
+    parts = [f'<circle cx="{left:.0f}" cy="{y:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
+             f'<text x="{left + 10:.0f}" y="{y + 4:.0f}" font-size="10" fill="#64748b">innovating — top third by product work</text>',
+             f'<circle cx="{left + 224:.0f}" cy="{y:.0f}" r="6" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>',
+             f'<text x="{left + 234:.0f}" y="{y + 4:.0f}" font-size="10" fill="#64748b">hiring — top third by open roles per head</text>',
+             f'<circle cx="{left + 466:.0f}" cy="{y:.0f}" r="6" fill="none" stroke="#1d4ed8" stroke-width="1"/>',
+             f'<text x="{left + 476:.0f}" y="{y + 4:.0f}" font-size="10" fill="#64748b">funded — a round in the last year</text>']
+    if has_trails:
+        parts.append(f'<line x1="{left + 18:.0f}" y1="{y + 14:.0f}" x2="{left + 36:.0f}" y2="{y + 14:.0f}" '
+                     'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
+        parts.append(f'<text x="{left + 42:.0f}" y="{y + 17:.0f}" font-size="10" fill="#64748b">'
+                     'trail — moved 10 or more points on an axis since the previous map</text>')
+    return parts
+
+
+def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
+                       order: List[Dict[str, Any]], spread: Dict[int, tuple], place,
+                       *, obstacles: List[tuple], width: float, max_y: float,
+                       tiers: Optional[Dict[str, Any]], with_inputs: bool,
+                       arrow: str) -> tuple:
+    """The trails, dots, marker rings and vendor labels, the same on either
+    map shape. ``place`` puts a vendor (or its previous scores) on the
+    canvas; ``spread`` is the nudged position per brand id. Returns the
+    trail parts and the dot parts, so the caller can draw the legend
+    between them."""
+    # A large move since the previous map is a trail from where the vendor
+    # was, drawn under the dots so it never hides one.
+    trails = []
+    for r in rated:
+        if not (r.get("big_move") and r.get("previous")):
+            continue
+        px, py = place(r["previous"])
+        x, y = spread[r["brand_id"]]
+        trails.append(f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
+                      f'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#{arrow})"/>'
+                      f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#94a3b8"/>')
+    dots = [(r, *spread[r["brand_id"]]) for r in order]
+    def ring(r: Dict[str, Any]) -> float:
+        return 10.5 if r.get("funded") else 9.0 if r.get("hiring") else 7.5 if r.get("innovating") else 6.0
+    shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
     spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) * 1.1 if s else 0.0)
-                          for (r, x, y), s in zip(dots, shown)], 12.0, w, cy + 26,
-                         obstacles=band_marks + captions)
+                          for (r, x, y), s in zip(dots, shown)], 12.0, width, max_y,
+                         obstacles=obstacles)
+    parts = []
     for (r, x, y), is_shown, spot in zip(dots, shown, spots):
         colour = "#475569"
         # The hover panel names the vendor, so it is withheld with the label.
-        tip = (f' class="mm-hz-dot" data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
+        tip = (f' data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
                if is_shown else '')
-        parts.append(f'<g{tip}>')
+        marks = " ".join(k for k, _ in _MARKER_COLOURS if r.get(k))
+        parts.append(f'<g class="mm-hz-pt{" mm-hz-dot" if is_shown else ""}" data-m="{marks}"{tip}>')
         if spot is not None and spot["leader"]:
             # The label had to move away from its dot: a leader line says
             # which dot it belongs to. Drawn first, so it sits under the dot.
@@ -912,12 +993,105 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
         if r.get("funded"):
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="10.5" fill="none" '
                          'stroke="#1d4ed8" stroke-width="1"/>')
-        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
+        parts.append(f'<circle class="mm-core" cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
         if spot is not None:
-            parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
+            parts.append(f'<text class="mm-lbl" x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
                          f'font-size="11" fill="#0f172a">{esc(r["vendor"])}</text>')
         parts.append('</g>')
-    parts += band_text
+    return trails, parts
+
+
+def _momentum_floor(rated: List[Dict[str, Any]]) -> float:
+    lows = [float(r["momentum"]) for r in rated]
+    lows += [float(r["previous"]["momentum"]) for r in rated if r.get("big_move") and r.get("previous")]
+    if not lows:
+        return 0.0
+    return max(0.0, min(20.0, 5 * math.floor((min(lows) - 3) / 5)))
+
+
+def _horizon_grid_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
+                      cuts: Dict[str, Any], *, tiers: Optional[Dict[str, Any]] = None,
+                      bands: Optional[Dict[str, Any]] = None, with_inputs: bool = False) -> str:
+    """The same vendors on plain axes: scale left to right, momentum bottom
+    to top, both 0 to 100. The stage cuts are vertical lines and the band
+    cuts horizontal ones, so each is plainly a cut on one score. The
+    semicircle reads as a life cycle; this one reads as a chart, and a
+    vendor's left-right position depends on scale alone."""
+    from app.services.market_horizon import band_cuts, band_info, stage_cuts, tier_info
+    w, h = 900, 560
+    x0, x1, y0, y1 = 58.0, 848.0, 40.0, 480.0
+    cuts = cuts or {}
+    def clamp(n: float) -> float:
+        return max(0.0, min(100.0, float(n)))
+    def sx(scale: float) -> float:
+        return x0 + (x1 - x0) * clamp(scale) / 100
+    # The momentum axis starts at a floor below the lowest dot (a multiple
+    # of 5, at least 3 below it, never above 20), so the plot is not a
+    # fifth empty when nobody is near zero. The tick names the floor.
+    floor = _momentum_floor(rated)
+    def sy(momentum: float) -> float:
+        return y1 - (y1 - y0) * (clamp(momentum) - floor) / (100 - floor)
+    def place(r: Dict[str, Any]):
+        return sx(r["scale"]), sy(r["momentum"])
+    stage_names = {k: v["label"] for k, v in (tiers or tier_info(cuts)).items()}
+    band_names = {k: v["label"] for k, v in (bands or band_info(cuts)).items()}
+    b1, b2 = band_cuts(cuts)
+    c1, c2, c3 = stage_cuts(cuts)
+    parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
+             'aria-label="Market Horizon: scale against momentum">',
+             _horizon_arrow_def("mm-hz-arrow-grid"),
+             f'<rect x="{x0:.0f}" y="{y0:.0f}" width="{x1 - x0:.0f}" height="{y1 - y0:.0f}" fill="#f8fafc"/>']
+    # The outer bands are washed a shade darker, so the three read as rows
+    # even before the reader finds the names.
+    for lo, hi in ((floor, b1), (b2, 100.0)):
+        parts.append(f'<rect x="{x0:.0f}" y="{sy(hi):.1f}" width="{x1 - x0:.0f}" '
+                     f'height="{sy(lo) - sy(hi):.1f}" fill="#eef2f6"/>')
+    for cut in (b1, b2):
+        parts.append(f'<line x1="{x0:.0f}" y1="{sy(cut):.1f}" x2="{x1:.0f}" y2="{sy(cut):.1f}" '
+                     'stroke="#cbd5e1" stroke-dasharray="4 4"/>')
+    for cut in (c1, c2, c3):
+        parts.append(f'<line x1="{sx(cut):.1f}" y1="{y0:.0f}" x2="{sx(cut):.1f}" y2="{y1:.0f}" '
+                     'stroke="#cbd5e1" stroke-dasharray="4 4"/>')
+    parts.append(f'<rect x="{x0:.0f}" y="{y0:.0f}" width="{x1 - x0:.0f}" height="{y1 - y0:.0f}" '
+                 'fill="none" stroke="#e2e8f0"/>')
+    # Stage names above their columns; band names inside their rows at the
+    # right edge, drawn after the dots and kept clear of the labels.
+    edges = [0.0, c1, c2, c3, 100.0]
+    for k, key in enumerate(_STAGE_KEYS):
+        name = stage_names.get(key) or key
+        mx = (sx(edges[k]) + sx(edges[k + 1])) / 2
+        parts.append(f'<text x="{mx + 10:.0f}" y="{y0 - 12:.0f}" '
+                     'text-anchor="middle" font-size="13" font-weight="600" fill="#334155" '
+                     f'letter-spacing=".3">{esc(name)}</text>')
+        parts.append(_stage_icon(key, mx + 10 - _label_width(name) * 0.68 - 14, y0 - 16.5))
+    band_marks, band_text = [], []
+    for key, top in (("holding", b1), ("growing", b2), ("accelerating", 100.0)):
+        word = (band_names.get(key) or key).lower()
+        bw = _label_width(word) * 1.1
+        px, py = x1 - 8, sy(top) + 8
+        band_marks.append((px - bw, py - 6, bw, 12.0))
+        band_text.append(_halo_text(px, py + 4, word, anchor="end"))
+    # Ticks at the cuts, so the numbers on the axes are the ones that matter.
+    for v in (0.0, c1, c2, c3, 100.0):
+        parts.append(f'<text x="{sx(v):.0f}" y="{y1 + 14:.0f}" text-anchor="middle" font-size="10" '
+                     f'fill="#94a3b8">{v:g}</text>')
+    for v in (floor, b1, b2, 100.0):
+        parts.append(f'<text x="{x0 - 8:.0f}" y="{sy(v) + 3.5:.1f}" text-anchor="end" font-size="10" '
+                     f'fill="#94a3b8">{v:g}</text>')
+    parts += [f'<text x="{x0:.0f}" y="{y1 + 32:.0f}" font-size="11" fill="#64748b">← smaller by scale</text>',
+              f'<text x="{x1:.0f}" y="{y1 + 32:.0f}" text-anchor="end" font-size="11" fill="#64748b">larger by scale →</text>',
+              f'<text x="16" y="{(y0 + y1) / 2:.0f}" text-anchor="middle" font-size="11" fill="#64748b" '
+              f'transform="rotate(-90 16 {(y0 + y1) / 2:.0f})">more momentum →</text>']
+    order = sorted(rated, key=lambda r: -(r["scale"] + r["momentum"]))
+    spread = dict(zip((r["brand_id"] for r in order), _spread([place(r) for r in order])))
+    # Labels stay inside the plot: the gutters around it are obstacles.
+    gutters = [(0.0, 0.0, x0 - 2, h), (0.0, 0.0, w, y0 - 2), (0.0, y1 + 2, w, h - y1)]
+    trails, dots_svg = _horizon_dot_layer(rated, allowed, order, spread, place,
+                                          obstacles=band_marks + gutters, width=x1 + 2, max_y=y1 + 2,
+                                          tiers=tiers, with_inputs=with_inputs,
+                                          arrow="mm-hz-arrow-grid")
+    parts += _horizon_legend(x0 + 20, y1 + 54, bool(trails))
+    parts += trails + dots_svg + band_text
     parts.append("</svg>")
     return "".join(parts)
 
@@ -1217,7 +1391,18 @@ g.addEventListener('mousemove',function(e){if(!held)move(e);});
 g.addEventListener('mouseleave',function(){if(!held)tip.hidden=true;});
 g.addEventListener('click',function(e){e.stopPropagation();if(held===g){held=null;tip.hidden=true;}
 else{held=g;show(g,e);}});});
-document.addEventListener('click',function(){held=null;tip.hidden=true;});})();
+document.addEventListener('click',function(){held=null;tip.hidden=true;});
+[].forEach.call(box.querySelectorAll('.mm-hz-switch button[data-view]'),function(b){
+b.addEventListener('click',function(){var v=b.getAttribute('data-view');held=null;tip.hidden=true;
+[].forEach.call(box.querySelectorAll('.mm-hz-switch button[data-view]'),function(o){o.setAttribute('aria-selected',o===b?'true':'false');});
+[].forEach.call(box.querySelectorAll('.mm-hz-view'),function(p){p.hidden=p.getAttribute('data-view')!==v;});});});
+var chips=box.querySelectorAll('.mm-hz-chips button');
+[].forEach.call(chips,function(b){b.addEventListener('click',function(){
+var k=b.getAttribute('aria-pressed')==='true'?null:b.getAttribute('data-hl');
+[].forEach.call(chips,function(o){o.setAttribute('aria-pressed',o.getAttribute('data-hl')===k?'true':'false');});
+if(k)box.style.setProperty('--mm-hl',b.style.getPropertyValue('--mm-hl'));
+[].forEach.call(box.querySelectorAll('.mm-hz-pt'),function(g){var on=k&&(' '+g.getAttribute('data-m')+' ').indexOf(' '+k+' ')>=0;
+g.classList.toggle('mm-on',!!on);g.classList.toggle('mm-dim',!!k&&!on);});});});})();
 """
 
 
@@ -1238,11 +1423,25 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                f'Computed {esc((horizon.get("computed_at") or "")[:10])} over the '
                f'last {horizon.get("days")} days.</p>')
     full_view = allowed is None
+    # Two shapes of the same map. The semicircle reads as a life cycle; the
+    # grid puts scale on one axis and momentum on the other. The reader
+    # picks; the arc is the one shown first.
+    draw = dict(tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
+                with_inputs=full_view)
     out.append('<div class="mm-hz">'
-               + _horizon_svg(rated, names_allowed, cfg.get("tiers") or {},
-                              tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
-                              with_inputs=full_view)
-               + '<div class="mm-hz-tip" hidden></div></div>'
+               '<div class="mm-hz-switch" role="tablist" aria-label="Map shape">'
+               '<button type="button" role="tab" aria-selected="true" data-view="arc">Arc</button>'
+               '<button type="button" role="tab" aria-selected="false" data-view="grid">Grid</button>'
+               '<span class="mm-hz-chips">Highlight '
+               + "".join(f'<button type="button" aria-pressed="false" data-hl="{k}" style="--mm-hl:{c}">'
+                         f'{k} <b>{sum(1 for r in rated if r.get(k))}</b></button>'
+                         for k, c in _MARKER_COLOURS)
+               + '</span></div>'
+               '<div class="mm-hz-view" data-view="arc">'
+               + _horizon_svg(rated, names_allowed, cfg.get("tiers") or {}, **draw)
+               + '</div><div class="mm-hz-view" data-view="grid" hidden>'
+               + _horizon_grid_svg(rated, names_allowed, cfg.get("tiers") or {}, **draw)
+               + '</div><div class="mm-hz-tip" hidden></div></div>'
                + f'<script>{_HORIZON_JS}</script>')
     acquired = horizon.get("acquired") or []
     innovating = [r for r in rated if r.get("innovating")]

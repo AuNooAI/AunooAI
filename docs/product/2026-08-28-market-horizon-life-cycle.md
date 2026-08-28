@@ -9,6 +9,13 @@ _2026-08-28 · Market Monitor: the Market Horizon tab in the app and the map on 
 - "Establishing" is gone. The four stages are words people use about companies.
 - Every vendor label has a clear spot. Crowded parts of the map use short leader lines
   instead of stacking names on dots or on each other.
+- The map comes in two shapes. The arc reads as a life cycle. The grid puts size across and
+  momentum up, like a chart, so left-to-right is size alone. An Arc/Grid switch sits above the
+  map in the app and on the shared report; the app remembers the choice.
+- Highlight chips. Press "innovating", "hiring" or "funded" above the map to colour those
+  vendors and fade the rest, on either shape. Each chip shows its count on the map.
+- Each stage has an icon: a sprout for Emerging, building blocks for Building, a rising chart
+  for Scaling, a target for Executing.
 
 ## Why it matters
 Before, the four regions were quarters of a grid: big-and-fast, fast, big, neither. Two of
@@ -32,6 +39,9 @@ captions say what left-right and near-far mean.
   Scaling, Executing) and outward as momentum (holding, growing, accelerating).
 - Every vendor is labelled, with a leader line where the map is crowded.
 - Hover a dot to see its stage, band, scores and markers.
+- Switch between the arc and a grid of the same vendors; both carry the same names, markers
+  and hover panel.
+- Highlight the innovating, hiring or funded vendors with one click.
 
 ## Demo / walkthrough
 App: Explore → Market Monitor → Market Horizon. Hover a dot for the stage, band and scores.
@@ -55,3 +65,9 @@ opinion, and it shows the whole rated market on one picture.
   collection is younger than that place vendors nearer the base than they belong.
 - A crowded centre still needs a few long leader lines. Numbering the densest cluster with a
   key beside the map is the next step if that gets worse.
+- On the arc, a vendor's left-right position mixes size with momentum (it is a polar chart),
+  so the caption under the base holds along the rim, not across the middle. The grid is the
+  shape to use when the exact order by size matters.
+- The "hiring" count in the "Who is where" line covers every vendor we track, including ones
+  not on the map because an input is missing. On AI in the SOC that is 5 hiring, 4 of them on
+  the map.

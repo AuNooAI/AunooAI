@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; labels no longer overlap; shorter titles on the shared market report
+## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; a grid version of the same map beside the arc; labels no longer overlap; shorter titles on the shared market report
 
 ### Feature — the map shows how a vendor travels
 The four tiers were a 2×2 cut of scale and momentum at 50/50, so "Accelerating" and
@@ -86,14 +86,89 @@ Result on map 10: no dot overlaps another; 30 of 40 names sit beside their dot; 
 leader line, the longest about 100 px (Embed Security). Screenshots after deploy saved as
 `horizon-report.png` and `horizon-app.png`.
 
+### Feature — the same map in two shapes: the arc and a grid, and the reader picks
+The user had a designer look at the arc. The designer's point: on a semicircle a vendor's
+left-right position is momentum × cos(scale), so two vendors can sit in the wrong left-right
+order by scale (Zaun, scale 16, drew 63 px left of Huntbase, scale 9), and the caption
+"smaller by scale → larger by scale" only holds along the rim. The designer proposed a plain
+chart instead. The user asked for both.
+
+**`app/services/market_report_html.py`.** New `_horizon_grid_svg`: scale left to right,
+momentum bottom to top, the stage cuts as vertical dashed lines and the band cuts as
+horizontal ones, the outer bands washed a shade darker, stage names above their columns, band
+names at the right edge of their rows, ticks at the cuts. The momentum axis starts at a floor
+(`_momentum_floor`: a multiple of 5 at least 3 below the lowest dot, never above 20, the
+previous positions of trailed vendors included), so the plot is not a fifth empty when no
+vendor is near zero; the tick names the floor. The trails, rings, dots and labels moved out of
+`_horizon_svg` into `_horizon_dot_layer`, and the legend into `_horizon_legend`, so both
+shapes draw them with one piece of code and the same label placer (the plot's gutters are
+obstacles, so a grid label never leaves the plot). `_horizon_section` puts both maps in the
+`.mm-hz` box under an Arc/Grid switch (`.mm-hz-switch`, `role="tablist"`); the arc shows
+first, the grid is `hidden` until picked, and `_HORIZON_JS` flips them. The grid's arrow
+marker has its own id (`mm-hz-arrow-grid`), because a marker defined inside a hidden SVG does
+not render. The hover panel works on both. The legend row is 30 px wider: the hiring text
+had been running into the funded ring.
+
+**`ui/src/components/newsfeed/MarketHorizonView.tsx`.** New `HorizonGrid`, the same drawing
+at 760×480 with the plot at 50–716 × 34–406, the same floor rule, `spreadDots` and
+`labelSpots` with the gutters as obstacles. The hover panel is now `HoverPanel`, shared by
+both maps. `MarketHorizonView` has an Arc/Grid tab row above the map and remembers the choice
+in `localStorage` (`mm-horizon-view`).
+
+The designer's file (`MarketHorizon.tsx`, Radix Themes, its own label solver) sits untracked
+in the tree root as the reference; the app version keeps our label placer and marker rings so
+the two shapes read alike. The designer's highlight chips and table view are not built.
+
+The designer also noted "hiring 5" in the fold against 4 hiring dots on the map. That is by
+design (`market_horizon.py:702`): the Hiring and Funded lists cover every vendor in the
+cohort, rated or not, and Kai Security is hiring but not rated. The fold does not say so; left
+as is.
+
+### Feature — highlight chips and stage icons on both maps
+The user asked for the designer's chips in both places, and for the icons. **Chips:** a
+"Highlight" row beside the Arc/Grid switch with one chip per marker and its count on the
+map (AI in the SOC: innovating 14, hiring 4, funded 13 — the dots, so hiring reads 4 here
+and 5 in the fold, which counts the whole cohort). Pressing one colours the matching dots in
+the marker's ring colour (innovating slate `#0f172a`, hiring amber `#b45309`, funded blue
+`#1d4ed8`), sets their names bold and fades the rest to 30%. Pressing it again clears it.
+**Icons:** the designer's four Lucide icons, one per stage — sprout (Emerging), building
+blocks (Building), rising chart (Scaling), target (Executing). On the grid the icon sits
+left of the stage name above its column; on the arc it sits outside the rim at the sector's
+mid-angle.
+
+**`app/services/market_report_html.py`.** `_STAGE_ICONS` holds the four icons' paths;
+`_stage_icon` draws one as a nested `<svg viewBox="0 0 24 24">` so the report needs no icon
+font. `_horizon_dot_layer` gives every dot group `class="mm-hz-pt"` and `data-m="innovating
+hiring funded"` (the ones it has), the core circle `mm-core` and the label `mm-lbl`.
+`_horizon_section` adds `.mm-hz-chips` with `--mm-hl` set per chip; `_HORIZON_JS` toggles
+`mm-on`/`mm-dim` on the dot groups and copies the colour onto the box; the CSS does the rest.
+The view-switch handler is scoped to `button[data-view]` — the first cut matched the chips
+too, and a chip click hid both maps.
+
+**`ui/src/components/newsfeed/MarketHorizonView.tsx`.** `STAGE_ICON`/`StageIcon` (lucide-react
+components placed in the SVG with `x`/`y`), `MARKERS`, a `highlight` state in
+`MarketHorizonView` passed to `HorizonArc` and `HorizonGrid`, which fade, colour and embolden
+the dots the same way.
+
 ### Verification
-`tests/test_market_horizon_stages.py` (new, 3 tests: stage by scale only, band by momentum
-only, descriptions carry the cuts and names) + `tests/test_market_report_copy.py` 14 pass;
-`tests/test_market_assessment.py` unchanged, 33 pass. `npm run typecheck` clean at the
-246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-DJItUgsH.js` (last build); 0 job lines in the
-journal before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names;
-`POST /markets/2/horizon/compute` 201. Screenshots of both maps after deploy, saved as
-`horizon-app.png` and `horizon-report.png` in the tree root (untracked), checked by eye.
+`tests/test_market_horizon_stages.py` (new, 4 tests: stage by scale only, band by momentum
+only, descriptions carry the cuts and names, the report section carries both shapes and the
+floor rule) + `tests/test_market_report_copy.py` 14 pass; `tests/test_market_assessment.py`
+unchanged, 33 pass. `npm run typecheck` clean at the 246-error baseline.
+`./ui/deploy-react-ui.sh` → `newsfeed-trYXDCVv.js` (last build); 0 job lines in the journal
+before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names and the
+Arc/Grid switch; `POST /markets/2/horizon/compute` 201. Screenshots after deploy, saved in the
+tree root (untracked) and checked by eye: `horizon-app.png` and `horizon-report.png` (arc),
+`horizon-app-grid.png` and `horizon-report-grid.png` (grid; every one of the 40 names beside
+its dot or on a short leader line). Playwright: clicking Grid in the app hides the arc SVG and
+shows the grid one, and the choice survives a reload; in the report the arc view is hidden
+and the grid visible after the click. The designer's HTML copies
+(`aisoc-market-horizon-full-2026-08-28.html`, `aisoc-market-horizon-public-2026-08-28.html`)
+were re-fetched after the grid, chips and icons went in. Chips checked by Playwright on the
+report: pressing funded marks 13 dot groups `mm-on` and 27 `mm-dim` on the arc; innovating
+marks 14 on the grid. Screenshots `horizon-report-highlight-funded.png` and
+`horizon-report-grid-highlight-innovating.png` in the tree root; the app checked the same way
+by eye (`funded` on the arc, `hiring` on the grid).
 
 ### Propagation
 bugfixing only, uncommitted. The stored map must be recomputed on any tenant that gets this

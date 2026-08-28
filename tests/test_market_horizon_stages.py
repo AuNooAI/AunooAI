@@ -28,3 +28,23 @@ def test_descriptions_carry_the_cuts_and_the_new_names():
     bands = hz.band_info({"band_cuts": [30, 60]})
     assert "under 30" in bands["holding"]["means"]
     assert "60 and over" in bands["accelerating"]["means"]
+
+
+def test_report_offers_the_map_in_both_shapes():
+    """The shared report draws the arc and the grid from the same vendors
+    and lets the reader switch; the grid's momentum axis starts at a floor
+    just below the lowest dot, never above 20."""
+    from app.services import market_report_html as html
+    rated = [{"brand_id": i, "vendor": f"V{i}", "scale": s, "momentum": m, "tier": "emerging", "band": "growing"}
+             for i, (s, m) in enumerate([(10, 40), (60, 55), (90, 80)])]
+    horizon = {"config": {"tiers": {}}, "rated": rated, "not_rated": [], "tiers": hz.tier_info({}),
+               "bands": hz.band_info({}), "computed_at": "2026-08-28", "days": 90}
+    out = html._horizon_section(horizon, None)
+    assert out.count('<svg viewBox') == 2  # the two maps; stage icons are nested <svg>s
+    assert 'data-view="arc"' in out and 'data-view="grid" hidden' in out
+    assert html._momentum_floor(rated) == 20  # 40 - 3 = 37 -> 35, capped at 20
+    assert html._momentum_floor([{"scale": 5, "momentum": 12}]) == 5
+    grid = html._horizon_grid_svg(rated, None, {})
+    assert grid.count('mm-hz-dot') == 3 and 'V1' in grid
+    hidden = html._horizon_grid_svg(rated, {"V1"}, {})
+    assert 'V2' not in hidden and hidden.count('mm-hz-dot') == 1
