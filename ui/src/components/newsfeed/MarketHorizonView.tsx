@@ -82,7 +82,7 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
   // nearest angle to the top that is clear of dots.
   const bandMarks = ([['holding', b1 / 100], ['growing', b2 / 100], ['accelerating', 1]] as [string, number][])
     .map(([key, f]) => {
-      const word = (bandNames[key] ?? key).toLowerCase(), bw = labelWidth(word);
+      const word = (bandNames[key] ?? key).toLowerCase(), bw = labelWidth(word) * 1.1;
       let best = { px: cx, py: cy - R * f + 6 }, bestGap = -1;
       for (const deg of [90, 100, 80, 110, 70, 120, 60, 130, 50]) {
         const t = deg * Math.PI / 180;
@@ -91,13 +91,21 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
         if (gap > bestGap) { best = { px, py }; bestGap = gap; }
         if (gap >= 28) break;
       }
-      return { key, word, cx: best.px, x: best.px - bw / 2, y: best.py - 5.5, w: bw, h: 11 };
+      return { key, word, cx: best.px, x: best.px - bw / 2, y: best.py - 6, w: bw, h: 12 };
     });
-  const spots = labelSpots(dots.map(d => ({ x: d.x, y: d.y, ring: ring(d.v), width: labelWidth(d.v.vendor) })),
-                           11, W, cy + 26, bandMarks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })));
+  // The axis captions under the base are obstacles too, so a label that
+  // drops below the base cannot land on them.
+  const cap = (t: string) => labelWidth(t) * 1.1;
+  const captions = [
+    { x: cx - R, y: cy + 6, w: cap('← smaller by scale'), h: 12 },
+    { x: cx + R - cap('larger by scale →'), y: cy + 6, w: cap('larger by scale →'), h: 12 },
+    { x: cx - cap('further from the base = more momentum') / 2, y: cy + 6, w: cap('further from the base = more momentum'), h: 12 },
+  ];
+  const spots = labelSpots(dots.map(d => ({ x: d.x, y: d.y, ring: ring(d.v), width: labelWidth(d.v.vendor) * 1.1 })),
+                           12, W, cy + 26, [...bandMarks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })), ...captions]);
   const labels = dots.map(({ v, x, y }, i) => {
     const s = spots[i]!;
-    return { v, x, y, lx: s.tx, ly: s.by + 9, anchor: s.anchor, leader: s.leader };
+    return { v, x, y, lx: s.tx, ly: s.by + 10, anchor: s.anchor, leader: s.leader };
   });
   return (
     <div className="relative">
@@ -118,13 +126,13 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
         })}
         <path id="mm-hz-rim" d={`M ${cx - R - 9} ${cy} A ${R + 9} ${R + 9} 0 0 1 ${cx + R + 9} ${cy}`} fill="none" stroke="none" />
         {stageKeys.map((key, k) => (
-          <text key={key} fontSize={11} fill="#64748b">
+          <text key={key} fontSize={13} fontWeight={600} fill="#334155" letterSpacing={0.3} className="dark:fill-gray-300">
             <textPath href="#mm-hz-rim" startOffset={`${(edges[k] + edges[k + 1]) / 2}%`} textAnchor="middle">{stageNames[key] ?? key}</textPath>
           </text>
         ))}
-        <text x={cx - R} y={cy + 16} fontSize={10} fill="#94a3b8">← smaller by scale</text>
-        <text x={cx + R} y={cy + 16} textAnchor="end" fontSize={10} fill="#94a3b8">larger by scale →</text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={10} fill="#94a3b8">further from the base = more momentum</text>
+        <text x={cx - R} y={cy + 16} fontSize={11} fill="#64748b">← smaller by scale</text>
+        <text x={cx + R} y={cy + 16} textAnchor="end" fontSize={11} fill="#64748b">larger by scale →</text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">further from the base = more momentum</text>
         <circle cx={cx - 250} cy={cy + 44} r={6} fill="none" stroke="#0f172a" strokeWidth={1.2} strokeDasharray="2 2" />
         <text x={cx - 240} y={cy + 48} fontSize={10} fill="#64748b">innovating — top third by product work</text>
         <circle cx={cx - 30} cy={cy + 44} r={6} fill="none" stroke="#b45309" strokeWidth={1.6} strokeDasharray="1 2.2" />
@@ -162,11 +170,11 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
                     fill={TIER_COLOUR[v.tier] ?? '#6b7280'} fillOpacity={0.85} />
-            <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
+            <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>
         ))}
         {bandMarks.map(b => (
-          <text key={b.key} x={b.cx} y={b.y + 9} textAnchor="middle" fontSize={10} fill="#94a3b8"
+          <text key={b.key} x={b.cx} y={b.y + 10} textAnchor="middle" fontSize={11} fontWeight={500} fill="#64748b"
                 paintOrder="stroke" stroke="#f8fafc" strokeWidth={4} className="dark:stroke-gray-900">{b.word}</text>
         ))}
       </svg>

@@ -34,11 +34,21 @@ Under the new rule the AI in the SOC map (map 10, computed 2026-08-28 after depl
 Executing 7, Scaling 14, Building 13, Emerging 6, and accelerating 6, growing 26, holding 8.
 The scores did not change, so the Moved list is empty.
 
+### Fix — the map's words are readable, and the fold counts the bands
+The user's screenshot of the report drawer showed the stage names hard to read at the
+report's width. **`market_report_html.py`** and **`MarketHorizonView.tsx`**: stage names on
+the rim are 13 px semibold in a dark grey; band names 11 px medium with the halo; axis
+captions 11 px; vendor labels 11 px (the placer's width estimate and row height follow). The
+three axis captions under the base are obstacles for the placer, after "Priam Cyber AI"
+landed on one. The "Who is where" fold now says "… Emerging 6; accelerating 6, growing 26,
+holding 8, innovating 14 …" and lists each band's vendors after the stages, fastest first
+(JSONB returns the keys in its own order, so the order is fixed in code).
+
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 3 tests: stage by scale only, band by momentum
 only, descriptions carry the cuts and names) + `tests/test_market_report_copy.py` 14 pass;
 `tests/test_market_assessment.py` unchanged, 33 pass. `npm run typecheck` clean at the
-246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-CvdHESCD.js`; 0 job lines in the
+246-error baseline. `./ui/deploy-react-ui.sh` → `newsfeed-ClocuXoA.js` (last build); 0 job lines in the
 journal before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names;
 `POST /markets/2/horizon/compute` 201. Screenshots of both maps after deploy, saved as
 `horizon-app.png` and `horizon-report.png` in the tree root (untracked), checked by eye.

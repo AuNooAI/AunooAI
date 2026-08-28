@@ -822,7 +822,8 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                  f'{cx + rim:.1f} {cy:.1f}" fill="none" stroke="none"/>')
     edges = [0.0, c1, c2, c3, 100.0]
     for k, key in enumerate(("emerging", "established", "innovators", "executors")):
-        parts.append(f'<text font-size="11" fill="#64748b"><textPath href="#mm-hz-rim" '
+        parts.append(f'<text font-size="13" font-weight="600" fill="#334155" letter-spacing=".3">'
+                     f'<textPath href="#mm-hz-rim" '
                      f'startOffset="{(edges[k] + edges[k + 1]) / 2:.1f}%" text-anchor="middle">'
                      f'{esc(stage_names.get(key) or key)}</textPath></text>')
     # Each band name sits on its arc at the top, or failing a clear spot
@@ -831,7 +832,7 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     band_marks, band_text = [], []
     for key, frac in (("holding", b1 / 100), ("growing", b2 / 100), ("accelerating", 1.0)):
         word = (band_names.get(key) or key).lower()
-        bw = _label_width(word)
+        bw = _label_width(word) * 1.1
         best, best_gap = None, -1.0
         for deg in (90, 100, 80, 110, 70, 120, 60, 130, 50):
             t = math.radians(deg)
@@ -842,13 +843,13 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
             if gap >= 28:
                 break
         px, py = best
-        band_marks.append((px - bw / 2, py - 5.5, bw, 11.0))
-        band_text.append(f'<text x="{px:.0f}" y="{py + 3.5:.0f}" text-anchor="middle" '
-                         'font-size="10" fill="#94a3b8" paint-order="stroke" stroke="#f8fafc" '
-                         f'stroke-width="4">{esc(word)}</text>')
-    parts += [f'<text x="{cx - radius:.0f}" y="{cy + 16:.0f}" font-size="10" fill="#94a3b8">← smaller by scale</text>',
-              f'<text x="{cx + radius:.0f}" y="{cy + 16:.0f}" text-anchor="end" font-size="10" fill="#94a3b8">larger by scale →</text>',
-              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="10" fill="#94a3b8">further from the base = more momentum</text>',
+        band_marks.append((px - bw / 2, py - 6, bw, 12.0))
+        band_text.append(f'<text x="{px:.0f}" y="{py + 4:.0f}" text-anchor="middle" '
+                         'font-size="11" font-weight="500" fill="#64748b" paint-order="stroke" '
+                         f'stroke="#f8fafc" stroke-width="4">{esc(word)}</text>')
+    parts += [f'<text x="{cx - radius:.0f}" y="{cy + 16:.0f}" font-size="11" fill="#64748b">← smaller by scale</text>',
+              f'<text x="{cx + radius:.0f}" y="{cy + 16:.0f}" text-anchor="end" font-size="11" fill="#64748b">larger by scale →</text>',
+              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">further from the base = more momentum</text>',
               # The legend for the three markers. Each is a ring style, so a
               # dot can carry all three without a second glyph.
               f'<circle cx="{cx - 268:.0f}" cy="{cy + 44:.0f}" r="6" fill="none" stroke="#0f172a" stroke-width="1.2" stroke-dasharray="2 2"/>',
@@ -875,9 +876,16 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     def ring(r: Dict[str, Any]) -> float:
         return 14.0 if r.get("funded") else 11.5 if r.get("hiring") else 9.0 if r.get("innovating") else 6.0
     shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
-    spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) if s else 0.0)
-                          for (r, x, y), s in zip(dots, shown)], 11.0, w, cy + 26,
-                         obstacles=band_marks)
+    # The axis captions under the base are obstacles too, so a label that
+    # drops below the base cannot land on them.
+    captions = [(cx - radius, cy + 6, _label_width("← smaller by scale") * 1.1, 12.0),
+                (cx + radius - _label_width("larger by scale →") * 1.1, cy + 6,
+                 _label_width("larger by scale →") * 1.1, 12.0),
+                (cx - _label_width("further from the base = more momentum") * 0.55, cy + 6,
+                 _label_width("further from the base = more momentum") * 1.1, 12.0)]
+    spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) * 1.1 if s else 0.0)
+                          for (r, x, y), s in zip(dots, shown)], 12.0, w, cy + 26,
+                         obstacles=band_marks + captions)
     for (r, x, y), is_shown, spot in zip(dots, shown, spots):
         colour = _TIER_COLOUR.get(r["tier"], "#6b7280")
         # The hover panel names the vendor, so it is withheld with the label.
@@ -901,8 +909,8 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                          'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
         if spot is not None:
-            parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 9:.1f}" text-anchor="{spot["anchor"]}" '
-                         f'font-size="10" fill="#0f172a">{esc(r["vendor"])}</text>')
+            parts.append(f'<text x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
+                         f'font-size="11" fill="#0f172a">{esc(r["vendor"])}</text>')
         parts.append('</g>')
     parts += band_text
     parts.append("</svg>")
@@ -1168,6 +1176,20 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
         tiers_html.append(f'<h3>{esc(info.get("label") or tier.capitalize())} '
                           f'<span class="mm-src">({len(rows)}) — {esc(info.get("means") or "")}</span></h3>')
         tiers_html.append(f'<p>{", ".join(names)}</p>')
+    # JSONB hands the bands back in its own key order; fastest first here.
+    bands = horizon.get("bands") or {}
+    band_order = [k for k in ("accelerating", "growing", "holding") if k in bands] + \
+                 [k for k in bands if k not in ("accelerating", "growing", "holding")]
+    for band in band_order:
+        binfo = bands[band]
+        brows = [r for r in rated if r.get("band") == band]
+        bnames = [esc(r["vendor"]) for r in brows if names_allowed is None or r["vendor"] in names_allowed]
+        bhidden = len(brows) - len(bnames)
+        if bhidden:
+            bnames.append(f'{bhidden} vendor{"s" if bhidden > 1 else ""} not shown in this view')
+        tiers_html.append(f'<h3>{esc(binfo.get("label") or band.capitalize())} '
+                          f'<span class="mm-src">({len(brows)}) — {esc(binfo.get("means") or "")}</span></h3>')
+        tiers_html.append(f'<p>{", ".join(bnames) or "none"}</p>')
     if innovating:
         inames = [esc(r["vendor"]) for r in innovating
                   if names_allowed is None or r["vendor"] in names_allowed]
@@ -1235,7 +1257,11 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     tier_summary = ", ".join(
         f'{(horizon.get("tiers") or {}).get(t, {}).get("label", t)} {sum(1 for r in rated if r["tier"] == t)}'
         for t in _TIER_ORDER)
+    band_summary = ", ".join(
+        f'{binfo.get("label", band).lower()} {sum(1 for r in rated if r.get("band") == band)}'
+        for band, binfo in ((k, bands[k]) for k in band_order))
     out.append(fold(f"Who is where — {esc(tier_summary)}"
+                    + (f"; {esc(band_summary)}" if band_summary else "")
                     + (f", innovating {len(innovating)}" if innovating else "")
                     + (f", hiring {len(hiring)}" if hiring else "")
                     + (f", funded {len(funded)}" if funded else "")
