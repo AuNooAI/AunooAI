@@ -13,6 +13,7 @@ from app.database_query_facade import DatabaseQueryFacade
 
 # Add import for the collector factory
 from app.collectors.collector_factory import CollectorFactory
+from app.utils.timestamps import submission_stamp
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -846,7 +847,7 @@ class Research:
             
             # Add timestamp for submission_date if not present
             if 'submission_date' not in article_data:
-                article_data['submission_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                article_data['submission_date'] = submission_stamp()
 
             # Save to database
             self.db.save_article(article_data)

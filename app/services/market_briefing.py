@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
+from app.utils.timestamps import submission_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -874,7 +875,7 @@ def feed_row(market: Dict[str, Any], briefing: Dict[str, Any],
         "summary": feed_summary(briefing.get("report_content") or ""),
         "news_source": FEED_SOURCE,
         "publication_date": stamp,
-        "submission_date": stamp,
+        "submission_date": submission_stamp(approved_at or stamp),
         "category": FEED_CATEGORY,
         "sentiment": FEED_SENTIMENT,
         "topic": market_topic(market),

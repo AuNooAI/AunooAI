@@ -13,6 +13,7 @@ import json
 import os
 import asyncio
 from app.database_query_facade import DatabaseQueryFacade
+from app.utils.timestamps import submission_stamp
 
 # flake8: noqa  # Disable style warnings (long lines etc.) for this file
 
@@ -251,7 +252,7 @@ class BulkResearch:
                 # Add news source, publication date and submission date
                 result["news_source"] = article_content.get("source", self.extract_source(url))
                 result["publication_date"] = publication_date
-                result["submission_date"] = datetime.datetime.now().date().isoformat()
+                result["submission_date"] = submission_stamp()
                 result["uri"] = url  # Ensure URL is included
                 result["analyzed"] = True  # Add this line to include the analyzed field
                 result["topic"] = topic  # Add topic to the result
@@ -307,7 +308,7 @@ class BulkResearch:
                     "tags": [],
                     "news_source": "N/A",
                     "publication_date": self.article_analyzer.extract_publication_date(""),  # Will return today's date as fallback
-                    "submission_date": datetime.datetime.now().date().isoformat(),
+                    "submission_date": submission_stamp(),
                     "topic": topic
                 })
 
@@ -1128,7 +1129,7 @@ class BulkResearch:
                 result.update({
                     "news_source": source,
                     "publication_date": publication_date,
-                    "submission_date": datetime.datetime.now().date().isoformat(),
+                    "submission_date": submission_stamp(),
                     "uri": url,
                     "analyzed": True,
                 })
@@ -1201,7 +1202,7 @@ class BulkResearch:
                     "tags": [],
                     "news_source": "N/A",
                     "publication_date": datetime.datetime.now().date().isoformat(),
-                    "submission_date": datetime.datetime.now().date().isoformat(),
+                    "submission_date": submission_stamp(),
                     "topic": topic,
                 }
 

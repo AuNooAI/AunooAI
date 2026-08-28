@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; a grid version of the same map beside the arc; labels no longer overlap; shorter titles on the shared market report
+## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; a grid version of the same map beside the arc; labels no longer overlap; shorter titles on the shared market report; one shape for articles.submission_date
 
 ### Feature — the map shows how a vendor travels
 The four tiers were a 2×2 cut of scale and momentum at 50/50, so "Accelerating" and
@@ -150,12 +150,54 @@ components placed in the SVG with `x`/`y`), `MARKERS`, a `highlight` state in
 `MarketHorizonView` passed to `HorizonArc` and `HorizonGrid`, which fade, colour and embolden
 the dots the same way.
 
+### Tried and removed — a legend line for the grey lines
+The user asked what the grey lines meant. A second legend row was added on both maps (the
+dashed lines are the score cut-offs; the thin line points a moved name back to its dot) and
+then removed at the user's request: the thin line means nothing about the vendor, and a legend
+entry for a layout device only adds reading. The maps are back to the committed geometry.
+
+### Fix — one shape for `articles.submission_date`
+While checking collection the user's question turned up two shapes in `submission_date`, and
+the fix was asked for. The column is text. PostgreSQL fills it with `CURRENT_TIMESTAMP` when
+a writer leaves it out, which prints as `2026-08-28 13:00:24.580955+02`: local time (the
+database and the server both run on Europe/Berlin) with the offset. 207,443 rows have that
+shape. Other writers stamped their own: 3,329 rows `2026-08-28T04:25:11.612255Z` (UTC, from
+the Market Monitor and Brand Watch official-source collectors), 283 bare dates (`bulk_research`),
+6 naive or `+00:00` stamps (`main.py`'s model default, `research.py`, the market briefing feed
+row), and 2,221 empty strings from old imports. Because `T` sorts after a space, a text
+comparison such as `max(submission_date)` or `>= '2026-08-28 12:00'` silently dropped the
+same day's rows in the other shape; that is what made the first "is collection running" query
+say the newest article was 04:25 when 127 had arrived at 12:00–13:00.
+
+**`app/utils/timestamps.py`** (new). `submission_stamp(value=None)` returns the stored shape
+for now, a datetime, or any ISO string (`Z`, an offset, naive taken as local, a bare date as
+local midnight); a string that does not parse comes back unchanged with a warning.
+`is_submission_stamp(text)` tests the shape. Every writer that set its own value now calls
+it: `market_collect.py` (`"sub"`), `bw_official_sources.py` (`"sub"`), `market_briefing.py`
+(`feed_row`, submission_date only; `publication_date` keeps its ISO stamp), `main.py`
+(`ArticleData.submission_date` default plus a `field_validator`, because the browser sends
+`toISOString()`), `research.py`, `bulk_research.py` (four sites), `database.py` (three
+sites). Writers that used `func.now()`/`current_timestamp` were already right and are
+unchanged. `publication_date` is not touched: it is the article's own date and has its own
+shapes.
+
+**Backfill — not run.** `scripts/backfill_submission_date.sql` rewrites the 3,618 odd rows
+with `(submission_date::timestamptz)::text` (every one parses; checked with a `SELECT` before
+writing the script), turns the 2,221 empty strings into NULL, and does the same for 23 naive
+rows in `raw_articles`, in one transaction with counts before and after. The auto-mode
+permission classifier blocked the `UPDATE` twice, so the rows are still mixed until someone
+runs it: `psql … -f scripts/backfill_submission_date.sql`. Until then, same-day text
+comparisons on rows older than this deploy are still wrong in the way described above.
+
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 4 tests: stage by scale only, band by momentum
 only, descriptions carry the cuts and names, the report section carries both shapes and the
 floor rule) + `tests/test_market_report_copy.py` 14 pass; `tests/test_market_assessment.py`
 unchanged, 33 pass. `npm run typecheck` clean at the 246-error baseline.
-`./ui/deploy-react-ui.sh` → `newsfeed-trYXDCVv.js` (last build); 0 job lines in the journal
+`tests/test_submission_stamp.py` (new, 6 tests: shape, `Z` to local, datetime and offset
+strings, naive and bare date, pass-through, garbage) pass; `ArticleData` checked in-process:
+`"2026-08-28T04:25:11.612Z"` in → `2026-08-28 06:25:11.612000+02`, the default → now in the
+shape. `./ui/deploy-react-ui.sh` → `newsfeed-dVkMgyTt.js` (last build); 0 job lines in the journal
 before restart; `https://aisoc.aunoo.ai/` 200 with the rim `textPath` stage names and the
 Arc/Grid switch; `POST /markets/2/horizon/compute` 201. Screenshots after deploy, saved in the
 tree root (untracked) and checked by eye: `horizon-app.png` and `horizon-report.png` (arc),

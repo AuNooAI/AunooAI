@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
+from app.utils.timestamps import submission_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +247,7 @@ def land_article(conn, *, uri: str, title: str, summary: str, news_source: str,
         ON CONFLICT (uri) DO NOTHING
         RETURNING uri
     """), {"uri": uri, "title": (title or "")[:500], "summary": summary,
-           "ns": news_source, "pub": published_at or now_iso, "sub": now_iso,
+           "ns": news_source, "pub": published_at or now_iso, "sub": submission_stamp(now_iso),
            "topic": topic, "cat": category, "bsrc": bias_source,
            "meta": payload}).fetchone()
     if not row and payload:

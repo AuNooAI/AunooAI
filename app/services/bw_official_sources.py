@@ -41,6 +41,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from sqlalchemy import text
+from app.utils.timestamps import submission_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -934,7 +935,7 @@ def _land_and_attribute(conn, brand: Dict[str, Any], source_key: str,
         """), {
             "uri": uri, "title": (r.get("title") or "")[:500],
             "summary": r.get("summary"), "ns": meta["news_source"],
-            "pub": pub, "sub": now_iso, "topic": topic, "cat": meta["category"],
+            "pub": pub, "sub": submission_stamp(now), "topic": topic, "cat": meta["category"],
             "fact": meta.get("factuality", "very high"),
             "cred": meta.get("credibility", "high"),
             "sent": r.get("sentiment"),
