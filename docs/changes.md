@@ -205,9 +205,14 @@ and the 24-hour count reads 915. The first attempt was blocked by the auto-mode 
 classifier; the user asked for the run and it went through as a plain `psql -f`. **wileytest, 2026-08-28 14:45:** the same script, after a read-only count and a parse check
 (525 odd `articles` rows, 3,264 odd `raw_articles` rows, all parsing): 724,965 article rows
 now share the shape, none NULL; newest `2026-08-28 14:25:00+02`, 24-hour count 4,823.
-wileytest still runs the old writers, so its Market Monitor and Brand Watch official-source
-collectors will keep writing `T…Z` rows until `app/utils/timestamps.py` and the seven edited
-files are copied there.
+**wileytest code, 2026-08-28 15:11:** `app/utils/timestamps.py`, `tests/test_submission_stamp.py`,
+`bw_official_sources.py`, `research.py`, `bulk_research.py` and `database.py` copied (each
+matched bugfixing's pre-fix version byte for byte, checked by md5 first); `main.py` differs
+there by two unrelated lines, so the fix went in as a patch (`git diff 475d6309^ 475d6309 --
+app/main.py | patch -p1`). `market_collect.py` and `market_briefing.py` do not exist on
+wileytest (no Market Monitor) and were skipped. Compiled with wileytest's venv; the helper and
+`ArticleData` checked in-process (no pytest there); 0 jobs in the journal before the restart;
+service active on :10002 after 21 s.
 
 ### Verification
 `tests/test_market_horizon_stages.py` (new, 4 tests: stage by scale only, band by momentum
