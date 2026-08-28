@@ -33,8 +33,10 @@ type MarkerKey = 'innovating' | 'hiring' | 'funded';
 const MARKERS: { key: MarkerKey; colour: string }[] = [
   { key: 'innovating', colour: '#0f172a' }, { key: 'hiring', colour: '#b45309' }, { key: 'funded', colour: '#1d4ed8' },
 ];
+// One slate tone per stage, light for Emerging through dark for Executing,
+// so a dot shows its stage without a loud colour.
 const TIER_COLOUR: Record<string, string> = {
-  executors: '#0f766e', innovators: '#b45309', established: '#1d4ed8', emerging: '#6b7280',
+  emerging: '#94a3b8', established: '#64748b', innovators: '#475569', executors: '#1e293b',
 };
 
 /** Every input behind a dot, shown on hover. */
@@ -153,6 +155,11 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
             </g>
           );
         })}
+        {[c1, c2, c3].map(cut => (
+          <text key={`arrow-${cut}`} fontSize={14} fill="#94a3b8">
+            <textPath href="#mm-hz-rim" startOffset={`${cut}%`} textAnchor="middle">→</textPath>
+          </text>
+        ))}
         <text x={cx - R} y={cy + 16} fontSize={11} fill="#64748b">← smaller by scale</text>
         <text x={cx + R} y={cy + 16} textAnchor="end" fontSize={11} fill="#64748b">larger by scale →</text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#64748b">further from the base = more momentum</text>
@@ -198,7 +205,7 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
               <circle cx={x} cy={y} r={10.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
-                    fill={hl ?? '#475569'} fillOpacity={hl ? 1 : 0.9} />
+                    fill={hl ?? TIER_COLOUR[v.tier] ?? '#475569'} fillOpacity={hl ? 1 : 0.9} />
             <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fontWeight={on ? 600 : 400}
                   fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>
@@ -336,6 +343,9 @@ function HorizonGrid({ rated, onVendor, largeShift = 10, cuts, stageNames, bandN
             </g>
           );
         })}
+        {[c1, c2, c3].map(cut => (
+          <text key={`arrow-${cut}`} x={sx(cut)} y={y0 - 11} textAnchor="middle" fontSize={14} fill="#94a3b8">→</text>
+        ))}
         {[0, c1, c2, c3, 100].map(v => (
           <text key={v} x={sx(v)} y={y1 + 13} textAnchor="middle" fontSize={10} fill="#94a3b8">{v}</text>
         ))}
@@ -388,7 +398,7 @@ function HorizonGrid({ rated, onVendor, largeShift = 10, cuts, stageNames, bandN
               <circle cx={x} cy={y} r={10.5} fill="none" stroke="#1d4ed8" strokeWidth={1} />
             )}
             <circle cx={x} cy={y} r={hover?.brand_id === v.brand_id ? 7 : 5}
-                    fill={hl ?? '#475569'} fillOpacity={hl ? 1 : 0.9} />
+                    fill={hl ?? TIER_COLOUR[v.tier] ?? '#475569'} fillOpacity={hl ? 1 : 0.9} />
             <text x={lx} y={ly} textAnchor={anchor} fontSize={11} fontWeight={on ? 600 : 400}
                   fill="#0f172a" className="dark:fill-gray-200">{v.vendor}</text>
           </g>

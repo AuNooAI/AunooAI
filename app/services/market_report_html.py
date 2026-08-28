@@ -745,8 +745,10 @@ def _day(value: Any) -> str:
 
 
 _TIER_ORDER = ("executors", "innovators", "established", "emerging")
-_TIER_COLOUR = {"executors": "#0f766e", "innovators": "#b45309",
-                "established": "#1d4ed8", "emerging": "#6b7280"}
+# One slate tone per stage, light for Emerging through dark for Executing,
+# so a dot shows its stage without a loud colour.
+_TIER_COLOUR = {"emerging": "#94a3b8", "established": "#64748b",
+                "innovators": "#475569", "executors": "#1e293b"}
 
 
 def _horizon_tip(r: Dict[str, Any], tiers: Dict[str, Any], *, with_inputs: bool) -> str:
@@ -839,6 +841,10 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                      f'{esc(stage_names.get(key) or key)}</textPath></text>')
         t = angle((edges[k] + edges[k + 1]) / 2)
         parts.append(_stage_icon(key, cx + (radius + 34) * math.cos(t), cy - (radius + 34) * math.sin(t)))
+    # An arrow on the rim at each stage cut: a vendor's life runs left to right.
+    for cut in (c1, c2, c3):
+        parts.append(f'<text font-size="14" fill="#94a3b8"><textPath href="#mm-hz-rim" '
+                     f'startOffset="{cut:.1f}%" text-anchor="middle">→</textPath></text>')
     # Each band name sits on its arc at the top, or failing a clear spot
     # there, at the nearest angle to the top that is clear of dots.
     # Dots closer than 13 px are nudged apart so each is visible; the
@@ -971,7 +977,7 @@ def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
                          obstacles=obstacles)
     parts = []
     for (r, x, y), is_shown, spot in zip(dots, shown, spots):
-        colour = "#475569"
+        colour = _TIER_COLOUR.get(r.get("tier") or "", "#475569")
         # The hover panel names the vendor, so it is withheld with the label.
         tip = (f' data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
                if is_shown else '')
@@ -1064,6 +1070,10 @@ def _horizon_grid_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                      'text-anchor="middle" font-size="13" font-weight="600" fill="#334155" '
                      f'letter-spacing=".3">{esc(name)}</text>')
         parts.append(_stage_icon(key, mx + 10 - _label_width(name) * 0.68 - 14, y0 - 16.5))
+    # An arrow between the stage names at each cut: the stages run left to right.
+    for cut in (c1, c2, c3):
+        parts.append(f'<text x="{sx(cut):.0f}" y="{y0 - 12:.0f}" text-anchor="middle" font-size="14" '
+                     'fill="#94a3b8">→</text>')
     band_marks, band_text = [], []
     for key, top in (("holding", b1), ("growing", b2), ("accelerating", 100.0)):
         word = (band_names.get(key) or key).lower()

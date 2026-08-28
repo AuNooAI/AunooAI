@@ -150,6 +150,21 @@ components placed in the SVG with `x`/`y`), `MARKERS`, a `highlight` state in
 `MarketHorizonView` passed to `HorizonArc` and `HorizonGrid`, which fade, colour and embolden
 the dots the same way.
 
+### Feature — stage arrows
+The user asked whether the map needed an arrow for leadership. It does not: left to right is
+scale, and a leadership arrow would claim what the scores do not measure. A stage arrow was
+agreed instead. **`market_report_html.py`** and **`MarketHorizonView.tsx`**, both maps: a grey
+"→" at each stage cut — on the arc it rides the rim `textPath` at the cut's percent, between
+the stage names; on the grid it sits between the column headings at `sx(cut)`. Build
+`newsfeed-CSjzaPEc.js`; the public page carries six arrows (three per map).
+
+### Feature — dots in a neutral palette, one tone per stage
+The user asked for a neutral palette on the dots. `_TIER_COLOUR` in **`market_report_html.py`**
+(defined, unused) and `TIER_COLOUR` in **`MarketHorizonView.tsx`** (stage-list bullets only)
+are now the same four slate tones — Emerging `#94a3b8`, Building `#64748b`, Scaling `#475569`,
+Executing `#1e293b` — and both maps fill each dot with its stage's tone. The highlight chips
+still paint matching dots in the marker's colour on top. Build `newsfeed-DWxlnnX5.js`.
+
 ### Tried and removed — a legend line for the grey lines
 The user asked what the grey lines meant. A second legend row was added on both maps (the
 dashed lines are the score cut-offs; the thin line points a moved name back to its dot) and
