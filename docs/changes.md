@@ -339,7 +339,7 @@ controls heading and the API's error strings. Internal names stay as they are �
 `?view=report#mm-horizon` — so nothing stored or linked breaks; comments that still say
 Horizon refer to those. Built and deployed; the Analyst View has 0 "Market Horizon" left.
 
-### Feature — Latest research: the analyst layer, from its public traces
+### Feature — Latest research: the analyst layer, from its public traces (`01fb89b8`)
 
 Gartner, Forrester, KuppingerCole and IDC keep their reports behind paywalls, so the page had
 no place for what the analysts say. Two things about a report are public and both were within
@@ -392,12 +392,12 @@ prints the firm for analyst rows.
 
 Market 2 is on the defaults (`sync_feeds` run once: `rss_feeds` 41 Forrester, 42 KuppingerCole).
 
-### Wording — the map caption says "mapped"
+### Wording — the map caption says "mapped" (`01fb89b8`)
 
 "40 of 85 vendors placed by scale and momentum" (front-page sidebar) and "vendors are placed
 today" (Analyst View drawer) now say *mapped* (`market_report_html.py`, user's wording).
 
-### Fix — a followed account's posts: short markers count, and one reply is one row
+### Fix — a followed account's posts: short markers count, and one reply is one row (`0ed677b7`)
 
 The Influence card showed Anton Chuvakin with "2 posts" that were one reply stored twice:
 the keyword collector holds it as `x.com/anton_chuvakin/status/<id>`, the follow read stored
@@ -425,12 +425,21 @@ as a provider failure in `skipped` rather than as an empty timeline — today's 
 Test: `tests/test_market_follow_judge.py` (DB-backed: two pending posts, one judged noise and
 one commentary, attached and marked accordingly, not candidates again).
 
-### Fix — a followed account with an unreacted post read as "quiet this period"
+### Fix — a followed account with an unreacted post read as "quiet this period" (`0ed677b7`)
 
 The Influence card looked each tracked account up in `top_voices(limit=80)`, which is cut by
 reactions; Anton Chuvakin's one post drew none, fell off the end, and the card said "quiet
 this period" beside a post it had. The card now reads the whole period's list (`limit=5000`,
 the query groups everything anyway and only the cut changes).
+
+### Fix — no empty Analysis section, and a plain subline
+
+The front page showed an Analysis section reading "Our own reading of the market: analysis and
+notes, each with who wrote it. Nothing published yet. Our analysis and notes appear here once
+approved." on a market with no piece. The section is now skipped whenever there is nothing
+approved (`market_report_html.py`, the front-page loop); its subline reads "Analysis and notes
+written by the Cyberfuturists team." and the section page's empty line "No analysis published
+yet." The front-page test asserts the section is present exactly when a piece is approved.
 
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
@@ -488,10 +497,26 @@ else goes to `/`. Certificate issued with `certbot certonly --webroot -w /var/ww
   "Cyber MSSPs", a webinar; Forrester "Announcing The Forrester Wave on XDR"). Screenshot at 1240 px:
   the section is the last on the page, on the dark ground. https://aisocnews.com/?section=research → 200.
   `npm run typecheck` → 246 errors, all known.
+- Follow list (`0ed677b7`): `pytest tests/test_market_follow_judge.py tests/test_market_report_v2.py -q`
+  → 17 passed (the judge path end to end on the live DB with two throwaway posts, one noise and one
+  commentary; the markers; "SOCk" is not "SOC"; the two URL forms). `mpr.review(…, dry_run=True)`
+  over market 2 still builds 200 candidates; `followed_candidates` → 0 pending, because the follow
+  read itself could not run: `collect_followed` → `fetched 0`, `skipped: ['twitter/anton_chuvakin:
+  the provider returned nothing (rate or usage limit?)']`, xpoz answering "Usage limit exceeded"
+  at 16:02 and 16:11 UTC+2. So the new gate and the judge are tested, not yet exercised on a real
+  timeline. The duplicate row: `DELETE … x.com/i/status/…` → 1; Anton now has 1 row. After the
+  card fix the front page reads "Dr. Anton Chuvakin … Following · 41,746 followers · latest post ·
+  1 post" (curl, days=30). Three restarts today for these changes, 9–11 s each, guard clear each time.
 
 ### Propagation
 bugfixing only — the Market Monitor exists on no other tenant. Files: the two above,
-`tests/test_market_report_v2.py` (new), the nginx site (not in git).
+`tests/test_market_report_v2.py` (new), the nginx site (not in git); from `01fb89b8`
+`app/services/market_research.py`, `tests/test_market_research.py`,
+`ui/src/components/newsfeed/MarketAnalystFeeds.tsx`, `docs/product/2026-08-29-latest-research.md`;
+from `0ed677b7` `tests/test_market_follow_judge.py`. DB state on bugfixing, not in git: `rss_feeds`
+41 (Forrester) and 42 (KuppingerCole) under topic "Market Monitoring SOC Automation"; one
+`x.com/i/status/…` duplicate row deleted. `docs/product/2026-08-29-followed-accounts-judge.md`
+written after both commits and not yet committed.
 
 ## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; a grid version of the same map beside the arc; labels no longer overlap; shorter titles on the shared market report; one shape for articles.submission_date
 

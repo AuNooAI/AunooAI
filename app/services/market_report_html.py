@@ -2774,11 +2774,9 @@ V2_CSS = """
 #: The sections, in page order. ``thing`` completes "No … observed".
 V2_SECTIONS: Dict[str, Dict[str, str]] = {
     "analysis": {"heading": "Analysis", "colour": "var(--n-text)",
-                 "thing": "piece of ours",
-                 "empty": "Nothing published yet. Our analysis and notes appear here "
-                          "once approved.",
-                 "subline": "Our own reading of the market: analysis and notes, "
-                            "each with who wrote it."},
+                 "thing": "analysis",
+                 "empty": "No analysis published yet.",
+                 "subline": "Analysis and notes written by the Cyberfuturists team."},
     "moves": {"heading": "Market moves", "colour": "var(--n-purple)",
               "thing": "market move",
               "subline": "Deals, funding, partnerships, leadership changes "
@@ -3672,8 +3670,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</section>")
         for key in V2_SECTIONS:
             items = buckets[key]
-            if key == "analysis" and lead_piece is not None and not items:
-                continue   # the lead is the analysis; no empty section under it
+            if key == "analysis" and not items:
+                continue   # nothing of ours to show: no empty section (user, 29 Aug)
             shown = items[:_V2_CAPS[key]] if key in _V2_CAPS else items
             count = len(items) + (len(parts["highlights"]) if key == "social" else 0)
             inner = section_inner(key, shown, total=sum(

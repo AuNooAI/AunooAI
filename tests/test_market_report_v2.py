@@ -227,7 +227,11 @@ def market(conn):
 def test_front_page_has_its_sections_and_links(conn, market):
     page = html.build_market_report_v2(conn, market, days=30).decode()
     for key in html.V2_SECTIONS:
+        if key == "analysis":
+            continue   # shown only when a piece of ours is approved
         assert f'id="v2-{key}"' in page
+    from app.services import market_briefing as mbr
+    assert ('id="v2-analysis"' in page) == bool(mbr.approved_pieces(conn, market["id"]))
     assert 'id="v2-lead"' in page and 'class="v2-grid"' in page
     assert "<h2>Highlights</h2>" in page and '<details class="v2-hl"><summary>' in page
     assert "Most active vendors" in page
