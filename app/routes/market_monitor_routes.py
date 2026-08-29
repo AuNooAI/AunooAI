@@ -1223,6 +1223,53 @@ async def market_feed(
                     headers={"Cache-Control": "public, max-age=900"})
 
 
+@router.get("/markets/{market_id}/feed.json")
+async def market_feed_json(
+    market_id: int,
+    request: Request,
+    kind: str = Query("all", pattern="^(all|articles|events)$"),
+    classes: Optional[str] = Query(None, description="Comma-separated: news, vendor, social, research."),
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    limit: int = Query(50, ge=1, le=200),
+    session=Depends(verify_session_optional),
+):
+    """The same feed as ``feed.xml``, as JSON Feed 1.1 for assistants and
+    scripts. Same access rule: a public market serves anonymously as the
+    shared view; a private one needs a session and answers 404 otherwise."""
+    from fastapi.responses import Response
+
+    base = (os.getenv("APP_URL") or "").rstrip("/")
+    if not base:
+        base = str(request.base_url).rstrip("/")
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if not market.get("is_public") and not session:
+                raise HTTPException(status_code=404, detail="Market not found")
+            picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
+            from app.services import market_entitlements as ent
+            entitlement = ent.resolve(
+                session=session, signed_link=False,
+                market_is_public=bool(market.get("is_public")))
+            allowed = ent.authorized_brand_ids(
+                conn, market_id, entitlement.vendor_limit)
+            ent.log_access(market_id=market_id, entitlement=entitlement,
+                           surface="feed.json")
+            return mp.build_feed_json(conn, market, base_url=base, kind=kind,
+                                      classes=picked or None, days=days,
+                                      limit=limit, allowed_brand_ids=allowed)
+        finally:
+            conn.close()
+
+    body = await asyncio.to_thread(_work)
+    return Response(content=body,
+                    media_type="application/feed+json; charset=utf-8",
+                    headers={"Cache-Control": "public, max-age=900",
+                             "Access-Control-Allow-Origin": "*"})
+
+
 # Report sharing reuses the signal-report token scheme rather than inventing
 # one: same secret, same HMAC, same expiry shape. A report link that expires is
 # better than a public flag that does not, which is why this does not simply

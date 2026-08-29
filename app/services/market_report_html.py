@@ -215,6 +215,7 @@ NEWS_CSS = """
                   border-radius:8px; padding:7px 12px; background:#fff; }
 .mm-news .n-rss svg { width:13px; height:13px; }
 .mm-news .n-rss:hover { color:var(--n-accent); border-color:var(--n-accent); }
+.mm-news .n-ai svg { color:var(--n-accent); }
 /* Headlines and River strip the page back without reordering it, so a reader
    scanning for one item is looking at the same list in the same order. */
 .mm-news[data-view="headlines"] .n-story-sum,
@@ -434,6 +435,11 @@ def _brand_mark(filename: str, alt: str, height: int = 26) -> str:
         return ""
     return (f'<img class="n-mark" src="{uri}" alt="{esc(alt)}" '
             f'height="{height}" loading="lazy">')
+
+
+#: The JSON Feed for assistants, beside the RSS link: same items, JSON Feed 1.1.
+_AI_FEED_LINK = ('<a class="n-rss n-ai" href="feed.json?days={days}" '
+                 'title="JSON feed for AI assistants (JSON Feed 1.1)">' + '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.7L19.5 9.5l-5.7 1.8L12 17l-1.8-5.7L4.5 9.5l5.7-1.8z"/><path d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/><path d="M5 15l.7 2 2 .7-2 .7L5 20.5l-.7-2-2-.7 2-.7z"/></svg>' + 'AI feed</a>')
 
 
 def _brand_line() -> str:
@@ -2709,7 +2715,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     rss = ""
     if market.get("is_public"):
         rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
-               'title="Subscribe in a feed reader">RSS</a>')
+               'title="Subscribe in a feed reader">RSS</a>' + _AI_FEED_LINK.format(days=days))
     body = [f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>", '<div class="mm-news">',
             '<div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
@@ -3823,7 +3829,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         + (' aria-current="page"' if k == section else "")
         + f'>{esc(v["heading"])}</a>' for k, v in V2_SECTIONS.items())
     rss = (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
-           if market.get("is_public") else "")
+           + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
     pages = ((f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
               if section else "")
              + f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
@@ -4258,7 +4264,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
                 f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
                 + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
-                   if market.get("is_public") else "")
+                   + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
                 + '</nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 

@@ -432,7 +432,7 @@ reactions; Anton Chuvakin's one post drew none, fell off the end, and the card s
 this period" beside a post it had. The card now reads the whole period's list (`limit=5000`,
 the query groups everything anyway and only the cut changes).
 
-### Fix — no empty Analysis section, and a plain subline
+### Fix — no empty Analysis section, and a plain subline (`c506e796`)
 
 The front page showed an Analysis section reading "Our own reading of the market: analysis and
 notes, each with who wrote it. Nothing published yet. Our analysis and notes appear here once
@@ -441,18 +441,18 @@ approved (`market_report_html.py`, the front-page loop); its subline reads "Anal
 written by the Cyberfuturists team." and the section page's empty line "No analysis published
 yet." The front-page test asserts the section is present exactly when a piece is approved.
 
-### Wording — the blurred block asks "Want more data?"
+### Wording — the blurred block asks "Want more data?" (`167c2d64`)
 
 Every blurred block's card read "{what} are blurred in this shared view. Request a trial". It
 now reads "Want more data?" with a "Get the full report" button to the contact form's trial
 option; the old sentence stays for screen readers only (`_apply_teasers`, `.sr-only`).
 
-### Layout — By the numbers last in the sidebar
+### Layout — By the numbers last in the sidebar (`167c2d64`)
 
 The sidebar order is now Market Maturity Map, Who moved, Who caused motion, Influence and
 Influencers, the weekly briefing card, then By the numbers at the bottom (user, 29 Aug).
 
-### Fix — one contact form with a dropdown instead of three forms
+### Fix — one contact form with a dropdown instead of three forms (`167c2d64`)
 
 The foot of the front page had stacked up three forms (Submit news, Is your company missing?,
 Get the full report) and read as clutter. `_contact_panel` (`market_report_html.py`) is one
@@ -464,7 +464,7 @@ so the Submit news button and the blurred blocks' links keep working. The Analys
 uses the same panel without the trial option (its own trial panel sits higher up). The old
 `_tip_panel`/`_missing_panel`/`_trial_panel` remain for the Analyst View's trial block.
 
-### Feature — About page: how it is made, AI disclosure, privacy, disclaimer, contact
+### Feature — About page: how it is made, AI disclosure, privacy, disclaimer, contact (`167c2d64`)
 
 `?view=v2&page=about` (`V2_PAGES`, `_v2_about_page` in `market_report_html.py`; route param
 `page`, 404 for anything else). Linked as "About · Privacy" in every front-page footer only
@@ -481,7 +481,7 @@ Ltd, company 14480528, registered office 7 High Street East, Glossop, Derbyshire
 the Privacy section names that company as the data controller. Test in
 `tests/test_market_report_v2.py`.
 
-### Restyle — the news pages follow saas.aunoo.ai
+### Restyle — the news pages follow saas.aunoo.ai (`167c2d64`)
 
 The front page, section pages, river and Analyst View used their own look: system type, a
 teal accent, slate greys, a navy ground. saas.aunoo.ai's live stylesheet is the Radix
@@ -497,7 +497,23 @@ map, no layout change. The bar's own market name is hidden on the front page (th
 carries it) because the Submit news button made it wrap. Before/after screenshots at
 1240 px in the session scratchpad; 32 tests pass.
 
-### Feature — Submit news
+### Feature — an AI feed (JSON Feed 1.1) beside the RSS feed
+
+`GET /markets/{id}/feed.json` (`market_publish.build_feed_json`) serves the same items as
+`feed.xml` — matched articles, timeline events, approved briefings, newest first, the
+withheld-vendor rule applied — as JSON Feed 1.1: `id`, `url`, `title`, `content_text`,
+`date_published`, `authors` (the publication), `tags` (kind, review kind, matched phrases)
+and an `_aunoo` extension with the kind, review kind, source and, at the top, the market id,
+the AI disclosure and the RSS URL. The two builders share `feed_items`, which `build_feed`
+was split into; the route mirrors `feed.xml` (anonymous for a public market as the shared
+view, 404 for a private one without a session, `Access-Control-Allow-Origin: *` so a browser
+assistant can read it). The button "AI feed" with a sparkle icon sits beside RSS on the front
+page, the river and the Analyst View (`_AI_FEED_LINK`). The aisocnews.com site proxies
+`/feed.json`. Tests: `tests/test_market_entitlements.py` — the JSON feed passes the
+withheld-name check and lists the same ids as the XML; the anonymous-routes guard now names
+three routes.
+
+### Feature — Submit news (`167c2d64`)
 
 A "Submit news" button in the front page's top bar (accent colour, beside RSS) jumps to a
 panel at the foot of the page: a link, what it is (optional), an email (optional). It posts to
@@ -510,7 +526,7 @@ above "Is your company missing?" on the front page and the Analyst View. The ais
 site file's form location now lets `news-tip` through (nginx reloaded). A tip is a record for
 the operator, not an article: nothing lands in the corpus until someone reads it.
 
-### Ops — nginx access log carries the host
+### Ops — nginx access log carries the host (recorded in `b1c017a5`; config outside git)
 
 The default `combined` format has no host field, so aisocnews.com and aisoc.aunoo.ai traffic
 could not be told apart. `/etc/nginx/nginx.conf` (not in git; backup
@@ -519,7 +535,7 @@ could not be told apart. `/etc/nginx/nginx.conf` (not in git; backup
 `awk` field positions in earlier queries still hold. Nothing else parses the log (no
 fail2ban, no cron). Reloaded, no downtime; verified with one tagged request.
 
-### Ops — a holding page on aisocnews.com during restarts
+### Ops — a holding page on aisocnews.com during restarts (recorded in `30f702ee`; config outside git)
 
 The bugfixing service restarted 41 times on 29 August (journal), each a 10–15 s hole, and three
 readers of aisocnews.com landed in one and got nginx's raw 502 (error.log: the user at 10:27,
@@ -597,6 +613,22 @@ else goes to `/`. Certificate issued with `certbot certonly --webroot -w /var/ww
   card fix the front page reads "Dr. Anton Chuvakin … Following · 41,746 followers · latest post ·
   1 post" (curl, days=30). Three restarts today for these changes, 9–11 s each, guard clear each time.
 
+- Public site round (`c506e796`, `167c2d64`, `30f702ee`, `b1c017a5`): `pytest tests/test_market_report_v2.py
+  -q` → 17 passed after each change (the Analysis section present exactly when a piece is approved;
+  the About page with the disclosure, privacy, disclaimer, imprint and a 404 for a bogus page name;
+  one contact form with the three options and the `#mm-tip` anchor; "Want more data?" on the blurred
+  tail). `tests/test_market_report_copy.py`: the same one pre-existing V1 failure. `alembic upgrade
+  head` → mm_021 → mm_022, `to_regclass('market_news_tips')` set. Submit news through aisocnews.com:
+  a real tip → 201 `{"ok":true,"id":1}`, row stored with IP and `notified = true` (mail sent), test
+  row deleted; a bad link → 422. About page through aisocnews.com → 200, `?page=bogus` → 404. The
+  restyle: 39 CSS lines recoloured, DM Sans link present on the live page, before/after screenshots
+  at 1240 px in the scratchpad. Sidebar order on the live page: Map, Who moved, Who caused motion,
+  Influence and Influencers, Weekly briefing, By the numbers. Holding page: a temporary
+  `return 502` location → 503 with the page body, `Retry-After: 8`, `Cache-Control: no-store`; the
+  test location removed. Log format: one tagged request logged with `aisocnews.com` at the end of
+  the line. Seven restarts for this round, 9–13 s each, guard clear each time; nginx reloaded four
+  times, no downtime.
+
 ### Propagation
 bugfixing only — the Market Monitor exists on no other tenant. Files: the two above,
 `tests/test_market_report_v2.py` (new), the nginx site (not in git); from `01fb89b8`
@@ -604,8 +636,13 @@ bugfixing only — the Market Monitor exists on no other tenant. Files: the two 
 `ui/src/components/newsfeed/MarketAnalystFeeds.tsx`, `docs/product/2026-08-29-latest-research.md`;
 from `0ed677b7` `tests/test_market_follow_judge.py`. DB state on bugfixing, not in git: `rss_feeds`
 41 (Forrester) and 42 (KuppingerCole) under topic "Market Monitoring SOC Automation"; one
-`x.com/i/status/…` duplicate row deleted. `docs/product/2026-08-29-followed-accounts-judge.md`
-written after both commits and not yet committed.
+`x.com/i/status/…` duplicate row deleted; `market_news_tips` created by mm_022 (head mm_022).
+From `167c2d64`: `alembic/versions/mm_022_news_tips.py`. Outside git, on this host only, and
+not reachable by any other tenant or a clone: `/etc/nginx/sites-available/aisocnews.com` (the
+`news-tip` route, the holding page rule), `/var/www/aisocnews/holding.html`, and the `vhost`
+log format in `/etc/nginx/nginx.conf` — these entries are their only record. Product writeups:
+`docs/product/2026-08-29-latest-research.md`, `…-followed-accounts-judge.md` (committed) and
+`…-front-page-public-site.md` (written after `b1c017a5`, not yet committed).
 
 ## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; a grid version of the same map beside the arc; labels no longer overlap; shorter titles on the shared market report; one shape for articles.submission_date
 

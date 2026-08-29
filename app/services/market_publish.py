@@ -248,24 +248,15 @@ def _parse_stamp(value) -> Optional[datetime]:
     return None
 
 
-def build_feed(conn, market: Dict[str, Any], *, base_url: str,
+def feed_items(conn, market: Dict[str, Any], *, base_url: str,
                limit: int = 50, kind: str = "all",
                classes: Optional[Sequence[str]] = None,
                days: Optional[int] = None,
-               allowed_brand_ids: Optional[List[int]] = None) -> bytes:
-    """The market as a subscribable feed: its articles and its events.
-
-    An aggregator, not a change log. Items are the articles that matched the
-    market's phrases — linked to the original publication, not to us — merged
-    with the timeline's events and sorted by date.
-
-    Each article item carries its kind as the first ``<category>``: news,
-    vendor, social or research. A reader who cannot tell a vendor's own blog
-    post from a trade-press story is being misled by the feed, and the
-    distinction costs one element.
-
-    Hand-rolled like the rest of this codebase's feed output — no third-party
-    dependency for eighty lines of XML.
+               allowed_brand_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+    """The items both feeds are built from: the matched articles, the
+    timeline's events and the approved briefings, newest first, cut to
+    ``limit``, and — for a shared subscriber — with every item that names a
+    withheld vendor dropped. See ``build_feed`` for the rules.
     """
     from app.services import market_corpus as mcorp
 
@@ -294,6 +285,7 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                     "permalink": True,
                     "description": row.get("summary") or row.get("title") or "",
                     "source": row.get("news_source"),
+                    "kind": row["article_class"], "review_kind": row.get("review_kind"),
                     # The review's kind ("launch", "partnership") is a better
                     # category than a phrase match for a post that was judged
                     # rather than matched.
@@ -323,7 +315,7 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                 "guid": f"market-event-{e['id']}",
                 "permalink": False,
                 "description": e["description"] or e["title"],
-                "source": None,
+                "source": None, "kind": "event", "review_kind": None,
                 "categories": ["event", e["event_type"], e["significance"]],
             })
 
@@ -347,7 +339,7 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                 "permalink": False,
                 "description": mbr.feed_summary(full.get("report_content") or "")
                                or b.get("title") or "",
-                "source": "Aunoo Market Monitor",
+                "source": "Aunoo Market Monitor", "kind": "briefing", "review_kind": None,
                 "categories": ["briefing", str(b.get("period_label") or "")],
             })
 
@@ -390,6 +382,32 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                                          or it["title"])
             items = [it for it in items if not _mentions(it)]
 
+    return items
+
+
+def build_feed(conn, market: Dict[str, Any], *, base_url: str,
+               limit: int = 50, kind: str = "all",
+               classes: Optional[Sequence[str]] = None,
+               days: Optional[int] = None,
+               allowed_brand_ids: Optional[List[int]] = None) -> bytes:
+    """The market as a subscribable feed: its articles and its events.
+
+    An aggregator, not a change log. Items are the articles that matched the
+    market's phrases — linked to the original publication, not to us — merged
+    with the timeline's events and sorted by date.
+
+    Each article item carries its kind as the first ``<category>``: news,
+    vendor, social or research. A reader who cannot tell a vendor's own blog
+    post from a trade-press story is being misled by the feed, and the
+    distinction costs one element.
+
+    Hand-rolled like the rest of this codebase's feed output — no third-party
+    dependency for eighty lines of XML.
+    """
+    items = feed_items(conn, market, base_url=base_url, limit=limit, kind=kind,
+                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids)
+    site = base_url.rstrip("/")
+    market_id = market["id"]
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         ('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" '
@@ -461,6 +479,56 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
 # ---------------------------------------------------------------------------
 # Brief
 # ---------------------------------------------------------------------------
+
+def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
+                    limit: int = 50, kind: str = "all",
+                    classes: Optional[Sequence[str]] = None,
+                    days: Optional[int] = None,
+                    allowed_brand_ids: Optional[List[int]] = None) -> bytes:
+    """The same items as the RSS feed, as JSON Feed 1.1
+    (https://jsonfeed.org/version/1.1) — for assistants and scripts, which
+    read JSON without a parser library. Each item carries the kind (news,
+    vendor, social, research, event, briefing), the review's kind when
+    there is one, and the matched phrases as ``tags``; the publication is
+    the ``authors`` name; ``_aunoo`` holds the same in named fields."""
+    items = feed_items(conn, market, base_url=base_url, limit=limit, kind=kind,
+                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids)
+    site = base_url.rstrip("/")
+    market_id = market["id"]
+    out_items = []
+    for it in items:
+        cats = [str(c) for c in it["categories"] if c]
+        entry: Dict[str, Any] = {
+            "id": it["guid"],
+            "url": it["link"],
+            "title": it["title"],
+            "content_text": it["description"],
+            "tags": cats,
+            "_aunoo": {"kind": it.get("kind"), "review_kind": it.get("review_kind"),
+                       "source": it["source"], "external": bool(it["permalink"])},
+        }
+        if it["source"]:
+            entry["authors"] = [{"name": it["source"]}]
+        if it["dated"]:
+            entry["date_published"] = it["stamp"].isoformat()
+        out_items.append(entry)
+    doc = {
+        "version": "https://jsonfeed.org/version/1.1",
+        "title": f"{market['name']} — Market Monitor",
+        "home_page_url": f"{site}/explore",
+        "feed_url": f"{site}/api/market-monitor/markets/{market_id}/feed.json",
+        "description": market.get("question") or market["name"],
+        "language": "en",
+        "authors": [{"name": "Cyberfuturists", "url": "https://cyberfuturists.com/"}],
+        "_aunoo": {"market_id": market_id, "kinds": ["news", "vendor", "social", "research",
+                                                     "event", "briefing"],
+                   "ai_disclosure": "Contains AI-generated content produced by AunooAI. "
+                                    "Verify against cited sources before external use.",
+                   "rss": f"{site}/api/market-monitor/markets/{market_id}/feed.xml"},
+        "items": out_items,
+    }
+    return json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8")
+
 
 def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any]:
     """The market brief: what changed, who moved, and what is still unknown.

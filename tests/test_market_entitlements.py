@@ -329,6 +329,34 @@ def test_mm20_the_feed_names_only_authorized_vendors(conn, market):
     assert len(full) >= len(xml)
 
 
+def test_mm20_the_json_feed_is_the_rss_feed_in_json(conn, market):
+    """feed.json for assistants: JSON Feed 1.1 with the same items and the
+    same withheld-vendor rule as feed.xml."""
+    import json
+
+    from app.services import market_publish as mp
+
+    row = conn.execute(text(
+        "SELECT * FROM bw_markets WHERE id = :m"), {'m': market}).mappings().first()
+    allowed = ent.authorized_brand_ids(conn, market, 10)
+    withheld = ent.withheld_names(conn, market, allowed)
+    raw = mp.build_feed_json(conn, dict(row), base_url='https://example.test',
+                             limit=50, allowed_brand_ids=allowed).decode()
+    ent.assert_no_withheld(raw, withheld, context='feed.json')
+    doc = json.loads(raw)
+    assert doc['version'] == 'https://jsonfeed.org/version/1.1'
+    assert doc['feed_url'].endswith(f'/markets/{market}/feed.json')
+    assert doc['_aunoo']['ai_disclosure'].startswith('Contains AI-generated content')
+    for it in doc['items']:
+        assert it['id'] and it['url'] and it['title'] and 'content_text' in it
+        assert it['_aunoo']['kind'] in ('news', 'vendor', 'social', 'research', 'event', 'briefing')
+    xml = mp.build_feed(conn, dict(row), base_url='https://example.test',
+                        limit=50, allowed_brand_ids=allowed).decode()
+    import re as _re
+    guids = _re.findall(r'<guid[^>]*>(.*?)</guid>', xml)
+    assert [it['id'] for it in doc['items']] == [g.replace('&amp;', '&') for g in guids]
+
+
 def test_the_two_anonymous_routes_are_the_only_ones(conn):
     """A new anonymous route must not silently skip the gate.
 
@@ -348,7 +376,8 @@ def test_the_two_anonymous_routes_are_the_only_ones(conn):
         if 'verify_session_optional' not in ast.dump(node):
             continue
         anonymous.append(node.name)
-    assert sorted(anonymous) == ['market_feed', 'market_report'], (
+    # feed.json (29 Aug 2026) is the RSS feed's twin and carries the same gate.
+    assert sorted(anonymous) == ['market_feed', 'market_feed_json', 'market_report'], (
         f'anonymous market routes changed: {sorted(anonymous)} — each one needs '
         'an entitlement gate before it ships')
 
